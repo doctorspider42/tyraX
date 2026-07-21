@@ -1,0 +1,1 @@
+{ "id": "c1846bc0aa13b0a1", "name": "cone-8", "type": "cone", "position": [-30, -2.5455, 2], "rotation": [0, 0, 0], "scale": [1.7, 2.625, 1.7], "color": [0.2288, 0.42, 0.16], "physics": false, "collision": "none", "layer": "forest", "detail": 10, "drawDistance": 84 }

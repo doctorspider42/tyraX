@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
+#include <set>
 #include <sstream>
 #include <utility>
 
@@ -16,13 +17,37 @@
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include "decalproj.hpp"
+#include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "menubake.hpp"
+#include "navmesh.hpp"
 #include "project.hpp"
+#include "stochtile.hpp"
 
 namespace templates {
 
+// The texture-table key for a terrain texture: the baked supertile path when
+// stochastic tiling is on (docs/terrain-painting.md), else the source as-is.
+// Used identically by collectTexturePaths and the per-scene texture indices so
+// they resolve to the same slot.
+static std::string terrainTexKey(const std::string& srcRel, bool stochastic) {
+    if (srcRel.empty()) return srcRel;
+    return stochastic ? stochtile::bakedBinPath(srcRel) : srcRel;
+}
+
+// Stochastic tiling multiplies the supertile's world span by `factor`, so the
+// runtime repeats-per-unit is divided by it to keep the source at its size.
+static float terrainStochFactor(const Project& p, const std::string& srcRel,
+                                 bool stochastic) {
+    if (srcRel.empty() || !stochastic) return 1.0f;
+    return (float)stochtile::factorFor(
+        (std::filesystem::path(p.dir) / srcRel).string());
+}
+
 static std::vector<std::string> collectMenuEvents(const Project& p);
+static bool anyNavAiNode(const Project& p);
+static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
+                                        const std::string& prefix);
 
 // Unique (modelPath, material override) pairs referenced by static .obj
 // model objects, in first-use order. A material override changes what gets
@@ -135,9 +160,19 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
             if (e == t) return;
         paths.push_back(t);
     };
-    for (const SceneData& sc : p.scenes)
-        add(project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
-                .texture);
+    for (const SceneData& sc : p.scenes) {
+        const std::string baseTex =
+            project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
+                .texture;
+        add(terrainTexKey(baseTex, sc.terrainBaseStochastic));
+        // Painted terrain layers (docs/terrain-painting.md): each layer's
+        // material texture ships too - the game blends them over the base at
+        // runtime (two-pass vertex-alpha splatting), full tiled resolution.
+        // A stochastic layer/base ships its baked supertile instead.
+        for (const TerrainLayer& l : sc.terrainLayers)
+            add(terrainTexKey(project::resolveTerrainMaterial(p, l.material).texture,
+                              l.stochastic));
+    }
     return paths;
 }
 
@@ -234,6 +269,7 @@ services:
 static const char* TPL_MAIN_CPP = R"(#include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <graph.h>  // graph_get_region - the PAL-picture promotion below
 #include "terrain_game.hpp"
 
 int main(int argc, char** argv) {
@@ -273,9 +309,22 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
-  // cables on a real console and always run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p,
+  // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
+  // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
+  // PAL picture (Preferences > Build > PAL picture): with the
+  // region-following interlaced mode, a PAL console (or a forced-PAL
+  // target system) boots the full-height 512-line 576i frame instead of
+  // the letterboxed NTSC-size picture. Resolved here, before engine init,
+  // so the whole boot (logo, loading screen) already runs in it; the menu
+  // "DEFAULT" display option maps back to whatever this resolves to.
+  if ({{PAL_FULL_HEIGHT}} &&
+      options.displayMode == Tyra::DisplayMode::Interlaced &&
+      (options.videoMode == Tyra::VideoMode::PAL ||
+       (options.videoMode == Tyra::VideoMode::Auto &&
+        graph_get_region() == GRAPH_MODE_PAL)))
+    options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
   Tyra::Engine engine(options);
@@ -330,6 +379,15 @@ constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 
+// Two players (Preferences > Multiplayer, docs/multiplayer.md). The mode
+// while player 2 is active: 0 = off (single player only), 1 = shared screen
+// (one camera frames both avatars), 2 = split screen (P1 top / P2 bottom).
+// Player 2 exists in scenes with a second Player object (PLAYER2_INDEXES in
+// scene_data.hpp); joins with Start on pad 2 (when enabled) or a menu
+// "Player count" option block, both mid-game.
+constexpr int MULTIPLAYER_MODE = {{MULTIPLAYER_MODE}};
+constexpr bool P2_JOIN_ON_START = {{P2_JOIN_ON_START}};
+
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 
@@ -346,6 +404,15 @@ constexpr float ANIM_LOD_DISTANCE = {{ANIM_LOD_DISTANCE}};
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = {{MESH_LOD_DISTANCE}};
+
+// Static batching (Preferences > Rendering): merge non-moving primitive
+// objects sharing a material into combined world-space bags at scene load -
+// each StaPip submit costs ~0.7-1.5 ms of fixed EE overhead on real
+// hardware regardless of size, so many small separate objects dominate the
+// frame (twice over in split screen). Eligibility is decided at build time
+// (SceneObjectData::batchStatic); runtime edits to a batched member rebuild
+// its batch. false = every object submits its own bag.
+constexpr bool STATIC_BATCHING = {{STATIC_BATCHING}};
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
@@ -387,7 +454,11 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
-  void updateTerrainChunks(float focusX, float focusZ, int budget);
+  // Streams the chunk ring around one or two view foci (two-player modes:
+  // P2's avatar is the second focus) - a chunk near EITHER focus stays
+  // resident, so the split halves stop evicting each other's terrain.
+  void updateTerrainChunks(float focusX, float focusZ, float focus2X,
+                           float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updateCameraOrbit();
@@ -409,7 +480,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
+    // Painted terrain layers: one extra alpha-blended pass over the base per
+    // layer with any weight in this chunk. Shares the chunk's vertices; own
+    // tiled STs + shade colors whose alpha carries the painted weight.
+    struct LayerPass {
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      Tyra::StaPipTextureBag texBag;
+      int layer = -1;
+    };
+    std::vector<LayerPass> layerPasses;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    // Height extent of this chunk's cells, filled at build - the portal
+    // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
+    float minY = 0.0F, maxY = 0.0F;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -417,6 +504,9 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
+  // Same render settings as infoBag but with GS blending on - shared by every
+  // chunk's layer passes (the base pass must stay opaque).
+  std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -444,6 +534,15 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -594,6 +693,37 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
+  // Static batching (STATIC_BATCHING, Preferences > Rendering): authored
+  // objects flagged batchStatic at build time merge into combined
+  // world-space bags at scene load, grouped by material + a coarse world
+  // cell - one StaPip submit per batch instead of per object (the fixed
+  // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
+  // small primitives). Members keep their runtimeObjects entry (collision,
+  // raycasts and scripts read data as always) but skip the per-object draw
+  // path. Runtime mutation of a member (Live Link edits, Raycast-driven
+  // actions, global scripts - all set dirty) DEMOTES it to the solo path
+  // and rebuilds the batch once without it; a visibility/residency flip
+  // (caught by the shown snapshot - hide/show can skip the dirty flag)
+  // only rebuilds the batch in place.
+  struct StaticBatch {
+    int material = -1;                 // group key (-1 = plain color)
+    std::vector<int> members;          // authored object indices
+    std::vector<unsigned char> shown;  // per member: baked as visible?
+    std::vector<Tyra::Vec4> vertices;  // world-space baked, like terrain
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    bool dirty = true;
+  };
+  std::vector<StaticBatch> staticBatches;
+  std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
+  std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  void buildStaticBatchList();
+  void rebuildStaticBatch(StaticBatch& b);
+  void renderStaticBatches();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -604,7 +734,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -613,6 +749,17 @@ class TerrainGame : public Tyra::Game {
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
   void updateObjectPhysics();
+  // Physics bodies in a walking player's path get shoved along the attempted
+  // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
+  // a blocked step still transfers its push into the crate.
+  void pushPhysicsBodies(float prevX, float prevZ, float nextX, float nextZ,
+                         float feetY, float eyeHeight);
+  // Physics helpers: world-space AABB half-extents + center offset (models
+  // use their mesh AABB, like collidePlayer) and the "solid enough to
+  // block/bump a body" filter.
+  static void physExtents(const SceneObjectData& d, const GameModel* gm,
+                          const Tyra::SkelModel* anim, float* cOff, float* ext);
+  static bool physObstacle(const SceneObjectData& d);
   void renderScene();
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
@@ -621,7 +768,94 @@ class TerrainGame : public Tyra::Game {
   void renderMirrors();
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Portal objects (type 16): a linked pair of surfaces. renderPortalView
+  // renders the through-view of the best on-screen portal into the engine's
+  // portal render target (the player camera mapped through the pair, so the
+  // second camera stays in lockstep with the player's); renderPortals blends
+  // every portal's tinted quad after the scene and projects the live view
+  // onto the winner's surface; updatePortals teleports the player / physics
+  // objects that cross a linked surface, carrying position, view angle and
+  // vertical velocity through the same mapping - the view and the arrival
+  // line up exactly, so stepping through is seamless. Up to four portal
+  // views render per frame (nearest qualify, carved farthest-first);
+  // portalLiveFlags marks the PORTALS entries whose opening is live.
+  void renderPortalView();
+  bool renderOnePortalView(int pi);
+  void renderPortals();
+  bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
+  bool updatePortals(float prevX, float prevY, float prevZ, float* px,
+                     float* py, float* pz, float* pyaw, float* ppitch,
+                     float* pvelY, float eyeH);
+  // True when the walker's body column at (x, z) sits inside a linked
+  // FLOOR portal's rectangle near its plane - the walkers suppress the
+  // terrain ground clamp there, so a portal lying on the ground swallows
+  // them (the clamp would otherwise rest the feet on the terrain before
+  // the crossing plane is ever reached).
+  bool portalSwallowsPlayer(float x, float feetY, float z);
+  bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
+                         float y, float z);
+  // Swept variant for physics bodies: a faller at PHYS_MAX_SPEED (3 u/frame)
+  // can step clean over the 2-unit approach zone in one frame - the endpoint
+  // test misses, the terrain clamp kills the fall and the infinite-fall loop
+  // visibly hangs on the ground before it re-swallows. Tests both frame
+  // endpoints plus the segment's plane-crossing point.
+  bool portalSwallowSwept(const RuntimeObject& m, float hx, float hy,
+                          const Tyra::Vec4& a, const Tyra::Vec4& b);
+  // Portal pass-through for the walkers: when the body column sits inside
+  // a linked portal's opening near its plane, updatePortalPass publishes
+  // that portal's plane and collidePlayer stops colliding with objects
+  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
+  // opens up like a doorway while everything else keeps blocking.
+  void updatePortalPass(float x, float feetY, float z);
+  float portalPassPlane[4] = {0, 0, 0, 0};
+  bool portalPassOn = false;
+  // Thrown objects fly through portals too. portalCarryAim finds the
+  // linked portal whose opening the motion segment a->b pierces (front
+  // face, authored rectangle + slack); -1 = none. forObj gates it through
+  // portalCanCross for that object; forObj == -1 is unconditional (the
+  // player-released flight). portalCanCross is the owner's rule: whatever
+  // a portal SHOWS can also go through it - teleportObjects, viewAll, a
+  // view-list member, or the player-released body all qualify.
+  // portalCarryCrossing maps position + full velocity through that pair
+  // (the same isometry updatePortals applies). While a flight segment
+  // aims into an opening, sweepPass* excludes obstacles fully behind that
+  // portal's plane from sweepSphere, and the physics pass applies the
+  // same exclusion to its static-solid resolution - the mounting wall
+  // must not stop a body's center r short of the crossing plane (callers
+  // pad the segment end by the body's extent for exactly that reason).
+  bool portalCanCross(const PortalData& p, int oi);
+  // True when portal pi's through-view actually DRAWS object oi (viewAll, or
+  // oi is on its explicit view list) - a carried object may only be mapped
+  // through a portal that will render it on the far side.
+  bool portalShowsObject(int pi, int oi);
+  // Map a world point through portal pi's pair (source local -> flip about
+  // local Y -> target world), the same isometry as the teleport/camera.
+  void portalMapPoint(int pi, float& x, float& y, float& z);
+  int portalCarryAim(const float* a, const float* b, int forObj);
+  bool portalCarryCrossing(const float* a, float* pos, float* vel);
+  // Arms sweepPass* when segment a->b pierces a linked opening (pad the
+  // end by the swept body's extent). Pair with sweepPassOn = false after
+  // the sweep.
+  bool armSweepPass(const float* a, const float* b);
+  float sweepPassPlane[4] = {0, 0, 0, 0};
+  bool sweepPassOn = false;
+  // The last player-released rigid body (throw OR drop): portal-free -
+  // crosses any linked portal, flag or not - until it settles to sleep.
+  // -1 = none. The non-physics thrown arc (thrownIndex) is always free.
+  int thrownFreeIndex = -1;
+  std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
+  std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Per object: frames until it may hop again (set on every hop). Damps
+  // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
+  // touching legit loops - the example's fall re-crosses every ~13 frames.
+  std::vector<unsigned char> portalHopCool;
+  // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
+  // around the destination render so renderTerrain can drop chunks in the
+  // dead zone between the virtual camera and the target portal's plane.
+  float portalExitPlane[4] = {0, 0, 0, 0};
+  bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -641,24 +875,77 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
-  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
-  // camera when present. Returns false when the scene has no player.
+  // Player entities (PLAYER_INDEXES / PLAYER2_INDEXES in scene_data.hpp);
+  // override the template camera when present. players[0] is the scene's
+  // first Player object (P1), players[1] the second (P2 - only meaningful
+  // with MULTIPLAYER_MODE != 0, see docs/multiplayer.md).
+  struct PlayerCtl {
+    int objIndex = -1;  // scene object index, -1 = this player doesn't exist
+    float x = 0, y = 0, z = 0, velY = 0, yaw = 0, pitch = 0;
+    // Third-person only: yaw/pitch orbit the camera, faceYaw is the avatar's
+    // own facing (turns toward the walk direction). Clip indices are resolved
+    // from the model's clip table at scene load; -1 = unmapped.
+    float faceYaw = 0;
+    int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
+    float boom = 0;
+    // This player's own view; the dispatcher (or the split-screen render
+    // pass) picks which of these drives the frame camera.
+    Tyra::Vec4 camPos, camLook;
+  };
+  PlayerCtl players[2];
+  // Dispatcher: walks P1 (and P2 while active), then composes the frame
+  // camera. Returns false when the scene has no player.
   bool updatePlayerEntity();
-  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
-  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
-  // avatar's own facing (turns toward the walk direction). Clip indices are
-  // resolved from the model's clip table at scene load; -1 = unmapped.
-  float entFaceYaw = 0;
-  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Walks one player from its pad and writes its camera into camPos/camLook.
+  void updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad);
+  // Shared-screen camera: orbits (P1's right stick) around the midpoint of
+  // both players, boom stretched by their separation. Writes cameraPosition.
+  void updateSharedCamera();
+  float sharedBoom = 0;
+  // Player 2 join/leave, both mid-game: Start on pad 2 (P2_JOIN_ON_START) or
+  // a menu Toggle bound to "Player count". Shows/hides the P2 avatar.
+  void setPlayerTwoActive(bool active);
+  void syncPlayerCountMenuValue();
+  bool playerTwoActive = false;
+  Tyra::Pad pad2;              // connector 2; optional, hot-join friendly
+  int menuPlayerCountPrev = -2;  // edge detect for the menu bind
+  // True while renderScene runs inside a split-screen half: the dynamic
+  // env-map bracket restores a FULL-screen raster on end(), which would
+  // break the active half, so the env pass pauses during split rendering
+  // (the VRAM target keeps its last content).
+  bool splitPassActive = false;
+  // True during the SECOND split half's renderScene: animation playback and
+  // skinning already ran this frame (first half), so the animated pass
+  // must not advance time again (2x playback speed) nor re-skin the same
+  // pose (PC-grade avatars cost real EE ms) - it re-submits the
+  // frame's skinned buffers under the second camera instead.
+  bool splitSecondPass = false;
+  // Split-band culling: the split raster shows only the CENTRAL half of the
+  // full-height projection, but the frustum planes the engine classifies
+  // against stay full-height - so each half would transform ~2x the geometry
+  // it can show. Two extra planes bound the visible vertical band; chunks and
+  // static objects entirely outside skip submission before the engine ever
+  // sees them. Recomputed per half from the live camera + projection FOV.
+  void computeSplitBand();
+  bool outsideSplitBand(const float mn[3], const float mx[3]) const;
+  bool objectOutsideSplitBand(int i) const;
+  bool splitBandActive = false;
+  float splitBandN[2][3];  // inward top/bottom plane normals (apex = camera)
+  float splitBandP[3];     // the apex
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
+                       bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // the camera would enter geometry or the terrain.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
-  float camBoom = 0;
+  // The general sweep behind springArm: first blocked distance along d for a
+  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
+  // (the swept object itself). Also carries/throws pickable objects.
+  float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
+                    float maxDist, float radius, int skipIndex) const;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -676,20 +963,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -703,11 +995,44 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
+  // Pickable objects: at most one carried + one in flight. The carried object
+  // rides a fixed reach in front of the camera, swept against the world
+  // (sweepSphere) so it cannot be pushed through or parked behind geometry.
+  void updateCarriedObject();
+  // Hands a dropped/thrown object back to the physics sim (waking it), or
+  // returns false when it has no rigid body to hand off to.
+  bool releaseCarried(RuntimeObject& o, float vx, float vy, float vz);
+  float objectHalfExtent(const RuntimeObject& o) const;
+  // Blocks the walker from pressing against geometry the carried object no
+  // longer fits in front of (the spring arm's sweep, pushing the walker back
+  // instead of pulling the camera in).
+  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
+                         float feetY, float eyeHeight);
+  int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
+  bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
+                              // blocks, eases back out (the boom's policy)
+  int thrownIndex = -1;       // launched object still in flight, -1 = none
+  float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
+  Tyra::Sprite pickPromptSprite;  // "PICK UP" variant, same placement
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
   // point object or the Open Save Menu flow node; gameplay pauses while
@@ -743,14 +1068,23 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -791,7 +1125,11 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
-  void updateTerrainChunks(float focusX, float focusZ, int budget);
+  // Streams the chunk ring around one or two view foci (two-player modes:
+  // P2's avatar is the second focus) - a chunk near EITHER focus stays
+  // resident, so the split halves stop evicting each other's terrain.
+  void updateTerrainChunks(float focusX, float focusZ, float focus2X,
+                           float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updatePlayer();
@@ -814,7 +1152,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
+    // Painted terrain layers: one extra alpha-blended pass over the base per
+    // layer with any weight in this chunk. Shares the chunk's vertices; own
+    // tiled STs + shade colors whose alpha carries the painted weight.
+    struct LayerPass {
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      Tyra::StaPipTextureBag texBag;
+      int layer = -1;
+    };
+    std::vector<LayerPass> layerPasses;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    // Height extent of this chunk's cells, filled at build - the portal
+    // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
+    float minY = 0.0F, maxY = 0.0F;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -822,6 +1176,9 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
+  // Same render settings as infoBag but with GS blending on - shared by every
+  // chunk's layer passes (the base pass must stay opaque).
+  std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -849,6 +1206,15 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -999,6 +1365,37 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
+  // Static batching (STATIC_BATCHING, Preferences > Rendering): authored
+  // objects flagged batchStatic at build time merge into combined
+  // world-space bags at scene load, grouped by material + a coarse world
+  // cell - one StaPip submit per batch instead of per object (the fixed
+  // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
+  // small primitives). Members keep their runtimeObjects entry (collision,
+  // raycasts and scripts read data as always) but skip the per-object draw
+  // path. Runtime mutation of a member (Live Link edits, Raycast-driven
+  // actions, global scripts - all set dirty) DEMOTES it to the solo path
+  // and rebuilds the batch once without it; a visibility/residency flip
+  // (caught by the shown snapshot - hide/show can skip the dirty flag)
+  // only rebuilds the batch in place.
+  struct StaticBatch {
+    int material = -1;                 // group key (-1 = plain color)
+    std::vector<int> members;          // authored object indices
+    std::vector<unsigned char> shown;  // per member: baked as visible?
+    std::vector<Tyra::Vec4> vertices;  // world-space baked, like terrain
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    bool dirty = true;
+  };
+  std::vector<StaticBatch> staticBatches;
+  std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
+  std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  void buildStaticBatchList();
+  void rebuildStaticBatch(StaticBatch& b);
+  void renderStaticBatches();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -1009,7 +1406,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -1018,6 +1421,17 @@ class TerrainGame : public Tyra::Game {
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
   void updateObjectPhysics();
+  // Physics bodies in a walking player's path get shoved along the attempted
+  // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
+  // a blocked step still transfers its push into the crate.
+  void pushPhysicsBodies(float prevX, float prevZ, float nextX, float nextZ,
+                         float feetY, float eyeHeight);
+  // Physics helpers: world-space AABB half-extents + center offset (models
+  // use their mesh AABB, like collidePlayer) and the "solid enough to
+  // block/bump a body" filter.
+  static void physExtents(const SceneObjectData& d, const GameModel* gm,
+                          const Tyra::SkelModel* anim, float* cOff, float* ext);
+  static bool physObstacle(const SceneObjectData& d);
   void renderScene();
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
@@ -1026,7 +1440,94 @@ class TerrainGame : public Tyra::Game {
   void renderMirrors();
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Portal objects (type 16): a linked pair of surfaces. renderPortalView
+  // renders the through-view of the best on-screen portal into the engine's
+  // portal render target (the player camera mapped through the pair, so the
+  // second camera stays in lockstep with the player's); renderPortals blends
+  // every portal's tinted quad after the scene and projects the live view
+  // onto the winner's surface; updatePortals teleports the player / physics
+  // objects that cross a linked surface, carrying position, view angle and
+  // vertical velocity through the same mapping - the view and the arrival
+  // line up exactly, so stepping through is seamless. Up to four portal
+  // views render per frame (nearest qualify, carved farthest-first);
+  // portalLiveFlags marks the PORTALS entries whose opening is live.
+  void renderPortalView();
+  bool renderOnePortalView(int pi);
+  void renderPortals();
+  bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
+  bool updatePortals(float prevX, float prevY, float prevZ, float* px,
+                     float* py, float* pz, float* pyaw, float* ppitch,
+                     float* pvelY, float eyeH);
+  // True when the walker's body column at (x, z) sits inside a linked
+  // FLOOR portal's rectangle near its plane - the walkers suppress the
+  // terrain ground clamp there, so a portal lying on the ground swallows
+  // them (the clamp would otherwise rest the feet on the terrain before
+  // the crossing plane is ever reached).
+  bool portalSwallowsPlayer(float x, float feetY, float z);
+  bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
+                         float y, float z);
+  // Swept variant for physics bodies: a faller at PHYS_MAX_SPEED (3 u/frame)
+  // can step clean over the 2-unit approach zone in one frame - the endpoint
+  // test misses, the terrain clamp kills the fall and the infinite-fall loop
+  // visibly hangs on the ground before it re-swallows. Tests both frame
+  // endpoints plus the segment's plane-crossing point.
+  bool portalSwallowSwept(const RuntimeObject& m, float hx, float hy,
+                          const Tyra::Vec4& a, const Tyra::Vec4& b);
+  // Portal pass-through for the walkers: when the body column sits inside
+  // a linked portal's opening near its plane, updatePortalPass publishes
+  // that portal's plane and collidePlayer stops colliding with objects
+  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
+  // opens up like a doorway while everything else keeps blocking.
+  void updatePortalPass(float x, float feetY, float z);
+  float portalPassPlane[4] = {0, 0, 0, 0};
+  bool portalPassOn = false;
+  // Thrown objects fly through portals too. portalCarryAim finds the
+  // linked portal whose opening the motion segment a->b pierces (front
+  // face, authored rectangle + slack); -1 = none. forObj gates it through
+  // portalCanCross for that object; forObj == -1 is unconditional (the
+  // player-released flight). portalCanCross is the owner's rule: whatever
+  // a portal SHOWS can also go through it - teleportObjects, viewAll, a
+  // view-list member, or the player-released body all qualify.
+  // portalCarryCrossing maps position + full velocity through that pair
+  // (the same isometry updatePortals applies). While a flight segment
+  // aims into an opening, sweepPass* excludes obstacles fully behind that
+  // portal's plane from sweepSphere, and the physics pass applies the
+  // same exclusion to its static-solid resolution - the mounting wall
+  // must not stop a body's center r short of the crossing plane (callers
+  // pad the segment end by the body's extent for exactly that reason).
+  bool portalCanCross(const PortalData& p, int oi);
+  // True when portal pi's through-view actually DRAWS object oi (viewAll, or
+  // oi is on its explicit view list) - a carried object may only be mapped
+  // through a portal that will render it on the far side.
+  bool portalShowsObject(int pi, int oi);
+  // Map a world point through portal pi's pair (source local -> flip about
+  // local Y -> target world), the same isometry as the teleport/camera.
+  void portalMapPoint(int pi, float& x, float& y, float& z);
+  int portalCarryAim(const float* a, const float* b, int forObj);
+  bool portalCarryCrossing(const float* a, float* pos, float* vel);
+  // Arms sweepPass* when segment a->b pierces a linked opening (pad the
+  // end by the swept body's extent). Pair with sweepPassOn = false after
+  // the sweep.
+  bool armSweepPass(const float* a, const float* b);
+  float sweepPassPlane[4] = {0, 0, 0, 0};
+  bool sweepPassOn = false;
+  // The last player-released rigid body (throw OR drop): portal-free -
+  // crosses any linked portal, flag or not - until it settles to sleep.
+  // -1 = none. The non-physics thrown arc (thrownIndex) is always free.
+  int thrownFreeIndex = -1;
+  std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
+  std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Per object: frames until it may hop again (set on every hop). Damps
+  // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
+  // touching legit loops - the example's fall re-crosses every ~13 frames.
+  std::vector<unsigned char> portalHopCool;
+  // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
+  // around the destination render so renderTerrain can drop chunks in the
+  // dead zone between the virtual camera and the target portal's plane.
+  float portalExitPlane[4] = {0, 0, 0, 0};
+  bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -1046,24 +1547,77 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
-  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
-  // camera when present. Returns false when the scene has no player.
+  // Player entities (PLAYER_INDEXES / PLAYER2_INDEXES in scene_data.hpp);
+  // override the template camera when present. players[0] is the scene's
+  // first Player object (P1), players[1] the second (P2 - only meaningful
+  // with MULTIPLAYER_MODE != 0, see docs/multiplayer.md).
+  struct PlayerCtl {
+    int objIndex = -1;  // scene object index, -1 = this player doesn't exist
+    float x = 0, y = 0, z = 0, velY = 0, yaw = 0, pitch = 0;
+    // Third-person only: yaw/pitch orbit the camera, faceYaw is the avatar's
+    // own facing (turns toward the walk direction). Clip indices are resolved
+    // from the model's clip table at scene load; -1 = unmapped.
+    float faceYaw = 0;
+    int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
+    float boom = 0;
+    // This player's own view; the dispatcher (or the split-screen render
+    // pass) picks which of these drives the frame camera.
+    Tyra::Vec4 camPos, camLook;
+  };
+  PlayerCtl players[2];
+  // Dispatcher: walks P1 (and P2 while active), then composes the frame
+  // camera. Returns false when the scene has no player.
   bool updatePlayerEntity();
-  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
-  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
-  // avatar's own facing (turns toward the walk direction). Clip indices are
-  // resolved from the model's clip table at scene load; -1 = unmapped.
-  float entFaceYaw = 0;
-  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Walks one player from its pad and writes its camera into camPos/camLook.
+  void updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad);
+  // Shared-screen camera: orbits (P1's right stick) around the midpoint of
+  // both players, boom stretched by their separation. Writes cameraPosition.
+  void updateSharedCamera();
+  float sharedBoom = 0;
+  // Player 2 join/leave, both mid-game: Start on pad 2 (P2_JOIN_ON_START) or
+  // a menu Toggle bound to "Player count". Shows/hides the P2 avatar.
+  void setPlayerTwoActive(bool active);
+  void syncPlayerCountMenuValue();
+  bool playerTwoActive = false;
+  Tyra::Pad pad2;              // connector 2; optional, hot-join friendly
+  int menuPlayerCountPrev = -2;  // edge detect for the menu bind
+  // True while renderScene runs inside a split-screen half: the dynamic
+  // env-map bracket restores a FULL-screen raster on end(), which would
+  // break the active half, so the env pass pauses during split rendering
+  // (the VRAM target keeps its last content).
+  bool splitPassActive = false;
+  // True during the SECOND split half's renderScene: animation playback and
+  // skinning already ran this frame (first half), so the animated pass
+  // must not advance time again (2x playback speed) nor re-skin the same
+  // pose (PC-grade avatars cost real EE ms) - it re-submits the
+  // frame's skinned buffers under the second camera instead.
+  bool splitSecondPass = false;
+  // Split-band culling: the split raster shows only the CENTRAL half of the
+  // full-height projection, but the frustum planes the engine classifies
+  // against stay full-height - so each half would transform ~2x the geometry
+  // it can show. Two extra planes bound the visible vertical band; chunks and
+  // static objects entirely outside skip submission before the engine ever
+  // sees them. Recomputed per half from the live camera + projection FOV.
+  void computeSplitBand();
+  bool outsideSplitBand(const float mn[3], const float mx[3]) const;
+  bool objectOutsideSplitBand(int i) const;
+  bool splitBandActive = false;
+  float splitBandN[2][3];  // inward top/bottom plane normals (apex = camera)
+  float splitBandP[3];     // the apex
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
+                       bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // the camera would enter geometry or the terrain.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
-  float camBoom = 0;
+  // The general sweep behind springArm: first blocked distance along d for a
+  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
+  // (the swept object itself). Also carries/throws pickable objects.
+  float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
+                    float maxDist, float radius, int skipIndex) const;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -1081,20 +1635,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -1108,11 +1667,44 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
+  // Pickable objects: at most one carried + one in flight. The carried object
+  // rides a fixed reach in front of the camera, swept against the world
+  // (sweepSphere) so it cannot be pushed through or parked behind geometry.
+  void updateCarriedObject();
+  // Hands a dropped/thrown object back to the physics sim (waking it), or
+  // returns false when it has no rigid body to hand off to.
+  bool releaseCarried(RuntimeObject& o, float vx, float vy, float vz);
+  float objectHalfExtent(const RuntimeObject& o) const;
+  // Blocks the walker from pressing against geometry the carried object no
+  // longer fits in front of (the spring arm's sweep, pushing the walker back
+  // instead of pulling the camera in).
+  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
+                         float feetY, float eyeHeight);
+  int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
+  bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
+                              // blocks, eases back out (the boom's policy)
+  int thrownIndex = -1;       // launched object still in flight, -1 = none
+  float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
+  Tyra::Sprite pickPromptSprite;  // "PICK UP" variant, same placement
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
   // point object or the Open Save Menu flow node; gameplay pauses while
@@ -1148,14 +1740,23 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1176,9 +1777,24 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_game.hpp"
 #include "terrain_config.hpp"
 #include "controls.hpp"
+// Fallbacks for user-owned controls.hpp files written before these knobs
+// existed - the game must still build when that header never regenerates.
+#ifndef BTN_THROW
+#define BTN_THROW Circle
+#endif
+#ifndef PICK_CARRY_DIST
+#define PICK_CARRY_DIST 2.2F
+#endif
+#ifndef PICK_THROW_SPEED
+#define PICK_THROW_SPEED 14.0F
+#endif
+#ifndef PICK_MIN_DIST
+#define PICK_MIN_DIST 0.3F
+#endif
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
 #include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
@@ -1243,12 +1859,23 @@ int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
 float g_stickExpR = 2.0F;
 
+// Pad vibration auto-stop: > 0 counts down (real seconds, g_frameDt) to a
+// setActuators(false, 0), armed by a Vibrate Pad request with Seconds > 0.
+// Global runtime state - a running countdown survives a scene switch.
+float g_rumbleTimer = 0.0F;
+
 // Last option index a "Display mode" / "Widescreen" menu block applied. Video
 // switches rebuild VRAM + arm the confirm prompt, so they fire only on change
 // (seeded from the saved option in buildScene so a persisted choice does not
 // re-trigger a switch at boot).
 int g_menuDispOpt = -1;
 int g_menuWideOpt = -1;
+
+// The project-default display mode: whatever main.cpp resolved the boot
+// mode to (fixed preference, or region + the PAL-picture choice). Captured
+// in buildScene before any runtime switch can happen; a display row's
+// "DEFAULT" option (optModes -1) maps to it.
+int g_defaultDispMode = 0;
 
 // Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
 // below the deadzone, rescales from the deadzone edge so there is no step,
@@ -1298,6 +1925,23 @@ using namespace Tyra;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+// Display-mode option rows (bind 5): the engine mode an option drives, and
+// the option a mode shows as. Rows without an explicit optModes table keep
+// the positional mapping (option index == Tyra::DisplayMode); a table entry
+// of -1 is the "DEFAULT" option - the project-default boot mode.
+int displayOptionMode(const MenuEntryData& en, int idx) {
+  if (en.optModes && idx >= 0 && idx < en.optionCount) {
+    const int m = en.optModes[idx];
+    return m < 0 ? g_defaultDispMode : m;
+  }
+  return idx;
+}
+int displayOptionIndexOf(const MenuEntryData& en, int mode) {
+  for (int i = 0; i < en.optionCount; ++i)
+    if (displayOptionMode(en, i) == mode) return i;
+  return -1;
+}
 
 /** The texture repository asserts (crashes) on a missing file - probe first
  * so a missing PNG degrades to an untextured draw with a warning. */
@@ -1443,6 +2087,10 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+// Physics fast path: push LOCAL-space positions (scale baked, rotation and
+// translation left to ObjectGeometry::objMat). Shading still bakes from the
+// full wake pose, so the switch itself never pops a color.
+bool g_bakeLocal = false;
 
 // Reflective materials: while non-null, pushVert also captures the rotated
 // (world-space) normal of every emitted vertex - the per-frame sphere-map ST
@@ -1493,6 +2141,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   const float* kd = kdArg ? kdArg : g_primKd;
   const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+  const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
@@ -1503,7 +2152,8 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (shade.y > 1.0F) shade.y = 1.0F;
   if (shade.z > 1.0F) shade.z = 1.0F;
   if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
-  verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
+  verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
+                              : Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0). Kd may
   // exceed 1 (material brightness) - cap at the GS's 255 so untextured
   // colors cannot wrap.
@@ -1700,6 +2350,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 }
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
 
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
@@ -2067,6 +2789,11 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
+  // Two-player modes: open pad 2 (connector 2). Optional - no controller
+  // there never blocks or asserts; it keeps polling so player 2 can plug in
+  // and join mid-game (Start, see the loop).
+  if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
+
   cameraLookAt = Vec4(0.0F, 0.0F, 0.0F);
   updateCameraOrbit();
 
@@ -2102,6 +2829,14 @@ void TerrainGame::init() {
   auto* useTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
+  // "PICK UP" variant, shown instead when the looked-at object is pickable.
+  // Same placement; its own texture (hud/pickup.png, replace to customize).
+  pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
+  pickPromptSprite.size = usePromptSprite.size;
+  pickPromptSprite.position = usePromptSprite.position;
+  auto* pickTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(PICK_PROMPT_PATH));
+  pickTexture->addLink(pickPromptSprite.id);
 
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
@@ -2114,6 +2849,8 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+  // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
+  if (MULTIPLAYER_MODE != 0) pad2.update();
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -2133,7 +2870,7 @@ void TerrainGame::loop() {
       bootPhase = 1;
       if (LOADING_SCREEN) {
         loadingTarget = 0;
-        loadingFrames = everyFrames(0.7F);
+        loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
     if (bootPhase == 1) {
@@ -2142,10 +2879,10 @@ void TerrainGame::loop() {
         bootPhase = 2;
       } else {
         if (loadingFrames > 0) {
-          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          const bool preLoad = loadingFrames > loadingTotal - 5;
           loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
-          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          if (loadingFrames == loadingTotal - 5) bootFirstScene();
           return;
         }
         bootPhase = 2;
@@ -2168,12 +2905,27 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Portal crossing test: the walker's position before this frame's movement
+  const float portalPrevX = players[0].x, portalPrevY = players[0].y,
+              portalPrevZ = players[0].z;
+
+  // Player 2 hot-join: Start on pad 2, any time gameplay owns the pads.
+  // Leaving goes through a menu "Player count" Toggle (setPlayerTwoActive).
+  if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
+      !playerTwoActive && pad2.getClicked().Start)
+    setPlayerTwoActive(true);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.player2Active =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  scriptCtx.player2Position =
+      scriptCtx.player2Active
+          ? Vec4(players[1].x, players[1].y + PP_EYE_HEIGHT(1), players[1].z)
+          : scriptCtx.playerPosition;
   {
     // View direction for the scripts (Raycast flow node)
     Vec4 look = cameraLookAt - cameraPosition;
@@ -2199,7 +2951,7 @@ void TerrainGame::loop() {
     scriptCtx.requestScene = -1;
     if (LOADING_SCREEN) {
       loadingTarget = target;
-      loadingFrames = everyFrames(0.7F);  // ~0.7s hold
+      loadingFrames = loadingTotal = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
     }
@@ -2207,10 +2959,10 @@ void TerrainGame::loop() {
   if (loadingFrames > 0) {
     // A few frames at 0% before the (blocking) load, which pumps the bar from
     // 0 to 1 itself, then the remaining frames at 100%.
-    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    const bool preLoad = loadingFrames > loadingTotal - 5;
     loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
-    if (loadingFrames == everyFrames(0.7F) - 5)
+    if (loadingFrames == loadingTotal - 5)
       loadScene(loadingTarget);  // 5 frames shown first
     return;
   }
@@ -2220,19 +2972,41 @@ void TerrainGame::loop() {
   updateLayerStreaming();
 
   // Flow graph / script teleport request (needs a Player entity - the orbit
-  // camera itself is not teleportable)
+  // camera itself is not teleportable). Teleports P1; an active P2 comes
+  // along, dropped a step to the side so the two don't interpenetrate.
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
-      entX = scriptCtx.teleportPos.x;
-      entY = scriptCtx.teleportPos.y;
-      entZ = scriptCtx.teleportPos.z;
-      entVelY = 0.0F;
-      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
+      players[0].x = scriptCtx.teleportPos.x;
+      players[0].y = scriptCtx.teleportPos.y;
+      players[0].z = scriptCtx.teleportPos.z;
+      players[0].velY = 0.0F;
+      players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
+      if (playerTwoActive && players[1].objIndex >= 0) {
+        players[1].x = players[0].x + 1.2F;
+        players[1].z = players[0].z;
+        players[1].y = PP_MODE(1) == 1 ? players[0].y
+                                       : terrainHeightAt(players[1].x, players[1].z);
+        players[1].velY = 0.0F;
+        players[1].yaw = players[0].yaw;
+      }
     }
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Portal surfaces: carry the player / physics objects that crossed a
+  // linked portal through to its target. After the physics step so object
+  // crossings see this frame's motion; on a player hop the camera is
+  // rebuilt inside, so no frame renders from the departure side.
+  if (PORTAL_COUNT > 0 && !menuActive)
+    updatePortals(portalPrevX, portalPrevY, portalPrevZ,
+                  PLAYER_INDEX >= 0 ? &players[0].x : nullptr, &players[0].y,
+                  &players[0].z, &players[0].yaw, &players[0].pitch,
+                  &players[0].velY,
+                  PLAYER_MODE == 1 ? 0.0F : PLAYER_EYE_HEIGHT);
+  // Positioned AFTER the portal step so a teleport frame anchors the carried
+  // object to the arrival camera (see the FPP loop note).
+  if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
 
@@ -2291,6 +3065,24 @@ void TerrainGame::loop() {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
   }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
+  }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
   // sequence player (a global Script) has posed the camera for this frame.
@@ -2302,6 +3094,9 @@ void TerrainGame::loop() {
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
     runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
+    runtimeObjects[players[1].objIndex].visible =
+        !scriptCtx.hidePlayer && playerTwoActive;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -2323,7 +3118,37 @@ void TerrainGame::loop() {
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    renderScene();
+    // Split screen (two players): the scene renders twice, top half from
+    // P1's camera and bottom half from P2's (players[1].camPos, written by
+    // its walker). A cutscene camera override takes the whole screen. HUD /
+    // menus / post fx stay full-screen, drawn after splitView.end().
+    const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
+                            players[1].objIndex >= 0 &&
+                            !scriptCtx.cameraOverride;
+    if (splitFrame) {
+      auto& core = engine->renderer.core;
+      splitPassActive = true;
+      core.splitView.begin(0);
+      renderScene();
+      // Swap the whole camera state to P2: renderScene reads cameraPosition
+      // (sky dome centering, LOD, streaming focus), and the renderer needs
+      // the second half's view matrix + frustum planes.
+      const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
+      cameraPosition = players[1].camPos;
+      cameraLookAt = players[1].camLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.splitView.begin(1);
+      splitSecondPass = true;  // reuse this frame's anim poses/skins
+      renderScene();
+      splitSecondPass = false;
+      core.splitView.end();
+      cameraPosition = savedPos;
+      cameraLookAt = savedLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      splitPassActive = false;
+    } else {
+      renderScene();
+    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -2345,8 +3170,12 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0)
+      engine->renderer.renderer2D.render(
+          runtimeObjects[useTargetIndex].data.pickable ? pickPromptSprite
+                                                       : usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -2394,6 +3223,16 @@ void TerrainGame::buildScene() {
   // window and smears giant polygons (faithful on real HW / SW renderer).
   infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   infoBag->fullClipChecks = CLIP_PRECISE;
+  // Terrain layer passes: identical settings, but with GS alpha blending on
+  // (PRIM ABE) - the per-mesh ALPHA qword defaults to standard alpha-over, so
+  // Gouraud vertex alpha = the painted splat weight blends the layer texture
+  // over the base pass.
+  layerInfoBag = std::make_unique<StaPipInfoBag>();
+  layerInfoBag->model = &model;
+  layerInfoBag->shadingType = TyraShadingFlat;
+  layerInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+  layerInfoBag->fullClipChecks = CLIP_PRECISE;
+  layerInfoBag->blendingEnabled = true;
   // The terrain mesh itself is built per chunk by loadScene(0) below
   // (resetTerrainChunks + the synchronous chunk drain).
 
@@ -2412,16 +3251,32 @@ void TerrainGame::buildScene() {
   // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
   g_deadzoneL = ANALOG_DEADZONE_L;
   g_deadzoneR = ANALOG_DEADZONE_R;
+  // The boot display mode IS the project default (main.cpp resolved it,
+  // nothing can have switched it yet) - latch it for the menu "DEFAULT"
+  // display option before any option lookup below resolves that sentinel.
+  g_defaultDispMode = (int)engine->renderer.core.getSettings().getDisplayMode();
   // Seed the display/widescreen option-block trackers from the current saved
   // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
   // prompt) at boot: the game boots in the project's compiled display mode,
   // and a menu row only switches when the player moves it (or loads a save
-  // that changed it).
+  // that changed it). With an "apply video mode" row in the project the
+  // display row is a staging UI instead - align it to the actual boot mode
+  // so a title-screen menu opens showing (and its APPLY row seeing) reality.
   for (int mi = 0; mi < MENU_COUNT; ++mi)
     for (int e = 0; e < MENUS[mi].entryCount; ++e) {
       const MenuEntryData& en = MENUS[mi].entries[e];
       if (en.param < 0 || en.param >= SAVE_VALUE_COUNT) continue;
-      if (en.bind == 5) g_menuDispOpt = (int)saveValues[en.param];
+      if (en.bind == 5) {
+        g_menuDispOpt = (int)saveValues[en.param];
+        if (MENU_HAS_APPLY_VIDEO) {
+          const int live = displayOptionIndexOf(
+              en, (int)engine->renderer.core.getSettings().getDisplayMode());
+          if (live >= 0) {
+            saveValues[en.param] = (float)live;
+            g_menuDispOpt = live;
+          }
+        }
+      }
       if (en.bind == 6) g_menuWideOpt = (int)saveValues[en.param];
     }
   saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
@@ -2518,6 +3373,22 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -2800,6 +3671,11 @@ void TerrainGame::applyLayerResidency() {
   }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
+  // Painted terrain layers keep their tiled textures resident with the scene.
+  for (int l = 0; l < TERRAIN_LAYER_COUNT; ++l) {
+    const int t = TERRAIN_LAYER_TEXTURES[g_activeScene][l];
+    if (t >= 0 && t < (int)texNeed.size()) texNeed[t] = 1;
+  }
 
   for (int i = 0; i < (int)modelNeed.size(); ++i)
     if (!modelNeed[i] && modelLoaded[i]) freeModelAsset(i);
@@ -2936,16 +3812,24 @@ void TerrainGame::updateLayerStreaming() {
   // scripts can still override a zone until the next crossing. The unload
   // edge sits a hysteresis band beyond the radius - pacing along the border
   // doesn't thrash. Focus = cameraLookAt (the player in FPP, the terrain
-  // center for orbit showcases).
+  // center for orbit showcases) - and player 2's avatar while active, so a
+  // zone loads when EITHER player enters and unloads only when both leave.
   if ((int)layerAutoInside.size() == lc) {
     const float px = cameraLookAt.x;
     const float pz = cameraLookAt.z;
+    const bool p2 = playerTwoActive && players[1].objIndex >= 0;
     for (int l = 0; l < lc; ++l) {
       const float r = SCENE_LAYER_STREAM_R[l];
       if (r <= 0.0F) continue;
       const float dx = px - SCENE_LAYER_STREAM_X[l];
       const float dz = pz - SCENE_LAYER_STREAM_Z[l];
-      const float d2 = dx * dx + dz * dz;
+      float d2 = dx * dx + dz * dz;
+      if (p2) {
+        const float dx2 = players[1].x - SCENE_LAYER_STREAM_X[l];
+        const float dz2 = players[1].z - SCENE_LAYER_STREAM_Z[l];
+        const float e2 = dx2 * dx2 + dz2 * dz2;
+        if (e2 < d2) d2 = e2;
+      }
       const float rOut = r * 1.15F + 8.0F;
       if (!layerAutoInside[l] && d2 < r * r) {
         layerAutoInside[l] = 1;
@@ -3201,19 +4085,23 @@ void TerrainGame::updateAndRenderAnimObjects() {
 
     if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
       o.animClip = 0;
-    if (o.animRestart) {
-      o.animRestart = false;
-      o.animFinished = false;
-      // animFade > 0 crossfades from the pose currently showing
-      inst->play((u32)o.animClip, o.animLoop, o.animFade);
-      o.animFade = 0.0F;  // consumed by this restart
+    // Playback bookkeeping runs once per FRAME, not once per render pass -
+    // the split screen's second half re-renders the same instant.
+    if (!splitSecondPass) {
+      if (o.animRestart) {
+        o.animRestart = false;
+        o.animFinished = false;
+        // animFade > 0 crossfades from the pose currently showing
+        inst->play((u32)o.animClip, o.animLoop, o.animFade);
+        o.animFade = 0.0F;  // consumed by this restart
+      }
+      inst->setLoop(o.animLoop);
+      // time always advances by wall-clock seconds (speed scales the step),
+      // visible or not - animFinished stays honest for offscreen instances
+      const float step =
+          (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
+      o.animFinished = inst->advance(step);
     }
-    inst->setLoop(o.animLoop);
-    // time always advances by wall-clock seconds (speed scales the step),
-    // visible or not - animFinished stays honest for offscreen instances
-    const float step =
-        (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
-    o.animFinished = inst->advance(step);
 
     // draw-distance cut-off (same rule as the static path in renderScene);
     // the distance doubles as the LOD tier and the draw-order key below
@@ -3225,11 +4113,28 @@ void TerrainGame::updateAndRenderAnimObjects() {
         dist2 > o.data.drawDistance * o.data.drawDistance)
       continue;
 
-    // model matrix straight from the object data: T * R(X,Y,Z) * S, the
-    // same transform the static path bakes through pushVert()/rotated()
-    const V3 bx = rotated({o.data.scale[0], 0.0F, 0.0F}, o.data.rotation);
-    const V3 by = rotated({0.0F, o.data.scale[1], 0.0F}, o.data.rotation);
-    const V3 bz = rotated({0.0F, 0.0F, o.data.scale[2]}, o.data.rotation);
+    // model matrix straight from the object data: T * R(X,Y,Z) * Ryaw * S -
+    // the same transform the static path bakes through pushVert()/rotated(),
+    // plus the content-forward correction (modelYaw) as a pre-rotation
+    // around the model's own Y, so an X-forward-authored mesh renders
+    // turned while the LOGIC yaw (walker faceYaw, AI turn-to-face, authored
+    // rotation) stays convention-pure.
+    V3 sx = {o.data.scale[0], 0.0F, 0.0F};
+    V3 sy = {0.0F, o.data.scale[1], 0.0F};
+    V3 sz = {0.0F, 0.0F, o.data.scale[2]};
+    if (o.data.modelYaw != 0.0F) {
+      const float ya = o.data.modelYaw * (PI / 180.0F);
+      const float yc = cosf(ya), ys = sinf(ya);
+      auto preYaw = [&](const V3& v) {
+        return V3{v.x * yc + v.z * ys, v.y, -v.x * ys + v.z * yc};
+      };
+      sx = preYaw(sx);
+      sy = preYaw(sy);
+      sz = preYaw(sz);
+    }
+    const V3 bx = rotated(sx, o.data.rotation);
+    const V3 by = rotated(sy, o.data.rotation);
+    const V3 bz = rotated(sz, o.data.rotation);
     M4x4& m = g.animMat;  // the info bag and light matrix point here
     m.identity();
     m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
@@ -3252,7 +4157,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
             [](const VisibleAnim& a, const VisibleAnim& b) {
               return a.dist2 < b.dist2;
             });
-  ++animLodTick;
+  if (!splitSecondPass) ++animLodTick;  // frame counter, not pass counter
 
   // pass 2, nearest first: group equal poses per mesh-LOD tier, gate far
   // skins, submit
@@ -3271,10 +4176,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
     SkelInstance* inst = g.animInst.get();
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
-    // clamps per part - a file without chains always renders the full mesh)
+    // clamps per part - a file without chains always renders the full mesh).
+    // Per-object override first: -1 = project preference, 0 = never LOD,
+    // > 0 = this object's own distance (each Player object - P1 and P2 of a
+    // two-player scene - carries its own).
+    const float meshLodDist =
+        o.data.meshLod < 0.0F ? MESH_LOD_DISTANCE : o.data.meshLod;
     u8 meshLod = 0;
-    if (MESH_LOD_DISTANCE > 0.0F) {
-      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+    if (meshLodDist > 0.0F) {
+      const float m2 = meshLodDist * meshLodDist;
       meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
     }
 
@@ -3292,11 +4202,16 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // animation LOD: a far mesh owner refreshes its pose every 2nd frame
     // (every 4th beyond twice the distance), staggered by object index. An
     // instance that just (re)entered the view skins immediately - its held
-    // pose could be arbitrarily stale.
-    bool allowSkin = true;
-    if (ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+    // pose could be arbitrarily stale. The split screen's second half never
+    // re-skins (same instant, already skinned) - unless this half's camera
+    // distance lands the instance in a different mesh-LOD tier, which the
+    // tier-switch check below still forces into that tier's buffers.
+    bool allowSkin = !splitSecondPass;
+    const float animLodDist =
+        o.data.animLod < 0.0F ? ANIM_LOD_DISTANCE : o.data.animLod;
+    if (allowSkin && animLodDist > 0.0F && meshOwner == i &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
-      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)
         allowSkin = ((animLodTick + (u32)i) & 3) == 0;
       else if (va.dist2 > lod2)
@@ -3351,13 +4266,41 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
                                 float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
-  for (const RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    // The carried object rides in front of the face - letting it block its
+    // own carrier would wedge the player against thin air.
+    if (oi == carryIndex) continue;
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
         o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
+    // Portal pass-through (updatePortalPass): while the walker stands in a
+    // linked portal's opening, objects fully behind that portal's plane
+    // stop colliding - the mounting wall becomes a doorway. Exact OBB
+    // extent along the plane normal, same math as the view dead zone.
+    if (portalPassOn) {
+      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const float r =
+          fabsf(portalPassPlane[0] * pax.x + portalPassPlane[1] * pax.y +
+                portalPassPlane[2] * pax.z) *
+              0.5F * o.data.scale[0] +
+          fabsf(portalPassPlane[0] * pay.x + portalPassPlane[1] * pay.y +
+                portalPassPlane[2] * pay.z) *
+              0.5F * o.data.scale[1] +
+          fabsf(portalPassPlane[0] * paz.x + portalPassPlane[1] * paz.y +
+                portalPassPlane[2] * paz.z) *
+              0.5F * o.data.scale[2];
+      const float sd = portalPassPlane[0] * o.data.position[0] +
+                       portalPassPlane[1] * o.data.position[1] +
+                       portalPassPlane[2] * o.data.position[2] -
+                       portalPassPlane[3];
+      if (sd < -r + 0.1F) continue;
+    }
 
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -3510,6 +4453,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  carryIndex = thrownIndex = -1;  // carried objects stay in their old scene
+  carryPortalPi = -1;
+  thrownFreeIndex = -1;           // and so does the portal-free latch
+  portalLiveFlags.clear(); // stale through-views must not survive the switch
+  portalPrevPos.clear();   // crossing history restarts with the new objects
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
@@ -3659,6 +4607,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
     if (runtimeObjects[i].active) setupAnimObject(i);
 
+  // Static batching: group the batchStatic-flagged objects (material x
+  // coarse world cell). The always-resident assets - materials included -
+  // streamed in above, so the reflective-material opt-out can decide here;
+  // the batches themselves bake lazily on the first renderScene.
+  buildStaticBatchList();
+
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.scene = currentScene;
@@ -3669,38 +4623,51 @@ void TerrainGame::loadScene(int sceneIndex) {
   scriptCtx.usedObject = -1;
   useTargetIndex = -1;
 
-  // Player entity start state for this scene
-  if (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT) {
-    entX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
-    entZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
-    entY = PLAYER_MODE == 1 ? SCENE_OBJECTS[PLAYER_INDEX].position[1]
-                            : terrainHeightAt(entX, entZ);
-    entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
-    entVelY = 0.0F;
-    entPitch = 0.0F;
+  // Player entity start state for this scene. players[0] = the first Player
+  // object (P1), players[1] = the second (P2 of the two-player modes; -1
+  // when the scene has only one). Player 2 stays active across scene
+  // switches as long as the new scene can host it.
+  if (playerTwoActive && PLAYER2_INDEX < 0) {
+    playerTwoActive = false;
+    syncPlayerCountMenuValue();
+  }
+  sharedBoom = 0.0F;
+  for (int pi = 0; pi < 2; ++pi) {
+    PlayerCtl& P = players[pi];
+    P.objIndex = PP_INDEX(pi) < SCENE_OBJECT_COUNT ? PP_INDEX(pi) : -1;
+    if (P.objIndex < 0) continue;
+    P.x = SCENE_OBJECTS[P.objIndex].position[0];
+    P.z = SCENE_OBJECTS[P.objIndex].position[2];
+    P.y = PP_MODE(pi) == 1 ? SCENE_OBJECTS[P.objIndex].position[1]
+                           : terrainHeightAt(P.x, P.z);
+    P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
+    P.velY = 0.0F;
+    P.pitch = 0.0F;
     // Third person: the avatar starts facing its authored yaw and its
     // locomotion clip names resolve to the model's clip indices. The Player
     // object is a rendered avatar only in this mode - in FPP/noclip its model
     // (if any) is never built, so its runtime object stays invisible here.
-    entFaceYaw = entYaw;
-    camBoom = PLAYER_CAM_DIST;  // start fully extended, not easing out from 0
-    runtimeObjects[PLAYER_INDEX].visible = (PLAYER_MODE == 2);
-    if (PLAYER_MODE == 2) {
+    // The P2 avatar shows only while player 2 is actually in the game.
+    P.faceYaw = P.yaw;
+    P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
+    runtimeObjects[P.objIndex].visible =
+        PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
-      playerIdleClip = resolveClipIndex(PLAYER_INDEX, PLAYER_IDLE_CLIP);
-      playerWalkClip = resolveClipIndex(PLAYER_INDEX, PLAYER_WALK_CLIP);
-      playerRunClip =
-          PLAYER_RUN_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_RUN_CLIP) : -1;
-      playerJumpClip =
-          PLAYER_JUMP_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_JUMP_CLIP) : -1;
+      P.idleClip = resolveClipIndex(P.objIndex, PP_IDLE_CLIP(pi));
+      P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
+      P.runClip =
+          PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.jumpClip =
+          PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
       // pose from frame one. Without this, setupAnimObject's default (clip 0)
       // would look like a scripted one-shot when idle isn't clip 0, and a
       // looping clip 0 would wedge locomotion off (animFinished never fires).
-      if (playerIdleClip >= 0 && objectGeometry[PLAYER_INDEX].animInst) {
-        RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-        body.animClip = playerIdleClip;
+      if (P.idleClip >= 0 && objectGeometry[P.objIndex].animInst) {
+        RuntimeObject& body = runtimeObjects[P.objIndex];
+        body.animClip = P.idleClip;
         body.animLoop = true;
         body.animPlaying = true;
         body.animRestart = true;
@@ -3728,11 +4695,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   // bar can advance between them (breaking if the pool momentarily can't make
   // progress, which the view-rect-sized pool should never hit at load time).
   if (!LOADING_SCREEN) {
-    updateTerrainChunks(lsFocusX, lsFocusZ, 0x7FFFFFFF);
+    updateTerrainChunks(lsFocusX, lsFocusZ, 0.0F, 0.0F, false, 0x7FFFFFFF);
   } else {
     int pending = countPendingChunks(lsFocusX, lsFocusZ);
     while (pending > 0) {
-      updateTerrainChunks(lsFocusX, lsFocusZ, lsStep);
+      updateTerrainChunks(lsFocusX, lsFocusZ, 0.0F, 0.0F, false, lsStep);
       const int now = countPendingChunks(lsFocusX, lsFocusZ);
       if (now >= pending) break;  // no forward progress (pool cap) - bail out
       lsPump(pending - now);
@@ -3822,9 +4789,13 @@ void TerrainGame::updateSoundEmitters() {
 
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
-// no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex; an emitter with a material carrying a map_Kd draws
-// its quads with that texture (the color then modulates it).
+// no trig and no allocations in the per-frame path. The EE simulates and
+// writes one center + one qword of 2x2 basis weights + one color per
+// particle; the VU1 billboard program (engine StaPipBillboardBag) expands
+// each center into a camera-facing quad in clip space, so the quad
+// building cost never touches the EE. An emitter with a material carrying
+// a map_Kd draws its quads with that texture (the color then modulates
+// it; corner UVs are fixed on VU1).
 // The editor viewport mirrors this simulation (viewport.cpp,
 // simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
@@ -3847,39 +4818,38 @@ void TerrainGame::buildParticles() {
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
     ps.maxLife.assign(n, 1.0F);
-    ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.params.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.cols.assign(n, Color(0.0F, 0.0F, 0.0F, 0.0F));
     ps.infoBag = std::make_unique<StaPipInfoBag>();
     ps.infoBag->model = &model;
     ps.infoBag->shadingType = TyraShadingGouraud;
-    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    ps.infoBag->fullClipChecks = true;
+    // VU1 billboard bags cull per quad on VU1 - no EE frustum/clip work.
+    // None is safe for billboard bags only: the VU1 program ADCs any quad
+    // whose corner leaves the GS raster window (ordinary bags must never
+    // use None - see the engine skill's wrap pitfall).
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
+    ps.colorBag->many = ps.cols.data();
+    ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
-    ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
+    ps.bag->billboard = ps.billboardBag.get();
+    ps.bag->vertices = ps.pos.data();
     ps.bag->count = 0;
-    // Textured particles: the emitter's material supplies the map (its Kd is
-    // ignored - the emitter color is the tint). UVs are fixed per quad in the
-    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    // The texture bag is mandatory for billboard bags - its coordinates
+    // channel carries the per-particle basis weights. Textured particles:
+    // the emitter's material supplies the map (its Kd is ignored - the
+    // emitter color is the tint); corner UVs are fixed in the VU1 program.
+    ps.texBag = std::make_unique<StaPipTextureBag>();
+    ps.texBag->texture = nullptr;
+    ps.texBag->coordinates = ps.params.data();
     const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
-    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
-      ps.sts.reserve((size_t)n * 6);
-      for (int q = 0; q < n; ++q) {
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
-      }
-      ps.texBag = std::make_unique<StaPipTextureBag>();
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
-      ps.texBag->coordinates = ps.sts.data();
-      ps.bag->texture = ps.texBag.get();
-    }
+    ps.bag->texture = ps.texBag.get();
     particles.push_back(std::move(ps));
   }
 }
@@ -3891,7 +4861,7 @@ void TerrainGame::updateParticles() {
   if (g_gameplayPaused) return;
   const float dt = g_frameDt;
 
-  // camera right/up shared by every billboard this frame
+  // camera right/up shared by every billboard basis this frame
   Vec4 fwd = cameraLookAt - cameraPosition;
   const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
   if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
@@ -3912,6 +4882,14 @@ void TerrainGame::updateParticles() {
     const SceneObjectData& d = o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
+    // from world-up (vertical quads); everything else faces the camera
+    // plane. A portal pass re-renders these bags with the VIRTUAL camera's
+    // basis swapped in - the centers below are view-independent.
+    ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+    ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                    : Vec4(ux, uy, uz, 0.0F);
 
     // Follow player: the emitter position becomes an offset from the camera
     // (place it at X=0/Z=0 and the height above the player's head) - rain
@@ -4033,47 +5011,28 @@ void TerrainGame::updateParticles() {
         alpha = 110.0F * t;
       }
 
-      // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard. Fog puffs additionally swirl: the
-      // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the swirling fog roll) - keep in sync with the viewport
-      // preview (drawEmitterPreviews).
-      float brx = rx, bry = 0.0F, brz = rz;
-      float bux = ux, buy = uy, buz = uz;
+      // The quad itself is built on VU1: corner = center +/- (right*m00 +
+      // up*m01) +/- (right*m10 + up*m11). Rain streaks hang from world-up
+      // (the emitter basis above) with an independent half-height; fog
+      // puffs additionally swirl - the billboard slowly rotates in the
+      // camera plane, alternating direction per puff (the swirling fog
+      // roll) - keep in sync with the viewport preview
+      // (drawEmitterPreviews).
+      float m00 = size, m01 = 0.0F, m10 = 0.0F, m11 = size;
       if (kind == 2) {
         const float age = ps.maxLife[i] - ps.life[i];
         const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
         const float ca = cosf(ang), sa = sinf(ang);
-        brx = rx * ca + ux * sa;
-        bry = uy * sa;
-        brz = rz * ca + uz * sa;
-        bux = ux * ca - rx * sa;
-        buy = uy * ca;
-        buz = uz * ca - rz * sa;
+        m00 = ca * size;
+        m01 = sa * size;
+        m10 = -sa * size;
+        m11 = ca * size;
       }
-      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
-      const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
-      const int b = i * 6;
-      ps.verts[b] = v0;
-      ps.verts[b + 1] = v1;
-      ps.verts[b + 2] = v2;
-      ps.verts[b + 3] = v0;
-      ps.verts[b + 4] = v2;
-      ps.verts[b + 5] = v3;
-      const Color c(cr, cg, cb, alpha);
-      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+      if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      ps.params[i] = Vec4(m00, m01, m10, m11);
+      ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.colorBag->many = ps.cols.data();
-    ps.bag->vertices = ps.verts.data();
-    ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
+    ps.bag->count = (u32)n;
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -4082,6 +5041,9 @@ void TerrainGame::updateParticles() {
 void TerrainGame::updateUseTarget() {
   useTargetIndex = -1;
   scriptCtx.usedObject = -1;
+  // Hands full: BTN_USE means "drop" (updateCarriedObject), so no use
+  // targeting - and no prompt - while carrying.
+  if (carryIndex >= 0) return;
 
   Vec4 dir = cameraLookAt - cameraPosition;
   const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -4091,7 +5053,7 @@ void TerrainGame::updateUseTarget() {
   float bestDist = 0.0F;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
-    if (!o.active || !o.data.usable || !o.visible) continue;
+    if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
         o.data.type == 14)
@@ -4116,14 +5078,415 @@ void TerrainGame::updateUseTarget() {
     }
   }
 
-  if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE)
-    scriptCtx.usedObject = useTargetIndex;
+  if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE) {
+    // A pickable object can also be usable: it fires On Used AND gets picked
+    // up on the same press (a grab sound wired in the graph, for instance).
+    if (runtimeObjects[useTargetIndex].data.usable)
+      scriptCtx.usedObject = useTargetIndex;
+    if (runtimeObjects[useTargetIndex].data.pickable) {
+      carryIndex = useTargetIndex;
+      carryGrabbed = true;  // don't read this same press as "drop"
+      if (thrownIndex == carryIndex) thrownIndex = -1;  // caught mid-flight
+      RuntimeObject& g = runtimeObjects[carryIndex];
+      // Catching a body kills its momentum and its tumble (a crate caught
+      // mid-flight must not keep spinning in your hands).
+      g.velocityX = g.velocityY = g.velocityZ = 0.0F;
+      g.spin[0] = g.spin[1] = g.spin[2] = 0.0F;
+      // Seed the smoothed reach with the object's current distance: a close
+      // grab reels out to full reach, a far one snaps in (the sweep rule).
+      const float gx = g.data.position[0] - cameraPosition.x;
+      const float gy = g.data.position[1] - cameraPosition.y;
+      const float gz = g.data.position[2] - cameraPosition.z;
+      carryDist = sqrtf(gx * gx + gy * gy + gz * gz);
+    }
+  }
 
   // Using a save point (type 10) opens the save menu next frame; the
   // "On Used" trigger still fires for its flow graph this frame.
   if (scriptCtx.usedObject >= 0 &&
       SCENE_OBJECTS[scriptCtx.usedObject].type == 10)
     scriptCtx.openSaveMenu = true;
+}
+
+// Largest half extent of an object's collision box (mesh/anim AABB when the
+// object has one, else the unit scale box) - the sweep radius that keeps the
+// whole object clear of walls while carried or in flight.
+float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
+  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+        ez = 0.5F * o.data.scale[2];
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const SkelModel* anim = nullptr;
+  if (o.data.type == 5 && o.data.animModel >= 0 &&
+      o.data.animModel < (int)gameAnimModels.size())
+    anim = gameAnimModels[o.data.animModel].src.get();
+  const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mn && mx) {
+    ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+    ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+    ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+  }
+  float r = ex > ey ? ex : ey;
+  if (ez > r) r = ez;
+  if (r < 0.05F) r = 0.05F;
+  return r;
+}
+
+// Carry whisker: the third-person spring arm's pre-block, turned around.
+// The spring arm pulls the CAMERA in when the boom sweep hits a wall; here
+// the same sweep pushes the WALKER back when the carried object no longer
+// fits in front of the face - so pressing "face first" against a wall while
+// carrying is simply blocked, instead of the object being parked inside the
+// wall. Called by every walker after collidePlayer, on the carrying player
+// only. The probe is horizontal (yaw only): with the look pitch in it, the
+// terrain underfoot would read as a wall whenever the player looks down.
+void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
+                                    float yaw, float feetY, float eyeHeight) {
+  if (carryIndex < 0) return;
+  const RuntimeObject& o = runtimeObjects[carryIndex];
+  if (!o.active || !o.visible) return;
+  const float r = objectHalfExtent(o);
+  const float need = 0.55F + r;  // the object fully outside the carrier
+  const float hx = sinf(yaw), hz = cosf(yaw);
+  // Walking a carried object INTO a portal opening must not read the
+  // mounting wall as a blocker. portalPassOn (the player's body is IN the
+  // opening, published by updatePortalPass and still live here) is
+  // authoritative and takes precedence: once the player reaches the plane
+  // the forward probe below no longer starts in FRONT of it, so on its own
+  // the doorway would slam shut exactly at the crossing and the whisker
+  // would bounce the player back out (owner: can't walk through a portal
+  // while carrying). The forward probe still covers the approach, before
+  // the body column enters the opening.
+  if (portalPassOn) {
+    sweepPassPlane[0] = portalPassPlane[0];
+    sweepPassPlane[1] = portalPassPlane[1];
+    sweepPassPlane[2] = portalPassPlane[2];
+    sweepPassPlane[3] = portalPassPlane[3];
+    sweepPassOn = true;
+  } else {
+    const float reach = need + r + 0.1F;
+    const float a0[3] = {*nextX, probeY, *nextZ};
+    const float b0[3] = {*nextX + hx * reach, probeY, *nextZ + hz * reach};
+    armSweepPass(a0, b0);
+  }
+  const float d =
+      sweepSphere(*nextX, probeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
+  sweepPassOn = false;
+  if (d < need) {
+    const float px = *nextX, pz = *nextZ;
+    *nextX -= hx * (need - d);
+    *nextZ -= hz * (need - d);
+    // The pushback is a displacement collidePlayer never saw - unswept it
+    // shoves the walker clean through whatever stands at their back (owner
+    // repro: carry + reverse into a wall = teleported behind it). Re-run
+    // the collision from the pre-push spot; ground/ceiling are discarded.
+    float g2 = -1e30F, c2 = 1e30F;
+    collidePlayer(px, pz, nextX, nextZ, feetY, eyeHeight, &g2, &c2);
+  }
+}
+
+// Carried + thrown pickable objects. The carried one rides PICK_CARRY_DIST in
+// front of the face, swept against the world each frame so it can neither be
+// pushed through a wall nor parked behind one - blocked reach just brings it
+// closer. It keeps colliding with the world (the sweep) but not with its
+// carrier (collidePlayer/springArm skip it), so it cannot wedge the player.
+// BTN_USE drops it in place - already a swept, legal spot - and BTN_THROW
+// launches it when the object allows that.
+void TerrainGame::updateCarriedObject() {
+  // In-flight object: only objects WITHOUT a rigid body reach this path -
+  // a thrown physics object is handed straight to updateObjectPhysics
+  // (releaseCarried), which already sweeps, bounces, rolls and tumbles it.
+  // Integrate under gravity, sweep each step, stop on hit.
+  if (thrownIndex >= 0) {
+    RuntimeObject& o = runtimeObjects[thrownIndex];
+    if (!o.active || !o.visible) {
+      thrownIndex = -1;
+    } else {
+      const float r = objectHalfExtent(o);
+      thrownVel[1] -= GRAVITY * g_frameDt * g_frameDt;
+      // Terminal fall (30 u/s real time, matching the rigid-body sim): a
+      // throw that enters a portal infinite-fall loop keeps flying on this
+      // path and would otherwise accelerate without bound.
+      const float termFall = 30.0F * g_frameDt;
+      if (thrownVel[1] < -termFall) thrownVel[1] = -termFall;
+      const float stepLen =
+          sqrtf(thrownVel[0] * thrownVel[0] + thrownVel[1] * thrownVel[1] +
+                thrownVel[2] * thrownVel[2]);
+      bool stop = stepLen < 0.0005F;
+      bool hopped = false;
+      const float prevT[3] = {o.data.position[0], o.data.position[1],
+                              o.data.position[2]};
+      if (!stop) {
+        const float ix = 1.0F / stepLen;
+        // While this frame's intended segment pierces a linked opening,
+        // obstacles fully behind that portal's plane stop blocking the
+        // sweep - without this the mounting wall stops the center ~r
+        // short of the crossing plane and the throw can never cross.
+        // Pad the aim segment by the object's extent: the sweep stops the
+        // CENTER ~r short of a wall sitting at the plane, so an unpadded
+        // center segment never reaches it and the doorway never opens
+        // (owner repro: every throw bounced off the mounting wall).
+        {
+          const float pad = 1.0F + (r + 0.1F) / stepLen;
+          const float want[3] = {prevT[0] + thrownVel[0] * pad,
+                                 prevT[1] + thrownVel[1] * pad,
+                                 prevT[2] + thrownVel[2] * pad};
+          armSweepPass(prevT, want);
+        }
+        const float d = sweepSphere(
+            o.data.position[0], o.data.position[1], o.data.position[2],
+            thrownVel[0] * ix, thrownVel[1] * ix, thrownVel[2] * ix, stepLen,
+            r, thrownIndex);
+        sweepPassOn = false;
+        o.data.position[0] += thrownVel[0] * ix * d;
+        o.data.position[1] += thrownVel[1] * ix * d;
+        o.data.position[2] += thrownVel[2] * ix * d;
+        stop = d < stepLen;  // hit something on the way
+        // Crossed a linked opening: hop through, position and the full
+        // velocity vector mapped by the pair isometry; keep flying.
+        if (PORTAL_COUNT > 0 &&
+            (thrownIndex >= (int)portalHopCool.size() ||
+             portalHopCool[thrownIndex] == 0) &&
+            portalCarryCrossing(prevT, o.data.position, thrownVel)) {
+          stop = false;
+          hopped = true;
+          if (thrownIndex < (int)portalHopCool.size())
+            portalHopCool[thrownIndex] = 6;
+        }
+      }
+      // Ground rest matches updateObjectPhysics, so the handoff is
+      // seamless. Skipped on the hop frame (the mapped arrival is legal by
+      // continuity) and inside a swallowing floor portal's zone - the
+      // terrain over the portal must not catch the throw before its center
+      // reaches the plane (the walkers' portalSwallowsPlayer rule).
+      if (!hopped) {
+        bool swallow = false;
+        for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
+          const PortalData& p = PORTALS[pi];
+          if (p.scene != currentScene || p.object < 0 || p.target < 0)
+            continue;
+          // player-released flight: any linked floor portal swallows it
+          if (p.object >= (int)runtimeObjects.size() ||
+              p.target >= (int)runtimeObjects.size())
+            continue;
+          RuntimeObject& m = runtimeObjects[p.object];
+          if (!m.active || !m.visible || !runtimeObjects[p.target].active)
+            continue;
+          if (portalSwallowSwept(m, 0.5F * m.data.scale[0] + 0.25F,
+                                 0.5F * m.data.scale[1] + 0.25F,
+                                 Vec4(prevT[0], prevT[1], prevT[2], 1.0F),
+                                 Vec4(o.data.position[0], o.data.position[1],
+                                      o.data.position[2], 1.0F))) {
+            swallow = true;
+            break;
+          }
+        }
+        const float floorY =
+            terrainHeightAt(o.data.position[0], o.data.position[2]) +
+            0.5F * o.data.scale[1];
+        if (!swallow && o.data.position[1] <= floorY) {
+          o.data.position[1] = floorY;
+          stop = true;
+        }
+      }
+      o.dirty = true;
+      if (stop) {
+        o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+        thrownIndex = -1;
+      }
+    }
+  }
+
+  if (carryIndex < 0) {
+    carryPortalPi = -1;
+    return;
+  }
+  RuntimeObject& o = runtimeObjects[carryIndex];
+  // Despawned or hidden mid-carry (flow graph): the hands just open, and the
+  // body wakes so it resumes falling if it is shown again mid-air.
+  if (!o.active || !o.visible) {
+    releaseCarried(o, 0.0F, 0.0F, 0.0F);
+    carryIndex = -1;
+    carryPortalPi = -1;
+    return;
+  }
+
+  Vec4 dir = cameraLookAt - cameraPosition;
+  const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+  if (dirLen < 0.0001F) return;
+  dir.x /= dirLen, dir.y /= dirLen, dir.z /= dirLen;
+
+  // Carry origin: the eye in first person; the avatar's head (the camera
+  // pivot) in third person - "in front of the face" means the avatar's face,
+  // not a camera floating meters behind it.
+  float ox = cameraPosition.x, oy = cameraPosition.y, oz = cameraPosition.z;
+  if (PLAYER_MODE == 2) {
+    ox = cameraLookAt.x, oy = cameraLookAt.y, oz = cameraLookAt.z;
+  }
+
+  const float r = objectHalfExtent(o);
+  // Same policy as the third-person camera boom (springArm): the sweep is
+  // the law - a blocked reach pulls the object IN, even past its comfort
+  // distance, and NEVER pushes it back out into geometry (the old
+  // "never inside the carrier" clamp did exactly that: face against a wall,
+  // the object got parked inside the wall). Snap in on a hit, ease back out
+  // when the wall clears, so leaving it doesn't pop. PICK_MIN_DIST keeps the
+  // object's near face off the near clip plane; the walkers' carry whisker
+  // (a springArm-style pre-block) keeps the player from squeezing that far
+  // in the first place.
+  // Carrying into a portal opening: obstacles fully behind that portal's
+  // plane stop blocking the carry sweep - without this the mounting wall
+  // pinned the object at the face and the whisker below shoved the walker
+  // back, so a wall portal could only be crossed BACKWARDS (owner report).
+  // The probe starts BEHIND the eye (backed up along -dir): armSweepPass
+  // only arms when its segment starts in FRONT of the plane, and at the
+  // portal centre the eye sits right ON the plane - without the back-up the
+  // doorway fails exactly there, the sweep catches the mounting wall and
+  // yanks the object onto it (owner: cube stops on the wall dead centre).
+  {
+    const float reach = PICK_CARRY_DIST + r * 2.0F + 0.1F;
+    const float bk = 1.2F;
+    const float a0[3] = {ox - dir.x * bk, oy - dir.y * bk, oz - dir.z * bk};
+    const float b0[3] = {ox + dir.x * reach, oy + dir.y * reach,
+                         oz + dir.z * reach};
+    armSweepPass(a0, b0);
+  }
+  float want = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
+                           r, carryIndex);
+  sweepPassOn = false;
+  // Portal-aware carry: the nearest portal opening the carry ray pierces
+  // within reach. If that portal DRAWS the object in its through-view
+  // (viewAll or the view list), the object flies on THROUGH it - mapped to
+  // the far side, in front of the target, where the through-view renders it
+  // as if it went through (and it is skipped in the near main pass so it
+  // does not also appear as a distant double). This is what lets a carried
+  // object cross smoothly instead of stopping dead at the surface (owner:
+  // it pinned like a wall). A portal that would NOT render the object
+  // (teleport-only) can't show it on the far side, so there the object is
+  // clamped to the plane (half-in slice) as the best available.
+  int bendPi = -1;
+  float bendT = want;
+  bool bendShows = false;
+  for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& pm = runtimeObjects[p.object];
+    if (!pm.active || !pm.visible || !runtimeObjects[p.target].active) continue;
+    const V3 pax = rotated({1.0F, 0.0F, 0.0F}, pm.data.rotation);
+    const V3 pay = rotated({0.0F, 1.0F, 0.0F}, pm.data.rotation);
+    const V3 paz = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+    const float denom = dir.x * paz.x + dir.y * paz.y + dir.z * paz.z;
+    if (denom >= -1e-4F) continue;  // ray must head into the front (+Z) face
+    const float sd = (pm.data.position[0] - ox) * paz.x +
+                     (pm.data.position[1] - oy) * paz.y +
+                     (pm.data.position[2] - oz) * paz.z;
+    const float t = sd / denom;  // ray param at the plane
+    // Allow the plane to sit a little BEHIND the eye (t slightly negative):
+    // at the portal centre the eye is right on it, and dropping the crossing
+    // there would un-bend the object for a frame and snap it to the near
+    // pass behind the surface (owner: cube stops at the centre).
+    if (t >= bendT || t < -(r + 0.6F)) continue;
+    const float cxp = ox + dir.x * t - pm.data.position[0];
+    const float cyp = oy + dir.y * t - pm.data.position[1];
+    const float czp = oz + dir.z * t - pm.data.position[2];
+    const float lxp = cxp * pax.x + cyp * pax.y + czp * pax.z;
+    const float lyp = cxp * pay.x + cyp * pay.y + czp * pay.z;
+    const float phx = 0.5F * pm.data.scale[0] + 0.25F;
+    const float phy = 0.5F * pm.data.scale[1] + 0.25F;
+    if (lxp > -phx && lxp < phx && lyp > -phy && lyp < phy) {
+      bendPi = pi;
+      bendT = t;
+      bendShows = portalShowsObject(pi, carryIndex);
+    }
+  }
+  // Aiming through a portal that will render the object on the far side:
+  // Aiming through a portal that will render the object on the far side:
+  // let the reach run FULL, overriding whatever the sweep returned. The
+  // object is NOT pinned or bent - it rides straight ahead, straddling the
+  // surface, and the two-sided render (below + the portal's through-view)
+  // draws each half. The mounting wall must not clip `want` short (a wall
+  // flush with the plane still trips the sweep, and the whole point is that
+  // it opens like a doorway). A portal that will NOT render the object
+  // (teleport-only) can't show the far half, so there the object clamps to
+  // the surface (half-in slice) as the best available.
+  if (bendPi >= 0 && bendShows)
+    want = PICK_CARRY_DIST + r;
+  else if (bendPi >= 0 && !bendShows && bendT > 0.0F && bendT < want)
+    want = bendT;
+  const float minD = PICK_MIN_DIST + r;
+  if (want < minD) want = minD;
+  if (want < carryDist) {
+    carryDist = want;  // blocked: snap in, never clip into the wall
+  } else {
+    float k = 0.2F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    carryDist += (want - carryDist) * k;
+  }
+  const float d = carryDist;
+  // Real position rides straight ahead - the object straddles the surface
+  // naturally as the player approaches. carryPortalPi tells renderScene which
+  // portal's through-view should draw the far half (mapped to the exit).
+  carryPortalPi = (bendPi >= 0 && bendShows) ? bendPi : -1;
+  o.data.position[0] = ox + dir.x * d;
+  o.data.position[1] = oy + dir.y * d;
+  o.data.position[2] = oz + dir.z * d;
+  // In the hands the body has no momentum of its own: zero every component
+  // (not just Y - the rigid-body sim reads all three) so a release starts
+  // from rest instead of resuming whatever it was doing before the grab.
+  o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+  o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
+  o.dirty = true;
+
+  const auto& clicked = engine->pad.getClicked();
+  if (carryGrabbed) {
+    carryGrabbed = false;  // the press that grabbed it is not a drop
+  } else if (clicked.BTN_USE) {
+    releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
+    carryIndex = -1;
+    carryPortalPi = -1;
+  } else if (o.data.pickThrow && clicked.BTN_THROW) {
+    const int idx = carryIndex;
+    carryIndex = -1;
+    carryPortalPi = -1;
+    const float vx = dir.x * PICK_THROW_SPEED * g_frameDt;
+    const float vy = dir.y * PICK_THROW_SPEED * g_frameDt;
+    const float vz = dir.z * PICK_THROW_SPEED * g_frameDt;
+    if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
+      // No rigid body to hand off to: fly the hand-rolled arc instead.
+      thrownIndex = idx;
+      thrownVel[0] = vx;
+      thrownVel[1] = vy;
+      thrownVel[2] = vz;
+    }
+  }
+}
+
+// Hands a released object back to whatever moves it. A rigid body (Physics
+// on) simply takes the velocity and WAKES: the sim sleeps settled bodies
+// (restFrames >= PHYS_SLEEP_FRAMES) and skips them entirely, and an object
+// picked up off the ground is asleep by definition - without this it would
+// hang in mid-air where it was dropped, and a throw would ignore bounce,
+// friction and tumble. Returns false for a non-physics object, which has no
+// simulation to hand off to (it stays put on a drop; a throw flies the
+// hand-rolled arc in updateCarriedObject).
+bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
+                                 float vz) {
+  o.dirty = true;
+  if (!o.data.physics) return false;
+  o.velocityX = vx;
+  o.velocityY = vy;
+  o.velocityZ = vz;
+  o.restFrames = 0;  // wake - see the RuntimeObject sleep contract
+  // Player-released: portal-free (crosses any linked portal, like the
+  // player) until it settles - updatePortals clears the latch on sleep.
+  thrownFreeIndex = (int)(&o - runtimeObjects.data());
+  return true;
 }
 
 // --- Memory card save menu ----------------------------------------------
@@ -4179,10 +5542,10 @@ void TerrainGame::doSave(int slot) {
   // otherwise derived from the camera (the FPP template player; the orbit
   // camera simply ignores the restore).
   if (PLAYER_INDEX >= 0) {
-    d.playerPos[0] = entX;
-    d.playerPos[1] = entY;
-    d.playerPos[2] = entZ;
-    d.playerYaw = entYaw * 180.0F / PI;
+    d.playerPos[0] = players[0].x;
+    d.playerPos[1] = players[0].y;
+    d.playerPos[2] = players[0].z;
+    d.playerYaw = players[0].yaw * 180.0F / PI;
   } else {
     d.playerPos[0] = cameraPosition.x;
     d.playerPos[1] = cameraPosition.y - EYE_HEIGHT;
@@ -4247,7 +5610,9 @@ void TerrainGame::applySavedObjects() {
     for (int a = 0; a < 3; ++a) o.data.position[a] = st.position[a];
     for (int a = 0; a < 3; ++a) o.data.color[a] = st.color[a];
     o.visible = st.visible != 0;
-    o.velocityY = 0.0F;
+    o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+    o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
+    o.restFrames = 0;  // wake: the restored position may be mid-air
     o.dirty = true;
   }
   pendingObjState.clear();
@@ -4400,6 +5765,30 @@ bool TerrainGame::updateGameMenu() {
       case 8:  // choice
         cycleValue(e, 1);
         break;
+      case 9:  // apply video mode: commit the display row's staged selection
+        // (a scan-mode switch closes the menu - see applyVideoRequests'
+        // caller - so the player judges the new picture unobstructed).
+        for (int vmi = 0; vmi < MENU_COUNT; ++vmi) {
+          for (int vei = 0; vei < MENUS[vmi].entryCount; ++vei) {
+            const MenuEntryData& row = MENUS[vmi].entries[vei];
+            if (row.bind != 5 || row.param < 0 ||
+                row.param >= SAVE_VALUE_COUNT || row.optionCount <= 0)
+              continue;
+            int idx = (int)saveValues[row.param];
+            if (idx < 0) idx = 0;
+            if (idx >= row.optionCount) idx = row.optionCount - 1;
+            const int mode = displayOptionMode(row, idx);
+            if (mode !=
+                (int)engine->renderer.core.getSettings().getDisplayMode()) {
+              scriptCtx.requestDisplayMode = mode;
+              scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert net
+              g_menuDispOpt = idx;
+            }
+            vmi = MENU_COUNT;  // first display row wins
+            break;
+          }
+        }
+        break;
     }
   }
   return pausing();
@@ -4413,7 +5802,11 @@ bool TerrainGame::updateGameMenu() {
 // / curve are idempotent (re-applied each frame, cheap). Display mode and
 // widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
 // option actually changes, routed through the same scriptCtx video requests
-// the Set Display Mode / Set Widescreen flow nodes use.
+// the Set Display Mode / Set Widescreen flow nodes use. When the project has
+// an "apply video mode" row (MENU_HAS_APPLY_VIDEO) the display row defers
+// instead: cycling it only stages a selection the APPLY row commits (case 9
+// in updateGameMenu), so the player can browse the option list without the
+// screen switching under them.
 void TerrainGame::applyMenuBindings() {
   for (int mi = 0; mi < MENU_COUNT; ++mi) {
     const MenuData& m = MENUS[mi];
@@ -4449,10 +5842,22 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
-          if (idx != g_menuDispOpt) {
+        case 5:  // display / scan mode (option -> mode via displayOptionMode)
+          if (MENU_HAS_APPLY_VIDEO) {
+            // Deferred: the row only stages a selection while a menu is on
+            // screen; the "apply video mode" row commits it. With no menu
+            // open, snap the row back to the live mode - a browsed-but-
+            // unapplied selection (or a reverted confirm) never lies.
+            if (gameMenuIndex < 0 && en.param >= 0 &&
+                en.param < SAVE_VALUE_COUNT) {
+              const int live = displayOptionIndexOf(
+                  en,
+                  (int)engine->renderer.core.getSettings().getDisplayMode());
+              if (live >= 0 && live != idx) saveValues[en.param] = (float)live;
+            }
+          } else if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
-            scriptCtx.requestDisplayMode = idx;
+            scriptCtx.requestDisplayMode = displayOptionMode(en, idx);
             scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert safety net
           }
           break;
@@ -4462,7 +5867,31 @@ void TerrainGame::applyMenuBindings() {
             scriptCtx.widescreen = idx;
           }
           break;
+        case 7:  // player count (1P / 2P) - edge-triggered, so the pad-2
+          // Start join isn't reverted by the bind on the next frame
+          // (setPlayerTwoActive writes the row's save value back in sync).
+          if (idx != menuPlayerCountPrev) {
+            menuPlayerCountPrev = idx;
+            setPlayerTwoActive(idx >= 1);
+          }
+          break;
       }
+    }
+  }
+}
+
+// Keep a bound "Player count" menu row's save value (and the bind's edge
+// detector) in line with the actual player-2 state, so a pad-2 Start join
+// shows up in the menu instead of fighting it.
+void TerrainGame::syncPlayerCountMenuValue() {
+  const int idx = playerTwoActive ? 1 : 0;
+  menuPlayerCountPrev = idx;
+  for (int mi = 0; mi < MENU_COUNT; ++mi) {
+    const MenuData& m = MENUS[mi];
+    for (int e = 0; e < m.entryCount; ++e) {
+      const MenuEntryData& en = m.entries[e];
+      if (en.bind == 7 && en.param >= 0 && en.param < SAVE_VALUE_COUNT)
+        saveValues[en.param] = (float)idx;
     }
   }
 }
@@ -4522,6 +5951,33 @@ void TerrainGame::updateAndRenderHudTexts() {
   }
 }
 
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
+  }
+}
+
 // Spring arm (third person only): how far the camera may sit down the boom
 // before it would end up inside geometry or under the terrain. Casts the boom
 // from the pivot (the avatar's head) toward the desired eye and returns the
@@ -4546,7 +6002,15 @@ constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
 constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
 float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
                              float dz, float maxDist) const {
-  const float r = CAM_RADIUS;
+  // Camera boom: the camera's own radius, ignoring the carried object (it
+  // rides right in front of the face and must never shove the camera).
+  return sweepSphere(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS, carryIndex);
+}
+
+float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
+                               float dy, float dz, float maxDist, float radius,
+                               int skipIndex) const {
+  const float r = radius;
   float best = maxDist;
 
   // Broad-phase key: the boom segment's AABB, expanded by the camera radius.
@@ -4556,13 +6020,38 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
   const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
 
-  for (const RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
         ty == 13 || ty == 14)
       continue;  // markers / emitters / decals / the avatar - not blockers
-    if (o.data.collision == 2) continue;  // "none": the camera passes through
+    if (o.data.collision == 2) continue;  // "none": the sweep passes through
+    if (sweepPassOn) {
+      // Portal pass-through for a thrown object's sweep: obstacles fully
+      // behind the aimed portal's plane open up (exact OBB extent along
+      // the plane normal - collidePlayer's doorway rule).
+      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const float re =
+          fabsf(sweepPassPlane[0] * pax.x + sweepPassPlane[1] * pax.y +
+                sweepPassPlane[2] * pax.z) *
+              0.5F * o.data.scale[0] +
+          fabsf(sweepPassPlane[0] * pay.x + sweepPassPlane[1] * pay.y +
+                sweepPassPlane[2] * pay.z) *
+              0.5F * o.data.scale[1] +
+          fabsf(sweepPassPlane[0] * paz.x + sweepPassPlane[1] * paz.y +
+                sweepPassPlane[2] * paz.z) *
+              0.5F * o.data.scale[2];
+      const float sd = sweepPassPlane[0] * o.data.position[0] +
+                       sweepPassPlane[1] * o.data.position[1] +
+                       sweepPassPlane[2] * o.data.position[2] -
+                       sweepPassPlane[3];
+      if (sd < -re + 0.1F) continue;
+    }
 
     // World AABB, sized exactly like box-mode player collision (the real mesh
     // or baked anim AABB when the object has one, else the unit scale box).
@@ -4650,11 +6139,37 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   return best;
 }
 
+// Dispatcher: walk P1 (and P2 while active) from their pads, then compose the
+// frame camera. Shared screen frames the pair with one camera; split screen
+// keeps each player's own view (the render pass reads players[1].camPos).
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
-  const auto& leftJoy = engine->pad.getLeftJoyPad();
-  const auto& rightJoy = engine->pad.getRightJoyPad();
+  updatePlayerWalker(players[0], 0, engine->pad);
+  const bool p2 =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  if (p2) {
+    if (MULTIPLAYER_MODE == 1) {
+      // Shared screen: P2 moves relative to the one camera - its movement
+      // basis mirrors P1's orbit (the walker skips its right stick).
+      players[1].yaw = players[0].yaw;
+      players[1].pitch = players[0].pitch;
+    }
+    updatePlayerWalker(players[1], 1, pad2);
+  }
+
+  if (p2 && MULTIPLAYER_MODE == 1) {
+    updateSharedCamera();
+  } else {
+    cameraPosition = players[0].camPos;
+    cameraLookAt = players[0].camLook;
+  }
+  return true;
+}
+
+void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
+  const auto& leftJoy = pad.getLeftJoyPad();
+  const auto& rightJoy = pad.getRightJoyPad();
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
@@ -4665,38 +6180,43 @@ bool TerrainGame::updatePlayerEntity() {
     return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
-  // Right stick: look around (stick right = turn right)
-  entYaw -= axisR(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -= axisR(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
-  if (entPitch > 1.35F) entPitch = 1.35F;
-  if (entPitch < -1.35F) entPitch = -1.35F;
+  // Right stick: look around (stick right = turn right). A shared-screen P2
+  // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
+  // only players that own a view read the right stick.
+  const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  if (ownCamera) {
+    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (P.pitch > 1.35F) P.pitch = 1.35F;
+    if (P.pitch < -1.35F) P.pitch = -1.35F;
+  }
 
-  const float fx = sinf(entYaw);
-  const float fz = cosf(entYaw);
+  const float fx = sinf(P.yaw);
+  const float fz = cosf(P.yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  if (PLAYER_MODE == 1) {
+  if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
-    const float cp = cosf(entPitch);
-    const float step = PLAYER_WALK_SPEED * g_frameScale;
-    entX += (fx * cp * forward - fz * strafe) * step;
-    entZ += (fz * cp * forward + fx * strafe) * step;
-    entY += sinf(entPitch) * forward * step;
-    if (engine->pad.getPressed().BTN_FLY_UP) entY += step;
-    if (engine->pad.getPressed().BTN_FLY_DOWN) entY -= step;
+    const float cp = cosf(P.pitch);
+    const float step = PP_WALK_SPEED(pi) * g_frameScale;
+    P.x += (fx * cp * forward - fz * strafe) * step;
+    P.z += (fz * cp * forward + fx * strafe) * step;
+    P.y += sinf(P.pitch) * forward * step;
+    if (pad.getPressed().BTN_FLY_UP) P.y += step;
+    if (pad.getPressed().BTN_FLY_DOWN) P.y -= step;
 
-    cameraPosition = Vec4(entX, entY, entZ);
-    cameraLookAt = Vec4(entX + fx * cp, entY + sinf(entPitch), entZ + fz * cp);
-    return true;
+    P.camPos = Vec4(P.x, P.y, P.z);
+    P.camLook = Vec4(P.x + fx * cp, P.y + sinf(P.pitch), P.z + fz * cp);
+    return;
   }
 
-  if (PLAYER_MODE == 2) {
+  if (PP_MODE(pi) == 2) {
     // Third person: the left stick moves the avatar relative to the camera,
     // the avatar turns to face where it walks, and the camera rides a boom
     // behind it. Terrain bounds + object collision + gravity/jump match walk.
-    float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-    float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+    float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
     const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
     const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
     if (nextX > limX) nextX = limX;
@@ -4705,51 +6225,63 @@ bool TerrainGame::updatePlayerEntity() {
     if (nextZ < -limZ) nextZ = -limZ;
 
     float ground = terrainHeightAt(nextX, nextZ);
+    // a linked floor portal underfoot swallows the avatar too
+    if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
+      ground = -1e30F;
     float ceiling = 1e30F;
-    collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+    // The avatar shoves physics bodies exactly like the FPP walkers do.
+    pushPhysicsBodies(P.x, P.z, nextX, nextZ, P.y, PP_EYE_HEIGHT(pi));
+    updatePortalPass(nextX, P.y, nextZ);  // wall doorways open in collision
+    collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                   &ceiling);
-    const float movedX = nextX - entX, movedZ = nextZ - entZ;
-    entX = nextX;
-    entZ = nextZ;
+    // The whisker reads portalPassOn to keep the mounting wall open while
+    // carrying THROUGH a portal - reset it only after the whisker runs.
+    if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
+      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw, P.y,
+                        PP_EYE_HEIGHT(pi));
+    portalPassOn = false;
+    const float movedX = nextX - P.x, movedZ = nextZ - P.z;
+    P.x = nextX;
+    P.z = nextZ;
 
-    entVelY -= GRAVITY * g_frameDt * g_frameDt;
-    entY += entVelY;
-    const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-    if (entY > maxY && maxY >= ground) {
-      entY = maxY;
-      if (entVelY > 0.0F) entVelY = 0.0F;
+    P.velY -= GRAVITY * g_frameDt * g_frameDt;
+    P.y += P.velY;
+    const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+    if (P.y > maxY && maxY >= ground) {
+      P.y = maxY;
+      if (P.velY > 0.0F) P.velY = 0.0F;
     }
     bool grounded = false;
-    if (entY <= ground) {
-      entY = ground;
-      entVelY = 0.0F;
+    if (P.y <= ground) {
+      P.y = ground;
+      P.velY = 0.0F;
       grounded = true;
-      if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-        entVelY = PLAYER_JUMP_SPEED * g_frameDt;
+      if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+        P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
     // Turn the avatar toward its movement direction (shortest-arc lerp).
     const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
     if (movedLen > 0.0005F) {
       float desired = atan2f(movedX, movedZ);
-      float d = desired - entFaceYaw;
+      float d = desired - P.faceYaw;
       while (d > PI) d -= 2.0F * PI;
       while (d < -PI) d += 2.0F * PI;
-      float k = PLAYER_TURN_RATE * g_frameScale;
+      float k = PP_TURN_RATE(pi) * g_frameScale;
       if (k > 1.0F) k = 1.0F;
-      entFaceYaw += d * k;
+      P.faceYaw += d * k;
     }
 
-    // Camera boom: the eye rides PLAYER_CAM_DIST behind/above the head along
+    // Camera boom: the eye rides PP_CAM_DIST behind/above the head along
     // the orbit direction. The spring arm shortens the boom to the first thing
     // it hits so the camera never enters geometry or the terrain. Classic
     // spring behavior: pull IN instantly (a late pull-in means a visible clip
     // through a wall) and ease back OUT, so leaving cover doesn't snap.
-    const float headY = entY + PLAYER_CAM_HEIGHT;
-    const float cp = cosf(entPitch);
-    const float boomX = sinf(entYaw) * cp;
-    const float boomZ = cosf(entYaw) * cp;
-    const float boomY = sinf(entPitch);
+    const float headY = P.y + PP_CAM_HEIGHT(pi);
+    const float cp = cosf(P.pitch);
+    const float boomX = sinf(P.yaw) * cp;
+    const float boomZ = cosf(P.yaw) * cp;
+    const float boomY = sinf(P.pitch);
 
     // Over-the-shoulder: slide the WHOLE rig - eye and look-at alike - along
     // the camera's right vector, so the avatar sits off-center in frame.
@@ -4759,53 +6291,53 @@ bool TerrainGame::updatePlayerEntity() {
     // itself spring-armed so a shoulder cam cannot slide into a wall the player
     // is hugging - and this second cast costs nothing at all when the offset is
     // 0, which is the default.
-    const float rx = -cosf(entYaw), rz = sinf(entYaw);
-    float shoulder = PLAYER_CAM_SHOULDER;
+    const float rx = -cosf(P.yaw), rz = sinf(P.yaw);
+    float shoulder = PP_CAM_SHOULDER(pi);
     if (shoulder > 0.0001F || shoulder < -0.0001F) {
       const float s = shoulder < 0.0F ? -1.0F : 1.0F;
-      shoulder = s * springArm(entX, headY, entZ, rx * s, 0.0F, rz * s,
+      shoulder = s * springArm(P.x, headY, P.z, rx * s, 0.0F, rz * s,
                                shoulder * s);
     }
-    const float pivotX = entX + rx * shoulder;
-    const float pivotZ = entZ + rz * shoulder;
+    const float pivotX = P.x + rx * shoulder;
+    const float pivotZ = P.z + rz * shoulder;
 
     float want =
-        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
+        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PP_CAM_DIST(pi));
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
-    if (want < camBoom) {
-      camBoom = want;  // blocked: snap in, never clip
+    if (want < P.boom) {
+      P.boom = want;  // blocked: snap in, never clip
     } else {
       float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
       if (k > 1.0F) k = 1.0F;
-      camBoom += (want - camBoom) * k;
+      P.boom += (want - P.boom) * k;
     }
-    float eyeX = pivotX - boomX * camBoom;
-    float eyeY = headY - boomY * camBoom;
-    float eyeZ = pivotZ - boomZ * camBoom;
+    float eyeX = pivotX - boomX * P.boom;
+    float eyeY = headY - boomY * P.boom;
+    float eyeZ = pivotZ - boomZ * P.boom;
     // Safety net: the march samples the heightmap discretely, so a sharp ridge
     // between two samples could still leave the eye underground.
     const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
     if (eyeY < minEyeY) eyeY = minEyeY;
-    cameraPosition = Vec4(eyeX, eyeY, eyeZ);
-    cameraLookAt = Vec4(pivotX, headY, pivotZ);
+    P.camPos = Vec4(eyeX, eyeY, eyeZ);
+    P.camLook = Vec4(pivotX, headY, pivotZ);
 
     // Drive the avatar object: stand at the feet, face the walk direction,
     // and auto-select its locomotion clip. updateAndRenderAnimObjects draws it.
-    if (PLAYER_INDEX >= 0 && PLAYER_INDEX < (int)runtimeObjects.size()) {
-      RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-      body.data.position[0] = entX;
-      body.data.position[1] = entY;
-      body.data.position[2] = entZ;
-      body.data.rotation[1] = entFaceYaw * 180.0F / PI;
-      const float step = PLAYER_WALK_SPEED * g_frameScale;
-      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+    if (P.objIndex >= 0 && P.objIndex < (int)runtimeObjects.size()) {
+      RuntimeObject& body = runtimeObjects[P.objIndex];
+      body.data.position[0] = P.x;
+      body.data.position[1] = P.y;
+      body.data.position[2] = P.z;
+      body.data.rotation[1] = P.faceYaw * 180.0F / PI;
+      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
     }
-    return true;
+    return;
   }
 
   // Walk mode: terrain bounds, object collision, gravity + jump.
-  float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-  float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+  float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+  float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
 
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
   const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
@@ -4815,33 +6347,97 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ < -limZ) nextZ = -limZ;
 
   float ground = terrainHeightAt(nextX, nextZ);
+  // a linked floor portal underfoot swallows the walker (see
+  // portalSwallowsPlayer) - the terrain stops being the floor there
+  if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
+    ground = -1e30F;
   float ceiling = 1e30F;
-  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+  // Shove physics bodies with the attempted step first - collidePlayer may
+  // cancel the move against the (still solid) body, the push moves it away
+  // over the next frames.
+  pushPhysicsBodies(P.x, P.z, nextX, nextZ, P.y, PP_EYE_HEIGHT(pi));
+  updatePortalPass(nextX, P.y, nextZ);  // wall doorways open in collision
+  collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                 &ceiling);
-  entX = nextX;
-  entZ = nextZ;
+  // whisker reads portalPassOn (carry through a portal) - reset after it
+  if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
+    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw, P.y,
+                      PP_EYE_HEIGHT(pi));
+  portalPassOn = false;
+  P.x = nextX;
+  P.z = nextZ;
 
-  entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
-  entY += entVelY;
+  P.velY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
+  P.y += P.velY;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
-  const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-  if (entY > maxY && maxY >= ground) {
-    entY = maxY;
-    if (entVelY > 0.0F) entVelY = 0.0F;
+  const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+  if (P.y > maxY && maxY >= ground) {
+    P.y = maxY;
+    if (P.velY > 0.0F) P.velY = 0.0F;
   }
-  if (entY <= ground) {
-    entY = ground;
-    entVelY = 0.0F;
-    if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-      entVelY = PLAYER_JUMP_SPEED * g_frameDt;  // units/s
+  if (P.y <= ground) {
+    P.y = ground;
+    P.velY = 0.0F;
+    if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+      P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
   }
 
-  const float eyeY = entY + PLAYER_EYE_HEIGHT;
-  cameraPosition = Vec4(entX, eyeY, entZ);
-  cameraLookAt = Vec4(entX + fx * cosf(entPitch), eyeY + sinf(entPitch),
-                      entZ + fz * cosf(entPitch));
-  return true;
+  const float eyeY = P.y + PP_EYE_HEIGHT(pi);
+  P.camPos = Vec4(P.x, eyeY, P.z);
+  P.camLook = Vec4(P.x + fx * cosf(P.pitch), eyeY + sinf(P.pitch),
+                   P.z + fz * cosf(P.pitch));
+}
+
+// Shared-screen camera: orbit (P1's right stick, mirrored into both players'
+// yaw/pitch by the dispatcher) around the midpoint of the two avatars, with
+// the boom stretched by their separation so the pair stays in frame. The
+// spring arm and terrain safety net match the single-player boom.
+void TerrainGame::updateSharedCamera() {
+  PlayerCtl& A = players[0];
+  PlayerCtl& B = players[1];
+  const float midX = (A.x + B.x) * 0.5F;
+  const float midZ = (A.z + B.z) * 0.5F;
+  const float midY = (A.y + B.y) * 0.5F + PP_CAM_HEIGHT(0);
+  const float dx = A.x - B.x, dy = A.y - B.y, dz = A.z - B.z;
+  const float sep = sqrtf(dx * dx + dy * dy + dz * dz);
+  const float dist = PP_CAM_DIST(0) + sep * 0.7F;
+
+  const float cp = cosf(A.pitch);
+  const float boomX = sinf(A.yaw) * cp;
+  const float boomZ = cosf(A.yaw) * cp;
+  const float boomY = sinf(A.pitch);
+
+  float want = springArm(midX, midY, midZ, -boomX, -boomY, -boomZ, dist);
+  if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
+  if (want < sharedBoom) {
+    sharedBoom = want;  // blocked: snap in, never clip
+  } else {
+    float k = 0.06F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    sharedBoom += (want - sharedBoom) * k;
+  }
+  float eyeX = midX - boomX * sharedBoom;
+  float eyeY = midY - boomY * sharedBoom;
+  float eyeZ = midZ - boomZ * sharedBoom;
+  const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
+  if (eyeY < minEyeY) eyeY = minEyeY;
+  cameraPosition = Vec4(eyeX, eyeY, eyeZ);
+  cameraLookAt = Vec4(midX, midY, midZ);
+}
+
+// Player 2 join/leave (Start on pad 2, or a menu Toggle bound to "Player
+// count"). Guarded: joining needs a two-player mode and a second Player
+// object in the scene. Shows/hides the P2 third-person avatar and keeps the
+// bound menu row's save value in sync so both entry points agree.
+void TerrainGame::setPlayerTwoActive(bool active) {
+  if (active && (MULTIPLAYER_MODE == 0 || players[1].objIndex < 0)) return;
+  if (playerTwoActive == active) return;
+  playerTwoActive = active;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2 &&
+      players[1].objIndex < (int)runtimeObjects.size())
+    runtimeObjects[players[1].objIndex].visible = active;
+  syncPlayerCountMenuValue();
 }
 
 // Locomotion-driven clip selection for the third-person avatar. speedFrac is
@@ -4851,26 +6447,27 @@ bool TerrainGame::updatePlayerEntity() {
 // non-locomotion clip is currently playing (a script/flow "Play Animation"
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
-void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
-                                  bool grounded) {
-  if (PLAYER_INDEX < 0 || !objectGeometry[PLAYER_INDEX].animInst) return;
+void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
+                                  float speedFrac, bool grounded) {
+  if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
+  const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
-  if (!grounded && playerJumpClip >= 0)
-    want = playerJumpClip;
+  if (!grounded && P.jumpClip >= 0)
+    want = P.jumpClip;
   else if (speedFrac < 0.12F)
-    want = playerIdleClip;
-  else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
-    want = playerWalkClip;
+    want = P.idleClip;
+  else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    want = P.walkClip;
   else
-    want = playerRunClip;
-  if (want < 0) want = playerIdleClip;
+    want = P.runClip;
+  if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
-      body.animClip == playerIdleClip || body.animClip == playerWalkClip ||
-      body.animClip == playerRunClip || body.animClip == playerJumpClip;
+      body.animClip == P.idleClip || body.animClip == P.walkClip ||
+      body.animClip == P.runClip || body.animClip == P.jumpClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
 
   if (body.animClip != want) {
@@ -4882,7 +6479,7 @@ void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want == playerWalkClip || want == playerRunClip)
+  if (want == P.walkClip || want == P.runClip)
     body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
   else
     body.animSpeed = base;
@@ -4958,10 +6555,13 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
-void TerrainGame::rebuildObjectGeometry(int index) {
+void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  g.matrixMode = localSpace;
+  g_bakeLocal = localSpace;
+  if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
   g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
@@ -5064,12 +6664,22 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         for (Color& c : p0.colors) c.a = opacity * 128.0F;
         break;
       }
+      case 16: {
+        // portal: the tinted "energy surface" quad (decal quad, +Z face,
+        // same +Z nudge). The live through-view is projected over it by
+        // renderPortals; on unlinked/far portals - and on the pair member
+        // that lost this frame's single view slot - this tint is what shows.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
     g_primTextured = false;
     g_envNormals = nullptr;
   }
+  g_bakeLocal = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -5098,6 +6708,10 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+    // Fast-path bodies render local vertices under objMat; everything else
+    // sits in world space under the shared identity. Reset on every rebuild
+    // (the bag may have been created under the other mode).
+    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -5192,23 +6806,736 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   }
 }
 
-void TerrainGame::updateObjectPhysics() {
-  // GRAVITY is units/s^2
-  const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
-  for (RuntimeObject& o : runtimeObjects) {
-    if (!o.active || !o.data.physics) continue;
-    const float half = 0.5F * o.data.scale[1];
-    const float floorY =
-        terrainHeightAt(o.data.position[0], o.data.position[2]) + half;
-    if (o.velocityY == 0.0F && o.data.position[1] <= floorY) continue;  // resting
+// --- object physics: rigid-body-lite ---------------------------------------
+// Every data.physics object is a body: full 3D velocity, restitution bounces
+// off the terrain (real slope normals from the heightfield), friction that
+// turns falls into slides and slides into stops, ground contact converting
+// slide into tumble, momentum exchange between bodies and AABB contacts
+// against static solids. Near-rest bodies fall asleep (restFrames) and cost
+// one branch per frame until something wakes them, so a settled scene pays
+// nothing. The vector work runs on VU0: Tyra::Vec4's operators, innerProduct,
+// cross and normalize are VU0 macro-mode assembly.
+constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not moving"
+constexpr float PHYS_REST_SPIN = 0.75F;       // deg/frame = "not spinning"
+constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
+constexpr float PHYS_PUSH = 0.55F;            // player shove gain (scaled 1/mass)
 
-    o.velocityY -= gravityPerFrame;
-    o.data.position[1] += o.velocityY;
-    if (o.data.position[1] <= floorY) {
-      o.data.position[1] = floorY;
-      o.velocityY = 0.0F;
+// World-space AABB half-extents + center offset from data.position of a solid
+// object - models use their mesh AABB, exactly like collidePlayer.
+void TerrainGame::physExtents(const SceneObjectData& d, const GameModel* gm,
+                              const SkelModel* anim, float* cOff, float* ext) {
+  cOff[0] = cOff[1] = cOff[2] = 0.0F;
+  for (int a = 0; a < 3; ++a) ext[a] = 0.5F * d.scale[a];
+  const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mn && mx) {
+    for (int a = 0; a < 3; ++a) {
+      cOff[a] = 0.5F * (mn[a] + mx[a]) * d.scale[a];
+      ext[a] = 0.5F * (mx[a] - mn[a]) * d.scale[a];
+      if (ext[a] < 0.01F) ext[a] = 0.01F;
     }
-    o.dirty = true;
+  }
+}
+
+// A moving body renders through objMat (local vertices, VU1 applies the
+// motion) unless a consumer of its vertex arrays assumes world space: the
+// usable-highlight hull/apron and reflective matcap normals both do, and
+// animated models already ride their own animMat.
+bool TerrainGame::physFastPathEligible(int index) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  const int t = o.data.type;
+  if (t != 0 && t != 1 && t != 2 && t != 3 && t != 5 && t != 12) return false;
+  if (o.data.usable) return false;
+  if (t == 5) {
+    if (o.data.animModel >= 0) return false;
+    if (o.data.model < 0 || o.data.model >= (int)gameModels.size())
+      return false;
+    for (const GameModelPart& mp : gameModels[o.data.model].parts)
+      if (mp.reflTexture) return false;
+  } else if (o.data.material >= 0 &&
+             o.data.material < (int)gameMaterials.size() &&
+             gameMaterials[o.data.material].reflTexture) {
+    return false;
+  }
+  return true;
+}
+
+// Rotation columns come from the same rotated() the vertex bake uses, so the
+// matrix path and the bake path can never disagree on the Euler order. Scale
+// is baked into the local vertices - the basis stays unit-length.
+void TerrainGame::updateObjMat(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  M4x4& m = objectGeometry[index].objMat;
+  const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+  const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+  const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+  m.identity();
+  m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
+  m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
+  m.data[8] = bz.x, m.data[9] = bz.y, m.data[10] = bz.z;
+  m.data[12] = o.data.position[0];
+  m.data[13] = o.data.position[1];
+  m.data[14] = o.data.position[2];
+}
+
+// Solid enough to block/bump a physics body (matches collidePlayer's list).
+bool TerrainGame::physObstacle(const SceneObjectData& d) {
+  if (d.collision == 2) return false;
+  const int t = d.type;
+  return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
+         t != 13 && t != 14;
+}
+
+// ---------------------------------------------------------------------------
+// Static batching (STATIC_BATCHING): every StaPip submit costs ~0.7-1.5 ms
+// of fixed EE overhead on real hardware regardless of vertex count, so a
+// scene of many small primitive objects pays for its object COUNT, not its
+// geometry (twice over in split screen). Objects flagged batchStatic at
+// build time merge into combined world-space bags instead - grouped by
+// material within a coarse world cell so no batch spans the whole map (a
+// map-wide bbox would defeat the engine's whole-bag frustum cut, the same
+// reason the terrain is chunked).
+void TerrainGame::buildStaticBatchList() {
+  staticBatches.clear();
+  objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
+  if (!STATIC_BATCHING) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    // Same rules as the per-object bags: always classify against the
+    // frustum (raw submission wraps the GS raster window) with full clip
+    // checks.
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  // Cell width: a quarter of the map on big maps (a 2048-unit map gets a
+  // 4x4 grid), but never below 48 units - on a small map a finer grid (or
+  // one straddling the origin) splits a handful of objects into
+  // single-member batches and the merge wins nothing. The grid anchors at
+  // the map corner (terrain is centered on the origin) for the same reason.
+  const float mapW =
+      TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (!d.batchStatic) continue;
+    // Materials of always-resident objects are loaded by now; a reflective
+    // one draws a second additive env pass per bag - keep those objects on
+    // the solo path, which already handles the env bag.
+    if (d.material >= 0 && (d.material >= (int)gameMaterials.size() ||
+                            gameMaterials[d.material].reflTexture))
+      continue;
+    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
+    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    int bi = -1;
+    for (int b = 0; b < (int)staticBatches.size(); ++b)
+      if (staticBatches[b].material == d.material && keyX[b] == cx &&
+          keyZ[b] == cz) {
+        bi = b;
+        break;
+      }
+    if (bi < 0) {
+      staticBatches.emplace_back();
+      staticBatches.back().material = d.material;
+      keyX.push_back(cx);
+      keyZ.push_back(cz);
+      bi = (int)staticBatches.size() - 1;
+    }
+    staticBatches[bi].members.push_back(i);
+    objectBatchOf[i] = (short)bi;
+    // The scene-load dirty flag is consumed by membership: the batch itself
+    // starts dirty and bakes on the first renderScene. From here on a
+    // member turning dirty means a REAL runtime mutation - the demotion
+    // check in renderStaticBatches keys on exactly that.
+    runtimeObjects[i].dirty = false;
+  }
+  int batched = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (objectBatchOf[i] >= 0) ++batched;
+  TYRA_LOG("Static batching: ", batched, " objects in ",
+           (int)staticBatches.size(), " batches");
+}
+
+// One batch's bake: re-run the primitive builders for every shown member
+// into the combined arrays - world-space vertices with baked lighting,
+// byte-identical to what the solo path produces for the same object. The
+// heap arrays are reused across rebuilds; the engine's frustum-bbox cache
+// is keyed by (pointer, version), so the bboxVersion bump below is what
+// keeps reused pointers from resurrecting stale boxes.
+void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
+  b.dirty = false;
+  b.vertices.clear();
+  b.colors.clear();
+  b.sts.clear();
+  b.shown.assign(b.members.size(), 0);
+  const GameMaterial* gmat =
+      (b.material >= 0 && b.material < (int)gameMaterials.size())
+          ? &gameMaterials[b.material]
+          : nullptr;
+  g_primKd = gmat ? gmat->kd : nullptr;
+  g_primTextured = gmat && gmat->texture;
+  for (size_t k = 0; k < b.members.size(); ++k) {
+    RuntimeObject& o = runtimeObjects[b.members[k]];
+    // Members are never dirty here: scene load consumes the flag at
+    // grouping time and renderStaticBatches demotes dirtied members before
+    // calling this.
+    const bool show = o.active && o.visible;
+    b.shown[k] = show ? 1 : 0;
+    if (!show) continue;
+    switch (o.data.type) {
+      case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
+      case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
+      case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
+      case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
+      default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+    }
+  }
+  g_primKd = nullptr;
+  g_primTextured = false;
+  if (b.vertices.empty()) {
+    b.bag.reset();
+    return;
+  }
+  if (!b.bag) {
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = batchInfoBag.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = nullptr;
+    b.bag->lighting = nullptr;
+  }
+  b.colorBag->many = b.colors.data();
+  b.bag->vertices = b.vertices.data();
+  b.bag->count = static_cast<u32>(b.vertices.size());
+  b.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+  if (gmat && gmat->texture) {
+    if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = gmat->texture;
+    b.texBag->coordinates = b.sts.data();
+    b.bag->texture = b.texBag.get();
+  } else {
+    b.bag->texture = nullptr;
+  }
+  // World AABB for the split-screen band cull - the batch analogue of the
+  // terrain chunks' build-time boxes.
+  b.aabbMin[0] = b.aabbMax[0] = b.vertices[0].x;
+  b.aabbMin[1] = b.aabbMax[1] = b.vertices[0].y;
+  b.aabbMin[2] = b.aabbMax[2] = b.vertices[0].z;
+  for (const Vec4& v : b.vertices) {
+    if (v.x < b.aabbMin[0]) b.aabbMin[0] = v.x;
+    if (v.x > b.aabbMax[0]) b.aabbMax[0] = v.x;
+    if (v.y < b.aabbMin[1]) b.aabbMin[1] = v.y;
+    if (v.y > b.aabbMax[1]) b.aabbMax[1] = v.y;
+    if (v.z < b.aabbMin[2]) b.aabbMin[2] = v.z;
+    if (v.z > b.aabbMax[2]) b.aabbMax[2] = v.z;
+  }
+}
+
+// Per-frame batch pass: catch changed members, rebuild whatever changed,
+// then submit. This is the correctness net for the runtime-only mutation
+// channels (Live Link edits, Raycast/custom-node latches fed into object
+// actions, global scripts) that build-time eligibility cannot rule out:
+// - a DIRTIED member (position/color/... actually mutated) is DEMOTED to
+//   the solo path for the rest of the scene - a per-frame-animated member
+//   would otherwise re-bake its whole batch every frame, which is slower
+//   than the pre-batching status quo. The batch rebuilds once without it
+//   and the solo path picks it up this same frame (its dirty stays set).
+// - a visibility/residency flip vs the shown snapshot (hide/show can skip
+//   the dirty flag) only rebuilds the batch in place - the member may well
+//   reappear, and hides are events, not per-frame animation.
+void TerrainGame::renderStaticBatches() {
+  for (StaticBatch& b : staticBatches) {
+    bool stale = b.dirty;
+    for (size_t k = 0; k < b.members.size(); ++k) {
+      const RuntimeObject& o = runtimeObjects[b.members[k]];
+      if (o.dirty) {
+        objectBatchOf[b.members[k]] = -1;  // demote: solo from now on
+        b.members.erase(b.members.begin() + (long)k);
+        b.shown.erase(b.shown.begin() + (long)k);
+        --k;
+        stale = true;
+        continue;
+      }
+      if (!stale &&
+          b.shown[k] != (unsigned char)((o.active && o.visible) ? 1 : 0))
+        stale = true;
+    }
+    if (stale) rebuildStaticBatch(b);
+    if (!b.bag || b.bag->count == 0) continue;
+    // Split halves: same band early-out the terrain chunks use.
+    if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    stapip.core.render(b.bag.get());
+  }
+}
+
+void TerrainGame::updateObjectPhysics() {
+  // GRAVITY is units/s^2; velocities are per-frame displacements.
+  const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
+  const float microBounce2 = gravityPerFrame * gravityPerFrame * 6.25F;
+  const int count = (int)runtimeObjects.size();
+
+  // Pass 1: integrate each awake body against the world (terrain, bounds,
+  // static solids - sleeping bodies included, they are static this frame).
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    // Carried/thrown objects are driven by updateCarriedObject this frame.
+    if (i == carryIndex || i == thrownIndex) continue;
+    if (!o.active || !o.data.physics) continue;
+    if (o.restFrames >= PHYS_SLEEP_FRAMES) continue;  // asleep
+
+    const GameModel* gm = nullptr;
+    const SkelModel* anim = nullptr;
+    if (o.data.type == 5) {
+      if (o.data.model >= 0 && o.data.model < (int)gameModels.size())
+        gm = &gameModels[o.data.model];
+      if (o.data.animModel >= 0 &&
+          o.data.animModel < (int)gameAnimModels.size())
+        anim = gameAnimModels[o.data.animModel].src.get();
+    }
+    float cOff[3], ext[3];
+    physExtents(o.data, gm, anim, cOff, ext);
+    const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
+    const float bounce = o.data.physBounce;
+
+    Vec4 vel(o.velocityX, o.velocityY, o.velocityZ, 0.0F);
+    vel.y -= gravityPerFrame;
+    // Terminal fall velocity, 30 u/s real time (owner-tuned: 50 read as a
+    // strobing blur in a door-sized infinite-fall loop, 15 as too floaty;
+    // PHYS_MAX_SPEED alone would allow 150).
+    const float termFall = 30.0F * g_frameDt;
+    if (vel.y < -termFall) vel.y = -termFall;
+    const float clampSp2 = vel.innerProduct(vel);
+    if (clampSp2 > PHYS_MAX_SPEED * PHYS_MAX_SPEED)
+      vel *= PHYS_MAX_SPEED / sqrtf(clampSp2);
+    Vec4 pos(o.data.position[0], o.data.position[1], o.data.position[2], 1.0F);
+    const Vec4 prevPos = pos;
+    pos += vel;
+
+    bool grounded = false;
+    Vec4 slideTan(0.0F, 0.0F, 0.0F, 0.0F);
+
+    // Terrain contact. The response uses the real slope normal (central
+    // differences on the heightfield) so bodies kick sideways off hills and
+    // slide/roll downhill instead of stopping dead inside the slope.
+    const float bottomY = pos.y + cOff[1] - ext[1];
+    float groundY = terrainHeightAt(pos.x, pos.z);
+    // Floor-portal swallowing: a body over a linked, object-teleporting floor
+    // portal ignores the terrain (see portalSwallowZone) - otherwise it rests
+    // on the ground before its center can reach the plane of a portal lying on
+    // (or near) the terrain, and never falls in.
+    for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
+      const PortalData& p = PORTALS[pi];
+      if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+      if (!portalCanCross(p, i)) continue;
+      if (p.object >= count || p.target >= count) continue;
+      RuntimeObject& m = runtimeObjects[p.object];
+      if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+      if (&o == &m || &o == &runtimeObjects[p.target]) continue;
+      // Swept, not point-sampled: a terminal-velocity faller crosses the
+      // whole approach zone between two frames and the endpoint test would
+      // let the terrain clamp stop it dead over the portal (a post-#97
+      // hitch - the old portal fall code was capped at 1 u/frame and could
+      // not tunnel).
+      if (portalSwallowSwept(m, 0.5F * m.data.scale[0] + 0.25F,
+                             0.5F * m.data.scale[1] + 0.25F, prevPos, pos)) {
+        groundY = -1e30F;
+        break;
+      }
+    }
+    if (bottomY <= groundY) {
+      pos.y += groundY - bottomY;
+      const float hs = radius > 0.35F ? radius : 0.35F;
+      Vec4 nrm(terrainHeightAt(pos.x - hs, pos.z) -
+                   terrainHeightAt(pos.x + hs, pos.z),
+               2.0F * hs,
+               terrainHeightAt(pos.x, pos.z - hs) -
+                   terrainHeightAt(pos.x, pos.z + hs),
+               0.0F);
+      nrm.normalize();
+      const float vn = vel.innerProduct(nrm);
+      if (vn < 0.0F) {
+        const Vec4 vNorm = nrm * vn;
+        Vec4 vTan = vel - vNorm;
+        vTan *= 1.0F - o.data.physFriction * 0.18F;
+        Vec4 vBounce = vNorm * -bounce;
+        // kill micro-bounces so bodies settle instead of buzzing forever
+        if (vBounce.innerProduct(vBounce) < microBounce2)
+          vBounce = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+        slideTan = vTan;
+        vel = vTan + vBounce;
+      }
+      grounded = true;
+    }
+
+    // Terrain edges are walls: reflect instead of clamping dead.
+    const float wallX = TERRAIN_WIDTH * 0.5F - 0.5F;
+    const float wallZ = TERRAIN_DEPTH * 0.5F - 0.5F;
+    if (pos.x > wallX) {
+      pos.x = wallX;
+      if (vel.x > 0.0F) vel.x = -vel.x * bounce;
+    } else if (pos.x < -wallX) {
+      pos.x = -wallX;
+      if (vel.x < 0.0F) vel.x = -vel.x * bounce;
+    }
+    if (pos.z > wallZ) {
+      pos.z = wallZ;
+      if (vel.z > 0.0F) vel.z = -vel.z * bounce;
+    } else if (pos.z < -wallZ) {
+      pos.z = -wallZ;
+      if (vel.z < 0.0F) vel.z = -vel.z * bounce;
+    }
+
+    // Static solids (and sleeping bodies): AABB vs AABB, resolved along the
+    // axis of least penetration. Crates rest on platforms, balls bounce off
+    // walls. Awake-vs-awake pairs are handled by the impulse pass below.
+    const float movedX = pos.x - prevPos.x, movedZ = pos.z - prevPos.z;
+    const bool movedXZ =
+        movedX * movedX + movedZ * movedZ > 1e-10F;
+    // Aiming into a linked opening this frame: solids fully behind that
+    // portal's plane open up for this body (the walkers' doorway rule) -
+    // without it the mounting wall bounces the body back ~r short of the
+    // crossing plane and updatePortals never sees the pierce.
+    float aimPlane[4] = {0, 0, 0, 0};
+    bool aimOn = false;
+    if (PORTAL_COUNT > 0) {
+      const float a3[3] = {prevPos.x, prevPos.y, prevPos.z};
+      // Segment end padded by the body's extent: the AABB resolution stops
+      // the CENTER ~r short of a wall at the plane, so an unpadded center
+      // segment never pierces and the doorway never opens.
+      Vec4 mv = pos - prevPos;
+      const float mvLen = sqrtf(mv.innerProduct(mv));
+      float bodyR = ext[0];
+      if (ext[1] > bodyR) bodyR = ext[1];
+      if (ext[2] > bodyR) bodyR = ext[2];
+      const float pad = mvLen > 1e-6F ? 1.0F + (bodyR + 0.1F) / mvLen : 1.0F;
+      const float b3[3] = {prevPos.x + mv.x * pad, prevPos.y + mv.y * pad,
+                           prevPos.z + mv.z * pad};
+      const int aim = portalCarryAim(a3, b3, i);
+      if (aim >= 0) {
+        const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
+        const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+        aimPlane[0] = pn.x;
+        aimPlane[1] = pn.y;
+        aimPlane[2] = pn.z;
+        aimPlane[3] = pn.x * pm.data.position[0] +
+                      pn.y * pm.data.position[1] +
+                      pn.z * pm.data.position[2];
+        aimOn = true;
+      }
+    }
+    for (int j = 0; j < count; ++j) {
+      if (j == i) continue;
+      RuntimeObject& s = runtimeObjects[j];
+      if (!s.active || !physObstacle(s.data)) continue;
+      const bool sSleeping =
+          s.data.physics && s.restFrames >= PHYS_SLEEP_FRAMES;
+      if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
+      if (aimOn) {
+        const V3 pax = rotated({1.0F, 0.0F, 0.0F}, s.data.rotation);
+        const V3 pay = rotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
+        const V3 paz = rotated({0.0F, 0.0F, 1.0F}, s.data.rotation);
+        const float re =
+            fabsf(aimPlane[0] * pax.x + aimPlane[1] * pax.y +
+                  aimPlane[2] * pax.z) *
+                0.5F * s.data.scale[0] +
+            fabsf(aimPlane[0] * pay.x + aimPlane[1] * pay.y +
+                  aimPlane[2] * pay.z) *
+                0.5F * s.data.scale[1] +
+            fabsf(aimPlane[0] * paz.x + aimPlane[1] * paz.y +
+                  aimPlane[2] * paz.z) *
+                0.5F * s.data.scale[2];
+        const float sd = aimPlane[0] * s.data.position[0] +
+                         aimPlane[1] * s.data.position[1] +
+                         aimPlane[2] * s.data.position[2] - aimPlane[3];
+        if (sd < -re + 0.1F) continue;
+      }
+
+      const GameModel* sgm = nullptr;
+      const SkelModel* sanim = nullptr;
+      if (s.data.type == 5) {
+        if (s.data.model >= 0 && s.data.model < (int)gameModels.size())
+          sgm = &gameModels[s.data.model];
+        if (s.data.animModel >= 0 &&
+            s.data.animModel < (int)gameAnimModels.size())
+          sanim = gameAnimModels[s.data.animModel].src.get();
+      }
+      float sOff[3], sExt[3];
+      physExtents(s.data, sgm, sanim, sOff, sExt);
+
+      const float dx = (s.data.position[0] + sOff[0]) - (pos.x + cOff[0]);
+      const float px = sExt[0] + ext[0] - (dx < 0.0F ? -dx : dx);
+      if (px <= 0.0F) {
+        // A sleeping body riding on this one loses its support when we slide
+        // out from under it - wake it so it falls (checked while separated
+        // in X; the Z branch below never runs for those).
+        if (sSleeping && movedXZ) {
+          const float sb = s.data.position[1] + sOff[1] - sExt[1];
+          const float myTop = prevPos.y + cOff[1] + ext[1];
+          if (sb > myTop - 0.1F && sb < myTop + 0.1F &&
+              px > -(radius + 0.2F)) {
+            s.restFrames = 0;
+            s.dirty = true;
+          }
+        }
+        continue;
+      }
+      const float dy = (s.data.position[1] + sOff[1]) - (pos.y + cOff[1]);
+      const float py = sExt[1] + ext[1] - (dy < 0.0F ? -dy : dy);
+      if (py <= 0.0F) continue;
+      const float dz = (s.data.position[2] + sOff[2]) - (pos.z + cOff[2]);
+      const float pz = sExt[2] + ext[2] - (dz < 0.0F ? -dz : dz);
+      if (pz <= 0.0F) continue;
+
+      if (sSleeping && movedXZ) {
+        // still overlapping in XZ but sliding: keep the rider awake too
+        const float sb = s.data.position[1] + sOff[1] - sExt[1];
+        const float myTop = pos.y + cOff[1] + ext[1];
+        if (sb > myTop - 0.1F && sb < myTop + 0.1F) s.restFrames = 0;
+      }
+
+      if (py <= px && py <= pz) {
+        const float dir = dy > 0.0F ? -1.0F : 1.0F;  // push away from s
+        pos.y += dir * py;
+        if (vel.y * dir < 0.0F) {
+          vel.y = -vel.y * bounce;
+          if (vel.y * vel.y < microBounce2) vel.y = 0.0F;
+          if (dir > 0.0F) {  // landed on top of s
+            grounded = true;
+            slideTan = Vec4(vel.x, 0.0F, vel.z, 0.0F);
+            vel.x *= 1.0F - o.data.physFriction * 0.18F;
+            vel.z *= 1.0F - o.data.physFriction * 0.18F;
+          }
+        }
+      } else if (px <= pz) {
+        const float dir = dx > 0.0F ? -1.0F : 1.0F;
+        pos.x += dir * px;
+        if (vel.x * dir < 0.0F) vel.x = -vel.x * bounce;
+      } else {
+        const float dir = dz > 0.0F ? -1.0F : 1.0F;
+        pos.z += dir * pz;
+        if (vel.z * dir < 0.0F) vel.z = -vel.z * bounce;
+      }
+    }
+
+    // Tumble: rolling without slipping (w = v / r) about the horizontal axis
+    // perpendicular to the slide direction; friction bleeds it off with the
+    // slide itself. Euler-added per axis - visually right, era-appropriate.
+    if (o.data.physTumble) {
+      if (grounded) {
+        const float ts2 = slideTan.innerProduct(slideTan);
+        if (ts2 > 1e-8F) {
+          const float ts = sqrtf(ts2);
+          const float r = radius > 0.05F ? radius : 0.05F;
+          const float degPerFrame = ts / r * 57.29578F;
+          o.spin[0] = -slideTan.z / ts * degPerFrame;
+          o.spin[2] = slideTan.x / ts * degPerFrame;
+        } else {
+          o.spin[0] *= 0.8F;
+          o.spin[1] *= 0.8F;
+          o.spin[2] *= 0.8F;
+        }
+      } else {
+        for (int a = 0; a < 3; ++a) o.spin[a] *= 0.995F;  // air drag
+      }
+    }
+
+    // Rest bookkeeping: near-still on the ground long enough -> sleep.
+    const float speed2 = vel.innerProduct(vel);
+    const float spinMag =
+        fabsf(o.spin[0]) + fabsf(o.spin[1]) + fabsf(o.spin[2]);
+    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN) {
+      if (o.restFrames < PHYS_SLEEP_FRAMES) ++o.restFrames;
+      if (o.restFrames >= PHYS_SLEEP_FRAMES) {
+        vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+        o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
+        // settle: one world-space rebuild restores rest-pose shading and
+        // hands the vertex arrays back to the world-space consumers
+        if (objectGeometry[i].matrixMode) o.dirty = true;
+      }
+    } else {
+      o.restFrames = 0;
+    }
+
+    // Write back; rebuild geometry only when the transform actually changed.
+    const float dPos = fabsf(pos.x - o.data.position[0]) +
+                       fabsf(pos.y - o.data.position[1]) +
+                       fabsf(pos.z - o.data.position[2]);
+    o.data.position[0] = pos.x;
+    o.data.position[1] = pos.y;
+    o.data.position[2] = pos.z;
+    o.velocityX = vel.x;
+    o.velocityY = vel.y;
+    o.velocityZ = vel.z;
+    if (spinMag > 0.001F) {
+      for (int a = 0; a < 3; ++a) {
+        o.data.rotation[a] += o.spin[a];
+        if (o.data.rotation[a] > 360.0F) o.data.rotation[a] -= 720.0F;
+        if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
+      }
+    }
+    if (dPos > 1e-5F || spinMag > 0.001F) {
+      // Moving: eligible bodies get ONE local-space bake and ride objMat
+      // from then on (refreshed in renderScene - no EE re-bake per frame);
+      // the rest fall back to the legacy world-space rebuild.
+      ObjectGeometry& g = objectGeometry[i];
+      if (!g.matrixMode && !o.dirty && physFastPathEligible(i))
+        rebuildObjectGeometry(i, true);
+      if (!g.matrixMode) o.dirty = true;
+    }
+  }
+
+  // Pass 2: momentum exchange between bodies. Upright-cylinder contacts (XZ
+  // circle + Y interval) resolved along the axis of least penetration,
+  // impulses split by mass; hitting a sleeping body wakes it. Pairs where
+  // both sleep are skipped, so settled stacks stay free.
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& a = runtimeObjects[i];
+    if (i == carryIndex || i == thrownIndex) continue;  // driven by the carry
+    if (!a.active || !a.data.physics || !physObstacle(a.data)) continue;
+    for (int j = i + 1; j < count; ++j) {
+      RuntimeObject& b = runtimeObjects[j];
+      if (j == carryIndex || j == thrownIndex) continue;
+      if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;
+      if (a.restFrames >= PHYS_SLEEP_FRAMES &&
+          b.restFrames >= PHYS_SLEEP_FRAMES)
+        continue;
+
+      float aOff[3], aExt[3], bOff[3], bExt[3];
+      const GameModel* gm = nullptr;
+      const SkelModel* anim = nullptr;
+      if (a.data.type == 5) {
+        if (a.data.model >= 0 && a.data.model < (int)gameModels.size())
+          gm = &gameModels[a.data.model];
+        if (a.data.animModel >= 0 &&
+            a.data.animModel < (int)gameAnimModels.size())
+          anim = gameAnimModels[a.data.animModel].src.get();
+      }
+      physExtents(a.data, gm, anim, aOff, aExt);
+      gm = nullptr;
+      anim = nullptr;
+      if (b.data.type == 5) {
+        if (b.data.model >= 0 && b.data.model < (int)gameModels.size())
+          gm = &gameModels[b.data.model];
+        if (b.data.animModel >= 0 &&
+            b.data.animModel < (int)gameAnimModels.size())
+          anim = gameAnimModels[b.data.animModel].src.get();
+      }
+      physExtents(b.data, gm, anim, bOff, bExt);
+
+      const float dy = (b.data.position[1] + bOff[1]) -
+                       (a.data.position[1] + aOff[1]);
+      const float ph = aExt[1] + bExt[1] - (dy < 0.0F ? -dy : dy);
+      if (ph <= 0.0F) continue;
+      const float rA = aExt[0] > aExt[2] ? aExt[0] : aExt[2];
+      const float rB = bExt[0] > bExt[2] ? bExt[0] : bExt[2];
+      float dx = b.data.position[0] - a.data.position[0];
+      float dz = b.data.position[2] - a.data.position[2];
+      const float d2 = dx * dx + dz * dz;
+      const float rSum = rA + rB;
+      if (d2 >= rSum * rSum) continue;
+
+      const float invMa = 1.0F / (a.data.physMass < 0.05F ? 0.05F : a.data.physMass);
+      const float invMb = 1.0F / (b.data.physMass < 0.05F ? 0.05F : b.data.physMass);
+      const float invSum = invMa + invMb;
+      const float e = a.data.physBounce > b.data.physBounce ? a.data.physBounce
+                                                            : b.data.physBounce;
+      const float dist = sqrtf(d2 > 1e-8F ? d2 : 1e-8F);
+      const float pr = rSum - dist;
+
+      float nx, ny, nz;  // contact normal, a -> b
+      float pen;
+      if (ph < pr) {  // vertical contact (landing on / popping out from under)
+        nx = 0.0F;
+        ny = dy >= 0.0F ? 1.0F : -1.0F;
+        nz = 0.0F;
+        pen = ph;
+      } else {  // side contact
+        if (d2 > 1e-8F) {
+          nx = dx / dist;
+          nz = dz / dist;
+        } else {  // dead center overlap: split along X deterministically
+          nx = 1.0F;
+          nz = 0.0F;
+        }
+        ny = 0.0F;
+        pen = pr;
+      }
+
+      // separate the pair, then trade momentum along the normal
+      const float sepA = pen * (invMa / invSum), sepB = pen * (invMb / invSum);
+      a.data.position[0] -= nx * sepA;
+      a.data.position[1] -= ny * sepA;
+      a.data.position[2] -= nz * sepA;
+      b.data.position[0] += nx * sepB;
+      b.data.position[1] += ny * sepB;
+      b.data.position[2] += nz * sepB;
+
+      const float relN = (b.velocityX - a.velocityX) * nx +
+                         (b.velocityY - a.velocityY) * ny +
+                         (b.velocityZ - a.velocityZ) * nz;
+      if (relN < 0.0F) {  // approaching
+        const float jImp = -(1.0F + e) * relN / invSum;
+        a.velocityX -= nx * jImp * invMa;
+        a.velocityY -= ny * jImp * invMa;
+        a.velocityZ -= nz * jImp * invMa;
+        b.velocityX += nx * jImp * invMb;
+        b.velocityY += ny * jImp * invMb;
+        b.velocityZ += nz * jImp * invMb;
+      }
+      a.restFrames = 0;
+      b.restFrames = 0;
+      // Fast-path bodies pick the separation up through objMat next render;
+      // forcing dirty would throw away their local bake every contact frame.
+      if (!objectGeometry[i].matrixMode) a.dirty = true;
+      if (!objectGeometry[j].matrixMode) b.dirty = true;
+    }
+  }
+}
+
+void TerrainGame::pushPhysicsBodies(float prevX, float prevZ, float nextX,
+                                    float nextZ, float feetY,
+                                    float eyeHeight) {
+  const float mx = nextX - prevX, mz = nextZ - prevZ;
+  const float m2 = mx * mx + mz * mz;
+  if (m2 < 1e-10F) return;
+  const int count = (int)runtimeObjects.size();
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.data.physics || !physObstacle(o.data)) continue;
+
+    const GameModel* gm = nullptr;
+    const SkelModel* anim = nullptr;
+    if (o.data.type == 5) {
+      if (o.data.model >= 0 && o.data.model < (int)gameModels.size())
+        gm = &gameModels[o.data.model];
+      if (o.data.animModel >= 0 &&
+          o.data.animModel < (int)gameAnimModels.size())
+        anim = gameAnimModels[o.data.animModel].src.get();
+    }
+    float cOff[3], ext[3];
+    physExtents(o.data, gm, anim, cOff, ext);
+
+    // capsule overlap in Y (a body under our feet is floor, not a shove)
+    const float top = o.data.position[1] + cOff[1] + ext[1];
+    const float bottom = o.data.position[1] + cOff[1] - ext[1];
+    if (bottom > feetY + eyeHeight || top < feetY + 0.15F) continue;
+
+    const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
+    const float dx = o.data.position[0] - nextX;
+    const float dz = o.data.position[2] - nextZ;
+    const float reach = radius + 0.45F;  // player radius + a skin
+    const float d2 = dx * dx + dz * dz;
+    if (d2 > reach * reach) continue;
+    if (dx * mx + dz * mz <= 0.0F) continue;  // walking away from it
+
+    const float inv = 1.0F / sqrtf(d2 > 1e-8F ? d2 : 1e-8F);
+    const float mass = o.data.physMass < 0.05F ? 0.05F : o.data.physMass;
+    const float push = sqrtf(m2) * PHYS_PUSH / mass;
+    o.velocityX += dx * inv * push;
+    o.velocityZ += dz * inv * push;
+    o.restFrames = 0;  // velocity-only change: the physics pass moves it
   }
 }
 
@@ -5217,6 +7544,10 @@ void TerrainGame::renderScene() {
   // deferred usable bodies, timed separately below). Folded away entirely
   // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
   const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+  // Split halves: bound the visible vertical band once per pass; the chunk
+  // and static-object submissions below early-out against it.
+  splitBandActive = splitPassActive;
+  if (splitBandActive) computeSplitBand();
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
@@ -5260,7 +7591,10 @@ void TerrainGame::renderScene() {
   // couple of ms per hit on real hardware.
   static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
   envMapTick = !envMapTick;
-  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+  // Not inside a split half: the env bracket's end() restores a full-screen
+  // raster, which would undo the half's scissor/offset. Reflections keep the
+  // last rendered map while split-screen is active.
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
     skyMat.identity();
     skyMat.data[12] = cameraPosition.x;
@@ -5305,12 +7639,20 @@ void TerrainGame::renderScene() {
         if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
       }
       if (ro.dirty) rebuildObjectGeometry(ri);
+      if (objectGeometry[ri].matrixMode) updateObjMat(ri);
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag) stapip.core.render(part.bag.get());
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
     core.envMap.end();
   }
+
+  // Portal through-view: rendered IN-PLACE into the real framebuffer at
+  // full resolution, every frame (the view must stay in lockstep with the
+  // player camera or the surface visibly lags). Must run right after the
+  // frame clear, before any main-scene 3D - the z-carved opening survives
+  // the main scene drawing around it (see renderPortalView).
+  renderPortalView();
 
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
@@ -5326,8 +7668,20 @@ void TerrainGame::renderScene() {
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
   // before any packaging or clipping work happens.
-  updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
+  // One streaming update per FRAME (the split's second pass reuses it) with
+  // player 2's avatar as a second focus while active - each player keeps the
+  // terrain around them resident even when the pair walks apart.
+  if (!splitSecondPass) {
+    const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
+    updateTerrainChunks(cameraLookAt.x, cameraLookAt.z,
+                        p2Focus ? players[1].x : 0.0F,
+                        p2Focus ? players[1].z : 0.0F, p2Focus, 2);
+  }
   renderTerrain();
+  // Static batches: one submit per material x cell group of the non-moving
+  // primitives (rebuilt first when a member changed). Opaque z-tested
+  // geometry, so drawing before the solo objects is order-free.
+  renderStaticBatches();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -5350,13 +7704,25 @@ void TerrainGame::renderScene() {
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
+    // Batched members render via renderStaticBatches above; their dirty flag
+    // is consumed by the batch rebuild, never by the solo path.
+    if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Fast-path bodies: this matrix refresh is their whole per-frame render
+    // cost - it also folds in pass-2 separations and player pushes applied
+    // after the physics integration wrote the matrix.
+    if (objectGeometry[i].matrixMode) updateObjMat(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // Split halves: whole objects above/below the visible band skip here.
+    if (splitBandActive && objectOutsideSplitBand(i)) continue;
     // mirrors draw after the scene (copies first, then the blended glass -
     // see renderMirrors); drawing the quad here would z-write the plane and
-    // reject the reflected geometry behind it
-    if (runtimeObjects[i].data.type == 15) continue;
+    // reject the reflected geometry behind it. Portals blend their tinted
+    // surface after the scene too (renderPortals), with the live
+    // through-view projected over it.
+    if (runtimeObjects[i].data.type == 15 || runtimeObjects[i].data.type == 16)
+      continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -5378,6 +7744,10 @@ void TerrainGame::renderScene() {
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   renderMirrors();
+  // Portals after the mirrors: tinted quads blended over the finished
+  // scene, then the live through-view projected onto the winner's surface
+  // (z-tested against the scene, so walls still occlude the portal).
+  renderPortals();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -5410,8 +7780,32 @@ void TerrainGame::renderScene() {
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }
-  // particles last - alpha blended over the scene
+  // particles last - alpha blended over the scene. The second split half
+  // re-faces the quads at ITS camera first - billboards built during the
+  // simulation face player 1's view.
   const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+  // The split's second half re-aims the billboard basis at ITS camera
+  // before submitting - centers are view-independent, so two Vec4 writes
+  // per system replace any re-simulation (the portal through-view trick).
+  if (splitSecondPass && !particles.empty()) {
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+    if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+    float rx = fwd.z, rz = -fwd.x;
+    const float rl = sqrtf(rx * rx + rz * rz);
+    if (rl > 0.0001F) rx /= rl, rz /= rl;
+    else rx = 1.0F, rz = 0.0F;
+    const float ux = -rz * fwd.y;
+    const float uy = rz * fwd.x - rx * fwd.z;
+    const float uz = rx * fwd.y;
+    for (ParticleSystem& ps : particles) {
+      if (!ps.bag || ps.bag->count == 0) continue;
+      const int kind = runtimeObjects[ps.objectIndex].data.emitKind;
+      ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+      ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                      : Vec4(ux, uy, uz, 0.0F);
+    }
+  }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
@@ -5491,11 +7885,14 @@ void TerrainGame::renderMirroredObject(int index) {
   if (!o.active || !o.visible || o.data.type == 15) return;
   if (beyondDrawDistance(o.data, cameraPosition)) return;
   ObjectGeometry& g = objectGeometry[index];
+  // Fast-path bodies hold local vertices under objMat - the copy composes
+  // reflection * objMat, exactly like the animated path right below.
+  if (g.matrixMode) mirrorObjMat = mirrorMat * g.objMat;
   for (GeoPart& part : g.parts) {
     if (!part.bag) continue;
-    part.infoBag->model = &mirrorMat;
+    part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
     stapip.core.render(part.bag.get());
-    part.infoBag->model = &model;
+    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
     // The anim bags point at whatever updateAndRenderAnimObjects last
@@ -5507,6 +7904,968 @@ void TerrainGame::renderMirroredObject(int index) {
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
+}
+
+// Portal objects (type 16): a PS2-honest take on the seamless portal. The
+// through-view is a real second render - the player camera mapped through
+// the pair (so it is always in sync with the player's), drawn into the
+// engine's 128x128 portal VRAM target through the normal VU1 static
+// pipeline (transform/clip on VU1, camera math on the VU0-macro Vec4/M4x4
+// ops). The surface then samples that target with SCREEN-LOCKED UVs: since
+// the virtual camera shares the main camera's fov/aspect, the destination
+// appears in the target exactly where the portal quad sits on screen, so
+// sampling at the fragment's own screen position yields correct
+// parallax - no reprojection per pixel, just one textured fan. Budget: ONE
+// portal view per frame (the nearest linked portal the camera faces);
+// every other portal shows its tinted quad. The teleport (updatePortals)
+// uses the same mapping, so what you see through the surface is exactly
+// where you arrive.
+
+// The player camera mapped through the portal pair: world -> source local
+// frame -> 180 deg flip about local Y (walk INTO the front, come OUT of the
+// target's front) -> target frame -> world.
+bool TerrainGame::portalCamera(int pi, Vec4* outEye, Vec4* outAt) {
+  const PortalData& p = PORTALS[pi];
+  if (p.target < 0 || p.target >= (int)runtimeObjects.size()) return false;
+  RuntimeObject& src = runtimeObjects[p.object];
+  RuntimeObject& dst = runtimeObjects[p.target];
+  if (!dst.active) return false;
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, src.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, src.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, src.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, dst.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, dst.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, dst.data.rotation);
+  auto mapPoint = [&](const Vec4& wp, Vec4* out) {
+    const float rx = wp.x - src.data.position[0];
+    const float ry = wp.y - src.data.position[1];
+    const float rz = wp.z - src.data.position[2];
+    // R^T: project onto the source axes (they are orthonormal)
+    float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+    const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+    float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    lx = -lx;  // the 180 deg flip about local Y
+    lz = -lz;
+    out->set(dst.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz,
+             dst.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz,
+             dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz,
+             1.0F);
+  };
+  mapPoint(cameraPosition, outEye);
+  mapPoint(cameraLookAt, outAt);
+  return true;
+}
+
+// Render the through-view of the best on-screen portal IN-PLACE: full-res
+// into the real framebuffer, right after the frame clear and before any
+// main-scene 3D. The GS has no stencil, so the shaped opening is carved
+// with the z-buffer instead (RendererCore::portalViewBegin/End): the
+// destination view renders scissored to the quad's screen bbox, then the
+// bbox depths are re-farred, the quad interior is capped at the surface
+// depth (walls in front still occlude the view, the wall behind loses) and
+// the spilled ring outside the opening is repainted with the clear color.
+// The main scene then draws around it and the opening survives - crisp,
+// no texture resample, no seam. Content = sky dome + terrain (portal's
+// showTerrain flag) plus the explicit view-object list - the Mirror
+// philosophy: the second-render cost is always visible to the author.
+// Animated targets re-use their last skinned pose (skinning runs later in
+// the frame).
+void TerrainGame::renderPortalView() {
+  if ((int)portalLiveFlags.size() != PORTAL_COUNT)
+    portalLiveFlags.assign(PORTAL_COUNT ? PORTAL_COUNT : 1, 0);
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) portalLiveFlags[pi] = 0;
+  if (PORTAL_COUNT == 0) return;
+  // Collect the qualifying portals (linked, alive, camera on the front
+  // side), nearest-first, and render up to four views. Carve order is
+  // FARTHEST first: where two openings overlap on screen, the nearer
+  // portal's bbox re-clears the farther's work and wins - the same rule
+  // real occlusion would give.
+  const int kMaxViews = 4;
+  int order[8];
+  float d2s[8];
+  int cnt = 0;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    if (p.target >= (int)runtimeObjects.size() ||
+        !runtimeObjects[p.target].active)
+      continue;
+    // camera must be on the front (+Z) side - the back face never shows a view
+    const V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    if (relX * n.x + relY * n.y + relZ * n.z <= 0.0F) continue;
+    const float d2 = relX * relX + relY * relY + relZ * relZ;
+    // bounded shortlist (no allocation): keep the 8 nearest candidates
+    if (cnt < 8) {
+      order[cnt] = pi;
+      d2s[cnt] = d2;
+      ++cnt;
+    } else {
+      int worst = 0;
+      for (int i = 1; i < 8; ++i)
+        if (d2s[i] > d2s[worst]) worst = i;
+      if (d2 < d2s[worst]) {
+        order[worst] = pi;
+        d2s[worst] = d2;
+      }
+    }
+  }
+  if (cnt == 0) return;
+  for (int a = 0; a < cnt; ++a)  // nearest-first
+    for (int b = a + 1; b < cnt; ++b)
+      if (d2s[b] < d2s[a]) {
+        const float td = d2s[a];
+        d2s[a] = d2s[b];
+        d2s[b] = td;
+        const int ti = order[a];
+        order[a] = order[b];
+        order[b] = ti;
+      }
+  const int views = cnt < kMaxViews ? cnt : kMaxViews;
+  for (int v = views - 1; v >= 0; --v) {  // farthest of the selected first
+    if (renderOnePortalView(order[v])) portalLiveFlags[order[v]] = 1;
+  }
+}
+
+// One in-place through-view. Returns true when the opening was actually
+// carved (the quad survived the frustum clip and its bbox is on screen).
+bool TerrainGame::renderOnePortalView(int pi) {
+  Vec4 eye, at;
+  if (!portalCamera(pi, &eye, &at)) return false;
+  const PortalData& p = PORTALS[pi];
+  RuntimeObject& m = runtimeObjects[p.object];
+
+  // The quad's screen footprint under the MAIN camera. Corners on the same
+  // +Z-nudged plane as the tint quad (addDecal's 0.02 local nudge), clipped
+  // in clip space against the near plane and the four screen edges
+  // (Sutherland-Hodgman, <=9 verts - a handful of flops on the EE), then
+  // projected to GS screen coordinates and reversed-z depths (the same
+  // mapping the VU1 path writes: near -> 0xFFFFFF).
+  const V3 ax = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ay = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const V3 az = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const float hx = 0.5F * m.data.scale[0];
+  const float hy = 0.5F * m.data.scale[1];
+  const float nz = 0.02F * m.data.scale[2];
+  const float cx = m.data.position[0] + az.x * nz;
+  const float cy = m.data.position[1] + az.y * nz;
+  const float cz = m.data.position[2] + az.z * nz;
+  const float sgnX[4] = {-1.0F, 1.0F, 1.0F, -1.0F};
+  const float sgnY[4] = {-1.0F, -1.0F, 1.0F, 1.0F};
+  const float fbW = engine->renderer.core.getSettings().getWidth();
+  const float fbH = engine->renderer.core.getSettings().getRenderHeightF();
+  // Heights above are RASTER heights: with field rendering
+  // (InterlacedField) the buffer is half height and the projection's
+  // raster scale is built at getRenderHeightF - screen-space math here
+  // must match it (getHeight would land the mask a field off).
+
+  float xy[24];
+  u32 zz[12];
+  int n = 0;
+  int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+
+  // "Looking into the opening from close, roughly head-on" - the gate for
+  // the last-resort full-screen crossing mask below (used only on the one
+  // frame the eye is on the surface and the fan degenerates; see there).
+  bool zone = false;
+  {
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    const float lz = relX * az.x + relY * az.y + relZ * az.z;
+    const float lx = relX * ax.x + relY * ax.y + relZ * ax.z;
+    const float ly = relX * ay.x + relY * ay.y + relZ * ay.z;
+    const float thresh =
+        engine->renderer.core.getSettings().getNear() * 2.0F + 0.45F;
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
+    zone = lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
+           ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F;
+  }
+
+  bool carved = false;
+  {
+    const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
+    Vec4 poly[12], tmp[12];
+    n = 4;
+    for (int i = 0; i < 4; ++i) {
+      const float wx = cx + ax.x * hx * sgnX[i] + ay.x * hy * sgnY[i];
+      const float wy = cy + ax.y * hx * sgnX[i] + ay.y * hy * sgnY[i];
+      const float wz = cz + ax.z * hx * sgnX[i] + ay.z * hy * sgnY[i];
+      poly[i] = vp * Vec4(wx, wy, wz, 1.0F);
+    }
+    // Frustum edges sit at |x| = w * screenW/4096 in this projection (the
+    // VU1 pipeline's fixed 2048 scale), NOT at |x| = w; small margin - the
+    // GS scissor finishes the job.
+    const float xl = fbW / 4096.0F * 1.06F;
+    const float yl = fbH / 4096.0F * 1.06F;
+    const float wMin = engine->renderer.core.getSettings().getNear() * 0.5F;
+    for (int plane = 0; plane < 5 && n >= 3; ++plane) {
+      auto dist = [&](const Vec4& v) -> float {
+        switch (plane) {
+          case 0: return v.w - wMin;
+          case 1: return xl * v.w - v.x;
+          case 2: return xl * v.w + v.x;
+          case 3: return yl * v.w - v.y;
+          default: return yl * v.w + v.y;
+        }
+      };
+      int outN = 0;
+      for (int i = 0; i < n; ++i) {
+        const Vec4& a = poly[i];
+        const Vec4& b = poly[(i + 1) % n];
+        const float da = dist(a);
+        const float db = dist(b);
+        if (da >= 0.0F) tmp[outN++] = a;
+        if ((da >= 0.0F) != (db >= 0.0F)) {
+          const float t = da / (da - db);
+          tmp[outN++] = Vec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                             a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+        }
+      }
+      n = outN;
+      for (int i = 0; i < n; ++i) poly[i] = tmp[i];
+    }
+    if (n >= 3) {
+      float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
+      for (int i = 0; i < n; ++i) {
+        const float inv = 1.0F / poly[i].w;
+        const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
+        const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
+        xy[i * 2] = sx;
+        xy[i * 2 + 1] = sy;
+        if (sx < minX) minX = sx;
+        if (sx > maxX) maxX = sx;
+        if (sy < minY) minY = sy;
+        if (sy > maxY) maxY = sy;
+        float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+        if (zf < 0.0F) zf = 0.0F;
+        if (zf > 16777215.0F) zf = 16777215.0F;
+        zz[i] = (u32)zf;
+      }
+      bx0 = (int)minX;
+      by0 = (int)minY;
+      bx1 = (int)maxX + 1;
+      by1 = (int)maxY + 1;
+      carved = !(bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH);
+    }
+  }
+
+  // Full-screen crossing mask: ONLY as a last resort, when the eye is so
+  // close to the surface that the clipped fan has degenerated (`!carved`) -
+  // there is no valid opening polygon to carve, so the destination fills the
+  // screen for that single frame right at the plane (the walker teleports
+  // the same instant). Every approach frame keeps a valid fan, so the crisp
+  // carved WINDOW is used and the mounting wall stays drawn AROUND it - the
+  // full mask paints the whole screen with the destination and erases that
+  // wall, breaking the illusion (owner: "the wall disappears"). Gating it on
+  // fan-degeneracy alone keeps that to the one unavoidable frame instead of
+  // the whole near approach.
+  if (zone && !carved) {
+    n = 4;
+    xy[0] = 0.0F;
+    xy[1] = 0.0F;
+    xy[2] = fbW;
+    xy[3] = 0.0F;
+    xy[4] = fbW;
+    xy[5] = fbH;
+    xy[6] = 0.0F;
+    xy[7] = fbH;
+    for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
+    bx0 = 0;
+    by0 = 0;
+    bx1 = (int)fbW;
+    by1 = (int)fbH;
+  } else if (!carved) {
+    return false;
+  }
+
+  // Dead zone: the virtual camera sits BEHIND the exit plane (the
+  // isometry puts it there), and the PS2 has no oblique near plane to
+  // clip what lies between the two - through a real hole that region is
+  // invisible. Terrain chunks (renderTerrain) and view objects fully on
+  // the camera side of the target plane are skipped.
+  RuntimeObject& tgt = runtimeObjects[p.target];
+  const V3 exitN = rotated({0.0F, 0.0F, 1.0F}, tgt.data.rotation);
+  const float exitD = exitN.x * tgt.data.position[0] +
+                      exitN.y * tgt.data.position[1] +
+                      exitN.z * tgt.data.position[2];
+  portalExitPlane[0] = exitN.x;
+  portalExitPlane[1] = exitN.y;
+  portalExitPlane[2] = exitN.z;
+  portalExitPlane[3] = exitD;
+  portalExitPlaneOn = true;
+
+  auto& core = engine->renderer.core;
+  core.portalViewBegin(bx0, by0, bx1, by1);
+  // Same projection as the screen, only the view swaps to the virtual
+  // camera - the destination lands exactly where the opening is.
+  core.renderer3D.pushPortalView(eye, at);
+  if (p.showTerrain) {
+    if (skyDome.bag) {
+      // dome parked on the VIRTUAL eye; the main pass re-centers it after
+      skyMat.identity();
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      stapip.core.render(skyDome.bag.get());
+    }
+    // resident chunks only - the streaming ring follows the MAIN camera, so
+    // with terrain streaming on, keep the pair inside the streamed radius
+    renderTerrain();
+  }
+  // Billboard basis for THIS view: particles are camera-facing quads
+  // whose centers are view-independent, so the same bags redraw for the
+  // virtual camera once right/up are swapped (the VU1 billboard program
+  // reads them per mesh - see updateParticles). Rain (kind 4) keeps
+  // world-up like the main pass. Each emitter's basis is restored to what
+  // it held (the main-camera basis updateParticles set) right after its
+  // draw, so the frame's final main-pass particle render is unaffected.
+  Vec4 pvFwd = at - eye;
+  {
+    const float l = sqrtf(pvFwd.x * pvFwd.x + pvFwd.y * pvFwd.y +
+                          pvFwd.z * pvFwd.z);
+    if (l > 0.0001F) pvFwd.x /= l, pvFwd.y /= l, pvFwd.z /= l;
+  }
+  float pvRx = pvFwd.z, pvRz = -pvFwd.x;
+  {
+    const float l = sqrtf(pvRx * pvRx + pvRz * pvRz);
+    if (l > 0.0001F) pvRx /= l, pvRz /= l;
+    else pvRx = 1.0F, pvRz = 0.0F;
+  }
+  const Vec4 pvRight(pvRx, 0.0F, pvRz, 0.0F);
+  const Vec4 pvUp(-pvRz * pvFwd.y, pvRz * pvFwd.x - pvRx * pvFwd.z,
+                  pvRx * pvFwd.y, 0.0F);
+
+  // One view object: base bags + (animated) last skinned pose + (emitter)
+  // its particle billboards under the virtual basis. No portal-in-portal:
+  // the recursion would re-carve the very opening being rendered (mirrors
+  // draw only their glass here - the reflected copies are a main-pass
+  // trick that would need its own bracket).
+  auto renderViewObject = [&](int ti) {
+    if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
+    RuntimeObject& ro = runtimeObjects[ti];
+    if (!ro.active || !ro.visible || ro.data.type == 16) return;
+    {
+      // Skip objects entirely behind the exit mouth (dead zone above).
+      // The extent along the plane normal is the exact OBB projection -
+      // a crude max-axis radius made a WIDE thin wall count as "reaching
+      // through" its own thickness (a wall the target portal is mounted
+      // on filled the whole view with its backside; owner report). The
+      // 0.1 slack keeps a flush-mounted wall (portal quad nudged 0.02 in
+      // front of it) classified as behind; geometry genuinely poking
+      // through the plane still renders.
+      const V3 oax = rotated({1.0F, 0.0F, 0.0F}, ro.data.rotation);
+      const V3 oay = rotated({0.0F, 1.0F, 0.0F}, ro.data.rotation);
+      const V3 oaz = rotated({0.0F, 0.0F, 1.0F}, ro.data.rotation);
+      const float r =
+          fabsf(exitN.x * oax.x + exitN.y * oax.y + exitN.z * oax.z) * 0.5F *
+              ro.data.scale[0] +
+          fabsf(exitN.x * oay.x + exitN.y * oay.y + exitN.z * oay.z) * 0.5F *
+              ro.data.scale[1] +
+          fabsf(exitN.x * oaz.x + exitN.y * oaz.y + exitN.z * oaz.z) * 0.5F *
+              ro.data.scale[2];
+      const float sd = exitN.x * ro.data.position[0] +
+                       exitN.y * ro.data.position[1] +
+                       exitN.z * ro.data.position[2] - exitD;
+      if (sd < -r + 0.1F) return;
+    }
+    if (ro.data.type == 7) {
+      // Emitter: redraw its live particle billboards from the virtual
+      // camera. Centers are view-independent; only right/up change.
+      for (ParticleSystem& ps : particles) {
+        if (ps.objectIndex != ti || !ps.bag || ps.bag->count == 0) continue;
+        const Vec4 savedR = ps.billboardBag->right;
+        const Vec4 savedU = ps.billboardBag->up;
+        ps.billboardBag->right = pvRight;
+        ps.billboardBag->up = ro.data.emitKind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                                    : pvUp;
+        stapip.core.render(ps.bag.get());
+        ps.billboardBag->right = savedR;  // main pass draws these again later
+        ps.billboardBag->up = savedU;
+      }
+      return;  // emitters have no geometry/anim parts
+    }
+    const bool batched =
+        ti < (int)objectBatchOf.size() && objectBatchOf[ti] >= 0;
+    if (batched) {
+      // Batched member: its geometry lives only in the merged batch bag,
+      // and a merged bag cannot skip the members behind the exit plane -
+      // submitting whole batches here painted the mounting wall's backside
+      // across the through-view (owner report; the batch AABB spans a
+      // whole grouping cell, so the plane test never rejected it). Solo
+      // bake on first use instead and let the per-object dead zone above
+      // do its work. A DIRTY member is left alone: rebuildObjectGeometry
+      // consumes the flag renderStaticBatches keys its demotion on (the
+      // portal pass runs before it in the frame); demotion rebuilds the
+      // solo bag this same frame and the next live view picks it up.
+      if (objectGeometry[ti].parts.empty() && !ro.dirty)
+        rebuildObjectGeometry(ti);
+    } else if (ro.dirty) {
+      rebuildObjectGeometry(ti);
+    }
+    ObjectGeometry& g = objectGeometry[ti];
+    for (GeoPart& part : g.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (g.animInfoBag)
+      for (ObjectGeometry::AnimPart& ap : g.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  };
+  // Two-sided carry: if the object in the hands is passing through THIS
+  // portal, its through-view draws it mapped to the FAR side - the half that
+  // has gone through the opening, coming out the exit. The main pass draws
+  // the near half at the real position and the z-cap clips whatever lay past
+  // the surface, so the two halves meet at the plane and the object reads as
+  // physically passing through (renderViewObject's exit-plane dead zone
+  // keeps the mapped copy hidden until the object's centre actually reaches
+  // the surface, so it appears only as it emerges).
+  const bool drawCarryFar = carryPortalPi == pi && carryIndex >= 0 &&
+                            carryIndex < (int)runtimeObjects.size();
+  float savedCarry[3];
+  if (drawCarryFar) {
+    RuntimeObject& co = runtimeObjects[carryIndex];
+    savedCarry[0] = co.data.position[0];
+    savedCarry[1] = co.data.position[1];
+    savedCarry[2] = co.data.position[2];
+    portalMapPoint(pi, co.data.position[0], co.data.position[1],
+                   co.data.position[2]);
+    co.dirty = true;  // rebuild at the mapped position for this view
+  }
+  if (p.viewAll) {
+    // Experimental "all objects in view": submit the whole scene a second
+    // time. The pushed frustum planes classify every bag against the
+    // VIRTUAL camera (off-view geometry drops EE-side before packaging)
+    // and draw distances are measured from the virtual eye, so the real
+    // cost is what the destination actually sees - still, big scenes pay
+    // for this; the authored list stays the shipping-quality default.
+    // Batched members are handled inside renderViewObject (solo bake on
+    // first use) - NOT by submitting the merged batch bags: a merged bag
+    // cannot drop just the members behind the exit plane, and the batch
+    // AABB spans its whole grouping cell, so a whole-bag plane test never
+    // fires - the wall the target portal is mounted on filled the view
+    // with its backside.
+    for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
+      if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
+      if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;
+      renderViewObject(ti);
+    }
+  } else {
+    // drawCarryFar implies carryIndex is on this list (portalShowsObject),
+    // so the loop already renders the mapped far half.
+    for (int v = 0; v < p.viewCount; ++v)
+      renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
+  }
+  if (drawCarryFar) {
+    RuntimeObject& co = runtimeObjects[carryIndex];
+    co.data.position[0] = savedCarry[0];
+    co.data.position[1] = savedCarry[1];
+    co.data.position[2] = savedCarry[2];
+    co.dirty = true;  // main pass rebuilds at the real (near) position
+  }
+  portalExitPlaneOn = false;
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
+                     (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
+  return true;
+}
+
+// Blend the tinted quads of every portal EXCEPT the live ones over the
+// finished scene (a live portal's opening already shows the through-view
+// carved by renderPortalView - a tint over it would wash the image).
+void TerrainGame::renderPortals() {
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) continue;
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 ||
+        p.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    for (GeoPart& part : objectGeometry[p.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// Floor-portal swallowing (owner's suggestion): while a body touches a
+// linked floor portal (front normal pointing up), it stops colliding with
+// the TERRAIN - the ground clamp would otherwise rest it on the terrain
+// before it can reach the crossing plane, so a portal lying on the ground
+// could never swallow anything. Restricted to floor portals (wall/ceiling
+// surfaces never need it) and to the portal's rectangle footprint; the
+// zone spans a little above the plane (the approach) and below it (the
+// straddle while the crossing probe travels) - the teleport fires long
+// before the body leaves the zone downward.
+bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
+                                    float x, float y, float z) {
+  const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  if (azS.y < 0.5F) return false;  // floor portals only
+  const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const float rx = x - m.data.position[0];
+  const float ry = y - m.data.position[1];
+  const float rz = z - m.data.position[2];
+  const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+  const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+  const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+  return lz > -0.6F && lz < 2.0F && lx > -hx && lx < hx && ly > -hy &&
+         ly < hy;
+}
+
+// Both endpoints of this frame's motion, plus the point where the segment
+// pierces the portal plane - exact for a vertical fall, which is the only
+// motion fast enough (PHYS_MAX_SPEED) to tunnel the zone's 2-unit height.
+bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
+                                     float hy, const Vec4& a, const Vec4& b) {
+  if (portalSwallowZone(m, hx, hy, b.x, b.y, b.z) ||
+      portalSwallowZone(m, hx, hy, a.x, a.y, a.z))
+    return true;
+  const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  if (azS.y < 0.5F) return false;  // floor portals only
+  const float lza = (a.x - m.data.position[0]) * azS.x +
+                    (a.y - m.data.position[1]) * azS.y +
+                    (a.z - m.data.position[2]) * azS.z;
+  const float lzb = (b.x - m.data.position[0]) * azS.x +
+                    (b.y - m.data.position[1]) * azS.y +
+                    (b.z - m.data.position[2]) * azS.z;
+  if (!(lza > 0.0F && lzb < 0.0F)) return false;  // must pierce downward
+  const float t = lza / (lza - lzb);
+  return portalSwallowZone(m, hx, hy, a.x + (b.x - a.x) * t,
+                           a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+}
+
+// The linked, object-teleporting portal whose opening the motion segment
+// a->b pierces front-to-back (authored rectangle + the crossing slack), or
+// -1. Shared by the thrown-object flight and the physics pass-through.
+// The owner's crossing rule: whatever a portal SHOWS can also go through
+// it. teleportObjects and viewAll open it to every rigid body, a view-list
+// member is eligible by being visible, and the player-released body
+// (thrownFreeIndex) crosses like the player regardless.
+bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
+  if (p.teleportObjects || p.viewAll) return true;
+  if (oi >= 0 && oi == thrownFreeIndex) return true;
+  for (int v = 0; v < p.viewCount; ++v)
+    if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
+  return false;
+}
+
+bool TerrainGame::portalShowsObject(int pi, int oi) {
+  const PortalData& p = PORTALS[pi];
+  if (p.viewAll) return true;
+  for (int v = 0; v < p.viewCount; ++v)
+    if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
+  return false;
+}
+
+void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {
+  const PortalData& p = PORTALS[pi];
+  const RuntimeObject& src = runtimeObjects[p.object];
+  const RuntimeObject& dst = runtimeObjects[p.target];
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, src.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, src.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, src.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, dst.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, dst.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, dst.data.rotation);
+  const float rx = x - src.data.position[0];
+  const float ry = y - src.data.position[1];
+  const float rz = z - src.data.position[2];
+  float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+  const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+  float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+  lx = -lx;  // the 180 deg flip about local Y
+  lz = -lz;
+  x = dst.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+  y = dst.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+  z = dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+}
+
+bool TerrainGame::armSweepPass(const float* a, const float* b) {
+  sweepPassOn = false;
+  if (PORTAL_COUNT == 0) return false;
+  const int aim = portalCarryAim(a, b, -1);
+  if (aim < 0) return false;
+  const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
+  const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+  sweepPassPlane[0] = pn.x;
+  sweepPassPlane[1] = pn.y;
+  sweepPassPlane[2] = pn.z;
+  sweepPassPlane[3] = pn.x * pm.data.position[0] +
+                      pn.y * pm.data.position[1] +
+                      pn.z * pm.data.position[2];
+  sweepPassOn = true;
+  return true;
+}
+
+int TerrainGame::portalCarryAim(const float* a, const float* b, int forObj) {
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (forObj >= 0 && !portalCanCross(p, forObj)) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    const float r0x = a[0] - m.data.position[0];
+    const float r0y = a[1] - m.data.position[1];
+    const float r0z = a[2] - m.data.position[2];
+    const float r1x = b[0] - m.data.position[0];
+    const float r1y = b[1] - m.data.position[1];
+    const float r1z = b[2] - m.data.position[2];
+    const float l0z = r0x * azS.x + r0y * azS.y + r0z * azS.z;
+    const float l1z = r1x * azS.x + r1y * azS.y + r1z * azS.z;
+    if (!(l0z > 0.0F && l1z <= 0.0F)) continue;  // front-to-back only
+    const float tt = l0z / (l0z - l1z);
+    const float cxp = r0x + (r1x - r0x) * tt;
+    const float cyp = r0y + (r1y - r0y) * tt;
+    const float czp = r0z + (r1z - r0z) * tt;
+    const float lxp = cxp * axS.x + cyp * axS.y + czp * axS.z;
+    const float lyp = cxp * ayS.x + cyp * ayS.y + czp * ayS.z;
+    if (lxp > -hx && lxp < hx && lyp > -hy && lyp < hy) return pi;
+  }
+  return -1;
+}
+
+// Hop a thrown object through the pair: position and the FULL velocity
+// vector mapped by the same flip-about-local-Y isometry updatePortals
+// applies to the player/physics bodies, so a sideways throw exits the
+// target with the matching sideways motion and the crossing is continuous.
+bool TerrainGame::portalCarryCrossing(const float* a, float* pos, float* vel) {
+  // Thrown-arc objects are player-released - any linked portal carries them
+  const int pi = portalCarryAim(a, pos, -1);
+  if (pi < 0) return false;
+  const PortalData& p = PORTALS[pi];
+  RuntimeObject& m = runtimeObjects[p.object];
+  RuntimeObject& t = runtimeObjects[p.target];
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, t.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, t.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, t.data.rotation);
+  const float rx = pos[0] - m.data.position[0];
+  const float ry = pos[1] - m.data.position[1];
+  const float rz = pos[2] - m.data.position[2];
+  float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+  const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+  float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+  lx = -lx;
+  lz = -lz;
+  pos[0] = t.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+  pos[1] = t.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+  pos[2] = t.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+  float lvx = vel[0] * sxA.x + vel[1] * sxA.y + vel[2] * sxA.z;
+  const float lvy = vel[0] * syA.x + vel[1] * syA.y + vel[2] * syA.z;
+  float lvz = vel[0] * szA.x + vel[1] * szA.y + vel[2] * szA.z;
+  lvx = -lvx;
+  lvz = -lvz;
+  vel[0] = dxA.x * lvx + dyA.x * lvy + dzA.x * lvz;
+  vel[1] = dxA.y * lvx + dyA.y * lvy + dzA.y * lvz;
+  vel[2] = dxA.z * lvx + dyA.z * lvy + dzA.z * lvz;
+  return true;
+}
+
+bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
+  if (PORTAL_COUNT == 0) return false;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    // feet AND waist: the zone must hold while the body straddles the
+    // plane, or the ground clamp snaps the walker back mid-crossing
+    if (portalSwallowZone(m, hx, hy, x, feetY, z) ||
+        portalSwallowZone(m, hx, hy, x, feetY + 1.0F, z))
+      return true;
+  }
+  return false;
+}
+
+// Publishes the plane of the linked portal whose opening the walker's body
+// column currently sits in (any orientation - wall doorways included; feet
+// and waist probed like the crossing test). collidePlayer then ignores
+// objects fully behind that plane: the mounting wall opens up, geometry in
+// front of or poking through the surface still collides. Off when the
+// column is outside every opening - the same wall blocks normally beside
+// its portal.
+void TerrainGame::updatePortalPass(float x, float feetY, float z) {
+  portalPassOn = false;
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto inZone = [&](float wy) {
+      const float rx = x - m.data.position[0];
+      const float ry = wy - m.data.position[1];
+      const float rz = z - m.data.position[2];
+      const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+      const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+      const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+      return lz > -0.6F && lz < 1.2F && lx > -hx && lx < hx && ly > -hy &&
+             ly < hy;
+    };
+    if (inZone(feetY) || inZone(feetY + 1.0F)) {
+      portalPassPlane[0] = azS.x;
+      portalPassPlane[1] = azS.y;
+      portalPassPlane[2] = azS.z;
+      portalPassPlane[3] = azS.x * m.data.position[0] +
+                           azS.y * m.data.position[1] +
+                           azS.z * m.data.position[2];
+      portalPassOn = true;
+      return;
+    }
+  }
+}
+
+// Portal crossings. The player probes with TWO segments: a "waist" point
+// (feet + up to 1 unit, capped by eyeH - door-sized wall surfaces trigger
+// naturally, a noclip camera probes its own position) and the FEET (so
+// jumping/dropping into a floor portal triggers even while the waist stays
+// above the plane); physics objects test their center. A crossing = the
+// probe segment pierced the front (+Z) face inside the rectangle this
+// frame. Position, view direction and vertical velocity map through the
+// pair exactly like portalCamera, with NO exit offset - the isometry
+// carries the overshoot past the target plane, so the hop is continuous
+// (an offset read as a one-frame camera pop on hardware). The walkers keep
+// no horizontal velocity state, so a tilted pair carries only the vertical
+// component (yaw-rotated pairs, the common teleporter, lose nothing).
+// Returns true when the player teleported (the frame camera is rebuilt here
+// so no frame ever renders from the departure side).
+bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
+                                float* px, float* py, float* pz, float* pyaw,
+                                float* ppitch, float* pvelY, float eyeH) {
+  if (PORTAL_COUNT == 0) return false;
+  const bool freshPrev =
+      (int)portalPrevPos.size() != (int)runtimeObjects.size() * 3;
+  if (freshPrev) {
+    portalPrevPos.resize(runtimeObjects.size() * 3);
+    portalHopCool.assign(runtimeObjects.size(), 0);
+  }
+  // A released body stays portal-free only until it settles to sleep.
+  if (thrownFreeIndex >= 0 &&
+      (thrownFreeIndex >= (int)runtimeObjects.size() ||
+       runtimeObjects[thrownFreeIndex].restFrames >= PHYS_SLEEP_FRAMES))
+    thrownFreeIndex = -1;
+  bool playerTeleported = false;
+  const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
+
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    RuntimeObject& t = runtimeObjects[p.target];
+    if (!m.active || !m.visible || !t.active) continue;
+
+    const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 syA = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 szA = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, t.data.rotation);
+    const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, t.data.rotation);
+    const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, t.data.rotation);
+    // a little slack around the authored rectangle - brushing the frame
+    // edge should not drop the player onto the wall the portal is built in
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto localOf = [&](float wxx, float wyy, float wzz, float* lx, float* ly,
+                       float* lz) {
+      const float rx = wxx - m.data.position[0];
+      const float ry = wyy - m.data.position[1];
+      const float rz = wzz - m.data.position[2];
+      *lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+      *ly = rx * syA.x + ry * syA.y + rz * syA.z;
+      *lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    };
+    // segment a->b pierced the front face inside the rectangle?
+    auto crossed = [&](float ax_, float ay_, float az_, float bx_, float by_,
+                       float bz_) -> bool {
+      float l0x, l0y, l0z, l1x, l1y, l1z;
+      localOf(ax_, ay_, az_, &l0x, &l0y, &l0z);
+      localOf(bx_, by_, bz_, &l1x, &l1y, &l1z);
+      if (!(l0z > 0.0F && l1z <= 0.0F)) return false;
+      const float tt = l0z / (l0z - l1z);
+      const float ix = l0x + (l1x - l0x) * tt;
+      const float iy = l0y + (l1y - l0y) * tt;
+      return ix > -hx && ix < hx && iy > -hy && iy < hy;
+    };
+    // world point / direction through the pair (flip about local Y)
+    auto mapPoint = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                        float* oz) {
+      float lx, ly, lz;
+      localOf(wxx, wyy, wzz, &lx, &ly, &lz);
+      lx = -lx;
+      lz = -lz;
+      *ox = t.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = t.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = t.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+    auto mapDir = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                      float* oz) {
+      float lx = wxx * sxA.x + wyy * sxA.y + wzz * sxA.z;
+      const float ly = wxx * syA.x + wyy * syA.y + wzz * syA.z;
+      float lz = wxx * szA.x + wyy * szA.y + wzz * szA.z;
+      lx = -lx;
+      lz = -lz;
+      *ox = dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+
+    // --- the player -------------------------------------------------------
+    // Two probe segments: the waist (feet + up to 1 unit - door-sized wall
+    // portals trigger naturally) and the FEET (dropping/jumping into a
+    // floor portal must trigger even while the waist stays above it).
+    const bool waistHit =
+        px && !playerTeleported &&
+        crossed(prevX, prevY + probeLift, prevZ, *px, *py + probeLift, *pz);
+    const bool feetHit = px && !playerTeleported && !waistHit &&
+                         crossed(prevX, prevY, prevZ, *px, *py, *pz);
+    if (waistHit || feetHit) {
+      // Map the feet position directly - the pair transform is an isometry,
+      // so the overshoot past the plane maps to the same overshoot past the
+      // target plane and the crossing is CONTINUOUS. No exit offset: it
+      // read as a one-frame camera pop on hardware, and the arrival already
+      // sits on the target's exit side moving away (a two-way pair can't
+      // re-trigger without genuinely walking back).
+      // vertical motion BEFORE the position is overwritten. Like the
+      // objects below, carry the ACTUAL motion this frame - the walker's
+      // ground clamp can zero velY on the very crossing frame.
+      float vy = *pvelY;
+      const float stepY = *py - prevY;
+      if (fabsf(stepY) > fabsf(vy)) vy = stepY;
+      float nx2, ny2, nz2;
+      mapPoint(*px, *py, *pz, &nx2, &ny2, &nz2);
+      *px = nx2;
+      *py = ny2;
+      *pz = nz2;
+      // view direction through the same mapping (walker convention:
+      // forward = (sin yaw * cos pitch, sin pitch, cos yaw * cos pitch))
+      float ndx, ndy, ndz;
+      mapDir(sinf(*pyaw) * cosf(*ppitch), sinf(*ppitch),
+             cosf(*pyaw) * cosf(*ppitch), &ndx, &ndy, &ndz);
+      *pyaw = atan2f(ndx, ndz);
+      float sp = ndy;
+      if (sp > 1.0F) sp = 1.0F;
+      if (sp < -1.0F) sp = -1.0F;
+      *ppitch = asinf(sp);
+      float nvx, nvy, nvz;
+      mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+      *pvelY = nvy;
+      // rebuild this frame's camera from the arrival state
+      if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2) {
+        // third person: park the camera on the authored boom straight
+        // behind the avatar; the spring arm takes over next frame
+        const float bx = sinf(*pyaw), bz = cosf(*pyaw);
+        cameraPosition = Vec4(*px - bx * PLAYER_CAM_DIST,
+                              *py + PLAYER_CAM_HEIGHT + PLAYER_CAM_DIST * 0.25F,
+                              *pz - bz * PLAYER_CAM_DIST);
+        cameraLookAt = Vec4(*px, *py + PLAYER_CAM_HEIGHT, *pz);
+        players[0].boom = PLAYER_CAM_DIST;
+        players[0].faceYaw = *pyaw;
+      } else {
+        const float eyY = *py + eyeH;
+        cameraPosition = Vec4(*px, eyY, *pz);
+        cameraLookAt = Vec4(*px + sinf(*pyaw) * cosf(*ppitch),
+                            eyY + sinf(*ppitch),
+                            *pz + cosf(*pyaw) * cosf(*ppitch));
+      }
+      playerTeleported = true;
+    }
+
+    // --- physics objects: portalCanCross decides per body (the flag, the
+    // whatever-the-portal-shows rule, or the player-released latch) ------
+    if (!freshPrev) {
+      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+        RuntimeObject& ro = runtimeObjects[oi];
+        if (!ro.active || !ro.data.physics) continue;
+        if (!portalCanCross(p, oi)) continue;
+        if (oi == p.object || oi == p.target) continue;
+        if (oi == carryIndex) continue;  // in the hands - the carry owns it
+        if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
+        if (portalHopCool[oi] > 0) continue;  // just hopped - settle first
+        const float* pp = &portalPrevPos[oi * 3];
+        if (pp[0] == ro.data.position[0] && pp[1] == ro.data.position[1] &&
+            pp[2] == ro.data.position[2])
+          continue;  // resting - cheap early out
+        if (!crossed(pp[0], pp[1], pp[2], ro.data.position[0],
+                     ro.data.position[1], ro.data.position[2]))
+          continue;
+        // Carry the object's ACTUAL motion this frame through the pair -
+        // the WHOLE velocity vector, not just Y. The vertical component
+        // gets a position-delta fallback: the physics ground clamp may
+        // have zeroed velocityY on the very crossing frame (an
+        // infinite-fall loop would otherwise hitch at the far end with
+        // v = 0), and the step still holds the real fall. The horizontal
+        // components MUST map through the pair too - dropping them left a
+        // thrown object exiting with world-space X/Z that no longer match
+        // the rotated target, so it careened sideways (owner: the thrown
+        // sphere "freaks out" between the portals).
+        float vy = ro.velocityY;
+        const float stepY = ro.data.position[1] - pp[1];
+        if (fabsf(stepY) > fabsf(vy)) vy = stepY;
+        float nx2, ny2, nz2;
+        mapPoint(ro.data.position[0], ro.data.position[1],
+                 ro.data.position[2], &nx2, &ny2, &nz2);
+        // no exit offset - the mapped overshoot already sits past the
+        // target plane (continuity); the prev-pos stamp below stops the
+        // reverse link from reading the hop as another crossing
+        ro.data.position[0] = nx2;
+        ro.data.position[1] = ny2;
+        ro.data.position[2] = nz2;
+        float nvx, nvy, nvz;
+        mapDir(ro.velocityX, vy, ro.velocityZ, &nvx, &nvy, &nvz);
+        ro.velocityX = nvx;
+        ro.velocityY = nvy;
+        ro.velocityZ = nvz;
+        ro.dirty = true;  // world-space bags rebuild at the arrival
+        portalHopCool[oi] = 6;
+        // stamp the arrival as this object's new "previous" so the reverse
+        // link of a two-way pair can't see the same hop as a crossing
+        portalPrevPos[oi * 3] = ro.data.position[0];
+        portalPrevPos[oi * 3 + 1] = ro.data.position[1];
+        portalPrevPos[oi * 3 + 2] = ro.data.position[2];
+      }
+    }
+  }
+
+  // refresh the crossing history for the next frame
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    portalPrevPos[oi * 3] = runtimeObjects[oi].data.position[0];
+    portalPrevPos[oi * 3 + 1] = runtimeObjects[oi].data.position[1];
+    portalPrevPos[oi * 3 + 2] = runtimeObjects[oi].data.position[2];
+    if (portalHopCool[oi] > 0) --portalHopCool[oi];
+  }
+  return playerTeleported;
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -5817,17 +9176,50 @@ void TerrainGame::resetTerrainChunks() {
   int pool = total;
   if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     // The view rect (focus +- view distance) covers at most ceil(2V/span)+1
-    // tiles per axis; +1 more per axis for the eviction hysteresis.
+    // tiles per axis; +1 more per axis for the eviction hysteresis. Scenes
+    // that can host player 2 stream around two foci, so they need room for
+    // two disjoint rects.
     const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
     const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
     const int nx = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanX) + 3;
     const int nz = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanZ) + 3;
-    if (nx * nz < pool) pool = nx * nz;
+    const int rects = (MULTIPLAYER_MODE != 0 && PLAYER2_INDEX >= 0) ? 2 : 1;
+    if (nx * nz * rects < pool) pool = nx * nz * rects;
   }
 
   terrainChunks.clear();
   terrainChunks.resize(pool);  // sized once per scene - slots stay put
   terrainChunkSlot.assign(total, -1);
+}
+
+// Macro ground variation (docs/terrain-painting.md): deterministic value
+// noise over WORLD position - two smoothstepped octaves - multiplied into the
+// vertex shade below. Large soft patches of lighter/darker ground at zero
+// runtime cost, with an infinite period (breaks even the stochastic
+// supertile's second-order repetition). Twin of tintNoise2 in the editor
+// viewport (viewport.cpp buildTerrainChunkMesh) - keep the formulas in sync.
+static float tintHash(int ix, int iz) {
+  unsigned h = (unsigned)ix * 73856093u ^ (unsigned)iz * 19349663u;
+  h ^= h >> 13;
+  h *= 0x85EBCA6Bu;
+  h ^= h >> 16;
+  return (float)(h & 0xFFFFu) / 65535.0F;
+}
+static float tintValue(float x, float z, float scale) {
+  const float gx = x / scale, gz = z / scale;
+  const float fxf = floorf(gx), fzf = floorf(gz);
+  const int ix = (int)fxf, iz = (int)fzf;
+  float fx = gx - fxf, fz = gz - fzf;
+  fx = fx * fx * (3.0F - 2.0F * fx);  // smoothstep = soft round patches
+  fz = fz * fz * (3.0F - 2.0F * fz);
+  const float a = tintHash(ix, iz), b = tintHash(ix + 1, iz);
+  const float c = tintHash(ix, iz + 1), d = tintHash(ix + 1, iz + 1);
+  return (a * (1.0F - fx) + b * fx) * (1.0F - fz) +
+         (c * (1.0F - fx) + d * fx) * fz;
+}
+static float tintNoise2(float x, float z, float scale) {
+  return tintValue(x, z, scale) * 0.7F +
+         tintValue(x + 191.0F, z - 353.0F, scale * 0.37F) * 0.3F;
 }
 
 // Fills a pool slot with the mesh of chunk (cx, cz): the same vertex layout,
@@ -5855,6 +9247,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (iz > HM_D - 1) iz = HM_D - 1;
     return TERRAIN_HEIGHTS[iz * HM_W + ix];
   };
+  {
+    // Height extent over this chunk's vertex grid - the portal dead-zone
+    // test in renderTerrain does an exact AABB-vs-plane check with it.
+    const int mgx0 = cx * TERRAIN_CHUNK_CELLS;
+    const int mgz0 = cz * TERRAIN_CHUNK_CELLS;
+    const int mgx1 = mgx0 + TERRAIN_CHUNK_CELLS > cellsX ? cellsX
+                                                         : mgx0 + TERRAIN_CHUNK_CELLS;
+    const int mgz1 = mgz0 + TERRAIN_CHUNK_CELLS > cellsZ ? cellsZ
+                                                         : mgz0 + TERRAIN_CHUNK_CELLS;
+    ch.minY = ch.maxY = hAt(mgx0, mgz0);
+    for (int iz = mgz0; iz <= mgz1; ++iz)
+      for (int ix = mgx0; ix <= mgx1; ++ix) {
+        const float h = hAt(ix, iz);
+        if (h < ch.minY) ch.minY = h;
+        if (h > ch.maxY) ch.maxY = h;
+      }
+  }
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -5864,6 +9273,14 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    // Macro ground variation: base and layer passes both shade through here,
+    // so a darker patch darkens grass and painted path together.
+    if (TERRAIN_TINT_VARIATION > 0.0F) {
+      const float tv =
+          1.0F + TERRAIN_TINT_VARIATION *
+                     (tintNoise2(wp.x, wp.z, TERRAIN_TINT_SCALE) - 0.5F);
+      s.x *= tv, s.y *= tv, s.z *= tv;
+    }
     if (s.x > 1.0F) s.x = 1.0F;
     if (s.y > 1.0F) s.y = 1.0F;
     if (s.z > 1.0F) s.z = 1.0F;
@@ -5896,6 +9313,43 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   ch.vertices.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
   ch.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
   if (textured) ch.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+
+  // Painted terrain layers: find which layers have any weight on this chunk's
+  // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
+  // (Bag pointers into layerPasses elements are re-set after the resize below,
+  // every build - the vector may reallocate.)
+  const int layerN = TERRAIN_LAYER_COUNT;
+  const unsigned char* splatW8 = TERRAIN_SPLAT_WEIGHTS;
+  int activeLayers[TERRAIN_MAX_LAYERS];
+  int activeN = 0;
+  if (layerN > 0 && splatW8) {
+    for (int l = 0; l < layerN; ++l) {
+      bool any = false;
+      for (int z = gz0; z <= gz1 && !any; ++z)
+        for (int x = gx0; x <= gx1; ++x)
+          if (splatW8[((size_t)z * HM_W + x) * layerN + l]) {
+            any = true;
+            break;
+          }
+      if (any) activeLayers[activeN++] = l;
+    }
+  }
+  ch.layerPasses.resize(activeN);
+  for (int a = 0; a < activeN; ++a) {
+    TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+    lp.layer = activeLayers[a];
+    lp.colors.clear();
+    lp.sts.clear();
+    lp.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+    lp.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  }
+  auto splatAt = [&](int ix, int iz, int l) -> float {
+    if (ix < 0) ix = 0;
+    if (iz < 0) iz = 0;
+    if (ix > HM_W - 1) ix = HM_W - 1;
+    if (iz > HM_D - 1) iz = HM_D - 1;
+    return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
+  };
 
   for (int z = gz0; z < gz1; ++z) {
     for (int x = gx0; x < gx1; ++x) {
@@ -5939,6 +9393,40 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.colors.push_back(shaded(s10));
       ch.colors.push_back(shaded(s11));
       ch.colors.push_back(shaded(s01));
+
+      // Layer passes: same triangles, tiled layer STs, shade-lit tint colors
+      // whose alpha is the painted weight (128 = fully this layer). Weights sit
+      // on the vertices, so the GS Gouraud-interpolates the blend per pixel.
+      for (int a = 0; a < activeN; ++a) {
+        TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+        const int l = lp.layer;
+        const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
+        const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
+        const float lk = ltex ? 128.0F : 255.0F;
+        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+        auto lcol = [&](const V3& s, float w) {
+          return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
+                       tint[2] * lk * s.z, w * 128.0F);
+        };
+        const float w00 = splatAt(x, z, l), w10 = splatAt(x + 1, z, l);
+        const float w01 = splatAt(x, z + 1, l), w11 = splatAt(x + 1, z + 1, l);
+        lp.colors.push_back(lcol(s00, w00));
+        lp.colors.push_back(lcol(s10, w10));
+        lp.colors.push_back(lcol(s01, w01));
+        lp.colors.push_back(lcol(s10, w10));
+        lp.colors.push_back(lcol(s11, w11));
+        lp.colors.push_back(lcol(s01, w01));
+        auto lst = [&](float wx, float wz) {
+          lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+        };
+        lst(x0, z0);
+        lst(x1, z0);
+        lst(x0, z1);
+        lst(x1, z0);
+        lst(x1, z1);
+        lst(x0, z1);
+      }
     }
   }
 
@@ -5962,6 +9450,47 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // Reused slot = same bag pointer with new vertex content: without the bump
   // the engine's bbox cacher would cull this chunk with the old chunk's boxes.
   ch.bag->bboxVersion = ++g_bboxStamp;
+
+  // Layer-pass bags: blend-enabled info bag, the chunk's own vertices, the
+  // pass's tiled STs and weight-alpha colors. Pointers are (re)set every build
+  // because resize() may have moved the LayerPass elements.
+  for (TerrainChunk::LayerPass& lp : ch.layerPasses) {
+    if (!lp.bag) {
+      lp.colorBag = std::make_unique<StaPipColorBag>();
+      lp.bag = std::make_unique<StaPipBag>();
+      lp.bag->lighting = nullptr;
+    }
+    lp.bag->info = layerInfoBag.get();
+    lp.colorBag->many = lp.colors.data();
+    lp.bag->color = lp.colorBag.get();
+    lp.bag->vertices = ch.vertices.data();
+    lp.bag->count = static_cast<u32>(ch.vertices.size());
+    const int lti = TERRAIN_LAYER_TEXTURES[g_activeScene][lp.layer];
+    if (lti >= 0 && loadedTextures[lti]) {
+      lp.texBag.texture = loadedTextures[lti];
+      lp.texBag.coordinates = lp.sts.data();
+      lp.bag->texture = &lp.texBag;
+    } else {
+      lp.bag->texture = nullptr;
+    }
+    lp.bag->bboxVersion = ++g_bboxStamp;
+  }
+
+  // World AABB of the built mesh - the split-band cull tests it per half.
+  // One pass at build time, nothing per frame.
+  if (!ch.vertices.empty()) {
+    ch.aabbMin[0] = ch.aabbMax[0] = ch.vertices[0].x;
+    ch.aabbMin[1] = ch.aabbMax[1] = ch.vertices[0].y;
+    ch.aabbMin[2] = ch.aabbMax[2] = ch.vertices[0].z;
+    for (const Vec4& v : ch.vertices) {
+      if (v.x < ch.aabbMin[0]) ch.aabbMin[0] = v.x;
+      if (v.x > ch.aabbMax[0]) ch.aabbMax[0] = v.x;
+      if (v.y < ch.aabbMin[1]) ch.aabbMin[1] = v.y;
+      if (v.y > ch.aabbMax[1]) ch.aabbMax[1] = v.y;
+      if (v.z < ch.aabbMin[2]) ch.aabbMin[2] = v.z;
+      if (v.z > ch.aabbMax[2]) ch.aabbMax[2] = v.z;
+    }
+  }
 }
 
 // Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
@@ -6001,7 +9530,9 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
 // tile of hysteresis so walking along a border doesn't rebuild the same ring
 // every frame - and missing ones are built nearest-first, `budget` per call
 // (loadScene passes INT_MAX to drain behind the loading screen).
-void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
+void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
+                                      float focus2X, float focus2Z,
+                                      bool twoFoci, int budget) {
   if (terrainChunksX <= 0 || terrainChunksZ <= 0 || !infoBag) return;
   const int cellsX = HM_W - 1;
   const int cellsZ = HM_D - 1;
@@ -6010,23 +9541,43 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   const float startX = -TERRAIN_WIDTH * 0.5F;
   const float startZ = -TERRAIN_DEPTH * 0.5F;
 
-  int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
-  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
-    auto clampX = [&](int v) {
-      return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
-    };
-    auto clampZ = [&](int v) {
-      return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
-    };
-    cx0 = clampX((int)((focusX - TERRAIN_VIEW_DISTANCE - startX) / spanX));
-    cx1 = clampX((int)((focusX + TERRAIN_VIEW_DISTANCE - startX) / spanX));
-    cz0 = clampZ((int)((focusZ - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
-    cz1 = clampZ((int)((focusZ + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+  // One view rect per focus. With two players apart, the rects are disjoint;
+  // a chunk survives if it sits in (a hysteresis ring around) EITHER rect -
+  // evicting on a single rect would make the two split-screen passes throw
+  // out each other's terrain and burn the whole build budget on churn.
+  struct Rect {
+    int cx0, cz0, cx1, cz1;
+    float fx, fz;
+  };
+  Rect rects[2];
+  int rectCount = 0;
+  auto addRect = [&](float fx, float fz) {
+    Rect r = {0, 0, terrainChunksX - 1, terrainChunksZ - 1, fx, fz};
+    if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+      auto clampX = [&](int v) {
+        return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
+      };
+      auto clampZ = [&](int v) {
+        return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
+      };
+      r.cx0 = clampX((int)((fx - TERRAIN_VIEW_DISTANCE - startX) / spanX));
+      r.cx1 = clampX((int)((fx + TERRAIN_VIEW_DISTANCE - startX) / spanX));
+      r.cz0 = clampZ((int)((fz - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+      r.cz1 = clampZ((int)((fz + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+    }
+    rects[rectCount++] = r;
+  };
+  addRect(focusX, focusZ);
+  if (twoFoci) addRect(focus2X, focus2Z);
 
+  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
-      if (ch.cx < cx0 - 1 || ch.cx > cx1 + 1 || ch.cz < cz0 - 1 ||
-          ch.cz > cz1 + 1) {
+      bool keep = false;
+      for (int r = 0; r < rectCount && !keep; ++r)
+        keep = ch.cx >= rects[r].cx0 - 1 && ch.cx <= rects[r].cx1 + 1 &&
+               ch.cz >= rects[r].cz0 - 1 && ch.cz <= rects[r].cz1 + 1;
+      if (!keep) {
         terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
         ch.cx = ch.cz = -1;  // buffers keep their capacity for the next build
       }
@@ -6034,23 +9585,25 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   }
 
   while (budget > 0) {
-    // Nearest unbuilt chunk in the rect. The rect is small (a handful of
-    // tiles across), so a per-call linear scan beats maintaining a build
-    // queue that would need reordering on every focus move.
+    // Nearest unbuilt chunk to its own rect's focus, across both rects. The
+    // rects are small (a handful of tiles across), so a per-call linear scan
+    // beats maintaining a build queue that would need reordering on every
+    // focus move.
     int bestCx = -1, bestCz = -1;
     float bestD = 0.0F;
-    for (int cz = cz0; cz <= cz1; ++cz)
-      for (int cx = cx0; cx <= cx1; ++cx) {
-        if (terrainChunkSlot[cz * terrainChunksX + cx] >= 0) continue;
-        const float dx = startX + (cx + 0.5F) * spanX - focusX;
-        const float dz = startZ + (cz + 0.5F) * spanZ - focusZ;
-        const float d = dx * dx + dz * dz;
-        if (bestCx < 0 || d < bestD) {
-          bestCx = cx;
-          bestCz = cz;
-          bestD = d;
+    for (int r = 0; r < rectCount; ++r)
+      for (int cz = rects[r].cz0; cz <= rects[r].cz1; ++cz)
+        for (int cx = rects[r].cx0; cx <= rects[r].cx1; ++cx) {
+          if (terrainChunkSlot[cz * terrainChunksX + cx] >= 0) continue;
+          const float dx = startX + (cx + 0.5F) * spanX - rects[r].fx;
+          const float dz = startZ + (cz + 0.5F) * spanZ - rects[r].fz;
+          const float d = dx * dx + dz * dz;
+          if (bestCx < 0 || d < bestD) {
+            bestCx = cx;
+            bestCz = cz;
+            bestD = d;
+          }
         }
-      }
     if (bestCx < 0) return;  // everything in view is built
 
     int slot = -1;
@@ -6066,10 +9619,149 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   }
 }
 
+// Two planes bounding the CENTRAL half of the full-height projection - the
+// rows a split half can actually show. The raster crop (XYOFFSET + scissor)
+// keeps the projection and the engine's frustum planes full-height, so
+// without this every half transforms ~2x the geometry it displays; anything
+// wholly outside the band skips submission instead. 0.62 instead of the
+// exact 0.5 leaves margin for the clipper's guard band - conservative,
+// never visibly wrong. Degenerate views (looking straight up/down) disable
+// the cull for the pass rather than guess.
+void TerrainGame::computeSplitBand() {
+  Vec4 f = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(f.x * f.x + f.y * f.y + f.z * f.z);
+  if (fl < 0.0001F) {
+    splitBandActive = false;
+    return;
+  }
+  f.x /= fl, f.y /= fl, f.z /= fl;
+  // Roll-free camera up: world up orthonormalized against the forward.
+  float ux = -f.x * f.y, uy = 1.0F - f.y * f.y, uz = -f.z * f.y;
+  const float ul = sqrtf(ux * ux + uy * uy + uz * uz);
+  if (ul < 0.05F) {
+    splitBandActive = false;
+    return;
+  }
+  ux /= ul, uy /= ul, uz /= ul;
+  const float t =
+      0.62F * tanf(engine->renderer.core.renderer3D.getFov() * (PI / 360.0F));
+  const float inv = 1.0F / sqrtf(1.0F + t * t);
+  const float sa = t * inv, ca = inv;
+  splitBandP[0] = cameraPosition.x;
+  splitBandP[1] = cameraPosition.y;
+  splitBandP[2] = cameraPosition.z;
+  splitBandN[0][0] = f.x * sa - ux * ca;  // top edge: inside = below it
+  splitBandN[0][1] = f.y * sa - uy * ca;
+  splitBandN[0][2] = f.z * sa - uz * ca;
+  splitBandN[1][0] = f.x * sa + ux * ca;  // bottom edge: inside = above it
+  splitBandN[1][1] = f.y * sa + uy * ca;
+  splitBandN[1][2] = f.z * sa + uz * ca;
+}
+
+bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
+  const float cx = 0.5F * (mn[0] + mx[0]) - splitBandP[0];
+  const float cy = 0.5F * (mn[1] + mx[1]) - splitBandP[1];
+  const float cz = 0.5F * (mn[2] + mx[2]) - splitBandP[2];
+  const float ex = 0.5F * (mx[0] - mn[0]);
+  const float ey = 0.5F * (mx[1] - mn[1]);
+  const float ez = 0.5F * (mx[2] - mn[2]);
+  for (int p = 0; p < 2; ++p) {
+    const float* n = splitBandN[p];
+    const float r = ex * fabsf(n[0]) + ey * fabsf(n[1]) + ez * fabsf(n[2]);
+    if (cx * n[0] + cy * n[1] + cz * n[2] + r < 0.0F) return true;
+  }
+  return false;
+}
+
+// AABB of a static object, sized like the springArm/box-collision one; a
+// rotated object falls back to its bounding-sphere cube so the test can
+// under-cull but never over-cull.
+bool TerrainGame::objectOutsideSplitBand(int i) const {
+  const RuntimeObject& o = runtimeObjects[i];
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const SkelModel* anim = nullptr;
+  if (o.data.type == 5 && o.data.animModel >= 0 &&
+      o.data.animModel < (int)gameAnimModels.size())
+    anim = gameAnimModels[o.data.animModel].src.get();
+  float cx = o.data.position[0], cy = o.data.position[1],
+        cz = o.data.position[2];
+  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+        ez = 0.5F * o.data.scale[2];
+  float ox = 0.0F, oy = 0.0F, oz = 0.0F;  // local AABB center offset
+  const float* mnp = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mxp = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mnp && mxp) {
+    ox = 0.5F * (mnp[0] + mxp[0]) * o.data.scale[0];
+    oy = 0.5F * (mnp[1] + mxp[1]) * o.data.scale[1];
+    oz = 0.5F * (mnp[2] + mxp[2]) * o.data.scale[2];
+    ex = 0.5F * (mxp[0] - mnp[0]) * o.data.scale[0];
+    ey = 0.5F * (mxp[1] - mnp[1]) * o.data.scale[1];
+    ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
+  }
+  const float* rot = o.data.rotation;
+  if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F ||
+      o.data.modelYaw != 0.0F) {
+    // Rotation moves both the extents and the center offset in world space -
+    // bound everything with the diagonal radius around the position.
+    const float r = sqrtf(ex * ex + ey * ey + ez * ez) +
+                    sqrtf(ox * ox + oy * oy + oz * oz);
+    ex = ey = ez = r;
+    ox = oy = oz = 0.0F;
+  }
+  cx += ox, cy += oy, cz += oz;
+  const float mn[3] = {cx - ex, cy - ey, cz - ez};
+  const float mx[3] = {cx + ex, cy + ey, cz + ez};
+  return outsideSplitBand(mn, mx);
+}
+
 void TerrainGame::renderTerrain() {
-  for (TerrainChunk& ch : terrainChunks)
-    if (ch.cx >= 0 && ch.bag && ch.bag->count > 0)
-      stapip.core.render(ch.bag.get());
+  for (TerrainChunk& ch : terrainChunks) {
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    if (portalExitPlaneOn) {
+      // Portal through-view dead zone: skip chunks fully on the virtual
+      // camera's side of the exit plane - through a real hole that region
+      // is invisible, and with no oblique near plane on the PS2 it would
+      // otherwise render its backside INTO the opening (a floor->ceiling
+      // pair puts the virtual eye underground). Exact AABB-vs-plane check:
+      // the chunk's rect + its built minY/maxY, tested at the p-vertex
+      // (the box corner farthest along the plane normal) - no slope
+      // margin to mis-tune. A straddling chunk still renders whole.
+      const int cellsX = HM_W - 1, cellsZ = HM_D - 1;
+      const float stepX = (float)TERRAIN_WIDTH / cellsX;
+      const float stepZ = (float)TERRAIN_DEPTH / cellsZ;
+      const int gx0 = ch.cx * TERRAIN_CHUNK_CELLS;
+      const int gz0 = ch.cz * TERRAIN_CHUNK_CELLS;
+      const int gx1 = gx0 + TERRAIN_CHUNK_CELLS > cellsX
+                          ? cellsX
+                          : gx0 + TERRAIN_CHUNK_CELLS;
+      const int gz1 = gz0 + TERRAIN_CHUNK_CELLS > cellsZ
+                          ? cellsZ
+                          : gz0 + TERRAIN_CHUNK_CELLS;
+      const float x0w = -TERRAIN_WIDTH * 0.5F + gx0 * stepX;
+      const float x1w = -TERRAIN_WIDTH * 0.5F + gx1 * stepX;
+      const float z0w = -TERRAIN_DEPTH * 0.5F + gz0 * stepZ;
+      const float z1w = -TERRAIN_DEPTH * 0.5F + gz1 * stepZ;
+      const float pvx = portalExitPlane[0] > 0.0F ? x1w : x0w;
+      const float pvy = portalExitPlane[1] > 0.0F ? ch.maxY : ch.minY;
+      const float pvz = portalExitPlane[2] > 0.0F ? z1w : z0w;
+      if (portalExitPlane[0] * pvx + portalExitPlane[1] * pvy +
+              portalExitPlane[2] * pvz - portalExitPlane[3] <
+          -0.05F)
+        continue;
+    }
+    // Split halves: skip chunks entirely above/below the visible band before
+    // the engine's (full-height) frustum classify sees them.
+    if (splitBandActive && outsideSplitBand(ch.aabbMin, ch.aabbMax)) continue;
+    stapip.core.render(ch.bag.get());
+    // Painted layers: alpha-blend over the base pass right away (same
+    // geometry = equal depth passes the GS >= z-test; keeping base + layers
+    // adjacent also keeps the texture cache warm per chunk).
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
+  }
 }
 )";
 
@@ -6151,6 +9843,11 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
+  // Two-player modes: open pad 2 (connector 2). Optional - no controller
+  // there never blocks or asserts; it keeps polling so player 2 can plug in
+  // and join mid-game (Start, see the loop).
+  if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
+
   // Player start: the first spawn point in the scene (if any)
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
@@ -6195,6 +9892,14 @@ void TerrainGame::init() {
   auto* useTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
+  // "PICK UP" variant, shown instead when the looked-at object is pickable.
+  // Same placement; its own texture (hud/pickup.png, replace to customize).
+  pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
+  pickPromptSprite.size = usePromptSprite.size;
+  pickPromptSprite.position = usePromptSprite.position;
+  auto* pickTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(PICK_PROMPT_PATH));
+  pickTexture->addLink(pickPromptSprite.id);
 
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
@@ -6207,6 +9912,8 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+  // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
+  if (MULTIPLAYER_MODE != 0) pad2.update();
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -6226,7 +9933,7 @@ void TerrainGame::loop() {
       bootPhase = 1;
       if (LOADING_SCREEN) {
         loadingTarget = 0;
-        loadingFrames = everyFrames(0.7F);
+        loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
     if (bootPhase == 1) {
@@ -6235,10 +9942,10 @@ void TerrainGame::loop() {
         bootPhase = 2;
       } else {
         if (loadingFrames > 0) {
-          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          const bool preLoad = loadingFrames > loadingTotal - 5;
           loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
-          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          if (loadingFrames == loadingTotal - 5) bootFirstScene();
           return;
         }
         bootPhase = 2;
@@ -6261,12 +9968,29 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Portal crossing test: the walker's position before this frame's movement
+  // (Player entity when the scene has one, the built-in FPP walker otherwise)
+  const bool portalEnt = PLAYER_INDEX >= 0;
+  const float portalPrevX = portalEnt ? players[0].x : playerX;
+  const float portalPrevY = portalEnt ? players[0].y : playerY;
+  const float portalPrevZ = portalEnt ? players[0].z : playerZ;
+  // Player 2 hot-join: Start on pad 2, any time gameplay owns the pads.
+  // Leaving goes through a menu "Player count" Toggle (setPlayerTwoActive).
+  if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
+      !playerTwoActive && pad2.getClicked().Start)
+    setPlayerTwoActive(true);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.player2Active =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  scriptCtx.player2Position =
+      scriptCtx.player2Active
+          ? Vec4(players[1].x, players[1].y + PP_EYE_HEIGHT(1), players[1].z)
+          : scriptCtx.playerPosition;
   {
     // View direction for the scripts (Raycast flow node)
     Vec4 look = cameraLookAt - cameraPosition;
@@ -6292,7 +10016,7 @@ void TerrainGame::loop() {
     scriptCtx.requestScene = -1;
     if (LOADING_SCREEN) {
       loadingTarget = target;
-      loadingFrames = everyFrames(0.7F);  // ~0.7s hold
+      loadingFrames = loadingTotal = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
       fppSpawnPending = true;
@@ -6301,10 +10025,10 @@ void TerrainGame::loop() {
   if (loadingFrames > 0) {
     // A few frames at 0% before the (blocking) load, which pumps the bar from
     // 0 to 1 itself, then the remaining frames at 100%.
-    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    const bool preLoad = loadingFrames > loadingTotal - 5;
     loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
-    if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
+    if (loadingFrames == loadingTotal - 5) {  // a few frames shown first
       loadScene(loadingTarget);
       fppSpawnPending = true;
     }
@@ -6334,15 +10058,24 @@ void TerrainGame::loop() {
   updateLayerStreaming();
 
   // Flow graph / script teleport request: move the Player entity when the
-  // scene has one, the built-in FPP player otherwise.
+  // scene has one, the built-in FPP player otherwise. Teleports P1; an
+  // active P2 comes along, dropped a step to the side.
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
-      entX = scriptCtx.teleportPos.x;
-      entY = scriptCtx.teleportPos.y;
-      entZ = scriptCtx.teleportPos.z;
-      entVelY = 0.0F;
-      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
+      players[0].x = scriptCtx.teleportPos.x;
+      players[0].y = scriptCtx.teleportPos.y;
+      players[0].z = scriptCtx.teleportPos.z;
+      players[0].velY = 0.0F;
+      players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
+      if (playerTwoActive && players[1].objIndex >= 0) {
+        players[1].x = players[0].x + 1.2F;
+        players[1].z = players[0].z;
+        players[1].y = PP_MODE(1) == 1 ? players[0].y
+                                       : terrainHeightAt(players[1].x, players[1].z);
+        players[1].velY = 0.0F;
+        players[1].yaw = players[0].yaw;
+      }
     } else {
       playerX = scriptCtx.teleportPos.x;
       playerY = scriptCtx.teleportPos.y;
@@ -6353,6 +10086,26 @@ void TerrainGame::loop() {
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Portal surfaces: carry the player / physics objects that crossed a
+  // linked portal through to its target. After the physics step so object
+  // crossings see this frame's motion; on a player hop the camera is
+  // rebuilt inside, so no frame renders from the departure side.
+  if (PORTAL_COUNT > 0 && !menuActive) {
+    if (portalEnt)
+      updatePortals(portalPrevX, portalPrevY, portalPrevZ, &players[0].x, &players[0].y,
+                    &players[0].z, &players[0].yaw, &players[0].pitch, &players[0].velY,
+                    PLAYER_MODE == 1 ? 0.0F : PLAYER_EYE_HEIGHT);
+    else
+      updatePortals(portalPrevX, portalPrevY, portalPrevZ, &playerX,
+                    &playerY, &playerZ, &yaw, &pitch, &playerVelY,
+                    EYE_HEIGHT);
+  }
+  // The carried object is positioned AFTER the portal step: on the frame the
+  // player teleports, updatePortals rebuilds the camera to the arrival side,
+  // so placing the object here anchors it in front of the ARRIVAL camera -
+  // otherwise it holds one frame at the departure side and blinks as it
+  // crosses (owner).
+  if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
 
@@ -6411,6 +10164,24 @@ void TerrainGame::loop() {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
   }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
+  }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
   // sequence player (a global Script) has posed the camera for this frame.
@@ -6422,6 +10193,9 @@ void TerrainGame::loop() {
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
     runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
+    runtimeObjects[players[1].objIndex].visible =
+        !scriptCtx.hidePlayer && playerTwoActive;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -6443,7 +10217,37 @@ void TerrainGame::loop() {
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    renderScene();
+    // Split screen (two players): the scene renders twice, top half from
+    // P1's camera and bottom half from P2's (players[1].camPos, written by
+    // its walker). A cutscene camera override takes the whole screen. HUD /
+    // menus / post fx stay full-screen, drawn after splitView.end().
+    const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
+                            players[1].objIndex >= 0 &&
+                            !scriptCtx.cameraOverride;
+    if (splitFrame) {
+      auto& core = engine->renderer.core;
+      splitPassActive = true;
+      core.splitView.begin(0);
+      renderScene();
+      // Swap the whole camera state to P2: renderScene reads cameraPosition
+      // (sky dome centering, LOD, streaming focus), and the renderer needs
+      // the second half's view matrix + frustum planes.
+      const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
+      cameraPosition = players[1].camPos;
+      cameraLookAt = players[1].camLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.splitView.begin(1);
+      splitSecondPass = true;  // reuse this frame's anim poses/skins
+      renderScene();
+      splitSecondPass = false;
+      core.splitView.end();
+      cameraPosition = savedPos;
+      cameraLookAt = savedLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      splitPassActive = false;
+    } else {
+      renderScene();
+    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -6465,8 +10269,12 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0)
+      engine->renderer.renderer2D.render(
+          runtimeObjects[useTargetIndex].data.pickable ? pickPromptSprite
+                                                       : usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -6520,9 +10328,22 @@ void TerrainGame::updatePlayer() {
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
   float ground = terrainHeightAt(nextX, nextZ);
+  // a linked floor portal underfoot swallows the walker (see
+  // portalSwallowsPlayer) - the terrain stops being the floor there
+  if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))
+    ground = -1e30F;
   float ceiling = 1e30F;
+  // Shove physics bodies with the attempted step first - collidePlayer may
+  // cancel the move against the (still solid) body, the push moves it away
+  // over the next frames.
+  pushPhysicsBodies(playerX, playerZ, nextX, nextZ, playerY, EYE_HEIGHT);
+  updatePortalPass(nextX, playerY, nextZ);  // wall doorways open in collision
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
+  // whisker reads portalPassOn (carry through a portal) - reset after it
+  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw, playerY,
+                    EYE_HEIGHT);
+  portalPassOn = false;
   playerX = nextX;
   playerZ = nextZ;
 
@@ -6622,10 +10443,19 @@ static const char* TPL_CONTROLS_HPP =
 #define BTN_JUMP Cross
 #define BTN_FLY_UP Cross     // noclip: ascend
 #define BTN_FLY_DOWN Square  // noclip: descend
+#define BTN_THROW Circle     // throw a carried pickable object ("Can throw")
 
 // "Use" interaction (objects marked usable in the editor)
 constexpr float USE_DISTANCE = 4.0F;   // max distance to the object surface
 constexpr float USE_LOOK_DOT = 0.92F;  // how directly you must look (cos angle)
+
+// Pickable objects (marked pickable in the editor). Defines, not constexpr:
+// the game cpp falls back with #ifndef when an owned copy of this file
+// predates them.
+#define PICK_CARRY_DIST 2.2F    // carry reach in front of the face
+#define PICK_THROW_SPEED 14.0F  // launch speed, units/s
+#define PICK_MIN_DIST 0.3F      // floor for the carry reach: keeps the
+                                // object's near face off the clip plane
 )";
 
 // 64x64 white crosshair, PNG (372 bytes)
@@ -6710,6 +10540,121 @@ const unsigned char* usePromptPng(size_t& size) {
     size = sizeof(data);
     return data;
 }
+
+// 128x32 "PICK UP" prompt, PNG (2026 bytes) - written into res/hud/pickup.png
+// of every project when missing; drawn instead of the USE prompt while the
+// looked-at object is pickable. Same style as use.png (white, black outline).
+const unsigned char* pickPromptPng(size_t& size) {
+    static const unsigned char data[] = {
+        137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,128,0,0,0,32,8,6,
+        0,0,0,218,34,112,37,0,0,7,177,73,68,65,84,120,218,237,154,127,76,84,
+        217,21,199,63,204,2,99,116,144,58,165,160,16,212,46,67,208,110,197,18,
+        82,39,209,168,153,70,165,9,129,110,164,36,141,162,113,88,84,26,71,77,
+        246,15,155,218,214,96,251,7,109,93,99,93,106,90,139,22,109,253,177,
+        245,71,157,154,84,196,193,162,66,141,176,34,6,97,75,250,99,172,6,129,
+        217,65,104,160,128,48,12,183,127,240,222,115,24,134,55,40,172,29,218,
+        247,77,94,114,231,221,115,190,243,222,121,231,222,123,206,185,23,52,
+        104,208,160,65,131,6,13,26,52,104,208,160,225,117,17,6,156,0,250,1,17,
+        224,26,150,250,58,128,58,224,32,240,5,73,87,15,92,2,6,125,228,189,64,
+        53,16,239,247,63,95,5,62,0,26,0,55,48,4,116,74,156,31,0,95,242,147,
+        255,16,232,243,123,150,70,96,153,143,204,18,224,99,96,196,79,174,31,
+        248,13,16,238,199,169,3,126,13,12,248,200,142,0,247,1,147,143,220,70,
+        160,205,143,179,19,40,152,130,173,66,22,153,19,188,140,218,245,47,32,
+        27,120,79,69,230,67,137,127,62,112,101,146,188,191,5,140,192,90,21,
+        153,107,18,239,219,192,179,32,124,91,252,222,245,27,42,178,231,124,6,
+        196,243,9,100,60,83,176,213,180,66,55,141,92,137,0,133,133,133,8,33,
+        198,93,94,175,151,129,129,1,218,219,219,169,168,168,96,195,134,13,0,
+        209,210,200,95,13,80,84,84,164,200,219,237,118,153,119,33,240,14,80,
+        11,188,27,21,21,197,190,125,251,168,174,174,198,237,118,51,52,52,132,
+        219,237,166,170,170,138,61,123,246,48,103,206,28,128,60,224,46,240,
+        101,128,188,188,60,133,183,169,169,201,151,55,1,168,4,226,45,22,11,3,
+        3,3,138,92,71,71,7,38,147,201,119,118,27,247,174,54,155,77,145,175,
+        169,169,241,229,5,152,3,24,13,6,195,24,59,72,156,225,83,176,149,37,84,
+        103,128,66,64,20,22,22,138,201,194,102,179,201,222,253,28,16,69,69,69,
+        74,159,221,110,151,251,254,8,252,3,16,107,214,172,17,46,151,75,149,
+        243,241,227,199,98,217,178,101,178,238,67,64,228,229,229,41,253,77,77,
+        77,114,223,83,224,19,64,152,205,102,209,219,219,171,200,116,119,119,
+        139,212,212,84,89,238,62,16,233,247,174,54,64,216,108,54,69,167,166,
+        166,70,150,151,61,193,0,8,131,193,48,230,249,76,38,147,50,170,95,211,
+        86,127,3,222,10,197,25,224,149,113,248,240,97,18,19,19,145,166,235,
+        137,240,14,240,182,217,108,198,225,112,16,27,27,171,202,185,120,241,
+        98,202,203,203,49,26,141,0,203,131,204,88,75,83,83,83,41,47,47,199,96,
+        48,0,208,223,223,79,102,102,38,141,141,141,0,127,1,190,46,197,25,132,
+        136,173,76,210,51,133,190,3,212,214,214,18,22,22,70,88,88,24,17,17,17,
+        196,199,199,179,127,255,126,165,63,50,50,146,188,188,188,160,75,75,
+        120,120,56,103,207,158,37,50,114,116,32,118,117,117,177,125,251,118,
+        98,99,99,153,61,123,54,233,233,233,92,186,116,73,81,72,72,72,96,215,
+        174,93,65,159,47,57,57,153,27,55,110,48,111,222,60,0,134,134,134,216,
+        184,113,35,119,239,222,5,120,2,172,151,130,182,207,28,175,104,171,53,
+        211,245,191,225,111,202,131,135,135,135,105,111,111,167,184,184,152,
+        181,107,215,146,145,145,1,64,82,82,82,80,39,205,201,201,81,228,60,30,
+        15,235,214,173,163,161,161,65,17,120,240,224,1,185,185,185,92,190,124,
+        25,189,94,207,149,43,87,184,122,245,170,42,233,194,133,11,185,121,243,
+        38,113,113,113,0,140,140,140,176,101,203,22,42,42,42,0,92,192,58,41,
+        56,124,227,152,132,173,18,102,156,3,76,152,59,134,133,5,79,47,50,51,
+        149,182,221,110,151,63,254,63,129,44,192,9,188,15,252,40,39,39,199,95,
+        245,49,240,69,255,155,113,113,113,84,86,86,202,83,42,114,64,118,225,
+        194,5,164,104,123,3,240,247,144,203,179,95,218,234,197,140,115,128,
+        136,136,8,226,226,226,216,182,109,155,28,213,2,208,210,210,18,84,55,
+        61,61,93,105,223,185,115,71,110,254,2,144,67,250,98,41,157,251,38,240,
+        87,192,46,165,140,105,82,74,168,192,96,48,224,112,56,72,78,78,86,238,
+        213,213,213,81,90,90,42,255,124,79,170,19,252,215,48,9,91,181,206,8,7,
+        48,155,205,8,33,38,236,239,239,239,231,252,249,243,65,121,98,98,98,
+        148,182,203,229,242,29,221,50,188,64,190,116,249,34,205,159,107,209,
+        162,69,227,248,87,172,88,65,110,110,46,23,47,94,68,226,248,253,155,
+        254,232,175,104,171,242,25,159,5,120,189,94,118,238,220,73,107,107,43,
+        82,181,108,98,47,13,127,233,167,58,157,110,218,158,189,167,167,71,105,
+        151,148,148,200,153,67,38,176,57,136,170,0,84,63,216,68,24,25,25,153,
+        170,173,62,150,106,34,51,203,1,132,16,244,245,245,225,116,58,57,119,
+        238,28,102,179,153,51,103,206,0,252,27,248,131,154,238,243,231,207,
+        149,246,130,5,11,240,169,224,249,98,31,208,3,60,2,126,8,124,69,141,
+        243,244,233,211,172,92,185,18,143,199,163,196,5,71,142,28,145,187,127,
+        22,164,244,58,44,7,107,1,156,244,45,223,217,213,215,121,253,117,94,
+        211,86,249,161,90,9,84,77,109,116,58,29,6,131,129,164,164,36,54,111,
+        222,76,125,125,189,156,106,89,128,79,213,120,164,156,28,128,213,171,
+        87,203,77,43,144,2,204,2,118,0,63,1,162,164,234,223,15,24,221,43,248,
+        126,32,190,178,178,50,242,243,243,105,110,110,230,232,209,163,202,253,
+        173,91,183,202,17,119,140,79,9,58,16,250,0,122,123,123,149,27,209,209,
+        209,190,17,250,231,228,61,140,185,115,231,142,155,202,167,104,171,166,
+        25,227,0,254,179,159,100,184,39,192,117,224,219,140,110,194,220,15,
+        166,120,237,218,53,165,157,149,149,69,90,90,26,64,50,208,194,232,134,
+        204,113,128,210,210,82,28,14,7,133,133,133,204,159,63,31,201,65,198,
+        192,233,116,82,80,80,160,76,197,7,15,30,164,173,237,229,10,116,252,
+        248,113,185,40,244,45,41,203,8,132,79,1,218,219,219,149,27,41,41,41,
+        114,96,153,8,116,3,205,242,218,46,195,227,241,208,213,213,165,44,33,
+        159,133,173,66,170,20,124,239,222,61,185,124,121,47,136,110,145,74,41,
+        120,68,175,215,139,214,214,86,165,175,179,179,83,88,173,86,97,52,26,
+        197,172,89,179,196,242,229,203,69,89,89,217,152,210,233,161,67,135,
+        148,146,235,4,165,224,102,224,50,32,54,109,218,52,70,183,164,164,68,
+        150,105,149,106,240,227,98,73,64,24,141,70,225,241,120,20,189,150,150,
+        22,177,126,253,122,17,21,21,37,162,163,163,69,118,118,182,232,232,232,
+        80,250,107,107,107,101,94,215,20,108,245,127,231,0,207,0,97,177,88,
+        198,24,91,13,46,151,75,196,196,196,4,115,128,38,233,67,246,3,226,214,
+        173,91,138,140,215,235,21,171,86,173,146,229,126,53,193,51,55,0,227,
+        28,79,13,5,5,5,50,103,101,168,56,128,110,6,56,86,35,208,86,85,85,69,
+        86,86,22,221,221,221,170,194,79,159,62,37,35,35,131,206,206,78,38,145,
+        207,63,145,106,8,236,222,189,91,9,208,116,58,29,39,78,156,64,175,215,
+        195,232,222,125,160,29,184,31,3,236,221,187,151,234,234,234,160,47,
+        113,234,212,41,78,158,60,9,163,103,30,170,67,197,184,51,193,1,6,165,
+        181,216,117,253,250,117,76,38,19,69,69,69,212,215,215,211,211,211,195,
+        139,23,47,112,58,157,56,28,14,172,86,43,75,151,46,229,225,195,135,72,
+        241,193,47,39,193,255,83,192,249,232,209,35,142,29,59,166,220,92,178,
+        100,9,7,14,28,144,183,130,223,15,160,247,59,224,84,79,79,15,22,139,
+        133,29,59,118,112,251,246,109,220,110,55,94,175,151,193,193,65,218,
+        218,218,176,219,237,100,103,103,99,181,90,229,180,241,59,210,18,240,
+        63,7,181,3,33,23,130,232,78,230,64,200,34,192,49,201,195,19,31,49,249,
+        3,33,72,14,166,198,119,85,101,0,21,51,186,91,56,153,3,29,249,211,96,
+        171,144,133,14,56,25,224,152,84,67,160,104,220,15,122,41,32,243,63,18,
+        246,231,0,71,194,190,38,141,236,79,36,163,122,164,243,4,242,145,48,
+        255,252,255,231,1,142,132,53,49,246,72,24,192,247,128,174,0,31,164,65,
+        138,192,213,144,34,253,119,29,163,187,135,30,201,14,207,128,63,1,223,
+        5,62,63,77,182,210,160,65,131,6,13,26,52,104,208,160,65,131,134,41,
+        224,63,218,97,91,227,58,15,90,186,0,0,0,0,73,69,78,68,174,66,96,130,
+    };
+    size = sizeof(data);
+    return data;
+}
+
 
 // 512x16 glyph strip for the in-game HUD text (debug overlays + the video
 // mode confirm prompt), rendered from an embedded 8x8 pixel font and
@@ -7092,13 +11037,24 @@ static const char* TPL_SCRIPT_HPP =
 
 namespace {{NAME_UPPER_NS}} {
 
+/** Frames of near-rest ground contact after which a physics body falls
+ * asleep (a sleeping body costs one branch per frame until woken). */
+constexpr int PHYS_SLEEP_FRAMES = 24;
+
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
- * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
- * rebuilt on the next frame. */
+ * `visible` or the velocity fields, then set `dirty = true` so the geometry
+ * gets rebuilt on the next frame. */
 struct RuntimeObject {
   SceneObjectData data;
   bool visible = true;
-  float velocityY = 0.0F;  // vertical velocity (object physics)
+  // Object physics state (data.physics). Velocities are per-frame
+  // displacements (like the player's), spin is degrees/frame. After writing
+  // them from a script set restFrames = 0 too - a body with restFrames >=
+  // PHYS_SLEEP_FRAMES is asleep and skips simulation entirely.
+  float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
+  float velocityX = 0.0F, velocityZ = 0.0F;
+  float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  signed char restFrames = 0;          // sleep counter; write 0 to wake
   bool dirty = true;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
@@ -7126,6 +11082,11 @@ struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
   Tyra::Vec4 playerLook;           // normalized view direction this frame
+  // Two-player modes (docs/multiplayer.md): player 2's eye position while
+  // active; equals playerPosition otherwise, so "nearest player" logic can
+  // read it unconditionally.
+  Tyra::Vec4 player2Position;
+  bool player2Active = false;
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -7176,6 +11137,18 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
+  // Text node). Same request protocol as textRequest above, but the string is
+  // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
+  // a script whether its slot is currently on screen, so it only pays for the
+  // refresh while the text is actually visible.
+  signed char* dynTextRequest = nullptr;
+  float* dynTextDuration = nullptr;
+  char* dynTextBuf = nullptr;
+  const unsigned char* dynTextOn = nullptr;
+  int dynTextCount = 0;
+  int dynTextLen = 0;  // stride of dynTextBuf (DYN_TEXT_LEN)
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
@@ -7207,9 +11180,19 @@ struct ScriptContext {
   float stickExpL = -1.0F;
   float stickExpR = -1.0F;
 
+  // Pad vibration (Vibrate Pad flow node / padVibrate() below). rumble: -1 =
+  // leave, else the DualShock big-motor power 0..255 (0 = off); rumbleSmall:
+  // the on/off buzz motor. rumbleSec > 0 auto-stops the vibration after that
+  // many seconds, 0 = vibrate until the next request. The game applies the
+  // request to the pad actuators and resets rumble to -1.
+  int rumble = -1;
+  int rumbleSmall = 0;
+  float rumbleSec = 0.0F;
+
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
-  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
+  // rendering, 4 = full-height PAL 576i). displayConfirmSec > 0
   // arms the keep-or-revert prompt: the game switches, asks the player to
   // confirm with X and reverts to the previous mode automatically when the
   // timer runs out (a mode the TV can't display would otherwise strand the
@@ -7326,6 +11309,17 @@ inline void stopAnimation(ScriptContext& ctx, int objectIndex) {
   ctx.objects[objectIndex].animPlaying = false;
 }
 
+/** Vibrates the DualShock pad: big = heavy-motor strength 0..1, small = the
+ * on/off buzz motor. seconds > 0 auto-stops after that long, 0 = vibrate
+ * until the next call. padVibrate(ctx, 0.0F) stops immediately. */
+inline void padVibrate(ScriptContext& ctx, float big, bool small = false,
+                       float seconds = 0.0F) {
+  const int power = (int)(big * 255.0F + 0.5F);
+  ctx.rumble = power < 0 ? 0 : power > 255 ? 255 : power;
+  ctx.rumbleSmall = small ? 1 : 0;
+  ctx.rumbleSec = seconds < 0.0F ? 0.0F : seconds;
+}
+
 /** True the frame an object's clip reached its last frame (one-shots: once;
  * looping clips: every wrap). */
 inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
@@ -7362,7 +11356,8 @@ class ObjectScript {
   virtual ~ObjectScript() {}
 
   /** The object this instance is attached to - mutate self->data (position/
-   * rotation/scale/color), self->visible or self->velocityY, then set
+   * rotation/scale/color), self->visible or the velocity/spin fields (write
+   * self->restFrames = 0 to wake a sleeping body), then set
    * self->dirty = true. Equals &ctx.objects[selfIndex]; refreshed by the
    * game every frame before onUpdate. */
   RuntimeObject* self = nullptr;
@@ -7465,10 +11460,14 @@ inline void flowExampleNearest(ScriptContext& ctx, FlowNodeIO& io) {
 )";
 
 // Example script for FPP projects - user-owned, written only at creation.
+// A minimal "hello world": it logs one line at startup (find it in the PCSX2
+// log). The commented block in update() is a ready-to-uncomment example that
+// tints the sky on X - left off by default so pressing X (also the jump
+// button) does not recolor the sky by surprise.
 static const char* TPL_EXAMPLE_SCRIPT_FPP =
     R"(// Example TyraX script. This file is yours - it is never regenerated.
-// Walk close to the box and press X: the sky changes color (and a message
-// lands in the PCSX2 log via TYRA_LOG).
+// Says hello in the PCSX2 log at startup. Uncomment the block in update()
+// for a working example that reacts to the pad.
 #include "scripts/script.hpp"
 #include "terrain_config.hpp"
 
@@ -7476,31 +11475,30 @@ namespace {{NAME_UPPER_NS}} {
 
 class ExampleInteraction : public Script {
  public:
-  void update(ScriptContext& ctx) override {
-    // Find the first box in the scene
-    RuntimeObject* box = nullptr;
-    for (int i = 0; i < ctx.objectCount; ++i) {
-      if (ctx.objects[i].data.type == 0) {  // 0 = box
-        box = &ctx.objects[i];
-        break;
-      }
-    }
-    if (!box) return;
-
-    const float dx = ctx.playerPosition.x - box->data.position[0];
-    const float dz = ctx.playerPosition.z - box->data.position[2];
-    const bool nearBox = (dx * dx + dz * dz) < 8.0F * 8.0F;
-
-    if (nearBox && ctx.engine->pad.getClicked().Cross) {
-      toggled = !toggled;
-      TYRA_LOG("Box says hello! Sky toggled: ", (int)toggled);
-      ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
-                             : Tyra::Color(SKY_R, SKY_G, SKY_B);
-    }
+  void init(ScriptContext& ctx) override {
+    (void)ctx;
+    TYRA_LOG("Hello from TyraX! Edit src/scripts/example_interaction.cpp.");
   }
 
- private:
-  bool toggled = false;
+  void update(ScriptContext& ctx) override {
+    (void)ctx;
+    // Example: walk up to the first box and press X to toggle the sky color.
+    // Commented out so a jump (X) does not recolor the sky - uncomment to try.
+    //
+    // static bool toggled = false;
+    // RuntimeObject* box = nullptr;
+    // for (int i = 0; i < ctx.objectCount; ++i)
+    //   if (ctx.objects[i].data.type == 0) { box = &ctx.objects[i]; break; }
+    // if (!box) return;
+    // const float dx = ctx.playerPosition.x - box->data.position[0];
+    // const float dz = ctx.playerPosition.z - box->data.position[2];
+    // if ((dx * dx + dz * dz) < 8.0F * 8.0F && ctx.engine->pad.getClicked().Cross) {
+    //   toggled = !toggled;
+    //   TYRA_LOG("Box says hello! Sky toggled: ", (int)toggled);
+    //   ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
+    //                          : Tyra::Color(SKY_R, SKY_G, SKY_B);
+    // }
+  }
 };
 
 }  // namespace {{NAME_UPPER_NS}}
@@ -7511,8 +11509,8 @@ TYRA_SCRIPT({{NAME_UPPER_NS}}::ExampleInteraction);
 // Example script for orbit projects (no player to walk around with).
 static const char* TPL_EXAMPLE_SCRIPT_ORBIT =
     R"(// Example TyraX script. This file is yours - it is never regenerated.
-// Press X on the pad: the sky changes color (and a message lands in the
-// PCSX2 log via TYRA_LOG).
+// Says hello in the PCSX2 log at startup. Uncomment the block in update()
+// for a working example that reacts to the pad.
 #include "scripts/script.hpp"
 #include "terrain_config.hpp"
 
@@ -7520,17 +11518,24 @@ namespace {{NAME_UPPER_NS}} {
 
 class ExampleInteraction : public Script {
  public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.engine->pad.getClicked().Cross) {
-      toggled = !toggled;
-      TYRA_LOG("X pressed! Sky toggled: ", (int)toggled);
-      ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
-                             : Tyra::Color(SKY_R, SKY_G, SKY_B);
-    }
+  void init(ScriptContext& ctx) override {
+    (void)ctx;
+    TYRA_LOG("Hello from TyraX! Edit src/scripts/example_interaction.cpp.");
   }
 
- private:
-  bool toggled = false;
+  void update(ScriptContext& ctx) override {
+    (void)ctx;
+    // Example: press X to toggle the sky color. Commented out so it does not
+    // fire by surprise - uncomment to try it.
+    //
+    // static bool toggled = false;
+    // if (ctx.engine->pad.getClicked().Cross) {
+    //   toggled = !toggled;
+    //   TYRA_LOG("X pressed! Sky toggled: ", (int)toggled);
+    //   ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
+    //                          : Tyra::Color(SKY_R, SKY_G, SKY_B);
+    // }
+  }
 };
 
 }  // namespace {{NAME_UPPER_NS}}
@@ -7844,6 +11849,72 @@ static std::string decalDataHeader(const Project& p) {
     return out.str();
 }
 
+// Static batching eligibility (SceneObjectData::batchStatic). The game may
+// merge flagged objects into combined world-space bags at scene load; the
+// flag must therefore rule out everything that renders through a special
+// path or moves/hides at runtime through a channel the game can predict at
+// build time. Runtime-only mutation channels that can hit ANY object (Live
+// Link, a Raycast latch or custom-node object output fed into an action,
+// global scripts writing ctx.objects) are NOT excludable here - the game
+// covers them by rebuilding a batch whenever a member is dirtied.
+
+// Object names referenced anywhere that can move, hide, re-target or
+// re-submit an object at runtime: same-scene flow-graph nodes with an
+// object-name param (writers and readers alike - over-excluding is safe,
+// the cost is one solo bag), mirror target lists, portal view lists, and
+// cutscene tracks /
+// camera-shot bindings (project-wide, they apply to whatever scene is
+// active). Patrol waypoint PREFIXES are deliberately not expanded: the AI
+// only reads waypoint positions, it never mutates the waypoint object.
+static std::set<std::string> batchBlockedNames(const Project& p,
+                                               const SceneData& sc) {
+    std::set<std::string> refs;
+    for (const SceneObject& o : sc.objects) {
+        for (const FlowNode& n : o.flowGraph.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (t && t->strKind == FlowParamKind::ObjectName && !n.str.empty())
+                refs.insert(n.str);
+        }
+        if (o.type == PrimitiveType::Mirror)
+            for (const std::string& m : o.mirrorObjects) refs.insert(m);
+        // Portal view lists re-submit their objects through renderPortalView's
+        // per-object solo bags - a batched member has no solo bag and simply
+        // vanishes from the through-view (only particles survived; the missing
+        // wall around the target portal then read as seeing through two
+        // portals at once).
+        if (o.type == PrimitiveType::Portal)
+            for (const std::string& m : o.portalObjects) refs.insert(m);
+    }
+    for (const Sequence& s : p.sequences) {
+        for (const SeqTrack& tr : s.tracks) refs.insert(tr.target);
+        for (const SeqCameraKey& k : s.cameraKeys) refs.insert(k.camera);
+    }
+    return refs;
+}
+
+static bool staticBatchEligible(const SceneObject& o,
+                                const std::set<std::string>& blocked) {
+    // Geometry primitives only - models render per-MTL-part with their own
+    // textures, decals/mirrors have dedicated draw paths, markers have no
+    // geometry.
+    const bool shape =
+        o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+        o.type == PrimitiveType::Plane;
+    if (!shape) return false;
+    if (o.physics) return false;      // moves every frame while falling
+    if (o.usable) return false;       // highlight defers/re-submits the body
+    if (o.pickable) return false;     // carried/thrown - moves at runtime
+    if (o.saveState) return false;    // a loaded save repositions it
+    if (o.reflected) return false;    // re-submitted into the env map pass
+    if (o.drawDistance != 0.0f) return false;  // per-object distance cut-off
+    if (!o.layer.empty()) return false;        // streamed in/out with a layer
+    // Per-object logic: the graph can move self, attached scripts get a
+    // per-frame hook on this object.
+    if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
+    return blocked.find(o.name) == blocked.end();
+}
+
 // inc/scene_data.hpp - pure data mirror of the .tyra project, regenerated on build
 static std::string sceneDataContent(const Project& p, const std::string& ns) {
     std::ostringstream out;
@@ -7860,14 +11931,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             // 11=empty (pure transform, no geometry/collision)\n"
            "             // 12=plane 13=decal 14=camera (cutscene shot marker)\n"
            "             // 15=mirror (glass quad; reflections via MIRRORS below)\n"
+           "             // 16=portal (linked surface; through-view + teleport\n"
+           "             //    via PORTALS below)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
            "  float color[3];  // 0..1\n"
-           "  int physics;  // 1 = falls with gravity\n"
+           "  int physics;  // 1 = rigid body: gravity, bounces, tumbles, collides\n"
+           "  float physMass;     // relative mass (impulse exchange, player push)\n"
+           "  float physBounce;   // restitution 0..1: 0 = thud, 1 = superball\n"
+           "  float physFriction; // ground drag 0..1: 0 = ice, 1 = sticky\n"
+           "  int physTumble;     // 1 = ground contact converts slide into roll\n"
            "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
            "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
+           "  int pickable; // 1 = BTN_USE picks it up and carries it in front of\n"
+           "                // the camera; BTN_USE again drops it\n"
+           "  int pickThrow; // 1 = a carried object launches with BTN_THROW\n"
            "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain,\n"
            "                  // 5 custom (physics below)\n"
            "  int emitCount;  // emitters: particle pool size (density)\n"
@@ -7900,9 +11980,18 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
            "  int animLoop;          // animated models: 1 = starting clip loops\n"
            "  float animSpeed;       // animated models: playback speed multiplier\n"
+           "  float animLod;  // per-object animation-LOD distance override:\n"
+           "                  // -1 = project ANIM_LOD_DISTANCE, 0 = off, >0 = custom\n"
+           "  float meshLod;  // per-object mesh-LOD distance override (same coding)\n"
+           "  float modelYaw; // content-forward correction (deg around model Y),\n"
+           "                  // between scale and rotation - X-forward-authored models\n"
+           "                  // set +-90; runtime facing (faceYaw/AI) stays pure\n"
            "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
            "  int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:\n"
            "                  // always resident, never streamed out\n"
+           "  int batchStatic; // 1 = may merge into a combined static batch bag\n"
+           "                   // (build-time verdict: non-moving primitive with\n"
+           "                   // no physics/logic/graph refs/save-state/layer)\n"
            "};\n"
            "\n";
 
@@ -7918,10 +12007,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
-            out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
+            // Placeholder row so the array is never zero-sized. Field order
+            // must track SceneObjectData 1:1 (physics params physMass/Bounce/
+            // Friction/Tumble after the `physics` flag, pickable/pickThrow
+            // after `usable`, `reflected` before the anim block) - an empty
+            // scene must still compile.
+            out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, "
+                   "1.0F, 0.35F, 0.5F, 1, -1, -1, 0, "
+                   "0, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
-                   "1.0F, 1, -1},\n";
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
+                   "1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -7935,14 +12031,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     if (layers[i].name == name) return (int)i;
                 return -1;  // unknown layer name = always resident
             };
+            const std::set<std::string> blocked =
+                batchBlockedNames(p, p.scenes[si]);
             for (const SceneObject& o : objs) {
                 out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                     << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
+                    << floatLit(o.physMass) << ", " << floatLit(o.physBounce)
+                    << ", " << floatLit(o.physFriction) << ", "
+                    << (o.physTumble ? 1 : 0) << ", "
                     << modelIndexOf(p, o) << ", " << materialIndexOf(p, o)
                     << ", "
                     // save points are always usable - USE is how they open
                     << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0)
+                    << ", " << (o.pickable ? 1 : 0) << ", "
+                    << (o.pickThrow ? 1 : 0)
                     << ", " << o.emitterKind << ", "
                     << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
                     << (o.emitterEnabled ? 1 : 0) << ", "
@@ -7965,8 +12068,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << ", "
+                    << floatLit(o.animLodOverride) << ", "
+                    << floatLit(o.meshLodOverride) << ", "
+                    << floatLit(o.modelYawOffset) << ", "
                     << clampPrimDetail(o.type, o.primDetail) << ", "
-                    << layerIndexIn(o.layer) << "},  // " << o.name << "\n";
+                    << layerIndexIn(o.layer) << ", "
+                    << (staticBatchEligible(o, blocked) ? 1 : 0) << "},  // "
+                    << o.name << "\n";
             }
         }
         out << "};\n";
@@ -8110,6 +12218,69 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (targetCount ? targets.str() : "-1") << "};\n\n";
     }
 
+    // Portal objects (type 16): same flat side-table pattern as MIRRORS.
+    // The target (the linked portal) and the view-object list resolve from
+    // names to scene-table indices here; a dangling/empty target leaves the
+    // portal inactive (target -1: tinted surface, no view, no teleport).
+    {
+        std::ostringstream infos, views;
+        int portalCount = 0, viewCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Portal) continue;
+                int target = -1;
+                if (!o.portalTarget.empty())
+                    for (size_t ti = 0; ti < objs.size(); ++ti)
+                        if (ti != oi && objs[ti].type == PrimitiveType::Portal &&
+                            objs[ti].name == o.portalTarget) {
+                            target = (int)ti;
+                            break;
+                        }
+                const int first = viewCount;
+                for (const std::string& name : o.portalObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti) {
+                        if (ti == oi || objs[ti].name != name) continue;
+                        views << (viewCount ? ", " : "") << ti;
+                        ++viewCount;
+                        break;
+                    }
+                infos << (portalCount ? ",\n    " : "    ") << "{" << si << ", "
+                      << oi << ", " << target << ", "
+                      << (o.portalShowTerrain ? 1 : 0) << ", "
+                      << (o.portalTeleportObjects ? 1 : 0) << ", "
+                      << (o.portalViewAll ? 1 : 0) << ", " << first << ", "
+                      << (viewCount - first) << "},  // " << o.name;
+                ++portalCount;
+            }
+        }
+        out << "// Portals (type 16): each entry links a surface to its target\n"
+               "// portal. The game renders the through-view of the nearest one\n"
+               "// into a VRAM target every frame and teleports whatever crosses\n"
+               "// the surface (renderPortalView/renderPortals/updatePortals in\n"
+               "// the game cpp). Indices index the portal's own scene table.\n"
+               "struct PortalData {\n"
+               "  int scene;            // scene index\n"
+               "  int object;           // the portal's index in its scene table\n"
+               "  int target;           // linked portal's index, -1 = inactive\n"
+               "  int showTerrain;      // 1 = sky dome + terrain in the view\n"
+               "  int teleportObjects;  // 1 = physics objects teleport too\n"
+               "  int viewAll;          // 1 = EVERY object in the view\n"
+               "                        //     (experimental; list ignored)\n"
+               "  int firstView;        // first entry in PORTAL_VIEW_OBJECTS\n"
+               "  int viewCount;\n"
+               "};\n"
+            << "constexpr int PORTAL_COUNT = " << portalCount << ";\n"
+            << "constexpr PortalData PORTALS[" << (portalCount ? portalCount : 1)
+            << "] = {\n"
+            << (portalCount ? infos.str() : "    {0, -1, -1, 0, 0, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr int PORTAL_VIEW_OBJECTS["
+            << (viewCount ? viewCount : 1) << "] = {"
+            << (viewCount ? views.str() : "-1") << "};\n\n";
+    }
+
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
     // indexes this list; res/sfx/x.wav -> sfx/x.adpcm next to the ELF)
     out << "constexpr int SND_COUNT = " << p.sounds.size() << ";\n"
@@ -8128,74 +12299,73 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     }
     out << "};\n\n";
 
-    // Player entity per scene: the first Player object drives the camera
-    std::vector<const SceneObject*> players(sceneCount, nullptr);
-    std::vector<int> playerIdx(sceneCount, -1);
-    for (int si = 0; si < sceneCount; ++si)
-        for (size_t i = 0; i < p.scenes[si].objects.size(); ++i)
+    // Player entities per scene: the first Player object drives the camera
+    // (P1); the second one, when present, is player 2 of the two-player modes
+    // (docs/multiplayer.md). Both get the same table set, P2's prefixed
+    // PLAYER2_; the per-player accessor macros below the scene tables select
+    // by player index.
+    std::vector<const SceneObject*> players[2] = {
+        std::vector<const SceneObject*>(sceneCount, nullptr),
+        std::vector<const SceneObject*>(sceneCount, nullptr)};
+    std::vector<int> playerIdx[2] = {std::vector<int>(sceneCount, -1),
+                                     std::vector<int>(sceneCount, -1)};
+    for (int si = 0; si < sceneCount; ++si) {
+        int found = 0;
+        for (size_t i = 0; i < p.scenes[si].objects.size() && found < 2; ++i)
             if (p.scenes[si].objects[i].type == PrimitiveType::Player) {
-                players[si] = &p.scenes[si].objects[i];
-                playerIdx[si] = (int)i;
-                break;
+                players[found][si] = &p.scenes[si].objects[i];
+                playerIdx[found][si] = (int)i;
+                ++found;
             }
+    }
 
-    out << "constexpr int PLAYER_INDEXES[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << playerIdx[si];
-    out << "};\n"
-        << "constexpr int PLAYER_MODES[SCENE_COUNT] = {";  // 0 = walk, 1 = noclip
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "") << (players[si] ? players[si]->playerMode : 0);
-    out << "};\n"
-        << "constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerWalkSpeed : 0.4f);
-    out << "};\n"
-        << "constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerLookSpeed : 1.0f);
-    out << "};\n"
-        << "constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerEyeHeight : 1.8f);
-    out << "};\n"
-        << "constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerJumpSpeed : 4.5f);
-    out << "};\n"
-        << "constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << (!players[si] || players[si]->playerCanJump ? "true" : "false");
-    out << "};\n";
+    for (int pl = 0; pl < 2; ++pl) {
+        const std::string pre = pl == 0 ? "PLAYER_" : "PLAYER2_";
+        const auto& ps = players[pl];
+        out << "constexpr int " << pre << "INDEXES[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << playerIdx[pl][si];
+        out << "};\n"
+            << "constexpr int " << pre << "MODES[SCENE_COUNT] = {";  // 0 = walk, 1 = noclip
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << (ps[si] ? ps[si]->playerMode : 0);
+        out << "};\n";
 
-    // Third-person parameters (playerMode == 2). Clip names resolve to the
-    // avatar model's clip indices at scene load (resolveClipIndex).
-    auto playerFloat = [&](const char* name, auto get, float dflt) {
-        out << "constexpr float " << name << "[SCENE_COUNT] = {";
+        auto playerFloat = [&](const char* name, auto get, float dflt) {
+            out << "constexpr float " << pre << name << "[SCENE_COUNT] = {";
+            for (int si = 0; si < sceneCount; ++si)
+                out << (si ? ", " : "") << floatLit(ps[si] ? get(*ps[si]) : dflt);
+            out << "};\n";
+        };
+        playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.4f);
+        playerFloat("LOOK_SPEEDS", [](const SceneObject& o) { return o.playerLookSpeed; }, 1.0f);
+        playerFloat("EYE_HEIGHTS", [](const SceneObject& o) { return o.playerEyeHeight; }, 1.8f);
+        playerFloat("JUMP_SPEEDS", [](const SceneObject& o) { return o.playerJumpSpeed; }, 4.5f);
+        out << "constexpr bool " << pre << "CAN_JUMPS[SCENE_COUNT] = {";
         for (int si = 0; si < sceneCount; ++si)
-            out << (si ? ", " : "") << floatLit(players[si] ? get(*players[si]) : dflt);
+            out << (si ? ", " : "")
+                << (!ps[si] || ps[si]->playerCanJump ? "true" : "false");
         out << "};\n";
-    };
-    playerFloat("PLAYER_RUN_THRESHOLDS", [](const SceneObject& o) { return o.playerRunThreshold; }, 0.55f);
-    playerFloat("PLAYER_CAM_DISTS", [](const SceneObject& o) { return o.playerCamDist; }, 6.0f);
-    playerFloat("PLAYER_CAM_HEIGHTS", [](const SceneObject& o) { return o.playerCamHeight; }, 1.6f);
-    playerFloat("PLAYER_CAM_SHOULDERS", [](const SceneObject& o) { return o.playerCamShoulder; }, 0.0f);
-    playerFloat("PLAYER_TURN_RATES", [](const SceneObject& o) { return o.playerTurnRate; }, 0.25f);
-    auto playerClip = [&](const char* name, auto get) {
-        out << "constexpr const char* " << name << "[SCENE_COUNT] = {";
-        for (int si = 0; si < sceneCount; ++si)
-            out << (si ? ", " : "") << "\""
-                << (players[si] ? escapeCString(get(*players[si])) : std::string()) << "\"";
-        out << "};\n";
-    };
-    playerClip("PLAYER_IDLE_CLIPS", [](const SceneObject& o) { return o.playerIdleClip; });
-    playerClip("PLAYER_WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
-    playerClip("PLAYER_RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
-    playerClip("PLAYER_JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
+
+        // Third-person parameters (playerMode == 2). Clip names resolve to the
+        // avatar model's clip indices at scene load (resolveClipIndex).
+        playerFloat("RUN_THRESHOLDS", [](const SceneObject& o) { return o.playerRunThreshold; }, 0.55f);
+        playerFloat("CAM_DISTS", [](const SceneObject& o) { return o.playerCamDist; }, 6.0f);
+        playerFloat("CAM_HEIGHTS", [](const SceneObject& o) { return o.playerCamHeight; }, 1.6f);
+        playerFloat("CAM_SHOULDERS", [](const SceneObject& o) { return o.playerCamShoulder; }, 0.0f);
+        playerFloat("TURN_RATES", [](const SceneObject& o) { return o.playerTurnRate; }, 0.25f);
+        auto playerClip = [&](const char* name, auto get) {
+            out << "constexpr const char* " << pre << name << "[SCENE_COUNT] = {";
+            for (int si = 0; si < sceneCount; ++si)
+                out << (si ? ", " : "") << "\""
+                    << (ps[si] ? escapeCString(get(*ps[si])) : std::string()) << "\"";
+            out << "};\n";
+        };
+        playerClip("IDLE_CLIPS", [](const SceneObject& o) { return o.playerIdleClip; });
+        playerClip("WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
+        playerClip("RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
+        playerClip("JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
+    }
     out << "\n";
 
     // Per-scene settings: the project defaults with each scene's active
@@ -8287,22 +12457,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // fixed per scene; the enabled flag is only the runtime master's initial
     // value - the flow graph / toggle button change it live). No player in a
     // scene = no flashlight there.
-    sceneBools("FLASHLIGHT_ENABLEDS",
-               [&](int si) { return players[si] && players[si]->flashlightEnabled; });
+    sceneBools("FLASHLIGHT_ENABLEDS", [&](int si) {
+        return players[0][si] && players[0][si]->flashlightEnabled;
+    });
     sceneFloats("FLASHLIGHT_RS", [&](int si) {
-        return floatLit((players[si] ? players[si]->flashlightColor[0] : 0.0f) * 128.0f);
+        return floatLit((players[0][si] ? players[0][si]->flashlightColor[0] : 0.0f) * 128.0f);
     });
     sceneFloats("FLASHLIGHT_GS", [&](int si) {
-        return floatLit((players[si] ? players[si]->flashlightColor[1] : 0.0f) * 128.0f);
+        return floatLit((players[0][si] ? players[0][si]->flashlightColor[1] : 0.0f) * 128.0f);
     });
     sceneFloats("FLASHLIGHT_BS", [&](int si) {
-        return floatLit((players[si] ? players[si]->flashlightColor[2] : 0.0f) * 128.0f);
+        return floatLit((players[0][si] ? players[0][si]->flashlightColor[2] : 0.0f) * 128.0f);
     });
     sceneFloats("FLASHLIGHT_RANGES", [&](int si) {
-        return floatLit(players[si] ? players[si]->flashlightRange : 30.0f);
+        return floatLit(players[0][si] ? players[0][si]->flashlightRange : 30.0f);
     });
     sceneFloats("FLASHLIGHT_ANGLES", [&](int si) {
-        return floatLit(players[si] ? players[si]->flashlightAngle : 20.0f);
+        return floatLit(players[0][si] ? players[0][si]->flashlightAngle : 20.0f);
     });
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
@@ -8457,16 +12628,22 @@ extern bool g_flashOn;
            "  (void)engine;\n"
            "  switch (g_activeScene) {\n";
     for (int si = 0; si < sceneCount; ++si)
-        if (players[si] && !players[si]->flashlightToggleButton.empty())
+        if (players[0][si] && !players[0][si]->flashlightToggleButton.empty())
             out << "    case " << si << ": return engine->pad.getClicked()."
-                << players[si]->flashlightToggleButton << ";\n";
+                << players[0][si]->flashlightToggleButton << ";\n";
     out << "    default: break;\n"
            "  }\n"
            "  return false;\n"
            "}\n";
     out << R"(// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+// Uses the MEASURED frame time, not the nominal vsync rate: with vsync
+// disabled the loop free-runs way past 50 FPS and a nominal-rate count would
+// make every timer (Delay, Every N Seconds, splash holds, sound retriggers)
+// fire that much too fast - the disableVsync contract is "faster picture,
+// same gameplay speed". At vsync the measured dt snaps to nominal, so this
+// is bit-identical to the old seconds * g_frameRate there.
 inline int everyFrames(float seconds) {
-  const int f = (int)(seconds * g_frameRate);
+  const int f = (int)(seconds / (g_frameDt > 0.0001F ? g_frameDt : 0.02F));
   return f < 1 ? 1 : f;
 }
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
@@ -8492,6 +12669,26 @@ inline int everyFrames(float seconds) {
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
+#define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
+// Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
+#define PP_TBL(pi, T) \
+  ((pi) == 0 ? PLAYER_##T[g_activeScene] : PLAYER2_##T[g_activeScene])
+#define PP_INDEX(pi) PP_TBL(pi, INDEXES)
+#define PP_MODE(pi) PP_TBL(pi, MODES)
+#define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
+#define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
+#define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
+#define PP_CAN_JUMP(pi) PP_TBL(pi, CAN_JUMPS)
+#define PP_RUN_THRESHOLD(pi) PP_TBL(pi, RUN_THRESHOLDS)
+#define PP_CAM_DIST(pi) PP_TBL(pi, CAM_DISTS)
+#define PP_CAM_HEIGHT(pi) PP_TBL(pi, CAM_HEIGHTS)
+#define PP_CAM_SHOULDER(pi) PP_TBL(pi, CAM_SHOULDERS)
+#define PP_TURN_RATE(pi) PP_TBL(pi, TURN_RATES)
+#define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
+#define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
+#define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -8507,12 +12704,17 @@ inline int everyFrames(float seconds) {
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
+// Painted terrain layers (two-pass splatting; docs/terrain-painting.md)
+#define TERRAIN_LAYER_COUNT TERRAIN_LAYER_COUNTS[g_activeScene]
+#define TERRAIN_SPLAT_WEIGHTS TERRAIN_SPLAT_TABLES[g_activeScene]
 #define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
 #define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
 #define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
 #define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
 #define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
+#define TERRAIN_TINT_VARIATION TERRAIN_TINT_VARIATIONS[g_activeScene]
+#define TERRAIN_TINT_SCALE TERRAIN_TINT_SCALES[g_activeScene]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define CLIP_VU1 CLIP_VU1S[g_activeScene]
@@ -8704,19 +12906,29 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{STICK_EXP_L}}", floatLit(st.stickExpL));
     s = replaceAll(s, "{{STICK_EXP_R}}", floatLit(st.stickExpR));
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
+    s = replaceAll(s, "{{MULTIPLAYER_MODE}}", st.multiplayer == "shared" ? "1"
+                                              : st.multiplayer == "split" ? "2"
+                                                                          : "0");
+    s = replaceAll(s, "{{P2_JOIN_ON_START}}",
+                   st.p2JoinOnStart ? "true" : "false");
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
+    s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
     s = replaceAll(s, "{{DISPLAY_MODE}}",
-                   st.displayMode == "1080i"         ? "HiDef1080i"
-                   : st.displayMode == "progressive" ? "Progressive480p"
-                                                     : "Interlaced");
+                   st.displayMode == "1080i"              ? "HiDef1080i"
+                   : st.displayMode == "progressive"      ? "Progressive480p"
+                   : st.displayMode == "interlaced-field" ? "InterlacedField"
+                   : st.displayMode == "pal576"           ? "Pal576i"
+                                                          : "Interlaced");
+    s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
+                   st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
@@ -9209,6 +13421,45 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     return out.str();
 }
 
+// One Display Text node's runtime slot. The slot index is the node's position
+// in a fixed (scene, object, node) walk - both fontDataHeader and
+// flowGraphScript derive it from dynTextSlots(), so the generated tables and
+// the generated script always agree on who owns which slot.
+struct DynTextSlot {
+    int scene = 0;
+    int ownerIdx = 0;
+    int nodeId = 0;
+    int fontSlot = 0;  // index into FONTS (not Project::fonts)
+    float x = 0.5f, y = 0.5f, size = 16.0f;
+};
+
+static std::vector<DynTextSlot> dynTextSlots(const Project& p) {
+    const std::vector<int> atlasFonts = p.atlasFontIndices();
+    std::vector<DynTextSlot> out;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi)
+            for (const FlowNode& n : objs[oi].flowGraph.nodes) {
+                if (n.type != "DisplayText") continue;
+                DynTextSlot s;
+                s.scene = (int)si;
+                s.ownerIdx = (int)oi;
+                s.nodeId = n.id;
+                // n.str names a Project::fonts entry; FONTS only holds the ones
+                // that actually got an atlas, so remap through atlasFonts.
+                const GameFont* gf = p.findFont(n.str);
+                const int projIdx = gf ? (int)(gf - p.fonts.data()) : 0;
+                for (size_t k = 0; k < atlasFonts.size(); ++k)
+                    if (atlasFonts[k] == projIdx) s.fontSlot = (int)k;
+                s.x = n.num[0];
+                s.y = n.num[1];
+                s.size = n.num[2] > 0.5f ? n.num[2] : 16.0f;
+                out.push_back(s);
+            }
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
@@ -9315,17 +13566,31 @@ std::string flowGraphScript(const Project& p) {
         return -1;
     };
 
+    // Display Text nodes: one runtime slot each, in the same order
+    // fontDataHeader lays out DYN_TEXTS.
+    const std::vector<DynTextSlot> dynSlots = dynTextSlots(p);
+    auto dynTextSlotOf = [&](size_t si, size_t oi, int nodeId) {
+        for (size_t i = 0; i < dynSlots.size(); ++i)
+            if (dynSlots[i].scene == (int)si && dynSlots[i].ownerIdx == (int)oi &&
+                dynSlots[i].nodeId == nodeId)
+                return (int)i;
+        return -1;
+    };
+
     // Text plane (Log inputs, Convert nodes, save texts) only when used -
     // keeps graphs without text nodes free of the string helpers.
     bool anyTextNode = false;
     bool anyRaycast = false;
+    bool anyDynText = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
                 if (const FlowNodeType* t = flowNodeType(n.type))
                     anyTextNode |= (t->textIn || t->textOut);
                 anyRaycast |= (n.type == "Raycast");
+                anyDynText |= (n.type == "DisplayText");
             }
+    const bool anyNav = anyNavAiNode(p);
 
     std::ostringstream out;
     out << "// Generated by TyraX from the per-object Flow Graphs. Do not\n"
@@ -9335,6 +13600,9 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n";
     if (anyRaycast)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast vs terrain\n";
+    if (anyNav)
+        out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
+               "(Patrol/Chase/Flee/On Player Seen)\n";
     out << "\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
@@ -9429,6 +13697,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                "  snprintf(b, sizeof(b), \"(%g, %g, %g)\", (double)x, (double)y, "
                "(double)z);\n"
                "  return std::string(b);\n"
+               "}\n";
+    }
+
+    if (anyDynText) {
+        out << "\n// Display Text: copy a runtime string into its slot's buffer\n"
+               "// (silently truncated - the slot is a fixed DYN_TEXT_LEN).\n"
+               "static inline void flowSetDynText(ScriptContext& ctx, int slot,\n"
+               "                                  const std::string& s) {\n"
+               "  if (!ctx.dynTextBuf || slot < 0 || slot >= ctx.dynTextCount) return;\n"
+               "  char* dst = ctx.dynTextBuf + slot * ctx.dynTextLen;\n"
+               "  int n = (int)s.size();\n"
+               "  if (n > ctx.dynTextLen - 1) n = ctx.dynTextLen - 1;\n"
+               "  for (int i = 0; i < n; ++i) dst[i] = s[i];\n"
+               "  dst[n] = '\\0';\n"
                "}\n";
     }
 
@@ -9563,6 +13845,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return "";
         };
 
+        // A Get Position node with its exec input wired runs as a sampling
+        // action: it latches the target's position into its posOut member
+        // when the exec fires (see the registry comment in flowgraph.hpp).
+        // Unwired, it keeps the original pure behavior - consumers read the
+        // target's position live.
+        auto getPosLatched = [&](const FlowNode& n) {
+            if (n.type != "GetPosition") return false;
+            for (const FlowLink& l : fg.links)
+                if (l.kind == FlowLinkExec && l.toNode == n.id) return true;
+            return false;
+        };
+
         // XYZ expressions a node's position resolves to: an incoming position
         // link (Get Position reads the source object live; Set Object
         // Position forwards its own resolution) beats the node's own
@@ -9591,11 +13885,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     }
                 }
             }
-            // A custom node's (or Raycast's) runtime position output
-            // (latched member).
+            // A custom node's (or Raycast's / an exec-wired Get Position's)
+            // runtime position output (latched member).
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->posOut &&
-                (flowCustomNode(n.type) || n.type == "Raycast")) {
+                (flowCustomNode(n.type) || n.type == "Raycast" ||
+                 getPosLatched(n))) {
                 const std::string base = "posOut" + std::to_string(n.id) + "[";
                 return {base + "0]", base + "1]", base + "2]"};
             }
@@ -9644,6 +13939,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const int idx = resolveTarget(n);
                 if (idx < 0) return "false";
                 return "(ctx.objects[" + std::to_string(idx) + "].visible)";
+            }
+            if (n.type == "OnPlayerSeen") {
+                // the live "seen right now" condition (the exec output fires
+                // on its rising edge in the trigger scan below)
+                const std::string args = ", " + floatLit(n.num[0]) + ", " +
+                                         floatLit(n.num[1]) + ", " +
+                                         (n.num[2] != 0.0f ? "1" : "0") + ")";
+                const std::string dyn = targetExpr(n);
+                if (!dyn.empty())
+                    return "(" + dyn + " >= 0 && navPlayerSeen(ctx, " + dyn +
+                           args + ")";
+                const int idx = resolveTarget(n);
+                if (idx < 0) return "false";
+                return "navPlayerSeen(ctx, " + std::to_string(idx) + args;
             }
             if (n.type == "IsLayerLoaded") {
                 const int li = layerIndexOf(n.str);
@@ -9797,6 +14106,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return es;
         };
 
+        // Display Text's string: the node's own prefix (str2) followed by every
+        // wired text input, concatenated. Same shape as Log Message, minus the
+        // spacing - "Score: " + a Get Save Value reads as one label.
+        auto dynTextExpr = [&](const FlowNode& n) -> std::string {
+            const auto es = textInputs(n);
+            std::string s;
+            if (!n.str2.empty() || es.empty())
+                s = "std::string(\"" + escapeCString(n.str2) + "\")";
+            for (const std::string& e : es) s += (s.empty() ? "" : " + ") + e;
+            return s;
+        };
+
         // Sounds referenced by this graph's Play Sound nodes become sfx<i>
         // members loaded once in init().
         std::vector<std::string> usedSounds;
@@ -9810,8 +14131,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return (int)usedSounds.size() - 1;
         };
 
-        // action node -> inline statements
-        auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
+        // action node -> inline statements. `pin` is the exec input the link
+        // fired (FlowLink::toPin): a merged node (Set Object Visible's
+        // show/hide/toggle) switches its body on it, every other node ignores
+        // it because it only has pin 0.
+        auto actionCode = [&](const FlowNode& n, const std::string& pad,
+                              int pin) -> std::string {
             std::ostringstream c;
             // dyn: the target is a runtime handle (Spawn Object clone or a
             // custom node's object output); the whole action is then wrapped in
@@ -9840,7 +14165,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
                       << "\"\n";
                 }
-            } else if (n.type == "LoadLayer" || n.type == "UnloadLayer") {
+            } else if (n.type == "SetLayerLoaded") {
                 const int li = layerIndexOf(n.str);
                 if (li < 0) {
                     c << pad << "// node " << n.id << " (" << n.type
@@ -9848,7 +14173,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 } else {
                     c << pad << "if (ctx.layerRequest && " << li
                       << " < ctx.layerCount) ctx.layerRequest[" << li
-                      << "] = " << (n.type == "LoadLayer" ? 1 : 0) << ";  // \""
+                      << "] = " << (pin == 1 ? 0 : 1) << ";  // \""
                       << n.str << "\"\n";
                 }
             } else if (n.type == "SetGrading") {
@@ -9891,18 +14216,31 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 }
             } else if (n.type == "StopSequence") {
                 c << pad << "sequences::stop();\n";
-            } else if (n.type == "ShowObject") {
-                c << pad << obj << ".visible = true;\n";
-            } else if (n.type == "HideObject") {
-                c << pad << obj << ".visible = false;\n";
-            } else if (n.type == "ToggleObject") {
-                c << pad << obj << ".visible = !" << obj << ".visible;\n";
+            } else if (n.type == "SetObjectVisible") {
+                if (pin == 1)
+                    c << pad << obj << ".visible = false;\n";
+                else if (pin == 2)
+                    c << pad << obj << ".visible = !" << obj << ".visible;\n";
+                else
+                    c << pad << obj << ".visible = true;\n";
             } else if (n.type == "MoveObjectBy") {
                 for (int a = 0; a < 3; ++a)
                     if (n.num[a] != 0.0f)
                         c << pad << obj << ".data.position[" << a
                           << "] += " << floatLit(n.num[a]) << ";\n";
+                c << pad << obj << ".restFrames = 0;\n";  // wake physics bodies
                 c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "PushObject") {
+                // params are units/s; velocities are per-frame displacements.
+                // Velocity-only change: waking is enough, the physics pass
+                // moves the body (no dirty - that would drop its fast path).
+                const char* velField[3] = {".velocityX", ".velocityY",
+                                           ".velocityZ"};
+                for (int a = 0; a < 3; ++a)
+                    if (n.num[a] != 0.0f)
+                        c << pad << obj << velField[a]
+                          << " += " << floatLit(n.num[a]) << " * g_frameDt;\n";
+                c << pad << obj << ".restFrames = 0;\n";
             } else if (n.type == "SetObjectColor") {
                 for (int a = 0; a < 3; ++a)
                     c << pad << obj << ".data.color[" << a
@@ -9912,6 +14250,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const auto e = posExpr(n);
                 for (int a = 0; a < 3; ++a)
                     c << pad << obj << ".data.position[" << a << "] = " << e[a] << ";\n";
+                c << pad << obj << ".restFrames = 0;\n";  // wake physics bodies
                 c << pad << obj << ".dirty = true;\n";
             } else if (n.type == "TeleportPlayer") {
                 const auto e = posExpr(n);
@@ -10046,6 +14385,33 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const float md = n.num[0] > 0.001f ? n.num[0] : 100.0f;
                 c << pad << "flowRaycast(ctx, " << floatLit(md) << ", &objOut"
                   << n.id << ", posOut" << n.id << ");\n";
+            } else if (n.type == "GetPosition") {
+                // Only reached when its exec input is wired (emitExec): latch
+                // the target's position now, so downstream consumers keep
+                // "where it was when the exec fired" even after the target
+                // moves. posExpr hands them the latched member; an unwired
+                // Get Position never runs and stays a live data source.
+                const std::string id = std::to_string(n.id);
+                const std::string dyn = targetExpr(n);
+                if (!dyn.empty()) {
+                    c << pad << "if (" << dyn << " >= 0) {\n";
+                    for (int a = 0; a < 3; ++a)
+                        c << pad << "  posOut" << id << "[" << a
+                          << "] = ctx.objects[" << dyn << "].data.position[" << a
+                          << "];\n";
+                    c << pad << "}\n";
+                } else {
+                    const int idx = resolveTarget(n);
+                    if (idx < 0) {
+                        c << pad << "// node " << id
+                          << " (GetPosition): unknown object '" << n.str << "'\n";
+                    } else {
+                        for (int a = 0; a < 3; ++a)
+                            c << pad << "posOut" << id << "[" << a
+                              << "] = ctx.objects[" << idx << "].data.position["
+                              << a << "];\n";
+                    }
+                }
             } else if (n.type == "SetStickCurve") {
                 // Stick: 0 left, 1 right, 2 both. Curve: 0 Linear / 1 Exp /
                 // 2 S-Curve. Exponent clamped to >= 1 (only shapes curves 1/2).
@@ -10062,9 +14428,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.stickCurveR = " << curve << ";\n";
                     c << pad << "ctx.stickExpR = " << floatLit(e) << ";\n";
                 }
+            } else if (n.type == "VibratePad") {
+                // Big: heavy motor 0..1 -> 0..255. Small: on/off buzz motor.
+                // Seconds > 0 auto-stops (0 = until the next Vibrate Pad).
+                float big = n.num[0] < 0.0f ? 0.0f : n.num[0] > 1.0f ? 1.0f
+                                                                     : n.num[0];
+                float secs = n.num[2] < 0.0f ? 0.0f : n.num[2];
+                c << pad << "ctx.rumble = " << (int)(big * 255.0f + 0.5f)
+                  << ";\n";
+                c << pad << "ctx.rumbleSmall = "
+                  << (n.num[1] != 0.0f ? 1 : 0) << ";\n";
+                c << pad << "ctx.rumbleSec = " << floatLit(secs) << ";\n";
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
-                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
                 float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
@@ -10072,28 +14449,47 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             } else if (n.type == "SetWidescreen") {
                 c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
-            } else if (n.type == "ShowHud") {
-                c << pad << "ctx.hudVisible = true;\n";
-            } else if (n.type == "HideHud") {
-                c << pad << "ctx.hudVisible = false;\n";
-            } else if (n.type == "ToggleHud") {
-                c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
-            } else if (n.type == "ShowText" || n.type == "HideText") {
+            } else if (n.type == "SetHudVisible") {
+                if (pin == 1)
+                    c << pad << "ctx.hudVisible = false;\n";
+                else if (pin == 2)
+                    c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
+                else
+                    c << pad << "ctx.hudVisible = true;\n";
+            } else if (n.type == "SetTextVisible") {
                 const int ti = hudTextIndex(n.str);
                 if (ti < 0) {
                     // Texts removed from the project just stop being shown.
                     c << pad << "// node " << n.id << " (" << n.type
                       << "): unknown text '" << n.str << "'\n";
-                } else if (n.type == "ShowText") {
+                } else if (pin == 1) {
+                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
+                      << "\"\n";
+                } else {
                     float secs = n.num[0];
                     if (secs < 0.0f) secs = 0.0f;
                     c << pad << "ctx.textRequest[" << ti << "] = 1;  // \"" << n.str
                       << "\"\n"
                       << pad << "ctx.textDuration[" << ti << "] = " << floatLit(secs)
                       << ";\n";
+                }
+            } else if (n.type == "DisplayText") {
+                const int slot = dynTextSlotOf(si, ownerIdx, n.id);
+                if (slot < 0) {
+                    c << pad << "// node " << n.id << " (DisplayText): no slot\n";
+                } else if (pin == 1) {
+                    c << pad << "ctx.dynTextRequest[" << slot << "] = 0;\n";
                 } else {
-                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
-                      << "\"\n";
+                    float secs = n.num[3];
+                    if (secs < 0.0f) secs = 0.0f;
+                    c << pad << "ctx.dynTextRequest[" << slot << "] = 1;\n"
+                      << pad << "ctx.dynTextDuration[" << slot << "] = "
+                      << floatLit(secs) << ";\n"
+                      // Fill the buffer now as well as in the per-frame refresh,
+                      // so the first frame shows the right string instead of a
+                      // stale one.
+                      << pad << "flowSetDynText(ctx, " << slot << ", "
+                      << dynTextExpr(n) << ");\n";
                 }
             } else if (n.type == "StopMusic") {
                 c << pad << "ctx.engine->audio.song.stop();\n";
@@ -10173,18 +14569,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.openMenu = " << mi << ";  // \"" << n.str
                       << "\"\n";
                 }
-            } else if (n.type == "PlayAnimation") {
-                // str = clip name ("" = the model's first clip); Loop 1 = loop,
-                // Speed <= 0 = the authored default (1.0); Fade = crossfade
-                // seconds (0 = instant switch)
-                const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
-                const float fade = n.num[2] > 0.0f ? n.num[2] : 0.0f;
-                c << pad << "playAnimation(ctx, " << objIdx << ", \""
-                  << escapeCString(n.str) << "\", "
-                  << (n.num[0] != 0.0f ? "true" : "false") << ", "
-                  << floatLit(speed) << ", " << floatLit(fade) << ");\n";
-            } else if (n.type == "StopAnimation") {
-                c << pad << "stopAnimation(ctx, " << objIdx << ");\n";
+            } else if (n.type == "Animation") {
+                if (pin == 1) {
+                    c << pad << "stopAnimation(ctx, " << objIdx << ");\n";
+                } else {
+                    // str = clip name ("" = the model's first clip); Loop 1 =
+                    // loop, Speed <= 0 = the authored default (1.0); Fade =
+                    // crossfade seconds (0 = instant switch)
+                    const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
+                    const float fade = n.num[2] > 0.0f ? n.num[2] : 0.0f;
+                    c << pad << "playAnimation(ctx, " << objIdx << ", \""
+                      << escapeCString(n.str) << "\", "
+                      << (n.num[0] != 0.0f ? "true" : "false") << ", "
+                      << floatLit(speed) << ", " << floatLit(fade) << ");\n";
+                }
             } else if (n.type == "SpawnObject") {
                 // objIdx = the TEMPLATE (link > name > self); the clone lands
                 // in this node's handle slot. A linked position beats the
@@ -10200,6 +14598,39 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                   << ");\n";
                 if (!dyn.empty())  // the handle no longer points at a clone
                     c << pad << dyn << " = -1;\n";
+            } else if (n.type == "PatrolWaypoints") {
+                // Waypoints resolve at codegen: objects named <prefix><n>, in
+                // natural order. str = the prefix; the target NPC comes from
+                // the object link (or self), like Play Animation.
+                const auto wps = waypointIndices(sceneObjs, n.str);
+                if (wps.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (PatrolWaypoints): no objects named '" << n.str
+                      << "<n>'\n";
+                } else {
+                    c << pad << "{\n" << pad << "  static const int navWps"
+                      << n.id << "[] = {";
+                    for (size_t i = 0; i < wps.size(); ++i) {
+                        c << (i ? ", " : "") << wps[i];
+                    }
+                    c << "};  //";
+                    for (int wi : wps) c << " " << sceneObjs[wi].name;
+                    c << "\n"
+                      << pad << "  navPatrol(ctx, " << objIdx << ", navWps"
+                      << n.id << ", " << wps.size() << ", " << floatLit(n.num[0])
+                      << ", " << floatLit(n.num[1] > 0.0f ? n.num[1] : 0.0f)
+                      << ", " << (n.num[2] != 0.0f ? 1 : 0) << ");\n"
+                      << pad << "}\n";
+                }
+            } else if (n.type == "ChasePlayer") {
+                c << pad << "navChase(ctx, " << objIdx << ", "
+                  << floatLit(n.num[0]) << ", " << floatLit(n.num[1]) << ", "
+                  << floatLit(n.num[2]) << ");\n";
+            } else if (n.type == "FleePlayer") {
+                c << pad << "navFlee(ctx, " << objIdx << ", "
+                  << floatLit(n.num[0]) << ", " << floatLit(n.num[1]) << ");\n";
+            } else if (n.type == "StopAi") {
+                c << pad << "navStop(ctx, " << objIdx << ");\n";
             } else if (const CustomFlowNode* cn = flowCustomNode(n.type)) {
                 const FlowNodeType* t = &cn->type;
                 c << pad << "// node " << n.id << " (" << n.type << ")\n";
@@ -10289,16 +14720,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 if (!m) continue;
                 const FlowNodeType* t = flowNodeType(m->type);
                 if (!t || t->trigger || t->pure) continue;
+                // Keyed on node AND pin: one trigger may legitimately drive two
+                // different branches of the same merged node, which is not a
+                // cycle.
+                const int key = m->id * kFlowMaxExecIn + l.toPin;
                 bool seen = false;
-                for (int v : visited) seen |= (v == m->id);
+                for (int v : visited) seen |= (v == key);
                 if (seen) {
                     c << pad << "// exec cycle at node " << m->id << " skipped\n";
                     continue;
                 }
-                visited.push_back(m->id);
-                c << actionCode(*m, pad);
+                visited.push_back(key);
+                c << actionCode(*m, pad, l.toPin);
                 if (t->execThrough &&
-                    (flowCustomNode(m->type) || m->type == "Raycast"))
+                    (flowCustomNode(m->type) || m->type == "Raycast" ||
+                     m->type == "GetPosition"))
                     c << emitExec(m->id, pad, visited);
             }
             return c.str();
@@ -10351,6 +14787,16 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 flagResets << "      " << var << " = 0;\n";
                 clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
                        << linkedActions(n.id, "      ") << "    }\n";
+            } else if (n.type == "DisplayText") {
+                // The wired text is a live value (a save value, a counter), so
+                // re-read it every frame the slot is on - that is what makes
+                // this node different from the baked Set Text Visible. Skipped
+                // while hidden, so an off-screen text costs nothing.
+                const int slot = dynTextSlotOf(si, ownerIdx, n.id);
+                if (slot >= 0)
+                    clsOut << "    if (ctx.dynTextOn && ctx.dynTextOn[" << slot
+                           << "])\n      flowSetDynText(ctx, " << slot << ", "
+                           << dynTextExpr(n) << ");\n";
             } else if (n.type == "MoveObjectTo") {
                 if (!targetExpr(n).empty()) {
                     clsOut << "    // node " << n.id << " (MoveObjectTo): runtime "
@@ -10394,16 +14840,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             }
         }
 
-        // Runtime output latches for C++-backed custom nodes and the built-in
-        // Raycast: members hold the last value each output pin produced, so
-        // downstream nodes read them as plain variables (objOut<id>,
-        // boolOut<id>, posOut<id>[3], textOut<id>). Reset to defaults on
-        // scene (re)load like the other per-node state.
+        // Runtime output latches for C++-backed custom nodes, the built-in
+        // Raycast and exec-wired Get Position nodes: members hold the last
+        // value each output pin produced, so downstream nodes read them as
+        // plain variables (objOut<id>, boolOut<id>, posOut<id>[3],
+        // textOut<id>). Reset to defaults on scene (re)load like the other
+        // per-node state.
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
-            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast")) continue;
+            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast" ||
+                        getPosLatched(n)))
+                continue;
             const std::string id = std::to_string(n.id);
-            if (t->idOut) {
+            // Get Position latches only its position - its object output
+            // stays the compile-time resolution.
+            if (t->idOut && n.type != "GetPosition") {
                 members << "  int objOut" << id << " = -1;\n";
                 flagResets << "      objOut" << id << " = -1;\n";
             }
@@ -10475,9 +14926,44 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     << "].data.position[2];\n      const bool isNear = dx * dx + dz * dz < "
                     << floatLit(r * r) << ";\n      if (isNear && !" << flag << ") {\n"
                     << body << "      }\n      " << flag << " = isNear;\n    }\n";
+            } else if (n.type == "OnPlayerSeen") {
+                // rising edge of the vision condition (like NearObject)
+                const std::string dyn = targetExpr(n);
+                std::string idxStr;
+                if (dyn.empty()) {
+                    const int idx = resolveTarget(n);
+                    if (idx < 0) {
+                        clsOut << "    // node " << n.id
+                               << " (OnPlayerSeen): unknown object '" << n.str
+                               << "'\n";
+                        continue;
+                    }
+                    idxStr = std::to_string(idx);
+                } else {
+                    idxStr = dyn;
+                }
+                const std::string flag = "seen" + std::to_string(n.id);
+                members << "  bool " << flag << " = false;\n";
+                flagResets << "      " << flag << " = false;\n";
+                clsOut << "    "
+                       << (dyn.empty() ? "{" : "if (" + dyn + " >= 0) {")
+                       << "\n      const bool isSeen = navPlayerSeen(ctx, "
+                       << idxStr << ", " << floatLit(n.num[0]) << ", "
+                       << floatLit(n.num[1]) << ", "
+                       << (n.num[2] != 0.0f ? 1 : 0) << ");\n"
+                       << "      if (isSeen && !" << flag << ") {\n"
+                       << body << "      }\n      " << flag
+                       << " = isSeen;\n    }\n";
             } else if (n.type == "EverySeconds") {
-                clsOut << "    if (frame % everyFrames(" << floatLit(n.num[0])
-                       << ") == 0) {\n" << body << "    }\n";
+                // Countdown, not `frame % everyFrames(s)`: the divisor now
+                // tracks the measured dt, and a modulo against a moving
+                // divisor can skip its == 0 frame entirely at uncapped FPS.
+                const std::string var = "every" + std::to_string(n.id);
+                members << "  int " << var << " = 1;\n";  // first frame fires
+                flagResets << "      " << var << " = 1;\n";
+                clsOut << "    if (--" << var << " <= 0) {\n      " << var
+                       << " = everyFrames(" << floatLit(n.num[0]) << ");\n"
+                       << body << "    }\n";
             } else if (n.type == "OnAnimFinished") {
                 const std::string dyn = targetExpr(n);
                 if (!dyn.empty()) {
@@ -10964,6 +15450,53 @@ static std::string terrainHeightsHeader(const Project& p) {
     out << "inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << "HM_" << si << "_HEIGHTS";
+    out << "};\n\n";
+
+    // Painted terrain-layer weights (docs/terrain-painting.md), on the SAME
+    // vertex grid as the heightmap: layerCount bytes per vertex (0..255,
+    // layer-interleaved), drawn as Gouraud vertex alpha by the layer passes.
+    // nullptr = unpainted scene. Layer descriptors live in texture_data.gen.hpp.
+    for (int si = 0; si < sceneCount; ++si) {
+        const SceneData& sc = p.scenes[si];
+        const int n = (int)sc.terrainLayers.size();
+        if (n == 0) continue;
+        out << "constexpr unsigned char SPLAT_" << si << "_WEIGHTS["
+            << vws[si] * vds[si] * n << "] = {";
+        const bool match = sc.splatW == vws[si] && sc.splatD == vds[si] &&
+                           (int)sc.splat.size() == sc.splatW * sc.splatD * n;
+        for (int z = 0; z < vds[si]; ++z) {
+            for (int x = 0; x < vws[si]; ++x) {
+                // Defensive nearest resample: the splat normally already sits
+                // on this grid (ensureSplatmap), but a hand-edited project may
+                // disagree - never emit a mis-sized table.
+                int sx = x, sz = z;
+                if (!match && sc.splatW > 1 && sc.splatD > 1) {
+                    sx = (int)((float)x / (vws[si] - 1) * (sc.splatW - 1) + 0.5f);
+                    sz = (int)((float)z / (vds[si] - 1) * (sc.splatD - 1) + 0.5f);
+                }
+                for (int l = 0; l < n; ++l) {
+                    const size_t i = ((size_t)z * vws[si] + x) * n + l;
+                    if (i % 20 == 0) out << "\n    ";
+                    const bool ok = match || (sc.splatW > 1 && sc.splatD > 1 &&
+                                              (int)sc.splat.size() >=
+                                                  (sz * sc.splatW + sx + 1) * n);
+                    out << (ok ? (int)sc.splat[((size_t)sz * sc.splatW + sx) * n + l]
+                               : 0)
+                        << ",";
+                }
+            }
+        }
+        out << "\n};\n";
+    }
+    out << "inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si) {
+        const bool has = !p.scenes[si].terrainLayers.empty();
+        out << (si ? ", " : "");
+        if (has)
+            out << "SPLAT_" << si << "_WEIGHTS";
+        else
+            out << "nullptr";
+    }
     out << "};\n\n"
            "/** Bilinear terrain height at world coordinates in a scene. The\n"
            " * game maps terrainHeightAt(x, z) to the active scene. */\n"
@@ -10990,6 +15523,738 @@ static std::string terrainHeightsHeader(const Project& p) {
         << ns << "\n";
     return out.str();
 }
+// ---------------------------------------------------------------------------
+// NavMesh + NPC AI (docs/navigation-ai.md). The walkable-cell grid is baked
+// on the host (navmesh.cpp) into inc/nav_data.gen.hpp; the runtime -
+// src/scripts/navigation.gen.cpp - runs A* over that bitmap on the EE and
+// ticks every AI agent each frame (the Patrol/Chase/Flee flow nodes only set
+// the agent's state; one shared state per object, so a Chase interrupts a
+// Patrol). Everything below is gated on the AI nodes actually appearing in a
+// flow graph: without them both files are stubs and the game carries zero
+// nav data or code.
+
+static bool anyNavAiNode(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "PatrolWaypoints" || n.type == "ChasePlayer" ||
+                    n.type == "FleePlayer" || n.type == "StopAi" ||
+                    n.type == "OnPlayerSeen")
+                    return true;
+    return false;
+}
+
+// Scene-object indices whose names start with `prefix`, in natural order
+// ("wp2" before "wp10"): sorted by the numeric suffix after the prefix, then
+// by name. The Patrol Waypoints node resolves its route with this at codegen.
+static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
+                                        const std::string& prefix) {
+    std::vector<std::pair<long, int>> found;  // (numeric suffix, object index)
+    for (size_t i = 0; i < objs.size(); ++i) {
+        const std::string& name = objs[i].name;
+        if (prefix.empty() || name.rfind(prefix, 0) != 0) continue;
+        const std::string tail = name.substr(prefix.size());
+        long num = -1;
+        if (!tail.empty()) {
+            bool digits = true;
+            for (char c : tail) digits &= (c >= '0' && c <= '9');
+            if (!digits) continue;  // "wpX" is not a waypoint of prefix "wp"
+            num = std::atol(tail.c_str());
+        }
+        found.push_back({num, (int)i});
+    }
+    std::stable_sort(found.begin(), found.end(),
+                     [&](const auto& a, const auto& b) {
+                         if (a.first != b.first) return a.first < b.first;
+                         return objs[a.second].name < objs[b.second].name;
+                     });
+    std::vector<int> out;
+    for (const auto& f : found) out.push_back(f.second);
+    return out;
+}
+
+// inc/nav_data.gen.hpp - the baked walkable grid, one bitmap per scene
+static std::string navDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX (navmesh bake). Do not edit - regenerated "
+           "on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns << " {\n\n";
+
+    if (!anyNavAiNode(p)) {
+        out << "// No flow graph uses the AI nodes - no nav data baked.\n"
+               "constexpr int NAV_ENABLED = 0;\n\n}  // namespace "
+            << ns << "\n";
+        return out.str();
+    }
+
+    const int sceneCount = (int)p.scenes.size();
+    std::vector<navmesh::NavGrid> grids(sceneCount);
+    int maxCells = 1;
+    for (int si = 0; si < sceneCount; ++si) {
+        grids[si] = navmesh::bake(p, p.scenes[si]);
+        if (grids[si].w * grids[si].d > maxCells)
+            maxCells = grids[si].w * grids[si].d;
+    }
+
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes)
+        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+
+    out << "constexpr int NAV_ENABLED = 1;\n"
+        << "constexpr int NAV_SCENE_COUNT = " << sceneCount << ";\n"
+        << "// A* working arrays are sized to the largest scene grid; agents\n"
+        << "// cover the authored objects plus the runtime spawn pool.\n"
+        << "constexpr int NAV_MAX_CELLS = " << maxCells << ";\n"
+        << "constexpr int NAV_MAX_AGENTS = " << (maxObjects + 32) << ";\n\n";
+
+    auto navIntArr = [&](const char* name, auto get) {
+        out << "constexpr int " << name << "[NAV_SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << get(si);
+        out << "};\n";
+    };
+    auto navFloatArr = [&](const char* name, auto get) {
+        out << "constexpr float " << name << "[NAV_SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << floatLit(get(si));
+        out << "};\n";
+    };
+    navIntArr("NAV_WS", [&](int si) { return grids[si].w; });
+    navIntArr("NAV_DS", [&](int si) { return grids[si].d; });
+    navFloatArr("NAV_ORIGIN_XS", [&](int si) { return grids[si].originX; });
+    navFloatArr("NAV_ORIGIN_ZS", [&](int si) { return grids[si].originZ; });
+    navFloatArr("NAV_CELL_WS", [&](int si) { return grids[si].cellW; });
+    navFloatArr("NAV_CELL_DS", [&](int si) { return grids[si].cellD; });
+    out << "\n";
+
+    // Walkable bitmaps, 32 cells per word (cell = z * w + x, LSB first).
+    for (int si = 0; si < sceneCount; ++si) {
+        const navmesh::NavGrid& g = grids[si];
+        const int cells = g.w * g.d;
+        const int words = cells > 0 ? (cells + 31) / 32 : 1;
+        int walkableCount = 0;
+        for (uint8_t c : g.walkable) walkableCount += c;
+        out << "// scene \"" << p.scenes[si].name << "\": " << g.w << "x" << g.d
+            << " cells, " << walkableCount << " walkable\n"
+            << "constexpr unsigned int NAV_" << si << "_CELLS[" << words << "] = {";
+        for (int wI = 0; wI < words; ++wI) {
+            unsigned int word = 0;
+            for (int b = 0; b < 32; ++b) {
+                const int i = wI * 32 + b;
+                if (i < cells && g.walkable[i]) word |= 1u << b;
+            }
+            if (wI % 8 == 0) out << "\n    ";
+            char hb[12];
+            std::snprintf(hb, sizeof(hb), "0x%08x", word);
+            out << hb << (wI + 1 < words ? ", " : "");
+        }
+        out << "\n};\n";
+    }
+    out << "inline const unsigned int* NAV_CELL_TABLES[NAV_SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << "NAV_" << si << "_CELLS";
+    out << "};\n\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// inc/scripts/navigation.gen.hpp - the AI API the flow-graph script calls
+static std::string navigationHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n";
+    if (!anyNavAiNode(p)) {
+        out << "// No flow graph uses the AI nodes - navigation runtime not "
+               "generated.\n";
+        return out.str();
+    }
+    out << "#include \"scripts/script.hpp\"\n\nnamespace " << ns << R"( {
+
+// AI agent commands (the Patrol/Chase/Flee/Stop AI flow nodes). One shared
+// agent state per runtime object - starting a behavior replaces the current
+// one. Movement runs in the generated NavAiScript every frame: A* over the
+// baked nav grid (at most one pathfind per frame, round-robin), terrain
+// snapping, turn-to-face. See src/scripts/navigation.gen.cpp.
+void navPatrol(ScriptContext& ctx, int obj, const int* waypoints, int count,
+               float speed, float pauseSec, int once);
+void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,
+              float giveUpDist);
+void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist);
+void navStop(ScriptContext& ctx, int obj);
+
+// True while `obj` sees the player: within range, inside the vision cone of
+// fovDeg around the object's facing (+Z rotated by its Y rotation), and with
+// needLos != 0 also terrain line-of-sight (hills hide; objects do not).
+bool navPlayerSeen(ScriptContext& ctx, int obj, float range, float fovDeg,
+                   int needLos);
+
+}  // namespace )" << ns
+        << "\n";
+    return out.str();
+}
+
+// src/scripts/navigation.gen.cpp - A* + the per-frame AI agent tick
+static std::string navigationSource(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    if (!anyNavAiNode(p)) {
+        out << "// No flow graph uses the AI nodes - navigation runtime not "
+               "generated.\n";
+        return out.str();
+    }
+    out << "#include \"scripts/navigation.gen.hpp\"\n"
+           "#include \"nav_data.gen.hpp\"\n"
+           "#include \"terrain_heights.gen.hpp\"\n\n"
+           "#include <math.h>\n"
+           "#include <string.h>\n\n"
+           "namespace "
+        << ns << " {\n";
+    out << R"(
+namespace {
+
+constexpr float NAV_PI = 3.14159265F;
+// Smoothed waypoints an agent carries; longer routes repath on consumption.
+constexpr int NAV_PATH_MAX = 24;
+// A* expansion cap per call - bounds the worst-case EE time of one pathfind.
+constexpr int NAV_MAX_EXPAND = 4096;
+
+inline int navW() { return NAV_WS[g_activeScene]; }
+inline int navD() { return NAV_DS[g_activeScene]; }
+inline float navCellW() { return NAV_CELL_WS[g_activeScene]; }
+inline float navCellD() { return NAV_CELL_DS[g_activeScene]; }
+
+inline bool navWalkableCell(int x, int z) {
+  if (x < 0 || x >= navW() || z < 0 || z >= navD()) return false;
+  const int i = z * navW() + x;
+  return (NAV_CELL_TABLES[g_activeScene][i >> 5] >> (i & 31)) & 1u;
+}
+inline int navCellX(float wx) {
+  return (int)floorf((wx - NAV_ORIGIN_XS[g_activeScene]) / navCellW());
+}
+inline int navCellZ(float wz) {
+  return (int)floorf((wz - NAV_ORIGIN_ZS[g_activeScene]) / navCellD());
+}
+inline float navCenterX(int cx) {
+  return NAV_ORIGIN_XS[g_activeScene] + (cx + 0.5F) * navCellW();
+}
+inline float navCenterZ(int cz) {
+  return NAV_ORIGIN_ZS[g_activeScene] + (cz + 0.5F) * navCellD();
+}
+
+// Nearest walkable cell within maxR rings (the goal - the player, a waypoint
+// - may sit on a blocked cell; walkers still want to get close).
+bool navNearestWalkable(int* cx, int* cz, int maxR) {
+  if (navWalkableCell(*cx, *cz)) return true;
+  for (int r = 1; r <= maxR; ++r)
+    for (int dz = -r; dz <= r; ++dz)
+      for (int dx = -r; dx <= r; ++dx) {
+        if (dx > -r && dx < r && dz > -r && dz < r) continue;  // ring only
+        if (navWalkableCell(*cx + dx, *cz + dz)) {
+          *cx += dx;
+          *cz += dz;
+          return true;
+        }
+      }
+  return false;
+}
+
+// Straight-line walkability (half-cell sampling) - path smoothing and the
+// skip-ahead both use it. Conservative enough at nav-cell resolution.
+bool navLineWalkable(float x0, float z0, float x1, float z1) {
+  const float dx = x1 - x0, dz = z1 - z0;
+  const float dist = sqrtf(dx * dx + dz * dz);
+  const float step = 0.5F * (navCellW() < navCellD() ? navCellW() : navCellD());
+  const int n = (int)(dist / step) + 1;
+  for (int i = 0; i <= n; ++i) {
+    const float t = (float)i / n;
+    if (!navWalkableCell(navCellX(x0 + dx * t), navCellZ(z0 + dz * t)))
+      return false;
+  }
+  return true;
+}
+
+// --- A* over the walkable bitmap (integer costs 10 straight / 14 diagonal,
+// octile heuristic). Static working arrays sized to the largest scene grid;
+// the visit stamp avoids clearing them between searches.
+unsigned short navG[NAV_MAX_CELLS];
+unsigned short navParent[NAV_MAX_CELLS];
+unsigned short navSeen[NAV_MAX_CELLS];
+unsigned char navClosed[NAV_MAX_CELLS];
+unsigned short navHeapCell[NAV_MAX_CELLS];
+unsigned short navHeapF[NAV_MAX_CELLS];
+int navHeapN = 0;
+unsigned short navStampNow = 0;
+
+inline void navHeapPush(unsigned short cell, unsigned short f) {
+  if (navHeapN >= NAV_MAX_CELLS) return;
+  int i = navHeapN++;
+  navHeapCell[i] = cell;
+  navHeapF[i] = f;
+  while (i > 0) {
+    const int up = (i - 1) / 2;
+    if (navHeapF[up] <= navHeapF[i]) break;
+    unsigned short tc = navHeapCell[i], tf = navHeapF[i];
+    navHeapCell[i] = navHeapCell[up]; navHeapF[i] = navHeapF[up];
+    navHeapCell[up] = tc; navHeapF[up] = tf;
+    i = up;
+  }
+}
+inline unsigned short navHeapPop() {
+  const unsigned short top = navHeapCell[0];
+  navHeapN--;
+  navHeapCell[0] = navHeapCell[navHeapN];
+  navHeapF[0] = navHeapF[navHeapN];
+  int i = 0;
+  for (;;) {
+    const int l = i * 2 + 1, r = i * 2 + 2;
+    int best = i;
+    if (l < navHeapN && navHeapF[l] < navHeapF[best]) best = l;
+    if (r < navHeapN && navHeapF[r] < navHeapF[best]) best = r;
+    if (best == i) break;
+    unsigned short tc = navHeapCell[i], tf = navHeapF[i];
+    navHeapCell[i] = navHeapCell[best]; navHeapF[i] = navHeapF[best];
+    navHeapCell[best] = tc; navHeapF[best] = tf;
+    i = best;
+  }
+  return top;
+}
+
+inline unsigned short navHeuristic(int x0, int z0, int x1, int z1) {
+  int dx = x0 > x1 ? x0 - x1 : x1 - x0;
+  int dz = z0 > z1 ? z0 - z1 : z1 - z0;
+  const int mn = dx < dz ? dx : dz;
+  return (unsigned short)(10 * (dx + dz) - 6 * mn);
+}
+
+// One AI agent per runtime object. The flow-node commands fill this in; the
+// per-frame tick below moves the object along its path.
+struct NavAgent {
+  unsigned char mode = 0;  // 0 idle, 1 patrol, 2 chase, 3 flee
+  unsigned char wantPath = 0;
+  unsigned char once = 0;      // patrol: stop after the last waypoint
+  unsigned char pathLen = 0, pathPos = 0;
+  short wpIndex = 0;           // patrol position in the waypoint list
+  int goalCell = -1;           // current A* goal
+  const int* wps = nullptr;    // patrol waypoint object indices (static data)
+  short wpCount = 0;
+  float speed = 2.0F;
+  float p0 = 0.0F, p1 = 0.0F;  // chase: stopDist/giveUp; flee: safeDist;
+                               // patrol: pause seconds
+  float pauseLeft = 0.0F;
+  float yOff = 0.0F;           // authored height above the terrain
+  float repathLeft = 0.0F;     // seconds until the next repath (chase/flee)
+  unsigned short path[NAV_PATH_MAX];
+};
+
+NavAgent navAgents[NAV_MAX_AGENTS];
+unsigned int navGeneration = 0xFFFFFFFFu;
+int navServedLast = 0;  // round-robin cursor of the one-per-frame pathfinder
+
+// Resets every agent once per scene (re)load. Called by BOTH the command
+// entry points and the per-frame tick: script order is undefined, so an On
+// Start trigger's navPatrol can run before the tick has seen the new scene
+// generation - the reset must not wipe that same-frame command.
+inline void navSyncGeneration(ScriptContext& ctx) {
+  if (ctx.sceneGeneration == navGeneration) return;
+  navGeneration = ctx.sceneGeneration;
+  for (int i = 0; i < NAV_MAX_AGENTS; ++i) navAgents[i] = NavAgent{};
+  navServedLast = 0;
+}
+
+// Runs A* from the agent's position to goalCell and fills its (smoothed)
+// waypoint list. Unreachable goals path to the closest reachable cell
+// instead, so a chase pressed against a wall still closes in.
+void navFindPath(NavAgent& a, const RuntimeObject& o) {
+  a.pathLen = a.pathPos = 0;
+  if (a.goalCell < 0) return;
+  int sx = navCellX(o.data.position[0]);
+  int sz = navCellZ(o.data.position[2]);
+  if (!navNearestWalkable(&sx, &sz, 3)) return;  // agent fully off-mesh
+  const int gx = a.goalCell % navW();
+  const int gz = a.goalCell / navW();
+  const int w = navW();
+
+  if (++navStampNow == 0) {
+    memset(navSeen, 0, sizeof(navSeen));
+    navStampNow = 1;
+  }
+  navHeapN = 0;
+  const unsigned short start = (unsigned short)(sz * w + sx);
+  navSeen[start] = navStampNow;
+  navClosed[start] = 0;
+  navG[start] = 0;
+  navParent[start] = start;
+  navHeapPush(start, navHeuristic(sx, sz, gx, gz));
+
+  int bestCell = start;
+  unsigned short bestH = navHeuristic(sx, sz, gx, gz);
+  int expanded = 0;
+  bool reached = false;
+  while (navHeapN > 0 && expanded < NAV_MAX_EXPAND) {
+    const unsigned short cur = navHeapPop();
+    if (navClosed[cur]) continue;  // stale heap duplicate
+    navClosed[cur] = 1;
+    expanded++;
+    const int cx = cur % w, cz = cur / w;
+    const unsigned short h = navHeuristic(cx, cz, gx, gz);
+    if (h < bestH) { bestH = h; bestCell = cur; }
+    if (cx == gx && cz == gz) { reached = true; break; }
+    for (int dz = -1; dz <= 1; ++dz)
+      for (int dx = -1; dx <= 1; ++dx) {
+        if (dx == 0 && dz == 0) continue;
+        const int nx = cx + dx, nz = cz + dz;
+        if (!navWalkableCell(nx, nz)) continue;
+        // no corner cutting: a diagonal needs both orthogonals open
+        if (dx != 0 && dz != 0 &&
+            (!navWalkableCell(cx + dx, cz) || !navWalkableCell(cx, cz + dz)))
+          continue;
+        const unsigned int ng = navG[cur] + ((dx != 0 && dz != 0) ? 14 : 10);
+        if (ng > 60000u) continue;  // path absurdly long - give up this way
+        const unsigned short n = (unsigned short)(nz * w + nx);
+        if (navSeen[n] == navStampNow && navG[n] <= ng) continue;
+        navSeen[n] = navStampNow;
+        navClosed[n] = 0;
+        navG[n] = (unsigned short)ng;
+        navParent[n] = cur;
+        navHeapPush(n, (unsigned short)(ng + navHeuristic(nx, nz, gx, gz)));
+      }
+  }
+  (void)reached;
+
+  // Reconstruct goal -> start into a raw cell list (bounded), then smooth:
+  // emit the farthest cell reachable in a straight line, repeat. Routes
+  // longer than the waypoint buffer repath when the buffer runs out.
+  static unsigned short raw[512];
+  int rawLen = 0;
+  for (unsigned short c = (unsigned short)bestCell; rawLen < 512;
+       c = navParent[c]) {
+    raw[rawLen++] = c;
+    if (c == start) break;
+  }
+  // raw[] is goal..start - walk it backward while string-pulling
+  int cur = rawLen - 1;  // start
+  float fromX = o.data.position[0], fromZ = o.data.position[2];
+  while (cur > 0 && a.pathLen < NAV_PATH_MAX) {
+    int far = cur - 1;
+    // farthest raw cell with a clear straight line (bounded lookahead)
+    for (int j = cur - 1; j >= 0 && j >= cur - 40; --j) {
+      const float jx = navCenterX(raw[j] % w), jz = navCenterZ(raw[j] / w);
+      if (navLineWalkable(fromX, fromZ, jx, jz)) far = j;
+    }
+    a.path[a.pathLen++] = raw[far];
+    fromX = navCenterX(raw[far] % w);
+    fromZ = navCenterZ(raw[far] / w);
+    cur = far;
+  }
+}
+
+// Where the chasers/fleers aim. The Player OBJECT tracks the live player
+// only in third-person mode (the avatar is driven every frame); in FPP
+// walk / noclip the object keeps its authored spawn position forever, so
+// reading it there would leave every NPC watching the spawn point while
+// the real player walks free. Everywhere else the camera IS the player.
+inline void navPlayerPos(ScriptContext& ctx, float* px, float* py, float* pz) {
+  const int pi = PLAYER_INDEXES[ctx.scene];
+  if (pi >= 0 && pi < ctx.objectCount && PLAYER_MODES[ctx.scene] == 2) {
+    const float* p = ctx.objects[pi].data.position;
+    *px = p[0]; *py = p[1]; *pz = p[2];
+    return;
+  }
+  *px = ctx.playerPosition.x;
+  *py = ctx.playerPosition.y - 1.5F;  // camera = the eye; approximate the feet
+  *pz = ctx.playerPosition.z;
+}
+
+inline float navPlanarDist(const RuntimeObject& o, float px, float pz) {
+  const float dx = px - o.data.position[0];
+  const float dz = pz - o.data.position[2];
+  return sqrtf(dx * dx + dz * dz);
+}
+
+// Grabs the agent slot for a fresh command: captures the object's authored
+// height above the terrain so slopes do not swallow floating NPCs.
+NavAgent* navBegin(ScriptContext& ctx, int obj, unsigned char mode,
+                   float speed) {
+  navSyncGeneration(ctx);
+  if (obj < 0 || obj >= ctx.objectCount || obj >= NAV_MAX_AGENTS)
+    return nullptr;
+  NavAgent& a = navAgents[obj];
+  a.mode = mode;
+  a.wantPath = 0;
+  a.pathLen = a.pathPos = 0;
+  a.goalCell = -1;
+  a.speed = speed > 0.001F ? speed : 2.0F;
+  a.pauseLeft = 0.0F;
+  a.repathLeft = 0.0F;
+  const float* p = ctx.objects[obj].data.position;
+  a.yOff = p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2]);
+  return &a;
+}
+
+}  // namespace
+
+void navPatrol(ScriptContext& ctx, int obj, const int* waypoints, int count,
+               float speed, float pauseSec, int once) {
+  NavAgent* a = navBegin(ctx, obj, 1, speed);
+  if (!a || count <= 0) return;
+  a->wps = waypoints;
+  a->wpCount = (short)count;
+  a->wpIndex = 0;
+  a->once = once ? 1 : 0;
+  a->p0 = pauseSec > 0.0F ? pauseSec : 0.0F;
+  // the tick aims at the first waypoint and requests the path
+}
+
+void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,
+              float giveUpDist) {
+  NavAgent* a = navBegin(ctx, obj, 2, speed);
+  if (!a) return;
+  a->p0 = stopDist > 0.01F ? stopDist : 1.5F;
+  a->p1 = giveUpDist > 0.01F ? giveUpDist : 0.0F;
+  // repathLeft = 0 makes the tick route to the player this frame
+}
+
+void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist) {
+  NavAgent* a = navBegin(ctx, obj, 3, speed);
+  if (!a) return;
+  a->p0 = safeDist > 0.01F ? safeDist : 15.0F;
+}
+
+void navStop(ScriptContext& ctx, int obj) {
+  navSyncGeneration(ctx);
+  if (obj < 0 || obj >= ctx.objectCount || obj >= NAV_MAX_AGENTS) return;
+  navAgents[obj].mode = 0;
+}
+
+bool navPlayerSeen(ScriptContext& ctx, int obj, float range, float fovDeg,
+                   int needLos) {
+  if (obj < 0 || obj >= ctx.objectCount) return false;
+  const RuntimeObject& o = ctx.objects[obj];
+  if (!o.active || !o.visible) return false;
+  if (range < 0.01F) range = 15.0F;
+  if (fovDeg < 1.0F) fovDeg = 90.0F;
+  float px, py, pz;
+  navPlayerPos(ctx, &px, &py, &pz);
+  const float dx = px - o.data.position[0];
+  const float dy = py - o.data.position[1];
+  const float dz = pz - o.data.position[2];
+  if (dx * dx + dy * dy + dz * dz > range * range) return false;
+  // vision cone around the facing (+Z rotated by the Y rotation)
+  const float planar = sqrtf(dx * dx + dz * dz);
+  if (planar > 0.05F) {
+    const float yaw = o.data.rotation[1] * NAV_PI / 180.0F;
+    const float dot = (sinf(yaw) * dx + cosf(yaw) * dz) / planar;
+    if (dot < cosf(fovDeg * 0.5F * NAV_PI / 180.0F)) return false;
+  }
+  if (needLos) {
+    // terrain line-of-sight, eye to eye - a hill hides the player
+    const float ex = o.data.position[0];
+    const float ey = o.data.position[1] + 1.5F;
+    const float ez = o.data.position[2];
+    const float ty = py + 1.5F;
+    const float dist = sqrtf(dx * dx + dz * dz);
+    const int steps = (int)dist + 1;
+    for (int i = 1; i < steps; ++i) {
+      const float t = (float)i / steps;
+      if (terrainHeightAtScene(ctx.scene, ex + dx * t, ez + dz * t) >
+          ey + (ty - ey) * t)
+        return false;
+    }
+  }
+  return true;
+}
+
+namespace {
+
+// Advances one agent a frame: follow the waypoint list at `speed`, snap to
+// the terrain (+ the captured height offset), turn to face the motion - the
+// same shortest-arc yaw lerp the third-person avatar uses.
+void navMoveAgent(ScriptContext& ctx, int idx) {
+  NavAgent& a = navAgents[idx];
+  RuntimeObject& o = ctx.objects[idx];
+  if (a.pathPos >= a.pathLen) return;
+  const int w = navW();
+  const unsigned short cell = a.path[a.pathPos];
+  const float tx = navCenterX(cell % w);
+  const float tz = navCenterZ(cell / w);
+  float* pos = o.data.position;
+  const float dx = tx - pos[0];
+  const float dz = tz - pos[2];
+  const float dist = sqrtf(dx * dx + dz * dz);
+  const float step = a.speed * g_frameDt;
+  const float arrive = 0.3F * (navCellW() < navCellD() ? navCellW() : navCellD());
+  if (dist <= (step > arrive ? step : arrive)) {
+    a.pathPos++;
+  }
+  if (dist > 0.0005F) {
+    const float mv = step < dist ? step : dist;
+    pos[0] += dx / dist * mv;
+    pos[2] += dz / dist * mv;
+    pos[1] = terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff;
+    // turn toward the motion (degrees, shortest arc)
+    float desired = atan2f(dx, dz) * 180.0F / NAV_PI;
+    float d = desired - o.data.rotation[1];
+    while (d > 180.0F) d -= 360.0F;
+    while (d < -180.0F) d += 360.0F;
+    float k = 0.25F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    o.data.rotation[1] += d * k;
+    o.dirty = true;
+  }
+}
+
+}  // namespace
+
+// The per-frame AI tick, registered like any global Script. Runs in every
+// scene; scenes without live agents fall straight through the mode == 0
+// skips. Menus pause it together with the rest of the scripts.
+class NavAiScript : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    navSyncGeneration(ctx);
+    float px, py, pz;
+    navPlayerPos(ctx, &px, &py, &pz);
+    const int count =
+        ctx.objectCount < NAV_MAX_AGENTS ? ctx.objectCount : NAV_MAX_AGENTS;
+
+    for (int i = 0; i < count; ++i) {
+      NavAgent& a = navAgents[i];
+      if (a.mode == 0) continue;
+      RuntimeObject& o = ctx.objects[i];
+      if (!o.active) {  // despawned / streamed out - the behavior ends
+        a.mode = 0;
+        continue;
+      }
+
+      if (a.mode == 2) {  // chase
+        const float dist = navPlanarDist(o, px, pz);
+        if (a.p1 > 0.0F && dist > a.p1) {
+          a.mode = 0;  // gave up
+          continue;
+        }
+        a.repathLeft -= g_frameDt;
+        if (a.repathLeft <= 0.0F) {  // timer-gated: at most 2 repaths/s
+          int gx = navCellX(px), gz = navCellZ(pz);
+          if (navNearestWalkable(&gx, &gz, 3)) {
+            a.goalCell = gz * navW() + gx;
+            a.wantPath = 1;
+          }
+          a.repathLeft = 0.5F;
+        }
+        if (dist > a.p0) {
+          navMoveAgent(ctx, i);
+        } else {
+          // in reach: stand and face the player
+          const float ddx = px - o.data.position[0];
+          const float ddz = pz - o.data.position[2];
+          if (ddx * ddx + ddz * ddz > 0.0001F) {
+            float desired = atan2f(ddx, ddz) * 180.0F / NAV_PI;
+            float d = desired - o.data.rotation[1];
+            while (d > 180.0F) d -= 360.0F;
+            while (d < -180.0F) d += 360.0F;
+            float k = 0.25F * g_frameScale;
+            if (k > 1.0F) k = 1.0F;
+            o.data.rotation[1] += d * k;
+            o.dirty = true;
+          }
+        }
+      } else if (a.mode == 3) {  // flee
+        const float dist = navPlanarDist(o, px, pz);
+        if (dist >= a.p0) {
+          a.mode = 0;  // safe
+          continue;
+        }
+        a.repathLeft -= g_frameDt;
+        if (a.repathLeft <= 0.0F) {  // timer-gated, like the chase
+          // aim a grid-bounded chunk away from the player, fanning out to
+          // the sides when the straight-away cell is blocked
+          float ax = o.data.position[0] - px, az = o.data.position[2] - pz;
+          const float al = sqrtf(ax * ax + az * az);
+          if (al < 0.01F) { ax = 1.0F; az = 0.0F; }
+          else { ax /= al; az /= al; }
+          const float reach = a.p0 - dist + 2.0F;
+          const float baseAng = atan2f(ax, az);
+          for (int c = 0; c < 7; ++c) {
+            static const float fan[7] = {0.0F, 0.6F, -0.6F, 1.2F, -1.2F,
+                                         1.8F, -1.8F};
+            const float ang = baseAng + fan[c];
+            int gx = navCellX(o.data.position[0] + sinf(ang) * reach);
+            int gz = navCellZ(o.data.position[2] + cosf(ang) * reach);
+            if (navNearestWalkable(&gx, &gz, 2)) {
+              a.goalCell = gz * navW() + gx;
+              a.wantPath = 1;
+              break;
+            }
+          }
+          a.repathLeft = 1.0F;
+        }
+        navMoveAgent(ctx, i);
+      } else if (a.mode == 1) {  // patrol
+        if (!a.wps || a.wpCount <= 0) { a.mode = 0; continue; }
+        if (a.pauseLeft > 0.0F) {
+          a.pauseLeft -= g_frameDt;
+          continue;
+        }
+        if (a.pathPos >= a.pathLen && !a.wantPath) {
+          // arrived (or not yet routed): aim at the current waypoint, or
+          // advance to the next one when already there
+          const int wpObj = a.wps[a.wpIndex];
+          float wx = o.data.position[0], wz = o.data.position[2];
+          if (wpObj >= 0 && wpObj < ctx.objectCount) {
+            wx = ctx.objects[wpObj].data.position[0];
+            wz = ctx.objects[wpObj].data.position[2];
+          }
+          const float ddx = wx - o.data.position[0];
+          const float ddz = wz - o.data.position[2];
+          // "Arrived" must out-tolerance the grid: a path ends at a cell
+          // CENTER, and a waypoint can sit on a cell corner - up to
+          // ~(0.707 + 0.3) cells away. Anything tighter deadlocks the
+          // patrol against the raster.
+          const float arrive =
+              1.1F * (navCellW() > navCellD() ? navCellW() : navCellD());
+          if (ddx * ddx + ddz * ddz <= arrive * arrive) {
+            a.pauseLeft = a.p0;
+            if (a.wpIndex + 1 >= a.wpCount) {
+              if (a.once) { a.mode = 0; continue; }
+              a.wpIndex = 0;
+            } else {
+              a.wpIndex++;
+            }
+          } else {
+            int gx = navCellX(wx), gz = navCellZ(wz);
+            if (navNearestWalkable(&gx, &gz, 3)) {
+              a.goalCell = gz * navW() + gx;
+              a.wantPath = 1;
+            } else {
+              a.mode = 0;  // waypoint unreachable from any nearby cell
+            }
+          }
+        }
+        navMoveAgent(ctx, i);
+      }
+    }
+
+    // Serve at most ONE pathfind per frame (round-robin) - A* on a 128x128
+    // grid is cheap, but not "every agent, every frame" cheap on the EE.
+    for (int k = 1; k <= count; ++k) {
+      const int i = (navServedLast + k) % count;
+      if (!navAgents[i].wantPath || navAgents[i].mode == 0) continue;
+      if (!ctx.objects[i].active) { navAgents[i].wantPath = 0; continue; }
+      navFindPath(navAgents[i], ctx.objects[i]);
+      navAgents[i].wantPath = 0;
+      navServedLast = i;
+      break;
+    }
+  }
+};
+
+}  // namespace )" << ns
+        << "\n\nTYRA_SCRIPT(" << ns << "::NavAiScript);\n";
+    return out.str();
+}
+
 // inc/texture_data.gen.hpp - PNG textures used by the scene
 static std::string textureDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -11014,23 +16279,30 @@ static std::string textureDataHeader(const Project& p) {
     // Per scene: the terrain material's map_Kd texture index (-1 = none), the
     // tiling scale, whether a material is assigned at all, and its Kd tint.
     std::vector<project::TerrainMaterial> terrain(p.scenes.size());
-    for (size_t si = 0; si < p.scenes.size(); ++si)
+    std::vector<float> baseStochF(p.scenes.size(), 1.0f);
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
         terrain[si] = project::resolveTerrainMaterial(
             p, project::resolvedSettings(p, p.scenes[si]).terrainMaterial);
+        baseStochF[si] = terrainStochFactor(p, terrain[si].texture,
+                                            p.scenes[si].terrainBaseStochastic);
+    }
     out << "};\n\n"
         << "constexpr int TERRAIN_TEXTURES[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << textureIndexOf(p, terrain[si].texture);
+        out << (si ? ", " : "")
+            << textureIndexOf(p, terrainTexKey(terrain[si].texture,
+                                               p.scenes[si].terrainBaseStochastic));
     out << "};\n"
         // Texture tiling from the material's map_Kd "-s" option: UV repeats per
-        // world unit, per axis (u across X, v across Z).
+        // world unit, per axis (u across X, v across Z). Divided by the
+        // stochastic factor so the baked supertile keeps the source at its size.
         << "constexpr float TERRAIN_TILE_US[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << floatLit(terrain[si].tile[0]);
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[0] / baseStochF[si]);
     out << "};\n"
         << "constexpr float TERRAIN_TILE_VS[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << floatLit(terrain[si].tile[1]);
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[1] / baseStochF[si]);
     out << "};\n"
         << "constexpr bool TERRAIN_HAS_MATERIALS[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
@@ -11040,6 +16312,210 @@ static std::string textureDataHeader(const Project& p) {
     for (size_t si = 0; si < p.scenes.size(); ++si)
         out << (si ? ", " : "") << "{" << floatLit(terrain[si].kd[0]) << ", "
             << floatLit(terrain[si].kd[1]) << ", " << floatLit(terrain[si].kd[2]) << "}";
+    out << "};\n"
+        // Macro ground variation (docs/terrain-painting.md): value-noise tint
+        // multiplied into the vertex shade while chunks bake. 0 = off.
+        << "constexpr float TERRAIN_TINT_VARIATIONS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << floatLit(p.scenes[si].terrainTintVariation);
+    out << "};\n"
+        << "constexpr float TERRAIN_TINT_SCALES[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "")
+            << floatLit(p.scenes[si].terrainTintScale > 1.0f
+                            ? p.scenes[si].terrainTintScale
+                            : 1.0f);
+    out << "};\n";
+
+    // Painted terrain layers (docs/terrain-painting.md): per scene, each
+    // layer's texture index / tiling (the material's map_Kd "-s" divided by the
+    // layer Size - bigger Size = larger pattern) / Kd tint / has-material flag.
+    // The per-vertex blend weights live in terrain_heights.gen.hpp (same grid
+    // as the heightmap); the game draws one extra alpha-blended pass per layer
+    // present in a chunk.
+    size_t maxLayers = 0;
+    for (const SceneData& sc : p.scenes)
+        maxLayers = sc.terrainLayers.size() > maxLayers ? sc.terrainLayers.size()
+                                                        : maxLayers;
+    out << "\nconstexpr int TERRAIN_LAYER_COUNTS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << p.scenes[si].terrainLayers.size();
+    out << "};\n"
+        << "constexpr int TERRAIN_MAX_LAYERS = " << (maxLayers > 0 ? maxLayers : 1)
+        << ";\n";
+    auto layerMat = [&](const SceneData& sc, size_t li) {
+        return project::resolveTerrainMaterial(p, sc.terrainLayers[li].material);
+    };
+    auto perLayer = [&](const char* name, auto emit) {
+        out << name << "[" << p.scenes.size() << "][TERRAIN_MAX_LAYERS] = {";
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            out << (si ? ", " : "") << "{";
+            for (size_t li = 0; li < maxLayers; ++li) {
+                out << (li ? ", " : "");
+                if (li < p.scenes[si].terrainLayers.size())
+                    emit(p.scenes[si], li);
+                else
+                    out << "0";
+            }
+            out << "}";
+        }
+        out << "};\n";
+    };
+    if (maxLayers == 0) {
+        // Keep the arrays compilable for the loops that index them.
+        out << "constexpr int TERRAIN_LAYER_TEXTURES[" << p.scenes.size()
+            << "][1] = {};\n"
+            << "constexpr float TERRAIN_LAYER_TILE_US[" << p.scenes.size()
+            << "][1] = {};\n"
+            << "constexpr float TERRAIN_LAYER_TILE_VS[" << p.scenes.size()
+            << "][1] = {};\n"
+            << "constexpr float TERRAIN_LAYER_TINTS[" << p.scenes.size()
+            << "][1][3] = {};\n";
+    } else {
+        auto layerStoch = [&](const SceneData& sc, size_t li) {
+            return terrainStochFactor(p, layerMat(sc, li).texture,
+                                      sc.terrainLayers[li].stochastic);
+        };
+        perLayer("constexpr int TERRAIN_LAYER_TEXTURES", [&](const SceneData& sc,
+                                                             size_t li) {
+            out << textureIndexOf(
+                p, terrainTexKey(layerMat(sc, li).texture,
+                                 sc.terrainLayers[li].stochastic));
+        });
+        perLayer("constexpr float TERRAIN_LAYER_TILE_US",
+                 [&](const SceneData& sc, size_t li) {
+                     const float s = sc.terrainLayers[li].scale > 0.0f
+                                         ? sc.terrainLayers[li].scale
+                                         : 1.0f;
+                     out << floatLit(layerMat(sc, li).tile[0] /
+                                     (s * layerStoch(sc, li)));
+                 });
+        perLayer("constexpr float TERRAIN_LAYER_TILE_VS",
+                 [&](const SceneData& sc, size_t li) {
+                     const float s = sc.terrainLayers[li].scale > 0.0f
+                                         ? sc.terrainLayers[li].scale
+                                         : 1.0f;
+                     out << floatLit(layerMat(sc, li).tile[1] /
+                                     (s * layerStoch(sc, li)));
+                 });
+        out << "constexpr float TERRAIN_LAYER_TINTS[" << p.scenes.size()
+            << "][TERRAIN_MAX_LAYERS][3] = {";
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            out << (si ? ", " : "") << "{";
+            for (size_t li = 0; li < maxLayers; ++li) {
+                out << (li ? ", " : "") << "{";
+                if (li < p.scenes[si].terrainLayers.size()) {
+                    const project::TerrainMaterial m = layerMat(p.scenes[si], li);
+                    // No material assigned = the neutral gray the editor shows.
+                    const float g = m.present ? 1.0f : 0.6f;
+                    out << floatLit(m.present ? m.kd[0] : g) << ", "
+                        << floatLit(m.present ? m.kd[1] : g) << ", "
+                        << floatLit(m.present ? m.kd[2] : g);
+                } else {
+                    out << "0, 0, 0";
+                }
+                out << "}";
+            }
+            out << "}";
+        }
+        out << "};\n";
+    }
+    out << "\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// inc/font_data.gen.hpp - glyph atlases for the fonts a Display Text node
+// draws with, plus one runtime slot per such node. Only fonts reachable from a
+// Display Text node appear here: static text is already pixels by build time,
+// so its font costs the game nothing.
+static std::string fontDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const std::vector<int> atlasFonts = p.atlasFontIndices();
+    const std::vector<DynTextSlot> slots = dynTextSlots(p);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "// A glyph's cell in the atlas and how to lay it down. Mirrors\n"
+           "// menubake::AtlasGlyph - the metrics here and the baked pixels come\n"
+           "// from the same atlasLayout() call, so they cannot drift.\n"
+           "struct FontGlyph {\n"
+           "  short u, v;        // top-left texel in the atlas\n"
+           "  short w, h;        // glyph size (0 = nothing to draw)\n"
+           "  short xoff, yoff;  // pen/line-top -> glyph top-left, at baseSize\n"
+           "  short adv;         // pen step to the next glyph, at baseSize\n"
+           "};\n\n"
+           "struct FontData {\n"
+           "  const char* atlas;  // relative to the game binary\n"
+           "  short texW, texH;\n"
+           "  short lineH;        // baseline pitch at baseSize\n"
+           "  short baseSize;     // size the metrics were baked at\n"
+           "  unsigned char r, g, b;  // tint (glyphs bake white)\n"
+           "  unsigned char shadow;   // 1 = draw a dark 1px offset pass first\n"
+           "  const FontGlyph* glyphs;\n"
+           "};\n\n"
+        << "constexpr int FONT_FIRST_CHAR = " << menubake::kAtlasFirstChar << ";\n"
+        << "constexpr int FONT_CHAR_COUNT = " << menubake::kAtlasCharCount << ";\n"
+        << "constexpr int FONT_COUNT = " << atlasFonts.size() << ";\n\n";
+
+    auto byteLit = [](float v) {
+        int b = (int)(v * 255.0f + 0.5f);
+        return b < 0 ? 0 : b > 255 ? 255 : b;
+    };
+
+    for (size_t k = 0; k < atlasFonts.size(); ++k) {
+        const GameFont& gf = p.fonts[atlasFonts[k]];
+        menubake::AtlasLayout lay;
+        const bool ok = menubake::atlasLayout(gf, p, lay);
+        out << "inline const FontGlyph FONT_GLYPHS_" << k << "[FONT_CHAR_COUNT] = {\n";
+        for (int i = 0; i < menubake::kAtlasCharCount; ++i) {
+            const menubake::AtlasGlyph g =
+                ok ? lay.glyphs[i] : menubake::AtlasGlyph{};
+            out << "    {" << g.u << ", " << g.v << ", " << g.w << ", " << g.h
+                << ", " << g.xoff << ", " << g.yoff << ", " << g.advance << "},\n";
+        }
+        out << "};\n";
+    }
+    out << "\n";
+
+    out << "inline const FontData FONTS[FONT_COUNT > 0 ? FONT_COUNT : 1] = {\n";
+    if (atlasFonts.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 255, 255, 255, 0, nullptr},\n";
+    } else {
+        for (size_t k = 0; k < atlasFonts.size(); ++k) {
+            const GameFont& gf = p.fonts[atlasFonts[k]];
+            menubake::AtlasLayout lay;
+            const bool ok = menubake::atlasLayout(gf, p, lay);
+            out << "    {\"fonts/" << menubake::atlasFileName(gf.name) << "\", "
+                << (ok ? lay.texW : 8) << ", " << (ok ? lay.texH : 8) << ", "
+                << (ok ? lay.lineH : 8) << ", " << (ok ? lay.baseSize : 8) << ", "
+                << byteLit(gf.color[0]) << ", " << byteLit(gf.color[1]) << ", "
+                << byteLit(gf.color[2]) << ", " << (gf.shadow ? 1 : 0)
+                << ", FONT_GLYPHS_" << k << "},  // " << gf.name << "\n";
+        }
+    }
+    out << "};\n\n";
+
+    out << "// One slot per Display Text node (see DynTextSlot in templates.cpp).\n"
+           "struct DynTextData {\n"
+           "  short font;   // index into FONTS\n"
+           "  float x, y;   // normalized screen position, center anchor\n"
+           "  float size;   // glyph height in pixels\n"
+           "};\n\n"
+        << "constexpr int DYN_TEXT_COUNT = " << slots.size() << ";\n"
+        << "constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer\n"
+        << "inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT "
+           ": 1] = {\n";
+    if (slots.empty()) {
+        out << "    {0, 0, 0, 0},\n";
+    } else {
+        for (const DynTextSlot& s : slots)
+            out << "    {" << s.fontSlot << ", " << floatLit(s.x) << ", "
+                << floatLit(s.y) << ", " << floatLit(s.size)
+                << "},  // scene " << s.scene << ", object " << s.ownerIdx
+                << ", node " << s.nodeId << "\n";
+    }
     out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();
 }
@@ -11092,7 +16568,10 @@ static std::string hudDataHeader(const Project& p) {
         << "constexpr float USE_PROMPT_Y = " << floatLit(p.usePrompt.pos[1]) << ";\n"
         << "constexpr float USE_PROMPT_W = " << floatLit(p.usePrompt.size[0])
         << ";  // on-screen pixels\n"
-        << "constexpr float USE_PROMPT_H = " << floatLit(p.usePrompt.size[1]) << ";\n";
+        << "constexpr float USE_PROMPT_H = " << floatLit(p.usePrompt.size[1]) << ";\n"
+        << "// The \"PICK UP\" variant, shown instead for pickable objects\n"
+           "// (same placement; replace res/hud/pickup.png to customize)\n"
+           "constexpr const char* PICK_PROMPT_PATH = \"hud/pickup.png\";\n";
 
     // On-screen texts, baked to res/hud/text-*.png sprites by the editor
     // (menubake). Shown/hidden by the Show Text / Hide Text flow nodes.
@@ -11110,7 +16589,7 @@ static std::string hudDataHeader(const Project& p) {
     } else {
         for (const HudText& t : p.hudTexts) {
             int tw = 8, th = 8;  // fallback if no usable font (bake errors out)
-            menubake::textLayout(t, p.dir, tw, th);
+            menubake::textLayout(t, p, tw, th);
             out << "    {\"hud/" << menubake::textFileName(t.name) << "\", "
                 << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", " << tw
                 << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << "},  // "
@@ -11187,7 +16666,7 @@ static std::string loadingDataHeader(const Project& p) {
             HudText copy = t;
             copy.name = "ls-" + std::to_string(si) + "-" + t.name;
             int tw = 8, th = 8;  // fallback if no usable font
-            menubake::textLayout(copy, p.dir, tw, th);
+            menubake::textLayout(copy, p, tw, th);
             txts << "    {\"hud/" << menubake::textFileName(copy.name) << "\", "
                  << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", "
                  << tw << ", " << th << "},  // " << ls.name << ": " << t.name
@@ -11319,8 +16798,9 @@ static std::string menuDataHeader(const Project& p) {
            "// Menu entry actions: 0 close, 1 switch scene, 2 open save menu,\n"
            "// 3 open menu (submenu), 4 set save value, 5 add to save value,\n"
            "// 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save\n"
-           "// value holding the option index). param = resolved index, -1 =\n"
-           "// unknown target.\n"
+           "// value holding the option index), 9 apply video mode (commits\n"
+           "// the display-mode row's staged selection). param = resolved\n"
+           "// index, -1 = unknown target.\n"
            "struct MenuEntryData {\n"
            "  int action;\n"
            "  int param;\n"
@@ -11330,6 +16810,10 @@ static std::string menuDataHeader(const Project& p) {
            "  int bind;         // option-block binding (applyMenuBindings):\n"
            "                    // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,\n"
            "                    // 4 stick curve, 5 display mode, 6 widescreen\n"
+           "  // bind 5 only: the Tyra::DisplayMode each option drives\n"
+           "  // (optionCount ints; -1 = the project-default boot mode).\n"
+           "  // Null = the option index itself.\n"
+           "  const int* optModes;\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -11355,11 +16839,34 @@ static std::string menuDataHeader(const Project& p) {
                                 ? menubake::kMaxEntries
                                 : (int)m.entries.size();
         const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
-        out << "// menu \"" << m.name << "\"\n"
-            << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
+        out << "// menu \"" << m.name << "\"\n";
+        // Explicit option->mode tables for display-mode rows (see
+        // MenuEntryData::optModes); rows without one keep the positional map.
+        for (int e = 0; e < entries; ++e) {
+            const MenuEntry& en = m.entries[e];
+            const bool stateful = en.action == MenuEntry::Toggle ||
+                                  en.action == MenuEntry::Choice;
+            if (!stateful || en.settingBind != MenuEntry::BindDisplayMode ||
+                en.optionModes.empty())
+                continue;
+            const int optionCount = (int)menubake::entryOptionLabels(en).size();
+            if (optionCount <= 0) continue;
+            out << "constexpr int MENU_" << mi << "_E" << e << "_MODES["
+                << optionCount << "] = {";
+            for (int o = 0; o < optionCount; ++o) {
+                int mode = o < (int)en.optionModes.size() ? en.optionModes[o]
+                                                          : (o < 4 ? o : 4);
+                // Tyra::DisplayMode range; -1 = the project-default option
+                if (mode < -1) mode = -1;
+                if (mode > 4) mode = 4;
+                out << (o ? ", " : "") << mode;
+            }
+            out << "};\n";
+        }
+        out << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F, 0, -1, 0},\n";
+            out << "    {0, -1, 0.0F, 0, -1, 0, nullptr},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -11382,15 +16889,22 @@ static std::string menuDataHeader(const Project& p) {
                                   en.action == MenuEntry::Choice)
                                      ? en.settingBind
                                      : 0;
+                const bool hasModes = bind == MenuEntry::BindDisplayMode &&
+                                      !en.optionModes.empty() && optionCount > 0;
                 out << "    {" << en.action << ", " << param << ", "
                     << floatLit(en.amount) << ", " << optionCount << ", " << cell
-                    << ", " << bind << "},  // " << en.label << "\n";
+                    << ", " << bind << ", ";
+                if (hasModes)
+                    out << "MENU_" << mi << "_E" << e << "_MODES";
+                else
+                    out << "nullptr";
+                out << "},  // " << en.label << "\n";
             }
         }
         out << "};\n";
     }
     if (p.menus.empty())
-        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0}};\n";
+        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0, nullptr}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)
@@ -11413,7 +16927,7 @@ static std::string menuDataHeader(const Project& p) {
                                     : (int)m.entries.size();
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
-            const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
+            const menubake::PanelLayout l = menubake::panelLayout(m, p);
             const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
             const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
@@ -11431,10 +16945,25 @@ static std::string menuDataHeader(const Project& p) {
             out << "},  // " << m.name << "\n";
         }
     }
+    bool hasApplyVideo = false;
+    for (const GameMenu& m : p.menus) {
+        const int entries = (int)m.entries.size() > menubake::kMaxEntries
+                                ? menubake::kMaxEntries
+                                : (int)m.entries.size();
+        for (int e = 0; e < entries; ++e)
+            hasApplyVideo |= m.entries[e].action == MenuEntry::ApplyVideo;
+    }
+
     out << "};\n\n"
         << "constexpr int TITLE_MENU = " << titleMenu << ";\n"
         << "// The Start button opens/closes this menu in-game (-1 = none)\n"
-        << "constexpr int PAUSE_MENU = " << pauseMenu << ";\n\n"
+        << "constexpr int PAUSE_MENU = " << pauseMenu << ";\n"
+        << "// True when any menu carries an \"apply video mode\" row (action\n"
+        << "// 9): display-mode rows then only stage a selection and that row\n"
+        << "// commits it; without one they switch on change (the classic\n"
+        << "// behavior).\n"
+        << "constexpr bool MENU_HAS_APPLY_VIDEO = "
+        << (hasApplyVideo ? "true" : "false") << ";\n\n"
         << "constexpr int MENU_EVENT_COUNT = " << events.size() << ";\n"
         << "// Names of the \"Flow event\" entry actions (menuEvent indexes this)\n"
         << "inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? "
@@ -11794,15 +17323,22 @@ std::vector<File> bakeAnimAssets(const Project& p,
 
         glbparser::Skel skel;
         std::string error;
-        if (!glbparser::parseSkel(full, skel, error)) {
+        if (!animimport::parseSkel(full, skel, error)) {
             warn(relPath + ": " + error);
             continue;
         }
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
-        // Distance LODs ride in the .tskl only when the project uses them -
+        // Distance LODs ride in the .tskl only when something uses them -
         // the engine keeps every loaded LOD (plus per-instance skinning
         // buffers) in the PS2's 32 MB, so an unused chain is pure waste.
-        if (p.settings.meshLodDistance > 0.0f) glbparser::generateSkelLods(skel);
+        // "Uses" = the project preference, or any object referencing this
+        // model with a per-object mesh-LOD override > 0.
+        bool lodWanted = p.settings.meshLodDistance > 0.0f;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& obj : sc.objects)
+                if (obj.meshLodOverride > 0.0f && obj.modelPath == relPath)
+                    lodWanted = true;
+        if (lodWanted) glbparser::generateSkelLods(skel);
 
         // Extracted textures land next to the .tskl, prefixed with the model
         // stem so two models' equally-named images cannot collide. The game
@@ -11958,8 +17494,12 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scene_data.hpp", sceneDataContent(p, ns)},
         {"inc\\model_data.gen.hpp", modelDataHeader(p)},
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
+        {"inc\\font_data.gen.hpp", fontDataHeader(p)},
         {"inc\\loading_data.gen.hpp", loadingDataHeader(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
+        {"inc\\nav_data.gen.hpp", navDataHeader(p)},
+        {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
+        {"src\\scripts\\navigation.gen.cpp", navigationSource(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\save_system.gen.hpp", saveSystemHeader(p)},

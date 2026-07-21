@@ -1,0 +1,1 @@
+{ "id": "f1654e547a98c44a", "name": "model-4", "type": "model", "position": [42, -0.1739, -37], "rotation": [0, 0, 0], "scale": [1.2, 1.2, 1.2], "color": [0.9, 0.95, 0.95], "physics": false, "collision": "none", "layer": "village", "model": "res/models/wobbler.glb", "anim": { "clip": "Twist", "autoplay": true, "loop": true, "speed": 0.9 } }

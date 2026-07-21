@@ -55,14 +55,15 @@ Live:
 Needs a build — the chip flips to amber instead of applying something wrong:
 
 - changing a built object's **recipe**: its type, model / material assignment,
-  primitive detail, physics/collision, layer membership, emitter / sound /
-  player / animation parameters…
+  primitive detail, physics (the flag and, while it is on, the mass /
+  bounciness / friction / tumble material) / collision, layer membership,
+  emitter / sound / player / animation parameters…
 - adding an object with **no matching template** in the built scene (nothing
   of the same recipe existed at build time), or an object that can't be
   faithfully spawned at runtime: **point lights** (baked into vertex colors),
   **projecting decals** (baked host projection), **mirrors** (baked reflection
-  table), or objects carrying a **flow graph / attached scripts** (compiled
-  per authored object);
+  table), **portals** (baked PORTALS link table), or objects carrying a
+  **flow graph / attached scripts** (compiled per authored object);
 - editing an existing point light / projecting decal (their transforms are
   baked at build);
 - streaming-layer definitions, scene add/remove.

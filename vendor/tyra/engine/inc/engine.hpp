@@ -33,9 +33,13 @@ struct EngineOptions {
   VideoMode videoMode = VideoMode::Auto;
 
   /** Output scan mode (TyraX fork): stock interlaced 480i/576i,
-   * progressive 480p, or 1080i. The DTV modes need component cables on
-   * real hardware and always run at 60 Hz (videoMode only picks the
-   * region/refresh of the interlaced mode). */
+   * progressive 480p, 1080i, interlaced with true field rendering
+   * (half-height buffers, a fresh image per field - see
+   * DisplayMode::InterlacedField), or the full-height 512-line PAL frame
+   * (DisplayMode::Pal576i, always a 50 Hz PAL signal). The DTV modes need
+   * component cables on real hardware and always run at 60 Hz (videoMode
+   * only picks the region/refresh of the region-following interlaced
+   * modes). */
   DisplayMode displayMode = DisplayMode::Interlaced;
 
   /** 16:9 anamorphic output (TyraX fork): widen the projection for a

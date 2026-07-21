@@ -568,6 +568,43 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
                                    " transcoded to PNG");
         }
         {
+            // PS2 hard limit: 512x512 textures max (the engine's Texture ctor
+            // asserts above it, killing the game on load). Downscale oversized
+            // embedded textures with a power-of-two box filter - a POT source
+            // (the usual Blender export) stays POT.
+            int w = 0, h = 0, comp = 0;
+            unsigned char* px = stbi_load_from_memory(
+                baked.png.data(), (int)baked.png.size(), &w, &h, &comp, 4);
+            if (px && (w > 512 || h > 512)) {
+                int f = 1;
+                while (w / f > 512 || h / f > 512) f *= 2;
+                const int nw = w / f > 0 ? w / f : 1;
+                const int nh = h / f > 0 ? h / f : 1;
+                std::vector<unsigned char> small((size_t)nw * nh * 4);
+                for (int y = 0; y < nh; ++y)
+                    for (int x = 0; x < nw; ++x)
+                        for (int c = 0; c < 4; ++c) {
+                            unsigned sum = 0;
+                            for (int sy = 0; sy < f; ++sy)
+                                for (int sx = 0; sx < f; ++sx)
+                                    sum += px[(((size_t)(y * f + sy) * w) +
+                                               ((size_t)x * f + sx)) *
+                                                  4 +
+                                              c];
+                            small[(((size_t)y * nw) + x) * 4 + c] =
+                                (unsigned char)(sum / (unsigned)(f * f));
+                        }
+                baked.png.clear();
+                stbi_write_png_to_func(stbWriteToVector, &baked.png, nw, nh, 4,
+                                       small.data(), nw * 4);
+                warnings.push_back(
+                    "embedded texture " + std::to_string(w) + "x" +
+                    std::to_string(h) + " downscaled to " + std::to_string(nw) +
+                    "x" + std::to_string(nh) + " (PS2 max is 512x512)");
+            }
+            if (px) stbi_image_free(px);
+        }
+        {
             int w = 0, h = 0, comp = 0;
             if (stbi_info_from_memory(baked.png.data(), (int)baked.png.size(), &w,
                                       &h, &comp)) {

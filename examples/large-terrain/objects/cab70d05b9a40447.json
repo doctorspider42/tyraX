@@ -1,0 +1,1 @@
+{ "id": "cab70d05b9a40447", "name": "pillar-829", "type": "cylinder", "position": [301.768, 2.292, 301.451], "rotation": [0, 188, 0], "scale": [0.84, 3.47, 0.84], "color": [0.622, 0.541, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }

@@ -32,6 +32,8 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   postFx.init(&settings, &gs);
   // Same rule for the dynamic env map's render target (TyraX fork).
   envMap.init(&settings, &gs, &sync, &path1);
+  // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
+  splitView.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -161,6 +163,20 @@ void RendererCore::applyCustomPostFx(RendererCorePostFx::CustomFxBuild build,
     postFxDrained = true;
   }
   postFx.applyCustom(build, user);
+}
+
+// Modified by TyraX: portal through-view bracket. Mid-frame: drain PATH1
+// (scissor/z-mask are global GS state) but do NOT latch postFxDrained -
+// the frame submits more 3D after this.
+void RendererCore::portalViewBegin(int x0, int y0, int x1, int y1) {
+  if (path1.isVU1Configured()) sync.align3D();
+  postFx.portalMaskBegin(x0, y0, x1, y1);
+}
+
+void RendererCore::portalViewEnd(const float* xy, const u32* z, int count,
+                                 u8 clearR, u8 clearG, u8 clearB) {
+  if (path1.isVU1Configured()) sync.align3D();
+  postFx.portalMaskEnd(xy, z, count, clearR, clearG, clearB);
 }
 
 void RendererCore::endFrame() {

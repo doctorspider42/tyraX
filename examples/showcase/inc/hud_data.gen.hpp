@@ -28,6 +28,9 @@ constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
 constexpr float USE_PROMPT_Y = 0.596F;
 constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels
 constexpr float USE_PROMPT_H = 32.0F;
+// The "PICK UP" variant, shown instead for pickable objects
+// (same placement; replace res/hud/pickup.png to customize)
+constexpr const char* PICK_PROMPT_PATH = "hud/pickup.png";
 
 struct HudTextData {
   const char* path;  // baked text sprite, relative to the ELF

@@ -1,5 +1,7 @@
 #include "viewport.hpp"
 
+#include "fbxparser.hpp"
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -98,9 +100,13 @@ Mat4 rotZ(float a) {
 }
 
 // Same composition as the generated PS2 code: scale -> rotX -> rotY -> rotZ -> translate
+// (+ the animated-model content-forward correction between scale and rotation,
+// mirroring the game's modelYaw pre-rotation - keep the two in sync).
 Mat4 modelMatrix(const SceneObject& o) {
     const float d2r = kPi / 180.0f;
     Mat4 m = scaleM(o.scale[0], o.scale[1], o.scale[2]);
+    if (o.modelYawOffset != 0.0f && isAnimatedModelPath(o.modelPath))
+        m = mul(rotY(o.modelYawOffset * d2r), m);  // avatars included
     m = mul(rotX(o.rotation[0] * d2r), m);
     m = mul(rotY(o.rotation[1] * d2r), m);
     m = mul(rotZ(o.rotation[2] * d2r), m);
@@ -649,6 +655,29 @@ Viewport::Mesh Viewport::uploadMesh(const std::vector<float>& interleaved) {
     return m;
 }
 
+// The particle-shader layout (pos3 + rgba4 + uv2): terrain layer passes carry
+// the painted weight in the vertex alpha, exactly like the PS2's color stream.
+Viewport::Mesh Viewport::uploadMesh9(const std::vector<float>& interleaved) {
+    Mesh m;
+    m.vertexCount = (int)(interleaved.size() / 9);
+    glGenVertexArrays(1, &m.vao);
+    glGenBuffers(1, &m.vbo);
+    glBindVertexArray(m.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(interleaved.size() * sizeof(float)),
+                 interleaved.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(7 * sizeof(float)));
+    glBindVertexArray(0);
+    return m;
+}
+
 void Viewport::destroyMesh(Mesh& m) {
     if (m.vbo) glDeleteBuffers(1, &m.vbo);
     if (m.vao) glDeleteVertexArrays(1, &m.vao);
@@ -776,6 +805,9 @@ void Viewport::shutdown() {
     terrainChunkMeshes_.clear();
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
     terrainLineMeshes_.clear();
+    for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
+    terrainLayerMeshes_.clear();
+    destroyMesh(navOverlayMesh_);
     destroyMesh(axes_);
     destroyMesh(box_);
     destroyMesh(sphere_);
@@ -790,6 +822,8 @@ void Viewport::shutdown() {
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    destroyMesh(segment_);
+    destroyMesh(portalArrow_);
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
@@ -915,6 +949,8 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    destroyMesh(segment_);
+    destroyMesh(portalArrow_);
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
@@ -928,6 +964,32 @@ void Viewport::buildPrimitiveMeshes() {
     wireSphere_ = uploadMesh(unitWireSphere());
     cameraBody_ = uploadMesh(unitCameraBody());
     cameraFrustum_ = uploadMesh(unitCameraFrustum());
+    {
+        // unit +Z segment - stretched onto arbitrary endpoints for the
+        // portal link line (only the third matrix column + translation
+        // matter: the two vertices sit at z=0 and z=1).
+        std::vector<float> seg;
+        pushVertexColor(seg, 0, 0, 0, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(seg, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        segment_ = uploadMesh(seg);
+    }
+    {
+        // +Z arrow (shaft + 4 head barbs): marks the portal's ENTRY side -
+        // the front face that shows the view and accepts the crossing.
+        std::vector<float> ar;
+        pushVertexColor(ar, 0, 0, 0, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        const float b = 0.12f, zb = 0.78f;
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, b, 0, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, -b, 0, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, b, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, -b, zb, 1.0f, 1.0f, 1.0f);
+        portalArrow_ = uploadMesh(ar);
+    }
 }
 
 const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
@@ -962,6 +1024,7 @@ void Viewport::buildTerrainMesh() {
     if (!program_) return;  // init() not called yet
     for (Mesh& m : terrainChunkMeshes_) destroyMesh(m);
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
+    for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
     destroyMesh(axes_);
 
     // Match the generated PS2 game: checker pattern, capped cell count,
@@ -973,6 +1036,8 @@ void Viewport::buildTerrainMesh() {
     tcChunksZ_ = (tcCellsZ_ + kTerrainChunkCells - 1) / kTerrainChunkCells;
     terrainChunkMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
     terrainLineMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
+    terrainLayerMeshes_.assign(
+        terrainLayers_.size() * (size_t)tcChunksX_ * tcChunksZ_, Mesh());
     for (int cz = 0; cz < tcChunksZ_; ++cz)
         for (int cx = 0; cx < tcChunksX_; ++cx) buildTerrainChunkMesh(cx, cz);
 
@@ -987,6 +1052,34 @@ void Viewport::buildTerrainMesh() {
     pushVertexColor(lines, 0, 0.02f, 0, 0.3f, 0.4f, 1.0f);
     pushVertexColor(lines, 0, 0.02f, axisLen, 0.3f, 0.4f, 1.0f);
     axes_ = uploadMesh(lines);
+}
+
+// Macro ground variation: deterministic world-position value noise (two
+// smoothstepped octaves) multiplied into the vertex shade. Twin of
+// tintHash/tintValue/tintNoise2 in the generated game (templates.cpp,
+// above buildTerrainChunk) - keep the formulas in sync.
+static float tintHash(int ix, int iz) {
+    unsigned h = (unsigned)ix * 73856093u ^ (unsigned)iz * 19349663u;
+    h ^= h >> 13;
+    h *= 0x85EBCA6Bu;
+    h ^= h >> 16;
+    return (float)(h & 0xFFFFu) / 65535.0f;
+}
+static float tintValue(float x, float z, float scale) {
+    const float gx = x / scale, gz = z / scale;
+    const float fxf = std::floor(gx), fzf = std::floor(gz);
+    const int ix = (int)fxf, iz = (int)fzf;
+    float fx = gx - fxf, fz = gz - fzf;
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fz = fz * fz * (3.0f - 2.0f * fz);
+    const float a = tintHash(ix, iz), b = tintHash(ix + 1, iz);
+    const float c = tintHash(ix, iz + 1), d = tintHash(ix + 1, iz + 1);
+    return (a * (1.0f - fx) + b * fx) * (1.0f - fz) +
+           (c * (1.0f - fx) + d * fx) * fz;
+}
+static float tintNoise2(float x, float z, float scale) {
+    return tintValue(x, z, scale) * 0.7f +
+           tintValue(x + 191.0f, z - 353.0f, scale * 0.37f) * 0.3f;
 }
 
 // One terrain chunk (kTerrainChunkCells^2 cells at most): triangles + grid
@@ -1014,9 +1107,24 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
-        return shadeOf(normalize(n));
+        Vec3 s = shadeOf(normalize(n));
+        // Macro ground variation - the game applies the same tint in
+        // buildTerrainChunk (base + layer passes shade through one place).
+        if (tintVariation_ > 0.0f) {
+            const float tv =
+                1.0f + tintVariation_ * (tintNoise2(x0 + ix * sx, z0 + iz * sz,
+                                                    tintScale_) -
+                                         0.5f);
+            s.x = std::min(s.x * tv, 1.0f);
+            s.y = std::min(s.y * tv, 1.0f);
+            s.z = std::min(s.z * tv, 1.0f);
+        }
+        return s;
     };
 
+    // With a material every cell takes its Kd tint (the shader modulates the
+    // texture by it when one is bound; a flat color otherwise). Without a
+    // material the terrain falls back to the two-green checker.
     // With a material every cell takes its Kd tint (the shader modulates the
     // texture by it when one is bound; a flat color otherwise). Without a
     // material the terrain falls back to the two-green checker.
@@ -1029,6 +1137,8 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     // Texture tiling from the material's map_Kd "-s": UV repeats per world
     // unit, per axis (u across X, v across Z). Matches the game's st() lambda.
     const float tu = terrainTile_[0], tv = terrainTile_[1];
+    auto uvU = [&](float wx) { return wx * tu; };
+    auto uvV = [&](float wz) { return wz * tv; };
 
     const int gx0 = cx * kTerrainChunkCells;
     const int gz0 = cz * kTerrainChunkCells;
@@ -1047,17 +1157,17 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
             const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
             const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
             pushVertexColor(tri, ax, h00, az, c[0] * s00.x, c[1] * s00.y, c[2] * s00.z,
-                            ax * tu, az * tv);
+                            uvU(ax), uvV(az));
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx * tu, az * tv);
+                            uvU(bx), uvV(az));
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax * tu, bz * tv);
+                            uvU(ax), uvV(bz));
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx * tu, az * tv);
+                            uvU(bx), uvV(az));
             pushVertexColor(tri, bx, h11, bz, c[0] * s11.x, c[1] * s11.y, c[2] * s11.z,
-                            bx * tu, bz * tv);
+                            uvU(bx), uvV(bz));
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax * tu, bz * tv);
+                            uvU(ax), uvV(bz));
         }
     }
     terrainChunkMeshes_[ci] = uploadMesh(tri);
@@ -1091,6 +1201,68 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
         }
     }
     terrainLineMeshes_[ci] = uploadMesh(lines);
+
+    // Painted-layer passes (docs/terrain-painting.md): per layer with any
+    // weight on this chunk, the same triangles again - tiled layer UVs,
+    // shade-lit tint, vertex alpha = the painted weight. The GS twin builds
+    // identical passes in buildTerrainChunk (templates.cpp); keep them in sync.
+    const int layerN = (int)terrainLayers_.size();
+    const int vw = cellsX + 1, vd = cellsZ + 1;  // weights live on the vertices
+    const bool haveSplat =
+        layerN > 0 && (int)splat_.size() == vw * vd * layerN;
+    for (int l = 0; l < layerN; ++l) {
+        Mesh& lm =
+            terrainLayerMeshes_[(size_t)l * tcChunksX_ * tcChunksZ_ + ci];
+        destroyMesh(lm);
+        if (!haveSplat) continue;
+        auto wAt = [&](int ix, int iz) {
+            ix = ix < 0 ? 0 : ix > vw - 1 ? vw - 1 : ix;
+            iz = iz < 0 ? 0 : iz > vd - 1 ? vd - 1 : iz;
+            return splat_[((size_t)iz * vw + ix) * layerN + l] / 255.0f;
+        };
+        bool any = false;
+        for (int z = gz0; z <= gz1 && !any; ++z)
+            for (int x = gx0; x <= gx1; ++x)
+                if (wAt(x, z) > 0.0f) {
+                    any = true;
+                    break;
+                }
+        if (!any) continue;  // empty Mesh = no pass for this layer here
+
+        const TerrainLayerDraw& L = terrainLayers_[l];
+        std::vector<float> lt;
+        lt.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6 * 9);
+        auto pushL = [&](float px, float pz, float h, const Vec3& s, float wgt) {
+            lt.push_back(px);
+            lt.push_back(h);
+            lt.push_back(pz);
+            lt.push_back(L.kd[0] * s.x);
+            lt.push_back(L.kd[1] * s.y);
+            lt.push_back(L.kd[2] * s.z);
+            lt.push_back(wgt);
+            lt.push_back(px * L.tile[0]);
+            lt.push_back(pz * L.tile[1]);
+        };
+        for (int z = gz0; z < gz1; ++z) {
+            for (int x = gx0; x < gx1; ++x) {
+                const float ax = x0 + x * sx, az = z0 + z * sz;
+                const float bx = ax + sx, bz = az + sz;
+                const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
+                const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
+                const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
+                const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+                const float w00 = wAt(x, z), w10 = wAt(x + 1, z);
+                const float w01 = wAt(x, z + 1), w11 = wAt(x + 1, z + 1);
+                pushL(ax, az, h00, s00, w00);
+                pushL(bx, az, h10, s10, w10);
+                pushL(ax, bz, h01, s01, w01);
+                pushL(bx, az, h10, s10, w10);
+                pushL(bx, bz, h11, s11, w11);
+                pushL(ax, bz, h01, s01, w01);
+            }
+        }
+        lm = uploadMesh9(lt);
+    }
 }
 
 void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worldX,
@@ -1359,6 +1531,40 @@ void Viewport::setProjectedDecals(
     }
 }
 
+void Viewport::setNavOverlay(const navmesh::NavGrid* grid, uint64_t version) {
+    if (!grid) {
+        navOverlayOn_ = false;
+        return;
+    }
+    navOverlayOn_ = true;
+    if (navOverlayHasVersion_ && version == navOverlayVersion_) return;
+    navOverlayVersion_ = version;
+    navOverlayHasVersion_ = true;
+    destroyMesh(navOverlayMesh_);
+    // One inset quad per walkable cell (the gaps read as a grid), corners
+    // draped on the terrain surface and lifted a touch so slopes don't
+    // z-fight the overlay through the terrain triangles.
+    const float lift = 0.15f;
+    const float insetX = grid->cellW * 0.06f;
+    const float insetZ = grid->cellD * 0.06f;
+    std::vector<float> v;
+    for (int z = 0; z < grid->d; ++z)
+        for (int x = 0; x < grid->w; ++x) {
+            if (!grid->walkable[(size_t)z * grid->w + x]) continue;
+            const float x0 = grid->originX + x * grid->cellW + insetX;
+            const float x1 = grid->originX + (x + 1) * grid->cellW - insetX;
+            const float z0 = grid->originZ + z * grid->cellD + insetZ;
+            const float z1 = grid->originZ + (z + 1) * grid->cellD - insetZ;
+            auto put = [&](float wx, float wz) {
+                v.insert(v.end(), {wx, terrainHeight(wx, wz) + lift, wz, 0.25f,
+                                   0.85f, 0.4f, 0.0f, 0.0f});
+            };
+            put(x0, z0); put(x1, z0); put(x1, z1);
+            put(x0, z0); put(x1, z1); put(x0, z1);
+        }
+    navOverlayMesh_ = uploadMesh(v);
+}
+
 void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[3],
                                   bool hasMaterial, const float tile[2]) {
     if (terrainTexture_ == texRelPath && terrainTile_[0] == tile[0] &&
@@ -1370,6 +1576,46 @@ void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[
     terrainHasMaterial_ = hasMaterial;
     terrainKd_[0] = kd[0], terrainKd_[1] = kd[1], terrainKd_[2] = kd[2];
     if (program_) buildTerrainMesh();
+}
+
+void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
+                                const std::vector<uint8_t>& weights) {
+    // No cheap equality check: callers send this on layer edits and scene
+    // switches, both of which want the rebuild anyway.
+    terrainLayers_ = layers;
+    splat_ = weights;
+    if (program_) buildTerrainMesh();
+}
+
+void Viewport::setTerrainTint(float variation, float scaleWorld) {
+    if (scaleWorld < 1.0f) scaleWorld = 1.0f;
+    if (tintVariation_ == variation && tintScale_ == scaleWorld) return;
+    tintVariation_ = variation;
+    tintScale_ = scaleWorld;
+    if (program_) buildTerrainMesh();
+}
+
+void Viewport::updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
+                                 float worldZ, float radius) {
+    splat_ = weights;
+    if (terrainChunkMeshes_.empty()) {
+        buildTerrainMesh();
+        return;
+    }
+    // Same brush-to-chunk mapping as updateTerrainRegion (heights sculpting).
+    const float w = (float)terrain_.width, d = (float)terrain_.depth;
+    const float sx = w / tcCellsX_, sz = d / tcCellsZ_;
+    const int minCellX = (int)((worldX - radius + w * 0.5f) / sx) - 2;
+    const int maxCellX = (int)((worldX + radius + w * 0.5f) / sx) + 2;
+    const int minCellZ = (int)((worldZ - radius + d * 0.5f) / sz) - 2;
+    const int maxCellZ = (int)((worldZ + radius + d * 0.5f) / sz) + 2;
+    auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    const int c0x = clampi(minCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c1x = clampi(maxCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c0z = clampi(minCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    const int c1z = clampi(maxCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    for (int cz = c0z; cz <= c1z; ++cz)
+        for (int cx = c0x; cx <= c1x; ++cx) buildTerrainChunkMesh(cx, cz);
 }
 
 void Viewport::setUsableHighlight(bool enabled, const float* rgb) {
@@ -1630,7 +1876,7 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
     AnimModelDraw draw;
     std::string error;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
-    if (glbparser::bake(full, 12.0f, draw.baked, error)) {
+    if (animimport::bake(full, 12.0f, draw.baked, error)) {
         draw.ok = true;
         std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
         for (size_t i = 0; i < draw.baked.images.size(); ++i) {
@@ -1987,6 +2233,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::Mirror: return &decal_;  // glass quad, +Z face
+            case PrimitiveType::Portal: return &decal_;  // surface quad, +Z face
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
@@ -2012,6 +2259,34 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
+
+        // Painted terrain layers: alpha-blend each layer's pass over the base
+        // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain
+        // in templates.cpp). Same geometry, and the frame already runs with
+        // LEQUAL depth, so the equal-depth pass wins; no depth writes so later
+        // object draws still z-test against the base terrain.
+        if (!asLines && !terrainLayerMeshes_.empty()) {
+            glUseProgram(particleProgram_);
+            glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj.m);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);
+            const size_t chunkCount = (size_t)tcChunksX_ * tcChunksZ_;
+            for (size_t l = 0; l < terrainLayers_.size(); ++l) {
+                const uint32_t tex = glTexture(terrainLayers_[l].texture);
+                glUniform1i(uPartUseTex_, tex ? 1 : 0);
+                if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+                for (size_t ci = 0; ci < chunkCount; ++ci) {
+                    const Mesh& lm = terrainLayerMeshes_[l * chunkCount + ci];
+                    if (!lm.vao || lm.vertexCount == 0) continue;
+                    glBindVertexArray(lm.vao);
+                    glDrawArrays(GL_TRIANGLES, 0, lm.vertexCount);
+                }
+            }
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            glUseProgram(program_);
+        }
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
@@ -2038,9 +2313,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 continue;
             }
             // Mirrors draw in their own pass after the scene (reflected
-            // copies first, glass blended over them); the wire passes still
-            // outline the quad here so wireframe views show the rectangle.
-            if (o.type == PrimitiveType::Mirror && !asLines) continue;
+            // copies first, glass blended over them); portals blend their
+            // surface after the scene too. The wire passes still outline
+            // both quads here so wireframe views show the rectangle.
+            if ((o.type == PrimitiveType::Mirror ||
+                 o.type == PrimitiveType::Portal) && !asLines)
+                continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -2229,10 +2507,46 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
+    // Portal surfaces: the editor has no live through-view (that is the
+    // game's in-place render), so the quad blends as a translucent energy
+    // surface in the object color - linked pairs read via the link line
+    // drawn with the other gizmos below. The entry-side arrow (out of the
+    // +Z front face - the side that shows the view and teleports) draws in
+    // every view mode: authoring needs the orientation at a glance.
+    if (viewMode_ != ViewMode::Wireframe) {
+        for (size_t pi = 0; pi < objects.size(); ++pi) {
+            const SceneObject& p = objects[pi];
+            if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+            const Mat4 model = modelMatrix(p);
+            draw(decal_, GL_TRIANGLES, mul(viewProj, model), p.color[0],
+                 p.color[1], p.color[2], 0, &model, false, 0.7f);
+        }
+    }
+    for (size_t pi = 0; pi < objects.size(); ++pi) {
+        const SceneObject& p = objects[pi];
+        if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+        const float d2r = kPi / 180.0f;
+        Mat4 m = scaleM(1.2f, 1.2f, 1.2f);  // fixed length, quad-scale-free
+        m = mul(rotX(p.rotation[0] * d2r), m);
+        m = mul(rotY(p.rotation[1] * d2r), m);
+        m = mul(rotZ(p.rotation[2] * d2r), m);
+        m = mul(translation(p.position[0], p.position[1], p.position[2]), m);
+        // brightened toward white so it pops against the tinted surface
+        draw(portalArrow_, GL_LINES, mul(viewProj, m),
+             0.5f + 0.5f * p.color[0], 0.5f + 0.5f * p.color[1],
+             0.5f + 0.5f * p.color[2]);
+    }
+
     // Grid lines, axes and the selection outline are unaffected by view mode
     for (const Mesh& chunkLines : terrainLineMeshes_)
         draw(chunkLines, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
     draw(axes_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+
+    // Nav-mesh overlay: translucent green quads over the walkable cells
+    // (View > Nav Mesh Overlay; baked app-side, see setNavOverlay).
+    if (navOverlayOn_ && navOverlayMesh_.vertexCount)
+        draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
+             nullptr, false, 0.4f);
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).
@@ -2261,6 +2575,31 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         m = mul(rotZ(o.rotation[2] * d2r), m);
         m = mul(translation(o.position[0], o.position[1], o.position[2]), m);
         draw(cameraFrustum_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1],
+             o.color[2]);
+    }
+
+    // Portal link line: portal -> its target portal, in the portal's color.
+    // Only the segment's third matrix column and translation matter (the
+    // mesh's two vertices sit at local z=0 and z=1).
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Portal || hiddenAt(oi)) continue;
+        if (o.portalTarget.empty()) continue;
+        const SceneObject* tgt = nullptr;
+        for (const SceneObject& t : objects)
+            if (t.type == PrimitiveType::Portal && t.name == o.portalTarget) {
+                tgt = &t;
+                break;
+            }
+        if (!tgt) continue;
+        Mat4 seg = identity();
+        seg.m[8] = tgt->position[0] - o.position[0];
+        seg.m[9] = tgt->position[1] - o.position[1];
+        seg.m[10] = tgt->position[2] - o.position[2];
+        seg.m[12] = o.position[0];
+        seg.m[13] = o.position[1];
+        seg.m[14] = o.position[2];
+        draw(segment_, GL_LINES, mul(viewProj, seg), o.color[0], o.color[1],
              o.color[2]);
     }
 

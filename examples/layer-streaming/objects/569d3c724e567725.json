@@ -1,0 +1,1 @@
+{ "id": "569d3c724e567725", "name": "b-cone", "type": "cone", "position": [0, 1, 17], "rotation": [0, 0, 0], "scale": [1.5, 2, 1.5], "color": [0.4, 0.5, 0.95], "physics": false, "layer": "building-b" }
