@@ -22,12 +22,14 @@ class FlowGraphScript_0_13 : public Script {
       frame = 0;
       started = false;
       delay3 = 0;
+      every1 = 1;
     }
     frame++;
     if (delay3 > 0 && --delay3 == 0) {
       ctx.skyColor = Tyra::Color(63.75F, 140.25F, 198.9F);
     }
-    if (frame % everyFrames(14.0F) == 0) {
+    if (--every1 <= 0) {
+      every1 = everyFrames(14.0F);
       ctx.skyColor = Tyra::Color(255.0F, 127.5F, 63.75F);
       delay3 = everyFrames(7.0F);
     }
@@ -38,6 +40,7 @@ class FlowGraphScript_0_13 : public Script {
   int frame = 0;
   bool started = false;
   int delay3 = 0;
+  int every1 = 1;
 };
 
 }  // namespace Reflections

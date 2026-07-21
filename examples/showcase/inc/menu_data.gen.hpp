@@ -6,8 +6,9 @@ namespace Showcase {
 // Menu entry actions: 0 close, 1 switch scene, 2 open save menu,
 // 3 open menu (submenu), 4 set save value, 5 add to save value,
 // 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save
-// value holding the option index). param = resolved index, -1 =
-// unknown target.
+// value holding the option index), 9 apply video mode (commits
+// the display-mode row's staged selection). param = resolved
+// index, -1 = unknown target.
 struct MenuEntryData {
   int action;
   int param;
@@ -17,6 +18,10 @@ struct MenuEntryData {
   int bind;         // option-block binding (applyMenuBindings):
                     // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,
                     // 4 stick curve, 5 display mode, 6 widescreen
+  // bind 5 only: the Tyra::DisplayMode each option drives
+  // (optionCount ints; -1 = the project-default boot mode).
+  // Null = the option index itself.
+  const int* optModes;
 };
 
 struct MenuData {
@@ -40,16 +45,16 @@ constexpr int MENU_COUNT = 2;
 
 // menu "pause"
 constexpr MenuEntryData MENU_0_ENTRIES[2] = {
-    {0, -1, 0.0F, 0, -1, 0},  // Resume
-    {2, -1, 0.0F, 0, -1, 0},  // Save Game
+    {0, -1, 0.0F, 0, -1, 0, nullptr},  // Resume
+    {2, -1, 0.0F, 0, -1, 0, nullptr},  // Save Game
 };
 // menu "options"
 constexpr MenuEntryData MENU_1_ENTRIES[5] = {
-    {7, 1, 0.0F, 2, 0, 0},  // Fog
-    {7, 2, 0.0F, 2, 2, 0},  // Grain
-    {7, 3, 0.0F, 2, 4, 0},  // Bloom
-    {7, 4, 0.0F, 2, 6, 0},  // Particles
-    {0, -1, 0.0F, 0, -1, 0},  // Close
+    {7, 1, 0.0F, 2, 0, 0, nullptr},  // Fog
+    {7, 2, 0.0F, 2, 2, 0, nullptr},  // Grain
+    {7, 3, 0.0F, 2, 4, 0, nullptr},  // Bloom
+    {7, 4, 0.0F, 2, 6, 0, nullptr},  // Particles
+    {0, -1, 0.0F, 0, -1, 0, nullptr},  // Close
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
@@ -60,6 +65,11 @@ inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
 constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
 constexpr int PAUSE_MENU = 0;
+// True when any menu carries an "apply video mode" row (action
+// 9): display-mode rows then only stage a selection and that row
+// commits it; without one they switch on change (the classic
+// behavior).
+constexpr bool MENU_HAS_APPLY_VIDEO = false;
 
 constexpr int MENU_EVENT_COUNT = 0;
 // Names of the "Flow event" entry actions (menuEvent indexes this)

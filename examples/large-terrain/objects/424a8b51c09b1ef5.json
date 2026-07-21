@@ -1,0 +1,1 @@
+{ "id": "424a8b51c09b1ef5", "name": "pillar-479", "type": "cylinder", "position": [-368.199, 0.665, -164.651], "rotation": [0, 67.6, 0], "scale": [1.2, 4.67, 1.2], "color": [0.645, 0.533, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }

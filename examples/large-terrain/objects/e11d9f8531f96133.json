@@ -1,0 +1,1 @@
+{ "id": "e11d9f8531f96133", "name": "rock-114", "type": "box", "position": [-282.692, 4.082, -10.994], "rotation": [0, 225.1, 0], "scale": [1.05, 0.75, 2.26], "color": [0.395, 0.395, 0.415], "physics": false, "collision": "none", "drawDistance": 60 }

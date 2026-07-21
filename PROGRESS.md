@@ -9,6 +9,26 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (148) **Seeded example script no longer recolors the sky on every X.**
+  Owner: the scaffolded `src/scripts/example_interaction.cpp` toggled
+  `ctx.skyColor` whenever Cross was clicked (near the box in FPP, anywhere in
+  orbit) - and Cross is the jump button, so in an FPP project every jump
+  flipped the sky orange, reading as a glitch (the same reasoning that had
+  already neutered the two-players demo in 110). Both creation-time templates
+  (`TPL_EXAMPLE_SCRIPT_FPP` / `TPL_EXAMPLE_SCRIPT_ORBIT`, templates.cpp) now
+  ship a minimal hello-world instead: `init()` logs one line, `update()` is
+  empty but carries the old box+X sky-toggle verbatim as a ready-to-uncomment
+  comment block, so the teaching value stays without the surprise. The file is
+  still user-owned / written only at creation (not in refreshGenerated's list),
+  so existing projects keep their edits; the 12 committed examples that carried
+  the old script were rewritten by hand to the new variant (10 FPP + 2 orbit -
+  mirror-room, video-modes; two-players already had its own no-op stub). Docs:
+  script-demo/README.md rewritten to describe the hello + commented example.
+  Verified: editor builds clean; `--new ... fpp` and `--new ... empty` scratch
+  projects emit the new script for both variants; Docker PS2 build of
+  examples/script-demo (which exercises the hand-edited FPP file) compiles
+  clean.
+
 - (147) **Region-aware default display mode: the "PAL picture" preference +
   a DEFAULT menu option.** Owner follow-up on (146): a project should ship
   ONE build that boots the right mode per region - 480i on NTSC, the
@@ -101,6 +121,7 @@ Each finished feature lands as its own commit.
   touching generated types (MenuEntryData) must go after it (first Docker
   build failed exactly there; GCC's error recovery made it look like the
   param type collapsed to `const int&`).
+
 - (144) **Portal crossing: stop the full-screen mask erasing the mounting
   wall.** Owner: at the crossing the wall vanishes and reveals the trick.
   Cause: the full-screen crossing mask (repaints the WHOLE screen with the

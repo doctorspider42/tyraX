@@ -1,0 +1,1 @@
+{ "id": "535d604e55111407", "name": "tree-332", "type": "cone", "position": [250.187, 0.771, 27.92], "rotation": [0, 51.5, 0], "scale": [2.28, 3.92, 2.28], "color": [0.173, 0.409, 0.124], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }

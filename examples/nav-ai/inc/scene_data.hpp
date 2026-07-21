@@ -15,10 +15,17 @@ struct SceneObjectData {
   float rotation[3];  // degrees
   float scale[3];
   float color[3];  // 0..1
-  int physics;  // 1 = falls with gravity
+  int physics;  // 1 = rigid body: gravity, bounces, tumbles, collides
+  float physMass;     // relative mass (impulse exchange, player push)
+  float physBounce;   // restitution 0..1: 0 = thud, 1 = superball
+  float physFriction; // ground drag 0..1: 0 = ice, 1 = sticky
+  int physTumble;     // 1 = ground contact converts slide into roll
   int model;    // index into MODEL_PATHS / gameModels, -1 = none
   int material; // primitives: index into MATERIAL_PATHS, -1 = plain color
   int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
+  int pickable; // 1 = BTN_USE picks it up and carries it in front of
+                // the camera; BTN_USE again drops it
+  int pickThrow; // 1 = a carried object launches with BTN_THROW
   int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain,
                   // 5 custom (physics below)
   int emitCount;  // emitters: particle pool size (density)
@@ -54,6 +61,9 @@ struct SceneObjectData {
   float animLod;  // per-object animation-LOD distance override:
                   // -1 = project ANIM_LOD_DISTANCE, 0 = off, >0 = custom
   float meshLod;  // per-object mesh-LOD distance override (same coding)
+  float modelYaw; // content-forward correction (deg around model Y),
+                  // between scale and rotation - X-forward-authored models
+                  // set +-90; runtime facing (faceYaw/AI) stays pure
   int primDetail;        // segments (curved) or box subdivisions/edge
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
@@ -66,13 +76,13 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[7] = {
-    {6, {24.0F, 0.0F, 24.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // player-1
-    {0, {10.0F, 0.5F, 10.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.2F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 0},  // guard
-    {0, {18.0F, 0.35F, 18.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 0.7F, 0.7F}, {0.95F, 0.85F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 0},  // rabbit
-    {11, {-20.0F, 0.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.9F, 0.4F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // wp1
-    {11, {0.0F, 0.0F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.9F, 0.4F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // wp2
-    {11, {0.0F, 0.0F, 20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.9F, 0.4F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // wp3
-    {0, {0.0F, 1.0F, -8.0F}, {0.0F, 0.0F, 0.0F}, {16.0F, 2.0F, 1.0F}, {0.45F, 0.45F, 0.55F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 1},  // wall
+    {6, {24.0F, 0.0F, 24.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {0, {10.0F, 0.5F, 10.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.2F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // guard
+    {0, {18.0F, 0.35F, 18.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 0.7F, 0.7F}, {0.95F, 0.85F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // rabbit
+    {11, {-20.0F, 0.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.9F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // wp1
+    {11, {0.0F, 0.0F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.9F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // wp2
+    {11, {0.0F, 0.0F, 20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.9F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // wp3
+    {0, {0.0F, 1.0F, -8.0F}, {0.0F, 0.0F, 0.0F}, {16.0F, 2.0F, 1.0F}, {0.45F, 0.45F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // wall
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {7};
@@ -268,8 +278,14 @@ inline bool flashlightTogglePressed(TEngine* engine) {
   return false;
 }
 // Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+// Uses the MEASURED frame time, not the nominal vsync rate: with vsync
+// disabled the loop free-runs way past 50 FPS and a nominal-rate count would
+// make every timer (Delay, Every N Seconds, splash holds, sound retriggers)
+// fire that much too fast - the disableVsync contract is "faster picture,
+// same gameplay speed". At vsync the measured dt snaps to nominal, so this
+// is bit-identical to the old seconds * g_frameRate there.
 inline int everyFrames(float seconds) {
-  const int f = (int)(seconds * g_frameRate);
+  const int f = (int)(seconds / (g_frameDt > 0.0001F ? g_frameDt : 0.02F));
   return f < 1 ? 1 : f;
 }
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
@@ -330,12 +346,17 @@ inline int everyFrames(float seconds) {
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
+// Painted terrain layers (two-pass splatting; docs/terrain-painting.md)
+#define TERRAIN_LAYER_COUNT TERRAIN_LAYER_COUNTS[g_activeScene]
+#define TERRAIN_SPLAT_WEIGHTS TERRAIN_SPLAT_TABLES[g_activeScene]
 #define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
 #define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
 #define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
 #define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
 #define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
+#define TERRAIN_TINT_VARIATION TERRAIN_TINT_VARIATIONS[g_activeScene]
+#define TERRAIN_TINT_SCALE TERRAIN_TINT_SCALES[g_activeScene]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define CLIP_VU1 CLIP_VU1S[g_activeScene]

@@ -2,6 +2,20 @@
 #include "terrain_game.hpp"
 #include "terrain_config.hpp"
 #include "controls.hpp"
+// Fallbacks for user-owned controls.hpp files written before these knobs
+// existed - the game must still build when that header never regenerates.
+#ifndef BTN_THROW
+#define BTN_THROW Circle
+#endif
+#ifndef PICK_CARRY_DIST
+#define PICK_CARRY_DIST 2.2F
+#endif
+#ifndef PICK_THROW_SPEED
+#define PICK_THROW_SPEED 14.0F
+#endif
+#ifndef PICK_MIN_DIST
+#define PICK_MIN_DIST 0.3F
+#endif
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
@@ -82,6 +96,12 @@ float g_rumbleTimer = 0.0F;
 int g_menuDispOpt = -1;
 int g_menuWideOpt = -1;
 
+// The project-default display mode: whatever main.cpp resolved the boot
+// mode to (fixed preference, or region + the PAL-picture choice). Captured
+// in buildScene before any runtime switch can happen; a display row's
+// "DEFAULT" option (optModes -1) maps to it.
+int g_defaultDispMode = 0;
+
 // Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
 // below the deadzone, rescales from the deadzone edge so there is no step,
 // then shapes the magnitude by the per-stick response curve. Both the FPP
@@ -130,6 +150,23 @@ using namespace Tyra;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+// Display-mode option rows (bind 5): the engine mode an option drives, and
+// the option a mode shows as. Rows without an explicit optModes table keep
+// the positional mapping (option index == Tyra::DisplayMode); a table entry
+// of -1 is the "DEFAULT" option - the project-default boot mode.
+int displayOptionMode(const MenuEntryData& en, int idx) {
+  if (en.optModes && idx >= 0 && idx < en.optionCount) {
+    const int m = en.optModes[idx];
+    return m < 0 ? g_defaultDispMode : m;
+  }
+  return idx;
+}
+int displayOptionIndexOf(const MenuEntryData& en, int mode) {
+  for (int i = 0; i < en.optionCount; ++i)
+    if (displayOptionMode(en, i) == mode) return i;
+  return -1;
+}
 
 /** The texture repository asserts (crashes) on a missing file - probe first
  * so a missing PNG degrades to an untextured draw with a warning. */
@@ -1030,6 +1067,14 @@ void TerrainGame::init() {
   auto* useTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
+  // "PICK UP" variant, shown instead when the looked-at object is pickable.
+  // Same placement; its own texture (hud/pickup.png, replace to customize).
+  pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
+  pickPromptSprite.size = usePromptSprite.size;
+  pickPromptSprite.position = usePromptSprite.position;
+  auto* pickTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(PICK_PROMPT_PATH));
+  pickTexture->addLink(pickPromptSprite.id);
 
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
@@ -1230,6 +1275,12 @@ void TerrainGame::loop() {
                     &playerY, &playerZ, &yaw, &pitch, &playerVelY,
                     EYE_HEIGHT);
   }
+  // The carried object is positioned AFTER the portal step: on the frame the
+  // player teleports, updatePortals rebuilds the camera to the arrival side,
+  // so placing the object here anchors it in front of the ARRIVAL camera -
+  // otherwise it holds one frame at the departure side and blinks as it
+  // crosses (owner).
+  if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
 
@@ -1393,7 +1444,10 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    if (useTargetIndex >= 0)
+      engine->renderer.renderer2D.render(
+          runtimeObjects[useTargetIndex].data.pickable ? pickPromptSprite
+                                                       : usePromptSprite);
     updateAndRenderHudTexts();
     updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
@@ -1440,6 +1494,16 @@ void TerrainGame::buildScene() {
   // window and smears giant polygons (faithful on real HW / SW renderer).
   infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   infoBag->fullClipChecks = CLIP_PRECISE;
+  // Terrain layer passes: identical settings, but with GS alpha blending on
+  // (PRIM ABE) - the per-mesh ALPHA qword defaults to standard alpha-over, so
+  // Gouraud vertex alpha = the painted splat weight blends the layer texture
+  // over the base pass.
+  layerInfoBag = std::make_unique<StaPipInfoBag>();
+  layerInfoBag->model = &model;
+  layerInfoBag->shadingType = TyraShadingFlat;
+  layerInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+  layerInfoBag->fullClipChecks = CLIP_PRECISE;
+  layerInfoBag->blendingEnabled = true;
   // The terrain mesh itself is built per chunk by loadScene(0) below
   // (resetTerrainChunks + the synchronous chunk drain).
 
@@ -1458,16 +1522,32 @@ void TerrainGame::buildScene() {
   // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
   g_deadzoneL = ANALOG_DEADZONE_L;
   g_deadzoneR = ANALOG_DEADZONE_R;
+  // The boot display mode IS the project default (main.cpp resolved it,
+  // nothing can have switched it yet) - latch it for the menu "DEFAULT"
+  // display option before any option lookup below resolves that sentinel.
+  g_defaultDispMode = (int)engine->renderer.core.getSettings().getDisplayMode();
   // Seed the display/widescreen option-block trackers from the current saved
   // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
   // prompt) at boot: the game boots in the project's compiled display mode,
   // and a menu row only switches when the player moves it (or loads a save
-  // that changed it).
+  // that changed it). With an "apply video mode" row in the project the
+  // display row is a staging UI instead - align it to the actual boot mode
+  // so a title-screen menu opens showing (and its APPLY row seeing) reality.
   for (int mi = 0; mi < MENU_COUNT; ++mi)
     for (int e = 0; e < MENUS[mi].entryCount; ++e) {
       const MenuEntryData& en = MENUS[mi].entries[e];
       if (en.param < 0 || en.param >= SAVE_VALUE_COUNT) continue;
-      if (en.bind == 5) g_menuDispOpt = (int)saveValues[en.param];
+      if (en.bind == 5) {
+        g_menuDispOpt = (int)saveValues[en.param];
+        if (MENU_HAS_APPLY_VIDEO) {
+          const int live = displayOptionIndexOf(
+              en, (int)engine->renderer.core.getSettings().getDisplayMode());
+          if (live >= 0) {
+            saveValues[en.param] = (float)live;
+            g_menuDispOpt = live;
+          }
+        }
+      }
       if (en.bind == 6) g_menuWideOpt = (int)saveValues[en.param];
     }
   saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
@@ -1862,6 +1942,11 @@ void TerrainGame::applyLayerResidency() {
   }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
+  // Painted terrain layers keep their tiled textures resident with the scene.
+  for (int l = 0; l < TERRAIN_LAYER_COUNT; ++l) {
+    const int t = TERRAIN_LAYER_TEXTURES[g_activeScene][l];
+    if (t >= 0 && t < (int)texNeed.size()) texNeed[t] = 1;
+  }
 
   for (int i = 0; i < (int)modelNeed.size(); ++i)
     if (!modelNeed[i] && modelLoaded[i]) freeModelAsset(i);
@@ -2299,11 +2384,28 @@ void TerrainGame::updateAndRenderAnimObjects() {
         dist2 > o.data.drawDistance * o.data.drawDistance)
       continue;
 
-    // model matrix straight from the object data: T * R(X,Y,Z) * S, the
-    // same transform the static path bakes through pushVert()/rotated()
-    const V3 bx = rotated({o.data.scale[0], 0.0F, 0.0F}, o.data.rotation);
-    const V3 by = rotated({0.0F, o.data.scale[1], 0.0F}, o.data.rotation);
-    const V3 bz = rotated({0.0F, 0.0F, o.data.scale[2]}, o.data.rotation);
+    // model matrix straight from the object data: T * R(X,Y,Z) * Ryaw * S -
+    // the same transform the static path bakes through pushVert()/rotated(),
+    // plus the content-forward correction (modelYaw) as a pre-rotation
+    // around the model's own Y, so an X-forward-authored mesh renders
+    // turned while the LOGIC yaw (walker faceYaw, AI turn-to-face, authored
+    // rotation) stays convention-pure.
+    V3 sx = {o.data.scale[0], 0.0F, 0.0F};
+    V3 sy = {0.0F, o.data.scale[1], 0.0F};
+    V3 sz = {0.0F, 0.0F, o.data.scale[2]};
+    if (o.data.modelYaw != 0.0F) {
+      const float ya = o.data.modelYaw * (PI / 180.0F);
+      const float yc = cosf(ya), ys = sinf(ya);
+      auto preYaw = [&](const V3& v) {
+        return V3{v.x * yc + v.z * ys, v.y, -v.x * ys + v.z * yc};
+      };
+      sx = preYaw(sx);
+      sy = preYaw(sy);
+      sz = preYaw(sz);
+    }
+    const V3 bx = rotated(sx, o.data.rotation);
+    const V3 by = rotated(sy, o.data.rotation);
+    const V3 bz = rotated(sz, o.data.rotation);
     M4x4& m = g.animMat;  // the info bag and light matrix point here
     m.identity();
     m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
@@ -2435,7 +2537,11 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
                                 float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
-  for (const RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    // The carried object rides in front of the face - letting it block its
+    // own carrier would wedge the player against thin air.
+    if (oi == carryIndex) continue;
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
@@ -2618,6 +2724,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  carryIndex = thrownIndex = -1;  // carried objects stay in their old scene
+  carryPortalPi = -1;
+  thrownFreeIndex = -1;           // and so does the portal-free latch
   portalLiveFlags.clear(); // stale through-views must not survive the switch
   portalPrevPos.clear();   // crossing history restarts with the new objects
   // Before any mesh baking: terrain chunks and object geometry shade with
@@ -3203,6 +3312,9 @@ void TerrainGame::updateParticles() {
 void TerrainGame::updateUseTarget() {
   useTargetIndex = -1;
   scriptCtx.usedObject = -1;
+  // Hands full: BTN_USE means "drop" (updateCarriedObject), so no use
+  // targeting - and no prompt - while carrying.
+  if (carryIndex >= 0) return;
 
   Vec4 dir = cameraLookAt - cameraPosition;
   const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -3212,7 +3324,7 @@ void TerrainGame::updateUseTarget() {
   float bestDist = 0.0F;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
-    if (!o.active || !o.data.usable || !o.visible) continue;
+    if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
         o.data.type == 14)
@@ -3237,14 +3349,415 @@ void TerrainGame::updateUseTarget() {
     }
   }
 
-  if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE)
-    scriptCtx.usedObject = useTargetIndex;
+  if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE) {
+    // A pickable object can also be usable: it fires On Used AND gets picked
+    // up on the same press (a grab sound wired in the graph, for instance).
+    if (runtimeObjects[useTargetIndex].data.usable)
+      scriptCtx.usedObject = useTargetIndex;
+    if (runtimeObjects[useTargetIndex].data.pickable) {
+      carryIndex = useTargetIndex;
+      carryGrabbed = true;  // don't read this same press as "drop"
+      if (thrownIndex == carryIndex) thrownIndex = -1;  // caught mid-flight
+      RuntimeObject& g = runtimeObjects[carryIndex];
+      // Catching a body kills its momentum and its tumble (a crate caught
+      // mid-flight must not keep spinning in your hands).
+      g.velocityX = g.velocityY = g.velocityZ = 0.0F;
+      g.spin[0] = g.spin[1] = g.spin[2] = 0.0F;
+      // Seed the smoothed reach with the object's current distance: a close
+      // grab reels out to full reach, a far one snaps in (the sweep rule).
+      const float gx = g.data.position[0] - cameraPosition.x;
+      const float gy = g.data.position[1] - cameraPosition.y;
+      const float gz = g.data.position[2] - cameraPosition.z;
+      carryDist = sqrtf(gx * gx + gy * gy + gz * gz);
+    }
+  }
 
   // Using a save point (type 10) opens the save menu next frame; the
   // "On Used" trigger still fires for its flow graph this frame.
   if (scriptCtx.usedObject >= 0 &&
       SCENE_OBJECTS[scriptCtx.usedObject].type == 10)
     scriptCtx.openSaveMenu = true;
+}
+
+// Largest half extent of an object's collision box (mesh/anim AABB when the
+// object has one, else the unit scale box) - the sweep radius that keeps the
+// whole object clear of walls while carried or in flight.
+float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
+  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+        ez = 0.5F * o.data.scale[2];
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const SkelModel* anim = nullptr;
+  if (o.data.type == 5 && o.data.animModel >= 0 &&
+      o.data.animModel < (int)gameAnimModels.size())
+    anim = gameAnimModels[o.data.animModel].src.get();
+  const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mn && mx) {
+    ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+    ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+    ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+  }
+  float r = ex > ey ? ex : ey;
+  if (ez > r) r = ez;
+  if (r < 0.05F) r = 0.05F;
+  return r;
+}
+
+// Carry whisker: the third-person spring arm's pre-block, turned around.
+// The spring arm pulls the CAMERA in when the boom sweep hits a wall; here
+// the same sweep pushes the WALKER back when the carried object no longer
+// fits in front of the face - so pressing "face first" against a wall while
+// carrying is simply blocked, instead of the object being parked inside the
+// wall. Called by every walker after collidePlayer, on the carrying player
+// only. The probe is horizontal (yaw only): with the look pitch in it, the
+// terrain underfoot would read as a wall whenever the player looks down.
+void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
+                                    float yaw, float feetY, float eyeHeight) {
+  if (carryIndex < 0) return;
+  const RuntimeObject& o = runtimeObjects[carryIndex];
+  if (!o.active || !o.visible) return;
+  const float r = objectHalfExtent(o);
+  const float need = 0.55F + r;  // the object fully outside the carrier
+  const float hx = sinf(yaw), hz = cosf(yaw);
+  // Walking a carried object INTO a portal opening must not read the
+  // mounting wall as a blocker. portalPassOn (the player's body is IN the
+  // opening, published by updatePortalPass and still live here) is
+  // authoritative and takes precedence: once the player reaches the plane
+  // the forward probe below no longer starts in FRONT of it, so on its own
+  // the doorway would slam shut exactly at the crossing and the whisker
+  // would bounce the player back out (owner: can't walk through a portal
+  // while carrying). The forward probe still covers the approach, before
+  // the body column enters the opening.
+  if (portalPassOn) {
+    sweepPassPlane[0] = portalPassPlane[0];
+    sweepPassPlane[1] = portalPassPlane[1];
+    sweepPassPlane[2] = portalPassPlane[2];
+    sweepPassPlane[3] = portalPassPlane[3];
+    sweepPassOn = true;
+  } else {
+    const float reach = need + r + 0.1F;
+    const float a0[3] = {*nextX, probeY, *nextZ};
+    const float b0[3] = {*nextX + hx * reach, probeY, *nextZ + hz * reach};
+    armSweepPass(a0, b0);
+  }
+  const float d =
+      sweepSphere(*nextX, probeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
+  sweepPassOn = false;
+  if (d < need) {
+    const float px = *nextX, pz = *nextZ;
+    *nextX -= hx * (need - d);
+    *nextZ -= hz * (need - d);
+    // The pushback is a displacement collidePlayer never saw - unswept it
+    // shoves the walker clean through whatever stands at their back (owner
+    // repro: carry + reverse into a wall = teleported behind it). Re-run
+    // the collision from the pre-push spot; ground/ceiling are discarded.
+    float g2 = -1e30F, c2 = 1e30F;
+    collidePlayer(px, pz, nextX, nextZ, feetY, eyeHeight, &g2, &c2);
+  }
+}
+
+// Carried + thrown pickable objects. The carried one rides PICK_CARRY_DIST in
+// front of the face, swept against the world each frame so it can neither be
+// pushed through a wall nor parked behind one - blocked reach just brings it
+// closer. It keeps colliding with the world (the sweep) but not with its
+// carrier (collidePlayer/springArm skip it), so it cannot wedge the player.
+// BTN_USE drops it in place - already a swept, legal spot - and BTN_THROW
+// launches it when the object allows that.
+void TerrainGame::updateCarriedObject() {
+  // In-flight object: only objects WITHOUT a rigid body reach this path -
+  // a thrown physics object is handed straight to updateObjectPhysics
+  // (releaseCarried), which already sweeps, bounces, rolls and tumbles it.
+  // Integrate under gravity, sweep each step, stop on hit.
+  if (thrownIndex >= 0) {
+    RuntimeObject& o = runtimeObjects[thrownIndex];
+    if (!o.active || !o.visible) {
+      thrownIndex = -1;
+    } else {
+      const float r = objectHalfExtent(o);
+      thrownVel[1] -= GRAVITY * g_frameDt * g_frameDt;
+      // Terminal fall (30 u/s real time, matching the rigid-body sim): a
+      // throw that enters a portal infinite-fall loop keeps flying on this
+      // path and would otherwise accelerate without bound.
+      const float termFall = 30.0F * g_frameDt;
+      if (thrownVel[1] < -termFall) thrownVel[1] = -termFall;
+      const float stepLen =
+          sqrtf(thrownVel[0] * thrownVel[0] + thrownVel[1] * thrownVel[1] +
+                thrownVel[2] * thrownVel[2]);
+      bool stop = stepLen < 0.0005F;
+      bool hopped = false;
+      const float prevT[3] = {o.data.position[0], o.data.position[1],
+                              o.data.position[2]};
+      if (!stop) {
+        const float ix = 1.0F / stepLen;
+        // While this frame's intended segment pierces a linked opening,
+        // obstacles fully behind that portal's plane stop blocking the
+        // sweep - without this the mounting wall stops the center ~r
+        // short of the crossing plane and the throw can never cross.
+        // Pad the aim segment by the object's extent: the sweep stops the
+        // CENTER ~r short of a wall sitting at the plane, so an unpadded
+        // center segment never reaches it and the doorway never opens
+        // (owner repro: every throw bounced off the mounting wall).
+        {
+          const float pad = 1.0F + (r + 0.1F) / stepLen;
+          const float want[3] = {prevT[0] + thrownVel[0] * pad,
+                                 prevT[1] + thrownVel[1] * pad,
+                                 prevT[2] + thrownVel[2] * pad};
+          armSweepPass(prevT, want);
+        }
+        const float d = sweepSphere(
+            o.data.position[0], o.data.position[1], o.data.position[2],
+            thrownVel[0] * ix, thrownVel[1] * ix, thrownVel[2] * ix, stepLen,
+            r, thrownIndex);
+        sweepPassOn = false;
+        o.data.position[0] += thrownVel[0] * ix * d;
+        o.data.position[1] += thrownVel[1] * ix * d;
+        o.data.position[2] += thrownVel[2] * ix * d;
+        stop = d < stepLen;  // hit something on the way
+        // Crossed a linked opening: hop through, position and the full
+        // velocity vector mapped by the pair isometry; keep flying.
+        if (PORTAL_COUNT > 0 &&
+            (thrownIndex >= (int)portalHopCool.size() ||
+             portalHopCool[thrownIndex] == 0) &&
+            portalCarryCrossing(prevT, o.data.position, thrownVel)) {
+          stop = false;
+          hopped = true;
+          if (thrownIndex < (int)portalHopCool.size())
+            portalHopCool[thrownIndex] = 6;
+        }
+      }
+      // Ground rest matches updateObjectPhysics, so the handoff is
+      // seamless. Skipped on the hop frame (the mapped arrival is legal by
+      // continuity) and inside a swallowing floor portal's zone - the
+      // terrain over the portal must not catch the throw before its center
+      // reaches the plane (the walkers' portalSwallowsPlayer rule).
+      if (!hopped) {
+        bool swallow = false;
+        for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
+          const PortalData& p = PORTALS[pi];
+          if (p.scene != currentScene || p.object < 0 || p.target < 0)
+            continue;
+          // player-released flight: any linked floor portal swallows it
+          if (p.object >= (int)runtimeObjects.size() ||
+              p.target >= (int)runtimeObjects.size())
+            continue;
+          RuntimeObject& m = runtimeObjects[p.object];
+          if (!m.active || !m.visible || !runtimeObjects[p.target].active)
+            continue;
+          if (portalSwallowSwept(m, 0.5F * m.data.scale[0] + 0.25F,
+                                 0.5F * m.data.scale[1] + 0.25F,
+                                 Vec4(prevT[0], prevT[1], prevT[2], 1.0F),
+                                 Vec4(o.data.position[0], o.data.position[1],
+                                      o.data.position[2], 1.0F))) {
+            swallow = true;
+            break;
+          }
+        }
+        const float floorY =
+            terrainHeightAt(o.data.position[0], o.data.position[2]) +
+            0.5F * o.data.scale[1];
+        if (!swallow && o.data.position[1] <= floorY) {
+          o.data.position[1] = floorY;
+          stop = true;
+        }
+      }
+      o.dirty = true;
+      if (stop) {
+        o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+        thrownIndex = -1;
+      }
+    }
+  }
+
+  if (carryIndex < 0) {
+    carryPortalPi = -1;
+    return;
+  }
+  RuntimeObject& o = runtimeObjects[carryIndex];
+  // Despawned or hidden mid-carry (flow graph): the hands just open, and the
+  // body wakes so it resumes falling if it is shown again mid-air.
+  if (!o.active || !o.visible) {
+    releaseCarried(o, 0.0F, 0.0F, 0.0F);
+    carryIndex = -1;
+    carryPortalPi = -1;
+    return;
+  }
+
+  Vec4 dir = cameraLookAt - cameraPosition;
+  const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+  if (dirLen < 0.0001F) return;
+  dir.x /= dirLen, dir.y /= dirLen, dir.z /= dirLen;
+
+  // Carry origin: the eye in first person; the avatar's head (the camera
+  // pivot) in third person - "in front of the face" means the avatar's face,
+  // not a camera floating meters behind it.
+  float ox = cameraPosition.x, oy = cameraPosition.y, oz = cameraPosition.z;
+  if (PLAYER_MODE == 2) {
+    ox = cameraLookAt.x, oy = cameraLookAt.y, oz = cameraLookAt.z;
+  }
+
+  const float r = objectHalfExtent(o);
+  // Same policy as the third-person camera boom (springArm): the sweep is
+  // the law - a blocked reach pulls the object IN, even past its comfort
+  // distance, and NEVER pushes it back out into geometry (the old
+  // "never inside the carrier" clamp did exactly that: face against a wall,
+  // the object got parked inside the wall). Snap in on a hit, ease back out
+  // when the wall clears, so leaving it doesn't pop. PICK_MIN_DIST keeps the
+  // object's near face off the near clip plane; the walkers' carry whisker
+  // (a springArm-style pre-block) keeps the player from squeezing that far
+  // in the first place.
+  // Carrying into a portal opening: obstacles fully behind that portal's
+  // plane stop blocking the carry sweep - without this the mounting wall
+  // pinned the object at the face and the whisker below shoved the walker
+  // back, so a wall portal could only be crossed BACKWARDS (owner report).
+  // The probe starts BEHIND the eye (backed up along -dir): armSweepPass
+  // only arms when its segment starts in FRONT of the plane, and at the
+  // portal centre the eye sits right ON the plane - without the back-up the
+  // doorway fails exactly there, the sweep catches the mounting wall and
+  // yanks the object onto it (owner: cube stops on the wall dead centre).
+  {
+    const float reach = PICK_CARRY_DIST + r * 2.0F + 0.1F;
+    const float bk = 1.2F;
+    const float a0[3] = {ox - dir.x * bk, oy - dir.y * bk, oz - dir.z * bk};
+    const float b0[3] = {ox + dir.x * reach, oy + dir.y * reach,
+                         oz + dir.z * reach};
+    armSweepPass(a0, b0);
+  }
+  float want = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
+                           r, carryIndex);
+  sweepPassOn = false;
+  // Portal-aware carry: the nearest portal opening the carry ray pierces
+  // within reach. If that portal DRAWS the object in its through-view
+  // (viewAll or the view list), the object flies on THROUGH it - mapped to
+  // the far side, in front of the target, where the through-view renders it
+  // as if it went through (and it is skipped in the near main pass so it
+  // does not also appear as a distant double). This is what lets a carried
+  // object cross smoothly instead of stopping dead at the surface (owner:
+  // it pinned like a wall). A portal that would NOT render the object
+  // (teleport-only) can't show it on the far side, so there the object is
+  // clamped to the plane (half-in slice) as the best available.
+  int bendPi = -1;
+  float bendT = want;
+  bool bendShows = false;
+  for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& pm = runtimeObjects[p.object];
+    if (!pm.active || !pm.visible || !runtimeObjects[p.target].active) continue;
+    const V3 pax = rotated({1.0F, 0.0F, 0.0F}, pm.data.rotation);
+    const V3 pay = rotated({0.0F, 1.0F, 0.0F}, pm.data.rotation);
+    const V3 paz = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+    const float denom = dir.x * paz.x + dir.y * paz.y + dir.z * paz.z;
+    if (denom >= -1e-4F) continue;  // ray must head into the front (+Z) face
+    const float sd = (pm.data.position[0] - ox) * paz.x +
+                     (pm.data.position[1] - oy) * paz.y +
+                     (pm.data.position[2] - oz) * paz.z;
+    const float t = sd / denom;  // ray param at the plane
+    // Allow the plane to sit a little BEHIND the eye (t slightly negative):
+    // at the portal centre the eye is right on it, and dropping the crossing
+    // there would un-bend the object for a frame and snap it to the near
+    // pass behind the surface (owner: cube stops at the centre).
+    if (t >= bendT || t < -(r + 0.6F)) continue;
+    const float cxp = ox + dir.x * t - pm.data.position[0];
+    const float cyp = oy + dir.y * t - pm.data.position[1];
+    const float czp = oz + dir.z * t - pm.data.position[2];
+    const float lxp = cxp * pax.x + cyp * pax.y + czp * pax.z;
+    const float lyp = cxp * pay.x + cyp * pay.y + czp * pay.z;
+    const float phx = 0.5F * pm.data.scale[0] + 0.25F;
+    const float phy = 0.5F * pm.data.scale[1] + 0.25F;
+    if (lxp > -phx && lxp < phx && lyp > -phy && lyp < phy) {
+      bendPi = pi;
+      bendT = t;
+      bendShows = portalShowsObject(pi, carryIndex);
+    }
+  }
+  // Aiming through a portal that will render the object on the far side:
+  // Aiming through a portal that will render the object on the far side:
+  // let the reach run FULL, overriding whatever the sweep returned. The
+  // object is NOT pinned or bent - it rides straight ahead, straddling the
+  // surface, and the two-sided render (below + the portal's through-view)
+  // draws each half. The mounting wall must not clip `want` short (a wall
+  // flush with the plane still trips the sweep, and the whole point is that
+  // it opens like a doorway). A portal that will NOT render the object
+  // (teleport-only) can't show the far half, so there the object clamps to
+  // the surface (half-in slice) as the best available.
+  if (bendPi >= 0 && bendShows)
+    want = PICK_CARRY_DIST + r;
+  else if (bendPi >= 0 && !bendShows && bendT > 0.0F && bendT < want)
+    want = bendT;
+  const float minD = PICK_MIN_DIST + r;
+  if (want < minD) want = minD;
+  if (want < carryDist) {
+    carryDist = want;  // blocked: snap in, never clip into the wall
+  } else {
+    float k = 0.2F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    carryDist += (want - carryDist) * k;
+  }
+  const float d = carryDist;
+  // Real position rides straight ahead - the object straddles the surface
+  // naturally as the player approaches. carryPortalPi tells renderScene which
+  // portal's through-view should draw the far half (mapped to the exit).
+  carryPortalPi = (bendPi >= 0 && bendShows) ? bendPi : -1;
+  o.data.position[0] = ox + dir.x * d;
+  o.data.position[1] = oy + dir.y * d;
+  o.data.position[2] = oz + dir.z * d;
+  // In the hands the body has no momentum of its own: zero every component
+  // (not just Y - the rigid-body sim reads all three) so a release starts
+  // from rest instead of resuming whatever it was doing before the grab.
+  o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+  o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
+  o.dirty = true;
+
+  const auto& clicked = engine->pad.getClicked();
+  if (carryGrabbed) {
+    carryGrabbed = false;  // the press that grabbed it is not a drop
+  } else if (clicked.BTN_USE) {
+    releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
+    carryIndex = -1;
+    carryPortalPi = -1;
+  } else if (o.data.pickThrow && clicked.BTN_THROW) {
+    const int idx = carryIndex;
+    carryIndex = -1;
+    carryPortalPi = -1;
+    const float vx = dir.x * PICK_THROW_SPEED * g_frameDt;
+    const float vy = dir.y * PICK_THROW_SPEED * g_frameDt;
+    const float vz = dir.z * PICK_THROW_SPEED * g_frameDt;
+    if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
+      // No rigid body to hand off to: fly the hand-rolled arc instead.
+      thrownIndex = idx;
+      thrownVel[0] = vx;
+      thrownVel[1] = vy;
+      thrownVel[2] = vz;
+    }
+  }
+}
+
+// Hands a released object back to whatever moves it. A rigid body (Physics
+// on) simply takes the velocity and WAKES: the sim sleeps settled bodies
+// (restFrames >= PHYS_SLEEP_FRAMES) and skips them entirely, and an object
+// picked up off the ground is asleep by definition - without this it would
+// hang in mid-air where it was dropped, and a throw would ignore bounce,
+// friction and tumble. Returns false for a non-physics object, which has no
+// simulation to hand off to (it stays put on a drop; a throw flies the
+// hand-rolled arc in updateCarriedObject).
+bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
+                                 float vz) {
+  o.dirty = true;
+  if (!o.data.physics) return false;
+  o.velocityX = vx;
+  o.velocityY = vy;
+  o.velocityZ = vz;
+  o.restFrames = 0;  // wake - see the RuntimeObject sleep contract
+  // Player-released: portal-free (crosses any linked portal, like the
+  // player) until it settles - updatePortals clears the latch on sleep.
+  thrownFreeIndex = (int)(&o - runtimeObjects.data());
+  return true;
 }
 
 // --- Memory card save menu ----------------------------------------------
@@ -3523,6 +4036,30 @@ bool TerrainGame::updateGameMenu() {
       case 8:  // choice
         cycleValue(e, 1);
         break;
+      case 9:  // apply video mode: commit the display row's staged selection
+        // (a scan-mode switch closes the menu - see applyVideoRequests'
+        // caller - so the player judges the new picture unobstructed).
+        for (int vmi = 0; vmi < MENU_COUNT; ++vmi) {
+          for (int vei = 0; vei < MENUS[vmi].entryCount; ++vei) {
+            const MenuEntryData& row = MENUS[vmi].entries[vei];
+            if (row.bind != 5 || row.param < 0 ||
+                row.param >= SAVE_VALUE_COUNT || row.optionCount <= 0)
+              continue;
+            int idx = (int)saveValues[row.param];
+            if (idx < 0) idx = 0;
+            if (idx >= row.optionCount) idx = row.optionCount - 1;
+            const int mode = displayOptionMode(row, idx);
+            if (mode !=
+                (int)engine->renderer.core.getSettings().getDisplayMode()) {
+              scriptCtx.requestDisplayMode = mode;
+              scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert net
+              g_menuDispOpt = idx;
+            }
+            vmi = MENU_COUNT;  // first display row wins
+            break;
+          }
+        }
+        break;
     }
   }
   return pausing();
@@ -3536,7 +4073,11 @@ bool TerrainGame::updateGameMenu() {
 // / curve are idempotent (re-applied each frame, cheap). Display mode and
 // widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
 // option actually changes, routed through the same scriptCtx video requests
-// the Set Display Mode / Set Widescreen flow nodes use.
+// the Set Display Mode / Set Widescreen flow nodes use. When the project has
+// an "apply video mode" row (MENU_HAS_APPLY_VIDEO) the display row defers
+// instead: cycling it only stages a selection the APPLY row commits (case 9
+// in updateGameMenu), so the player can browse the option list without the
+// screen switching under them.
 void TerrainGame::applyMenuBindings() {
   for (int mi = 0; mi < MENU_COUNT; ++mi) {
     const MenuData& m = MENUS[mi];
@@ -3572,10 +4113,22 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
-          if (idx != g_menuDispOpt) {
+        case 5:  // display / scan mode (option -> mode via displayOptionMode)
+          if (MENU_HAS_APPLY_VIDEO) {
+            // Deferred: the row only stages a selection while a menu is on
+            // screen; the "apply video mode" row commits it. With no menu
+            // open, snap the row back to the live mode - a browsed-but-
+            // unapplied selection (or a reverted confirm) never lies.
+            if (gameMenuIndex < 0 && en.param >= 0 &&
+                en.param < SAVE_VALUE_COUNT) {
+              const int live = displayOptionIndexOf(
+                  en,
+                  (int)engine->renderer.core.getSettings().getDisplayMode());
+              if (live >= 0 && live != idx) saveValues[en.param] = (float)live;
+            }
+          } else if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
-            scriptCtx.requestDisplayMode = idx;
+            scriptCtx.requestDisplayMode = displayOptionMode(en, idx);
             scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert safety net
           }
           break;
@@ -3720,7 +4273,15 @@ constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
 constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
 float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
                              float dz, float maxDist) const {
-  const float r = CAM_RADIUS;
+  // Camera boom: the camera's own radius, ignoring the carried object (it
+  // rides right in front of the face and must never shove the camera).
+  return sweepSphere(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS, carryIndex);
+}
+
+float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
+                               float dy, float dz, float maxDist, float radius,
+                               int skipIndex) const {
+  const float r = radius;
   float best = maxDist;
 
   // Broad-phase key: the boom segment's AABB, expanded by the camera radius.
@@ -3730,13 +4291,38 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
   const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
 
-  for (const RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
         ty == 13 || ty == 14)
       continue;  // markers / emitters / decals / the avatar - not blockers
-    if (o.data.collision == 2) continue;  // "none": the camera passes through
+    if (o.data.collision == 2) continue;  // "none": the sweep passes through
+    if (sweepPassOn) {
+      // Portal pass-through for a thrown object's sweep: obstacles fully
+      // behind the aimed portal's plane open up (exact OBB extent along
+      // the plane normal - collidePlayer's doorway rule).
+      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const float re =
+          fabsf(sweepPassPlane[0] * pax.x + sweepPassPlane[1] * pax.y +
+                sweepPassPlane[2] * pax.z) *
+              0.5F * o.data.scale[0] +
+          fabsf(sweepPassPlane[0] * pay.x + sweepPassPlane[1] * pay.y +
+                sweepPassPlane[2] * pay.z) *
+              0.5F * o.data.scale[1] +
+          fabsf(sweepPassPlane[0] * paz.x + sweepPassPlane[1] * paz.y +
+                sweepPassPlane[2] * paz.z) *
+              0.5F * o.data.scale[2];
+      const float sd = sweepPassPlane[0] * o.data.position[0] +
+                       sweepPassPlane[1] * o.data.position[1] +
+                       sweepPassPlane[2] * o.data.position[2] -
+                       sweepPassPlane[3];
+      if (sd < -re + 0.1F) continue;
+    }
 
     // World AABB, sized exactly like box-mode player collision (the real mesh
     // or baked anim AABB when the object has one, else the unit scale box).
@@ -3919,6 +4505,11 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     updatePortalPass(nextX, P.y, nextZ);  // wall doorways open in collision
     collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                   &ceiling);
+    // The whisker reads portalPassOn to keep the mounting wall open while
+    // carrying THROUGH a portal - reset it only after the whisker runs.
+    if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
+      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw, P.y,
+                        PP_EYE_HEIGHT(pi));
     portalPassOn = false;
     const float movedX = nextX - P.x, movedZ = nextZ - P.z;
     P.x = nextX;
@@ -4039,6 +4630,10 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   updatePortalPass(nextX, P.y, nextZ);  // wall doorways open in collision
   collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                 &ceiling);
+  // whisker reads portalPassOn (carry through a portal) - reset after it
+  if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
+    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw, P.y,
+                      PP_EYE_HEIGHT(pi));
   portalPassOn = false;
   P.x = nextX;
   P.z = nextZ;
@@ -4756,6 +5351,8 @@ void TerrainGame::updateObjectPhysics() {
   // static solids - sleeping bodies included, they are static this frame).
   for (int i = 0; i < count; ++i) {
     RuntimeObject& o = runtimeObjects[i];
+    // Carried/thrown objects are driven by updateCarriedObject this frame.
+    if (i == carryIndex || i == thrownIndex) continue;
     if (!o.active || !o.data.physics) continue;
     if (o.restFrames >= PHYS_SLEEP_FRAMES) continue;  // asleep
 
@@ -4775,6 +5372,11 @@ void TerrainGame::updateObjectPhysics() {
 
     Vec4 vel(o.velocityX, o.velocityY, o.velocityZ, 0.0F);
     vel.y -= gravityPerFrame;
+    // Terminal fall velocity, 30 u/s real time (owner-tuned: 50 read as a
+    // strobing blur in a door-sized infinite-fall loop, 15 as too floaty;
+    // PHYS_MAX_SPEED alone would allow 150).
+    const float termFall = 30.0F * g_frameDt;
+    if (vel.y < -termFall) vel.y = -termFall;
     const float clampSp2 = vel.innerProduct(vel);
     if (clampSp2 > PHYS_MAX_SPEED * PHYS_MAX_SPEED)
       vel *= PHYS_MAX_SPEED / sqrtf(clampSp2);
@@ -4797,14 +5399,18 @@ void TerrainGame::updateObjectPhysics() {
     for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
       const PortalData& p = PORTALS[pi];
       if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
-      if (!p.teleportObjects) continue;
+      if (!portalCanCross(p, i)) continue;
       if (p.object >= count || p.target >= count) continue;
       RuntimeObject& m = runtimeObjects[p.object];
       if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
       if (&o == &m || &o == &runtimeObjects[p.target]) continue;
-      if (portalSwallowZone(m, 0.5F * m.data.scale[0] + 0.25F,
-                            0.5F * m.data.scale[1] + 0.25F, pos.x, pos.y,
-                            pos.z)) {
+      // Swept, not point-sampled: a terminal-velocity faller crosses the
+      // whole approach zone between two frames and the endpoint test would
+      // let the terrain clamp stop it dead over the portal (a post-#97
+      // hitch - the old portal fall code was capped at 1 u/frame and could
+      // not tunnel).
+      if (portalSwallowSwept(m, 0.5F * m.data.scale[0] + 0.25F,
+                             0.5F * m.data.scale[1] + 0.25F, prevPos, pos)) {
         groundY = -1e30F;
         break;
       }
@@ -4858,6 +5464,38 @@ void TerrainGame::updateObjectPhysics() {
     const float movedX = pos.x - prevPos.x, movedZ = pos.z - prevPos.z;
     const bool movedXZ =
         movedX * movedX + movedZ * movedZ > 1e-10F;
+    // Aiming into a linked opening this frame: solids fully behind that
+    // portal's plane open up for this body (the walkers' doorway rule) -
+    // without it the mounting wall bounces the body back ~r short of the
+    // crossing plane and updatePortals never sees the pierce.
+    float aimPlane[4] = {0, 0, 0, 0};
+    bool aimOn = false;
+    if (PORTAL_COUNT > 0) {
+      const float a3[3] = {prevPos.x, prevPos.y, prevPos.z};
+      // Segment end padded by the body's extent: the AABB resolution stops
+      // the CENTER ~r short of a wall at the plane, so an unpadded center
+      // segment never pierces and the doorway never opens.
+      Vec4 mv = pos - prevPos;
+      const float mvLen = sqrtf(mv.innerProduct(mv));
+      float bodyR = ext[0];
+      if (ext[1] > bodyR) bodyR = ext[1];
+      if (ext[2] > bodyR) bodyR = ext[2];
+      const float pad = mvLen > 1e-6F ? 1.0F + (bodyR + 0.1F) / mvLen : 1.0F;
+      const float b3[3] = {prevPos.x + mv.x * pad, prevPos.y + mv.y * pad,
+                           prevPos.z + mv.z * pad};
+      const int aim = portalCarryAim(a3, b3, i);
+      if (aim >= 0) {
+        const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
+        const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+        aimPlane[0] = pn.x;
+        aimPlane[1] = pn.y;
+        aimPlane[2] = pn.z;
+        aimPlane[3] = pn.x * pm.data.position[0] +
+                      pn.y * pm.data.position[1] +
+                      pn.z * pm.data.position[2];
+        aimOn = true;
+      }
+    }
     for (int j = 0; j < count; ++j) {
       if (j == i) continue;
       RuntimeObject& s = runtimeObjects[j];
@@ -4865,6 +5503,25 @@ void TerrainGame::updateObjectPhysics() {
       const bool sSleeping =
           s.data.physics && s.restFrames >= PHYS_SLEEP_FRAMES;
       if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
+      if (aimOn) {
+        const V3 pax = rotated({1.0F, 0.0F, 0.0F}, s.data.rotation);
+        const V3 pay = rotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
+        const V3 paz = rotated({0.0F, 0.0F, 1.0F}, s.data.rotation);
+        const float re =
+            fabsf(aimPlane[0] * pax.x + aimPlane[1] * pax.y +
+                  aimPlane[2] * pax.z) *
+                0.5F * s.data.scale[0] +
+            fabsf(aimPlane[0] * pay.x + aimPlane[1] * pay.y +
+                  aimPlane[2] * pay.z) *
+                0.5F * s.data.scale[1] +
+            fabsf(aimPlane[0] * paz.x + aimPlane[1] * paz.y +
+                  aimPlane[2] * paz.z) *
+                0.5F * s.data.scale[2];
+        const float sd = aimPlane[0] * s.data.position[0] +
+                         aimPlane[1] * s.data.position[1] +
+                         aimPlane[2] * s.data.position[2] - aimPlane[3];
+        if (sd < -re + 0.1F) continue;
+      }
 
       const GameModel* sgm = nullptr;
       const SkelModel* sanim = nullptr;
@@ -5006,9 +5663,11 @@ void TerrainGame::updateObjectPhysics() {
   // both sleep are skipped, so settled stacks stay free.
   for (int i = 0; i < count; ++i) {
     RuntimeObject& a = runtimeObjects[i];
+    if (i == carryIndex || i == thrownIndex) continue;  // driven by the carry
     if (!a.active || !a.data.physics || !physObstacle(a.data)) continue;
     for (int j = i + 1; j < count; ++j) {
       RuntimeObject& b = runtimeObjects[j];
+      if (j == carryIndex || j == thrownIndex) continue;
       if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;
       if (a.restFrames >= PHYS_SLEEP_FRAMES &&
           b.restFrames >= PHYS_SLEEP_FRAMES)
@@ -5680,16 +6339,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
   float xy[24];
   u32 zz[12];
   int n = 0;
-  int bx0, by0, bx1, by1;
+  int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
 
-  // Crossing zone: when the eye is a breath away from the plane, inside
-  // the rectangle and looking INTO the surface, parts of the quad fall
-  // behind the near plane, the clipped fan shrinks and the world behind
-  // the free-standing surface peeks around it for a frame or two - the
-  // "looking through two portals at once" pop right at the crossing
-  // moment. In that zone the opening simply becomes the WHOLE screen at
-  // the nearest depth: the destination fills the view, exactly what
-  // standing in the doorway should look like.
+  // "Looking into the opening from close, roughly head-on" - the gate for
+  // the last-resort full-screen crossing mask below (used only on the one
+  // frame the eye is on the surface and the fan degenerates; see there).
+  bool zone = false;
   {
     const float relX = cameraPosition.x - m.data.position[0];
     const float relY = cameraPosition.y - m.data.position[1];
@@ -5701,26 +6356,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
         engine->renderer.core.getSettings().getNear() * 2.0F + 0.45F;
     Vec4 fwd = cameraLookAt - cameraPosition;
     const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
-    if (lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
-        ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F) {
-      n = 4;
-      xy[0] = 0.0F;
-      xy[1] = 0.0F;
-      xy[2] = fbW;
-      xy[3] = 0.0F;
-      xy[4] = fbW;
-      xy[5] = fbH;
-      xy[6] = 0.0F;
-      xy[7] = fbH;
-      for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
-      bx0 = 0;
-      by0 = 0;
-      bx1 = (int)fbW;
-      by1 = (int)fbH;
-    }
+    zone = lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
+           ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F;
   }
 
-  if (n == 0) {
+  bool carved = false;
+  {
     const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
     Vec4 poly[12], tmp[12];
     n = 4;
@@ -5762,30 +6403,58 @@ bool TerrainGame::renderOnePortalView(int pi) {
       n = outN;
       for (int i = 0; i < n; ++i) poly[i] = tmp[i];
     }
-    if (n < 3) return false;
-
-    float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
-    for (int i = 0; i < n; ++i) {
-      const float inv = 1.0F / poly[i].w;
-      const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
-      const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
-      xy[i * 2] = sx;
-      xy[i * 2 + 1] = sy;
-      if (sx < minX) minX = sx;
-      if (sx > maxX) maxX = sx;
-      if (sy < minY) minY = sy;
-      if (sy > maxY) maxY = sy;
-      float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
-      if (zf < 0.0F) zf = 0.0F;
-      if (zf > 16777215.0F) zf = 16777215.0F;
-      zz[i] = (u32)zf;
+    if (n >= 3) {
+      float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
+      for (int i = 0; i < n; ++i) {
+        const float inv = 1.0F / poly[i].w;
+        const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
+        const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
+        xy[i * 2] = sx;
+        xy[i * 2 + 1] = sy;
+        if (sx < minX) minX = sx;
+        if (sx > maxX) maxX = sx;
+        if (sy < minY) minY = sy;
+        if (sy > maxY) maxY = sy;
+        float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+        if (zf < 0.0F) zf = 0.0F;
+        if (zf > 16777215.0F) zf = 16777215.0F;
+        zz[i] = (u32)zf;
+      }
+      bx0 = (int)minX;
+      by0 = (int)minY;
+      bx1 = (int)maxX + 1;
+      by1 = (int)maxY + 1;
+      carved = !(bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH);
     }
-    bx0 = (int)minX;
-    by0 = (int)minY;
-    bx1 = (int)maxX + 1;
-    by1 = (int)maxY + 1;
-    if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH)
-      return false;
+  }
+
+  // Full-screen crossing mask: ONLY as a last resort, when the eye is so
+  // close to the surface that the clipped fan has degenerated (`!carved`) -
+  // there is no valid opening polygon to carve, so the destination fills the
+  // screen for that single frame right at the plane (the walker teleports
+  // the same instant). Every approach frame keeps a valid fan, so the crisp
+  // carved WINDOW is used and the mounting wall stays drawn AROUND it - the
+  // full mask paints the whole screen with the destination and erases that
+  // wall, breaking the illusion (owner: "the wall disappears"). Gating it on
+  // fan-degeneracy alone keeps that to the one unavoidable frame instead of
+  // the whole near approach.
+  if (zone && !carved) {
+    n = 4;
+    xy[0] = 0.0F;
+    xy[1] = 0.0F;
+    xy[2] = fbW;
+    xy[3] = 0.0F;
+    xy[4] = fbW;
+    xy[5] = fbH;
+    xy[6] = 0.0F;
+    xy[7] = fbH;
+    for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
+    bx0 = 0;
+    by0 = 0;
+    bx1 = (int)fbW;
+    by1 = (int)fbH;
+  } else if (!carved) {
+    return false;
   }
 
   // Dead zone: the virtual camera sits BEHIND the exit plane (the
@@ -5894,7 +6563,24 @@ bool TerrainGame::renderOnePortalView(int pi) {
       }
       return;  // emitters have no geometry/anim parts
     }
-    if (ro.dirty) rebuildObjectGeometry(ti);
+    const bool batched =
+        ti < (int)objectBatchOf.size() && objectBatchOf[ti] >= 0;
+    if (batched) {
+      // Batched member: its geometry lives only in the merged batch bag,
+      // and a merged bag cannot skip the members behind the exit plane -
+      // submitting whole batches here painted the mounting wall's backside
+      // across the through-view (owner report; the batch AABB spans a
+      // whole grouping cell, so the plane test never rejected it). Solo
+      // bake on first use instead and let the per-object dead zone above
+      // do its work. A DIRTY member is left alone: rebuildObjectGeometry
+      // consumes the flag renderStaticBatches keys its demotion on (the
+      // portal pass runs before it in the frame); demotion rebuilds the
+      // solo bag this same frame and the next live view picks it up.
+      if (objectGeometry[ti].parts.empty() && !ro.dirty)
+        rebuildObjectGeometry(ti);
+    } else if (ro.dirty) {
+      rebuildObjectGeometry(ti);
+    }
     ObjectGeometry& g = objectGeometry[ti];
     for (GeoPart& part : g.parts)
       if (part.bag) stapip.core.render(part.bag.get());
@@ -5902,6 +6588,26 @@ bool TerrainGame::renderOnePortalView(int pi) {
       for (ObjectGeometry::AnimPart& ap : g.animParts)
         if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
   };
+  // Two-sided carry: if the object in the hands is passing through THIS
+  // portal, its through-view draws it mapped to the FAR side - the half that
+  // has gone through the opening, coming out the exit. The main pass draws
+  // the near half at the real position and the z-cap clips whatever lay past
+  // the surface, so the two halves meet at the plane and the object reads as
+  // physically passing through (renderViewObject's exit-plane dead zone
+  // keeps the mapped copy hidden until the object's centre actually reaches
+  // the surface, so it appears only as it emerges).
+  const bool drawCarryFar = carryPortalPi == pi && carryIndex >= 0 &&
+                            carryIndex < (int)runtimeObjects.size();
+  float savedCarry[3];
+  if (drawCarryFar) {
+    RuntimeObject& co = runtimeObjects[carryIndex];
+    savedCarry[0] = co.data.position[0];
+    savedCarry[1] = co.data.position[1];
+    savedCarry[2] = co.data.position[2];
+    portalMapPoint(pi, co.data.position[0], co.data.position[1],
+                   co.data.position[2]);
+    co.dirty = true;  // rebuild at the mapped position for this view
+  }
   if (p.viewAll) {
     // Experimental "all objects in view": submit the whole scene a second
     // time. The pushed frustum planes classify every bag against the
@@ -5909,14 +6615,29 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // and draw distances are measured from the virtual eye, so the real
     // cost is what the destination actually sees - still, big scenes pay
     // for this; the authored list stays the shipping-quality default.
+    // Batched members are handled inside renderViewObject (solo bake on
+    // first use) - NOT by submitting the merged batch bags: a merged bag
+    // cannot drop just the members behind the exit plane, and the batch
+    // AABB spans its whole grouping cell, so a whole-bag plane test never
+    // fires - the wall the target portal is mounted on filled the view
+    // with its backside.
     for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
       if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
       if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;
       renderViewObject(ti);
     }
   } else {
+    // drawCarryFar implies carryIndex is on this list (portalShowsObject),
+    // so the loop already renders the mapped far half.
     for (int v = 0; v < p.viewCount; ++v)
       renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
+  }
+  if (drawCarryFar) {
+    RuntimeObject& co = runtimeObjects[carryIndex];
+    co.data.position[0] = savedCarry[0];
+    co.data.position[1] = savedCarry[1];
+    co.data.position[2] = savedCarry[2];
+    co.dirty = true;  // main pass rebuilds at the real (near) position
   }
   portalExitPlaneOn = false;
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
@@ -5967,6 +6688,165 @@ bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
   const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
   return lz > -0.6F && lz < 2.0F && lx > -hx && lx < hx && ly > -hy &&
          ly < hy;
+}
+
+// Both endpoints of this frame's motion, plus the point where the segment
+// pierces the portal plane - exact for a vertical fall, which is the only
+// motion fast enough (PHYS_MAX_SPEED) to tunnel the zone's 2-unit height.
+bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
+                                     float hy, const Vec4& a, const Vec4& b) {
+  if (portalSwallowZone(m, hx, hy, b.x, b.y, b.z) ||
+      portalSwallowZone(m, hx, hy, a.x, a.y, a.z))
+    return true;
+  const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  if (azS.y < 0.5F) return false;  // floor portals only
+  const float lza = (a.x - m.data.position[0]) * azS.x +
+                    (a.y - m.data.position[1]) * azS.y +
+                    (a.z - m.data.position[2]) * azS.z;
+  const float lzb = (b.x - m.data.position[0]) * azS.x +
+                    (b.y - m.data.position[1]) * azS.y +
+                    (b.z - m.data.position[2]) * azS.z;
+  if (!(lza > 0.0F && lzb < 0.0F)) return false;  // must pierce downward
+  const float t = lza / (lza - lzb);
+  return portalSwallowZone(m, hx, hy, a.x + (b.x - a.x) * t,
+                           a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+}
+
+// The linked, object-teleporting portal whose opening the motion segment
+// a->b pierces front-to-back (authored rectangle + the crossing slack), or
+// -1. Shared by the thrown-object flight and the physics pass-through.
+// The owner's crossing rule: whatever a portal SHOWS can also go through
+// it. teleportObjects and viewAll open it to every rigid body, a view-list
+// member is eligible by being visible, and the player-released body
+// (thrownFreeIndex) crosses like the player regardless.
+bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
+  if (p.teleportObjects || p.viewAll) return true;
+  if (oi >= 0 && oi == thrownFreeIndex) return true;
+  for (int v = 0; v < p.viewCount; ++v)
+    if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
+  return false;
+}
+
+bool TerrainGame::portalShowsObject(int pi, int oi) {
+  const PortalData& p = PORTALS[pi];
+  if (p.viewAll) return true;
+  for (int v = 0; v < p.viewCount; ++v)
+    if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
+  return false;
+}
+
+void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {
+  const PortalData& p = PORTALS[pi];
+  const RuntimeObject& src = runtimeObjects[p.object];
+  const RuntimeObject& dst = runtimeObjects[p.target];
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, src.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, src.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, src.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, dst.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, dst.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, dst.data.rotation);
+  const float rx = x - src.data.position[0];
+  const float ry = y - src.data.position[1];
+  const float rz = z - src.data.position[2];
+  float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+  const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+  float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+  lx = -lx;  // the 180 deg flip about local Y
+  lz = -lz;
+  x = dst.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+  y = dst.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+  z = dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+}
+
+bool TerrainGame::armSweepPass(const float* a, const float* b) {
+  sweepPassOn = false;
+  if (PORTAL_COUNT == 0) return false;
+  const int aim = portalCarryAim(a, b, -1);
+  if (aim < 0) return false;
+  const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
+  const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+  sweepPassPlane[0] = pn.x;
+  sweepPassPlane[1] = pn.y;
+  sweepPassPlane[2] = pn.z;
+  sweepPassPlane[3] = pn.x * pm.data.position[0] +
+                      pn.y * pm.data.position[1] +
+                      pn.z * pm.data.position[2];
+  sweepPassOn = true;
+  return true;
+}
+
+int TerrainGame::portalCarryAim(const float* a, const float* b, int forObj) {
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (forObj >= 0 && !portalCanCross(p, forObj)) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    const float r0x = a[0] - m.data.position[0];
+    const float r0y = a[1] - m.data.position[1];
+    const float r0z = a[2] - m.data.position[2];
+    const float r1x = b[0] - m.data.position[0];
+    const float r1y = b[1] - m.data.position[1];
+    const float r1z = b[2] - m.data.position[2];
+    const float l0z = r0x * azS.x + r0y * azS.y + r0z * azS.z;
+    const float l1z = r1x * azS.x + r1y * azS.y + r1z * azS.z;
+    if (!(l0z > 0.0F && l1z <= 0.0F)) continue;  // front-to-back only
+    const float tt = l0z / (l0z - l1z);
+    const float cxp = r0x + (r1x - r0x) * tt;
+    const float cyp = r0y + (r1y - r0y) * tt;
+    const float czp = r0z + (r1z - r0z) * tt;
+    const float lxp = cxp * axS.x + cyp * axS.y + czp * axS.z;
+    const float lyp = cxp * ayS.x + cyp * ayS.y + czp * ayS.z;
+    if (lxp > -hx && lxp < hx && lyp > -hy && lyp < hy) return pi;
+  }
+  return -1;
+}
+
+// Hop a thrown object through the pair: position and the FULL velocity
+// vector mapped by the same flip-about-local-Y isometry updatePortals
+// applies to the player/physics bodies, so a sideways throw exits the
+// target with the matching sideways motion and the crossing is continuous.
+bool TerrainGame::portalCarryCrossing(const float* a, float* pos, float* vel) {
+  // Thrown-arc objects are player-released - any linked portal carries them
+  const int pi = portalCarryAim(a, pos, -1);
+  if (pi < 0) return false;
+  const PortalData& p = PORTALS[pi];
+  RuntimeObject& m = runtimeObjects[p.object];
+  RuntimeObject& t = runtimeObjects[p.target];
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, t.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, t.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, t.data.rotation);
+  const float rx = pos[0] - m.data.position[0];
+  const float ry = pos[1] - m.data.position[1];
+  const float rz = pos[2] - m.data.position[2];
+  float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+  const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+  float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+  lx = -lx;
+  lz = -lz;
+  pos[0] = t.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+  pos[1] = t.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+  pos[2] = t.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+  float lvx = vel[0] * sxA.x + vel[1] * sxA.y + vel[2] * sxA.z;
+  const float lvy = vel[0] * syA.x + vel[1] * syA.y + vel[2] * syA.z;
+  float lvz = vel[0] * szA.x + vel[1] * szA.y + vel[2] * szA.z;
+  lvx = -lvx;
+  lvz = -lvz;
+  vel[0] = dxA.x * lvx + dyA.x * lvy + dzA.x * lvz;
+  vel[1] = dxA.y * lvx + dyA.y * lvy + dzA.y * lvz;
+  vel[2] = dxA.z * lvx + dyA.z * lvy + dzA.z * lvz;
+  return true;
 }
 
 bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
@@ -6056,7 +6936,15 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   if (PORTAL_COUNT == 0) return false;
   const bool freshPrev =
       (int)portalPrevPos.size() != (int)runtimeObjects.size() * 3;
-  if (freshPrev) portalPrevPos.resize(runtimeObjects.size() * 3);
+  if (freshPrev) {
+    portalPrevPos.resize(runtimeObjects.size() * 3);
+    portalHopCool.assign(runtimeObjects.size(), 0);
+  }
+  // A released body stays portal-free only until it settles to sleep.
+  if (thrownFreeIndex >= 0 &&
+      (thrownFreeIndex >= (int)runtimeObjects.size() ||
+       runtimeObjects[thrownFreeIndex].restFrames >= PHYS_SLEEP_FRAMES))
+    thrownFreeIndex = -1;
   bool playerTeleported = false;
   const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
 
@@ -6185,13 +7073,17 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
       playerTeleported = true;
     }
 
-    // --- physics objects (portal's "Teleport physics objects" flag) --------
-    if (p.teleportObjects && !freshPrev) {
+    // --- physics objects: portalCanCross decides per body (the flag, the
+    // whatever-the-portal-shows rule, or the player-released latch) ------
+    if (!freshPrev) {
       for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
         RuntimeObject& ro = runtimeObjects[oi];
         if (!ro.active || !ro.data.physics) continue;
+        if (!portalCanCross(p, oi)) continue;
         if (oi == p.object || oi == p.target) continue;
+        if (oi == carryIndex) continue;  // in the hands - the carry owns it
         if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
+        if (portalHopCool[oi] > 0) continue;  // just hopped - settle first
         const float* pp = &portalPrevPos[oi * 3];
         if (pp[0] == ro.data.position[0] && pp[1] == ro.data.position[1] &&
             pp[2] == ro.data.position[2])
@@ -6199,11 +7091,16 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         if (!crossed(pp[0], pp[1], pp[2], ro.data.position[0],
                      ro.data.position[1], ro.data.position[2]))
           continue;
-        // Carry the object's ACTUAL motion this frame, not just velocityY:
-        // the physics ground clamp may have zeroed velocityY on this very
-        // frame (the step landed below the terrain snap height before this
-        // test ran), and an infinite-fall loop would hitch at the far end
-        // with v = 0 - the position delta still holds the real fall.
+        // Carry the object's ACTUAL motion this frame through the pair -
+        // the WHOLE velocity vector, not just Y. The vertical component
+        // gets a position-delta fallback: the physics ground clamp may
+        // have zeroed velocityY on the very crossing frame (an
+        // infinite-fall loop would otherwise hitch at the far end with
+        // v = 0), and the step still holds the real fall. The horizontal
+        // components MUST map through the pair too - dropping them left a
+        // thrown object exiting with world-space X/Z that no longer match
+        // the rotated target, so it careened sideways (owner: the thrown
+        // sphere "freaks out" between the portals).
         float vy = ro.velocityY;
         const float stepY = ro.data.position[1] - pp[1];
         if (fabsf(stepY) > fabsf(vy)) vy = stepY;
@@ -6217,9 +7114,12 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         ro.data.position[1] = ny2;
         ro.data.position[2] = nz2;
         float nvx, nvy, nvz;
-        mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+        mapDir(ro.velocityX, vy, ro.velocityZ, &nvx, &nvy, &nvz);
+        ro.velocityX = nvx;
         ro.velocityY = nvy;
+        ro.velocityZ = nvz;
         ro.dirty = true;  // world-space bags rebuild at the arrival
+        portalHopCool[oi] = 6;
         // stamp the arrival as this object's new "previous" so the reverse
         // link of a two-way pair can't see the same hop as a crossing
         portalPrevPos[oi * 3] = ro.data.position[0];
@@ -6234,6 +7134,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
     portalPrevPos[oi * 3] = runtimeObjects[oi].data.position[0];
     portalPrevPos[oi * 3 + 1] = runtimeObjects[oi].data.position[1];
     portalPrevPos[oi * 3 + 2] = runtimeObjects[oi].data.position[2];
+    if (portalHopCool[oi] > 0) --portalHopCool[oi];
   }
   return playerTeleported;
 }
@@ -6562,6 +7463,36 @@ void TerrainGame::resetTerrainChunks() {
   terrainChunkSlot.assign(total, -1);
 }
 
+// Macro ground variation (docs/terrain-painting.md): deterministic value
+// noise over WORLD position - two smoothstepped octaves - multiplied into the
+// vertex shade below. Large soft patches of lighter/darker ground at zero
+// runtime cost, with an infinite period (breaks even the stochastic
+// supertile's second-order repetition). Twin of tintNoise2 in the editor
+// viewport (viewport.cpp buildTerrainChunkMesh) - keep the formulas in sync.
+static float tintHash(int ix, int iz) {
+  unsigned h = (unsigned)ix * 73856093u ^ (unsigned)iz * 19349663u;
+  h ^= h >> 13;
+  h *= 0x85EBCA6Bu;
+  h ^= h >> 16;
+  return (float)(h & 0xFFFFu) / 65535.0F;
+}
+static float tintValue(float x, float z, float scale) {
+  const float gx = x / scale, gz = z / scale;
+  const float fxf = floorf(gx), fzf = floorf(gz);
+  const int ix = (int)fxf, iz = (int)fzf;
+  float fx = gx - fxf, fz = gz - fzf;
+  fx = fx * fx * (3.0F - 2.0F * fx);  // smoothstep = soft round patches
+  fz = fz * fz * (3.0F - 2.0F * fz);
+  const float a = tintHash(ix, iz), b = tintHash(ix + 1, iz);
+  const float c = tintHash(ix, iz + 1), d = tintHash(ix + 1, iz + 1);
+  return (a * (1.0F - fx) + b * fx) * (1.0F - fz) +
+         (c * (1.0F - fx) + d * fx) * fz;
+}
+static float tintNoise2(float x, float z, float scale) {
+  return tintValue(x, z, scale) * 0.7F +
+         tintValue(x + 191.0F, z - 353.0F, scale * 0.37F) * 0.3F;
+}
+
 // Fills a pool slot with the mesh of chunk (cx, cz): the same vertex layout,
 // checker colors and baked shading the old whole-map build used - a chunk
 // streamed in later is pixel-identical to one built at scene load.
@@ -6613,6 +7544,14 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    // Macro ground variation: base and layer passes both shade through here,
+    // so a darker patch darkens grass and painted path together.
+    if (TERRAIN_TINT_VARIATION > 0.0F) {
+      const float tv =
+          1.0F + TERRAIN_TINT_VARIATION *
+                     (tintNoise2(wp.x, wp.z, TERRAIN_TINT_SCALE) - 0.5F);
+      s.x *= tv, s.y *= tv, s.z *= tv;
+    }
     if (s.x > 1.0F) s.x = 1.0F;
     if (s.y > 1.0F) s.y = 1.0F;
     if (s.z > 1.0F) s.z = 1.0F;
@@ -6645,6 +7584,43 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   ch.vertices.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
   ch.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
   if (textured) ch.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+
+  // Painted terrain layers: find which layers have any weight on this chunk's
+  // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
+  // (Bag pointers into layerPasses elements are re-set after the resize below,
+  // every build - the vector may reallocate.)
+  const int layerN = TERRAIN_LAYER_COUNT;
+  const unsigned char* splatW8 = TERRAIN_SPLAT_WEIGHTS;
+  int activeLayers[TERRAIN_MAX_LAYERS];
+  int activeN = 0;
+  if (layerN > 0 && splatW8) {
+    for (int l = 0; l < layerN; ++l) {
+      bool any = false;
+      for (int z = gz0; z <= gz1 && !any; ++z)
+        for (int x = gx0; x <= gx1; ++x)
+          if (splatW8[((size_t)z * HM_W + x) * layerN + l]) {
+            any = true;
+            break;
+          }
+      if (any) activeLayers[activeN++] = l;
+    }
+  }
+  ch.layerPasses.resize(activeN);
+  for (int a = 0; a < activeN; ++a) {
+    TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+    lp.layer = activeLayers[a];
+    lp.colors.clear();
+    lp.sts.clear();
+    lp.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+    lp.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  }
+  auto splatAt = [&](int ix, int iz, int l) -> float {
+    if (ix < 0) ix = 0;
+    if (iz < 0) iz = 0;
+    if (ix > HM_W - 1) ix = HM_W - 1;
+    if (iz > HM_D - 1) iz = HM_D - 1;
+    return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
+  };
 
   for (int z = gz0; z < gz1; ++z) {
     for (int x = gx0; x < gx1; ++x) {
@@ -6688,6 +7664,40 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.colors.push_back(shaded(s10));
       ch.colors.push_back(shaded(s11));
       ch.colors.push_back(shaded(s01));
+
+      // Layer passes: same triangles, tiled layer STs, shade-lit tint colors
+      // whose alpha is the painted weight (128 = fully this layer). Weights sit
+      // on the vertices, so the GS Gouraud-interpolates the blend per pixel.
+      for (int a = 0; a < activeN; ++a) {
+        TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+        const int l = lp.layer;
+        const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
+        const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
+        const float lk = ltex ? 128.0F : 255.0F;
+        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+        auto lcol = [&](const V3& s, float w) {
+          return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
+                       tint[2] * lk * s.z, w * 128.0F);
+        };
+        const float w00 = splatAt(x, z, l), w10 = splatAt(x + 1, z, l);
+        const float w01 = splatAt(x, z + 1, l), w11 = splatAt(x + 1, z + 1, l);
+        lp.colors.push_back(lcol(s00, w00));
+        lp.colors.push_back(lcol(s10, w10));
+        lp.colors.push_back(lcol(s01, w01));
+        lp.colors.push_back(lcol(s10, w10));
+        lp.colors.push_back(lcol(s11, w11));
+        lp.colors.push_back(lcol(s01, w01));
+        auto lst = [&](float wx, float wz) {
+          lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+        };
+        lst(x0, z0);
+        lst(x1, z0);
+        lst(x0, z1);
+        lst(x1, z0);
+        lst(x1, z1);
+        lst(x0, z1);
+      }
     }
   }
 
@@ -6711,6 +7721,31 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // Reused slot = same bag pointer with new vertex content: without the bump
   // the engine's bbox cacher would cull this chunk with the old chunk's boxes.
   ch.bag->bboxVersion = ++g_bboxStamp;
+
+  // Layer-pass bags: blend-enabled info bag, the chunk's own vertices, the
+  // pass's tiled STs and weight-alpha colors. Pointers are (re)set every build
+  // because resize() may have moved the LayerPass elements.
+  for (TerrainChunk::LayerPass& lp : ch.layerPasses) {
+    if (!lp.bag) {
+      lp.colorBag = std::make_unique<StaPipColorBag>();
+      lp.bag = std::make_unique<StaPipBag>();
+      lp.bag->lighting = nullptr;
+    }
+    lp.bag->info = layerInfoBag.get();
+    lp.colorBag->many = lp.colors.data();
+    lp.bag->color = lp.colorBag.get();
+    lp.bag->vertices = ch.vertices.data();
+    lp.bag->count = static_cast<u32>(ch.vertices.size());
+    const int lti = TERRAIN_LAYER_TEXTURES[g_activeScene][lp.layer];
+    if (lti >= 0 && loadedTextures[lti]) {
+      lp.texBag.texture = loadedTextures[lti];
+      lp.texBag.coordinates = lp.sts.data();
+      lp.bag->texture = &lp.texBag;
+    } else {
+      lp.bag->texture = nullptr;
+    }
+    lp.bag->bboxVersion = ++g_bboxStamp;
+  }
 
   // World AABB of the built mesh - the split-band cull tests it per half.
   // One pass at build time, nothing per frame.
@@ -6938,7 +7973,8 @@ bool TerrainGame::objectOutsideSplitBand(int i) const {
     ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
   }
   const float* rot = o.data.rotation;
-  if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F) {
+  if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F ||
+      o.data.modelYaw != 0.0F) {
     // Rotation moves both the extents and the center offset in world space -
     // bound everything with the diagonal radius around the position.
     const float r = sqrtf(ex * ex + ey * ey + ez * ez) +
@@ -6991,6 +8027,11 @@ void TerrainGame::renderTerrain() {
     // the engine's (full-height) frustum classify sees them.
     if (splitBandActive && outsideSplitBand(ch.aabbMin, ch.aabbMax)) continue;
     stapip.core.render(ch.bag.get());
+    // Painted layers: alpha-blend over the base pass right away (same
+    // geometry = equal depth passes the GS >= z-test; keeping base + layers
+    // adjacent also keeps the texture cache warm per chunk).
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
   }
 }
 
@@ -7045,6 +8086,9 @@ void TerrainGame::updatePlayer() {
   updatePortalPass(nextX, playerY, nextZ);  // wall doorways open in collision
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
+  // whisker reads portalPassOn (carry through a portal) - reset after it
+  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw, playerY,
+                    EYE_HEIGHT);
   portalPassOn = false;
   playerX = nextX;
   playerZ = nextZ;

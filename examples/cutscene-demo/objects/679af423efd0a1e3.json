@@ -1,0 +1,1 @@
+{ "id": "679af423efd0a1e3", "name": "cam-low", "type": "camera", "position": [7, 1, 9], "rotation": [-4, -135, 0], "scale": [1, 1, 1], "color": [0.5, 1, 0.6], "physics": false, "camera": { "fov": 90 } }
