@@ -1953,7 +1953,7 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("displayMode")) {
             const std::string dm = v->stringOr("interlaced");
             st.displayMode = (dm == "progressive" || dm == "1080i" ||
-                              dm == "interlaced-field")
+                              dm == "interlaced-field" || dm == "pal576")
                                  ? dm
                                  : "interlaced";
         }
@@ -2749,7 +2749,7 @@ std::string load(Project& out, const std::string& projectDir) {
                         for (const auto& jo : v->arr) {
                             int m = (int)jo.numberOr(0.0);
                             if (m < 0) m = 0;
-                            if (m > 3) m = 3;
+                            if (m > 4) m = 4;  // Tyra::DisplayMode range
                             en.optionModes.push_back(m);
                         }
                     }

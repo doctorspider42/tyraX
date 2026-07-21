@@ -29,11 +29,15 @@ enum class VideoMode { Auto, NTSC, PAL };
  * 480i/576i signal with true field rendering: half-height (512x224)
  * framebuffers scanned in FRAME mode, a fresh image rendered for every
  * field - at full speed the TV gets 50/60 distinct pictures per second
- * for roughly half the fill/VRAM cost of Interlaced. The game-facing
- * coordinate space stays 512x448 (the 2D pipeline and the projection
- * squeeze into the half-height buffer; scan-out stretches it back).
+ * for roughly half the fill/VRAM cost of Interlaced. Pal576i is the
+ * full-height PAL frame (the "true PAL" of European retail releases): a
+ * 512x512 framebuffer scanned as the classic 576i FIELD signal, 512 of
+ * the raster's ~576 visible lines - it ignores the VideoMode region the
+ * other way around, always outputting 50 Hz PAL. Costs ~380 KB more GS
+ * VRAM than Interlaced (three 512-line buffers), shrinking the texture
+ * budget to roughly 1 MB.
  * Values are serialized in projects and flow graphs - append only. */
-enum class DisplayMode { Interlaced, Progressive480p, HiDef1080i, InterlacedField };
+enum class DisplayMode { Interlaced, Progressive480p, HiDef1080i, InterlacedField, Pal576i };
 
 class RendererSettings {
  public:
@@ -71,14 +75,15 @@ class RendererSettings {
     widescreen = on;
     updateGeometry();
   }
-  /** Vertical refresh in Hz. The DTV modes are 60 Hz regardless of region;
-   * both interlaced modes follow the video mode (PAL 50 / NTSC 60). Valid
-   * after renderer init - GS init resolves an Auto mode to the console's
-   * actual region first. */
+  /** Vertical refresh in Hz. The DTV modes are 60 Hz regardless of region,
+   * Pal576i is 50 Hz regardless of region; the other interlaced modes
+   * follow the video mode (PAL 50 / NTSC 60). Valid after renderer init -
+   * GS init resolves an Auto mode to the console's actual region first. */
   float getRefreshRate() const {
     if (displayMode == DisplayMode::Progressive480p ||
         displayMode == DisplayMode::HiDef1080i)
       return 60.0F;
+    if (displayMode == DisplayMode::Pal576i) return 50.0F;
     return videoMode == VideoMode::PAL ? 50.0F : 60.0F;
   }
   /** True field rendering: the frame/z buffers are half the logical height
@@ -133,6 +138,10 @@ class RendererSettings {
       case DisplayMode::HiDef1080i:
         width = 448.0F;
         height = 540.0F;
+        break;
+      case DisplayMode::Pal576i:  // full-height PAL frame
+        width = 512.0F;
+        height = 512.0F;
         break;
       default:  // Interlaced and InterlacedField share the logical 512x448.
         width = 512.0F;

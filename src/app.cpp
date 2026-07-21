@@ -6131,10 +6131,11 @@ void App::drawFlowGraphWindow() {
             // Order = Tyra::DisplayMode enum values (serialized in num[0]).
             const char* modes[] = {"Interlaced (480i/576i)",
                                    "Progressive (480p)", "1080i",
-                                   "Field rendering (480i/576i)"};
+                                   "Field rendering (480i/576i)",
+                                   "PAL 576i (full-height)"};
             int mode = (int)n.num[0];
-            mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
-            if (ImGui::Combo("Mode", &mode, modes, 4)) {
+            mode = mode < 0 ? 0 : mode > 4 ? 4 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 5)) {
                 n.num[0] = (float)mode;
                 changed = true;
             }
@@ -12568,7 +12569,7 @@ void addOptionBlock(Project& p, GameMenu& m, int kind) {
     // options are in enum order); the other binds map by position.
     if (s.bind == MenuEntry::BindDisplayMode)
         for (size_t o = 0; o < en.options.size(); ++o)
-            en.optionModes.push_back((int)(o < 3 ? o : 3));
+            en.optionModes.push_back((int)(o < 4 ? o : 4));
     m.entries.push_back(std::move(en));
 }
 
@@ -13066,12 +13067,14 @@ void App::drawMenusWindow() {
                 // generated game (MenuEntryData::optModes); the label is
                 // only what the row draws.
                 static const char* kDispModeNames[] = {"480i", "480p",
-                                                       "1080i", "480i FIELD"};
+                                                       "1080i", "480i FIELD",
+                                                       "576i"};
                 static const char* kDispModeDescs[] = {
-                    "480i - interlaced (stock, 576i on PAL)",
+                    "480i - interlaced (stock, letterboxed 576i on PAL)",
                     "480p - progressive (component, 60 Hz)",
                     "1080i - HD (component, 60 Hz)",
-                    "480i FIELD - field rendering (half VRAM)"};
+                    "480i FIELD - field rendering (half VRAM)",
+                    "576i - full-height PAL (always 50 Hz)"};
                 if (en.options.empty()) {
                     en.options = {"480i", "480p"};
                     en.optionModes = {0, 1};
@@ -13079,16 +13082,16 @@ void App::drawMenusWindow() {
                 if (en.optionModes.size() != en.options.size()) {
                     en.optionModes.resize(en.options.size());
                     for (size_t o = 0; o < en.optionModes.size(); ++o)
-                        en.optionModes[o] = (int)(o < 3 ? o : 3);
+                        en.optionModes[o] = (int)(o < 4 ? o : 4);
                 }
                 for (int o = 0; o < (int)en.options.size(); ++o) {
                     ImGui::PushID(o);
                     int mode = en.optionModes[o];
                     if (mode < 0) mode = 0;
-                    if (mode > 3) mode = 3;
+                    if (mode > 4) mode = 4;
                     ImGui::SetNextItemWidth(scaled(230.0f));
                     if (ImGui::BeginCombo("##optmode", kDispModeDescs[mode])) {
-                        for (int mo = 0; mo < 4; ++mo)
+                        for (int mo = 0; mo < 5; ++mo)
                             if (ImGui::Selectable(kDispModeDescs[mo],
                                                   mo == mode)) {
                                 en.optionModes[o] = mo;
@@ -13125,7 +13128,7 @@ void App::drawMenusWindow() {
                 if ((int)en.options.size() < menubake::kMaxOptions) {
                     if (ImGui::SmallButton("+##optadd")) {
                         int mode = 0;  // first mode this row doesn't offer yet
-                        for (int mo = 0; mo < 4; ++mo) {
+                        for (int mo = 0; mo < 5; ++mo) {
                             bool used = false;
                             for (int v : en.optionModes) used |= (v == mo);
                             if (!used) {
@@ -13197,7 +13200,7 @@ void App::drawMenusWindow() {
                 if (en.settingBind == MenuEntry::BindDisplayMode) {
                     en.optionModes.resize(en.options.size());
                     for (size_t o = 0; o < en.optionModes.size(); ++o)
-                        en.optionModes[o] = (int)(o < 3 ? o : 3);
+                        en.optionModes[o] = (int)(o < 4 ? o : 4);
                 } else {
                     en.optionModes.clear();
                 }
@@ -13209,9 +13212,9 @@ void App::drawMenusWindow() {
                 ImGui::SetTooltip(
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
-                    "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i FIELD\n"
-                    "(each option picks its mode from a dropdown; add an\n"
-                    "Apply video mode row so switching waits for APPLY),\n"
+                    "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i\n"
+                    "FIELD/576i (each option picks its mode from a dropdown;\n"
+                    "add an Apply video mode row so switching waits for APPLY),\n"
                     "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
                     "mode + a second Player object). None = a plain save-value\n"
                     "row (flow graphs react).");
@@ -15122,15 +15125,18 @@ void App::drawPreferencesModal() {
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
-    int dispMode = prefSettings_.displayMode == "1080i"              ? 3
+    int dispMode = prefSettings_.displayMode == "pal576"             ? 4
+                   : prefSettings_.displayMode == "1080i"            ? 3
                    : prefSettings_.displayMode == "progressive"      ? 2
                    : prefSettings_.displayMode == "interlaced-field" ? 1
                                                                      : 0;
     const char* dispModeNames[] = {"Interlaced (480i/576i)",
                                    "Interlaced, field rendering (480i/576i)",
-                                   "Progressive scan (480p)", "1080i (HD)"};
-    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 4))
-        prefSettings_.displayMode = dispMode == 3   ? "1080i"
+                                   "Progressive scan (480p)", "1080i (HD)",
+                                   "PAL 576i (full-height, 50 Hz)"};
+    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 5))
+        prefSettings_.displayMode = dispMode == 4   ? "pal576"
+                                    : dispMode == 3 ? "1080i"
                                     : dispMode == 2 ? "progressive"
                                     : dispMode == 1 ? "interlaced-field"
                                                     : "interlaced";
@@ -15145,9 +15151,12 @@ void App::drawPreferencesModal() {
         "and 1080i always run at 60 Hz and need component (YPbPr) cables on\n"
         "a real console - PCSX2 displays every mode. 1080i renders a\n"
         "448x540 frame (sharper vertically) and leaves less VRAM for\n"
-        "textures. All can also be switched at runtime with the Set Display\n"
-        "Mode flow node, which shows a keep-or-revert prompt with an\n"
-        "automatic rollback.");
+        "textures. PAL 576i is the full-height PAL frame (true 576i: a\n"
+        "512x512 render, 14%% more lines than the NTSC-sized picture) -\n"
+        "always a 50 Hz PAL signal regardless of Target system, and it\n"
+        "also leaves less VRAM for textures. All can also be switched at\n"
+        "runtime with the Set Display Mode flow node, which shows a\n"
+        "keep-or-revert prompt with an automatic rollback.");
     ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
     ImGui::TextDisabled(
         "Widens the projection so proportions are correct on a 16:9 TV\n"

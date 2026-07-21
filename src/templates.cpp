@@ -308,9 +308,9 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i (whole frames or true field rendering), progressive 480p, or
-  // 1080i. The DTV modes need component cables on a real console and always
-  // run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p,
+  // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
+  // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
@@ -10593,7 +10593,7 @@ struct ScriptContext {
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
   // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
-  // rendering). displayConfirmSec > 0
+  // rendering, 4 = full-height PAL 576i). displayConfirmSec > 0
   // arms the keep-or-revert prompt: the game switches, asks the player to
   // confirm with X and reverts to the previous mode automatically when the
   // timer runs out (a mode the TV can't display would otherwise strand the
@@ -12316,6 +12316,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.displayMode == "1080i"              ? "HiDef1080i"
                    : st.displayMode == "progressive"      ? "Progressive480p"
                    : st.displayMode == "interlaced-field" ? "InterlacedField"
+                   : st.displayMode == "pal576"           ? "Pal576i"
                                                           : "Interlaced");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
@@ -16242,9 +16243,9 @@ static std::string menuDataHeader(const Project& p) {
                 << optionCount << "] = {";
             for (int o = 0; o < optionCount; ++o) {
                 int mode = o < (int)en.optionModes.size() ? en.optionModes[o]
-                                                          : (o < 3 ? o : 3);
+                                                          : (o < 4 ? o : 4);
                 if (mode < 0) mode = 0;
-                if (mode > 3) mode = 3;
+                if (mode > 4) mode = 4;  // Tyra::DisplayMode range
                 out << (o ? ", " : "") << mode;
             }
             out << "};\n";

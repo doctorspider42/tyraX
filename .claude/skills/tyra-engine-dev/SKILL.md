@@ -254,6 +254,14 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   half-line alignment lives in `flipBuffers` (CSR.FIELD read after vsync,
   inverted — the frame being rendered displays one field later — then an
   XYOFFSET +8 on odd fields appended to the flip packet).
+- **Full-height PAL (`DisplayMode::Pal576i`)**: the "true PAL" 512-line
+  frame - a 512x512 framebuffer scanned through the SAME stock interlaced
+  FIELD path (`programDisplay`'s default case with the signal pinned to
+  GRAPH_MODE_PAL, flicker filter kept); 512 lines is ps2sdk's own full PAL
+  frame height, so `graph_set_screen` handles the window - no setDtvDisplay
+  needed. Always 50 Hz regardless of VideoMode/region (getRefreshRate
+  special-cases it, like the DTV modes' 60). Costs ~380 KB more GS VRAM
+  (three 512-line buffers), leaving ~1 MB for textures.
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
   (TyraX fork) switches the scan mode / widescreen between frames.
   A mode change resets the whole VRAM bump allocator (`vram.reset()`),

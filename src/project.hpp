@@ -476,9 +476,13 @@ struct ProjectSettings {
     // distinct pictures per second at full speed) for about half the fill
     // and VRAM cost. "progressive" outputs flicker-free 480p, "1080i" a
     // pillarboxed HD signal - both need component cables on a real console
-    // (PCSX2 shows every mode) and always run at 60 Hz.
+    // (PCSX2 shows every mode) and always run at 60 Hz. "pal576" is the
+    // full-height PAL frame (true 576i, 512 rendered lines, always 50 Hz
+    // regardless of videoSystem) - the "full PAL" of European releases;
+    // costs ~380 KB of GS VRAM over "interlaced".
     std::string displayMode =
-        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" | "1080i"
+        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" |
+                       // "1080i" | "pal576"
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -1097,6 +1101,7 @@ struct MenuEntry {
         BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
         BindStickCurve = 4,   // stick response curve exponent (1..3)
         BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
+                              // / PAL 576i (see MenuEntry::optionModes)
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
         BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
     };

@@ -150,9 +150,16 @@ void RendererCoreGS::programDisplay() {
       // explicit (region-resolved Auto, or forced PAL/NTSC from
       // EngineOptions). The 512x448 framebuffer is kept for both signals;
       // PAL just outputs at 50 Hz. Widescreen is again the TV's stretch.
-      const int mode = settings->getVideoMode() == VideoMode::PAL
-                           ? GRAPH_MODE_PAL
-                           : GRAPH_MODE_NTSC;
+      // Pal576i shares this path with the buffer sized 512x512 by
+      // RendererSettings and the signal pinned to PAL: 512 lines is
+      // ps2sdk's own full PAL frame (graph_set_screen centers it in the
+      // 576i raster), so the full-height "true PAL" of European retail
+      // releases needs nothing beyond the taller buffer.
+      const int mode =
+          (settings->getVideoMode() == VideoMode::PAL ||
+           settings->getDisplayMode() == DisplayMode::Pal576i)
+              ? GRAPH_MODE_PAL
+              : GRAPH_MODE_NTSC;
       graph_set_mode(GRAPH_MODE_INTERLACED, mode, GRAPH_MODE_FIELD,
                      GRAPH_ENABLE);
       graph_set_screen(0, 0, frameBuffers[1].width, frameBuffers[1].height);
@@ -229,14 +236,16 @@ void RendererCoreGS::setDtvDisplay(int modeX, int modeY, int modeDW,
 }
 
 // Modified by TyraX: scan-out selection per display mode. The stock
-// interlaced mode keeps ps2sdk's flicker filter (both read circuits, the
+// interlaced mode (and Pal576i, the same scan with a taller buffer) keeps
+// ps2sdk's flicker filter (both read circuits, the
 // second offset by one line). The DTV modes and InterlacedField run with
 // the filter off, where graph_enable_output displays read circuit 2 alone -
 // it must scan from line 0, not the +1 line the _filtered variant programs
 // (and in field rendering there is no full frame to blend anyway).
 void RendererCoreGS::presentFrameBuffer(u8 index) {
   auto& fb = frameBuffers[index];
-  if (settings->getDisplayMode() == DisplayMode::Interlaced) {
+  if (settings->getDisplayMode() == DisplayMode::Interlaced ||
+      settings->getDisplayMode() == DisplayMode::Pal576i) {
     graph_set_framebuffer_filtered(fb.address, fb.width, fb.psm, 0, 0);
   } else {
     graph_set_framebuffer(0, fb.address, fb.width, fb.psm, 0, 0);

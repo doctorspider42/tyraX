@@ -9,6 +9,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (134) **True PAL: DisplayMode::Pal576i, the full-height 512-line frame.**
+  Owner follow-up on (133): our "PAL" was the NTSC-sized picture (512x448
+  buffer) output at 50 Hz - the letterboxed port look. The new mode renders
+  a 512x512 frame and scans it as the classic 576i FIELD signal (512 of
+  the raster's ~576 visible lines - what full-PAL European releases did).
+  Engine (vendor/tyra): enum value appended (serialized - append only),
+  `RendererSettings::updateGeometry` 512x512 case, `getRefreshRate` pins it
+  to 50 Hz like the DTV modes pin 60, `programDisplay` reuses the stock
+  interlaced default case with the signal forced to GRAPH_MODE_PAL (512
+  lines is ps2sdk's own full PAL frame - `graph_set_screen` copes, no
+  setDtvDisplay needed), flicker filter kept (`presentFrameBuffer`).
+  Projection aspect needs NO change: the formula is buffer-shape-agnostic
+  (4:3 window baseline). Cost: ~380 KB more GS VRAM (three 512-line
+  buffers), texture budget ~1 MB. Editor: `displayMode` "pal576"
+  (Preferences combo + tooltip), {{DISPLAY_MODE}} -> Pal576i, Set Display
+  Mode flow node mode 4 (combo + desc), Menu Editor display-row dropdown
+  gained "576i" (clamps/seeds 0..3 -> 0..4 in project.cpp load, the
+  menu_data emitter and app.cpp). Verified: editor builds clean; scratch
+  project with "pal576" + a 4-option display row (modes 0/2/1/4)
+  round-trips and emits `Tyra::DisplayMode::Pal576i` in main.cpp +
+  `MENU_0_E0_MODES[4] = {0, 2, 1, 4}`; full Docker build (libtyra rebuild
+  included) compiles and links; PCSX2 boot: emulog logs "Mode Changed to
+  PAL" on an NTSC-region BIOS (the forced-PAL path is live), the scene
+  renders a clean full 4:3 frame, and an F8 screenshot with
+  `ScreenshotSize = 2` (uncorrected internal size) on the software
+  renderer is exactly **512x512** - the full-height buffer on screen
+  (stock interlaced is 512x448). That ScreenshotSize=2 trick is the way
+  to read the real GS buffer size; the default window-size screenshots
+  are DAR-corrected and hide it.
+
 - (133) **Display-mode menu row: stage-then-APPLY + a scan-mode dropdown per
   option.** Owner reports: cycling the in-game "Display mode" option block
   switched the scan mode on every press (VRAM rebuild, menu force-closed,
