@@ -396,6 +396,13 @@ class TerrainGame : public Tyra::Game {
   // must not stop a body's center r short of the crossing plane (callers
   // pad the segment end by the body's extent for exactly that reason).
   bool portalCanCross(const PortalData& p, int oi);
+  // True when portal pi's through-view actually DRAWS object oi (viewAll, or
+  // oi is on its explicit view list) - a carried object may only be mapped
+  // through a portal that will render it on the far side.
+  bool portalShowsObject(int pi, int oi);
+  // Map a world point through portal pi's pair (source local -> flip about
+  // local Y -> target world), the same isometry as the teleport/camera.
+  void portalMapPoint(int pi, float& x, float& y, float& z);
   int portalCarryAim(const float* a, const float* b, int forObj);
   bool portalCarryCrossing(const float* a, float* pos, float* vel);
   // Arms sweepPass* when segment a->b pierces a linked opening (pad the
@@ -580,6 +587,12 @@ class TerrainGame : public Tyra::Game {
   void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
                          float feetY, float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  // The carried object is aimed THROUGH a portal and has been mapped to the
+  // far side (in front of the target portal): it is drawn only by that
+  // portal's through-view, and SKIPPED in the near main pass so it does not
+  // also show as a distant double image at the target. Recomputed each
+  // carry frame.
+  bool carryMappedThroughPortal = false;
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
   float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
                               // blocks, eases back out (the boom's policy)

@@ -9,6 +9,26 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (138) **Carrying through a portal, take two: the object flies through
+  instead of pinning.** (137) clamped the carried object's center to the
+  portal plane to stop it vanishing - but any clamp PINS the object's
+  forward motion, so it froze on the surface while the player walked the
+  last stretch (owner: still stops like a wall, half-in slice or not). The
+  clamp was the wrong model. Now the carry is **portal-aware**: if the
+  carry ray pierces a portal whose through-view renders the object
+  (`portalShowsObject` = viewAll or on the view list), the object flies on
+  THROUGH - its placement is mapped to the far side (`portalMapPoint`, the
+  teleport isometry) in front of the target, where that portal's
+  through-view already draws it, so you see it just beyond the opening as
+  it crosses. It is skipped in the near main pass
+  (`carryMappedThroughPortal`) so it doesn't also show as a distant double
+  at the target. On-screen the hand-off is continuous: near-side (main
+  pass) and far-side (through-view) both land the object in the portal
+  opening. A teleport-only portal (no through-view of the object) can't
+  show it on the far side, so there it still clamps to the plane as the
+  best available. Verified: editor builds clean, portals example
+  regenerated + Docker build exit 0. Owner pad test next.
+
 - (137) **Carrying an object through a portal (owner's fourth live test).**
   Throwing was "perfect"; carrying had two faults. (1) **The carried
   object vanished at the seam.** Once its center passed the portal surface

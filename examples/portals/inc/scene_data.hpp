@@ -139,7 +139,7 @@ struct PortalData {
 constexpr int PORTAL_COUNT = 4;
 constexpr PortalData PORTALS[4] = {
     {0, 1, 2, 1, 0, 1, 0, 0},  // portal-a,
-    {0, 2, 1, 1, 0, 0, 0, 1},  // portal-b,
+    {0, 2, 1, 1, 0, 1, 0, 1},  // portal-b,
     {0, 5, 7, 1, 1, 1, 1, 0},  // portal-floor,
     {0, 7, 5, 1, 0, 1, 1, 0},  // portal-ceiling
 };

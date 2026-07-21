@@ -3573,21 +3573,27 @@ void TerrainGame::updateCarriedObject() {
   float want = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
                            r, carryIndex);
   sweepPassOn = false;
-  // Sink the carried object INTO any portal it is aimed through: clamp its
-  // center to the surface plane, so it sits half-in / half-out - the
-  // classic "entering the portal" slice. The far half renders behind the
-  // portal (the through-view carve caps the opening at the surface depth,
-  // z-failing it away); the near half stays visible, and the whole object
-  // re-anchors in front of the new camera the instant the player crosses.
-  // Clamping SHORT of the plane instead pinned it flat against the surface
-  // like a wall (owner report); letting it pass freely made it vanish
-  // entirely once its center cleared the plane (the earlier seam bug).
+  // Portal-aware carry: the nearest portal opening the carry ray pierces
+  // within reach. If that portal DRAWS the object in its through-view
+  // (viewAll or the view list), the object flies on THROUGH it - mapped to
+  // the far side, in front of the target, where the through-view renders it
+  // as if it went through (and it is skipped in the near main pass so it
+  // does not also appear as a distant double). This is what lets a carried
+  // object cross smoothly instead of stopping dead at the surface (owner:
+  // it pinned like a wall). A portal that would NOT render the object
+  // (teleport-only) can't show it on the far side, so there the object is
+  // clamped to the plane (half-in slice) as the best available.
+  int bendPi = -1;
+  float bendT = want;
+  bool bendShows = false;
   for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
     const PortalData& p = PORTALS[pi];
     if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
-    if (p.object >= (int)runtimeObjects.size()) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
     RuntimeObject& pm = runtimeObjects[p.object];
-    if (!pm.active || !pm.visible) continue;
+    if (!pm.active || !pm.visible || !runtimeObjects[p.target].active) continue;
     const V3 pax = rotated({1.0F, 0.0F, 0.0F}, pm.data.rotation);
     const V3 pay = rotated({0.0F, 1.0F, 0.0F}, pm.data.rotation);
     const V3 paz = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
@@ -3597,7 +3603,7 @@ void TerrainGame::updateCarriedObject() {
                      (pm.data.position[1] - oy) * paz.y +
                      (pm.data.position[2] - oz) * paz.z;
     const float t = sd / denom;  // ray param at the plane
-    if (t <= 0.0F || t >= want) continue;
+    if (t <= 0.0F || t >= bendT) continue;
     const float cxp = ox + dir.x * t - pm.data.position[0];
     const float cyp = oy + dir.y * t - pm.data.position[1];
     const float czp = oz + dir.z * t - pm.data.position[2];
@@ -3605,9 +3611,15 @@ void TerrainGame::updateCarriedObject() {
     const float lyp = cxp * pay.x + cyp * pay.y + czp * pay.z;
     const float phx = 0.5F * pm.data.scale[0] + 0.25F;
     const float phy = 0.5F * pm.data.scale[1] + 0.25F;
-    if (lxp > -phx && lxp < phx && lyp > -phy && lyp < phy && t < want)
-      want = t;
+    if (lxp > -phx && lxp < phx && lyp > -phy && lyp < phy) {
+      bendPi = pi;
+      bendT = t;
+      bendShows = portalShowsObject(pi, carryIndex);
+    }
   }
+  // A non-rendering portal clamps the object to its plane (can't show it
+  // through); a rendering one lets the reach run full so it flies on out.
+  if (bendPi >= 0 && !bendShows && bendT < want) want = bendT;
   const float minD = PICK_MIN_DIST + r;
   if (want < minD) want = minD;
   if (want < carryDist) {
@@ -3618,9 +3630,18 @@ void TerrainGame::updateCarriedObject() {
     carryDist += (want - carryDist) * k;
   }
   const float d = carryDist;
-  o.data.position[0] = ox + dir.x * d;
-  o.data.position[1] = oy + dir.y * d;
-  o.data.position[2] = oz + dir.z * d;
+  float placeX = ox + dir.x * d;
+  float placeY = oy + dir.y * d;
+  float placeZ = oz + dir.z * d;
+  carryMappedThroughPortal = false;
+  if (bendPi >= 0 && bendShows && d > bendT) {
+    // Past the opening: fly on out the far side (the through-view draws it).
+    portalMapPoint(bendPi, placeX, placeY, placeZ);
+    carryMappedThroughPortal = true;
+  }
+  o.data.position[0] = placeX;
+  o.data.position[1] = placeY;
+  o.data.position[2] = placeZ;
   // In the hands the body has no momentum of its own: zero every component
   // (not just Y - the rigid-body sim reads all three) so a release starts
   // from rest instead of resuming whatever it was doing before the grab.
@@ -5847,6 +5868,10 @@ void TerrainGame::renderScene() {
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
+    // A carried object aimed through a portal is drawn ONLY by that portal's
+    // through-view (mapped to the far side) - skip it here or it also shows
+    // as a distant double image at the target.
+    if (i == carryIndex && carryMappedThroughPortal) continue;
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
@@ -6574,6 +6599,37 @@ bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
   for (int v = 0; v < p.viewCount; ++v)
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
   return false;
+}
+
+bool TerrainGame::portalShowsObject(int pi, int oi) {
+  const PortalData& p = PORTALS[pi];
+  if (p.viewAll) return true;
+  for (int v = 0; v < p.viewCount; ++v)
+    if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
+  return false;
+}
+
+void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {
+  const PortalData& p = PORTALS[pi];
+  const RuntimeObject& src = runtimeObjects[p.object];
+  const RuntimeObject& dst = runtimeObjects[p.target];
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, src.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, src.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, src.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, dst.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, dst.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, dst.data.rotation);
+  const float rx = x - src.data.position[0];
+  const float ry = y - src.data.position[1];
+  const float rz = z - src.data.position[2];
+  float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+  const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+  float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+  lx = -lx;  // the 180 deg flip about local Y
+  lz = -lz;
+  x = dst.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+  y = dst.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+  z = dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
 }
 
 bool TerrainGame::armSweepPass(const float* a, const float* b) {
