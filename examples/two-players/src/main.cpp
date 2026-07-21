@@ -1,6 +1,7 @@
 #include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <graph.h>  // graph_get_region - the PAL-picture promotion below
 #include "terrain_game.hpp"
 
 int main(int argc, char** argv) {
@@ -40,10 +41,22 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::Auto;
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i (whole frames or true field rendering), progressive 480p, or
-  // 1080i. The DTV modes need component cables on a real console and always
-  // run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p,
+  // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
+  // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::Interlaced;
+  // PAL picture (Preferences > Build > PAL picture): with the
+  // region-following interlaced mode, a PAL console (or a forced-PAL
+  // target system) boots the full-height 512-line 576i frame instead of
+  // the letterboxed NTSC-size picture. Resolved here, before engine init,
+  // so the whole boot (logo, loading screen) already runs in it; the menu
+  // "DEFAULT" display option maps back to whatever this resolves to.
+  if (false &&
+      options.displayMode == Tyra::DisplayMode::Interlaced &&
+      (options.videoMode == Tyra::VideoMode::PAL ||
+       (options.videoMode == Tyra::VideoMode::Auto &&
+        graph_get_region() == GRAPH_MODE_PAL)))
+    options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = false;
   Tyra::Engine engine(options);

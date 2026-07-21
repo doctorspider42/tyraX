@@ -3,14 +3,22 @@
   "template": "fpp",
   "settings": {
     "videoSystem": "auto",
+    "displayMode": "interlaced",
+    "widescreen": false,
     "buildProfile": "release",
     "textureQuant": "4bit",
     "showFps": false,
     "showMemory": false,
+    "showProfiler": false,
+    "liveLink": true,
     "disableVsync": false,
     "clipping": "precise",
     "animLodDistance": 0,
     "meshLodDistance": 0,
+    "staticBatching": true,
+    "navCellSize": 1,
+    "navMaxSlope": 40,
+    "navAgentRadius": 0.4,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
@@ -22,6 +30,12 @@
     "lookSpeed": 1,
     "stickDeadzoneL": 0.2,
     "stickDeadzoneR": 0.2,
+    "stickCurveL": 0,
+    "stickCurveR": 0,
+    "stickExpL": 2,
+    "stickExpR": 2,
+    "multiplayer": "off",
+    "p2JoinOnStart": true,
     "orbitSpeed": 1,
     "gravity": 9.8,
     "jumpSpeed": 4.5,
@@ -33,6 +47,9 @@
     "terrainMaterial": "",
     "bloom": 0,
     "grain": 0,
+    "dofAmount": 0,
+    "dofFocus": 20,
+    "dofRange": 15,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,
@@ -42,28 +59,22 @@
     "highlightColor": [1, 0.85, 0.15],
     "highlightWidth": 0.35,
     "highlightSteps": 4,
+    "highlightOpacity": 0.56,
+    "highlightOverlay": false,
     "loadingScreen": true
   },
   "scenes": [
     { "name": "main",
       "terrain": { "width": 48, "depth": 48 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4 } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "objects": [
-      { "name": "player-1", "type": "player", "position": [0, 0, 20], "rotation": [0, 180, 0], "scale": [1, 1, 1], "color": [0.15, 0.9, 0.9], "physics": false, "player": { "mode": "walk", "walkSpeed": 0.4, "lookSpeed": 1, "eyeHeight": 1.8, "jumpSpeed": 4.5, "canJump": true, "flashlight": { "enabled": false, "color": [0.75, 0.75, 0.62], "range": 30, "angle": 20, "toggle": "" } } },
-      { "name": "pedestal", "type": "box", "position": [0, 0.6, 12], "rotation": [0, 0, 0], "scale": [1.2, 1.2, 1.2], "color": [0.95, 0.85, 0.4], "physics": false, "usable": true, "flowGraph": { "nextId": 6, "nodes": [{ "id": 1, "type": "OnStart", "pos": [40, 40], "str": "", "num": [0, 0, 0, 0] }, { "id": 2, "type": "OnUsed", "pos": [40, 160], "str": "", "num": [0, 0, 0, 0] }, { "id": 3, "type": "PlaySequence", "pos": [300, 100], "str": "The Reveal", "num": [0, 0, 0, 0] }], "links": [{ "id": 4, "from": 1, "to": 3 }, { "id": 5, "from": 2, "to": 3 }] } },
-      { "name": "hero", "type": "box", "position": [-12, 1, 0], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "physics": false },
-      { "name": "obelisk", "type": "cone", "position": [10, 3, -4], "rotation": [0, 0, 0], "scale": [3, 6, 3], "color": [0.95, 0.8, 0.35], "physics": false },
-      { "name": "block-a", "type": "box", "position": [5, 0.75, 3], "rotation": [0, 0, 0], "scale": [3, 1.5, 3], "color": [0.45, 0.5, 0.6], "physics": false },
-      { "name": "block-b", "type": "box", "position": [-6, 0.5, -6], "rotation": [0, 0, 0], "scale": [2.4, 1, 2.4], "color": [0.2, 0.65, 0.6], "physics": false },
-      { "name": "sparks", "type": "emitter", "position": [10, 6.4, -4], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.4], "physics": false, "emitter": { "kind": "sparks", "count": 32, "size": 0.5, "enabled": false, "followPlayer": false } },
-      { "name": "cam-wide", "type": "camera", "position": [-14, 6, 16], "rotation": [13, 135, 0], "scale": [1, 1, 1], "color": [0.35, 0.75, 1], "physics": false, "camera": { "fov": 65 } },
-      { "name": "cam-low", "type": "camera", "position": [7, 1, 9], "rotation": [-4, -135, 0], "scale": [1, 1, 1], "color": [0.5, 1, 0.6], "physics": false, "camera": { "fov": 90 } },
-      { "name": "cam-dolly", "type": "camera", "position": [-16, 2.5, -10], "rotation": [8, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.3], "physics": false, "camera": { "fov": 45 } },
-      { "name": "cam-hero", "type": "camera", "position": [5, 1.5, 7], "rotation": [-22.14, -144.45, 0], "scale": [1, 1, 1], "color": [0.9, 0.5, 1], "physics": false, "camera": { "fov": 55 } },
-      { "name": "cam-crane", "type": "camera", "position": [12, 10, 16], "rotation": [11.31, -143.13, 0], "scale": [1, 1, 1], "color": [1, 0.4, 0.4], "physics": false, "camera": { "fov": 60 } }
-    ] }
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "objects": ["bebd2d3b159a6526", "c6d5efa1666de1ff", "5ddcfcfd1442ece1", "bab93733c9ef29c1", "ad6c9f65266b8d71", "4f0f612afc1fd472", "c409bc589d20fc43", "63cfa6a384b8de56", "679af423efd0a1e3", "4a99fd7fb8da27de", "dbea0f54cecc0498", "96546b4b787e6b15"] }
+  ],
+  "fonts": [
+    { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
   ],
   "hud": [],
+  "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
+  "hudTexts": [],
   "hudBloomLayer": -1,
   "hudGrainLayer": -1,
   "music": [],
@@ -76,39 +87,24 @@
     { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
   ],
   "defaultAmbience": 0,
+  "loadingScreens": [],
+  "defaultLoadingScreen": -1,
+  "splashScreens": [],
   "sequences": [
-    { "name": "The Reveal", "duration": 14, "loop": false, "cameraEnabled": true, "bars": 1, "skippable": true, "fadeIn": 0.8, "fadeOut": 1, "barsSlideIn": 0.6, "barsSlideOut": 1, "tracks": [
-      { "target": "hero", "animPos": true, "animRot": true, "animScale": false, "animColor": false, "animVis": false, "keys": [
-        { "t": 0, "pos": [-12, 1, 0], "rot": [0, 0, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 },
-        { "t": 5, "pos": [0, 1, 0], "rot": [0, 360, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 },
-        { "t": 9, "pos": [0, 1, 0], "rot": [0, 360, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 },
-        { "t": 12.5, "pos": [0, 7, 0], "rot": [0, 720, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }
-      ] },
-      { "target": "obelisk", "animPos": false, "animRot": false, "animScale": true, "animColor": true, "animVis": false, "keys": [
-        { "t": 5, "pos": [10, 3, -4], "rot": [0, 0, 0], "scale": [3, 6, 3], "color": [0.95, 0.8, 0.35], "vis": true, "ease": 1 },
-        { "t": 12.5, "pos": [10, 3, -4], "rot": [0, 0, 0], "scale": [3.8, 7.6, 3.8], "color": [1, 0.45, 0.1], "vis": true, "ease": 1 }
-      ] },
-      { "target": "sparks", "animPos": false, "animRot": false, "animScale": false, "animColor": false, "animVis": true, "keys": [
-        { "t": 0, "pos": [10, 6.4, -4], "rot": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.4], "vis": false, "ease": 2 },
-        { "t": 9.5, "pos": [10, 6.4, -4], "rot": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.4], "vis": true, "ease": 2 }
-      ] },
-      { "target": "cam-dolly", "animPos": true, "animRot": false, "animScale": false, "animColor": false, "animVis": false, "keys": [
-        { "t": 5, "pos": [-16, 2.5, -10], "rot": [8, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.3], "vis": true, "ease": 0 },
-        { "t": 10, "pos": [14, 2.5, -10], "rot": [8, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.3], "vis": true, "ease": 0 }
-      ] },
-      { "target": "cam-crane", "animPos": true, "animRot": true, "animScale": false, "animColor": false, "animVis": false, "keys": [
-        { "t": 10, "pos": [12, 10, 16], "rot": [11.31, -143.13, 0], "scale": [1, 1, 1], "color": [1, 0.4, 0.4], "vis": true, "ease": 1 },
-        { "t": 14, "pos": [16, 14, 20], "rot": [17.35, -141.34, 0], "scale": [1, 1, 1], "color": [1, 0.4, 0.4], "vis": true, "ease": 1 }
-      ] }
-    ], "cameraKeys": [
-      { "t": 0, "eye": [-14, 6, 16], "target": [0, 1.5, 2], "fov": 65, "camera": "cam-wide", "ease": 2 },
-      { "t": 3.5, "eye": [7, 1, 9], "target": [-2, 1.8, 0], "fov": 90, "shake": 0.08, "camera": "cam-low", "ease": 2 },
-      { "t": 5, "eye": [-16, 2.5, -10], "target": [-16, 2.5, -9], "fov": 45, "camera": "cam-dolly", "ease": 2 },
-      { "t": 10, "eye": [5, 1.5, 7], "target": [0, 5, 0], "fov": 55, "shake": 0.1, "camera": "cam-hero", "ease": 1 },
-      { "t": 13, "eye": [12, 10, 16], "target": [0, 6, 0], "fov": 60, "camera": "cam-crane", "ease": 1 }
-    ] }
+    { "name": "The Reveal", "duration": 14, "loop": false, "cameraEnabled": true, "hidePlayer": false, "bars": 1, "skippable": true, "fadeIn": 0.8, "fadeOut": 1, "barsSlideIn": 0.6, "barsSlideOut": 1, "tracks": [
+      { "target": "hero", "animPos": true, "animRot": true, "animScale": false, "animColor": false, "animVis": false, "keys": [{ "t": 0, "pos": [-12, 1, 0], "rot": [0, 0, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }, { "t": 5, "pos": [0, 1, 0], "rot": [0, 360, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }, { "t": 9, "pos": [0, 1, 0], "rot": [0, 360, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }, { "t": 12.5, "pos": [0, 7, 0], "rot": [0, 720, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }] },
+      { "target": "obelisk", "animPos": false, "animRot": false, "animScale": true, "animColor": true, "animVis": false, "keys": [{ "t": 5, "pos": [10, 3, -4], "rot": [0, 0, 0], "scale": [3, 6, 3], "color": [0.95, 0.8, 0.35], "vis": true, "ease": 1 }, { "t": 12.5, "pos": [10, 3, -4], "rot": [0, 0, 0], "scale": [3.8, 7.6, 3.8], "color": [1, 0.45, 0.1], "vis": true, "ease": 1 }] },
+      { "target": "sparks", "animPos": false, "animRot": false, "animScale": false, "animColor": false, "animVis": true, "keys": [{ "t": 0, "pos": [10, 6.4, -4], "rot": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.4], "vis": false, "ease": 2 }, { "t": 9.5, "pos": [10, 6.4, -4], "rot": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.4], "vis": true, "ease": 2 }] },
+      { "target": "cam-dolly", "animPos": true, "animRot": false, "animScale": false, "animColor": false, "animVis": false, "keys": [{ "t": 5, "pos": [-16, 2.5, -10], "rot": [8, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.3], "vis": true, "ease": 0 }, { "t": 10, "pos": [14, 2.5, -10], "rot": [8, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.3], "vis": true, "ease": 0 }] },
+      { "target": "cam-crane", "animPos": true, "animRot": true, "animScale": false, "animColor": false, "animVis": false, "keys": [{ "t": 10, "pos": [12, 10, 16], "rot": [11.31, -143.13, 0], "scale": [1, 1, 1], "color": [1, 0.4, 0.4], "vis": true, "ease": 1 }, { "t": 14, "pos": [16, 14, 20], "rot": [17.35, -141.34, 0], "scale": [1, 1, 1], "color": [1, 0.4, 0.4], "vis": true, "ease": 1 }] }
+    ], "cameraKeys": [{ "t": 0, "eye": [-14, 6, 16], "target": [0, 1.5, 2], "fov": 65, "camera": "cam-wide", "ease": 2 }, { "t": 3.5, "eye": [7, 1, 9], "target": [-2, 1.8, 0], "fov": 90, "shake": 0.08, "camera": "cam-low", "ease": 2 }, { "t": 5, "eye": [-16, 2.5, -10], "target": [-16, 2.5, -9], "fov": 45, "camera": "cam-dolly", "ease": 2 }, { "t": 10, "eye": [5, 1.5, 7], "target": [0, 5, 0], "fov": 55, "shake": 0.1, "camera": "cam-hero", "ease": 1 }, { "t": 13, "eye": [12, 10, 16], "target": [0, 6, 0], "fov": 60, "camera": "cam-crane", "ease": 1 }] }
   ],
   "menus": [],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "emulatorPath": "", "ps2LinkIp": "" },
-  "layout": ""
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
+  "activeLayout": 0,
+  "layouts": [
+    { "name": "Default", "recipe": 0, "open": [], "ini": "" },
+    { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
+    { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" }
+  ]
 }

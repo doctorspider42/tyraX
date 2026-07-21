@@ -6,8 +6,9 @@ namespace Portals {
 // Menu entry actions: 0 close, 1 switch scene, 2 open save menu,
 // 3 open menu (submenu), 4 set save value, 5 add to save value,
 // 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save
-// value holding the option index). param = resolved index, -1 =
-// unknown target.
+// value holding the option index), 9 apply video mode (commits
+// the display-mode row's staged selection). param = resolved
+// index, -1 = unknown target.
 struct MenuEntryData {
   int action;
   int param;
@@ -17,6 +18,10 @@ struct MenuEntryData {
   int bind;         // option-block binding (applyMenuBindings):
                     // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,
                     // 4 stick curve, 5 display mode, 6 widescreen
+  // bind 5 only: the Tyra::DisplayMode each option drives
+  // (optionCount ints; -1 = the project-default boot mode).
+  // Null = the option index itself.
+  const int* optModes;
 };
 
 struct MenuData {
@@ -40,25 +45,25 @@ constexpr int MENU_COUNT = 4;
 
 // menu "options-audio"
 constexpr MenuEntryData MENU_0_ENTRIES[2] = {
-    {8, 0, 0.0F, 5, 0, 1},  // MUSIC
-    {8, 1, 0.0F, 5, 5, 2},  // SOUND
+    {8, 0, 0.0F, 5, 0, 1, nullptr},  // MUSIC
+    {8, 1, 0.0F, 5, 5, 2, nullptr},  // SOUND
 };
 // menu "options-controls"
 constexpr MenuEntryData MENU_1_ENTRIES[2] = {
-    {8, 2, 0.0F, 5, 0, 3},  // DEADZONE
-    {8, 3, 0.0F, 3, 5, 4},  // AIM CURVE
+    {8, 2, 0.0F, 5, 0, 3, nullptr},  // DEADZONE
+    {8, 3, 0.0F, 3, 5, 4, nullptr},  // AIM CURVE
 };
 // menu "options-display"
 constexpr MenuEntryData MENU_2_ENTRIES[2] = {
-    {8, 4, 0.0F, 5, 0, 5},  // DISPLAY
-    {7, 5, 0.0F, 2, 5, 6},  // ASPECT
+    {8, 4, 0.0F, 5, 0, 5, nullptr},  // DISPLAY
+    {7, 5, 0.0F, 2, 5, 6, nullptr},  // ASPECT
 };
 // menu "options"
 constexpr MenuEntryData MENU_3_ENTRIES[4] = {
-    {3, 0, 0.0F, 0, -1, 0},  // AUDIO
-    {3, 1, 0.0F, 0, -1, 0},  // CONTROLS
-    {3, 2, 0.0F, 0, -1, 0},  // DISPLAY
-    {0, -1, 0.0F, 0, -1, 0},  // CLOSE
+    {3, 0, 0.0F, 0, -1, 0, nullptr},  // AUDIO
+    {3, 1, 0.0F, 0, -1, 0, nullptr},  // CONTROLS
+    {3, 2, 0.0F, 0, -1, 0, nullptr},  // DISPLAY
+    {0, -1, 0.0F, 0, -1, 0, nullptr},  // CLOSE
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
@@ -71,6 +76,11 @@ inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
 constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
 constexpr int PAUSE_MENU = 3;
+// True when any menu carries an "apply video mode" row (action
+// 9): display-mode rows then only stage a selection and that row
+// commits it; without one they switch on change (the classic
+// behavior).
+constexpr bool MENU_HAS_APPLY_VIDEO = false;
 
 constexpr int MENU_EVENT_COUNT = 0;
 // Names of the "Flow event" entry actions (menuEvent indexes this)

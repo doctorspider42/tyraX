@@ -3,14 +3,22 @@
   "template": "fpp",
   "settings": {
     "videoSystem": "auto",
+    "displayMode": "interlaced",
+    "widescreen": false,
     "buildProfile": "release",
     "textureQuant": "4bit",
     "showFps": false,
     "showMemory": false,
+    "showProfiler": false,
+    "liveLink": true,
     "disableVsync": false,
     "clipping": "precise",
     "animLodDistance": 0,
     "meshLodDistance": 0,
+    "staticBatching": true,
+    "navCellSize": 1,
+    "navMaxSlope": 40,
+    "navAgentRadius": 0.4,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
@@ -22,6 +30,12 @@
     "lookSpeed": 1,
     "stickDeadzoneL": 0.2,
     "stickDeadzoneR": 0.2,
+    "stickCurveL": 0,
+    "stickCurveR": 0,
+    "stickExpL": 2,
+    "stickExpR": 2,
+    "multiplayer": "off",
+    "p2JoinOnStart": true,
     "orbitSpeed": 1,
     "gravity": 9.8,
     "jumpSpeed": 4.5,
@@ -33,6 +47,9 @@
     "terrainMaterial": "",
     "bloom": 0,
     "grain": 0,
+    "dofAmount": 0,
+    "dofFocus": 20,
+    "dofRange": 15,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,
@@ -42,20 +59,22 @@
     "highlightColor": [1, 0.85, 0.15],
     "highlightWidth": 0.35,
     "highlightSteps": 4,
+    "highlightOpacity": 0.56,
+    "highlightOverlay": false,
     "loadingScreen": true
   },
   "scenes": [
     { "name": "main",
       "terrain": { "width": 96, "depth": 96 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4 } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "objects": [
-      { "name": "player-1", "type": "player", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.15, 0.9, 0.9], "physics": false, "player": { "mode": "walk", "walkSpeed": 0.4, "lookSpeed": 1, "eyeHeight": 1.8, "jumpSpeed": 4.5, "canJump": true, "flashlight": { "enabled": false, "color": [0.75, 0.75, 0.62], "range": 30, "angle": 20, "toggle": "" } } },
-      { "name": "wobbler-proto", "type": "model", "position": [0, 0.5, -12], "rotation": [0, 0, 0], "scale": [1.2, 1.2, 1.2], "color": [0.9, 0.95, 0.95], "physics": false, "collision": "none", "model": "res/models/wobbler.glb", "anim": { "clip": "Wiggle", "autoplay": true, "loop": true, "speed": 1 } },
-      { "name": "spawn-here", "type": "empty", "position": [0, 0.5, 10], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.5, 0.5, 0.5], "physics": false },
-      { "name": "spawner", "type": "empty", "position": [4, 1, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.5, 0.5, 0.5], "physics": false, "flowGraph": { "nextId": 20, "nodes": [ { "id": 1, "type": "EverySeconds", "pos": [0, 0], "str": "", "num": [5, 0, 0, 0] }, { "id": 2, "type": "SpawnObject", "pos": [260, 0], "str": "wobbler-proto", "num": [0, 0, 0, 0] }, { "id": 3, "type": "GetPosition", "pos": [0, 160], "str": "spawn-here", "num": [0, 0, 0, 0] }, { "id": 4, "type": "Delay", "pos": [260, 200], "str": "", "num": [3, 0, 0, 0] }, { "id": 5, "type": "DespawnObject", "pos": [520, 200], "str": "", "num": [0, 0, 0, 0] } ], "links": [ { "id": 10, "from": 1, "to": 2 }, { "id": 11, "from": 3, "to": 2, "pos": true }, { "id": 12, "from": 1, "to": 4 }, { "id": 13, "from": 4, "to": 5 }, { "id": 14, "from": 2, "to": 5, "data": true } ] } }
-    ] }
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "objects": ["3cb49f513e382cab", "e2ac97c8d021106f", "d4402d8cd34ac0d6", "964a5a899e59de48"] }
+  ],
+  "fonts": [
+    { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
   ],
   "hud": [],
+  "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
+  "hudTexts": [],
   "hudBloomLayer": -1,
   "hudGrainLayer": -1,
   "music": [],
@@ -68,7 +87,16 @@
     { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
   ],
   "defaultAmbience": 0,
+  "loadingScreens": [],
+  "defaultLoadingScreen": -1,
+  "splashScreens": [],
+  "sequences": [],
   "menus": [],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "emulatorPath": "", "ps2LinkIp": "" },
-  "layout": ""
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
+  "activeLayout": 0,
+  "layouts": [
+    { "name": "Default", "recipe": 0, "open": [], "ini": "" },
+    { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
+    { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" }
+  ]
 }

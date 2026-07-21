@@ -96,6 +96,12 @@ float g_rumbleTimer = 0.0F;
 int g_menuDispOpt = -1;
 int g_menuWideOpt = -1;
 
+// The project-default display mode: whatever main.cpp resolved the boot
+// mode to (fixed preference, or region + the PAL-picture choice). Captured
+// in buildScene before any runtime switch can happen; a display row's
+// "DEFAULT" option (optModes -1) maps to it.
+int g_defaultDispMode = 0;
+
 // Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
 // below the deadzone, rescales from the deadzone edge so there is no step,
 // then shapes the magnitude by the per-stick response curve. Both the FPP
@@ -144,6 +150,23 @@ using namespace Tyra;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+// Display-mode option rows (bind 5): the engine mode an option drives, and
+// the option a mode shows as. Rows without an explicit optModes table keep
+// the positional mapping (option index == Tyra::DisplayMode); a table entry
+// of -1 is the "DEFAULT" option - the project-default boot mode.
+int displayOptionMode(const MenuEntryData& en, int idx) {
+  if (en.optModes && idx >= 0 && idx < en.optionCount) {
+    const int m = en.optModes[idx];
+    return m < 0 ? g_defaultDispMode : m;
+  }
+  return idx;
+}
+int displayOptionIndexOf(const MenuEntryData& en, int mode) {
+  for (int i = 0; i < en.optionCount; ++i)
+    if (displayOptionMode(en, i) == mode) return i;
+  return -1;
+}
 
 /** The texture repository asserts (crashes) on a missing file - probe first
  * so a missing PNG degrades to an untextured draw with a warning. */
@@ -1499,16 +1522,32 @@ void TerrainGame::buildScene() {
   // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
   g_deadzoneL = ANALOG_DEADZONE_L;
   g_deadzoneR = ANALOG_DEADZONE_R;
+  // The boot display mode IS the project default (main.cpp resolved it,
+  // nothing can have switched it yet) - latch it for the menu "DEFAULT"
+  // display option before any option lookup below resolves that sentinel.
+  g_defaultDispMode = (int)engine->renderer.core.getSettings().getDisplayMode();
   // Seed the display/widescreen option-block trackers from the current saved
   // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
   // prompt) at boot: the game boots in the project's compiled display mode,
   // and a menu row only switches when the player moves it (or loads a save
-  // that changed it).
+  // that changed it). With an "apply video mode" row in the project the
+  // display row is a staging UI instead - align it to the actual boot mode
+  // so a title-screen menu opens showing (and its APPLY row seeing) reality.
   for (int mi = 0; mi < MENU_COUNT; ++mi)
     for (int e = 0; e < MENUS[mi].entryCount; ++e) {
       const MenuEntryData& en = MENUS[mi].entries[e];
       if (en.param < 0 || en.param >= SAVE_VALUE_COUNT) continue;
-      if (en.bind == 5) g_menuDispOpt = (int)saveValues[en.param];
+      if (en.bind == 5) {
+        g_menuDispOpt = (int)saveValues[en.param];
+        if (MENU_HAS_APPLY_VIDEO) {
+          const int live = displayOptionIndexOf(
+              en, (int)engine->renderer.core.getSettings().getDisplayMode());
+          if (live >= 0) {
+            saveValues[en.param] = (float)live;
+            g_menuDispOpt = live;
+          }
+        }
+      }
       if (en.bind == 6) g_menuWideOpt = (int)saveValues[en.param];
     }
   saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
@@ -3997,6 +4036,30 @@ bool TerrainGame::updateGameMenu() {
       case 8:  // choice
         cycleValue(e, 1);
         break;
+      case 9:  // apply video mode: commit the display row's staged selection
+        // (a scan-mode switch closes the menu - see applyVideoRequests'
+        // caller - so the player judges the new picture unobstructed).
+        for (int vmi = 0; vmi < MENU_COUNT; ++vmi) {
+          for (int vei = 0; vei < MENUS[vmi].entryCount; ++vei) {
+            const MenuEntryData& row = MENUS[vmi].entries[vei];
+            if (row.bind != 5 || row.param < 0 ||
+                row.param >= SAVE_VALUE_COUNT || row.optionCount <= 0)
+              continue;
+            int idx = (int)saveValues[row.param];
+            if (idx < 0) idx = 0;
+            if (idx >= row.optionCount) idx = row.optionCount - 1;
+            const int mode = displayOptionMode(row, idx);
+            if (mode !=
+                (int)engine->renderer.core.getSettings().getDisplayMode()) {
+              scriptCtx.requestDisplayMode = mode;
+              scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert net
+              g_menuDispOpt = idx;
+            }
+            vmi = MENU_COUNT;  // first display row wins
+            break;
+          }
+        }
+        break;
     }
   }
   return pausing();
@@ -4010,7 +4073,11 @@ bool TerrainGame::updateGameMenu() {
 // / curve are idempotent (re-applied each frame, cheap). Display mode and
 // widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
 // option actually changes, routed through the same scriptCtx video requests
-// the Set Display Mode / Set Widescreen flow nodes use.
+// the Set Display Mode / Set Widescreen flow nodes use. When the project has
+// an "apply video mode" row (MENU_HAS_APPLY_VIDEO) the display row defers
+// instead: cycling it only stages a selection the APPLY row commits (case 9
+// in updateGameMenu), so the player can browse the option list without the
+// screen switching under them.
 void TerrainGame::applyMenuBindings() {
   for (int mi = 0; mi < MENU_COUNT; ++mi) {
     const MenuData& m = MENUS[mi];
@@ -4046,10 +4113,22 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
-          if (idx != g_menuDispOpt) {
+        case 5:  // display / scan mode (option -> mode via displayOptionMode)
+          if (MENU_HAS_APPLY_VIDEO) {
+            // Deferred: the row only stages a selection while a menu is on
+            // screen; the "apply video mode" row commits it. With no menu
+            // open, snap the row back to the live mode - a browsed-but-
+            // unapplied selection (or a reverted confirm) never lies.
+            if (gameMenuIndex < 0 && en.param >= 0 &&
+                en.param < SAVE_VALUE_COUNT) {
+              const int live = displayOptionIndexOf(
+                  en,
+                  (int)engine->renderer.core.getSettings().getDisplayMode());
+              if (live >= 0 && live != idx) saveValues[en.param] = (float)live;
+            }
+          } else if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
-            scriptCtx.requestDisplayMode = idx;
+            scriptCtx.requestDisplayMode = displayOptionMode(en, idx);
             scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert safety net
           }
           break;

@@ -1,0 +1,1 @@
+{ "id": "ef91e62921381675", "name": "pillar-930", "type": "cylinder", "position": [377.317, 18.968, -184.02], "rotation": [0, 220.9, 0], "scale": [1.47, 3.77, 1.47], "color": [0.583, 0.496, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }
