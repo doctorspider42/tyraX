@@ -1,0 +1,1 @@
+{ "id": "8f80e5bbdfa714da", "name": "pillar-521", "type": "cylinder", "position": [225.238, 4.04, 308.276], "rotation": [0, 102.2, 0], "scale": [1.29, 4.85, 1.29], "color": [0.625, 0.475, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }

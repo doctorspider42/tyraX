@@ -1,0 +1,1 @@
+{ "id": "dfbf759662fabcad", "name": "pillar-802", "type": "cylinder", "position": [457.05, 3.144, 120.722], "rotation": [0, 207.4, 0], "scale": [1.05, 3.12, 1.05], "color": [0.623, 0.458, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }

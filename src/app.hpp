@@ -14,6 +14,7 @@
 #include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
+#include "session.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -137,6 +138,7 @@ private:
     void addEmpty();
     void addDecal();
     void addMirror();
+    void addPortal();
     void drawAddObjectMenu();
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
@@ -153,6 +155,9 @@ private:
     // Combo picking an .mtl for the object (primitives: surface; models:
     // override). Returns true when materialPath changed.
     bool drawMaterialCombo(SceneObject& o);
+    // Per-object animation/mesh LOD override rows (animated models + player
+    // avatars). Returns true when a value changed (caller commits).
+    bool drawLodOverrides(SceneObject& o);
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
     // Project-panel section listing res/models + res/textures with the
@@ -161,6 +166,7 @@ private:
     // Files directly under res/<subdir> with the given extension (lowercase
     // compare), names only, sorted by the directory iteration order
     std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
+    std::vector<std::string> listAnimatedModelFiles();
     // "Pick..." button + popup listing res/textures; true when path changed
     bool pickProjectTexture(const char* popupId, std::string& path);
     // Cached objparser summary of a model (for the properties panel)
@@ -292,6 +298,15 @@ private:
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
+    // The unified terrain tool (Tools > Terrain Editor): Sculpt and Paint as
+    // switchable modes over one shared, map-size-aware brush.
+    void drawTerrainWindow();
+    // Push the active scene's resolved terrain layers + per-vertex weights to
+    // the viewport (two-pass splatting preview). Empty layers clear the passes.
+    void rebakeSplatPreview();
+    // Generate + upload a stochastic-tiling supertile for a terrain texture to
+    // the viewport's cache; returns the synthetic texture key + tiling factor.
+    std::string uploadStochPreview(const std::string& srcRel, float& factor);
     // load + show; modelHint (a res/models .obj) switches the preview to that
     // model - passed by the Edit... button of Model objects
     void openMaterialEditor(const std::string& relPath,
@@ -326,12 +341,29 @@ private:
     // Guarded actions that would discard unsaved edits (Exit / Open / New).
     // When the project is dirty they open a confirm modal instead of running
     // immediately; the modal's Save/Discard buttons then run the pending one.
-    enum class PendingAction { None, Exit, Open, New };
+    enum class PendingAction { None, Exit, Open, New, JoinSession };
     void requestExit();
     void requestOpenProject();
     void requestNewProject();
     void performPendingAction();
     void drawDiscardModal();
+
+    // --- Collaboration session (docs/collaboration.md) ----------------------
+    // Live LAN sessions: this editor hosts its open project or joins another
+    // editor's. Session (session.hpp) runs the network side on a worker
+    // thread; sessionTick() drains its events once per frame on the UI thread
+    // and is the ONLY place session state meets project_/ImGui.
+    void sessionTick();
+    void requestJoinSession();  // dirty-guarded like Open/New
+    void startHostSession();    // reads the session* input fields
+    void closeSession();        // host: ends for everyone; client: leaves
+    // Open the freshly synced remote project from its cache directory,
+    // keeping the session alive across attachProject().
+    void openRemoteProject(const std::string& dir);
+    void drawHostSessionModal();
+    void drawJoinSessionModal();
+    void drawSessionEndedModal();
+    void drawSessionWindow();
     void copyObject();
     void pasteObject();
 
@@ -374,6 +406,10 @@ private:
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
+    // Collaboration (editor.ini): the name other session participants see
+    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    std::string globalDisplayName_;
+    std::string globalSessionCacheDir_;
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
     // Preferences > AI assistant). Model "" = the backend's default.
     aigen::Config globalAi_;
@@ -387,14 +423,52 @@ private:
     // discard-confirmation guard). Layout/docking changes do not set this -
     // they fold into the .tyra only when the user saves the project.
     bool dirty_ = false;
-    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
-    std::string titleName_;         // project name currently in the title
+    bool titleShowsDirty_ = false;   // last title state pushed to GLFW
+    bool titleShowsJoined_ = false;  // last session-client marker in the title
+    std::string titleName_;          // project name currently in the title
     // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
     // once the user resolves the modal; exitConfirmed_ lets the main loop close
     // after a confirmed Exit without re-prompting.
     PendingAction pendingAction_ = PendingAction::None;
     bool openDiscardPopup_ = false;
     bool exitConfirmed_ = false;
+
+    // Collaboration session state (see the method block above). The Session
+    // owns the worker thread; these are the UI-side latches and input buffers.
+    session::Session session_;
+    // Live model sync. modelEditSerial_ is bumped by every mutation path
+    // (commitChange / applySnapshot / setDirty-true); sessionTick diffs the
+    // model against sessionShadow_ whenever it moves past what it last
+    // scanned, and mirrors inbound edits into the same shadow (so an echo of
+    // our own edit re-diffs to nothing). Seeded when a session goes live.
+    session::ModelShadow sessionShadow_;
+    uint64_t modelEditSerial_ = 0;
+    uint64_t sessionScannedSerial_ = 0;
+    bool showSessionWindow_ = false;
+    bool openHostSessionPopup_ = false;
+    bool openJoinSessionPopup_ = false;
+    bool openSessionEndedPopup_ = false;
+    bool joinModalVisible_ = false;   // Ended errors go inline while it shows
+    bool sessionAttachKeep_ = false;  // openRemoteProject: don't close on attach
+    char sessionName_[48] = "";
+    char sessionAddr_[128] = "";
+    int sessionPort_ = 7797;
+    char sessionCode_[16] = "";
+    std::string sessionError_;      // inline error in the join modal
+    std::string sessionEndedText_;  // reason shown by the session-ended popup
+    std::vector<session::PeerView> sessionPeers_;
+    // Presence: what each OTHER participant has selected (object ids + the
+    // scene index they are editing), keyed by peer id. Rendered as per-peer
+    // outlines in the viewport and dots in the object list. Our own selection
+    // is broadcast throttled whenever it changes.
+    struct PeerPresence {
+        int scene = 0;
+        std::vector<std::string> sel;  // object ids
+    };
+    std::map<int, PeerPresence> peerPresence_;
+    std::vector<std::string> presenceSentSel_;
+    int presenceSentScene_ = -1;
+    double presenceNextSend_ = 0.0;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame
     // and EndFrame). Recipe-built layouts use recipeRebuildPending_ instead.
@@ -440,6 +514,16 @@ private:
     bool sculptStroke_ = false;    // an LMB stroke is in progress
     bool sculptFlatten_ = false;   // level toward flattenHeight_ instead of raise
     float flattenHeight_ = 0.0f;   // flatten target height (world units)
+
+    // Terrain splat painting (docs/terrain-painting.md). Paints the active layer
+    // into SceneData::splat with the same brush raycast as sculpting (mutually
+    // exclusive with it). splatPreviewDirty_ requests a live composite re-bake.
+    bool paintMode_ = false;
+    int paintLayer_ = 0;            // active additional-layer index
+    float paintStrength_ = 0.5f;    // per-stroke-step weight, 0..1
+    bool paintErase_ = false;       // subtract the active layer instead of add
+    bool paintStroke_ = false;      // an LMB paint stroke is in progress
+    bool splatPreviewDirty_ = false;
 
     History history_;
     std::vector<SceneObject> clipboard_;  // copy/paste a whole selection at once
@@ -598,6 +682,7 @@ private:
     // edit rewrites the file and invalidates the caches - the scene viewport
     // updates live. Not project data, so no undo history (same as imports).
     bool showMaterialEditor_ = false;
+    bool showTerrainEditor_ = false;  // the unified Sculpt + Paint terrain tool
     std::string matEdPath_;  // project-relative path of the open .mtl ("" = none)
     struct MatEdEntry {
         std::string name;
@@ -833,6 +918,8 @@ private:
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
+    char prefDisplayName_[48] = "";          // session display name (editor.ini)
+    char prefSessionCacheDir_[512] = "";     // remote-project cache root override
     int prefAiBackend_ = 0;            // index into aigen::backendIds()
     char prefAiModel_[128] = "";       // "" = the backend's default model
     // Model combo shows "Custom..." + a free-text field when the staged model

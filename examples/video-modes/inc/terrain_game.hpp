@@ -23,7 +23,11 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
-  void updateTerrainChunks(float focusX, float focusZ, int budget);
+  // Streams the chunk ring around one or two view foci (two-player modes:
+  // P2's avatar is the second focus) - a chunk near EITHER focus stays
+  // resident, so the split halves stop evicting each other's terrain.
+  void updateTerrainChunks(float focusX, float focusZ, float focus2X,
+                           float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updateCameraOrbit();
@@ -45,7 +49,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
+    // Painted terrain layers: one extra alpha-blended pass over the base per
+    // layer with any weight in this chunk. Shares the chunk's vertices; own
+    // tiled STs + shade colors whose alpha carries the painted weight.
+    struct LayerPass {
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      Tyra::StaPipTextureBag texBag;
+      int layer = -1;
+    };
+    std::vector<LayerPass> layerPasses;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    // Height extent of this chunk's cells, filled at build - the portal
+    // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
+    float minY = 0.0F, maxY = 0.0F;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -53,6 +73,9 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
+  // Same render settings as infoBag but with GS blending on - shared by every
+  // chunk's layer passes (the base pass must stay opaque).
+  std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -80,6 +103,15 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -230,6 +262,37 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
+  // Static batching (STATIC_BATCHING, Preferences > Rendering): authored
+  // objects flagged batchStatic at build time merge into combined
+  // world-space bags at scene load, grouped by material + a coarse world
+  // cell - one StaPip submit per batch instead of per object (the fixed
+  // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
+  // small primitives). Members keep their runtimeObjects entry (collision,
+  // raycasts and scripts read data as always) but skip the per-object draw
+  // path. Runtime mutation of a member (Live Link edits, Raycast-driven
+  // actions, global scripts - all set dirty) DEMOTES it to the solo path
+  // and rebuilds the batch once without it; a visibility/residency flip
+  // (caught by the shown snapshot - hide/show can skip the dirty flag)
+  // only rebuilds the batch in place.
+  struct StaticBatch {
+    int material = -1;                 // group key (-1 = plain color)
+    std::vector<int> members;          // authored object indices
+    std::vector<unsigned char> shown;  // per member: baked as visible?
+    std::vector<Tyra::Vec4> vertices;  // world-space baked, like terrain
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    bool dirty = true;
+  };
+  std::vector<StaticBatch> staticBatches;
+  std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
+  std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  void buildStaticBatchList();
+  void rebuildStaticBatch(StaticBatch& b);
+  void renderStaticBatches();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -240,7 +303,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -249,6 +318,17 @@ class TerrainGame : public Tyra::Game {
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
   void updateObjectPhysics();
+  // Physics bodies in a walking player's path get shoved along the attempted
+  // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
+  // a blocked step still transfers its push into the crate.
+  void pushPhysicsBodies(float prevX, float prevZ, float nextX, float nextZ,
+                         float feetY, float eyeHeight);
+  // Physics helpers: world-space AABB half-extents + center offset (models
+  // use their mesh AABB, like collidePlayer) and the "solid enough to
+  // block/bump a body" filter.
+  static void physExtents(const SceneObjectData& d, const GameModel* gm,
+                          const Tyra::SkelModel* anim, float* cOff, float* ext);
+  static bool physObstacle(const SceneObjectData& d);
   void renderScene();
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
@@ -257,7 +337,94 @@ class TerrainGame : public Tyra::Game {
   void renderMirrors();
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Portal objects (type 16): a linked pair of surfaces. renderPortalView
+  // renders the through-view of the best on-screen portal into the engine's
+  // portal render target (the player camera mapped through the pair, so the
+  // second camera stays in lockstep with the player's); renderPortals blends
+  // every portal's tinted quad after the scene and projects the live view
+  // onto the winner's surface; updatePortals teleports the player / physics
+  // objects that cross a linked surface, carrying position, view angle and
+  // vertical velocity through the same mapping - the view and the arrival
+  // line up exactly, so stepping through is seamless. Up to four portal
+  // views render per frame (nearest qualify, carved farthest-first);
+  // portalLiveFlags marks the PORTALS entries whose opening is live.
+  void renderPortalView();
+  bool renderOnePortalView(int pi);
+  void renderPortals();
+  bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
+  bool updatePortals(float prevX, float prevY, float prevZ, float* px,
+                     float* py, float* pz, float* pyaw, float* ppitch,
+                     float* pvelY, float eyeH);
+  // True when the walker's body column at (x, z) sits inside a linked
+  // FLOOR portal's rectangle near its plane - the walkers suppress the
+  // terrain ground clamp there, so a portal lying on the ground swallows
+  // them (the clamp would otherwise rest the feet on the terrain before
+  // the crossing plane is ever reached).
+  bool portalSwallowsPlayer(float x, float feetY, float z);
+  bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
+                         float y, float z);
+  // Swept variant for physics bodies: a faller at PHYS_MAX_SPEED (3 u/frame)
+  // can step clean over the 2-unit approach zone in one frame - the endpoint
+  // test misses, the terrain clamp kills the fall and the infinite-fall loop
+  // visibly hangs on the ground before it re-swallows. Tests both frame
+  // endpoints plus the segment's plane-crossing point.
+  bool portalSwallowSwept(const RuntimeObject& m, float hx, float hy,
+                          const Tyra::Vec4& a, const Tyra::Vec4& b);
+  // Portal pass-through for the walkers: when the body column sits inside
+  // a linked portal's opening near its plane, updatePortalPass publishes
+  // that portal's plane and collidePlayer stops colliding with objects
+  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
+  // opens up like a doorway while everything else keeps blocking.
+  void updatePortalPass(float x, float feetY, float z);
+  float portalPassPlane[4] = {0, 0, 0, 0};
+  bool portalPassOn = false;
+  // Thrown objects fly through portals too. portalCarryAim finds the
+  // linked portal whose opening the motion segment a->b pierces (front
+  // face, authored rectangle + slack); -1 = none. forObj gates it through
+  // portalCanCross for that object; forObj == -1 is unconditional (the
+  // player-released flight). portalCanCross is the owner's rule: whatever
+  // a portal SHOWS can also go through it - teleportObjects, viewAll, a
+  // view-list member, or the player-released body all qualify.
+  // portalCarryCrossing maps position + full velocity through that pair
+  // (the same isometry updatePortals applies). While a flight segment
+  // aims into an opening, sweepPass* excludes obstacles fully behind that
+  // portal's plane from sweepSphere, and the physics pass applies the
+  // same exclusion to its static-solid resolution - the mounting wall
+  // must not stop a body's center r short of the crossing plane (callers
+  // pad the segment end by the body's extent for exactly that reason).
+  bool portalCanCross(const PortalData& p, int oi);
+  // True when portal pi's through-view actually DRAWS object oi (viewAll, or
+  // oi is on its explicit view list) - a carried object may only be mapped
+  // through a portal that will render it on the far side.
+  bool portalShowsObject(int pi, int oi);
+  // Map a world point through portal pi's pair (source local -> flip about
+  // local Y -> target world), the same isometry as the teleport/camera.
+  void portalMapPoint(int pi, float& x, float& y, float& z);
+  int portalCarryAim(const float* a, const float* b, int forObj);
+  bool portalCarryCrossing(const float* a, float* pos, float* vel);
+  // Arms sweepPass* when segment a->b pierces a linked opening (pad the
+  // end by the swept body's extent). Pair with sweepPassOn = false after
+  // the sweep.
+  bool armSweepPass(const float* a, const float* b);
+  float sweepPassPlane[4] = {0, 0, 0, 0};
+  bool sweepPassOn = false;
+  // The last player-released rigid body (throw OR drop): portal-free -
+  // crosses any linked portal, flag or not - until it settles to sleep.
+  // -1 = none. The non-physics thrown arc (thrownIndex) is always free.
+  int thrownFreeIndex = -1;
+  std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
+  std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Per object: frames until it may hop again (set on every hop). Damps
+  // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
+  // touching legit loops - the example's fall re-crosses every ~13 frames.
+  std::vector<unsigned char> portalHopCool;
+  // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
+  // around the destination render so renderTerrain can drop chunks in the
+  // dead zone between the virtual camera and the target portal's plane.
+  float portalExitPlane[4] = {0, 0, 0, 0};
+  bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -277,24 +444,77 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
-  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
-  // camera when present. Returns false when the scene has no player.
+  // Player entities (PLAYER_INDEXES / PLAYER2_INDEXES in scene_data.hpp);
+  // override the template camera when present. players[0] is the scene's
+  // first Player object (P1), players[1] the second (P2 - only meaningful
+  // with MULTIPLAYER_MODE != 0, see docs/multiplayer.md).
+  struct PlayerCtl {
+    int objIndex = -1;  // scene object index, -1 = this player doesn't exist
+    float x = 0, y = 0, z = 0, velY = 0, yaw = 0, pitch = 0;
+    // Third-person only: yaw/pitch orbit the camera, faceYaw is the avatar's
+    // own facing (turns toward the walk direction). Clip indices are resolved
+    // from the model's clip table at scene load; -1 = unmapped.
+    float faceYaw = 0;
+    int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
+    float boom = 0;
+    // This player's own view; the dispatcher (or the split-screen render
+    // pass) picks which of these drives the frame camera.
+    Tyra::Vec4 camPos, camLook;
+  };
+  PlayerCtl players[2];
+  // Dispatcher: walks P1 (and P2 while active), then composes the frame
+  // camera. Returns false when the scene has no player.
   bool updatePlayerEntity();
-  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
-  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
-  // avatar's own facing (turns toward the walk direction). Clip indices are
-  // resolved from the model's clip table at scene load; -1 = unmapped.
-  float entFaceYaw = 0;
-  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Walks one player from its pad and writes its camera into camPos/camLook.
+  void updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad);
+  // Shared-screen camera: orbits (P1's right stick) around the midpoint of
+  // both players, boom stretched by their separation. Writes cameraPosition.
+  void updateSharedCamera();
+  float sharedBoom = 0;
+  // Player 2 join/leave, both mid-game: Start on pad 2 (P2_JOIN_ON_START) or
+  // a menu Toggle bound to "Player count". Shows/hides the P2 avatar.
+  void setPlayerTwoActive(bool active);
+  void syncPlayerCountMenuValue();
+  bool playerTwoActive = false;
+  Tyra::Pad pad2;              // connector 2; optional, hot-join friendly
+  int menuPlayerCountPrev = -2;  // edge detect for the menu bind
+  // True while renderScene runs inside a split-screen half: the dynamic
+  // env-map bracket restores a FULL-screen raster on end(), which would
+  // break the active half, so the env pass pauses during split rendering
+  // (the VRAM target keeps its last content).
+  bool splitPassActive = false;
+  // True during the SECOND split half's renderScene: animation playback and
+  // skinning already ran this frame (first half), so the animated pass
+  // must not advance time again (2x playback speed) nor re-skin the same
+  // pose (PC-grade avatars cost real EE ms) - it re-submits the
+  // frame's skinned buffers under the second camera instead.
+  bool splitSecondPass = false;
+  // Split-band culling: the split raster shows only the CENTRAL half of the
+  // full-height projection, but the frustum planes the engine classifies
+  // against stay full-height - so each half would transform ~2x the geometry
+  // it can show. Two extra planes bound the visible vertical band; chunks and
+  // static objects entirely outside skip submission before the engine ever
+  // sees them. Recomputed per half from the live camera + projection FOV.
+  void computeSplitBand();
+  bool outsideSplitBand(const float mn[3], const float mx[3]) const;
+  bool objectOutsideSplitBand(int i) const;
+  bool splitBandActive = false;
+  float splitBandN[2][3];  // inward top/bottom plane normals (apex = camera)
+  float splitBandP[3];     // the apex
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
+                       bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // the camera would enter geometry or the terrain.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
-  float camBoom = 0;
+  // The general sweep behind springArm: first blocked distance along d for a
+  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
+  // (the swept object itself). Also carries/throws pickable objects.
+  float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
+                    float maxDist, float radius, int skipIndex) const;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -312,20 +532,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -339,11 +564,44 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
+  // Pickable objects: at most one carried + one in flight. The carried object
+  // rides a fixed reach in front of the camera, swept against the world
+  // (sweepSphere) so it cannot be pushed through or parked behind geometry.
+  void updateCarriedObject();
+  // Hands a dropped/thrown object back to the physics sim (waking it), or
+  // returns false when it has no rigid body to hand off to.
+  bool releaseCarried(RuntimeObject& o, float vx, float vy, float vz);
+  float objectHalfExtent(const RuntimeObject& o) const;
+  // Blocks the walker from pressing against geometry the carried object no
+  // longer fits in front of (the spring arm's sweep, pushing the walker back
+  // instead of pulling the camera in).
+  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
+                         float feetY, float eyeHeight);
+  int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
+  bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
+                              // blocks, eases back out (the boom's policy)
+  int thrownIndex = -1;       // launched object still in flight, -1 = none
+  float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
+  Tyra::Sprite pickPromptSprite;  // "PICK UP" variant, same placement
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
   // point object or the Open Save Menu flow node; gameplay pauses while
@@ -379,14 +637,23 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;

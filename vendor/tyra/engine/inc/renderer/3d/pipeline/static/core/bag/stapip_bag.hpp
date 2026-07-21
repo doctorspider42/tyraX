@@ -15,6 +15,7 @@
 #include "./stapip_color_bag.hpp"
 #include "./stapip_lighting_bag.hpp"
 #include "./stapip_texture_bag.hpp"
+#include "./stapip_billboard_bag.hpp"
 #include "renderer/core/texture/models/texture.hpp"
 #include "./packaging/stapip_bag_packages_bbox.hpp"
 
@@ -47,6 +48,11 @@ class StaPipBag {
 
   /** Optional. Object lighting. */
   StaPipLightingBag* lighting;
+
+  /** Optional (TyraX addition). When set, `vertices` carries particle
+   * CENTERS expanded to camera-facing quads on VU1 - see
+   * StaPipBillboardBag for the channel layout and constraints. */
+  StaPipBillboardBag* billboard;
 
   /** Bump whenever the content of `vertices` changes (TyraX addition).
    * The frustum-culling bbox cache is keyed by the vertex pointer plus this

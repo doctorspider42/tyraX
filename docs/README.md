@@ -34,6 +34,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern
   strokes straight onto the mesh through its UVs (the flat PNG is the bake).
+- [Terrain painting](terrain-painting.md) - blending several terrain layers
+  (grass/rock/path, each an `.mtl`) by painting their weights with a brush on
+  the terrain in the Terrain Editor; two-pass GS splatting (vertex-alpha, full
+  tiled texture detail, cost only on painted chunks), stochastic tiling
+  (build-time texture bombing that breaks the tiled-grid repetition), the
+  storage/undo model, and why the baked-composite approach was abandoned.
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
@@ -44,6 +50,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [Live collaboration sessions](collaboration.md) - real-time multi-user
+  editing: hosting a project, joining over the LAN with a code, what syncs
+  live and how conflicts resolve (host-ordered last-write-wins), presence
+  highlights, the joined-project cache and mid-session file refresh, the
+  host-owns-saving rule, and the trust model / v1 limitations.
 - [NavMesh + NPC AI](navigation-ai.md) - the build-time navigation-grid bake
   (walkability rules, the AI navigation preferences, the viewport overlay),
   the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase

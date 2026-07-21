@@ -57,6 +57,12 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
     case StaPipProgramName::StaPipClipTextureEnv:
       return &clipTextureEnv;
 
+    // Modified by TyraX: particle billboard programs.
+    case StaPipProgramName::StaPipBillboardColor:
+      return &billboardColor;
+    case StaPipProgramName::StaPipBillboardTexture:
+      return &billboardTexture;
+
     default:
       TYRA_TRAP("Unknown VU1 program name");
       return &cullTextureDirLights;
