@@ -9,6 +9,26 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (143) **Two-sided carried-object rendering through a portal (owner's
+  architectural call).** The owner reasoned the fix out: don't just NOT
+  draw the object - draw it, and clip out only the part inside the portal
+  frame. That is exactly right, and it is how a real portal renders. The
+  previous approach mapped the whole carried object to the far side and
+  drew it ONLY in the through-view, so with a wall it read as clipped to
+  the opening (the parts that would fall over the wall vanished) and looked
+  like it stalled. Now the object rides straight ahead at its REAL position
+  and is drawn NORMALLY in the main pass - the portal's z-cap clips the
+  half past the surface inside the opening, a wall around the opening
+  occludes the rest - while that portal's through-view draws a COPY mapped
+  to the exit (`carryPortalPi` + a save/`portalMapPoint`/restore around the
+  view-object loop in renderOnePortalView). The two halves meet at the
+  plane, so the object physically straddles the portal, near half this
+  side and far half coming out the other - no pin, no bend, no vanish, wall
+  or not. renderViewObject's exit-plane dead zone keeps the mapped copy
+  hidden until the object's centre reaches the surface, so it appears only
+  as it emerges. Verified: editor builds clean, portals example regenerated
+  + Docker build exit 0. Owner pad test next.
+
 - (142) **Carried object no longer pins on a portal's mounting wall.**
   Owner narrowed it perfectly: a free-standing portal carries the object
   through fine, a wall-mounted one stops it. The doorway that makes the

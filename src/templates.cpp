@@ -1004,12 +1004,15 @@ class TerrainGame : public Tyra::Game {
   void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
                          float feetY, float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
-  // The carried object is aimed THROUGH a portal and has been mapped to the
-  // far side (in front of the target portal): it is drawn only by that
-  // portal's through-view, and SKIPPED in the near main pass so it does not
-  // also show as a distant double image at the target. Recomputed each
-  // carry frame.
-  bool carryMappedThroughPortal = false;
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
   float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
                               // blocks, eases back out (the boom's policy)
@@ -1673,12 +1676,15 @@ class TerrainGame : public Tyra::Game {
   void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
                          float feetY, float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
-  // The carried object is aimed THROUGH a portal and has been mapped to the
-  // far side (in front of the target portal): it is drawn only by that
-  // portal's through-view, and SKIPPED in the near main pass so it does not
-  // also show as a distant double image at the target. Recomputed each
-  // carry frame.
-  bool carryMappedThroughPortal = false;
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
   float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
                               // blocks, eases back out (the boom's policy)
@@ -4396,6 +4402,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
   carryIndex = thrownIndex = -1;  // carried objects stay in their old scene
+  carryPortalPi = -1;
   thrownFreeIndex = -1;           // and so does the portal-free latch
   portalLiveFlags.clear(); // stale through-views must not survive the switch
   portalPrevPos.clear();   // crossing history restarts with the new objects
@@ -5241,13 +5248,17 @@ void TerrainGame::updateCarriedObject() {
     }
   }
 
-  if (carryIndex < 0) return;
+  if (carryIndex < 0) {
+    carryPortalPi = -1;
+    return;
+  }
   RuntimeObject& o = runtimeObjects[carryIndex];
   // Despawned or hidden mid-carry (flow graph): the hands just open, and the
   // body wakes so it resumes falling if it is shown again mid-air.
   if (!o.active || !o.visible) {
     releaseCarried(o, 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
+    carryPortalPi = -1;
     return;
   }
 
@@ -5343,15 +5354,15 @@ void TerrainGame::updateCarriedObject() {
     }
   }
   // Aiming through a portal that will render the object on the far side:
-  // FORCE the full carry reach, overriding whatever the sweep returned. The
-  // doorway is supposed to make the sweep ignore the mounting wall, but a
-  // wall that straddles the plane (front face flush with it) can still clip
-  // `want` a hair short - and any shortfall below bendT stops the bend from
-  // triggering, so the object pins on the wall (owner: carries fine through
-  // a free-standing portal, stops when there's a wall). Full reach here
-  // guarantees d > bendT and the object flies on through. A portal that will
-  // NOT render the object can't show it past the plane, so there it still
-  // clamps to the surface (half-in slice) as the best available.
+  // Aiming through a portal that will render the object on the far side:
+  // let the reach run FULL, overriding whatever the sweep returned. The
+  // object is NOT pinned or bent - it rides straight ahead, straddling the
+  // surface, and the two-sided render (below + the portal's through-view)
+  // draws each half. The mounting wall must not clip `want` short (a wall
+  // flush with the plane still trips the sweep, and the whole point is that
+  // it opens like a doorway). A portal that will NOT render the object
+  // (teleport-only) can't show the far half, so there the object clamps to
+  // the surface (half-in slice) as the best available.
   if (bendPi >= 0 && bendShows)
     want = PICK_CARRY_DIST + r;
   else if (bendPi >= 0 && !bendShows && bendT > 0.0F && bendT < want)
@@ -5366,18 +5377,13 @@ void TerrainGame::updateCarriedObject() {
     carryDist += (want - carryDist) * k;
   }
   const float d = carryDist;
-  float placeX = ox + dir.x * d;
-  float placeY = oy + dir.y * d;
-  float placeZ = oz + dir.z * d;
-  carryMappedThroughPortal = false;
-  if (bendPi >= 0 && bendShows && d > bendT) {
-    // Past the opening: fly on out the far side (the through-view draws it).
-    portalMapPoint(bendPi, placeX, placeY, placeZ);
-    carryMappedThroughPortal = true;
-  }
-  o.data.position[0] = placeX;
-  o.data.position[1] = placeY;
-  o.data.position[2] = placeZ;
+  // Real position rides straight ahead - the object straddles the surface
+  // naturally as the player approaches. carryPortalPi tells renderScene which
+  // portal's through-view should draw the far half (mapped to the exit).
+  carryPortalPi = (bendPi >= 0 && bendShows) ? bendPi : -1;
+  o.data.position[0] = ox + dir.x * d;
+  o.data.position[1] = oy + dir.y * d;
+  o.data.position[2] = oz + dir.z * d;
   // In the hands the body has no momentum of its own: zero every component
   // (not just Y - the rigid-body sim reads all three) so a release starts
   // from rest instead of resuming whatever it was doing before the grab.
@@ -5391,9 +5397,11 @@ void TerrainGame::updateCarriedObject() {
   } else if (clicked.BTN_USE) {
     releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
+    carryPortalPi = -1;
   } else if (o.data.pickThrow && clicked.BTN_THROW) {
     const int idx = carryIndex;
     carryIndex = -1;
+    carryPortalPi = -1;
     const float vx = dir.x * PICK_THROW_SPEED * g_frameDt;
     const float vy = dir.y * PICK_THROW_SPEED * g_frameDt;
     const float vz = dir.z * PICK_THROW_SPEED * g_frameDt;
@@ -7604,10 +7612,6 @@ void TerrainGame::renderScene() {
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
-    // A carried object aimed through a portal is drawn ONLY by that portal's
-    // through-view (mapped to the far side) - skip it here or it also shows
-    // as a distant double image at the target.
-    if (i == carryIndex && carryMappedThroughPortal) continue;
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
@@ -8237,6 +8241,26 @@ bool TerrainGame::renderOnePortalView(int pi) {
       for (ObjectGeometry::AnimPart& ap : g.animParts)
         if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
   };
+  // Two-sided carry: if the object in the hands is passing through THIS
+  // portal, its through-view draws it mapped to the FAR side - the half that
+  // has gone through the opening, coming out the exit. The main pass draws
+  // the near half at the real position and the z-cap clips whatever lay past
+  // the surface, so the two halves meet at the plane and the object reads as
+  // physically passing through (renderViewObject's exit-plane dead zone
+  // keeps the mapped copy hidden until the object's centre actually reaches
+  // the surface, so it appears only as it emerges).
+  const bool drawCarryFar = carryPortalPi == pi && carryIndex >= 0 &&
+                            carryIndex < (int)runtimeObjects.size();
+  float savedCarry[3];
+  if (drawCarryFar) {
+    RuntimeObject& co = runtimeObjects[carryIndex];
+    savedCarry[0] = co.data.position[0];
+    savedCarry[1] = co.data.position[1];
+    savedCarry[2] = co.data.position[2];
+    portalMapPoint(pi, co.data.position[0], co.data.position[1],
+                   co.data.position[2]);
+    co.dirty = true;  // rebuild at the mapped position for this view
+  }
   if (p.viewAll) {
     // Experimental "all objects in view": submit the whole scene a second
     // time. The pushed frustum planes classify every bag against the
@@ -8256,8 +8280,17 @@ bool TerrainGame::renderOnePortalView(int pi) {
       renderViewObject(ti);
     }
   } else {
+    // drawCarryFar implies carryIndex is on this list (portalShowsObject),
+    // so the loop already renders the mapped far half.
     for (int v = 0; v < p.viewCount; ++v)
       renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
+  }
+  if (drawCarryFar) {
+    RuntimeObject& co = runtimeObjects[carryIndex];
+    co.data.position[0] = savedCarry[0];
+    co.data.position[1] = savedCarry[1];
+    co.data.position[2] = savedCarry[2];
+    co.dirty = true;  // main pass rebuilds at the real (near) position
   }
   portalExitPlaneOn = false;
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));

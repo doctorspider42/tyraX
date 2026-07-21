@@ -587,12 +587,15 @@ class TerrainGame : public Tyra::Game {
   void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
                          float feetY, float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
-  // The carried object is aimed THROUGH a portal and has been mapped to the
-  // far side (in front of the target portal): it is drawn only by that
-  // portal's through-view, and SKIPPED in the near main pass so it does not
-  // also show as a distant double image at the target. Recomputed each
-  // carry frame.
-  bool carryMappedThroughPortal = false;
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
   float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
                               // blocks, eases back out (the boom's policy)
