@@ -5260,14 +5260,15 @@ void TerrainGame::updateCarriedObject() {
   float want = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
                            r, carryIndex);
   sweepPassOn = false;
-  // Keep the object on the player's side of any portal it is aimed through.
-  // Past the surface plane it renders BEHIND the portal - the through-view
-  // carve caps the opening at the surface depth, so the object z-fails and
-  // vanishes, popping back only once the player crosses (owner: carried
-  // object disappears at the seam, shows up on the far side). Clamping the
-  // reach so the center rides just in front of the plane reads as the
-  // object entering the portal, and it re-anchors to the new camera the
-  // instant the player teleports through.
+  // Sink the carried object INTO any portal it is aimed through: clamp its
+  // center to the surface plane, so it sits half-in / half-out - the
+  // classic "entering the portal" slice. The far half renders behind the
+  // portal (the through-view carve caps the opening at the surface depth,
+  // z-failing it away); the near half stays visible, and the whole object
+  // re-anchors in front of the new camera the instant the player crosses.
+  // Clamping SHORT of the plane instead pinned it flat against the surface
+  // like a wall (owner report); letting it pass freely made it vanish
+  // entirely once its center cleared the plane (the earlier seam bug).
   for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
     const PortalData& p = PORTALS[pi];
     if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
@@ -5291,8 +5292,8 @@ void TerrainGame::updateCarriedObject() {
     const float lyp = cxp * pay.x + cyp * pay.y + czp * pay.z;
     const float phx = 0.5F * pm.data.scale[0] + 0.25F;
     const float phy = 0.5F * pm.data.scale[1] + 0.25F;
-    if (lxp > -phx && lxp < phx && lyp > -phy && lyp < phy && t - 0.02F < want)
-      want = t - 0.02F;
+    if (lxp > -phx && lxp < phx && lyp > -phy && lyp < phy && t < want)
+      want = t;
   }
   const float minD = PICK_MIN_DIST + r;
   if (want < minD) want = minD;

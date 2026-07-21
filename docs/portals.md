@@ -45,10 +45,10 @@ between distant parts of the map.
    released body stays "portal-free" until it settles to rest.
    **Carrying** a pickable through a portal works too: walk into the
    opening holding it and both you and the object come out the far side.
-   The carried object rides just in front of the portal surface as you
-   approach (it can't pass the plane ahead of you — past the surface it
-   would render behind the portal and vanish), then re-anchors in front of
-   the new camera the moment you cross.
+   As you approach, the object sinks into the portal surface (half-in,
+   half-out — the far half renders behind the portal and is clipped away,
+   so it can't pass the plane ahead of you and vanish), then re-anchors in
+   front of the new camera the moment you cross.
    For *ambient* rigid bodies — anything that falls or rolls in on its
    own — the rule is **whatever the portal shows can also go through it**:
    an object on the portal's view list crosses, **All objects in view**

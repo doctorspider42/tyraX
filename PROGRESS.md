@@ -16,9 +16,11 @@ Each finished feature lands as its own commit.
   opening and caps it at the surface depth, so anything past the plane
   z-fails and disappears (it re-appeared only after the player crossed,
   via the through-view). Fix: `updateCarriedObject` now clamps the carry
-  reach so the object's center rides just in front of any portal plane the
-  carry ray pierces (rectangle + slack) - it reads as entering the portal
-  and re-anchors to the new camera the instant the player teleports
+  reach so the object's center rides at any portal plane the carry ray
+  pierces (rectangle + slack) - half-in / half-out, the classic "entering
+  the portal" slice (an earlier revision clamped it SHORT of the plane and
+  it pinned flat against the surface like a wall; owner follow-up) - and
+  it re-anchors to the new camera the instant the player teleports
   through. (2) **The player couldn't walk through while carrying.** The
   carry whisker (pushes the walker back when the object no longer fits in
   front of the face) re-derived its portal doorway from a FORWARD probe,
