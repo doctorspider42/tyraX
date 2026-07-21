@@ -9,6 +9,24 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (139) **Carrying through a portal, the dead-centre polish.** With the
+  portal-aware carry (138) working, the owner found the object still
+  snapped onto the mounting wall at the exact CENTRE of the opening, and
+  the "two portals at once" flash returned there for a frame. Both are the
+  eye sitting right ON the plane: (a) the carry sweep's doorway
+  (`armSweepPass`) only arms when its probe starts in FRONT of the plane,
+  so dead centre it failed, the sweep caught the wall and yanked the object
+  onto it - the probe now starts backed up behind the eye (-1.2 along dir)
+  so it always straddles; the bend detection likewise tolerates the plane
+  sitting slightly behind the eye (`t` down to `-(r+0.6)`) so the object
+  stays mapped through instead of un-bending for a frame. (b) The
+  crossing-zone full-screen mask (from round four) engaged only once the
+  quad's screen BBOX stopped covering, but the quad POLYGON stops reaching
+  the corners a touch earlier once the near plane clips it - a new
+  `zoneClose` (eye within the last half of the crossing zone) forces the
+  full mask there, closing the corner-peek. Verified: editor builds clean,
+  portals example regenerated + Docker build exit 0. Owner pad test next.
+
 - (138) **Carrying through a portal, take two: the object flies through
   instead of pinning.** (137) clamped the carried object's center to the
   portal plane to stop it vanishing - but any clamp PINS the object's

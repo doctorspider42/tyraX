@@ -3563,9 +3563,15 @@ void TerrainGame::updateCarriedObject() {
   // plane stop blocking the carry sweep - without this the mounting wall
   // pinned the object at the face and the whisker below shoved the walker
   // back, so a wall portal could only be crossed BACKWARDS (owner report).
+  // The probe starts BEHIND the eye (backed up along -dir): armSweepPass
+  // only arms when its segment starts in FRONT of the plane, and at the
+  // portal centre the eye sits right ON the plane - without the back-up the
+  // doorway fails exactly there, the sweep catches the mounting wall and
+  // yanks the object onto it (owner: cube stops on the wall dead centre).
   {
     const float reach = PICK_CARRY_DIST + r * 2.0F + 0.1F;
-    const float a0[3] = {ox, oy, oz};
+    const float bk = 1.2F;
+    const float a0[3] = {ox - dir.x * bk, oy - dir.y * bk, oz - dir.z * bk};
     const float b0[3] = {ox + dir.x * reach, oy + dir.y * reach,
                          oz + dir.z * reach};
     armSweepPass(a0, b0);
@@ -3603,7 +3609,11 @@ void TerrainGame::updateCarriedObject() {
                      (pm.data.position[1] - oy) * paz.y +
                      (pm.data.position[2] - oz) * paz.z;
     const float t = sd / denom;  // ray param at the plane
-    if (t <= 0.0F || t >= bendT) continue;
+    // Allow the plane to sit a little BEHIND the eye (t slightly negative):
+    // at the portal centre the eye is right on it, and dropping the crossing
+    // there would un-bend the object for a frame and snap it to the near
+    // pass behind the surface (owner: cube stops at the centre).
+    if (t >= bendT || t < -(r + 0.6F)) continue;
     const float cxp = ox + dir.x * t - pm.data.position[0];
     const float cyp = oy + dir.y * t - pm.data.position[1];
     const float czp = oz + dir.z * t - pm.data.position[2];
@@ -3619,7 +3629,7 @@ void TerrainGame::updateCarriedObject() {
   }
   // A non-rendering portal clamps the object to its plane (can't show it
   // through); a rendering one lets the reach run full so it flies on out.
-  if (bendPi >= 0 && !bendShows && bendT < want) want = bendT;
+  if (bendPi >= 0 && !bendShows && bendT > 0.0F && bendT < want) want = bendT;
   const float minD = PICK_MIN_DIST + r;
   if (want < minD) want = minD;
   if (want < carryDist) {
@@ -6249,6 +6259,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
   // corners from the surrounding wall to the destination in one frame
   // (the subtle pop while standing in the opening; owner report).
   bool zone = false;
+  bool zoneClose = false;  // eye almost ON the plane - force the full mask
   {
     const float relX = cameraPosition.x - m.data.position[0];
     const float relY = cameraPosition.y - m.data.position[1];
@@ -6262,6 +6273,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
     const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
     zone = lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
            ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F;
+    // Dead-centre approach: within the last stretch before the plane, force
+    // the full-screen mask even if the quad's bbox still nominally covers -
+    // the quad POLYGON does not reach the screen corners once the near plane
+    // starts clipping it, so the surrounding wall peeks in the corners for a
+    // frame (owner: the "two portals at once" flash right at the centre).
+    zoneClose = zone && lz < thresh * 0.5F;
   }
 
   bool carved = false;
@@ -6332,16 +6349,19 @@ bool TerrainGame::renderOnePortalView(int pi) {
     }
   }
 
-  // Full-screen fallback for the crossing zone: only when the carved quad
-  // no longer covers the whole screen (near-plane clipping ate into it).
+  // Full-screen fallback for the crossing zone: when the carved quad no
+  // longer covers the whole screen (near-plane clipping ate into it), OR
+  // the eye is in the last stretch to the plane (zoneClose - the polygon
+  // stops reaching the corners even while its bbox still spans the screen).
   // The old code went full-screen on distance alone, which flipped the
   // screen corners from the surrounding wall to the destination a frame
   // before the quad grew to fill them - the subtle pop while standing in
   // the opening (owner report). Deferring it to "the quad stopped covering"
-  // hands the fan off to the full mask with nothing visibly changing.
+  // hands the fan off to the full mask with nothing visibly changing;
+  // zoneClose closes the residual corner-peek right at the centre.
   const bool covers = carved && bx0 <= 0 && by0 <= 0 && bx1 >= (int)fbW &&
                       by1 >= (int)fbH;
-  if (zone && !covers) {
+  if (zone && (!covers || zoneClose)) {
     n = 4;
     xy[0] = 0.0F;
     xy[1] = 0.0F;
