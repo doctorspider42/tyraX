@@ -255,6 +255,9 @@ constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F, 0.6F};
 constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.82F, 0.75F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.6F, 1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F, 0.9F};
+constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false, false};
+constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F, 0.55F};
+constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F, 2.5F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true, true};
 constexpr bool CLIP_VU1S[SCENE_COUNT] = {false, false};
 constexpr float SKY_RS[SCENE_COUNT] = {219.3F, 12.75F};
@@ -415,6 +418,11 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Baked ambient occlusion (docs/ambient-occlusion.md)
+#define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
+#define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
+#define SCENE_AO_RADIUS SCENE_AO_RADII[g_activeScene]
+#define TERRAIN_AO TERRAIN_AO_TABLES[g_activeScene]
 #define HM_W HM_WS[g_activeScene]
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
