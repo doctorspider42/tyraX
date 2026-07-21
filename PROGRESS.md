@@ -10,6 +10,46 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (119) **Baked ambient occlusion** (docs/ambient-occlusion.md). Soft contact
+  shadows folded into the same per-vertex colors the directional light bakes
+  into - zero PS2 per-frame cost. Three bakes: **terrain self-occlusion**
+  (host, `aobake::terrainAO` 8-direction horizon scan → `TERRAIN_AO_TABLES`
+  in terrain_heights.gen.hpp; the viewport multiplies the identical grid),
+  **contact darkening** (host reduces solid objects to oriented-box/sphere
+  occluders → `inc/ao_data.gen.hpp`; the EE evaluates the response per vertex
+  at scene load in pushVert/shadeAt - `aoOccluderAt`/`aoShadeMul`, pruned per
+  object/chunk per the point-light dcache lesson - plus a ground-contact term
+  off the bilinear heightmap), and **raycast model self-AO** (host,
+  `aobake::modelAO`, 24 deterministic cosine-weighted rays per obj position
+  with an XZ-grid accel; texbake writes a `<model>.aov` sidecar into
+  `.res-baked/models/` that the engine's `LeanObjLoader` quietly picks up -
+  grazing hits are rejected instead of excluding "triangles containing the
+  vertex", because on low-poly models that exclusion removes entire adjacent
+  walls and no interior corner ever darkens; the first bake proved that with
+  an all-255 sidecar). The occlusion response formula is twinned in the
+  viewport fragment shader (per fragment, live - the same pattern as the
+  point-light preview); occluder SHAPES and both grid/model bakes are
+  single-source in aobake.cpp. Settings `aoEnabled/aoStrength/aoRadius` on
+  ProjectSettings + AmbiencePreset (Ambience Editor block, tooltips + a
+  static-bake caveat note); new projects enable it on their Default preset,
+  pre-AO projects read as off. Animated models neither cast nor receive
+  (they relight dynamically, like with baked point lights); a runtime-moved
+  object re-bakes its own shading on rebuild but its cast shadow stays where
+  the scene was built (documented). Verified: editor build clean; headless
+  fixture (boxes + wall + sphere + an open-front hut .obj) - occluder table,
+  per-scene constants and AO grid inspected in the generated sources; full
+  Docker build compiles the generated EE code + the LeanObjLoader fork; PCSX2
+  A/B screenshots (AO off vs on) show contact blobs under the sphere/boxes,
+  wall-base darkening and the hut's interior-corner gradient, and the .aov
+  sidecar bytes match expectations (dark back corners 134-152, open front
+  217-236). The ground term got a 0.7 damp after the first A/B (full
+  half-hemisphere read too muddy on wall bases). Editor-viewport visual
+  parity could not be screenshotted this session - the GUI presents a white
+  window on this machine even on a pre-change baseline build (AMD GL
+  present/compositing quirk, PCSX2's D3D window captures fine) - the shader
+  compiles clean (no stderr) but a human should eyeball the live preview
+  against the PS2 output.
+
 - (118) **Collaboration polish: mid-session file refresh, session prefs,
   docs.** Closes out remote-collaboration v1. **Refresh project files**
   (client, Session window): re-runs the join-time manifest diff mid-session -

@@ -622,6 +622,15 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
+    // Baked ambient occlusion (docs/ambient-occlusion.md): terrain
+    // self-shadowing, contact darkening between static geometry and raycast
+    // self-AO for imported .obj models - all folded into the baked vertex
+    // colors, zero PS2 per-frame cost. Authored per ambience preset; these
+    // fields are the no-preset fallback like the lighting above.
+    bool aoEnabled = false;
+    float aoStrength = 0.55f;  // 0..1, how dark full occlusion gets
+    float aoRadius = 2.5f;     // world units the contact darkening reaches
+
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
     // tiled by the map's "-s" scale (repeats per world unit), otherwise the
@@ -702,6 +711,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
+           a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
+           a.aoRadius == b.aoRadius &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&

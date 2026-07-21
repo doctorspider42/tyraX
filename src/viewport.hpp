@@ -52,6 +52,14 @@ public:
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
 
+    // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
+    // self-occlusion is multiplied into the terrain vertex colors (the same
+    // aobake::terrainAO grid the build ships), model self-AO into the model
+    // vertex colors, and the analytic occluder + ground contact terms run
+    // live in the fragment shader (the GL twin of the generated game's
+    // per-vertex bake). Rebuilds terrain/models when the values change.
+    void setAmbientOcclusion(bool enabled, float strength, float radius);
+
     // GS hardware distance fog preview (Preferences > Distance fog); geometry
     // blends toward rgb between the start/end view distances, sky excluded -
     // same as the generated game.
@@ -324,6 +332,17 @@ private:
     int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
+    // Ambient occlusion preview (see setAmbientOcclusion)
+    int uAoOn_ = -1, uAoStrength_ = -1, uAoRadius_ = -1, uAoCount_ = -1;
+    int uAoSelfObj_ = -1, uAoGround_ = -1;
+    int uAoPos_ = -1, uAoAx_ = -1, uAoAy_ = -1, uAoAz_ = -1, uAoObj_ = -1;
+    int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
+    bool aoOn_ = false;
+    float aoStrength_ = 0.55f;
+    float aoRadius_ = 2.5f;
+    std::vector<uint8_t> aoGrid_;  // terrain self-AO (aobake::terrainAO)
+    uint32_t aoHmTex_ = 0;         // R32F heightmap for the ground term
+    int aoHmW_ = 0, aoHmD_ = 0;    // dimensions of the uploaded heightmap
 
     // Terrain in chunks of kTerrainChunkCells^2 cells (mesh + grid lines per
     // chunk) so sculpting rebuilds only the chunks under the brush. Grid
@@ -370,6 +389,8 @@ private:
     };
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model
+        float mn[3] = {0, 0, 0};       // model-space AABB (AO occluder shape)
+        float mx[3] = {0, 0, 0};
     };
     // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
     std::map<std::string, ModelDraw> modelCache_;

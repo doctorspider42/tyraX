@@ -17,12 +17,18 @@ struct Submesh {
     float reflStrength = 0.0f;  // reflection strength 0..1
     bool reflRounded = false;   // -rounded: centroid-radial env normals
     std::vector<float> verts;
+    // Resolved 0-based obj `v` index per emitted vertex (verts.size()/8
+    // entries): corners sharing a position share the entry. The key the
+    // baked-AO sidecar is indexed by (aobake::modelAO) - the PS2 loader
+    // resolves the same indices while parsing faces.
+    std::vector<int> posIdx;
 };
 
 struct Model {
     std::vector<Submesh> submeshes;  // first-use order of usemtl
     float min[3] = {0, 0, 0};        // AABB over all vertices
     float max[3] = {0, 0, 0};
+    int positionCount = 0;           // obj `v` entries (posIdx range)
     std::vector<std::string> mtlLibs;  // mtl files used (as referenced/implicit)
     int vertexCount() const {
         int n = 0;

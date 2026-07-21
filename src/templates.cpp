@@ -16,6 +16,7 @@
 
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
+#include "aobake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
@@ -589,6 +590,9 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // baked ambient-occlusion visibility per vertex (255 = open sky), from
+    // the model's .aov sidecar; empty when the project bakes no AO
+    std::vector<unsigned char> vertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // refl: spherical environment map (nullptr = not reflective).
@@ -1261,6 +1265,9 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // baked ambient-occlusion visibility per vertex (255 = open sky), from
+    // the model's .aov sidecar; empty when the project bakes no AO
+    std::vector<unsigned char> vertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // refl: spherical environment map (nullptr = not reflective).
@@ -1800,6 +1807,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
+#include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include <math.h>
@@ -2081,6 +2089,102 @@ V3 pointLightAt(const V3& wp, const V3& n) {
   return add;
 }
 
+/** Ambient occlusion (docs/ambient-occlusion.md): analytic occluders - the
+ * SCENE_AO_OCC table the editor bakes from the solid authored objects
+ * (oriented boxes / spheres) - plus terrain contact darkening, evaluated per
+ * vertex while geometry bakes. Multiplies the directional shade BEFORE point
+ * lights add on top, so light pools stay bright. The editor viewport runs the
+ * same formula per fragment (viewport.cpp fragment shader) - keep in sync. */
+std::vector<const AoOccData*> g_aoLocal;  // pruned per object/terrain chunk
+
+/** Occlusion contribution of one occluder at a surface point (0..1). */
+float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
+  const V3 rel = {wp.x - oc.pos[0], wp.y - oc.pos[1], wp.z - oc.pos[2]};
+  float dist;
+  V3 toOcc;  // direction from the point toward the occluder surface
+  if (oc.sphere) {
+    const float d = sqrtf(rel.x * rel.x + rel.y * rel.y + rel.z * rel.z);
+    dist = d - oc.half[0];
+    if (d > 0.0001F)
+      toOcc = {-rel.x / d, -rel.y / d, -rel.z / d};
+    else
+      toOcc = {0.0F, 1.0F, 0.0F};
+  } else {
+    // into the box frame, clamp onto the box, back out to world
+    const float lx = rel.x * oc.ax[0] + rel.y * oc.ax[1] + rel.z * oc.ax[2];
+    const float ly = rel.x * oc.ay[0] + rel.y * oc.ay[1] + rel.z * oc.ay[2];
+    const float lz = rel.x * oc.az[0] + rel.y * oc.az[1] + rel.z * oc.az[2];
+    const float qx = lx < -oc.half[0] ? -oc.half[0] : (lx > oc.half[0] ? oc.half[0] : lx);
+    const float qy = ly < -oc.half[1] ? -oc.half[1] : (ly > oc.half[1] ? oc.half[1] : ly);
+    const float qz = lz < -oc.half[2] ? -oc.half[2] : (lz > oc.half[2] ? oc.half[2] : lz);
+    const float dvx = lx - qx, dvy = ly - qy, dvz = lz - qz;
+    dist = sqrtf(dvx * dvx + dvy * dvy + dvz * dvz);
+    if (dist > 0.0001F) {
+      const float wx = dvx * oc.ax[0] + dvy * oc.ay[0] + dvz * oc.az[0];
+      const float wy = dvx * oc.ax[1] + dvy * oc.ay[1] + dvz * oc.az[1];
+      const float wz = dvx * oc.ax[2] + dvy * oc.ay[2] + dvz * oc.az[2];
+      toOcc = {-wx / dist, -wy / dist, -wz / dist};
+    } else {
+      toOcc = {0.0F, 1.0F, 0.0F};
+    }
+  }
+  if (dist <= 0.0F) return 1.0F;  // touching / inside
+  float fade = 1.0F - dist / SCENE_AO_RADIUS;
+  if (fade <= 0.0F) return 0.0F;
+  fade *= fade;
+  // Facing weight: full occlusion facing the occluder, ~0.35 side-on (a wall
+  // still darkens the floor at its base), zero facing away.
+  float w = 0.35F + 0.65F * (n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z);
+  if (w <= 0.0F) return 0.0F;
+  if (w > 1.0F) w = 1.0F;
+  return fade * w;
+}
+
+/** Occlusion sum over the pruned local list (+ the terrain contact term for
+ * object geometry) -> shade multiplier. groundTerm is off for the terrain
+ * itself - the ground doesn't sit next to itself. */
+float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
+  if (!SCENE_AO_ENABLED) return 1.0F;
+  float occ = 0.0F;
+  for (const AoOccData* oc : g_aoLocal) occ += aoOccluderAt(*oc, wp, n);
+  if (groundTerm) {
+    float dy = wp.y - terrainHeightAt(wp.x, wp.z);
+    if (dy < 0.0F) dy = 0.0F;
+    if (dy < SCENE_AO_RADIUS) {
+      float fade = 1.0F - dy / SCENE_AO_RADIUS;
+      fade *= fade;
+      // up-facing: open sky above; the 0.7 keeps wall bases from muddying
+      // (the ground is lit and bounces - full half-hemisphere reads too dark)
+      float horiz = 0.5F - 0.5F * n.y;
+      if (horiz < 0.0F) horiz = 0.0F;
+      occ += 0.7F * fade * horiz;
+    }
+  }
+  if (occ > 1.0F) occ = 1.0F;
+  return 1.0F - SCENE_AO_STRENGTH * occ;
+}
+
+/** Prunes the scene occluder table around a world-space bounding sphere.
+ * The point-light dcache lesson applies: never scan the whole table per
+ * vertex - collect the handful in range once per object/chunk. */
+void aoCollectLocal(float cx, float cy, float cz, float radius, int selfIndex) {
+  g_aoLocal.clear();
+  if (!SCENE_AO_ENABLED) return;
+  const AoOccData* tbl = SCENE_AO_OCC;
+  for (int i = 0; i < SCENE_AO_OCC_COUNT; ++i) {
+    const AoOccData& oc = tbl[i];
+    if (oc.objIndex == selfIndex) continue;
+    const float dx = oc.pos[0] - cx;
+    const float dy = oc.pos[1] - cy;
+    const float dz = oc.pos[2] - cz;
+    const float reach =
+        radius + SCENE_AO_RADIUS +
+        sqrtf(oc.half[0] * oc.half[0] + oc.half[1] * oc.half[1] +
+              oc.half[2] * oc.half[2]);
+    if (dx * dx + dy * dy + dz * dz <= reach * reach) g_aoLocal.push_back(&oc);
+  }
+}
+
 // Material context for the primitive builders: addBox & co call pushVert
 // without material args, so rebuildObjectGeometry stages the object's
 // assigned material here before dispatching. Model parts pass theirs
@@ -2137,7 +2241,7 @@ void despawnObjectThunk(int objectIndex) {
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
               float u, float v, const float* kdArg = nullptr,
-              bool texturedArg = false) {
+              bool texturedArg = false, unsigned char selfAo = 255) {
   const float* kd = kdArg ? kdArg : g_primKd;
   const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
@@ -2146,6 +2250,15 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
   V3 shade = shadeOf(n);
+  // Ambient occlusion multiplies the directional shade BEFORE the point
+  // lights add on top (light pools stay bright inside dark corners). selfAo
+  // is the model's baked raycast self-occlusion (255 = open).
+  if (SCENE_AO_ENABLED) {
+    float aoM = aoShadeMul(wp, n, true);
+    if (selfAo != 255)
+      aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
+    shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
+  }
   const V3 pl = pointLightAt(wp, n);
   shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
   if (shade.x > 1.0F) shade.x = 1.0F;
@@ -3476,6 +3589,7 @@ void TerrainGame::loadModelAsset(int i) {
   for (auto& mat : mesh->materials) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
+    part.vertexAo.swap(mat.vertexAo);  // baked AO sidecar (empty = none)
     part.kd[0] = mat.kd[0];
     part.kd[1] = mat.kd[1];
     part.kd[2] = mat.kd[2];
@@ -6588,17 +6702,42 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       o.data.material < (int)gameMaterials.size())
     gmat = &gameMaterials[o.data.material];
 
+  // Ambient occlusion: prune the scene occluder table around this object
+  // once (pushVert then only loops the handful in range). Authored objects
+  // exclude their own occluder; spawned clones (index past the authored
+  // count) exclude nothing.
+  {
+    float aoRad;
+    const float sx = o.data.scale[0], sy = o.data.scale[1], sz = o.data.scale[2];
+    if (o.data.type == 5 && gm) {
+      const float ex =
+          (fabsf(gm->mn[0]) > fabsf(gm->mx[0]) ? fabsf(gm->mn[0]) : fabsf(gm->mx[0])) * fabsf(sx);
+      const float ey =
+          (fabsf(gm->mn[1]) > fabsf(gm->mx[1]) ? fabsf(gm->mn[1]) : fabsf(gm->mx[1])) * fabsf(sy);
+      const float ez =
+          (fabsf(gm->mn[2]) > fabsf(gm->mx[2]) ? fabsf(gm->mn[2]) : fabsf(gm->mx[2])) * fabsf(sz);
+      aoRad = sqrtf(ex * ex + ey * ey + ez * ez);
+    } else {
+      aoRad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);  // unit primitives
+    }
+    aoCollectLocal(o.data.position[0], o.data.position[1], o.data.position[2],
+                   aoRad, index < SCENE_OBJECT_COUNT ? index : -1);
+  }
+
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
       const GameModelPart& src = gm->parts[pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
+      // parallel to the vertex array, one byte per vertex.
+      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
                  {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured);
+                 textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255);
       }
     }
     g_envNormals = nullptr;
@@ -9263,6 +9402,15 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         if (h < ch.minY) ch.minY = h;
         if (h > ch.maxY) ch.maxY = h;
       }
+    // Ambient occlusion: occluders in reach of this chunk (shadeAt loops the
+    // pruned list per vertex - the same staging pushVert gets per object).
+    const float hx = 0.5F * (mgx1 - mgx0) * stepX;
+    const float hy = 0.5F * (ch.maxY - ch.minY);
+    const float hz = 0.5F * (mgz1 - mgz0) * stepZ;
+    aoCollectLocal(startX + 0.5F * (mgx0 + mgx1) * stepX,
+                   0.5F * (ch.minY + ch.maxY),
+                   startZ + 0.5F * (mgz0 + mgz1) * stepZ,
+                   sqrtf(hx * hx + hy * hy + hz * hz), -1);
   }
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
@@ -9271,6 +9419,19 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
     V3 s = shadeOf(n);
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
+    // Ambient occlusion: the host-baked heightmap self-occlusion grid plus
+    // the contact darkening of nearby occluders (g_aoLocal, pruned per chunk
+    // below). Multiplies before the point lights, like pushVert.
+    if (SCENE_AO_ENABLED) {
+      float aoM = aoShadeMul(wp, n, false);
+      if (TERRAIN_AO) {
+        int ax = ix < 0 ? 0 : (ix > HM_W - 1 ? HM_W - 1 : ix);
+        int az = iz < 0 ? 0 : (iz > HM_D - 1 ? HM_D - 1 : iz);
+        aoM *= 1.0F - SCENE_AO_STRENGTH *
+                          (1.0F - TERRAIN_AO[az * HM_W + ax] * (1.0F / 255.0F));
+      }
+      s.x *= aoM, s.y *= aoM, s.z *= aoM;
+    }
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
     // Macro ground variation: base and layer passes both shade through here,
@@ -11849,6 +12010,65 @@ static std::string decalDataHeader(const Project& p) {
     return out.str();
 }
 
+// inc/ao_data.gen.hpp - ambient-occlusion occluder tables
+// (docs/ambient-occlusion.md). The solid authored objects of every AO-enabled
+// scene, reduced to analytic oriented boxes / spheres on the host
+// (aobake::collectOccluders - the single source of occluder SHAPES, shared
+// with the viewport); the game evaluates their contact darkening per vertex
+// at scene load (aoOccluderAt/aoShadeMul in the game cpp).
+static std::string aoDataHeader(const Project& p) {
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "// Ambient-occlusion occluders: solid authored objects as oriented\n"
+           "// boxes / spheres, baked on the host. ax/ay/az = the object's local\n"
+           "// axes in world space; sphere = 1 reads half[0] as the radius;\n"
+           "// objIndex = scene-table index (an object never occludes itself).\n\n"
+           "namespace {\n"
+           "struct AoOccData {\n"
+           "  float pos[3];\n"
+           "  float ax[3], ay[3], az[3];\n"
+           "  float half[3];\n"
+           "  int sphere;\n"
+           "  int objIndex;\n"
+           "};\n\n";
+    const int sceneCount = (int)p.scenes.size();
+    std::vector<int> counts(sceneCount, 0);
+    for (int si = 0; si < sceneCount; ++si) {
+        if (!project::resolvedSettings(p, p.scenes[si]).aoEnabled) continue;
+        const std::vector<aobake::Occluder> occs = aobake::collectOccluders(
+            p.scenes[si].objects,
+            [&](const SceneObject& o, float mn[3], float mx[3]) {
+                if (o.modelPath.empty()) return false;
+                return aobake::objAabb(
+                    (std::filesystem::path(p.dir) / o.modelPath).string(), mn, mx);
+            });
+        if (occs.empty()) continue;
+        counts[si] = (int)occs.size();
+        out << "static const AoOccData S" << si << "_AO_OCC[" << occs.size()
+            << "] = {\n";
+        for (const aobake::Occluder& oc : occs) {
+            out << "    {" << vec3Init(oc.pos) << ", " << vec3Init(oc.axis[0])
+                << ", " << vec3Init(oc.axis[1]) << ", " << vec3Init(oc.axis[2])
+                << ", " << vec3Init(oc.half) << ", " << (oc.sphere ? 1 : 0)
+                << ", " << oc.objIndex << "},\n";
+        }
+        out << "};\n";
+    }
+    out << "\nstatic const AoOccData* const SCENE_AO_OCC_TABLES[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (counts[si] ? ("S" + std::to_string(si) + "_AO_OCC") : "nullptr");
+    out << "};\n"
+           "static const int SCENE_AO_OCC_COUNTS[] = {";
+    for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << counts[si];
+    out << "};\n"
+           "}  // namespace\n\n"
+           "#define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]\n"
+           "#define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]\n";
+    return out.str();
+}
+
 // Static batching eligibility (SceneObjectData::batchStatic). The game may
 // merge flagged objects into combined world-space bags at scene load; the
 // flag must therefore rule out everything that renders through a special
@@ -12418,6 +12638,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SCENE_LIGHT_COL_GS", [&](int si) { return floatLit(rs[si].lightColor[1]); });
     sceneFloats("SCENE_LIGHT_COL_BS", [&](int si) { return floatLit(rs[si].lightColor[2]); });
     sceneFloats("SCENE_BRIGHTNESSES", [&](int si) { return floatLit(rs[si].brightness); });
+    // Baked ambient occlusion (docs/ambient-occlusion.md): folded into the
+    // same vertex colors as the light above while geometry bakes at load.
+    sceneBools("SCENE_AO_ENABLEDS", [&](int si) { return rs[si].aoEnabled; });
+    sceneFloats("SCENE_AO_STRENGTHS", [&](int si) { return floatLit(rs[si].aoStrength); });
+    sceneFloats("SCENE_AO_RADII", [&](int si) {
+        return floatLit(rs[si].aoRadius < 0.1f ? 0.1f : rs[si].aoRadius);
+    });
 
     // Per-scene sky, clipping, post-FX and usable-highlight (Scene > Preferences
     // overrides of Project > Preferences). Accessor macros drop the trailing S.
@@ -12700,6 +12927,11 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Baked ambient occlusion (docs/ambient-occlusion.md)
+#define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
+#define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
+#define SCENE_AO_RADIUS SCENE_AO_RADII[g_activeScene]
+#define TERRAIN_AO TERRAIN_AO_TABLES[g_activeScene]
 #define HM_W HM_WS[g_activeScene]
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
@@ -15497,6 +15729,45 @@ static std::string terrainHeightsHeader(const Project& p) {
         else
             out << "nullptr";
     }
+    out << "};\n\n";
+
+    // Baked terrain ambient occlusion (docs/ambient-occlusion.md): heightmap
+    // self-occlusion on the SAME vertex grid (aobake::terrainAO on the host -
+    // the viewport consumes the identical grid), 255 = open sky. nullptr =
+    // the scene bakes no AO / the terrain is flat.
+    std::vector<bool> hasAo(sceneCount, false);
+    for (int si = 0; si < sceneCount; ++si) {
+        const SceneData& sc = p.scenes[si];
+        const ProjectSettings srs = project::resolvedSettings(p, sc);
+        if (!srs.aoEnabled) continue;
+        if (!(sc.hmW >= 2 && sc.hmD >= 2 &&
+              (int)sc.heights.size() == sc.hmW * sc.hmD))
+            continue;
+        const float stepX = (float)sc.terrain.width / (vws[si] - 1);
+        const float stepZ = (float)sc.terrain.depth / (vds[si] - 1);
+        const std::vector<uint8_t> grid = aobake::terrainAO(
+            sc.heights, vws[si], vds[si], stepX, stepZ, srs.aoRadius * 3.0f);
+        if (grid.empty()) continue;
+        bool anyOccluded = false;
+        for (uint8_t g : grid) anyOccluded |= (g != 255);
+        if (!anyOccluded) continue;  // flat/open terrain - skip the table
+        hasAo[si] = true;
+        out << "constexpr unsigned char AO_" << si << "_GRID["
+            << vws[si] * vds[si] << "] = {";
+        for (int i = 0; i < vws[si] * vds[si]; ++i) {
+            if (i % 20 == 0) out << "\n    ";
+            out << (int)grid[i] << ",";
+        }
+        out << "\n};\n";
+    }
+    out << "inline const unsigned char* TERRAIN_AO_TABLES[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si) {
+        out << (si ? ", " : "");
+        if (hasAo[si])
+            out << "AO_" << si << "_GRID";
+        else
+            out << "nullptr";
+    }
     out << "};\n\n"
            "/** Bilinear terrain height at world coordinates in a scene. The\n"
            " * game maps terrainHeightAt(x, z) to the active scene. */\n"
@@ -17502,6 +17773,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\scripts\\navigation.gen.cpp", navigationSource(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
+        {"inc\\ao_data.gen.hpp", aoDataHeader(p)},
         {"inc\\save_system.gen.hpp", saveSystemHeader(p)},
         {"src\\save_system.gen.cpp", saveSystemSource(p)},
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},

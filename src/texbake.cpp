@@ -7,6 +7,7 @@
 
 #include <stb_image.h>
 
+#include "aobake.hpp"    // model AO sidecars (<model>.aov)
 #include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
 #include "objparser.hpp"
 #include "pngquant.hpp"
@@ -305,6 +306,13 @@ std::string bake(const Project& p,
         }
     }
 
+    // Baked ambient occlusion (docs/ambient-occlusion.md): does any scene
+    // resolve to a preset with AO on? Gates the model sidecar bake below and
+    // keeps the vanished-source sweep from eating fresh sidecars.
+    bool anyAo = false;
+    for (const SceneData& sc : p.scenes)
+        anyAo |= project::resolvedSettings(p, sc).aoEnabled;
+
     // drop baked files whose source vanished (they would still reach bin/) -
     // and editor-only files a pre-exclusion bake may have mirrored
     std::vector<fs::path> stale;
@@ -315,10 +323,44 @@ std::string bake(const Project& p,
         // wholesale below, so leave them out of the vanished-source sweep.
         if (rel.begin()->generic_string() == "stoch") continue;
         std::error_code sec;
+        // "<model>.aov" AO sidecars are generated below with no res/ source -
+        // their source is the model itself; they go stale with it or when the
+        // project stops baking AO.
+        if (lowerExt(e.path()) == ".aov") {
+            fs::path objSrc = res / rel;
+            objSrc.replace_extension(".obj");
+            if (!anyAo || !fs::exists(objSrc, sec)) stale.push_back(e.path());
+            continue;
+        }
         if (!fs::exists(res / rel, sec) || editorOnly(rel))
             stale.push_back(e.path());
     }
     for (const fs::path& s : stale) fs::remove(s, ec);
+
+    // Model AO sidecars: raycast self-occlusion per obj position for every
+    // .obj under res/models, written as "<model>.aov" into the mirror (read
+    // by the engine's LeanObjLoader). Skipped when up to date.
+    if (anyAo) {
+        int aoCount = 0;
+        for (const auto& e : fs::recursive_directory_iterator(res / "models", ec)) {
+            if (!e.is_regular_file() || lowerExt(e.path()) != ".obj") continue;
+            fs::path dst = baked / fs::relative(e.path(), res, ec);
+            dst.replace_extension(".aov");
+            std::error_code tec;
+            if (fs::exists(dst, tec) &&
+                fs::last_write_time(dst, tec) >= fs::last_write_time(e.path(), tec))
+                continue;
+            objparser::Model model;
+            if (!objparser::load(e.path().string(), model)) continue;
+            const std::vector<uint8_t> ao = aobake::modelAO(model);
+            if (ao.empty()) continue;
+            fs::create_directories(dst.parent_path(), ec);
+            if (aobake::writeModelAoSidecar(dst.string(), ao)) ++aoCount;
+        }
+        if (aoCount)
+            log("[editor] Ambient occlusion: baked " + std::to_string(aoCount) +
+                " model AO sidecar(s)");
+    }
 
     // Stochastic-tiling supertiles (docs/terrain-painting.md): one
     // non-repeating supertile per stochastic terrain texture, generated into
