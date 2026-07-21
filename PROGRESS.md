@@ -9,6 +9,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (141) **Portal crossing mask: physical near-plane test, not a distance
+  threshold (fixes "objects vanish near a portal").** (139)/(140) forced
+  the full-screen crossing mask whenever the eye was within a fraction of
+  the crossing-zone depth of the plane (`zoneClose`, ~1 m out). That
+  repaints the WHOLE screen with the destination, so standing that close to
+  a portal erased every near-side object (owner report + screenshots). The
+  mask now fires only when the quad actually **clips the near plane**
+  (`nearClipped` - a corner projects behind `wMin`), which is the literal
+  "eye a breath from the surface" moment the mask exists for; every frame
+  before that shows the crisp carved window with the near scene intact.
+  Also reverted (140)'s behind-the-plane selection band (it let a portal
+  render its back face and ghost/erase geometry as you stood behind it);
+  the loop-order fix (carried object positioned after the portal teleport)
+  is kept. Verified: editor builds clean, portals example regenerated +
+  Docker build exit 0. Owner pad test next.
+
 - (140) **Carrying through a portal, the dead-centre take two: keep the
   through-view alive across the plane.** (139) still left the object
   snapping at the exact centre and a "between the portals" flash (owner
