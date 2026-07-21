@@ -9,6 +9,29 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (137) **Carrying an object through a portal (owner's fourth live test).**
+  Throwing was "perfect"; carrying had two faults. (1) **The carried
+  object vanished at the seam.** Once its center passed the portal surface
+  plane it rendered BEHIND the portal - renderPortalView carves the
+  opening and caps it at the surface depth, so anything past the plane
+  z-fails and disappears (it re-appeared only after the player crossed,
+  via the through-view). Fix: `updateCarriedObject` now clamps the carry
+  reach so the object's center rides just in front of any portal plane the
+  carry ray pierces (rectangle + slack) - it reads as entering the portal
+  and re-anchors to the new camera the instant the player teleports
+  through. (2) **The player couldn't walk through while carrying.** The
+  carry whisker (pushes the walker back when the object no longer fits in
+  front of the face) re-derived its portal doorway from a FORWARD probe,
+  which stops piercing the moment the eye reaches the plane - so the
+  doorway slammed shut exactly at the crossing and the whisker bounced the
+  player back out. The whisker now takes `portalPassOn`/`portalPassPlane`
+  (already published by `updatePortalPass`: "the body column is in the
+  opening") as the authoritative doorway, falling back to the forward
+  probe only for the approach; the three walkers reset `portalPassOn`
+  AFTER the whisker instead of before (so its internal re-collide keeps
+  the wall open too). Verified: editor builds clean, portals example
+  regenerated + Docker build exit 0. Owner pad test next.
+
 - (136) **Portal crossing, round four (owner's third live test): only
   backwards worked, the thrown sphere "freaked out", and the residual
   standing-in-the-opening pop.** Three fixes:

@@ -43,6 +43,12 @@ between distant parts of the map.
    the portal is mounted on stops colliding for it (the walkers' doorway
    rule) — wall portals swallow throws instead of bouncing them back. The
    released body stays "portal-free" until it settles to rest.
+   **Carrying** a pickable through a portal works too: walk into the
+   opening holding it and both you and the object come out the far side.
+   The carried object rides just in front of the portal surface as you
+   approach (it can't pass the plane ahead of you — past the surface it
+   would render behind the portal and vanish), then re-anchors in front of
+   the new camera the moment you cross.
    For *ambient* rigid bodies — anything that falls or rolls in on its
    own — the rule is **whatever the portal shows can also go through it**:
    an object on the portal's view list crosses, **All objects in view**
