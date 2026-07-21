@@ -12564,7 +12564,21 @@ void addOptionBlock(Project& p, GameMenu& m, int kind) {
     en.param = s.valueName;
     en.settingBind = s.bind;
     for (const char* opt : s.options) en.options.push_back(opt);
+    // Display rows map options to engine modes explicitly (the preset's
+    // options are in enum order); the other binds map by position.
+    if (s.bind == MenuEntry::BindDisplayMode)
+        for (size_t o = 0; o < en.options.size(); ++o)
+            en.optionModes.push_back((int)(o < 3 ? o : 3));
     m.entries.push_back(std::move(en));
+}
+
+// The plain "APPLY" action row that commits a display-mode row's staged
+// selection (MenuEntry::ApplyVideo) - inserted next to the DISPLAY block.
+MenuEntry makeApplyVideoEntry() {
+    MenuEntry en;
+    en.label = "APPLY";
+    en.action = MenuEntry::ApplyVideo;
+    return en;
 }
 
 // Scaffold a full paged options menu: a root OPTIONS menu whose rows open one
@@ -12585,18 +12599,22 @@ int addOptionsMenuPages(Project& p) {
     // Submenus rely on Triangle to return to the root (the baked panel already
     // shows the "^ BACK" hint); a Close-action "back" row would instead dismiss
     // the whole menu tree, so submenus carry only their option blocks.
-    auto makeSub = [&](const char* base, const char* title, int b0, int b1) {
+    auto makeSub = [&](const char* base, const char* title, int b0, int b1,
+                       bool applyVideo = false) {
         GameMenu sub;
         sub.name = uniqueName(base);
         sub.title = title;
         addOptionBlock(p, sub, b0);
         addOptionBlock(p, sub, b1);
+        // The APPLY row makes the display-mode row stage-then-commit: the
+        // player browses the modes freely, the switch fires on APPLY.
+        if (applyVideo) sub.entries.push_back(makeApplyVideoEntry());
         p.menus.push_back(std::move(sub));
         return p.menus.back().name;
     };
     const std::string audio = makeSub("options-audio", "AUDIO", 0, 1);
     const std::string controls = makeSub("options-controls", "CONTROLS", 2, 3);
-    const std::string display = makeSub("options-display", "DISPLAY", 4, 5);
+    const std::string display = makeSub("options-display", "DISPLAY", 4, 5, true);
     GameMenu root;
     root.name = uniqueName("options");
     root.title = "OPTIONS";
@@ -12652,7 +12670,8 @@ void App::drawMenusWindow() {
             "Scaffold a paged options menu: an OPTIONS root that opens\n"
             "AUDIO / CONTROLS / DISPLAY submenus, each pre-filled with\n"
             "ready-made setting rows (volume, deadzone, aim curve,\n"
-            "display mode, aspect). Style and edit them like any menu.");
+            "display mode + an APPLY row that commits it, aspect).\n"
+            "Style and edit them like any menu.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);
@@ -12921,7 +12940,7 @@ void App::drawMenusWindow() {
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
         "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice"};
+        "Choice",         "Apply video mode"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -12951,8 +12970,9 @@ void App::drawMenusWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames, 9)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames, 10)) {
             en.param.clear();
+            en.optionModes.clear();
             // Stateful rows start with a sensible option set; everything
             // else drops the list so it does not linger in the file.
             if (en.action == MenuEntry::Toggle)
@@ -13015,6 +13035,17 @@ void App::drawMenusWindow() {
                     "Save value holding the state (the option index).\n"
                     "Its default is the initial state; flow graphs react\n"
                     "via Value At Least -> On Condition.");
+        } else if (en.action == MenuEntry::ApplyVideo) {
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Commits the display-mode row's staged selection (any\n"
+                    "menu's). While a menu has this row, the display-mode\n"
+                    "row only cycles its value - the screen switches when\n"
+                    "the player picks APPLY (with the keep-or-revert\n"
+                    "prompt). Without one, the display row switches on\n"
+                    "every change, closing the menu each time.");
+            ImGui::SameLine();
         }
 
         if (ImGui::SmallButton("x##delete")) {
@@ -13028,7 +13059,86 @@ void App::drawMenusWindow() {
         // reorderable-by-editing list). Cross / dpad cycle these in-game.
         if (en.action == MenuEntry::Toggle || en.action == MenuEntry::Choice) {
             ImGui::Indent(scaled(46.0f));
-            if (en.action == MenuEntry::Toggle) {
+            if (en.settingBind == MenuEntry::BindDisplayMode) {
+                // Display-mode rows: each option picks an engine scan mode
+                // from a dropdown, with a free-text label next to it (rename
+                // "480i" to "576i" for a PAL release). The mode drives the
+                // generated game (MenuEntryData::optModes); the label is
+                // only what the row draws.
+                static const char* kDispModeNames[] = {"480i", "480p",
+                                                       "1080i", "480i FIELD"};
+                static const char* kDispModeDescs[] = {
+                    "480i - interlaced (stock, 576i on PAL)",
+                    "480p - progressive (component, 60 Hz)",
+                    "1080i - HD (component, 60 Hz)",
+                    "480i FIELD - field rendering (half VRAM)"};
+                if (en.options.empty()) {
+                    en.options = {"480i", "480p"};
+                    en.optionModes = {0, 1};
+                }
+                if (en.optionModes.size() != en.options.size()) {
+                    en.optionModes.resize(en.options.size());
+                    for (size_t o = 0; o < en.optionModes.size(); ++o)
+                        en.optionModes[o] = (int)(o < 3 ? o : 3);
+                }
+                for (int o = 0; o < (int)en.options.size(); ++o) {
+                    ImGui::PushID(o);
+                    int mode = en.optionModes[o];
+                    if (mode < 0) mode = 0;
+                    if (mode > 3) mode = 3;
+                    ImGui::SetNextItemWidth(scaled(230.0f));
+                    if (ImGui::BeginCombo("##optmode", kDispModeDescs[mode])) {
+                        for (int mo = 0; mo < 4; ++mo)
+                            if (ImGui::Selectable(kDispModeDescs[mo],
+                                                  mo == mode)) {
+                                en.optionModes[o] = mo;
+                                en.options[o] = kDispModeNames[mo];
+                                changed = true;
+                            }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::SameLine();
+                    char optBuf[32];
+                    std::snprintf(optBuf, sizeof(optBuf), "%s",
+                                  en.options[o].c_str());
+                    ImGui::SetNextItemWidth(scaled(110.0f));
+                    if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
+                        en.options[o] = optBuf;
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Label drawn on the row (free text) - the\n"
+                            "dropdown decides the actual mode.");
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled((int)en.options.size() <= 1);
+                    if (ImGui::SmallButton("x##optdel")) {
+                        en.options.erase(en.options.begin() + o);
+                        en.optionModes.erase(en.optionModes.begin() + o);
+                        changed = true;
+                        ImGui::EndDisabled();
+                        ImGui::PopID();
+                        break;
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::PopID();
+                }
+                if ((int)en.options.size() < menubake::kMaxOptions) {
+                    if (ImGui::SmallButton("+##optadd")) {
+                        int mode = 0;  // first mode this row doesn't offer yet
+                        for (int mo = 0; mo < 4; ++mo) {
+                            bool used = false;
+                            for (int v : en.optionModes) used |= (v == mo);
+                            if (!used) {
+                                mode = mo;
+                                break;
+                            }
+                        }
+                        en.options.push_back(kDispModeNames[mode]);
+                        en.optionModes.push_back(mode);
+                        changed = true;
+                    }
+                }
+            } else if (en.action == MenuEntry::Toggle) {
                 if (en.options.size() < 2) en.options = {"Off", "On"};
                 char offBuf[32], onBuf[32];
                 std::snprintf(offBuf, sizeof(offBuf), "%s", en.options[0].c_str());
@@ -13081,15 +13191,27 @@ void App::drawMenusWindow() {
             if (ImGui::Combo("Bind##optbind", &en.settingBind,
                              "None\0Music volume\0Sound volume\0Deadzone\0"
                              "Stick curve\0Display mode\0Widescreen\0"
-                             "Player count\0"))
+                             "Player count\0")) {
+                // Display rows carry an explicit option->mode table (edited
+                // above); every other bind maps by option position.
+                if (en.settingBind == MenuEntry::BindDisplayMode) {
+                    en.optionModes.resize(en.options.size());
+                    for (size_t o = 0; o < en.optionModes.size(); ++o)
+                        en.optionModes[o] = (int)(o < 3 ? o : 3);
+                } else {
+                    en.optionModes.clear();
+                }
                 changed = true;
+            }
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
-                    "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i FIELD,\n"
+                    "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i FIELD\n"
+                    "(each option picks its mode from a dropdown; add an\n"
+                    "Apply video mode row so switching waits for APPLY),\n"
                     "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
                     "mode + a second Player object). None = a plain save-value\n"
                     "row (flow graphs react).");
@@ -13120,6 +13242,17 @@ void App::drawMenusWindow() {
                     addOptionBlock(project_, m, b);
                     changed = true;
                 }
+            ImGui::Separator();
+            if (ImGui::Selectable("Apply video mode (row)")) {
+                m.entries.push_back(makeApplyVideoEntry());
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Commits the Display mode row's selection. With this row\n"
+                    "anywhere in the project, cycling the display option only\n"
+                    "stages it - the screen switches when the player picks\n"
+                    "APPLY (keep-or-revert prompt included).");
             ImGui::EndPopup();
         }
     } else {

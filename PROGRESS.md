@@ -9,6 +9,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (133) **Display-mode menu row: stage-then-APPLY + a scan-mode dropdown per
+  option.** Owner reports: cycling the in-game "Display mode" option block
+  switched the scan mode on every press (VRAM rebuild, menu force-closed,
+  confirm prompt armed), so the option list could not even be browsed; and
+  the Menu Editor edited the row's options as free text while their meaning
+  was silently positional (option index == Tyra::DisplayMode - no way to
+  offer e.g. just 480i + 1080i, and a mislabeled option lied). Two changes:
+  (1) **Apply video mode row** (`MenuEntry::ApplyVideo`, action 9,
+  serialized "apply-video"): while any menu in the project has one
+  (codegen'd `MENU_HAS_APPLY_VIDEO`), the bind-5 row only stages its save
+  value and the APPLY row commits it (`updateGameMenu` case 9 → the same
+  scriptCtx video request + 8 s keep-or-revert net); with no menu on screen
+  the row **snaps back to the live mode** each frame, so a browsed-but-
+  unapplied selection or a reverted confirm never lies, and the boot seed
+  aligns the row to the compiled mode so a title-screen menu opens honest.
+  Projects without the row keep the classic switch-on-change behavior
+  (MENU_HAS_APPLY_VIDEO=false compiles the old path). (2) **Explicit
+  option→mode table** (`MenuEntry::optionModes`, "optionModes" JSON,
+  `MenuEntryData::optModes`, null = legacy positional): the Menu Editor
+  edits each display option as a dropdown of the four scan modes + a
+  free-text label (rename "480i" to "576i" for PAL), so any subset in any
+  order works. The "+ Options menu" scaffold's DISPLAY page and the option-
+  block popup gained the APPLY row. Verified: editor builds clean; scratch
+  project with a shuffled 3-option row (480i/1080i/480p → modes 0/2/1) +
+  APPLY round-trips through --resave, --refresh-gen emits
+  `MENU_0_E0_MODES[3] = {0, 2, 1}`, `MENU_HAS_APPLY_VIDEO = true`, the
+  deferred bind-5 branch and updateGameMenu case 9; full Docker PS2 build
+  of the project compiles clean (Build OK, ELF present). A pad-in-hand
+  PCSX2 pass (browse the row, APPLY, confirm/revert) is pending - the
+  harness has no pad automation. Gotcha logged for next time: PROLOG
+  globals sit BEFORE `namespace {{NAME_UPPER_NS}}` opens - a helper
+  touching generated types (MenuEntryData) must go after it (first Docker
+  build failed exactly there; GCC's error recovery made it look like the
+  param type collapsed to `const int&`).
+
 - (132) **Portal viewAll: the mounting wall's backside filled the
   through-view (hotfix on main).** Owner report right after (131) merged:
   a portal mounted on a wall showed that wall through itself. (131)'s

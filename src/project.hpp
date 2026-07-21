@@ -1065,6 +1065,13 @@ struct MenuEntry {
         // on the row from the baked value strip (menubake).
         Toggle = 7,      // two options, "Off"/"On" unless customized
         Choice = 8,      // one of `options`, cycled in order
+        // Commits the display-mode selection staged by a BindDisplayMode
+        // row. While any menu in the project has such a row, the display
+        // row only cycles its save value (the player browses freely); this
+        // row fires the actual scan-mode switch (+ the keep-or-revert
+        // confirm). Without one, display rows keep the classic
+        // switch-on-change behavior.
+        ApplyVideo = 9,
     };
     int action = Close;
     std::string param;
@@ -1072,6 +1079,10 @@ struct MenuEntry {
     // Toggle/Choice option labels (value = index into this list). Toggle
     // treats an empty list as {"Off", "On"}.
     std::vector<std::string> options;
+    // BindDisplayMode rows only: the Tyra::DisplayMode each option drives
+    // (parallel to `options`, values 0..3). Empty = the option index itself
+    // (the legacy positional mapping), so old projects behave unchanged.
+    std::vector<int> optionModes;
     // Ready-made "option block" binding (Menu Editor > Insert option block).
     // On a Toggle/Choice row this makes the generated game map the row's
     // option index (held in the bound save value) straight onto a built-in
@@ -1095,7 +1106,7 @@ struct MenuEntry {
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
            a.amount == b.amount && a.options == b.options &&
-           a.settingBind == b.settingBind;
+           a.optionModes == b.optionModes && a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).

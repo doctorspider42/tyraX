@@ -257,9 +257,20 @@ it as the `bind` column and `TerrainGame::applyMenuBindings()` (called each
 frame in both loops before `applyVideoRequests`) maps the row's option index
 onto the setting - music/sfx volume, deadzone (`g_deadzoneL/R`), stick curve
 (`g_stickCurve`), display mode / widescreen (via `scriptCtx` video requests).
+The **display-mode row** (bind 5) is special twice: each option carries an
+explicit engine mode (`MenuEntry::optionModes` → `MenuEntryData::optModes`;
+null/empty = the option index, the legacy positional map — the Menu Editor
+edits these as a scan-mode dropdown + free label), and with an **Apply video
+mode** row (`MenuEntry::ApplyVideo`, action 9) anywhere in the project
+(codegen'd `MENU_HAS_APPLY_VIDEO`) the row defers: cycling only stages the
+save value, the APPLY row commits the switch (`updateGameMenu` case 9), and
+outside a menu the row snaps back to the live mode each frame (also covers a
+reverted keep-or-revert confirm). Without the APPLY row bind 5 keeps the
+classic switch-on-change path.
 The *Menu Editor* "+ Option block" popup and "+ Options menu" scaffolder
 (`addOptionBlock`/`addOptionsMenuPages`, app.cpp) create pre-configured rows +
-their backing save values. So a menu change can touch: `MenuEntry` (+ `==`) →
+their backing save values (the scaffolded DISPLAY page includes the APPLY
+row). So a menu change can touch: `MenuEntry` (+ `==`) →
 menu JSON in project.cpp → `MenuEntryData` codegen + `applyMenuBindings` in
 templates.cpp → the runtime setting site (audio call, `axis`/`axisValue`,
 `applyVideoRequests`) → the Menu Editor UI.
