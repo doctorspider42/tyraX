@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (119) **Baked ambient occlusion** (docs/ambient-occlusion.md). Soft contact
+- (150) **Baked ambient occlusion** (docs/ambient-occlusion.md). Soft contact
   shadows folded into the same per-vertex colors the directional light bakes
   into - zero PS2 per-frame cost. Three bakes: **terrain self-occlusion**
   (host, `aobake::terrainAO` 8-direction horizon scan → `TERRAIN_AO_TABLES`
@@ -50,6 +50,67 @@ Each finished feature lands as its own commit.
   compiles clean (no stderr) but a human should eyeball the live preview
   against the PS2 output.
 
+- (149) **Rotated box collision: the player now collides with a block's real
+  (rotated) faces, not its unrotated bounds.** Box-mode player collision
+  (`collidePlayer`, shared by both walkers) built the blocker box straight from
+  `scale` on the world axes and ignored the object's rotation entirely - so a
+  yaw-rotated block blocked the player along a phantom axis-aligned box (an
+  invisible wall jutting past the visual corners) while letting them walk
+  straight through the block's actual rotated faces. The footprint test now runs
+  in the box's OWN horizontal frame: the player's swept XZ is taken into local
+  space with `invRotated`, the inside/wall-cancel logic runs against the local
+  half-extents, and the resolved slide is mapped back with `rotated` - so the
+  residual slide follows the rotated wall. Vertical (top/bottom, ground/ceiling)
+  stays world-space: a yaw does not tilt the box, and box mode never modeled a
+  tilted top, so a pitched/rolled box still collides upright as before (mesh
+  collision is the escape hatch for those). The math reduces exactly to the old
+  AABB test at zero rotation, and the model-AABB center offset now rotates with
+  the object too (was added on the world axes; identity for a primitive, whose
+  offset is 0). NOTE: this was reported as a copy/paste bug ("the copy has no
+  collision"); it is not - paste preserves every field (verified: the pasted
+  row is byte-identical in the generated `scene_data.hpp`, and the Live Link
+  recipe hash matches so a live-spawned copy clones a colliding template). The
+  real trigger was rotating the block. The **camera spring arm**
+  (`sweepSphere`) got the same treatment: its boom ray is now cast in each
+  box's local frame (broad phase uses the OBB's own world AABB, so it no longer
+  rejects a rotated block's protruding faces) - previously the camera sailed
+  straight through rotated primitives, because the boom tested an unrotated
+  scale-box the real faces stuck out past. Physics-**body**-vs-solid collision
+  (`physExtents`) still uses the axis-aligned bound - a known remaining
+  limitation (the solver's resting/bounce-normal/momentum contacts are all
+  built on AABB faces, a larger separate change). Verified: editor builds clean; a scratch `--new`
+  fpp project's generated `terrain_game.cpp` carries the new local-frame code
+  and the Docker PS2 build compiles + links (=== Build OK ===); a standalone
+  numeric check confirms a point inside the old phantom AABB but off a
+  45deg-rotated wall now reads FREE (old: blocked in empty air) while a point on
+  the real rotated face reads BLOCKED (old: walked through), and a second check
+  confirms a camera boom crossing a rotated wall near its tip now blocks where
+  the old scale-box missed it entirely. The in-game *feel* (walking a rotated
+  wall on a pad, and orbiting the camera behind one) is the remaining hands-on
+  check.
+
+- (117) **Third-person spring arm: whisker anticipation instead of a raw
+  snap-in.** The camera boom used to jump the instant the straight boom ray got
+  blocked (`P.boom = want` hard snap) — correct (never clips) but visually
+  violent when walking past a wall edge. Now two extra **whisker casts** splayed
+  ~20° to either side of the boom (same `springArm` query, same AABB broad
+  phase) detect walls the camera is about to sweep behind and pull a *target*
+  length partway toward the whisker's hit (60% weight — an off-axis hit is a
+  hint, not the true obstruction); the boom eases toward that target briskly
+  (0.30/frame) on the way in and gently (0.06/frame, as before) on the way out.
+  The old guarantee is intact as a hard clamp: `P.boom = min(P.boom, want)`
+  every frame, so a wall that appears between whiskers (fast camera spin) still
+  clamps instantly rather than ever showing a clipped frame — but it now
+  usually fires from a boom that anticipation already pulled most of the way
+  in, so the residual correction is small. The boom state is the per-player
+  `P.boom` (each split-screen player smooths independently). Cost: +2
+  `springArm` casts per frame in third-person mode only. Verified layer 0-3:
+  editor builds clean, whisker code lands in the generated `terrain_game.cpp`
+  of a scratch `--new` project, Docker build of that project compiles and links
+  (=== Build OK ===). The actual camera *feel* (wall graze, corner sweep) needs
+  a hands-on pad test in PCSX2 — the math guarantees no-clip, the tuning
+  constants (20° splay, 0.4 retention, 0.30 in-rate) are first-guess values a
+  human may want to nudge.
 - (118) **Collaboration polish: mid-session file refresh, session prefs,
   docs.** Closes out remote-collaboration v1. **Refresh project files**
   (client, Session window): re-runs the join-time manifest diff mid-session -
