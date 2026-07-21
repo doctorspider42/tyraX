@@ -6080,8 +6080,11 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
       if (sd < -re + 0.1F) continue;
     }
 
-    // World AABB, sized exactly like box-mode player collision (the real mesh
-    // or baked anim AABB when the object has one, else the unit scale box).
+    // Oriented box, sized exactly like box-mode player collision (the real
+    // mesh or baked anim AABB when the object has one, else the unit scale
+    // box) - and cast in the box's OWN frame, so a yaw-rotated block stops the
+    // boom at its real faces instead of leaking through the corners of an
+    // axis-aligned stand-in.
     const GameModel* gm = nullptr;
     if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
       gm = &gameModels[o.data.model];
@@ -6089,28 +6092,43 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     if (ty == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
-    float cx = o.data.position[0], cy = o.data.position[1],
-          cz = o.data.position[2];
     float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
           ez = 0.5F * o.data.scale[2];
+    V3 localCenter = {0.0F, 0.0F, 0.0F};
     const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
     const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
     if (mn && mx) {
-      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
-      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
-      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
       ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
       ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
       ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
     }
-    const float bminX = cx - ex - r, bmaxX = cx + ex + r;
-    const float bminY = cy - ey - r, bmaxY = cy + ey + r;
-    const float bminZ = cz - ez - r, bmaxZ = cz + ez + r;
-    if (bmaxX < sminX || bminX > smaxX || bmaxY < sminY || bminY > smaxY ||
-        bmaxZ < sminZ || bminZ > smaxZ)
+    const V3 cW = rotated(localCenter, o.data.rotation);
+    const float cx = o.data.position[0] + cW.x;
+    const float cy = o.data.position[1] + cW.y;
+    const float cz = o.data.position[2] + cW.z;
+
+    // Broad phase: the OBB's own world AABB (rotated half-extent vectors summed
+    // per axis), inflated by r, vs the boom segment AABB. Conservative - it
+    // never rejects an object the local slab test could still hit (the old
+    // scale-box AABB was too small for a rotated block and leaked candidates).
+    const V3 hxv = rotated({ex, 0.0F, 0.0F}, o.data.rotation);
+    const V3 hyv = rotated({0.0F, ey, 0.0F}, o.data.rotation);
+    const V3 hzv = rotated({0.0F, 0.0F, ez}, o.data.rotation);
+    const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+    const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+    const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
+    if (cx + wex + r < sminX || cx - wex - r > smaxX ||
+        cy + wey + r < sminY || cy - wey - r > smaxY ||
+        cz + wez + r < sminZ || cz - wez - r > smaxZ)
       continue;  // broad phase: nowhere near the boom
 
-    // Slab test against the expanded box.
+    // Narrow phase: slab test in the box's local frame. invRotated is
+    // orthonormal, so the hit parameter t is still a world-space distance.
+    const V3 lo = invRotated({px - cx, py - cy, pz - cz}, o.data.rotation);
+    const V3 ld = invRotated({dx, dy, dz}, o.data.rotation);
     float t0 = 0.0F, t1 = best;
     bool miss = false;
     auto slab = [&](float o1, float d1, float lo1, float hi1) {
@@ -6129,9 +6147,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
         miss = true;  // parallel and outside the slab
       }
     };
-    slab(px, dx, bminX, bmaxX);
-    slab(py, dy, bminY, bmaxY);
-    slab(pz, dz, bminZ, bmaxZ);
+    slab(lo.x, ld.x, -ex - r, ex + r);
+    slab(lo.y, ld.y, -ey - r, ey + r);
+    slab(lo.z, ld.z, -ez - r, ez + r);
     if (miss || t0 > t1) continue;
     // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
     // player brushing a wall. Ignore it rather than collapse the camera onto

@@ -30,16 +30,24 @@ Each finished feature lands as its own commit.
   collision"); it is not - paste preserves every field (verified: the pasted
   row is byte-identical in the generated `scene_data.hpp`, and the Live Link
   recipe hash matches so a live-spawned copy clones a colliding template). The
-  real trigger was rotating the block. The camera spring arm and physics-body
-  collision still use the axis-aligned bound (a conservative over-estimate for
-  the camera - it eases in slightly early near a rotated box, never clips), a
-  known remaining limitation. Verified: editor builds clean; a scratch `--new`
+  real trigger was rotating the block. The **camera spring arm**
+  (`sweepSphere`) got the same treatment: its boom ray is now cast in each
+  box's local frame (broad phase uses the OBB's own world AABB, so it no longer
+  rejects a rotated block's protruding faces) - previously the camera sailed
+  straight through rotated primitives, because the boom tested an unrotated
+  scale-box the real faces stuck out past. Physics-**body**-vs-solid collision
+  (`physExtents`) still uses the axis-aligned bound - a known remaining
+  limitation (the solver's resting/bounce-normal/momentum contacts are all
+  built on AABB faces, a larger separate change). Verified: editor builds clean; a scratch `--new`
   fpp project's generated `terrain_game.cpp` carries the new local-frame code
   and the Docker PS2 build compiles + links (=== Build OK ===); a standalone
   numeric check confirms a point inside the old phantom AABB but off a
   45deg-rotated wall now reads FREE (old: blocked in empty air) while a point on
-  the real rotated face reads BLOCKED (old: walked through). The in-game *feel*
-  (walking a rotated wall on a pad) is the remaining hands-on check.
+  the real rotated face reads BLOCKED (old: walked through), and a second check
+  confirms a camera boom crossing a rotated wall near its tip now blocks where
+  the old scale-box missed it entirely. The in-game *feel* (walking a rotated
+  wall on a pad, and orbiting the camera behind one) is the remaining hands-on
+  check.
 
 - (117) **Third-person spring arm: whisker anticipation instead of a raw
   snap-in.** The camera boom used to jump the instant the straight boom ray got
