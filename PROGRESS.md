@@ -10,6 +10,37 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (149) **Rotated box collision: the player now collides with a block's real
+  (rotated) faces, not its unrotated bounds.** Box-mode player collision
+  (`collidePlayer`, shared by both walkers) built the blocker box straight from
+  `scale` on the world axes and ignored the object's rotation entirely - so a
+  yaw-rotated block blocked the player along a phantom axis-aligned box (an
+  invisible wall jutting past the visual corners) while letting them walk
+  straight through the block's actual rotated faces. The footprint test now runs
+  in the box's OWN horizontal frame: the player's swept XZ is taken into local
+  space with `invRotated`, the inside/wall-cancel logic runs against the local
+  half-extents, and the resolved slide is mapped back with `rotated` - so the
+  residual slide follows the rotated wall. Vertical (top/bottom, ground/ceiling)
+  stays world-space: a yaw does not tilt the box, and box mode never modeled a
+  tilted top, so a pitched/rolled box still collides upright as before (mesh
+  collision is the escape hatch for those). The math reduces exactly to the old
+  AABB test at zero rotation, and the model-AABB center offset now rotates with
+  the object too (was added on the world axes; identity for a primitive, whose
+  offset is 0). NOTE: this was reported as a copy/paste bug ("the copy has no
+  collision"); it is not - paste preserves every field (verified: the pasted
+  row is byte-identical in the generated `scene_data.hpp`, and the Live Link
+  recipe hash matches so a live-spawned copy clones a colliding template). The
+  real trigger was rotating the block. The camera spring arm and physics-body
+  collision still use the axis-aligned bound (a conservative over-estimate for
+  the camera - it eases in slightly early near a rotated box, never clips), a
+  known remaining limitation. Verified: editor builds clean; a scratch `--new`
+  fpp project's generated `terrain_game.cpp` carries the new local-frame code
+  and the Docker PS2 build compiles + links (=== Build OK ===); a standalone
+  numeric check confirms a point inside the old phantom AABB but off a
+  45deg-rotated wall now reads FREE (old: blocked in empty air) while a point on
+  the real rotated face reads BLOCKED (old: walked through). The in-game *feel*
+  (walking a rotated wall on a pad) is the remaining hands-on check.
+
 - (117) **Third-person spring arm: whisker anticipation instead of a raw
   snap-in.** The camera boom used to jump the instant the straight boom ray got
   blocked (`P.boom = want` hard snap) — correct (never clips) but visually

@@ -4384,28 +4384,57 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (o.data.type == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
-    float cx = o.data.position[0], cy = o.data.position[1],
-          cz = o.data.position[2];
     float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
           ez = 0.5F * o.data.scale[2];
+    V3 localCenter = {0.0F, 0.0F, 0.0F};  // box center in the object's own frame
     const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
     const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
     if (mn && mx) {
-      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
-      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
-      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
       ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
       ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
       ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
     }
+    // World box center: the model-AABB offset lives in the object's own frame,
+    // so it rotates with the object (a primitive's offset is 0, so this is
+    // just its position).
+    const V3 cWorld = rotated(localCenter, o.data.rotation);
+    const float cx = o.data.position[0] + cWorld.x;
+    const float cy = o.data.position[1] + cWorld.y;
+    const float cz = o.data.position[2] + cWorld.z;
     const float hx = ex + playerRadius;
     const float hz = ez + playerRadius;
     const float top = cy + ey;
     const float bottom = cy - ey;
 
-    const bool nextInside = *nextX > cx - hx && *nextX < cx + hx &&
-                            *nextZ > cz - hz && *nextZ < cz + hz;
+    // Footprint test in the box's OWN horizontal frame, so a yaw-rotated box
+    // blocks along its real (rotated) faces instead of an axis-aligned bound
+    // that juts into empty space at the corners. Vertical (top/bottom) stays
+    // world-space: a yaw does not tilt the box, and box mode does not model a
+    // tilted top - a pitched/rolled box still collides upright, as before
+    // (mesh collision is the escape hatch for those). Reduces exactly to the
+    // old AABB test when the object is unrotated.
+    auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
+      const V3 l = invRotated({wx - cx, 0.0F, wz - cz}, o.data.rotation);
+      lx = l.x, lz = l.z;
+    };
+    float lnx, lnz, lpx, lpz;
+    toLocalXZ(*nextX, *nextZ, lnx, lnz);
+    toLocalXZ(prevX, prevZ, lpx, lpz);
+
+    const bool nextInside = lnx > -hx && lnx < hx && lnz > -hz && lnz < hz;
     if (!nextInside) continue;
+
+    const bool wasInsideX = lpx > -hx && lpx < hx;
+    const bool wasInsideZ = lpz > -hz && lpz < hz;
+    // Re-projects a (possibly axis-cancelled) local target back to world.
+    auto commitLocal = [&](float lx, float lz) {
+      const V3 w = rotated({lx, 0.0F, lz}, o.data.rotation);
+      *nextX = cx + w.x;
+      *nextZ = cz + w.z;
+    };
 
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
@@ -4416,26 +4445,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       if (bottom < feetY + eyeHeight + EYE_CLEARANCE) {
         // walking under would leave the eye closer than the clip plane -
         // block, unless the player is already under it (let them walk out)
-        const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
-        const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
-        if (!wasInsideX || !wasInsideZ) {
-          if (!wasInsideX) *nextX = prevX;
-          if (!wasInsideZ) *nextZ = prevZ;
-        }
+        if (!wasInsideX || !wasInsideZ)
+          commitLocal(wasInsideX ? lnx : lpx, wasInsideZ ? lnz : lpz);
       }
     } else if (feetY < top) {
       // vertical overlap: also the lowest surface overhead when the box sank
       // onto the player (moving platforms) - lets the clamp push them out
       if (bottom >= feetY && bottom < *ceiling) *ceiling = bottom;
-      // blocked - cancel the axes that entered the box this frame
-      const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
-      const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
-      if (!wasInsideX) *nextX = prevX;
-      if (!wasInsideZ) *nextZ = prevZ;
-      if (wasInsideX && wasInsideZ) {
-        *nextX = prevX;
-        *nextZ = prevZ;
-      }
+      // blocked - cancel the local axes that entered the box this frame, so
+      // the residual slide runs along the (rotated) wall. Already inside on
+      // both axes = a full stop.
+      if (wasInsideX && wasInsideZ)
+        commitLocal(lpx, lpz);
+      else
+        commitLocal(wasInsideX ? lnx : lpx, wasInsideZ ? lnz : lpz);
     }
   }
 }
