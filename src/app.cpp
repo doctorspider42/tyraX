@@ -12523,6 +12523,9 @@ struct OptionBlockSpec {
     float defaultIndex;        // initial option index (save value default)
     int bind;                  // MenuEntry::Setting
     std::vector<const char*> options;
+    // BindDisplayMode only: the engine mode per option (-1 = the project-
+    // default boot mode). Empty on the other binds (positional mapping).
+    std::vector<int> optionModes;
 };
 // Index order == the Insert-option-block menu order below.
 const OptionBlockSpec kOptionBlocks[] = {
@@ -12535,7 +12538,10 @@ const OptionBlockSpec kOptionBlocks[] = {
     {"AIM CURVE", MenuEntry::Choice, "opt_stick_curve", 0.0f, MenuEntry::BindStickCurve,
      {"Linear", "Smooth", "Precise"}},
     {"DISPLAY", MenuEntry::Choice, "opt_display", 0.0f, MenuEntry::BindDisplayMode,
-     {"480i", "480p", "1080i", "480i FIELD"}},
+     // DEFAULT = the project's boot mode on the player's console (region +
+     // the PAL-picture preference); the rest are explicit overrides.
+     {"DEFAULT", "480p", "1080i"},
+     {-1, 1, 2}},
     {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
      {"4:3", "16:9"}},
     {"PLAYERS", MenuEntry::Choice, "opt_players", 0.0f, MenuEntry::BindPlayerCount,
@@ -12565,11 +12571,13 @@ void addOptionBlock(Project& p, GameMenu& m, int kind) {
     en.param = s.valueName;
     en.settingBind = s.bind;
     for (const char* opt : s.options) en.options.push_back(opt);
-    // Display rows map options to engine modes explicitly (the preset's
-    // options are in enum order); the other binds map by position.
-    if (s.bind == MenuEntry::BindDisplayMode)
-        for (size_t o = 0; o < en.options.size(); ++o)
+    // Display rows map options to engine modes explicitly (the preset
+    // carries the table); the other binds map by position.
+    if (s.bind == MenuEntry::BindDisplayMode) {
+        en.optionModes = s.optionModes;
+        for (size_t o = en.optionModes.size(); o < en.options.size(); ++o)
             en.optionModes.push_back((int)(o < 4 ? o : 4));
+    }
     m.entries.push_back(std::move(en));
 }
 
@@ -13065,19 +13073,22 @@ void App::drawMenusWindow() {
                 // from a dropdown, with a free-text label next to it (rename
                 // "480i" to "576i" for a PAL release). The mode drives the
                 // generated game (MenuEntryData::optModes); the label is
-                // only what the row draws.
-                static const char* kDispModeNames[] = {"480i", "480p",
-                                                       "1080i", "480i FIELD",
-                                                       "576i"};
+                // only what the row draws. Index 0 is the -1 sentinel: the
+                // project-default mode, resolved at boot on the player's
+                // console (region + the PAL-picture preference).
+                static const char* kDispModeNames[] = {"DEFAULT", "480i",
+                                                       "480p",    "1080i",
+                                                       "480i FIELD", "576i"};
                 static const char* kDispModeDescs[] = {
+                    "Default (project) - the mode the game boots in",
                     "480i - interlaced (stock, letterboxed 576i on PAL)",
                     "480p - progressive (component, 60 Hz)",
                     "1080i - HD (component, 60 Hz)",
                     "480i FIELD - field rendering (half VRAM)",
                     "576i - full-height PAL (always 50 Hz)"};
                 if (en.options.empty()) {
-                    en.options = {"480i", "480p"};
-                    en.optionModes = {0, 1};
+                    en.options = {"DEFAULT", "480p"};
+                    en.optionModes = {-1, 1};
                 }
                 if (en.optionModes.size() != en.options.size()) {
                     en.optionModes.resize(en.options.size());
@@ -13086,16 +13097,17 @@ void App::drawMenusWindow() {
                 }
                 for (int o = 0; o < (int)en.options.size(); ++o) {
                     ImGui::PushID(o);
-                    int mode = en.optionModes[o];
-                    if (mode < 0) mode = 0;
+                    int mode = en.optionModes[o];  // dropdown index = mode + 1
+                    if (mode < -1) mode = -1;
                     if (mode > 4) mode = 4;
                     ImGui::SetNextItemWidth(scaled(230.0f));
-                    if (ImGui::BeginCombo("##optmode", kDispModeDescs[mode])) {
-                        for (int mo = 0; mo < 5; ++mo)
-                            if (ImGui::Selectable(kDispModeDescs[mo],
+                    if (ImGui::BeginCombo("##optmode",
+                                          kDispModeDescs[mode + 1])) {
+                        for (int mo = -1; mo < 5; ++mo)
+                            if (ImGui::Selectable(kDispModeDescs[mo + 1],
                                                   mo == mode)) {
                                 en.optionModes[o] = mo;
-                                en.options[o] = kDispModeNames[mo];
+                                en.options[o] = kDispModeNames[mo + 1];
                                 changed = true;
                             }
                         ImGui::EndCombo();
@@ -13128,7 +13140,7 @@ void App::drawMenusWindow() {
                 if ((int)en.options.size() < menubake::kMaxOptions) {
                     if (ImGui::SmallButton("+##optadd")) {
                         int mode = 0;  // first mode this row doesn't offer yet
-                        for (int mo = 0; mo < 5; ++mo) {
+                        for (int mo = -1; mo < 5; ++mo) {
                             bool used = false;
                             for (int v : en.optionModes) used |= (v == mo);
                             if (!used) {
@@ -13136,7 +13148,7 @@ void App::drawMenusWindow() {
                                 break;
                             }
                         }
-                        en.options.push_back(kDispModeNames[mode]);
+                        en.options.push_back(kDispModeNames[mode + 1]);
                         en.optionModes.push_back(mode);
                         changed = true;
                     }
@@ -13212,8 +13224,9 @@ void App::drawMenusWindow() {
                 ImGui::SetTooltip(
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
-                    "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i\n"
-                    "FIELD/576i (each option picks its mode from a dropdown;\n"
+                    "0-0.4, aim curve 1-3, display DEFAULT (the project boot\n"
+                    "mode)/480i/480p/1080i/480i FIELD/576i (each option picks\n"
+                    "its mode from a dropdown;\n"
                     "add an Apply video mode row so switching waits for APPLY),\n"
                     "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
                     "mode + a second Player object). None = a plain save-value\n"
@@ -15157,6 +15170,22 @@ void App::drawPreferencesModal() {
         "also leaves less VRAM for textures. All can also be switched at\n"
         "runtime with the Set Display Mode flow node, which shows a\n"
         "keep-or-revert prompt with an automatic rollback.");
+    if (prefSettings_.displayMode == "interlaced") {
+        int palPic = prefSettings_.palFullHeight ? 1 : 0;
+        const char* palPicNames[] = {"Letterbox (NTSC-size picture)",
+                                     "Full-height 576i"};
+        if (ImGui::Combo("PAL picture", &palPic, palPicNames, 2))
+            prefSettings_.palFullHeight = palPic == 1;
+        ImGui::TextDisabled(
+            "How the region-following interlaced mode looks on a PAL\n"
+            "console (or with Target system forced to PAL): Letterbox\n"
+            "keeps the NTSC-size 448-line picture in the 576i raster (the\n"
+            "classic port look), Full-height boots the true 512-line PAL\n"
+            "frame (PAL 576i - costs ~380 KB of GS VRAM). NTSC consoles\n"
+            "always get 480i. A menu display row's DEFAULT option maps to\n"
+            "whatever this resolves to on the player's console. (Field\n"
+            "rendering has no full-height variant yet.)");
+    }
     ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
     ImGui::TextDisabled(
         "Widens the projection so proportions are correct on a 16:9 TV\n"

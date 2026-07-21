@@ -753,6 +753,7 @@ std::string save(const Project& p) {
          << "  \"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
          << "    \"displayMode\": \"" << p.settings.displayMode << "\",\n"
+         << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
@@ -1957,6 +1958,8 @@ std::string load(Project& out, const std::string& projectDir) {
                                  ? dm
                                  : "interlaced";
         }
+        if (const auto* v = s->find("palFullHeight"))
+            st.palFullHeight = v->boolOr(false);
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))
@@ -2748,8 +2751,9 @@ std::string load(Project& out, const std::string& projectDir) {
                         v && v->type == json::Value::Type::Array) {
                         for (const auto& jo : v->arr) {
                             int m = (int)jo.numberOr(0.0);
-                            if (m < 0) m = 0;
-                            if (m > 4) m = 4;  // Tyra::DisplayMode range
+                            // Tyra::DisplayMode range; -1 = project default
+                            if (m < -1) m = -1;
+                            if (m > 4) m = 4;
                             en.optionModes.push_back(m);
                         }
                     }

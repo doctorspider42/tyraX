@@ -9,6 +9,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (135) **Region-aware default display mode: the "PAL picture" preference +
+  a DEFAULT menu option.** Owner follow-up on (134): a project should ship
+  ONE build that boots the right mode per region - 480i on NTSC, the
+  author's chosen PAL flavor (letterboxed NTSC-size vs full-height 576i)
+  on PAL - and the in-game display row should offer "default" as a
+  first-class option next to explicit overrides like 480p/1080i. Two
+  pieces, no engine change: (1) `ProjectSettings::palFullHeight`
+  ("palFullHeight" JSON, a "PAL picture" combo under Preferences > Display
+  mode, shown for the region-following "interlaced" mode): the generated
+  main.cpp promotes Interlaced -> Pal576i before engine init when the
+  effective region is PAL (forced videoSystem, or `graph_get_region()` on
+  auto), so the whole boot already runs full-height. (2) The display row's
+  optionModes gained a **-1 sentinel** = "project default": the game
+  latches `g_defaultDispMode` from the engine settings at init (the boot
+  mode IS the resolved default - nothing can have switched yet) and
+  `displayOptionMode` resolves -1 to it, so APPLY on the DEFAULT option
+  returns the player to the per-region default. Menu Editor: the dropdown
+  gained "Default (project)" (combo index = mode + 1), the "+ Option
+  block" DISPLAY preset is now DEFAULT/480p/1080i (modes -1/1/2, the spec
+  carries the table), clamps widened to -1..4 (load/emit/UI). Verified:
+  editor builds clean; scratch project (videoSystem pal + interlaced +
+  palFullHeight + a DEFAULT/480p/1080i row) emits the main.cpp promotion
+  guard, `MENU_0_E0_MODES[3] = {-1, 1, 2}` and the g_defaultDispMode
+  latch/resolve; Docker build links; PCSX2 boots it in PAL with a native
+  512x512 F8 screenshot (the promotion path, since the BIOS region is
+  NTSC and videoSystem is forced pal). Auto-region promotion on a real
+  PAL BIOS + the pad-driven menu pass remain hands-on checks.
+
 - (134) **True PAL: DisplayMode::Pal576i, the full-height 512-line frame.**
   Owner follow-up on (133): our "PAL" was the NTSC-sized picture (512x448
   buffer) output at 50 Hz - the letterboxed port look. The new mode renders

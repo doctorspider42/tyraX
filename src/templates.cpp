@@ -269,6 +269,7 @@ services:
 static const char* TPL_MAIN_CPP = R"(#include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <graph.h>  // graph_get_region - the PAL-picture promotion below
 #include "terrain_game.hpp"
 
 int main(int argc, char** argv) {
@@ -312,6 +313,18 @@ int main(int argc, char** argv) {
   // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
   // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
+  // PAL picture (Preferences > Build > PAL picture): with the
+  // region-following interlaced mode, a PAL console (or a forced-PAL
+  // target system) boots the full-height 512-line 576i frame instead of
+  // the letterboxed NTSC-size picture. Resolved here, before engine init,
+  // so the whole boot (logo, loading screen) already runs in it; the menu
+  // "DEFAULT" display option maps back to whatever this resolves to.
+  if ({{PAL_FULL_HEIGHT}} &&
+      options.displayMode == Tyra::DisplayMode::Interlaced &&
+      (options.videoMode == Tyra::VideoMode::PAL ||
+       (options.videoMode == Tyra::VideoMode::Auto &&
+        graph_get_region() == GRAPH_MODE_PAL)))
+    options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
   Tyra::Engine engine(options);
@@ -1762,6 +1775,12 @@ float g_rumbleTimer = 0.0F;
 int g_menuDispOpt = -1;
 int g_menuWideOpt = -1;
 
+// The project-default display mode: whatever main.cpp resolved the boot
+// mode to (fixed preference, or region + the PAL-picture choice). Captured
+// in buildScene before any runtime switch can happen; a display row's
+// "DEFAULT" option (optModes -1) maps to it.
+int g_defaultDispMode = 0;
+
 // Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
 // below the deadzone, rescales from the deadzone edge so there is no step,
 // then shapes the magnitude by the per-stick response curve. Both the FPP
@@ -1813,9 +1832,13 @@ constexpr float PI = 3.14159265358979F;
 
 // Display-mode option rows (bind 5): the engine mode an option drives, and
 // the option a mode shows as. Rows without an explicit optModes table keep
-// the positional mapping (option index == Tyra::DisplayMode).
+// the positional mapping (option index == Tyra::DisplayMode); a table entry
+// of -1 is the "DEFAULT" option - the project-default boot mode.
 int displayOptionMode(const MenuEntryData& en, int idx) {
-  if (en.optModes && idx >= 0 && idx < en.optionCount) return en.optModes[idx];
+  if (en.optModes && idx >= 0 && idx < en.optionCount) {
+    const int m = en.optModes[idx];
+    return m < 0 ? g_defaultDispMode : m;
+  }
   return idx;
 }
 int displayOptionIndexOf(const MenuEntryData& en, int mode) {
@@ -3130,6 +3153,10 @@ void TerrainGame::buildScene() {
   // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
   g_deadzoneL = ANALOG_DEADZONE_L;
   g_deadzoneR = ANALOG_DEADZONE_R;
+  // The boot display mode IS the project default (main.cpp resolved it,
+  // nothing can have switched it yet) - latch it for the menu "DEFAULT"
+  // display option before any option lookup below resolves that sentinel.
+  g_defaultDispMode = (int)engine->renderer.core.getSettings().getDisplayMode();
   // Seed the display/widescreen option-block trackers from the current saved
   // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
   // prompt) at boot: the game boots in the project's compiled display mode,
@@ -12318,6 +12345,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    : st.displayMode == "interlaced-field" ? "InterlacedField"
                    : st.displayMode == "pal576"           ? "Pal576i"
                                                           : "Interlaced");
+    s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
+                   st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
@@ -16200,7 +16229,8 @@ static std::string menuDataHeader(const Project& p) {
            "                    // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,\n"
            "                    // 4 stick curve, 5 display mode, 6 widescreen\n"
            "  // bind 5 only: the Tyra::DisplayMode each option drives\n"
-           "  // (optionCount ints). Null = the option index itself.\n"
+           "  // (optionCount ints; -1 = the project-default boot mode).\n"
+           "  // Null = the option index itself.\n"
            "  const int* optModes;\n"
            "};\n\n"
            "struct MenuData {\n"
@@ -16244,8 +16274,9 @@ static std::string menuDataHeader(const Project& p) {
             for (int o = 0; o < optionCount; ++o) {
                 int mode = o < (int)en.optionModes.size() ? en.optionModes[o]
                                                           : (o < 4 ? o : 4);
-                if (mode < 0) mode = 0;
-                if (mode > 4) mode = 4;  // Tyra::DisplayMode range
+                // Tyra::DisplayMode range; -1 = the project-default option
+                if (mode < -1) mode = -1;
+                if (mode > 4) mode = 4;
                 out << (o ? ", " : "") << mode;
             }
             out << "};\n";

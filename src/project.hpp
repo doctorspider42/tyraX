@@ -484,6 +484,13 @@ struct ProjectSettings {
         "interlaced";  // "interlaced" | "interlaced-field" | "progressive" |
                        // "1080i" | "pal576"
 
+    // PAL handling of the region-following "interlaced" mode: false = the
+    // letterboxed NTSC-size picture (stock), true = a PAL console (or a
+    // forced-PAL videoSystem) boots the full-height 576i frame instead
+    // (DisplayMode::Pal576i). Resolved in the generated main.cpp before
+    // engine init; fixed display modes ignore it.
+    bool palFullHeight = false;
+
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
     // the GS display window widens instead). Also switchable at runtime
@@ -668,7 +675,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
-           a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
+           a.displayMode == b.displayMode &&
+           a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink &&
@@ -1084,8 +1092,10 @@ struct MenuEntry {
     // treats an empty list as {"Off", "On"}.
     std::vector<std::string> options;
     // BindDisplayMode rows only: the Tyra::DisplayMode each option drives
-    // (parallel to `options`, values 0..3). Empty = the option index itself
-    // (the legacy positional mapping), so old projects behave unchanged.
+    // (parallel to `options`, values 0..4; -1 = the project-default mode,
+    // resolved at boot on the player's console - region + the PAL-picture
+    // preference). Empty = the option index itself (the legacy positional
+    // mapping), so old projects behave unchanged.
     std::vector<int> optionModes;
     // Ready-made "option block" binding (Menu Editor > Insert option block).
     // On a Toggle/Choice row this makes the generated game map the row's

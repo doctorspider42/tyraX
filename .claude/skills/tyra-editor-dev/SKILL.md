@@ -260,8 +260,12 @@ onto the setting - music/sfx volume, deadzone (`g_deadzoneL/R`), stick curve
 The **display-mode row** (bind 5) is special twice: each option carries an
 explicit engine mode (`MenuEntry::optionModes` → `MenuEntryData::optModes`;
 null/empty = the option index, the legacy positional map — the Menu Editor
-edits these as a dropdown of the five `Tyra::DisplayMode`s + free label;
-a new engine mode must bump the 0..4 clamps in project.cpp load, the
+edits these as a dropdown of the five `Tyra::DisplayMode`s + a "Default
+(project)" sentinel (-1, resolved at runtime to `g_defaultDispMode`, the
+boot mode latched at init — which main.cpp may have promoted from
+Interlaced to Pal576i on a PAL region via `ProjectSettings::palFullHeight`,
+the "PAL picture" preference) + free label; a new engine mode must bump
+the -1..4 clamps in project.cpp load, the
 templates.cpp emitter and the app.cpp lists/seeds), and with an **Apply video
 mode** row (`MenuEntry::ApplyVideo`, action 9) anywhere in the project
 (codegen'd `MENU_HAS_APPLY_VIDEO`) the row defers: cycling only stages the
