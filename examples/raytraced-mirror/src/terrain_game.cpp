@@ -6343,25 +6343,49 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
                     cameraPosition.y - 2.0F * side * n.y,
                     cameraPosition.z - 2.0F * side * n.z, 1.0F));
 
-  // Sphere proxies from the live targets (+ the player). Radius = half the
-  // largest scale axis - a bounding-sphere-ish stand-in, good enough for a
-  // reflection blob that moves and shades correctly.
+  // Proxies from the live targets (+ the player). Flat shapes - boxes,
+  // planes, decals - trace as axis-aligned slabs (a floor as a bounding
+  // SPHERE would engulf the glass and never show; rotation is ignored,
+  // the PoC trade). Everything else is a sphere: radius = half the
+  // largest scale axis, good enough for a reflection blob that moves and
+  // shades correctly.
   Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
-  int sc = 0;
-  for (int t = 0; t < mir.targetCount && sc < Vu0Raytracer::MaxSpheres; ++t) {
+  Vu0RtBox slabs[Vu0Raytracer::MaxBoxes];
+  int sc = 0, bc = 0;
+  for (int t = 0; t < mir.targetCount; ++t) {
     const int index = MIRROR_TARGETS[mir.firstTarget + t];
     if (index < 0 || index >= (int)runtimeObjects.size()) continue;
     RuntimeObject& o = runtimeObjects[index];
     if (!o.active || !o.visible || o.data.type == 15) continue;
-    Vu0RtSphere& s = spheres[sc++];
-    s.center = Vec4(o.data.position[0], o.data.position[1],
-                    o.data.position[2], 1.0F);
-    float r = fabsf(o.data.scale[0]);
-    if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
-    if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
-    s.radius = r * 0.5F;
-    s.color = Color(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
-                    o.data.color[2] * 255.0F, 128.0F);
+    const Color tint(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
+                     o.data.color[2] * 255.0F, 128.0F);
+    if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12 ||
+        o.data.type == 13) {
+      if (bc >= Vu0Raytracer::MaxBoxes) continue;
+      Vu0RtBox& b = slabs[bc++];
+      const float hx = fabsf(o.data.scale[0]) * 0.5F;
+      // planes and decals are flat quads - give the slab a hair of
+      // thickness so grazing rays still register an entry face
+      const float hy = (o.data.type == 12 || o.data.type == 13)
+                           ? 0.02F
+                           : fabsf(o.data.scale[1]) * 0.5F;
+      const float hz = fabsf(o.data.scale[2]) * 0.5F;
+      b.min = Vec4(o.data.position[0] - hx, o.data.position[1] - hy,
+                   o.data.position[2] - hz, 1.0F);
+      b.max = Vec4(o.data.position[0] + hx, o.data.position[1] + hy,
+                   o.data.position[2] + hz, 1.0F);
+      b.color = tint;
+    } else {
+      if (sc >= Vu0Raytracer::MaxSpheres) continue;
+      Vu0RtSphere& s = spheres[sc++];
+      s.center = Vec4(o.data.position[0], o.data.position[1],
+                      o.data.position[2], 1.0F);
+      float r = fabsf(o.data.scale[0]);
+      if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+      if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+      s.radius = r * 0.5F;
+      s.color = tint;
+    }
   }
   if (mir.reflectPlayer && players[0].objIndex >= 0 &&
       sc < Vu0Raytracer::MaxSpheres) {
@@ -6371,6 +6395,7 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
     s.color = Color(210.0F, 170.0F, 140.0F, 128.0F);
   }
   vu0Rt.setSpheres(spheres, sc);
+  vu0Rt.setBoxes(slabs, bc);
 
   vu0Rt.setSky(Color(SKY_TOP_R, SKY_TOP_G, SKY_TOP_B),
                Color(skyHorizonR, skyHorizonG, skyHorizonB));

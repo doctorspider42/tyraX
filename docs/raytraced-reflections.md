@@ -13,21 +13,29 @@ make it fit the machine.
 
 The traced scene is a stylized stand-in for the real one:
 
-- **Sphere proxies** — every object in the mirror's *Reflected objects* list
-  becomes a sphere at the object's live position, radius = half its largest
-  scale axis, colored with the object's tint and shaded with a single-bounce
-  lambert (`0.30 + 0.70·max(N·L, 0)`). Up to 8 spheres
+- **Sphere proxies** — spheres, cylinders, cones and models in the
+  mirror's *Reflected objects* list become spheres at the object's live
+  position (radius = half the largest scale axis), colored with the
+  object's tint and shaded with a single-bounce lambert
+  (`0.30 + 0.70·max(N·L, 0)`). Up to 8 spheres
   (`Vu0Raytracer::MaxSpheres`); *Reflect player* adds one more at the
   player's chest height. Moving objects move in the reflection — positions
   are read per frame.
+- **Slab proxies** — listed **boxes, save points, planes and decals** trace
+  as **axis-aligned slabs** (`Vu0RtBox`, up to 4): a floor or wall as a
+  bounding *sphere* would engulf the glass (ray origins inside → the entry
+  distance goes negative and the hit dies on the eps mask — a listed floor
+  simply never showed), so flat shapes get the classic per-axis slab test
+  instead, with the face normal recovered from entry-axis masks for the
+  same lambert. Rotation is ignored — slabs are axis-aligned, the PoC
+  trade.
 - **Sky gradient** — misses shade from the scene's horizon→zenith colors
   (`SKY_*` / `SKY_TOP_*`), so the reflection matches the real sky dome.
 
-There is no synthetic ground in the traced image — place real floor/wall
-objects in the scene (and in the target list, if they should reflect; mind
-that flat targets reflect as sphere blobs). The engine kernel does support
-an optional analytic checkerboard plane (`Vu0Raytracer::setFloor`) for
-custom engine users, but the generated game leaves it off.
+There is no synthetic ground in the traced image — put a real floor slab in
+the target list and it reflects as itself. (The engine kernel also supports
+an optional analytic checkerboard plane, `Vu0Raytracer::setFloor`, for
+custom engine users; the generated game leaves it off.)
 
 The glass quad draws opaque full-bright white (colors modulate the texture),
 so in RT mode the *Glass opacity* slider is ignored — the traced image IS

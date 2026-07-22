@@ -5185,10 +5185,11 @@ void App::drawPropertiesWindow() {
             committed = true;
         if (o.mirrorRaytraced) {
             ImGui::TextDisabled(
-                "Real per-pixel ray tracing on a VU0 microprogram: the listed\n"
-                "objects reflect as SPHERE PROXIES against the sky gradient,\n"
-                "traced into a texture on the glass. A PoC - true to the rays,\n"
-                "loose with the shapes.");
+                "Real per-pixel ray tracing on a VU0 microprogram: listed\n"
+                "boxes/planes/decals reflect as axis-aligned slabs, everything\n"
+                "else as spheres, against the sky gradient - traced into a\n"
+                "texture on the glass. A PoC - true to the rays, loose with\n"
+                "the shapes (rotation is ignored).");
             // Cost scales with the square of the edge (VU0 traces every
             // texel) - 256/512 are photo modes, not frame rates.
             const char* rtSizes[] = {"32 x 32 (cheap)", "64 x 64",

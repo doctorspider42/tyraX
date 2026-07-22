@@ -25,16 +25,19 @@ against the glass and its traced reflection below it.
 
 - **`mirror`** — a Mirror object with **Raytraced (VU0, experimental)**
   checked, *Reflection resolution* **128 × 128** and *Reflect player* on.
-  Its reflected-objects list carries the four balls. The glass draws the
-  traced texture opaque — in RT mode the opacity slider is ignored.
+  Its reflected-objects list carries the four balls and the floor. The
+  glass draws the traced texture opaque — in RT mode the opacity slider is
+  ignored.
 - **`ball-red` / `ball-green` / `ball-blue` / `ball-sun`** — plain sphere
   primitives; sphere proxies match sphere objects exactly, so these reflect
   true to shape. (Try adding a pillar to the list to see the PoC trade:
-  every proxy is a sphere, so a cylinder reflects as a ball.)
-- **`floor`** — a thin box slab, NOT in the mirror list: the traced scene
-  has no synthetic ground, misses shade from the sky gradient, and real
-  floor geometry is simply scene dressing.
-- **`pillar-left` / `pillar-right`** — framing only, also unlisted.
+  curved shapes proxy as spheres, so a cylinder reflects as a ball.)
+- **`floor`** — a thin box slab, listed too: flat objects (boxes, planes,
+  decals) trace as **axis-aligned slab proxies**, so the floor reflects as
+  an actual floor under the balls. (A flat object as a bounding *sphere*
+  would engulf the glass and never show — that asymmetry is why the kernel
+  has two proxy types.)
+- **`pillar-left` / `pillar-right`** — framing only, unlisted.
 
 ## Things to try
 

@@ -24,6 +24,19 @@ struct Vu0RtSphere {
 };
 
 /**
+ * One axis-aligned slab proxy (min/max corners, world space). The flat
+ * counterpart of Vu0RtSphere: a floor or wall as a bounding sphere engulfs
+ * the mirror plane (ray origins inside -> the entry distance goes negative
+ * and the hit dies on the eps mask), so flat objects trace as AABBs
+ * instead. Rotation is NOT represented - a PoC trade like the spheres.
+ */
+struct Vu0RtBox {
+  Vec4 min;
+  Vec4 max;
+  Color color = Color(160.0F, 160.0F, 160.0F, 128.0F);
+};
+
+/**
  * VU0 MICROMODE ray tracer - the "impossible" PoC. Traces a small
  * reflection image (sphere proxies + optional checkerboard ground plane +
  * sky gradient) entirely on VU0's microprogram pipeline; the EE only feeds
@@ -49,6 +62,7 @@ struct Vu0RtSphere {
 class Vu0Raytracer {
  public:
   static constexpr int MaxSpheres = 8;
+  static constexpr int MaxBoxes = 4;
   // Per-kick limit: one VU0 data-memory batch holds 64 output qwords.
   static constexpr int MaxRowTexels = 64;
   // Image edge limit: rows wider than a batch trace in 64-texel chunks.
@@ -79,6 +93,9 @@ class Vu0Raytracer {
   /** Sphere proxies (up to MaxSpheres; extra entries are dropped). */
   void setSpheres(const Vu0RtSphere* spheres, int count);
 
+  /** AABB slab proxies for flat objects (up to MaxBoxes). */
+  void setBoxes(const Vu0RtBox* boxes, int count);
+
   /**
    * Trace a size x size reflection image. origin = world position of texel
    * (0,0)'s center on the mirror plane, du/dv = world step per texel along
@@ -105,6 +122,10 @@ class Vu0Raytracer {
   float sph[MaxSpheres][4] = {};
   float sphCol[MaxSpheres][4] = {};
   int sphereCount = 0;
+  float boxMin[MaxBoxes][4] = {};
+  float boxMax[MaxBoxes][4] = {};
+  float boxCol[MaxBoxes][4] = {};
+  int boxCount = 0;
 };
 
 }  // namespace Tyra

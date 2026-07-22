@@ -33,8 +33,14 @@ Each finished feature lands as its own commit.
   the VU1 programs but uploaded by the EE to VU0 micro memory (0x11000000)
   and kicked per image row with `vcallms 0`, params/results through VU0 data
   memory (0x11004000), sync by polling VPU STAT. The traced scene is a
-  stylized proxy: target objects as spheres (live position, tint color,
-  single-bounce lambert), sky-gradient misses — traced into an rtSize^2
+  stylized proxy: curved targets as spheres, FLAT targets (boxes, save
+  points, planes, decals) as axis-aligned slab proxies (`Vu0RtBox`, ray-vs-
+  AABB per-axis fold, face normal from entry-axis masks — added when a
+  user-listed floor never showed: a flat object as a bounding sphere
+  engulfs the glass, ray origins start inside and the entry distance dies
+  on the eps mask; rotation is ignored on both proxy kinds), all with live
+  position + tint + single-bounce lambert, sky-gradient misses — traced
+  into an rtSize^2
   RGBA32 texture the glass quad samples, re-uploaded over PATH3 into its
   existing GS allocation each frame (`updateTextureInfo`; re-allocates
   automatically after an eviction flush). Two key tricks: the EE mirrors the
@@ -67,10 +73,11 @@ Each finished feature lands as its own commit.
   any 64-texel chunk boundary; 512's frame rate was not measured - the
   ~64x cost figure is analytic, the image is verifiably right). The
   example level boots clean and its F8 screenshot shows all four balls +
-  the player proxy reflecting on the correct sides over the box floor
-  (an earlier floor made of the Plane primitive z-fought its own two
-  coplanar faces at this scale - patchy dark wedges; the thin box has no
-  coplanar pair and rendered clean). Walk-around
+  the player proxy reflecting on the correct sides, and the listed floor
+  slab reflecting as a floor under them (an earlier floor made of the
+  Plane primitive z-fought its own two coplanar faces at this scale -
+  patchy dark wedges; the thin box has no coplanar pair and rendered
+  clean). Walk-around
   feel (reflection tracking the camera) remains a hands-on pad test. Third
   kernel iteration fixed a subtle one: mix-with-sentinel-BIG selection
   cancels catastrophically in single floats (t - 1e10 + 1e10 == 0), which

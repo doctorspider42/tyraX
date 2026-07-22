@@ -33,7 +33,7 @@
 ;            w=enable (0/1)
 ;   7  floorA.rgb   = checker color A (pre-lit 0..255)
 ;   8  floorB.rgb   = checker color B
-;   9  ints: x=sphereCount  y=texelCount (ILW fields)
+;   9  ints: x=sphereCount  y=texelCount  z=boxCount (ILW fields)
 ;   10 consts2: x=0.30 (ambient) y=0.70 (diffuse) z=0.5 w=1e38
 ;   11 consts:  x=eps (0.01)     y=spare          z=255 w=1024
 ;
@@ -47,6 +47,16 @@
 ;   12..19 sphere centers (xyz, w = radius^2)
 ;   20..27 sphere colors  (rgb 0..255)
 ;   32..95 output row: ftoi0 ints x=red y=green z=blue (max 64)
+;   96..99   AABB slab mins (xyz) - flat proxies (floors, walls)
+;   100..103 AABB slab maxs (xyz)
+;   104..107 AABB slab colors (rgb 0..255)
+;
+; Slabs exist because a flat object as a bounding SPHERE (radius = half
+; its largest axis) engulfs the mirror plane itself - ray origins start
+; inside the sphere, the entry distance b - sqrt(disc) goes negative and
+; the eps mask kills the hit: a listed floor simply never showed. The
+; slab test is the classic per-axis min/max fold, fully vectorized; the
+; face normal falls out of entry-axis == entry-time masks.
 ;---------------------------------------------------------------
 
 .syntax new
@@ -73,10 +83,13 @@
     lq      cq,         11(vi00)
     ilw.x   sphCount,   9(vi00)
     ilw.y   texCount,   9(vi00)
+    ilw.z   boxCount,   9(vi00)
     iaddiu  outAddr,    vi00,       32
-    ; oneV.x = 1.0 - the fs-side "1" the mask inversions need (broadcast
-    ; fields are only legal on the ft operand, so vf00[w] can't sit first)
-    add.x   oneV,       vf00,       vf00[w]
+    ; oneV.xyz = 1.0 - the fs-side "1" the mask inversions need (broadcast
+    ; fields are only legal on the ft operand, so vf00[w] can't sit first);
+    ; negOne.xyz = -1.0 clamps the ray-sign for the slab face normals
+    add.xyz oneV,       vf00,       vf00[w]
+    sub.xyz negOne,     vf00,       oneV
 
 texelLoop:
     ;--- unit ray dir R = normalize(P - mirroredEye)
@@ -177,6 +190,115 @@ sphDone:
     add.x       t1,     t1,         cq2[x]
     mul.xyz     sphCol, bCol,       t1[x]
 
+    ;--- AABB slab proxies (flat objects): nearest slab hit, branchless
+    ; like the spheres. State zeroed even when no slabs were sent - the
+    ; merge below mixes with mask 0 and VCL's path analysis stays happy.
+    sub.x       bTb,    bTb,        bTb
+    sub.x       bHb,    bHb,        bHb
+    sub.xyz     bN3,    bN3,        bN3
+    sub.xyz     bColB,  bColB,      bColB
+    sub.xyz     boxCol, boxCol,     boxCol
+    ibeq        boxCount, vi00,     boxDone
+    ; per-texel inverse ray (a zero component saturates - the slab
+    ; min/max folds absorb the huge values)
+    div         q,      vf00[w],    rd[x]
+    addq.x      ivd,    vf00,       q
+    div         q,      vf00[w],    rd[y]
+    addq.y      ivd,    vf00,       q
+    div         q,      vf00[w],    rd[z]
+    addq.z      ivd,    vf00,       q
+    iadd        bi,     vi00,       boxCount
+    iaddiu      bAddr,  vi00,       96
+    iaddiu      bmAddr, vi00,       100
+    iaddiu      bcAddr, vi00,       104
+boxLoop:
+    lq          bmn,    0(bAddr)
+    lq          bmx,    0(bmAddr)
+    lq          bcl,    0(bcAddr)
+    sub.xyz     ta,     bmn,        pos
+    mul.xyz     ta,     ta,         ivd
+    sub.xyz     tb,     bmx,        pos
+    mul.xyz     tb,     tb,         ivd
+    mini.xyz    tn3,    ta,         tb
+    max.xyz     tf3,    ta,         tb
+    max.x       tn,     tn3,        tn3[y]
+    max.x       tn,     tn,         tn3[z]
+    mini.x      tf,     tf3,        tf3[y]
+    mini.x      tf,     tf,         tf3[z]
+    ; m0 = step(eps, tn) * step(0, tf - tn)
+    sub.x       m0,     tn,         cq[x]
+    mul.x       m0,     m0,         cq2[w]
+    max.x       m0,     m0,         vf00[x]
+    mini.x      m0,     m0,         vf00[w]
+    sub.x       t6,     tf,         tn[x]
+    mul.x       t6,     t6,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    ; m2 = m0 AND (first slab hit OR tn < bTb)
+    sub.x       nh,     oneV,       bHb[x]
+    sub.x       cl,     bTb,        tn[x]
+    mul.x       cl,     cl,         cq2[w]
+    max.x       cl,     cl,         vf00[x]
+    mini.x      cl,     cl,         vf00[w]
+    max.x       m2,     nh,         cl[x]
+    mul.x       m2,     m2,         m0[x]
+    ; fold best: entry t, per-axis entry times (the normal source), color
+    sub.x       t8,     tn,         bTb
+    mul.x       t8,     t8,         m2[x]
+    add.x       bTb,    bTb,        t8
+    sub.xyz     t9,     tn3,        bN3
+    mul.xyz     t9,     t9,         m2[x]
+    add.xyz     bN3,    bN3,        t9
+    sub.xyz     tA,     bcl,        bColB
+    mul.xyz     tA,     tA,         m2[x]
+    add.xyz     bColB,  bColB,      tA
+    max.x       bHb,    bHb,        m0
+    iaddiu      bAddr,  bAddr,      1
+    iaddiu      bmAddr, bmAddr,     1
+    iaddiu      bcAddr, bcAddr,     1
+    iaddi       bi,     bi,         -1
+    ibgtz       bi,     boxLoop
+
+    ;--- winning slab's face normal: the axis whose entry time equals the
+    ; folded tn (vector masks), signed against the ray direction
+    add.xyz     tB,     vf00,       bTb[x]
+    sub.xyz     d3,     tB,         bN3
+    mul.xyz     d3,     d3,         cq2[w]
+    max.xyz     d3,     d3,         vf00[x]
+    mini.xyz    d3,     d3,         vf00[w]
+    sub.xyz     axm,    oneV,       d3
+    mul.xyz     sgn,    rd,         cq2[w]
+    mini.xyz    sgn,    sgn,        vf00[w]
+    max.xyz     sgn,    sgn,        negOne
+    mul.xyz     nB,     sgn,        axm
+    sub.xyz     nB,     vf00,       nB
+    ; slab lambert, same terms as the spheres
+    mul.xyz     t1,     nB,         ldir
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    max.x       t1,     t1,         vf00[x]
+    mul.x       t1,     t1,         cq2[y]
+    add.x       t1,     t1,         cq2[x]
+    mul.xyz     boxCol, bColB,      t1[x]
+
+boxDone:
+    ;--- merge spheres + slabs into one nearest scene hit
+    sub.x       nh,     oneV,       bHit[x]
+    sub.x       cl,     bT,         bTb[x]
+    mul.x       cl,     cl,         cq2[w]
+    max.x       cl,     cl,         vf00[x]
+    mini.x      cl,     cl,         vf00[w]
+    max.x       useB,   nh,         cl[x]
+    mul.x       useB,   useB,       bHb[x]
+    sub.x       t8,     bTb,        bT
+    mul.x       t8,     t8,         useB[x]
+    add.x       bT,     bT,         t8
+    sub.xyz     t9,     boxCol,     sphCol
+    mul.xyz     t9,     t9,         useB[x]
+    add.xyz     hitCol, sphCol,     t9
+    max.x       bHit,   bHit,       bHb
+
     ;--- checkerboard ground plane: tF = (planeY - P.y) / R.y
     sub.x       f0,     floorP,     pos[y]
     div         q,      f0[x],      rd[y]
@@ -233,7 +355,7 @@ sphDone:
     sub.x       invF,   oneV,       mF[x]
     max.x       winS,   invF,      w1[x]
     mul.x       winS,   winS,       bHit[x]
-    sub.xyz     t5,     sphCol,     ground
+    sub.xyz     t5,     hitCol,     ground
     mul.xyz     t5,     t5,         winS[x]
     add.xyz     colf,   ground,     t5
 

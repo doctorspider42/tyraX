@@ -217,11 +217,13 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   wrong, `docker exec <proj>-compiler-1 cat /tyra/engine/obj/.../<prog>.o.vcl`
   shows exactly what vclpp produced — check the expansion before suspecting
   your math. Two VCL-proper traps (paid for by the VU0 rt kernel): symbolic
-  register names that collide with VU special registers are rejected —
-  don't name a register `r`, `q`, `i`, `p` or `acc` ("can't use r as a
-  name"); and a broadcast field selector is only legal on the SECOND source
-  operand — `max.x m, vf00, v[y]` works, `max.x m, v[y], vf00[x]` fails
-  with a misleading "used before set" on the bracketed register.
+  register names that collide with VU special registers OR instruction
+  mnemonics (case-insensitively) are rejected — don't name a register `r`,
+  `q`, `i`, `p`, `acc`, or anything like `mAx`/`sub` ("can't use r as a
+  name" / "invalid name for register"); and a broadcast field selector is
+  only legal on the SECOND source operand — `max.x m, vf00, v[y]` works,
+  `max.x m, v[y], vf00[x]` fails with a misleading "used before set" on
+  the bracketed register.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

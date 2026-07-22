@@ -129,6 +129,24 @@ void Vu0Raytracer::setSpheres(const Vu0RtSphere* spheres, int count) {
   }
 }
 
+void Vu0Raytracer::setBoxes(const Vu0RtBox* boxes, int count) {
+  boxCount = count > MaxBoxes ? MaxBoxes : (count < 0 ? 0 : count);
+  for (int i = 0; i < boxCount; i++) {
+    boxMin[i][0] = boxes[i].min.x;
+    boxMin[i][1] = boxes[i].min.y;
+    boxMin[i][2] = boxes[i].min.z;
+    boxMin[i][3] = 0.0F;
+    boxMax[i][0] = boxes[i].max.x;
+    boxMax[i][1] = boxes[i].max.y;
+    boxMax[i][2] = boxes[i].max.z;
+    boxMax[i][3] = 0.0F;
+    boxCol[i][0] = boxes[i].color.r;
+    boxCol[i][1] = boxes[i].color.g;
+    boxCol[i][2] = boxes[i].color.b;
+    boxCol[i][3] = 0.0F;
+  }
+}
+
 void Vu0Raytracer::kickRowAndWait() {
   // Drain the EE write buffer so the params land before the kernel reads
   // them, then start the microprogram at instruction 0.
@@ -160,6 +178,11 @@ void Vu0Raytracer::trace(const Vec4& origin, const Vec4& du, const Vec4& dv,
     storeQ(12 + i, sph[i]);
     storeQ(20 + i, sphCol[i]);
   }
+  for (int i = 0; i < boxCount; i++) {
+    storeQ(96 + i, boxMin[i]);
+    storeQ(100 + i, boxMax[i]);
+    storeQ(104 + i, boxCol[i]);
+  }
 
   const float duQ[4] = {du.x, du.y, du.z, 0.0F};
   storeQ(2, duQ);
@@ -176,8 +199,8 @@ void Vu0Raytracer::trace(const Vec4& origin, const Vec4& du, const Vec4& dv,
       rowBase[1] = origin.y + dv.y * row + du.y * cx;
       rowBase[2] = origin.z + dv.z * row + du.z * cx;
       storeQ(1, rowBase);
-      storeQi(9, static_cast<u32>(sphereCount), static_cast<u32>(texels), 0,
-              0);
+      storeQi(9, static_cast<u32>(sphereCount), static_cast<u32>(texels),
+              static_cast<u32>(boxCount), 0);
 
       kickRowAndWait();
 
