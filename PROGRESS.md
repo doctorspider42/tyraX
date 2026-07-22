@@ -10,6 +10,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (152) **Reflection probe aim: reflected ray (Preferences > Rendering,
+  docs/reflective-materials.md).** The @sky dynamic env map's camera can
+  now aim along the REFLECTED central ray instead of the classic GT3
+  level-forward: each refresh, a camera ray is intersected with the
+  dynamic-reflective objects themselves (detected by their bound env
+  target - no new flags), with analytic normals: OBB face tests in the
+  object's own frame for boxes/save points/planes (live rotation
+  honored), spheres for curved shapes, bounding spheres for models. The
+  probe then renders from the hit point along the reflected direction, so
+  the map shows what the surface under the crosshair actually mirrors;
+  the pose is exponentially smoothed (alpha 0.25, scene-switch snap) so
+  crosshair slides never snap reflections, decays to the classic pose on
+  a miss, and the env pass's proximity self-skip keys on the probe eye so
+  the mirror-er never swamps its own map. One shared probe remains the
+  honest limit (the looked-at surface gets the accurate aim, the rest
+  inherit it). Chain: ProjectSettings::envProbeReflected (JSON, ==,
+  Preferences > Rendering checkbox, {{ENV_PROBE_REFLECTED}} constant in
+  both game hpp templates), all-runtime aim block in the env pass. OFF by
+  default - existing projects keep their look. Verified in PCSX2 (SW
+  renderer) A/B on examples/reflections (temporary local flip, example
+  NOT committed - its generated files would drift wholesale): same
+  viewpoint, classic shows the red cube as a small washed smudge in the
+  chrome, reflected aim shows it as a large round ball placed differently
+  per sphere - the probe now renders from the surface's vantage. In-game
+  motion (smoothing feel, crosshair slides) remains a hands-on pad test.
+
 - (151) **Live texture feeds: camera-to-texture (CCTV) + raytraced-mirror
   streams (docs/texture-feeds.md).** Any surface can show a live feed via
   *Properties > Texture feed*: a Camera entity with "Render to texture"

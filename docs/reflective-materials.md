@@ -145,6 +145,37 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   time per extra pass.
 - Remaining "pro" idea: smoothed normals for the env pass.
 
+## Probe aim: reflected ray (Preferences > Rendering)
+
+The classic pass aims the env camera **level along the player's forward**
+from the eye — the GT3 trick, correct for skies and "good enough" for
+everything else. **Reflection probe: aim along the reflected ray** replaces
+that with a physically-motivated aim: every env-map refresh, a ray from the
+camera is intersected with the **dynamic-reflective objects themselves**
+(the ones sampling `@sky` — detected by their bound env target), using
+analytic shapes:
+
+- boxes / save points / planes → **OBB face** test in the object's own
+  frame (live rotation honored), the hit face's normal;
+- spheres / cylinders / cones → sphere (radius = half the largest scale
+  axis); models → bounding sphere.
+
+The nearest hit reflects the view ray and the probe renders **from the hit
+point along the reflected direction** — the map then shows what the surface
+under the crosshair actually mirrors: a red crate standing in front of a
+chrome sphere reflects big and round instead of as a distant smudge. The
+pose is **exponentially smoothed** (α = 0.25 per refresh) so the crosshair
+sliding between reflective objects never snaps the reflections, and it
+decays back to the classic pose when nothing reflective is under the ray.
+The env pass's proximity self-skip keys on the probe eye, so the mirror-er
+itself never swamps its own map.
+
+Honest limits: it is still ONE probe shared by every reflective surface —
+the one you look at gets the accurate aim, the rest inherit it; and a
+single 110° camera cannot cover the full reflected hemisphere, so extreme
+grazing angles still clamp. Off by default (existing projects keep their
+look); best on large curved chrome at small-to-mid distances.
+
 ## Dynamic env map internals
 
 - `RendererCoreEnvMap` (engine fork): a 128×128×32 render target allocated at

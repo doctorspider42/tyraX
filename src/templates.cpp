@@ -417,6 +417,12 @@ constexpr float MESH_LOD_DISTANCE = {{MESH_LOD_DISTANCE}};
 // its batch. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = {{STATIC_BATCHING}};
 
+// Dynamic reflection probe aim (Preferences > Rendering): false = the
+// classic GT3 level-forward aim; true = a camera ray is intersected with
+// the dynamic-reflective objects and the probe renders from the hit point
+// along the smoothed REFLECTED ray (docs/reflective-materials.md).
+constexpr bool ENV_PROBE_REFLECTED = {{ENV_PROBE_REFLECTED}};
+
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
 constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
@@ -7758,10 +7764,6 @@ void TerrainGame::renderScene() {
   // last rendered map while split-screen is active.
   if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
-    skyMat.identity();
-    skyMat.data[12] = cameraPosition.x;
-    skyMat.data[13] = cameraPosition.y;
-    skyMat.data[14] = cameraPosition.z;
     // Level forward: keeps the sphere map's horizon on its center line.
     V3 lvl = {envFwd.x, 0.0F, envFwd.z};
     const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
@@ -7769,11 +7771,140 @@ void TerrainGame::renderScene() {
       lvl.x /= ll, lvl.z /= ll;
     else
       lvl = {1.0F, 0.0F, 0.0F};
-    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
-                 cameraPosition.z + lvl.z, 1.0F);
+
+    // Probe pose. Classic (GT3): level forward from the eye. Reflected
+    // mode (ENV_PROBE_REFLECTED, Preferences > Rendering): a camera ray is
+    // intersected with the DYNAMIC-reflective objects (the ones sampling
+    // this very map - part.envTexBag bound to it); the probe renders from
+    // the hit point along the reflected ray, so the map shows what the
+    // surface under the crosshair actually mirrors. Analytic normals: OBB
+    // faces for boxes/planes (live rotation honored), spheres for curved
+    // shapes, bounding spheres for models. The pose is exponentially
+    // smoothed - crosshair sliding between objects must not snap the
+    // reflections - and decays back to the classic pose on a miss.
+    Vec4 probeEye = cameraPosition;
+    V3 probeDir = lvl;
+    if (ENV_PROBE_REFLECTED) {
+      Vec4 tgtEye = cameraPosition;
+      V3 tgtDir = lvl;
+      V3 rdir = envFwd;  // normalized camera forward (computed above)
+      Texture* envTex = core.envMap.getTexture();
+      float bestT = 1e30F;
+      for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+        RuntimeObject& o = runtimeObjects[i];
+        if (!o.active || !o.visible) continue;
+        bool dyn = false;
+        for (GeoPart& part : objectGeometry[i].parts)
+          if (part.envTexBag && part.envTexBag->texture == envTex) {
+            dyn = true;
+            break;
+          }
+        if (!dyn) continue;
+        const V3 rel = {cameraPosition.x - o.data.position[0],
+                        cameraPosition.y - o.data.position[1],
+                        cameraPosition.z - o.data.position[2]};
+        float t = -1.0F;
+        V3 n = {0.0F, 1.0F, 0.0F};
+        if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12) {
+          // OBB slab test in the object's own frame (rotation honored)
+          const V3 lo = invRotated(rel, o.data.rotation);
+          const V3 ld = invRotated(rdir, o.data.rotation);
+          const float he[3] = {
+              0.5F * o.data.scale[0],
+              o.data.type == 12 ? 0.02F : 0.5F * o.data.scale[1],
+              0.5F * o.data.scale[2]};
+          const float lop[3] = {lo.x, lo.y, lo.z};
+          const float ldp[3] = {ld.x, ld.y, ld.z};
+          float tn = -1e30F, tf = 1e30F;
+          int axis = 0;
+          for (int a = 0; a < 3; ++a) {
+            if (fabsf(ldp[a]) < 1e-6F) {
+              if (fabsf(lop[a]) > he[a]) { tn = 1e30F; break; }
+              continue;
+            }
+            float t1 = (-he[a] - lop[a]) / ldp[a];
+            float t2 = (he[a] - lop[a]) / ldp[a];
+            if (t1 > t2) { const float tmp = t1; t1 = t2; t2 = tmp; }
+            if (t1 > tn) { tn = t1, axis = a; }
+            if (t2 < tf) tf = t2;
+          }
+          if (tn <= tf && tn > 0.05F) {
+            t = tn;
+            V3 ln = {0.0F, 0.0F, 0.0F};
+            const float lhit = lop[axis] + ldp[axis] * tn;
+            (axis == 0 ? ln.x : axis == 1 ? ln.y : ln.z) =
+                lhit > 0.0F ? 1.0F : -1.0F;
+            n = rotated(ln, o.data.rotation);
+          }
+        } else if (o.data.type == 1 || o.data.type == 2 ||
+                   o.data.type == 3 || o.data.type == 5) {
+          // sphere (curved shapes; models by bounding sphere)
+          float r = fabsf(o.data.scale[0]);
+          if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+          if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+          r *= o.data.type == 5 ? 0.87F : 0.5F;
+          const float b = -(rel.x * rdir.x + rel.y * rdir.y + rel.z * rdir.z);
+          const float c2 = rel.x * rel.x + rel.y * rel.y + rel.z * rel.z -
+                           r * r;
+          const float disc = b * b - c2;
+          if (disc > 0.0F) {
+            const float tt = b - sqrtf(disc);
+            if (tt > 0.05F) {
+              t = tt;
+              const float ix = rel.x + rdir.x * tt;
+              const float iy = rel.y + rdir.y * tt;
+              const float iz = rel.z + rdir.z * tt;
+              const float il = sqrtf(ix * ix + iy * iy + iz * iz);
+              if (il > 0.0001F) n = {ix / il, iy / il, iz / il};
+            }
+          }
+        }
+        if (t > 0.0F && t < bestT) {
+          bestT = t;
+          const float dn =
+              2.0F * (rdir.x * n.x + rdir.y * n.y + rdir.z * n.z);
+          tgtDir = {rdir.x - dn * n.x, rdir.y - dn * n.y,
+                    rdir.z - dn * n.z};
+          // probe eye ON the surface, nudged out along the normal so the
+          // proximity skip below drops the reflective object itself
+          tgtEye.set(cameraPosition.x + rdir.x * t + n.x * 0.05F,
+                     cameraPosition.y + rdir.y * t + n.y * 0.05F,
+                     cameraPosition.z + rdir.z * t + n.z * 0.05F, 1.0F);
+        }
+      }
+      static Vec4 smEye;
+      static V3 smDir;
+      static int smGen = -1;
+      if (smGen != sceneGeneration) {  // scene switch: snap, no cross-fade
+        smGen = sceneGeneration;
+        smEye = tgtEye;
+        smDir = tgtDir;
+      } else {
+        const float a = 0.25F;
+        smEye.set(smEye.x + (tgtEye.x - smEye.x) * a,
+                  smEye.y + (tgtEye.y - smEye.y) * a,
+                  smEye.z + (tgtEye.z - smEye.z) * a, 1.0F);
+        smDir.x += (tgtDir.x - smDir.x) * a;
+        smDir.y += (tgtDir.y - smDir.y) * a;
+        smDir.z += (tgtDir.z - smDir.z) * a;
+      }
+      const float dl = sqrtf(smDir.x * smDir.x + smDir.y * smDir.y +
+                             smDir.z * smDir.z);
+      if (dl > 0.0001F) {
+        probeDir = {smDir.x / dl, smDir.y / dl, smDir.z / dl};
+        probeEye = smEye;
+      }
+    }
+
+    skyMat.identity();
+    skyMat.data[12] = probeEye.x;
+    skyMat.data[13] = probeEye.y;
+    skyMat.data[14] = probeEye.z;
+    Vec4 envLook(probeEye.x + probeDir.x, probeEye.y + probeDir.y,
+                 probeEye.z + probeDir.z, 1.0F);
     core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
                             scriptCtx.skyColor.b, 128.0F));
-    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+    core.renderer3D.pushEnvView(probeEye, envLook, 110.0F,
                                 (float)Tyra::RendererCoreEnvMap::size);
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
@@ -7785,19 +7916,21 @@ void TerrainGame::renderScene() {
     for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
-      // Skip the object the camera is standing at: it would swamp the whole
+      // Skip the object the PROBE stands at: it would swamp the whole
       // map - typically the very reflective surface being inspected, whose
-      // own dark self-reflection reads as ugly patches up close. (Bounding
-      // radius approximated from the scale; unit primitives fit a 1x1x1
-      // cube, so half-diagonal = 0.87 * max scale.)
+      // own dark self-reflection reads as ugly patches up close. In
+      // reflected-aim mode the probe eye sits ON the hit surface, so this
+      // same check self-skips the mirror-er. (Bounding radius approximated
+      // from the scale; unit primitives fit a 1x1x1 cube, so
+      // half-diagonal = 0.87 * max scale.)
       {
         float half = ro.data.scale[0];
         if (ro.data.scale[1] > half) half = ro.data.scale[1];
         if (ro.data.scale[2] > half) half = ro.data.scale[2];
         const float skipR = 0.87F * half * 1.9F;
-        const float sdx = ro.data.position[0] - cameraPosition.x;
-        const float sdy = ro.data.position[1] - cameraPosition.y;
-        const float sdz = ro.data.position[2] - cameraPosition.z;
+        const float sdx = ro.data.position[0] - probeEye.x;
+        const float sdy = ro.data.position[1] - probeEye.y;
+        const float sdz = ro.data.position[2] - probeEye.z;
         if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
       }
       if (ro.dirty) rebuildObjectGeometry(ri);
@@ -13902,6 +14035,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
+    s = replaceAll(s, "{{ENV_PROBE_REFLECTED}}",
+                   st.envProbeReflected ? "true" : "false");
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");

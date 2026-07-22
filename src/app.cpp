@@ -16085,6 +16085,16 @@ void App::drawPreferencesModal() {
         "instances farther than this render the reduced meshes. Costs RAM\n"
         "and .tskl size; the editor viewport always shows the full mesh.");
 
+    ImGui::Checkbox("Reflection probe: aim along the reflected ray",
+                    &prefSettings_.envProbeReflected);
+    ImGui::TextDisabled(
+        "Dynamic reflections (@sky materials): instead of the classic\n"
+        "level-forward aim, a ray from the camera hits the reflective\n"
+        "object under the crosshair and the probe renders from the hit\n"
+        "point along the REFLECTED ray (smoothed) - what that surface\n"
+        "actually mirrors. Best on large curved chrome at mid distance;\n"
+        "the single shared probe still approximates every other surface.");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     ImGui::TextDisabled(
         "Merges non-moving primitives sharing a material into combined\n"

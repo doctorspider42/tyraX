@@ -575,6 +575,17 @@ struct ProjectSettings {
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
 
+    // Dynamic reflection probe aim (docs/reflective-materials.md). false =
+    // the classic GT3 aim: the env camera looks level along the player
+    // forward from the eye. true = "reflected ray": each frame a ray from
+    // the camera is intersected with the dynamic-reflective objects
+    // (analytic normals - OBB faces for boxes, spheres for curved shapes,
+    // bounding spheres for models) and the probe renders from the hit
+    // point along the REFLECTED ray (smoothed), so the map shows what the
+    // surface the player looks at actually reflects. Off by default -
+    // existing projects keep their look.
+    bool envProbeReflected = false;
+
     // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
     // host at build time (navmesh.cpp) from the terrain slope + blocking
     // objects; the game runs A* over the baked bitmap on the EE, only in
@@ -709,6 +720,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
            a.staticBatching == b.staticBatching &&
+           a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&

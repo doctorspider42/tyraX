@@ -791,6 +791,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         << "    \"envProbeReflected\": "
+         << (p.settings.envProbeReflected ? "true" : "false") << ",\n"
          << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
@@ -2242,6 +2244,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("envProbeReflected"))
+            st.envProbeReflected = v->boolOr(false);
         if (const auto* v = s->find("navCellSize")) {
             st.navCellSize = (float)v->numberOr(1.0);
             if (st.navCellSize < 0.25f) st.navCellSize = 0.25f;
