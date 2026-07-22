@@ -42,9 +42,14 @@ Each finished feature lands as its own commit.
   with reflective object count (one full probe render per object per
   frame - "10 objects = your own funeral", per the owner); probes skip
   inside split halves (raster bracket rule). The proximity self-skip keys
-  on the probe eye so the mirror-er never swamps its own map. One shared probe remains the
-  honest limit (the looked-at surface gets the accurate aim, the rest
-  inherit it). Chain: ProjectSettings::envProbeReflected (JSON, ==,
+  on the probe eye so the mirror-er never swamps its own map. One more
+  owner-caught bug closed the loop: reflections came out HORIZONTALLY
+  MIRRORED because the VU1 matcap sampled every map with the MAIN
+  camera's right/up - a probe looking back at the player has its left on
+  the player's right, so each probe now stores ITS camera basis on the
+  object geometry and the env pass samples with it (renderEnvPass takes
+  the owning ObjectGeometry; classic mode untouched - its probe shares
+  the player's heading, so the flip never showed there). Chain: ProjectSettings::envProbeReflected (JSON, ==,
   Preferences > Rendering checkbox, {{ENV_PROBE_REFLECTED}} constant in
   both game hpp templates), all-runtime aim block in the env pass. OFF by
   default - existing projects keep their look. Verified in PCSX2 (SW
