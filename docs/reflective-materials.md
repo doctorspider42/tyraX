@@ -164,9 +164,13 @@ The nearest hit reflects the view ray and the probe renders **from the hit
 point along the reflected direction** — the map then shows what the surface
 under the crosshair actually mirrors: a red crate standing in front of a
 chrome sphere reflects big and round instead of as a distant smudge. The
-pose is **exponentially smoothed** (α = 0.25 per refresh) so the crosshair
-sliding between reflective objects never snaps the reflections, and it
-decays back to the classic pose when nothing reflective is under the ray.
+smoothing is **adaptive**: while the crosshair stays on the same object
+the pose tracks the camera **instantly** — it is a continuous function of
+the view, and a constant smoothing factor here made reflections visibly
+trail camera motion by ~20 frames — while a short cross-fade
+(~6 refreshes) engages only when the hit object changes or the ray
+starts/stops hitting anything reflective: the one moment the pose
+genuinely jumps. A miss decays back to the classic pose the same way.
 The env pass's proximity self-skip keys on the probe eye, so the mirror-er
 itself never swamps its own map.
 

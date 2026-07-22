@@ -20,10 +20,14 @@ Each finished feature lands as its own commit.
   honored), spheres for curved shapes, bounding spheres for models. The
   probe then renders from the hit point along the reflected direction, so
   the map shows what the surface under the crosshair actually mirrors;
-  the pose is exponentially smoothed (alpha 0.25, scene-switch snap) so
-  crosshair slides never snap reflections, decays to the classic pose on
-  a miss, and the env pass's proximity self-skip keys on the probe eye so
-  the mirror-er never swamps its own map. One shared probe remains the
+  smoothing is ADAPTIVE - same hit object = the pose tracks the camera
+  instantly (the first cut smoothed constantly at alpha 0.25 per
+  every-2nd-frame refresh and the owner immediately felt reflections
+  trailing the camera by ~20 frames), a ~6-refresh cross-fade engages
+  only when the hit object changes or hit <-> miss flips (the one moment
+  the pose genuinely jumps; scene switches snap). The env pass's
+  proximity self-skip keys on the probe eye so the mirror-er never swamps
+  its own map. One shared probe remains the
   honest limit (the looked-at surface gets the accurate aim, the rest
   inherit it). Chain: ProjectSettings::envProbeReflected (JSON, ==,
   Preferences > Rendering checkbox, {{ENV_PROBE_REFLECTED}} constant in

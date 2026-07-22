@@ -7790,6 +7790,7 @@ void TerrainGame::renderScene() {
       V3 rdir = envFwd;  // normalized camera forward (computed above)
       Texture* envTex = core.envMap.getTexture();
       float bestT = 1e30F;
+      int bestObj = -1;
       for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
         RuntimeObject& o = runtimeObjects[i];
         if (!o.active || !o.visible) continue;
@@ -7861,6 +7862,7 @@ void TerrainGame::renderScene() {
         }
         if (t > 0.0F && t < bestT) {
           bestT = t;
+          bestObj = i;
           const float dn =
               2.0F * (rdir.x * n.x + rdir.y * n.y + rdir.z * n.z);
           tgtDir = {rdir.x - dn * n.x, rdir.y - dn * n.y,
@@ -7872,15 +7874,30 @@ void TerrainGame::renderScene() {
                      cameraPosition.z + rdir.z * t + n.z * 0.05F, 1.0F);
         }
       }
+      // ADAPTIVE smoothing: while the crosshair stays on the SAME object
+      // the pose is a continuous function of the camera - track it
+      // INSTANTLY (a constant alpha here made reflections trail the
+      // camera by ~20 frames; owner report). A short cross-fade engages
+      // only when the hit object changes (or hit <-> miss) - the one
+      // moment the pose genuinely jumps.
       static Vec4 smEye;
       static V3 smDir;
       static int smGen = -1;
+      static int smObj = -2;
+      static int smBlend = 0;
       if (smGen != sceneGeneration) {  // scene switch: snap, no cross-fade
         smGen = sceneGeneration;
+        smObj = bestObj;
+        smBlend = 0;
         smEye = tgtEye;
         smDir = tgtDir;
       } else {
-        const float a = 0.25F;
+        if (bestObj != smObj) {
+          smObj = bestObj;
+          smBlend = 6;  // refreshes (= 12 frames at the every-2nd cadence)
+        }
+        const float a = smBlend > 0 ? 0.35F : 1.0F;
+        if (smBlend > 0) --smBlend;
         smEye.set(smEye.x + (tgtEye.x - smEye.x) * a,
                   smEye.y + (tgtEye.y - smEye.y) * a,
                   smEye.z + (tgtEye.z - smEye.z) * a, 1.0F);
