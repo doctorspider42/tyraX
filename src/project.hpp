@@ -332,7 +332,9 @@ struct SceneObject {
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
     bool mirrorRaytraced = false;
-    int mirrorRtSize = 64;  // traced image edge: 32/64/128 (128 = ~4x cost)
+    // Traced image edge: 32/64/128/256/512. Cost scales with the square
+    // (VU0 traces every texel) - 256/512 are photo modes, not frame rates.
+    int mirrorRtSize = 64;
 
     // Portal parameters (used when type == Portal). portalTarget names the
     // destination Portal in the same scene (renames remap; empty or dangling =

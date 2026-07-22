@@ -52,7 +52,9 @@ class Vu0Raytracer {
   // Per-kick limit: one VU0 data-memory batch holds 64 output qwords.
   static constexpr int MaxRowTexels = 64;
   // Image edge limit: rows wider than a batch trace in 64-texel chunks.
-  static constexpr int MaxSize = 128;
+  // 512 is the GS texture ceiling - and a photo mode, not a frame rate
+  // (cost scales with edge^2: 64x the 64x64 default, ~1 MB of GS VRAM).
+  static constexpr int MaxSize = 512;
 
   /** Upload the microprogram to VU0 micro memory. Idempotent. */
   void init();
@@ -82,8 +84,9 @@ class Vu0Raytracer {
    * (0,0)'s center on the mirror plane, du/dv = world step per texel along
    * the image row/column. out receives size*size RGBA32 pixels (row-major,
    * alpha 0x80). size must be <= MaxSize; rows wider than MaxRowTexels
-   * trace in 64-texel chunks (cost scales with size^2 - 128 is a "for
-   * screenshots" tier, ~4x the 64 default).
+   * trace in 64-texel chunks. Cost scales with size^2: 128 costs ~4x the
+   * 64 default and still holds a frame rate in a light scene; 256/512 are
+   * photo modes.
    */
   void trace(const Vec4& origin, const Vec4& du, const Vec4& dv, u32* out,
              int size);

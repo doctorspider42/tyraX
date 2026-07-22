@@ -140,7 +140,7 @@ void Vu0Raytracer::kickRowAndWait() {
 void Vu0Raytracer::trace(const Vec4& origin, const Vec4& du, const Vec4& dv,
                          u32* out, int size) {
   TYRA_ASSERT(size > 0 && size <= MaxSize,
-              "Vu0Raytracer::trace size must be 1..128");
+              "Vu0Raytracer::trace size must be 1..512");
   init();
   vu0WaitIdle();
 

@@ -12469,7 +12469,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int firstTarget;    // first entry in MIRROR_TARGETS\n"
                "  int targetCount;\n"
                "  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)\n"
-               "  int rtSize;         // traced image edge, texels (32/64/128)\n"
+               "  int rtSize;         // traced image edge, texels (32..512)\n"
                "};\n"
             << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
             << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)

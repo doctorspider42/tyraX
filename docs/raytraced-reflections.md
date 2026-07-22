@@ -35,10 +35,12 @@ the reflection. Everything else about the Mirror object (transform, target
 list, Reflect player) keeps its meaning.
 
 **Resolution**: the per-mirror *Reflection resolution* picks the traced
-image edge — 32 (cheap), 64 (default) or 128 (~4× the 64 cost; rows wider
-than one VU0 batch trace in 64-texel chunks, see `Vu0Raytracer::trace`).
-Cost scales with the square of the edge, so treat 128 as a
-close-up/screenshot tier.
+image edge — 32 (cheap), 64 (default), 128 (~4× the 64 cost, still a frame
+rate in a light scene), 256 or 512 (the GS texture ceiling). Rows wider
+than one VU0 batch trace in 64-texel chunks (`Vu0Raytracer::trace`). Cost
+scales with the square of the edge — 512 traces 262k rays per frame
+(~64× the default) and needs 1 MB of GS VRAM for the target: treat 256/512
+as photo modes, not frame rates.
 
 ## How it works
 
@@ -93,9 +95,10 @@ GS-freed and deleted on scene switch) and the draw.
   trade — the rays and the shading are real; the shapes are not.
   (GT3 faked the rays and kept the shapes; we do the opposite.)
 - GS VRAM per raytraced mirror: rtSize²×4 bytes (4 KB at 32, 16 KB at 64,
-  64 KB at 128) + an equal EE-side pixel buffer. If the all-or-nothing
-  texture eviction ever flushes it, the next frame re-allocates and
-  re-uploads automatically.
+  64 KB at 128, 256 KB at 256, 1 MB at 512 — most of the ~1.33 MB texture
+  budget) + an equal EE-side pixel buffer. If the all-or-nothing texture
+  eviction ever flushes it, the next frame re-allocates and re-uploads
+  automatically.
 
 ## Authoring
 

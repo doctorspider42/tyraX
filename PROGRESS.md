@@ -19,10 +19,15 @@ Each finished feature lands as its own commit.
   feedback the generated game draws NO synthetic ground (the kernel's
   optional checker plane exists but stays off — authors place real floor
   geometry), and the traced image edge is a per-mirror **Reflection
-  resolution** option, 32/64/128 (`mirrorRtSize`/`MirrorData::rtSize`
-  through the whole chain; 128 traces each row in two 64-texel VU0 batches
-  — `Vu0Raytracer::trace` chunks rows — at ~4x the 64 cost).
-  Engine: `Tyra::Vu0Raytracer`
+  resolution** option, 32/64/128/256/512 (`mirrorRtSize`/
+  `MirrorData::rtSize` through the whole chain; rows wider than one VU0
+  batch trace in 64-texel chunks — `Vu0Raytracer::trace`; cost scales with
+  edge^2, so 128 is ~4x the default and still a frame rate while 256/512
+  are labeled photo modes in the UI — 512 also costs 1 MB of the ~1.33 MB
+  GS texture budget). Ships with a playable sample level,
+  **examples/raytraced-mirror** (glass wall at 128, four balls +
+  reflectPlayer, thin-box floor + pillars deliberately NOT in the mirror
+  list). Engine: `Tyra::Vu0Raytracer`
   (`vendor/tyra/engine/{inc,src}/renderer/rt/`, exported by `<tyra>`) +
   `vu0_rt_kernel.vclpp`, built through the same vclpp/vcl/dvp-as pipeline as
   the VU1 programs but uploaded by the EE to VU0 micro memory (0x11000000)
@@ -58,7 +63,14 @@ Each finished feature lands as its own commit.
   mirror EE 38% / VU 4% / GS 9% vs raytraced EE 36-37% / VU 2% / GS 7%,
   BOTH locked at 50 FPS - the RT mirror trades the copy re-submission for
   VU0 trace time and comes out cost-neutral in this small scene; the same
-  scene at rtSize 128 (chunked rows) still renders correctly. Walk-around
+  scene renders correctly at rtSize 128 AND 512 (chunked rows, no seam at
+  any 64-texel chunk boundary; 512's frame rate was not measured - the
+  ~64x cost figure is analytic, the image is verifiably right). The
+  example level boots clean and its F8 screenshot shows all four balls +
+  the player proxy reflecting on the correct sides over the box floor
+  (an earlier floor made of the Plane primitive z-fought its own two
+  coplanar faces at this scale - patchy dark wedges; the thin box has no
+  coplanar pair and rendered clean). Walk-around
   feel (reflection tracking the camera) remains a hands-on pad test. Third
   kernel iteration fixed a subtle one: mix-with-sentinel-BIG selection
   cancels catastrophically in single floats (t - 1e10 + 1e10 == 0), which

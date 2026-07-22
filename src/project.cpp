@@ -2061,7 +2061,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.mirrorRaytraced = v->boolOr(false);
             if (const auto* v = mr->find("rtSize")) {
                 const int s = (int)v->numberOr(64);
-                o.mirrorRtSize = (s == 32 || s == 128) ? s : 64;
+                o.mirrorRtSize =
+                    (s == 32 || s == 128 || s == 256 || s == 512) ? s : 64;
             }
             if (const auto* v = mr->find("objects");
                 v && v->type == json::Value::Type::Array) {

@@ -5189,12 +5189,19 @@ void App::drawPropertiesWindow() {
                 "objects reflect as SPHERE PROXIES against the sky gradient,\n"
                 "traced into a texture on the glass. A PoC - true to the rays,\n"
                 "loose with the shapes.");
+            // Cost scales with the square of the edge (VU0 traces every
+            // texel) - 256/512 are photo modes, not frame rates.
             const char* rtSizes[] = {"32 x 32 (cheap)", "64 x 64",
-                                     "128 x 128 (~4x cost)"};
-            int rtIdx = o.mirrorRtSize == 32 ? 0 : o.mirrorRtSize == 128 ? 2 : 1;
-            ImGui::SetNextItemWidth(scaled(170));
-            if (ImGui::Combo("Reflection resolution", &rtIdx, rtSizes, 3)) {
-                o.mirrorRtSize = rtIdx == 0 ? 32 : rtIdx == 2 ? 128 : 64;
+                                     "128 x 128 (~4x cost)",
+                                     "256 x 256 (slideshow)",
+                                     "512 x 512 (photo mode, 1MB VRAM)"};
+            const int rtVals[] = {32, 64, 128, 256, 512};
+            int rtIdx = 1;
+            for (int i = 0; i < 5; ++i)
+                if (o.mirrorRtSize == rtVals[i]) { rtIdx = i; break; }
+            ImGui::SetNextItemWidth(scaled(210));
+            if (ImGui::Combo("Reflection resolution", &rtIdx, rtSizes, 5)) {
+                o.mirrorRtSize = rtVals[rtIdx];
                 committed = true;
             }
         }
