@@ -15754,6 +15754,16 @@ void App::rebakeSplatPreview() {
     viewport_.setTerrainLayers(draws, sc.splat);
 }
 
+// Compact help marker: a dimmed "(?)" on the same line as the preceding widget
+// that reveals its explanation on hover, instead of unrolling a multi-paragraph
+// description inline. Keeps the dense Preferences dialogs from running several
+// screens tall - the same idiom the Layers list already uses.
+static void prefHelp(const char* tip) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+}
+
 void App::drawPreferencesModal() {
     if (openPreferencesPopup_) {
         ImGui::OpenPopup("Project Preferences");
@@ -15771,7 +15781,7 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("Game");
     const char* templateNames[] = {"Terrain orbit", "FPP walkthrough"};
     ImGui::Combo("Template", &prefTemplate_, templateNames, 2);
-    ImGui::TextDisabled("Applies to generated sources (files with the editor marker).");
+    prefHelp("Applies to generated sources (files with the editor marker).");
 
     ImGui::SeparatorText("Build");
     int videoSys = prefSettings_.videoSystem == "pal"    ? 2
@@ -15781,7 +15791,7 @@ void App::drawPreferencesModal() {
                                    "PAL (50 Hz)"};
     if (ImGui::Combo("Target system", &videoSys, videoSysNames, 3))
         prefSettings_.videoSystem = videoSys == 2 ? "pal" : videoSys == 1 ? "ntsc" : "auto";
-    ImGui::TextDisabled(
+    prefHelp(
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
@@ -15800,7 +15810,7 @@ void App::drawPreferencesModal() {
                                     : dispMode == 2 ? "progressive"
                                     : dispMode == 1 ? "interlaced-field"
                                                     : "interlaced";
-    ImGui::TextDisabled(
+    prefHelp(
         "Scan mode of the built game. Interlaced is the stock TV signal and\n"
         "follows Target system; it renders full 512x448 frames and each TV\n"
         "field shows half the lines of the newest one. Field rendering\n"
@@ -15812,7 +15822,7 @@ void App::drawPreferencesModal() {
         "a real console - PCSX2 displays every mode. 1080i renders a\n"
         "448x540 frame (sharper vertically) and leaves less VRAM for\n"
         "textures. PAL 576i is the full-height PAL frame (true 576i: a\n"
-        "512x512 render, 14%% more lines than the NTSC-sized picture) -\n"
+        "512x512 render, 14% more lines than the NTSC-sized picture) -\n"
         "always a 50 Hz PAL signal regardless of Target system, and it\n"
         "also leaves less VRAM for textures. All can also be switched at\n"
         "runtime with the Set Display Mode flow node, which shows a\n"
@@ -15823,7 +15833,7 @@ void App::drawPreferencesModal() {
                                      "Full-height 576i"};
         if (ImGui::Combo("PAL picture", &palPic, palPicNames, 2))
             prefSettings_.palFullHeight = palPic == 1;
-        ImGui::TextDisabled(
+        prefHelp(
             "How the region-following interlaced mode looks on a PAL\n"
             "console (or with Target system forced to PAL): Letterbox\n"
             "keeps the NTSC-size 448-line picture in the 576i raster (the\n"
@@ -15834,7 +15844,7 @@ void App::drawPreferencesModal() {
             "rendering has no full-height variant yet.)");
     }
     ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
-    ImGui::TextDisabled(
+    prefHelp(
         "Widens the projection so proportions are correct on a 16:9 TV\n"
         "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
         "the picture also fills more of the screen. HUD sprites stretch\n"
@@ -15844,7 +15854,7 @@ void App::drawPreferencesModal() {
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
-    ImGui::TextDisabled(
+    prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
         "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
         "of screen tearing. Gameplay speed is unaffected either way.");
@@ -15853,7 +15863,7 @@ void App::drawPreferencesModal() {
     ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
     ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
     ImGui::EndDisabled();
-    ImGui::TextDisabled(
+    prefHelp(
         "Debug-profile overlays drawn in the top-left corner of the game:\n"
         "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
@@ -15861,7 +15871,7 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();
-    ImGui::TextDisabled(
+    prefHelp(
         "Debug builds poll livelink.bin next to the ELF so the editor can\n"
         "stream scene edits into the running game (docs/live-link.md). Turn\n"
         "off if you don't want your game patched from outside; release\n"
@@ -15876,8 +15886,8 @@ void App::drawPreferencesModal() {
     prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
                                                                                 : prefTerrain_.depth;
     ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
-    ImGui::TextDisabled("More cells = smaller triangles = fewer clipping artifacts,");
-    ImGui::TextDisabled("but more geometry for the PS2 to push.");
+    prefHelp("More cells = smaller triangles = fewer clipping artifacts,\n"
+             "but more geometry for the PS2 to push.");
 
     ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
                      2000.0f,
@@ -15885,7 +15895,7 @@ void App::drawPreferencesModal() {
                                                               : "off (whole map)");
     if (prefSettings_.terrainViewDistance < 0.0f)
         prefSettings_.terrainViewDistance = 0.0f;
-    ImGui::TextDisabled(
+    prefHelp(
         "The game keeps only the terrain chunks within this range of the\n"
         "camera in memory; the rest streams in as the player moves. Pair it\n"
         "with fog (view distance ~ fog end) to hide the pop-in. 0 keeps the\n"
@@ -15940,7 +15950,7 @@ void App::drawPreferencesModal() {
                      0.5f, 0.0f, 2000.0f,
                      prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
     if (prefSettings_.animLodDistance < 0.0f) prefSettings_.animLodDistance = 0.0f;
-    ImGui::TextDisabled(
+    prefHelp(
         "Animated models farther than this refresh their pose every 2nd frame\n"
         "(every 4th beyond twice the distance). Playback time is unaffected.\n"
         "Cuts the per-instance EE cost of distant animated crowds.");
@@ -15949,13 +15959,13 @@ void App::drawPreferencesModal() {
                      0.5f, 0.0f, 2000.0f,
                      prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
     if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
-    ImGui::TextDisabled(
-        "The build bakes ~50%% and ~25%%-vertex variants of animated models;\n"
+    prefHelp(
+        "The build bakes ~50% and ~25%-vertex variants of animated models;\n"
         "instances farther than this render the reduced meshes. Costs RAM\n"
         "and .tskl size; the editor viewport always shows the full mesh.");
 
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
-    ImGui::TextDisabled(
+    prefHelp(
         "Merges non-moving primitives sharing a material into combined\n"
         "draw bags at scene load - each separate object costs ~1 ms of\n"
         "fixed submit overhead per frame on real hardware, batches pay it\n"
@@ -15975,15 +15985,15 @@ void App::drawPreferencesModal() {
     if (ImGui::Combo("Textures", &quantMode, quantNames, 3))
         prefSettings_.textureQuant =
             quantMode == 0 ? "none" : quantMode == 1 ? "8bit" : "4bit";
-    ImGui::TextDisabled(
+    prefHelp(
         "Quantized at build (sources in res/ stay untouched). Override per\n"
         "model/material in the Assets section - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
-    ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
-                        "if any, tiles across it - set the tiling on the material's\n"
-                        "texture in the Material Editor. Import .mtl in the Assets section.");
+    prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
+             "if any, tiles across it - set the tiling on the material's\n"
+             "texture in the Material Editor. Import .mtl in the Assets section.");
 
     ImGui::SeparatorText("AI navigation");
     ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
@@ -15998,7 +16008,7 @@ void App::drawPreferencesModal() {
     ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
                      4.0f, "%.2f units");
     if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
-    ImGui::TextDisabled(
+    prefHelp(
         "The NPC nav grid, baked at build time from the terrain slope and\n"
         "blocking objects (grid capped at 128x128 cells - big maps get\n"
         "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
@@ -16006,22 +16016,16 @@ void App::drawPreferencesModal() {
         "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
         "graphs use no AI nodes carry no nav data at all.");
 
-    ImGui::SeparatorText("Post effects");
-    ImGui::TextDisabled(
-        "Bloom and film grain moved to Tools > UI Editor, where their\n"
-        "on-screen layer is also set (e.g. bloom under the HUD, so it\n"
-        "does not blur the crosshair or text).");
-
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
-    ImGui::TextDisabled(
+    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
+    prefHelp(
         "Sky gradient, baked lighting and distance fog now live in presets.\n"
         "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
         "Scene > Preferences (or uses the default).");
-    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
-    ImGui::TextDisabled(
+    prefHelp(
         "Master switch: shows a loading screen while a scene loads (also at\n"
         "boot). Design them in Tools > Loading Screens - each scene picks one\n"
         "(Scene > Preferences), or a project default is used; with none, a\n"
@@ -16033,6 +16037,9 @@ void App::drawPreferencesModal() {
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
+    prefHelp(
+        "In-game outline around objects marked 'Usable' while the player is\n"
+        "within the proximity distance. The viewport marks them with a wire box.");
     if (prefSettings_.highlightUsable) {
         ImGui::DragFloat("Proximity (units)", &prefSettings_.highlightDistance, 0.1f,
                          0.5f, 1000.0f, "%.1f");
@@ -16044,15 +16051,12 @@ void App::drawPreferencesModal() {
                            "%.2f");
         ImGui::Checkbox("Draw over object (experimental)",
                         &prefSettings_.highlightOverlay);
-        ImGui::TextDisabled(
+        prefHelp(
             "Width = total rim size; steps = shells in the fade (1 = sharp edge).\n"
             "Opacity = transparency of the strongest shell (the rest fade from it).\n"
             "Draw over object = a colored glow ON the surface fading outward,\n"
             "instead of only a rim behind the silhouette.");
     }
-    ImGui::TextDisabled(
-        "In-game outline around objects marked 'Usable' while the player is\n"
-        "within the proximity distance. The viewport marks them with a wire box.");
 
     if (prefTemplate_ == 1) {
         ImGui::SeparatorText("FPP camera");
@@ -16077,7 +16081,7 @@ void App::drawPreferencesModal() {
         if (mpMode != 0) {
             ImGui::Checkbox("Player 2 joins with Start on pad 2",
                             &prefSettings_.p2JoinOnStart);
-            ImGui::TextDisabled(
+            prefHelp(
                 "Player 2 exists in scenes that contain a SECOND Player object\n"
                 "(the first is P1, the second P2). Shared screen frames both\n"
                 "with one camera; split screen renders each player's own view.\n"
@@ -16091,7 +16095,7 @@ void App::drawPreferencesModal() {
                        "%.2f");
     ImGui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,
                        "%.2f");
-    ImGui::TextDisabled(
+    prefHelp(
         "Analog stick offsets below this fraction read as zero. Raise it when\n"
         "a worn pad drifts (left = movement, right = camera); motion above the\n"
         "deadzone ramps smoothly, so higher values only cost range, not control.");
@@ -16127,7 +16131,7 @@ void App::drawPreferencesModal() {
     };
     stickCurveUi("Left stick curve", prefSettings_.stickCurveL, prefSettings_.stickExpL);
     stickCurveUi("Right stick curve", prefSettings_.stickCurveR, prefSettings_.stickExpR);
-    ImGui::TextDisabled(
+    prefHelp(
         "Exponential is gentle near center and snappy at the edge (aiming);\n"
         "S-Curve eases in and out. Higher exponent = more pronounced.");
 
@@ -16137,16 +16141,9 @@ void App::drawPreferencesModal() {
     if (prefTemplate_ == 1)
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
-    ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
+    prefHelp("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
 
     ImGui::SeparatorText("AI support");
-    ImGui::TextDisabled(
-        "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
-        "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
-        "project structure, flow-graph format, custom scripting and the\n"
-        "editor's headless CLI. Installing again refreshes the files unless\n"
-        "you took ownership (deleted their marker line). Applied immediately\n"
-        "- these are files on disk, not project settings.");
     {
         const bool haveClaude = aisupport::installed(project_.dir, "claude");
         const bool haveCopilot = aisupport::installed(project_.dir, "copilot");
@@ -16157,6 +16154,13 @@ void App::drawPreferencesModal() {
         if (ImGui::Button(haveCopilot ? "Refresh Copilot files"
                                       : "Add Copilot support"))
             statusMessage_ = aisupport::install(project_.dir, false, true);
+        prefHelp(
+            "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
+            "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
+            "project structure, flow-graph format, custom scripting and the\n"
+            "editor's headless CLI. Installing again refreshes the files unless\n"
+            "you took ownership (deleted their marker line). Applied immediately\n"
+            "- these are files on disk, not project settings.");
         if (haveClaude || haveCopilot)
             ImGui::TextDisabled("Installed:%s%s", haveClaude ? " Claude Code" : "",
                                 haveCopilot ? " Copilot" : "");
@@ -16574,7 +16578,7 @@ void App::drawScenePreferencesModal() {
     ProjectSettings& s = scenePrefSettings_;
     SceneOverrides& ov = scenePrefOverrides_;
     ImGui::Text("Scene: %s", project_.scenes[scenePrefScene_].name.c_str());
-    ImGui::TextDisabled(
+    prefHelp(
         "Each category inherits Project > Preferences until you tick\n"
         "\"Override project settings\" for it.");
 
