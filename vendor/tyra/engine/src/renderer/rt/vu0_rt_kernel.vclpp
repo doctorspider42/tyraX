@@ -11,16 +11,31 @@
 ; Traces ONE row of reflection-image texels per vcallms. The EE
 ; reflects the camera across the mirror plane once per frame, so
 ; each texel's reflected ray is simply normalize(P - mirroredEye)
-; - no per-texel reflection math. Rays intersect a small set of
-; sphere proxies + an optional checkerboard ground plane, misses
+; - no per-texel reflection math. Rays intersect sphere proxies,
+; axis-aligned slab proxies (flat objects) and up to two TRIANGLE
+; MESH groups (decimated model proxies, Moller-Trumbore); misses
 ; shade from a vertical sky gradient.
 ;
 ; VU0-honest: no XGKICK, no EFU (esum/ersqrt are VU1-only), no
 ; xtop - fixed VU0 data-mem addresses only. Hit selection is
 ; BRANCHLESS: VU floats saturate instead of producing inf/nan,
 ; so clamp(x * 1e38, 0, 1) is an exact step(0, x) for any
-; geometrically meaningful x - masks select the nearest hit,
-; the only branches are the two loop back-edges.
+; geometrically meaningful x - masks select the nearest hit. The
+; only branches are loop back-edges and two early-outs (sphere
+; count, per-group bounding-sphere miss).
+;
+; NO sentinel-BIG mixing anywhere: mix(BIG, t, m) computes
+; (t - BIG) + BIG, and in single floats t - 1e10 rounds to exactly
+; -1e10 - the real t is annihilated and every selected distance
+; degenerates to 0 (cost a debugging round). Nearest-hit state is
+; (t, hitFlag) pairs folded with comparison masks; the triangle
+; loop compares rational t (numerator/denominator) by
+; cross-multiplication and divides only once, for the winner.
+;
+; VU0 CANNOT SAMPLE TEXTURES - a triangle hit is returned as
+; (record address, u*4096, v*4096, shade*255) and the EE samples
+; the model's texture in RAM while packing the row. Direct-color
+; texels (sphere/slab/sky) carry w = -256.
 ;
 ; Data memory layout (qword addresses, EE writes via 0x11004000):
 ;   0  eye.xyz      = camera REFLECTED across the mirror plane
@@ -29,34 +44,23 @@
 ;   3  light.xyz    = normalized dir TOWARD the light
 ;   4  skyTop.rgb   = zenith color 0..255
 ;   5  skyBot.rgb   = horizon color 0..255
-;   6  floor: x=planeY  y=checker scale (1/cell)  z=fade (1/dist)
-;            w=enable (0/1)
-;   7  floorA.rgb   = checker color A (pre-lit 0..255)
-;   8  floorB.rgb   = checker color B
-;   9  ints: x=sphereCount  y=texelCount  z=boxCount (ILW fields)
-;   10 consts2: x=0.30 (ambient) y=0.70 (diffuse) z=0.5 w=1e38
-;   11 consts:  x=eps (0.01)     y=spare          z=255 w=1024
-;
-; NO sentinel-BIG mixing anywhere: mix(BIG, t, m) computes
-; (t - BIG) + BIG, and in single floats t - 1e10 rounds to exactly
-; -1e10 - the real t is annihilated and every selected distance
-; degenerates to 0 (cost a debugging round: reflections cut off at
-; the checker horizon and shaded from the wrong hit point). The
-; nearest-hit state is (bT, bHit) instead, folded with comparison
-; masks only - subtractions stay at the scale of real distances.
+;   6  ints: x=sphereCount y=texelCount z=slabCount w=groupCount
+;   7  consts2: x=0.30 (ambient) y=0.70 (diffuse) z=0.5 w=1e38
+;   8  consts:  x=eps (0.01) y=epsDet (1e-8) z=255 w=4096
+;   9  group0 bounding sphere (cx,cy,cz, r^2)
+;   10 group1 bounding sphere
+;   11 intsG: x=start0 y=count0 z=start1 w=count1 (start = the
+;      group's first triangle record qword address)
 ;   12..19 sphere centers (xyz, w = radius^2)
 ;   20..27 sphere colors  (rgb 0..255)
-;   32..95 output row: ftoi0 ints x=red y=green z=blue (max 64)
-;   96..99   AABB slab mins (xyz) - flat proxies (floors, walls)
-;   100..103 AABB slab maxs (xyz)
-;   104..107 AABB slab colors (rgb 0..255)
-;
-; Slabs exist because a flat object as a bounding SPHERE (radius = half
-; its largest axis) engulfs the mirror plane itself - ray origins start
-; inside the sphere, the entry distance b - sqrt(disc) goes negative and
-; the eps mask kills the hit: a listed floor simply never showed. The
-; slab test is the classic per-axis min/max fold, fully vectorized; the
-; face normal falls out of entry-axis == entry-time masks.
+;   28..31 slab mins (xyz), 32..35 slab maxs, 36..39 slab colors
+;   40..103 output row (max 64 texels), see above
+;   104..247 triangle records, 4 qwords each (max 36):
+;      +0 v0.xyz   +1 N.xyz (e1 x e2, unnormalized - t and the shade
+;      normal)   +2 A.xyz   +3 B.xyz (the dual basis: u = (H-v0).A,
+;      v = (H-v0).B). Texture UVs never enter VU0 - the hit returns
+;      BARYCENTRIC u/v and the EE interpolates the texture coordinates
+;      from its own copy of the records while packing.
 ;---------------------------------------------------------------
 
 .syntax new
@@ -70,40 +74,40 @@
 
 #vuprog Vu0RtKernel
 
-    lq      eye,        0(vi00)
     lq      pos,        1(vi00)
-    lq      du,         2(vi00)
-    lq      ldir,       3(vi00)
-    lq      skyTop,     4(vi00)
-    lq      skyBot,     5(vi00)
-    lq      floorP,     6(vi00)
-    lq      floorA,     7(vi00)
-    lq      floorB,     8(vi00)
-    lq      cq2,        10(vi00)
-    lq      cq,         11(vi00)
-    ilw.x   sphCount,   9(vi00)
-    ilw.y   texCount,   9(vi00)
-    ilw.z   boxCount,   9(vi00)
-    iaddiu  outAddr,    vi00,       32
+    lq      cq2,        7(vi00)
+    lq      cq,         8(vi00)
+    ilw.x   sphCount,   6(vi00)
+    ilw.y   texCount,   6(vi00)
+    ilw.z   slabCount,  6(vi00)
+    ilw.w   grpCount,   6(vi00)
+    iaddiu  outAddr,    vi00,       40
     ; oneV.xyz = 1.0 - the fs-side "1" the mask inversions need (broadcast
     ; fields are only legal on the ft operand, so vf00[w] can't sit first);
-    ; negOne.xyz = -1.0 clamps the ray-sign for the slab face normals
+    ; negOne.xyz = -1.0 clamps ray-signs; fourV.x = 4.0 steps the triangle
+    ; record address accumulator
     add.xyz oneV,       vf00,       vf00[w]
     sub.xyz negOne,     vf00,       oneV
+    add.x   fourV,      oneV,       oneV[x]
+    add.x   fourV,      fourV,      fourV[x]
 
 texelLoop:
-    ;--- unit ray dir R = normalize(P - mirroredEye)
+    ;--- unit ray dir R = normalize(P - mirroredEye). Fixed-address params
+    ; (eye/du/sky/light) reload at their use sites instead of living in
+    ; registers - the triangle loop peaks near the 31-VF ceiling and VCL
+    ; dies with "no opt table" when allocation fails.
+    lq          eye,    0(vi00)
     sub.xyz     d,      pos,        eye
     mul.xyz     t0,     d,          d
     add.x       t0,     t0,         t0[y]
     add.x       t0,     t0,         t0[z]
     rsqrt       q,      vf00[w],    t0[x]
-    mulq.xyz    rd,      d,          q
+    mulq.xyz    rd,     d,          q
 
     ;--- nearest-sphere state: bT=0 + bHit=0 ("no hit yet"), center/color
     ; zeroed (self-sub is a true zero even over saturated garbage; a fully
-    ; selected mix (m=1.0 exactly) then reproduces the sphere values
-    ; with no cancellation error)
+    ; selected mix (m=1.0 exactly) then reproduces the folded values with
+    ; no cancellation error)
     sub.x       bT,     bT,         bT
     sub.x       bHit,   bHit,       bHit
     sub.xyzw    bC,     bC,         bC
@@ -144,8 +148,7 @@ sphLoop:
     max.x       t6,     t6,         vf00[x]
     mini.x      t6,     t6,         vf00[w]
     mul.x       m0,     m0,         t6
-    ; m2 = m0 AND (first hit OR t < bT): the new nearest, compared at
-    ; real-distance scale (see the header note on sentinel-BIG mixing)
+    ; m2 = m0 AND (first hit OR t < bT), compared at real-distance scale
     sub.x       nh,     oneV,       bHit[x]
     sub.x       cl,     bT,         t5[x]
     mul.x       cl,     cl,         cq2[w]
@@ -172,7 +175,7 @@ sphLoop:
 
 sphDone:
     ;--- sphere lambert: N = normalize(hit - center), 0.30 + 0.70*max(N.L,0)
-    mul.xyz     h,      rd,          bT[x]
+    mul.xyz     h,      rd,         bT[x]
     add.xyz     h,      h,          pos
     sub.xyz     n1,     h,          bC
     mul.xyz     t0,     n1,         n1
@@ -182,6 +185,7 @@ sphDone:
     max.x       t0,     t0,         cq[x]
     rsqrt       q,      vf00[w],    t0[x]
     mulq.xyz    n1,     n1,         q
+    lq          ldir,   3(vi00)
     mul.xyz     t1,     n1,         ldir
     add.x       t1,     t1,         t1[y]
     add.x       t1,     t1,         t1[z]
@@ -190,15 +194,15 @@ sphDone:
     add.x       t1,     t1,         cq2[x]
     mul.xyz     sphCol, bCol,       t1[x]
 
-    ;--- AABB slab proxies (flat objects): nearest slab hit, branchless
-    ; like the spheres. State zeroed even when no slabs were sent - the
-    ; merge below mixes with mask 0 and VCL's path analysis stays happy.
+    ;--- AABB slab proxies (flat objects): nearest slab hit, branchless.
+    ; State zeroed even when no slabs were sent - the merge below mixes
+    ; with mask 0 and VCL's path analysis stays happy.
     sub.x       bTb,    bTb,        bTb
     sub.x       bHb,    bHb,        bHb
     sub.xyz     bN3,    bN3,        bN3
     sub.xyz     bColB,  bColB,      bColB
     sub.xyz     boxCol, boxCol,     boxCol
-    ibeq        boxCount, vi00,     boxDone
+    ibeq        slabCount, vi00,    boxDone
     ; per-texel inverse ray (a zero component saturates - the slab
     ; min/max folds absorb the huge values)
     div         q,      vf00[w],    rd[x]
@@ -207,10 +211,10 @@ sphDone:
     addq.y      ivd,    vf00,       q
     div         q,      vf00[w],    rd[z]
     addq.z      ivd,    vf00,       q
-    iadd        bi,     vi00,       boxCount
-    iaddiu      bAddr,  vi00,       96
-    iaddiu      bmAddr, vi00,       100
-    iaddiu      bcAddr, vi00,       104
+    iadd        bi,     vi00,       slabCount
+    iaddiu      bAddr,  vi00,       28
+    iaddiu      bmAddr, vi00,       32
+    iaddiu      bcAddr, vi00,       36
 boxLoop:
     lq          bmn,    0(bAddr)
     lq          bmx,    0(bmAddr)
@@ -274,6 +278,7 @@ boxLoop:
     mul.xyz     nB,     sgn,        axm
     sub.xyz     nB,     vf00,       nB
     ; slab lambert, same terms as the spheres
+    lq          ldir,   3(vi00)
     mul.xyz     t1,     nB,         ldir
     add.x       t1,     t1,         t1[y]
     add.x       t1,     t1,         t1[z]
@@ -283,7 +288,7 @@ boxLoop:
     mul.xyz     boxCol, bColB,      t1[x]
 
 boxDone:
-    ;--- merge spheres + slabs into one nearest scene hit
+    ;--- merge spheres + slabs into one nearest direct-color scene hit
     sub.x       nh,     oneV,       bHit[x]
     sub.x       cl,     bT,         bTb[x]
     mul.x       cl,     cl,         cq2[w]
@@ -299,72 +304,369 @@ boxDone:
     add.xyz     hitCol, sphCol,     t9
     max.x       bHit,   bHit,       bHb
 
-    ;--- checkerboard ground plane: tF = (planeY - P.y) / R.y
-    sub.x       f0,     floorP,     pos[y]
-    div         q,      f0[x],      rd[y]
-    addq.x      f1,     vf00,       q
-    ; mF = step(eps, tF) * enable (tF<0 or ray parallel -> miss)
-    sub.x       mF,     f1,         cq[x]
-    mul.x       mF,     mF,         cq2[w]
-    max.x       mF,     mF,         vf00[x]
-    mini.x      mF,     mF,         vf00[w]
-    mul.x       mF,     mF,         floorP[w]
-    ; checker parity of the hit cell (+1024 keeps trunc == floor)
-    mul.xyz     hf,     rd,          f1[x]
-    add.xyz     hf,     hf,         pos
-    mul.xyz     c0,     hf,         floorP[y]
-    add.xyz     c0,     c0,         cq[w]
-    ftoi0.xyz   ci,     c0
-    itof0.xyz   cf,     ci
-    add.x       s0,     cf,         cf[z]
-    mul.x       s0,     s0,         cq2[z]
-    ftoi0.x     si0,    s0
-    itof0.x     sf0,    si0
-    sub.x       s1,     s0,         sf0
-    add.x       s1,     s1,         s1[x]
-    ; floorCol = mix(A, B, parity), faded toward the horizon color
-    sub.xyz     fc,     floorB,     floorA
-    mul.xyz     fc,     fc,         s1[x]
-    add.xyz     fc,     fc,         floorA
-    mul.x       fd,     f1,         floorP[z]
-    max.x       fd,     fd,         vf00[x]
-    mini.x      fd,     fd,         vf00[w]
-    sub.xyz     t2,     skyBot,     fc
-    mul.xyz     t2,     t2,         fd[x]
-    add.xyz     fc,     fc,         t2
+    ;--- triangle groups (decimated model proxies, Moller-Trumbore).
+    ; Rational nearest fold: t is compared as numerator/denominator by
+    ; cross-multiplication (denominators are |det| >= 0), one division at
+    ; the end for the winner only. bDA.y folds the winning record's qword
+    ; address as a float (exact - addresses are < 256).
+    sub.xyz     bNum,   bNum,       bNum
+    sub.xy      bDA,    bDA,        bDA
+    sub.x       bHt,    bHt,        bHt
+    sub.x       triShd, triShd,     triShd
+    sub.x       triT,   triT,       triT
+    sub.x       triU,   triU,       triU
+    sub.x       triV,   triV,       triV
+    ibeq        grpCount, vi00,     triDone
 
+    ; groups are UNROLLED (VCL's optimizer failed to build its table
+    ; for the nested group/triangle loop CFG - "no opt table for
+    ; triLoop"; two flat blocks with one back-edge each assemble fine).
+    ; Per group: bounding-sphere early-out - hit if disc >= 0 AND the
+    ; EXIT distance b + sqrt(disc) >= 0, true also with the ray origin
+    ; inside (the slab lesson: entry-distance tests kill inside rays).
+    lq          gb,     9(vi00)
+    sub.xyz     oc,     gb,         pos
+    mul.xyz     t1,     oc,         rd
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    mul.xyz     t2,     oc,         oc
+    add.x       t2,     t2,         t2[y]
+    add.x       t2,     t2,         t2[z]
+    mul.x       t3,     t1,         t1[x]
+    sub.x       t3,     t3,         t2[x]
+    add.x       t3,     t3,         gb[w]
+    max.x       t4,     t3,         vf00[x]
+    sqrt        q,      t4[x]
+    mul.x       m0,     t3,         cq2[w]
+    max.x       m0,     m0,         vf00[x]
+    mini.x      m0,     m0,         vf00[w]
+    addq.x      t5,     t1,         q
+    mul.x       t6,     t5,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    ftoi0.x     mi0,    m0
+    mtir        gTest,  mi0[x]
+    ibeq        gTest,  vi00,       grp1Check
+    ilw.x       tAddr,  11(vi00)
+    ilw.y       tCount, 11(vi00)
+    ibeq        tCount, vi00,       grp1Check
+    mfir.x      adrI,   tAddr
+    itof0.x     adrF,   adrI
+
+triLoop0:
+    lq          tv0,    0(tAddr)
+    lq          tnq,    1(tAddr)
+    lq          tAq,    2(tAddr)
+    lq          tBq,    3(tAddr)
+    ; dP = v0 - P ; t = (dP.N)/(rd.N), kept rational
+    sub.xyz     dP,     tv0,        pos
+    mul.xyz     t1,     dP,         tnq
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    mul.xyz     t2,     rd,         tnq
+    add.x       t2,     t2,         t2[y]
+    add.x       t2,     t2,         t2[z]
+    ; fold double-sided: sg = sign(rd.N), aD = |rd.N|, tNs = (dP.N)*sg
+    mul.x       sgD,    t2,         cq2[w]
+    mini.x      sgD,    sgD,        vf00[w]
+    max.x       sgD,    sgD,        negOne
+    mul.x       dd,     t2,         sgD[x]
+    mul.x       tts,    t1,         sgD[x]
+    ; barycentrics via the precomputed dual basis (u = (H-v0).A):
+    ; u * (rd.N) = (dP.N)*(rd.A) - (dP.A)*(rd.N), same for B
+    mul.xyz     t3,     rd,         tAq
+    add.x       t3,     t3,         t3[y]
+    add.x       t3,     t3,         t3[z]
+    mul.xyz     t4,     dP,         tAq
+    add.x       t4,     t4,         t4[y]
+    add.x       t4,     t4,         t4[z]
+    mul.x       t7,     t1,         t3[x]
+    mul.x       t8,     t4,         t2[x]
+    sub.x       uu,     t7,         t8[x]
+    mul.x       uu,     uu,         sgD[x]
+    mul.xyz     t3,     rd,         tBq
+    add.x       t3,     t3,         t3[y]
+    add.x       t3,     t3,         t3[z]
+    mul.xyz     t4,     dP,         tBq
+    add.x       t4,     t4,         t4[y]
+    add.x       t4,     t4,         t4[z]
+    mul.x       t7,     t1,         t3[x]
+    mul.x       t8,     t4,         t2[x]
+    sub.x       vv,     t7,         t8[x]
+    mul.x       vv,     vv,         sgD[x]
+    ; valid = (aD > epsDet) & (t >= eps) & (u >= 0) & (v >= 0)
+    ;         & (u + v <= 1), all scaled by aD (rational)
+    sub.x       m0,     dd,         cq[y]
+    mul.x       m0,     m0,         cq2[w]
+    max.x       m0,     m0,         vf00[x]
+    mini.x      m0,     m0,         vf00[w]
+    mul.x       t7,     dd,         cq[x]
+    sub.x       t7,     tts,        t7[x]
+    mul.x       t7,     t7,         cq2[w]
+    max.x       t7,     t7,         vf00[x]
+    mini.x      t7,     t7,         vf00[w]
+    mul.x       m0,     m0,         t7
+    mul.x       t6,     uu,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    mul.x       t6,     vv,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    sub.x       t7,     dd,         uu[x]
+    sub.x       t7,     t7,         vv[x]
+    mul.x       t7,     t7,         cq2[w]
+    max.x       t7,     t7,         vf00[x]
+    mini.x      t7,     t7,         vf00[w]
+    mul.x       m0,     m0,         t7
+    ; rational nearest: new wins if tts * den < tNum * dd (dens >= 0)
+    mul.x       t7,     bNum,       dd[x]
+    mul.x       t8,     tts,        bDA[x]
+    sub.x       cl,     t7,         t8[x]
+    mul.x       cl,     cl,         cq2[w]
+    max.x       cl,     cl,         vf00[x]
+    mini.x      cl,     cl,         vf00[w]
+    sub.x       nh,     oneV,       bHt[x]
+    max.x       m2,     nh,         cl[x]
+    mul.x       m2,     m2,         m0[x]
+    ; fold the packed best state: bNum = (t,u,v), bDA = (den, address)
+    add.x       cnd,    vf00,       tts[x]
+    add.y       cnd,    vf00,       uu[x]
+    add.z       cnd,    vf00,       vv[x]
+    add.x       cda,    vf00,       dd[x]
+    add.y       cda,    vf00,       adrF[x]
+    sub.xyz     t8,     cnd,        bNum
+    mul.xyz     t8,     t8,         m2[x]
+    add.xyz     bNum,   bNum,       t8
+    sub.xy      t8,     cda,        bDA
+    mul.xy      t8,     t8,         m2[x]
+    add.xy      bDA,    bDA,        t8
+    max.x       bHt,    bHt,        m0
+    add.x       adrF,   adrF,       fourV[x]
+    iaddiu      tAddr,  tAddr,      4
+    iaddi       tCount, tCount,     -1
+    ibgtz       tCount, triLoop0
+
+grp1Check:
+    iaddi       gTest,  grpCount,   -1
+    ibeq        gTest,  vi00,       triResolve
+    lq          gb,     10(vi00)
+    sub.xyz     oc,     gb,         pos
+    mul.xyz     t1,     oc,         rd
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    mul.xyz     t2,     oc,         oc
+    add.x       t2,     t2,         t2[y]
+    add.x       t2,     t2,         t2[z]
+    mul.x       t3,     t1,         t1[x]
+    sub.x       t3,     t3,         t2[x]
+    add.x       t3,     t3,         gb[w]
+    max.x       t4,     t3,         vf00[x]
+    sqrt        q,      t4[x]
+    mul.x       m0,     t3,         cq2[w]
+    max.x       m0,     m0,         vf00[x]
+    mini.x      m0,     m0,         vf00[w]
+    addq.x      t5,     t1,         q
+    mul.x       t6,     t5,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    ftoi0.x     mi0,    m0
+    mtir        gTest,  mi0[x]
+    ibeq        gTest,  vi00,       triResolve
+    ilw.z       tAddr,  11(vi00)
+    ilw.w       tCount, 11(vi00)
+    ibeq        tCount, vi00,       triResolve
+    mfir.x      adrI,   tAddr
+    itof0.x     adrF,   adrI
+
+triLoop1:
+    lq          tv0,    0(tAddr)
+    lq          tnq,    1(tAddr)
+    lq          tAq,    2(tAddr)
+    lq          tBq,    3(tAddr)
+    ; dP = v0 - P ; t = (dP.N)/(rd.N), kept rational
+    sub.xyz     dP,     tv0,        pos
+    mul.xyz     t1,     dP,         tnq
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    mul.xyz     t2,     rd,         tnq
+    add.x       t2,     t2,         t2[y]
+    add.x       t2,     t2,         t2[z]
+    ; fold double-sided: sg = sign(rd.N), aD = |rd.N|, tNs = (dP.N)*sg
+    mul.x       sgD,    t2,         cq2[w]
+    mini.x      sgD,    sgD,        vf00[w]
+    max.x       sgD,    sgD,        negOne
+    mul.x       dd,     t2,         sgD[x]
+    mul.x       tts,    t1,         sgD[x]
+    ; barycentrics via the precomputed dual basis (u = (H-v0).A):
+    ; u * (rd.N) = (dP.N)*(rd.A) - (dP.A)*(rd.N), same for B
+    mul.xyz     t3,     rd,         tAq
+    add.x       t3,     t3,         t3[y]
+    add.x       t3,     t3,         t3[z]
+    mul.xyz     t4,     dP,         tAq
+    add.x       t4,     t4,         t4[y]
+    add.x       t4,     t4,         t4[z]
+    mul.x       t7,     t1,         t3[x]
+    mul.x       t8,     t4,         t2[x]
+    sub.x       uu,     t7,         t8[x]
+    mul.x       uu,     uu,         sgD[x]
+    mul.xyz     t3,     rd,         tBq
+    add.x       t3,     t3,         t3[y]
+    add.x       t3,     t3,         t3[z]
+    mul.xyz     t4,     dP,         tBq
+    add.x       t4,     t4,         t4[y]
+    add.x       t4,     t4,         t4[z]
+    mul.x       t7,     t1,         t3[x]
+    mul.x       t8,     t4,         t2[x]
+    sub.x       vv,     t7,         t8[x]
+    mul.x       vv,     vv,         sgD[x]
+    ; valid = (aD > epsDet) & (t >= eps) & (u >= 0) & (v >= 0)
+    ;         & (u + v <= 1), all scaled by aD (rational)
+    sub.x       m0,     dd,         cq[y]
+    mul.x       m0,     m0,         cq2[w]
+    max.x       m0,     m0,         vf00[x]
+    mini.x      m0,     m0,         vf00[w]
+    mul.x       t7,     dd,         cq[x]
+    sub.x       t7,     tts,        t7[x]
+    mul.x       t7,     t7,         cq2[w]
+    max.x       t7,     t7,         vf00[x]
+    mini.x      t7,     t7,         vf00[w]
+    mul.x       m0,     m0,         t7
+    mul.x       t6,     uu,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    mul.x       t6,     vv,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    sub.x       t7,     dd,         uu[x]
+    sub.x       t7,     t7,         vv[x]
+    mul.x       t7,     t7,         cq2[w]
+    max.x       t7,     t7,         vf00[x]
+    mini.x      t7,     t7,         vf00[w]
+    mul.x       m0,     m0,         t7
+    ; rational nearest: new wins if tts * den < tNum * dd (dens >= 0)
+    mul.x       t7,     bNum,       dd[x]
+    mul.x       t8,     tts,        bDA[x]
+    sub.x       cl,     t7,         t8[x]
+    mul.x       cl,     cl,         cq2[w]
+    max.x       cl,     cl,         vf00[x]
+    mini.x      cl,     cl,         vf00[w]
+    sub.x       nh,     oneV,       bHt[x]
+    max.x       m2,     nh,         cl[x]
+    mul.x       m2,     m2,         m0[x]
+    ; fold the packed best state: bNum = (t,u,v), bDA = (den, address)
+    add.x       cnd,    vf00,       tts[x]
+    add.y       cnd,    vf00,       uu[x]
+    add.z       cnd,    vf00,       vv[x]
+    add.x       cda,    vf00,       dd[x]
+    add.y       cda,    vf00,       adrF[x]
+    sub.xyz     t8,     cnd,        bNum
+    mul.xyz     t8,     t8,         m2[x]
+    add.xyz     bNum,   bNum,       t8
+    sub.xy      t8,     cda,        bDA
+    mul.xy      t8,     t8,         m2[x]
+    add.xy      bDA,    bDA,        t8
+    max.x       bHt,    bHt,        m0
+    add.x       adrF,   adrF,       fourV[x]
+    iaddiu      tAddr,  tAddr,      4
+    iaddi       tCount, tCount,     -1
+    ibgtz       tCount, triLoop1
+
+triResolve:
+
+    ; resolve the winner: real t/u/v (three serial Q divisions - only on
+    ; texels whose group bound was hit), then the record's UV rows and
+    ; face normal for the shade
+    ftoi0.x     mi0,    bHt
+    mtir        gTest,  mi0[x]
+    ibeq        gTest,  vi00,       triDone
+    div         q,      bNum[x],    bDA[x]
+    addq.x      triT,   vf00,       q
+    div         q,      bNum[y],    bDA[x]
+    addq.x      triU,   vf00,       q
+    div         q,      bNum[z],    bDA[x]
+    addq.x      triV,   vf00,       q
+    add.x       t8,     vf00,       bDA[y]
+    ftoi0.x     adrI,   t8
+    mtir        tAddr,  adrI[x]
+    ; face normal = normalize(stored N), flipped toward the ray
+    lq          nT,     1(tAddr)
+    mul.xyz     t0,     nT,         nT
+    add.x       t0,     t0,         t0[y]
+    add.x       t0,     t0,         t0[z]
+    max.x       t0,     t0,         cq[y]
+    rsqrt       q,      vf00[w],    t0[x]
+    mulq.xyz    nT,     nT,         q
+    mul.xyz     t1,     nT,         rd
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    mul.x       t1,     t1,         cq2[w]
+    mini.x      t1,     t1,         vf00[w]
+    max.x       t1,     t1,         negOne
+    mul.xyz     nT,     nT,         t1[x]
+    sub.xyz     nT,     vf00,       nT
+    lq          ldir,   3(vi00)
+    mul.xyz     t1,     nT,         ldir
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    max.x       t1,     t1,         vf00[x]
+    mul.x       t1,     t1,         cq2[y]
+    add.x       t1,     t1,         cq2[x]
+    mul.x       triShd, t1,         cq[z]
+
+triDone:
     ;--- sky gradient from the ray's upward component (broadcast fields
     ; are only legal on the SECOND source operand, hence the vf00 first)
     max.x       sm,     vf00,       rd[y]
     mini.x      sm,     sm,         vf00[w]
+    lq          skyTop, 4(vi00)
+    lq          skyBot, 5(vi00)
     sub.xyz     sc,     skyTop,     skyBot
     mul.xyz     sc,     sc,         sm[x]
     add.xyz     sc,     sc,         skyBot
 
-    ;--- compose: sky -> floor (if valid) -> sphere (if valid & nearer)
-    sub.xyz     t3,     fc,         sc
-    mul.xyz     t3,     t3,         mF[x]
-    add.xyz     ground, sc,         t3
-    ; winS = bHit AND (no valid floor OR sphere closer: tF - bT > 0);
-    ; tF may be saturation-huge (grazing rays) - the subtraction stays
-    ; huge and the step is still exact
-    sub.x       w1,     f1,         bT[x]
-    mul.x       w1,     w1,         cq2[w]
-    max.x       w1,     w1,         vf00[x]
-    mini.x      w1,     w1,         vf00[w]
-    sub.x       invF,   oneV,       mF[x]
-    max.x       winS,   invF,      w1[x]
-    mul.x       winS,   winS,       bHit[x]
-    sub.xyz     t5,     hitCol,     ground
-    mul.xyz     t5,     t5,         winS[x]
-    add.xyz     colf,   ground,     t5
-
-    ;--- clamp to 0..255, to ints, store
+    ;--- compose. Direct-color path first: sky under the sphere/slab hit.
+    sub.xyz     t3,     hitCol,     sc
+    mul.xyz     t3,     t3,         bHit[x]
+    add.xyz     colf,   sc,         t3
     max.xyz     colf,   colf,       vf00[x]
     mini.xyz    colf,   colf,       cq[z]
-    ftoi0.xyz   oc0,    colf
-    sq.xyz      oc0,    0(outAddr)
+    ; triangle wins when it hit AND (no direct hit OR the triangle is
+    ; closer at real-distance scale)
+    sub.x       cl,     bT,         triT[x]
+    mul.x       cl,     cl,         cq2[w]
+    max.x       cl,     cl,         vf00[x]
+    mini.x      cl,     cl,         vf00[w]
+    sub.x       nh,     oneV,       bHit[x]
+    max.x       mT,     nh,         cl[x]
+    mul.x       mT,     mT,         bHt[x]
+    ; triangle payload: x = record address, y/z = u/v * 4096, w = shade
+    mul.x       triU,   triU,       cq[w]
+    mul.x       triV,   triV,       cq[w]
+    add.x       pay,    vf00,       bDA[y]
+    add.y       pay,    vf00,       triU[x]
+    add.z       pay,    vf00,       triV[x]
+    ; out.xyz = mix(direct rgb, payload, mT); out.w = mix(-256, shade, mT)
+    sub.xyz     t5,     pay,        colf
+    mul.xyz     t5,     t5,         mT[x]
+    add.xyz     colf,   colf,       t5
+    sub.x       wv,     vf00,       cq[z]
+    sub.x       wv,     wv,         oneV[x]
+    sub.x       t8,     triShd,     wv
+    mul.x       t8,     t8,         mT[x]
+    add.x       wv,     wv,         t8
+    ; vf00.w = 1, so the .w lane is written by MULTIPLYING it (add would
+    ; be off by one)
+    mul.w       colf,   vf00,       wv[x]
+    ftoi0.xyzw  oc0,    colf
+    sq          oc0,    0(outAddr)
 
+    lq          du,     2(vi00)
     add.xyz     pos,    pos,        du
     iaddiu      outAddr, outAddr,   1
     iaddi       texCount, texCount, -1

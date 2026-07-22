@@ -32,6 +32,12 @@ against the glass and its traced reflection below it.
   primitives; sphere proxies match sphere objects exactly, so these reflect
   true to shape. (Try adding a pillar to the list to see the PoC trade:
   curved shapes proxy as spheres, so a cylinder reflects as a ball.)
+- **`crate`** — a textured `.obj` model (`res/models/crate.obj`), also
+  listed: static models trace as REAL TRIANGLE MESHES with their texture —
+  the kernel returns barycentric hits and the EE samples `crate.png` per
+  texel. The crate is 12 triangles, under the 36-triangle proxy budget, so
+  its reflection is the exact mesh — rotated 25° like the object itself
+  (triangle proxies honor rotation; slabs and spheres don't).
 - **`floor`** — a thin box slab, listed too: flat objects (boxes, planes,
   decals) trace as **axis-aligned slab proxies**, so the floor reflects as
   an actual floor under the balls. (A flat object as a bounding *sphere*

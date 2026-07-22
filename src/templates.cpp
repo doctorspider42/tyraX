@@ -16,11 +16,14 @@
 
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
+#include <map>
+
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "menubake.hpp"
 #include "navmesh.hpp"
+#include "objparser.hpp"
 #include "project.hpp"
 #include "stochtile.hpp"
 
@@ -8115,6 +8118,11 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
   Vu0RtBox slabs[Vu0Raytracer::MaxBoxes];
   int sc = 0, bc = 0;
+  // Model targets with a baked proxy mesh trace as REAL TRIANGLES (up to
+  // two groups; docs/raytraced-reflections.md) - collected here, fed to
+  // the tracer after the loop (group 0 must be set before group 1).
+  int proxySel[2] = {-1, -1}, proxyObj[2] = {-1, -1};
+  int gc = 0;
   for (int t = 0; t < mir.targetCount; ++t) {
     const int index = MIRROR_TARGETS[mir.firstTarget + t];
     if (index < 0 || index >= (int)runtimeObjects.size()) continue;
@@ -8122,6 +8130,22 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
     if (!o.active || !o.visible || o.data.type == 15) continue;
     const Color tint(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
                      o.data.color[2] * 255.0F, 128.0F);
+    if (o.data.type == 5 && gc < 2) {
+      int prox = -1;
+      for (int pi2 = 0; pi2 < RT_PROXY_COUNT; ++pi2)
+        if (RT_PROXIES[pi2].scene == currentScene &&
+            RT_PROXIES[pi2].mirror == mir.object &&
+            RT_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        ++gc;
+        continue;  // traced as triangles, not a sphere
+      }
+    }
     if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12 ||
         o.data.type == 13) {
       if (bc >= Vu0Raytracer::MaxBoxes) continue;
@@ -8159,6 +8183,51 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   }
   vu0Rt.setSpheres(spheres, sc);
   vu0Rt.setBoxes(slabs, bc);
+
+  // Triangle groups: transform the baked model-local proxies by the live
+  // object transform (scale -> rotate -> translate, pushVert's order) and
+  // hand them to the tracer with the part's texture; a not-yet-streamed
+  // texture falls back to the part's kd as a flat color. Unused groups
+  // are cleared - stale triangles must not survive a target going hidden.
+  for (int g = 0; g < 2; ++g) {
+    if (g >= gc) {
+      vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                         Color(160.0F, 160.0F, 160.0F, 128.0F));
+      continue;
+    }
+    const RtProxyData& pr = RT_PROXIES[proxySel[g]];
+    RuntimeObject& mo = runtimeObjects[proxyObj[g]];
+    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
+    const int n = pr.triCount;
+    for (int i = 0; i < n; ++i) {
+      const float* f = &RT_PROXY_VERTS[pr.firstFloat + i * 15];
+      Vec4* corners[3] = {&tbuf[i].a, &tbuf[i].b, &tbuf[i].c};
+      float* uvs[3][2] = {{&tbuf[i].ua, &tbuf[i].va},
+                          {&tbuf[i].ub, &tbuf[i].vb},
+                          {&tbuf[i].uc, &tbuf[i].vc}};
+      for (int c = 0; c < 3; ++c) {
+        V3 lp = {f[c * 5] * mo.data.scale[0], f[c * 5 + 1] * mo.data.scale[1],
+                 f[c * 5 + 2] * mo.data.scale[2]};
+        lp = rotated(lp, mo.data.rotation);
+        corners[c]->set(lp.x + mo.data.position[0],
+                        lp.y + mo.data.position[1],
+                        lp.z + mo.data.position[2], 1.0F);
+        *uvs[c][0] = f[c * 5 + 3];
+        *uvs[c][1] = f[c * 5 + 4];
+      }
+    }
+    const Texture* tex = nullptr;
+    Color kdCol(160.0F, 160.0F, 160.0F, 128.0F);
+    const int mi2 = mo.data.model;
+    if (mi2 >= 0 && mi2 < (int)gameModels.size() &&
+        pr.part < (int)gameModels[mi2].parts.size()) {
+      const GameModelPart& gp = gameModels[mi2].parts[pr.part];
+      tex = gp.texture;
+      auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+      kdCol = Color(c255(gp.kd[0]), c255(gp.kd[1]), c255(gp.kd[2]), 128.0F);
+    }
+    vu0Rt.setTriangles(g, tbuf, n, tex, kdCol);
+  }
 
   vu0Rt.setSky(Color(SKY_TOP_R, SKY_TOP_G, SKY_TOP_B),
                Color(skyHorizonR, skyHorizonG, skyHorizonB));
@@ -12454,6 +12523,103 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     });
     out << "\n";
 
+    // Raytraced-mirror model proxies: decimate a model submesh to a small
+    // triangle budget for the VU0 tracer. Source verts are objparser's flat
+    // tri list (8 floats: pos, normal, uv); output is 15 floats per tri
+    // (pos + uv per corner), MODEL LOCAL space. Small meshes pass through
+    // EXACTLY; big ones collapse by vertex clustering on a shrinking grid
+    // (corner UVs stay original, so texturing survives roughly right);
+    // pathological cases fall back to the N largest triangles.
+    auto rtDecimateProxy = [](const std::vector<float>& v, int maxTris,
+                              std::vector<float>& out) {
+        const int triCount = (int)(v.size() / 24);
+        if (triCount == 0 || maxTris <= 0) return;
+        auto emitCorner = [](std::vector<float>& dst, const float* q,
+                             const float* pos) {
+            dst.push_back(pos[0]), dst.push_back(pos[1]), dst.push_back(pos[2]);
+            dst.push_back(q[6]), dst.push_back(q[7]);
+        };
+        if (triCount <= maxTris) {
+            for (int i = 0; i < triCount * 3; ++i)
+                emitCorner(out, &v[i * 8], &v[i * 8]);
+            return;
+        }
+        float mn[3] = {v[0], v[1], v[2]}, mx[3] = {v[0], v[1], v[2]};
+        for (int i = 0; i < triCount * 3; ++i)
+            for (int a = 0; a < 3; ++a) {
+                mn[a] = std::min(mn[a], v[i * 8 + a]);
+                mx[a] = std::max(mx[a], v[i * 8 + a]);
+            }
+        for (int res = 12; res >= 1; --res) {
+            auto cellOf = [&](const float* q) {
+                int key = 0;
+                for (int a = 0; a < 3; ++a) {
+                    const float ext = mx[a] - mn[a];
+                    int idx = ext > 1e-6f
+                                  ? (int)((q[a] - mn[a]) / ext * res)
+                                  : 0;
+                    if (idx >= res) idx = res - 1;
+                    if (idx < 0) idx = 0;
+                    key = key * 16 + idx;  // res <= 12 < 16
+                }
+                return key;
+            };
+            std::map<int, std::array<double, 4>> cells;  // xyz sum + count
+            for (int i = 0; i < triCount * 3; ++i) {
+                auto& e = cells[cellOf(&v[i * 8])];
+                e[0] += v[i * 8], e[1] += v[i * 8 + 1], e[2] += v[i * 8 + 2];
+                e[3] += 1.0;
+            }
+            std::set<std::array<int, 3>> seen;
+            std::vector<float> cand;
+            bool over = false;
+            for (int i = 0; i < triCount; ++i) {
+                const float* c3[3] = {&v[i * 24], &v[i * 24 + 8],
+                                      &v[i * 24 + 16]};
+                std::array<int, 3> key = {cellOf(c3[0]), cellOf(c3[1]),
+                                          cellOf(c3[2])};
+                if (key[0] == key[1] || key[1] == key[2] || key[0] == key[2])
+                    continue;  // collapsed to a line/point
+                std::array<int, 3> sorted = key;
+                std::sort(sorted.begin(), sorted.end());
+                if (!seen.insert(sorted).second) continue;  // duplicate
+                if ((int)(cand.size() / 15) >= maxTris) { over = true; break; }
+                for (int k = 0; k < 3; ++k) {
+                    const auto& e = cells[key[k]];
+                    const float pos[3] = {(float)(e[0] / e[3]),
+                                          (float)(e[1] / e[3]),
+                                          (float)(e[2] / e[3])};
+                    emitCorner(cand, c3[k], pos);
+                }
+            }
+            if (!over && !cand.empty()) {
+                out = cand;
+                return;
+            }
+        }
+        // last resort: the maxTris largest triangles, exact geometry
+        std::vector<std::pair<float, int>> byArea(triCount);
+        for (int i = 0; i < triCount; ++i) {
+            const float* a = &v[i * 24];
+            const float* b = &v[i * 24 + 8];
+            const float* c = &v[i * 24 + 16];
+            const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+            const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            const float cxp[3] = {e1[1] * e2[2] - e1[2] * e2[1],
+                                  e1[2] * e2[0] - e1[0] * e2[2],
+                                  e1[0] * e2[1] - e1[1] * e2[0]};
+            byArea[i] = {-(cxp[0] * cxp[0] + cxp[1] * cxp[1] +
+                           cxp[2] * cxp[2]),
+                         i};
+        }
+        std::sort(byArea.begin(), byArea.end());
+        for (int k = 0; k < maxTris; ++k) {
+            const int i = byArea[k].second;
+            for (int c = 0; c < 3; ++c)
+                emitCorner(out, &v[i * 24 + c * 8], &v[i * 24 + c * 8]);
+        }
+    };
+
     // Mirror objects (type 15): a flat side-table keyed by (scene, object)
     // like OBJECT_SCRIPT_ATTACHES, so SceneObjectData stays a fixed POD.
     // Target names resolve to scene-table indices here; a dangling name (the
@@ -12504,6 +12670,94 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
             << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
+
+    // Raytraced-mirror model proxies: MODEL targets of raytraced mirrors
+    // trace as decimated triangle meshes on VU0 (docs/
+    // raytraced-reflections.md). Baked here in MODEL LOCAL space (the game
+    // re-transforms by the live object transform every frame, so moving
+    // models reflect correctly); 36 triangles per mirror shared across at
+    // most 2 model targets; `part` names the submesh whose texture the EE
+    // samples on hit. Static .obj models only - animated models keep their
+    // sphere proxy.
+    {
+        std::ostringstream entries, floats;
+        int proxyCount = 0, floatCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Mirror || !o.mirrorRaytraced)
+                    continue;
+                std::vector<size_t> modelTargets;
+                for (const std::string& name : o.mirrorObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti)
+                        if (ti != oi && objs[ti].name == name &&
+                            objs[ti].type == PrimitiveType::Model &&
+                            modelTargets.size() < 2) {
+                            modelTargets.push_back(ti);
+                            break;
+                        }
+                if (modelTargets.empty()) continue;
+                // Vu0Raytracer::MaxTriangles across the mirror's proxies
+                const int budget = 36 / (int)modelTargets.size();
+                for (size_t k = 0; k < modelTargets.size(); ++k) {
+                    const SceneObject& t = objs[modelTargets[k]];
+                    objparser::Model m;
+                    if (t.modelPath.empty() ||
+                        !objparser::load(p.dir + "\\" + t.modelPath, m))
+                        continue;
+                    int part = -1;
+                    for (size_t s2 = 0; s2 < m.submeshes.size(); ++s2)
+                        if (!m.submeshes[s2].texture.empty() &&
+                            !m.submeshes[s2].verts.empty()) {
+                            part = (int)s2;
+                            break;
+                        }
+                    if (part < 0)
+                        for (size_t s2 = 0; s2 < m.submeshes.size(); ++s2)
+                            if (!m.submeshes[s2].verts.empty()) {
+                                part = (int)s2;
+                                break;
+                            }
+                    if (part < 0) continue;
+                    std::vector<float> tris;
+                    rtDecimateProxy(m.submeshes[part].verts, budget, tris);
+                    if (tris.empty()) continue;
+                    entries << (proxyCount ? ",\n    " : "    ") << "{" << si
+                            << ", " << oi << ", " << modelTargets[k] << ", "
+                            << part << ", " << floatCount << ", "
+                            << (int)(tris.size() / 15) << "},  // "
+                            << t.name;
+                    for (size_t f = 0; f < tris.size(); ++f) {
+                        floats << (floatCount ? ", " : "  ")
+                               << floatLit(tris[f]);
+                        if (++floatCount % 6 == 0) floats << "\n  ";
+                    }
+                    ++proxyCount;
+                }
+            }
+        }
+        out << "// Raytraced-mirror model proxies: decimated triangle lists\n"
+               "// in MODEL LOCAL space, 15 floats per triangle (pos + uv\n"
+               "// per corner). The game transforms them by the target's\n"
+               "// live transform each frame (renderRtMirror).\n"
+               "struct RtProxyData {\n"
+               "  int scene;       // scene index\n"
+               "  int mirror;      // the mirror's index in its scene table\n"
+               "  int target;      // the model object's index\n"
+               "  int part;        // model part whose texture shades hits\n"
+               "  int firstFloat;  // offset into RT_PROXY_VERTS\n"
+               "  int triCount;\n"
+               "};\n"
+            << "constexpr int RT_PROXY_COUNT = " << proxyCount << ";\n"
+            << "constexpr RtProxyData RT_PROXIES["
+            << (proxyCount ? proxyCount : 1) << "] = {\n"
+            << (proxyCount ? entries.str() : "    {0, -1, -1, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr float RT_PROXY_VERTS["
+            << (floatCount ? floatCount : 1) << "] = {\n"
+            << (floatCount ? floats.str() : "  0.0F") << "\n};\n\n";
     }
 
     // Portal objects (type 16): same flat side-table pattern as MIRRORS.

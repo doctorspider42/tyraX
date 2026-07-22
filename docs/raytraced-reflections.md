@@ -29,6 +29,22 @@ The traced scene is a stylized stand-in for the real one:
   instead, with the face normal recovered from entry-axis masks for the
   same lambert. Rotation is ignored — slabs are axis-aligned, the PoC
   trade.
+- **Triangle meshes, WITH TEXTURES** — listed **static `.obj` models**
+  (up to 2 per mirror) trace as **real triangle proxies**: at build time
+  the model's textured submesh is decimated to the shared budget of
+  **36 triangles** per mirror (vertex clustering, original per-corner UVs;
+  meshes already under budget pass through EXACTLY), baked in model-local
+  space and re-transformed by the live object transform every frame — so
+  a moving, **rotating** model reflects correctly (unlike slabs/spheres,
+  triangle proxies honor rotation). The kernel runs a dual-basis
+  Möller–Trumbore variant (no cross products in the loop, rational
+  nearest-hit comparisons, one division for the winner) behind a per-model
+  bounding-sphere early-out, and returns *(record, barycentric u/v,
+  lambert shade)* — **the EE then samples the model part's texture in
+  RAM** (nearest-neighbor; 32/24bpp linear, 8bpp with the CSM1 CLUT
+  rotation undone, 4bpp nibble-swapped — every format the PNG loader
+  produces) and modulates it by the shade while packing the row. VU0
+  traces, the EE textures. Animated models keep their sphere proxy.
 - **Sky gradient** — misses shade from the scene's horizon→zenith colors
   (`SKY_*` / `SKY_TOP_*`), so the reflection matches the real sky dome.
 
@@ -99,9 +115,16 @@ GS-freed and deleted on scene switch) and the draw.
 - Texel→world mapping matches the glass quad's STs exactly (see `addDecal`),
   so the image lines up with the plane by construction — the mirror can be
   any size, anywhere, at any rotation.
-- Proxies are spheres: a reflected crate is a ball. That is the PoC
-  trade — the rays and the shading are real; the shapes are not.
-  (GT3 faked the rays and kept the shapes; we do the opposite.)
+- Proxies are stylized: curved objects reflect as spheres, flat ones as
+  axis-aligned slabs — but listed static models reflect as their own
+  (decimated) triangles, textures included. The kernel is at ~95% of
+  VU0's 4KB micro memory; the 36-triangle budget is a data-memory wall
+  (the whole set shares 4KB with the ray batch). Each triangle a ray must
+  test costs real VU0 time — the per-model bounding sphere keeps
+  off-model rays cheap, but a model filling the whole mirror pays the
+  full sweep per texel: keep proxy budgets small and mirrors modest.
+  (GT3 faked the rays and kept the shapes; we trace the rays and decimate
+  the shapes.)
 - GS VRAM per raytraced mirror: rtSize²×4 bytes (4 KB at 32, 16 KB at 64,
   64 KB at 128, 256 KB at 256, 1 MB at 512 — most of the ~1.33 MB texture
   budget) + an equal EE-side pixel buffer. If the all-or-nothing texture

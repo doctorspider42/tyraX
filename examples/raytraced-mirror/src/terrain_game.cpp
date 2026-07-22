@@ -6352,6 +6352,11 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
   Vu0RtBox slabs[Vu0Raytracer::MaxBoxes];
   int sc = 0, bc = 0;
+  // Model targets with a baked proxy mesh trace as REAL TRIANGLES (up to
+  // two groups; docs/raytraced-reflections.md) - collected here, fed to
+  // the tracer after the loop (group 0 must be set before group 1).
+  int proxySel[2] = {-1, -1}, proxyObj[2] = {-1, -1};
+  int gc = 0;
   for (int t = 0; t < mir.targetCount; ++t) {
     const int index = MIRROR_TARGETS[mir.firstTarget + t];
     if (index < 0 || index >= (int)runtimeObjects.size()) continue;
@@ -6359,6 +6364,22 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
     if (!o.active || !o.visible || o.data.type == 15) continue;
     const Color tint(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
                      o.data.color[2] * 255.0F, 128.0F);
+    if (o.data.type == 5 && gc < 2) {
+      int prox = -1;
+      for (int pi2 = 0; pi2 < RT_PROXY_COUNT; ++pi2)
+        if (RT_PROXIES[pi2].scene == currentScene &&
+            RT_PROXIES[pi2].mirror == mir.object &&
+            RT_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        ++gc;
+        continue;  // traced as triangles, not a sphere
+      }
+    }
     if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12 ||
         o.data.type == 13) {
       if (bc >= Vu0Raytracer::MaxBoxes) continue;
@@ -6396,6 +6417,51 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   }
   vu0Rt.setSpheres(spheres, sc);
   vu0Rt.setBoxes(slabs, bc);
+
+  // Triangle groups: transform the baked model-local proxies by the live
+  // object transform (scale -> rotate -> translate, pushVert's order) and
+  // hand them to the tracer with the part's texture; a not-yet-streamed
+  // texture falls back to the part's kd as a flat color. Unused groups
+  // are cleared - stale triangles must not survive a target going hidden.
+  for (int g = 0; g < 2; ++g) {
+    if (g >= gc) {
+      vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                         Color(160.0F, 160.0F, 160.0F, 128.0F));
+      continue;
+    }
+    const RtProxyData& pr = RT_PROXIES[proxySel[g]];
+    RuntimeObject& mo = runtimeObjects[proxyObj[g]];
+    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
+    const int n = pr.triCount;
+    for (int i = 0; i < n; ++i) {
+      const float* f = &RT_PROXY_VERTS[pr.firstFloat + i * 15];
+      Vec4* corners[3] = {&tbuf[i].a, &tbuf[i].b, &tbuf[i].c};
+      float* uvs[3][2] = {{&tbuf[i].ua, &tbuf[i].va},
+                          {&tbuf[i].ub, &tbuf[i].vb},
+                          {&tbuf[i].uc, &tbuf[i].vc}};
+      for (int c = 0; c < 3; ++c) {
+        V3 lp = {f[c * 5] * mo.data.scale[0], f[c * 5 + 1] * mo.data.scale[1],
+                 f[c * 5 + 2] * mo.data.scale[2]};
+        lp = rotated(lp, mo.data.rotation);
+        corners[c]->set(lp.x + mo.data.position[0],
+                        lp.y + mo.data.position[1],
+                        lp.z + mo.data.position[2], 1.0F);
+        *uvs[c][0] = f[c * 5 + 3];
+        *uvs[c][1] = f[c * 5 + 4];
+      }
+    }
+    const Texture* tex = nullptr;
+    Color kdCol(160.0F, 160.0F, 160.0F, 128.0F);
+    const int mi2 = mo.data.model;
+    if (mi2 >= 0 && mi2 < (int)gameModels.size() &&
+        pr.part < (int)gameModels[mi2].parts.size()) {
+      const GameModelPart& gp = gameModels[mi2].parts[pr.part];
+      tex = gp.texture;
+      auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+      kdCol = Color(c255(gp.kd[0]), c255(gp.kd[1]), c255(gp.kd[2]), 128.0F);
+    }
+    vu0Rt.setTriangles(g, tbuf, n, tex, kdCol);
+  }
 
   vu0Rt.setSky(Color(SKY_TOP_R, SKY_TOP_G, SKY_TOP_B),
                Color(skyHorizonR, skyHorizonG, skyHorizonB));

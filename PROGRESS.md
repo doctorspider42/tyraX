@@ -38,9 +38,23 @@ Each finished feature lands as its own commit.
   AABB per-axis fold, face normal from entry-axis masks — added when a
   user-listed floor never showed: a flat object as a bounding sphere
   engulfs the glass, ray origins start inside and the entry distance dies
-  on the eps mask; rotation is ignored on both proxy kinds), all with live
-  position + tint + single-bounce lambert, sky-gradient misses — traced
-  into an rtSize^2
+  on the eps mask; rotation is ignored on both), and — per user request,
+  "jazda na całego" — static .obj model targets as REAL TRIANGLE MESHES
+  WITH TEXTURES (`Vu0RtTriangle`, up to 2 groups / 36 tris per mirror):
+  codegen decimates the model's textured submesh by vertex clustering
+  (under-budget meshes pass through exactly), bakes it model-local
+  (`RT_PROXIES`/`RT_PROXY_VERTS` in scene_data.hpp), and the game
+  re-transforms by the live object transform each frame — triangle proxies
+  DO honor rotation. The kernel runs a dual-basis Moller-Trumbore (no
+  cross products, rational nearest-hit compares by cross-multiplication,
+  one division for the winner) behind per-model bounding-sphere early-outs
+  (exit-distance test — the inside-origin lesson again), and returns
+  (record, barycentric u/v, shade); the EE samples the model part's
+  texture in RAM while packing (nearest; 32/24bpp linear, 8bpp with the
+  CSM1 CLUT rotation undone, 4bpp nibble-swapped — every PNG-loader
+  format) and modulates by the shade. UVs never enter VU0. All proxies
+  carry live position + tint + single-bounce lambert, sky-gradient
+  misses — traced into an rtSize^2
   RGBA32 texture the glass quad samples, re-uploaded over PATH3 into its
   existing GS allocation each frame (`updateTextureInfo`; re-allocates
   automatically after an eviction flush). Two key tricks: the EE mirrors the
@@ -73,11 +87,20 @@ Each finished feature lands as its own commit.
   any 64-texel chunk boundary; 512's frame rate was not measured - the
   ~64x cost figure is analytic, the image is verifiably right). The
   example level boots clean and its F8 screenshot shows all four balls +
-  the player proxy reflecting on the correct sides, and the listed floor
+  the player proxy reflecting on the correct sides, the listed floor
   slab reflecting as a floor under them (an earlier floor made of the
   Plane primitive z-fought its own two coplanar faces at this scale -
   patchy dark wedges; the thin box has no coplanar pair and rendered
-  clean). Walk-around
+  clean), and the textured crate model (12 tris, exact pass-through)
+  reflecting as a real wood-and-rivets crate at its live 25-degree yaw.
+  The triangle kernel cost THREE VCL failures, all recorded in the engine
+  skill: "ERROR: no opt table .. for <loop>" is the REGISTER ALLOCATOR
+  running out (31 VF ceiling), not syntax - fixed by reloading
+  fixed-address params at use sites and lane-packing the fold state
+  (the group-loop unroll and the cross-product-free dual-basis rewrite
+  made along the way were kept: simpler CFG, 4-qword records). Kernel is
+  now 3872 of 4096 bytes - at ~95% of VU0 micro memory, the next feature
+  needs a diet first. Walk-around
   feel (reflection tracking the camera) remains a hands-on pad test. Third
   kernel iteration fixed a subtle one: mix-with-sentinel-BIG selection
   cancels catastrophically in single floats (t - 1e10 + 1e10 == 0), which

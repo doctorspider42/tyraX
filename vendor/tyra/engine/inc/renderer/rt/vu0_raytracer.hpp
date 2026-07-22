@@ -13,6 +13,7 @@
 #include <tamtypes.h>
 #include "math/vec4.hpp"
 #include "renderer/models/color.hpp"
+#include "renderer/core/texture/models/texture.hpp"
 
 namespace Tyra {
 
@@ -36,33 +37,50 @@ struct Vu0RtBox {
   Color color = Color(160.0F, 160.0F, 160.0F, 128.0F);
 };
 
+/** One world-space triangle of a mesh proxy group, with per-corner UVs. */
+struct Vu0RtTriangle {
+  Vec4 a, b, c;
+  float ua = 0.0F, va = 0.0F;
+  float ub = 0.0F, vb = 0.0F;
+  float uc = 0.0F, vc = 0.0F;
+};
+
 /**
  * VU0 MICROMODE ray tracer - the "impossible" PoC. Traces a small
- * reflection image (sphere proxies + optional checkerboard ground plane +
- * sky gradient) entirely on VU0's microprogram pipeline; the EE only feeds
- * ray batches through VU0 data memory and packs the returned integer colors
- * into RGBA32 texels. See src/renderer/rt/vu0_rt_kernel.vclpp for the
- * kernel and the data-memory contract.
+ * reflection image (sphere + AABB slab proxies, up to two TRIANGLE MESH
+ * groups, sky-gradient misses) entirely on VU0's microprogram pipeline.
+ * The EE feeds ray batches through VU0 data memory and packs the returned
+ * texels; triangle hits come back as (record, u, v, shade) and the EE
+ * samples the group's TEXTURE in RAM while packing - VU0 cannot sample
+ * textures, so the kernel traces and the EE shades.
  *
  * Usage (per frame, synchronous):
  *   rt.init();                       // uploads the microprogram once
  *   rt.setEye(eyeReflectedAcrossMirrorPlane);
- *   rt.setSpheres(spheres, n); rt.setSky(...); rt.setFloor(...);
- *   rt.trace(texel00World, duWorld, dvWorld, pixels, 64);
+ *   rt.setSpheres(...); rt.setBoxes(...); rt.setSky(...);
+ *   rt.setTriangles(0, tris, n, texture, fallbackKd);
+ *   rt.trace(texel00World, duWorld, dvWorld, pixels, size);
  *
  * The eye must be the camera position REFLECTED across the mirror plane
  * (Householder) - then every texel's reflected ray is simply
  * normalize(texelWorldPos - eye), which is what the kernel computes.
  *
+ * Triangle budget: MaxTriangles (30) TOTAL across both groups - the whole
+ * set must fit VU0's 4KB data memory next to the ray batch. Each group
+ * carries a bounding sphere the kernel tests per texel before entering
+ * the triangle loop, so rays that miss the model pay ~20 ops, not the
+ * full Moller-Trumbore sweep.
+ *
  * Caveats: trace() blocks the EE while each row's kernel runs (VU0 macro
  * COP2 code - the engine's Vec4/M4x4 math - shares VU0's register file, so
- * the tracer never runs concurrently with it). One trace of 64x64 with a
- * handful of spheres costs a low single-digit ms of VU0 time.
+ * the tracer never runs concurrently with it).
  */
 class Vu0Raytracer {
  public:
   static constexpr int MaxSpheres = 8;
   static constexpr int MaxBoxes = 4;
+  static constexpr int MaxGroups = 2;
+  static constexpr int MaxTriangles = 36;  // total, across both groups
   // Per-kick limit: one VU0 data-memory batch holds 64 output qwords.
   static constexpr int MaxRowTexels = 64;
   // Image edge limit: rows wider than a batch trace in 64-texel chunks.
@@ -76,25 +94,28 @@ class Vu0Raytracer {
   /** Camera position reflected across the mirror plane, world space. */
   void setEye(const Vec4& eyeMirrored);
 
-  /** Normalized direction TOWARD the light (for sphere lambert). */
+  /** Normalized direction TOWARD the light (for the lambert terms). */
   void setLight(const Vec4& dirTowardLight);
 
   /** Sky gradient: zenith / horizon colors (0..255). */
   void setSky(const Color& top, const Color& bottom);
-
-  /**
-   * Optional checkerboard ground plane at world y = planeY. cellSize is the
-   * checker cell edge in world units; beyond fadeDistance the checker fades
-   * into the horizon color. Colors should be pre-lit (0..255).
-   */
-  void setFloor(bool enabled, float planeY, float cellSize, float fadeDistance,
-                const Color& a, const Color& b);
 
   /** Sphere proxies (up to MaxSpheres; extra entries are dropped). */
   void setSpheres(const Vu0RtSphere* spheres, int count);
 
   /** AABB slab proxies for flat objects (up to MaxBoxes). */
   void setBoxes(const Vu0RtBox* boxes, int count);
+
+  /**
+   * One triangle mesh group (0 or 1): world-space triangles with
+   * per-corner UVs, the texture the EE samples on hit (nullptr = flat
+   * fallback color modulated by the shade instead), and the fallback.
+   * Triangles beyond the remaining shared budget (MaxTriangles across
+   * both groups) are dropped. count 0 clears the group. The group's
+   * bounding sphere is computed here.
+   */
+  void setTriangles(int group, const Vu0RtTriangle* tris, int count,
+                    const Texture* texture, const Color& fallback);
 
   /**
    * Trace a size x size reflection image. origin = world position of texel
@@ -110,15 +131,13 @@ class Vu0Raytracer {
 
  private:
   void kickRowAndWait();
+  u32 resolveTexel(s32 addr, s32 u4096, s32 v4096, s32 shade);
 
   bool uploaded = false;
   float eye[4] = {0.0F, 0.0F, 0.0F, 0.0F};
   float light[4] = {0.302F, 0.905F, 0.302F, 0.0F};
   float skyTop[4] = {40.0F, 90.0F, 170.0F, 0.0F};
   float skyBot[4] = {180.0F, 210.0F, 235.0F, 0.0F};
-  float floorQ[4] = {0.0F, 0.25F, 0.005F, 0.0F};  // y, 1/cell, 1/fade, on
-  float floorA[4] = {150.0F, 150.0F, 150.0F, 0.0F};
-  float floorB[4] = {40.0F, 40.0F, 40.0F, 0.0F};
   float sph[MaxSpheres][4] = {};
   float sphCol[MaxSpheres][4] = {};
   int sphereCount = 0;
@@ -126,6 +145,16 @@ class Vu0Raytracer {
   float boxMax[MaxBoxes][4] = {};
   float boxCol[MaxBoxes][4] = {};
   int boxCount = 0;
+  // Triangle records in kernel format (4 qwords: v0, N, A, B - the dual
+  // basis for barycentrics), packed group 0 first; UV rows stay EE-side
+  // (triUV: u0,d1u,d2u, v0,d1v,d2v - texture coordinates never enter
+  // VU0); group bounds + the EE-side texture/fallback per group.
+  float tri[MaxTriangles * 4][4] = {};
+  float triUV[MaxTriangles][6] = {};
+  float grpBound[MaxGroups][4] = {};
+  int grpCount[MaxGroups] = {0, 0};
+  const Texture* grpTex[MaxGroups] = {nullptr, nullptr};
+  u32 grpFallback[MaxGroups] = {0x80A0A0A0, 0x80A0A0A0};
 };
 
 }  // namespace Tyra
