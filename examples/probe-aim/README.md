@@ -16,11 +16,12 @@ headless: `tyrax-editor.exe --build <this folder> --run`.
 You spawn facing a big chrome ball on a pedestal, with a chrome monolith
 to the side — and a red crate, a yellow ball and a blue pillar standing
 **behind you**. Look at the chrome: the props behind your back reflect in
-the middle of the ball, like in a real mirror — because the probe traces
-your view ray to the surface, reflects it, and renders the scene from
-there. Walk and strafe: the reflections slide across the chrome with
-correct-ish parallax, and the smoothing keeps them from snapping as your
-crosshair moves between the ball and the monolith.
+the middle of the ball, like in a real mirror. **Each reflective object
+carries its own probe** — the ball and the monolith mirror *different*
+prop subsets in the same frame, from their own vantage points — and the
+probe pose depends only on positions, never on where you point the
+camera: look hard to the side and the reflections stay put. Walk and
+strafe: they slide with correct-ish parallax.
 
 For contrast, flip the preference off (*Preferences > Rendering*) and
 rebuild — the classic GT3 level-forward aim shows the same props as small
@@ -31,9 +32,11 @@ surface's.
 
 - **`chrome-ball` / `chrome-monolith`** — the `chrome-dyn` material
   (`refl ... -rounded @sky`): the dynamic env map sampled by camera-space
-  normals on VU1. The ball's equator sits at eye height on purpose — a
-  level view ray reflects straight back, so the demo shot mirrors what's
-  behind the player.
+  normals on VU1. Each gets its own probe render per frame (the
+  eye→center reflection: a sphere's probe looks straight back at you —
+  the crystal-ball look-back; a box's reflects off the hit face, which is
+  why the monolith is rotated so its reflected cone actually contains the
+  props — at its first rotation it honestly mirrored empty sky).
 - **`crate-red` / `ball-sun` / `pillar-blue`** — plain primitives with
   **Show in reflections** checked: they render into the env map every
   refresh (base passes, z-tested in the map).
@@ -43,9 +46,9 @@ surface's.
 
 ## Honest limits
 
-One probe serves every reflective surface — the one under your crosshair
-gets the accurate aim, the rest inherit it (watch the monolith while
-staring at the ball). The env map contains sky + listed objects, not the
-terrain, so ground-facing reflections show the horizon color. Cost is
-unchanged versus the classic aim: same env render, plus a handful of
-ray-primitive tests per refresh.
+Every reflective object costs **one full probe render per frame** (PATH1
+drain + 128² sky + the reflected list) — two objects here, so two probes;
+put ten in a scene and it will crawl. The env map contains sky + listed
+objects, not the terrain, so ground-facing reflections show the horizon
+color, and a 110° probe cannot cover the full reflected hemisphere at
+grazing angles.

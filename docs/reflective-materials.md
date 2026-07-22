@@ -150,35 +150,35 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 The classic pass aims the env camera **level along the player's forward**
 from the eye — the GT3 trick, correct for skies and "good enough" for
 everything else. **Reflection probe: aim along the reflected ray** replaces
-that with a physically-motivated aim: every env-map refresh, a ray from the
-camera is intersected with the **dynamic-reflective objects themselves**
-(the ones sampling `@sky` — detected by their bound env target), using
-analytic shapes:
+that with **one probe render PER reflective object**, anchored to the
+object: the eye→center ray is reflected at the surface, using analytic
+shapes —
 
 - boxes / save points / planes → **OBB face** test in the object's own
   frame (live rotation honored), the hit face's normal;
 - spheres / cylinders / cones → sphere (radius = half the largest scale
-  axis); models → bounding sphere.
+  axis; the exact eye→center hit's normal faces the eye, so the probe
+  looks straight back at the player — the crystal-ball look-back);
+  models → bounding sphere.
 
-The nearest hit reflects the view ray and the probe renders **from the hit
-point along the reflected direction** — the map then shows what the surface
-under the crosshair actually mirrors: a red crate standing in front of a
-chrome sphere reflects big and round instead of as a distant smudge. The
-smoothing is **adaptive**: while the crosshair stays on the same object
-the pose tracks the camera **instantly** — it is a continuous function of
-the view, and a constant smoothing factor here made reflections visibly
-trail camera motion by ~20 frames — while a short cross-fade
-(~6 refreshes) engages only when the hit object changes or the ray
-starts/stops hitting anything reflective: the one moment the pose
-genuinely jumps. A miss decays back to the classic pose the same way.
-The env pass's proximity self-skip keys on the probe eye, so the mirror-er
-itself never swamps its own map.
+Each object's map re-renders **right before that object draws**,
+interleaved on the single shared VRAM target (the env bracket's `begin()`
+drains PATH1, so the previous object's draws sample *their* map before it
+is overwritten). Because the eye→center pose depends only on positions —
+never on where the camera points — reflections **stay put when the player
+looks around**, and the pose is continuous per object, so there is **no
+smoothing at all**. Two reflective objects side by side show genuinely
+different, simultaneously-correct reflections. (Two earlier cuts are
+recorded in PROGRESS 152: a crosshair-anchored shared probe decayed to the
+classic aim whenever the object left the screen center, and its constant
+smoothing trailed the camera by ~20 frames.)
 
-Honest limits: it is still ONE probe shared by every reflective surface —
-the one you look at gets the accurate aim, the rest inherit it; and a
-single 110° camera cannot cover the full reflected hemisphere, so extreme
-grazing angles still clamp. Off by default (existing projects keep their
-look); best on large curved chrome at small-to-mid distances.
+Honest limits: **cost scales with the reflective object count** — every
+probe is a full 128² render (PATH1 drain + sky + the reflected list) per
+frame; a scene with ten of them will crawl, budget accordingly. A single
+110° probe camera still cannot cover the full reflected hemisphere, and
+inside split-screen halves probes are skipped (surfaces keep the last
+map). Off by default (existing projects keep their look).
 
 ## Dynamic env map internals
 

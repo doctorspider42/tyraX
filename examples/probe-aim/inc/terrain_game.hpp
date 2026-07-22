@@ -360,6 +360,12 @@ class TerrainGame : public Tyra::Game {
   // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
   // traced image) as a live emissive texture.
   void renderCameraFeed();
+  // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
+  // map for ONE reflective object - aimed by the eye->center reflection -
+  // right before that object draws. Interleaving works on a single VRAM
+  // target because the bracket's begin() drains PATH1: the previous
+  // object's draws sample THEIR map before it is overwritten.
+  void renderObjectProbe(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the

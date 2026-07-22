@@ -19,15 +19,30 @@ Each finished feature lands as its own commit.
   object's own frame for boxes/save points/planes (live rotation
   honored), spheres for curved shapes, bounding spheres for models. The
   probe then renders from the hit point along the reflected direction, so
-  the map shows what the surface under the crosshair actually mirrors;
-  smoothing is ADAPTIVE - same hit object = the pose tracks the camera
-  instantly (the first cut smoothed constantly at alpha 0.25 per
-  every-2nd-frame refresh and the owner immediately felt reflections
-  trailing the camera by ~20 frames), a ~6-refresh cross-fade engages
-  only when the hit object changes or hit <-> miss flips (the one moment
-  the pose genuinely jumps; scene switches snap). The env pass's
-  proximity self-skip keys on the probe eye so the mirror-er never swamps
-  its own map. One shared probe remains the
+  the map shows what the surface actually mirrors. The design went
+  through THREE cuts, each driven by the owner feeling the previous one:
+  (1) crosshair-anchored shared probe with constant alpha-0.25 smoothing
+  - reflections trailed the camera by ~20 frames (alpha per
+  every-2nd-frame refresh compounds); (2) adaptive smoothing (same hit
+  object = instant tracking, cross-fade only on switches) - fixed the
+  trailing but the aim still decayed to classic whenever the object left
+  the screen center ("ucieka jak sie mocno na boki patrzy"); (3) FINAL,
+  owner's own idea: PER-OBJECT probes anchored to the eye->center ray -
+  renderObjectProbe re-renders the shared 128x128 target right before
+  EACH reflective object draws (interleaving works on one VRAM target
+  because the env bracket's begin() drains PATH1, so the previous
+  object's draws sample THEIR map before it is overwritten). The
+  eye->center pose depends only on positions, never on view rotation -
+  reflections stay put when looking around, the pose is continuous per
+  object, NO smoothing exists at all, and side-by-side reflective objects
+  show genuinely different simultaneously-correct reflections (verified:
+  the example's ball and monolith mirror different prop subsets in one
+  frame - the monolith honestly showed pure sky until its rotation was
+  aimed so its reflected cone actually contains the props). Cost scales
+  with reflective object count (one full probe render per object per
+  frame - "10 objects = your own funeral", per the owner); probes skip
+  inside split halves (raster bracket rule). The proximity self-skip keys
+  on the probe eye so the mirror-er never swamps its own map. One shared probe remains the
   honest limit (the looked-at surface gets the accurate aim, the rest
   inherit it). Chain: ProjectSettings::envProbeReflected (JSON, ==,
   Preferences > Rendering checkbox, {{ENV_PROBE_REFLECTED}} constant in

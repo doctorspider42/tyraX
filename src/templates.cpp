@@ -799,6 +799,12 @@ class TerrainGame : public Tyra::Game {
   // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
   // traced image) as a live emissive texture.
   void renderCameraFeed();
+  // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
+  // map for ONE reflective object - aimed by the eye->center reflection -
+  // right before that object draws. Interleaving works on a single VRAM
+  // target because the bracket's begin() drains PATH1: the previous
+  // object's draws sample THEIR map before it is overwritten.
+  void renderObjectProbe(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -1493,6 +1499,12 @@ class TerrainGame : public Tyra::Game {
   // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
   // traced image) as a live emissive texture.
   void renderCameraFeed();
+  // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
+  // map for ONE reflective object - aimed by the eye->center reflection -
+  // right before that object draws. Interleaving works on a single VRAM
+  // target because the bracket's begin() drains PATH1: the previous
+  // object's draws sample THEIR map before it is overwritten.
+  void renderObjectProbe(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -7762,7 +7774,11 @@ void TerrainGame::renderScene() {
   // Not inside a split half: the env bracket's end() restores a full-screen
   // raster, which would undo the half's scissor/offset. Reflections keep the
   // last rendered map while split-screen is active.
-  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
+  // Reflected-probe mode renders a probe PER OBJECT, interleaved with the
+  // object draws (renderObjectProbe) - this shared pass covers only the
+  // classic level-forward aim.
+  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
+      envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
     // Level forward: keeps the sphere map's horizon on its center line.
     V3 lvl = {envFwd.x, 0.0F, envFwd.z};
@@ -7771,147 +7787,8 @@ void TerrainGame::renderScene() {
       lvl.x /= ll, lvl.z /= ll;
     else
       lvl = {1.0F, 0.0F, 0.0F};
-
-    // Probe pose. Classic (GT3): level forward from the eye. Reflected
-    // mode (ENV_PROBE_REFLECTED, Preferences > Rendering): a camera ray is
-    // intersected with the DYNAMIC-reflective objects (the ones sampling
-    // this very map - part.envTexBag bound to it); the probe renders from
-    // the hit point along the reflected ray, so the map shows what the
-    // surface under the crosshair actually mirrors. Analytic normals: OBB
-    // faces for boxes/planes (live rotation honored), spheres for curved
-    // shapes, bounding spheres for models. The pose is exponentially
-    // smoothed - crosshair sliding between objects must not snap the
-    // reflections - and decays back to the classic pose on a miss.
-    Vec4 probeEye = cameraPosition;
-    V3 probeDir = lvl;
-    if (ENV_PROBE_REFLECTED) {
-      Vec4 tgtEye = cameraPosition;
-      V3 tgtDir = lvl;
-      V3 rdir = envFwd;  // normalized camera forward (computed above)
-      Texture* envTex = core.envMap.getTexture();
-      float bestT = 1e30F;
-      int bestObj = -1;
-      for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
-        RuntimeObject& o = runtimeObjects[i];
-        if (!o.active || !o.visible) continue;
-        bool dyn = false;
-        for (GeoPart& part : objectGeometry[i].parts)
-          if (part.envTexBag && part.envTexBag->texture == envTex) {
-            dyn = true;
-            break;
-          }
-        if (!dyn) continue;
-        const V3 rel = {cameraPosition.x - o.data.position[0],
-                        cameraPosition.y - o.data.position[1],
-                        cameraPosition.z - o.data.position[2]};
-        float t = -1.0F;
-        V3 n = {0.0F, 1.0F, 0.0F};
-        if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12) {
-          // OBB slab test in the object's own frame (rotation honored)
-          const V3 lo = invRotated(rel, o.data.rotation);
-          const V3 ld = invRotated(rdir, o.data.rotation);
-          const float he[3] = {
-              0.5F * o.data.scale[0],
-              o.data.type == 12 ? 0.02F : 0.5F * o.data.scale[1],
-              0.5F * o.data.scale[2]};
-          const float lop[3] = {lo.x, lo.y, lo.z};
-          const float ldp[3] = {ld.x, ld.y, ld.z};
-          float tn = -1e30F, tf = 1e30F;
-          int axis = 0;
-          for (int a = 0; a < 3; ++a) {
-            if (fabsf(ldp[a]) < 1e-6F) {
-              if (fabsf(lop[a]) > he[a]) { tn = 1e30F; break; }
-              continue;
-            }
-            float t1 = (-he[a] - lop[a]) / ldp[a];
-            float t2 = (he[a] - lop[a]) / ldp[a];
-            if (t1 > t2) { const float tmp = t1; t1 = t2; t2 = tmp; }
-            if (t1 > tn) { tn = t1, axis = a; }
-            if (t2 < tf) tf = t2;
-          }
-          if (tn <= tf && tn > 0.05F) {
-            t = tn;
-            V3 ln = {0.0F, 0.0F, 0.0F};
-            const float lhit = lop[axis] + ldp[axis] * tn;
-            (axis == 0 ? ln.x : axis == 1 ? ln.y : ln.z) =
-                lhit > 0.0F ? 1.0F : -1.0F;
-            n = rotated(ln, o.data.rotation);
-          }
-        } else if (o.data.type == 1 || o.data.type == 2 ||
-                   o.data.type == 3 || o.data.type == 5) {
-          // sphere (curved shapes; models by bounding sphere)
-          float r = fabsf(o.data.scale[0]);
-          if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
-          if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
-          r *= o.data.type == 5 ? 0.87F : 0.5F;
-          const float b = -(rel.x * rdir.x + rel.y * rdir.y + rel.z * rdir.z);
-          const float c2 = rel.x * rel.x + rel.y * rel.y + rel.z * rel.z -
-                           r * r;
-          const float disc = b * b - c2;
-          if (disc > 0.0F) {
-            const float tt = b - sqrtf(disc);
-            if (tt > 0.05F) {
-              t = tt;
-              const float ix = rel.x + rdir.x * tt;
-              const float iy = rel.y + rdir.y * tt;
-              const float iz = rel.z + rdir.z * tt;
-              const float il = sqrtf(ix * ix + iy * iy + iz * iz);
-              if (il > 0.0001F) n = {ix / il, iy / il, iz / il};
-            }
-          }
-        }
-        if (t > 0.0F && t < bestT) {
-          bestT = t;
-          bestObj = i;
-          const float dn =
-              2.0F * (rdir.x * n.x + rdir.y * n.y + rdir.z * n.z);
-          tgtDir = {rdir.x - dn * n.x, rdir.y - dn * n.y,
-                    rdir.z - dn * n.z};
-          // probe eye ON the surface, nudged out along the normal so the
-          // proximity skip below drops the reflective object itself
-          tgtEye.set(cameraPosition.x + rdir.x * t + n.x * 0.05F,
-                     cameraPosition.y + rdir.y * t + n.y * 0.05F,
-                     cameraPosition.z + rdir.z * t + n.z * 0.05F, 1.0F);
-        }
-      }
-      // ADAPTIVE smoothing: while the crosshair stays on the SAME object
-      // the pose is a continuous function of the camera - track it
-      // INSTANTLY (a constant alpha here made reflections trail the
-      // camera by ~20 frames; owner report). A short cross-fade engages
-      // only when the hit object changes (or hit <-> miss) - the one
-      // moment the pose genuinely jumps.
-      static Vec4 smEye;
-      static V3 smDir;
-      static int smGen = -1;
-      static int smObj = -2;
-      static int smBlend = 0;
-      if (smGen != sceneGeneration) {  // scene switch: snap, no cross-fade
-        smGen = sceneGeneration;
-        smObj = bestObj;
-        smBlend = 0;
-        smEye = tgtEye;
-        smDir = tgtDir;
-      } else {
-        if (bestObj != smObj) {
-          smObj = bestObj;
-          smBlend = 6;  // refreshes (= 12 frames at the every-2nd cadence)
-        }
-        const float a = smBlend > 0 ? 0.35F : 1.0F;
-        if (smBlend > 0) --smBlend;
-        smEye.set(smEye.x + (tgtEye.x - smEye.x) * a,
-                  smEye.y + (tgtEye.y - smEye.y) * a,
-                  smEye.z + (tgtEye.z - smEye.z) * a, 1.0F);
-        smDir.x += (tgtDir.x - smDir.x) * a;
-        smDir.y += (tgtDir.y - smDir.y) * a;
-        smDir.z += (tgtDir.z - smDir.z) * a;
-      }
-      const float dl = sqrtf(smDir.x * smDir.x + smDir.y * smDir.y +
-                             smDir.z * smDir.z);
-      if (dl > 0.0001F) {
-        probeDir = {smDir.x / dl, smDir.y / dl, smDir.z / dl};
-        probeEye = smEye;
-      }
-    }
+    const Vec4 probeEye = cameraPosition;
+    const V3 probeDir = lvl;
 
     skyMat.identity();
     skyMat.data[12] = probeEye.x;
@@ -7962,6 +7839,9 @@ void TerrainGame::renderScene() {
   // Camera texture feed: its own VRAM target, so order only matters
   // relative to the surfaces that sample it - before everything.
   renderCameraFeed();
+
+  // Per-object probe rendering happens inline in the object draw loop
+  // below (renderObjectProbe) when ENV_PROBE_REFLECTED is on.
 
   // Portal through-view: rendered IN-PLACE into the real framebuffer at
   // full resolution, every frame (the view must stay in lockstep with the
@@ -8047,6 +7927,20 @@ void TerrainGame::renderScene() {
       hlList[hlCount] = i;
       hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
+    }
+    // Reflected-probe mode: re-render the shared env map for THIS object
+    // right before it draws (begin() drains PATH1 first, so the previous
+    // object already sampled its own map). Not inside split halves - the
+    // bracket restores a full-screen raster. A highlight-deferred body
+    // redrawn later this frame samples the last probe's map instead of
+    // its own - an accepted approximation.
+    if (ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && !splitPassActive) {
+      Texture* envTex = engine->renderer.core.envMap.getTexture();
+      for (GeoPart& part : objectGeometry[i].parts)
+        if (part.envTexBag && part.envTexBag->texture == envTex) {
+          renderObjectProbe(i);
+          break;
+        }
     }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
@@ -8589,6 +8483,118 @@ void TerrainGame::renderCameraFeed() {
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
   core.camFeed.end();
+}
+
+// Reflected-probe mode (ENV_PROBE_REFLECTED): one probe render PER
+// reflective object, right before it draws. The aim is anchored to the
+// OBJECT, not the crosshair: the eye->center ray is reflected at the
+// surface (analytic normal - OBB face for boxes/planes with live
+// rotation, else the sphere normal, which for the exact eye->center ray
+// simply looks back at the player). That pose depends only on positions,
+// never on where the camera POINTS - reflections stay put when the player
+// looks around (the crosshair-anchored first cut decayed to the classic
+// aim whenever the object left the screen center), and it is continuous
+// per object, so NO smoothing is needed at all. Every object gets its own
+// fresh map every frame; cost is one full probe render (PATH1 drain +
+// 128^2 sky + reflected list) PER OBJECT PER FRAME - author responsibly.
+void TerrainGame::renderObjectProbe(int index) {
+  auto& core = engine->renderer.core;
+  RuntimeObject& o = runtimeObjects[index];
+  V3 toC = {o.data.position[0] - cameraPosition.x,
+            o.data.position[1] - cameraPosition.y,
+            o.data.position[2] - cameraPosition.z};
+  const float dist = sqrtf(toC.x * toC.x + toC.y * toC.y + toC.z * toC.z);
+  if (dist < 0.2F) return;  // eye inside the object: keep the last map
+  const V3 dirC = {toC.x / dist, toC.y / dist, toC.z / dist};
+
+  float t = -1.0F;
+  V3 n = {0.0F, 1.0F, 0.0F};
+  if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12) {
+    // OBB entry face along eye->center (the ray passes through the center,
+    // so it always hits; rotation honored)
+    const V3 rel = {-toC.x, -toC.y, -toC.z};
+    const V3 lo = invRotated(rel, o.data.rotation);
+    const V3 ld = invRotated(dirC, o.data.rotation);
+    const float he[3] = {0.5F * o.data.scale[0],
+                         o.data.type == 12 ? 0.02F : 0.5F * o.data.scale[1],
+                         0.5F * o.data.scale[2]};
+    const float lop[3] = {lo.x, lo.y, lo.z};
+    const float ldp[3] = {ld.x, ld.y, ld.z};
+    float tn = -1e30F;
+    int axis = 0;
+    for (int a = 0; a < 3; ++a) {
+      if (fabsf(ldp[a]) < 1e-6F) continue;
+      float t1 = (-he[a] - lop[a]) / ldp[a];
+      float t2 = (he[a] - lop[a]) / ldp[a];
+      if (t1 > t2) t1 = t2;
+      if (t1 > tn) { tn = t1, axis = a; }
+    }
+    if (tn > 0.05F) {
+      t = tn;
+      V3 ln = {0.0F, 0.0F, 0.0F};
+      const float lhit = lop[axis] + ldp[axis] * tn;
+      (axis == 0 ? ln.x : axis == 1 ? ln.y : ln.z) =
+          lhit > 0.0F ? 1.0F : -1.0F;
+      n = rotated(ln, o.data.rotation);
+    }
+  } else {
+    // curved shapes (and models by bounding sphere): the eye->center hit
+    // has the normal facing the eye
+    float r = fabsf(o.data.scale[0]);
+    if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+    if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+    r *= o.data.type == 5 ? 0.87F : 0.5F;
+    if (dist - r > 0.05F) {
+      t = dist - r;
+      n = {-dirC.x, -dirC.y, -dirC.z};
+    }
+  }
+  if (t < 0.0F) return;  // too close: keep the last map
+
+  const float dn = 2.0F * (dirC.x * n.x + dirC.y * n.y + dirC.z * n.z);
+  V3 rd = {dirC.x - dn * n.x, dirC.y - dn * n.y, dirC.z - dn * n.z};
+  const Vec4 probeEye(cameraPosition.x + dirC.x * t + n.x * 0.05F,
+                      cameraPosition.y + dirC.y * t + n.y * 0.05F,
+                      cameraPosition.z + dirC.z * t + n.z * 0.05F, 1.0F);
+  const Vec4 probeLook(probeEye.x + rd.x, probeEye.y + rd.y,
+                       probeEye.z + rd.z, 1.0F);
+
+  core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                          scriptCtx.skyColor.b, 128.0F));
+  core.renderer3D.pushEnvView(probeEye, probeLook, 110.0F,
+                              (float)Tyra::RendererCoreEnvMap::size);
+  if (skyDome.bag) {
+    skyMat.identity();  // dome parked on the probe; main pass re-centers
+    skyMat.data[12] = probeEye.x;
+    skyMat.data[13] = probeEye.y;
+    skyMat.data[14] = probeEye.z;
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+  }
+  for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+    RuntimeObject& ro = runtimeObjects[ri];
+    if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+    if (ri == index) continue;  // never the mirror-er itself
+    // proximity self-skip against the probe eye (see the classic pass)
+    {
+      float half = ro.data.scale[0];
+      if (ro.data.scale[1] > half) half = ro.data.scale[1];
+      if (ro.data.scale[2] > half) half = ro.data.scale[2];
+      const float skipR = 0.87F * half * 1.9F;
+      const float sdx = ro.data.position[0] - probeEye.x;
+      const float sdy = ro.data.position[1] - probeEye.y;
+      const float sdz = ro.data.position[2] - probeEye.z;
+      if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+    }
+    if (ro.dirty) rebuildObjectGeometry(ri);
+    if (objectGeometry[ri].matrixMode) updateObjMat(ri);
+    for (GeoPart& part : objectGeometry[ri].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.envMap.end();
 }
 
 // Portal objects (type 16): a PS2-honest take on the seamless portal. The
