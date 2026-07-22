@@ -10,6 +10,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (151) **Settling physics bodies no longer "snap their rotation back":
+  sleeping fast-path bodies stay on objMat (no settle re-bake).** User
+  report: a thrown ball that stops tumbling "freezes and its rotation
+  resets". The data said otherwise - an in-game probe (owned
+  terrain_game.cpp printing every body's pos/rot/spin/restFrames/matrixMode
+  to a host file twice a second) showed `data.rotation` is PRESERVED through
+  sleep (a rolled ball rests at rz=259.84deg and keeps it forever). What
+  actually snapped was the (114) fast path's settle step: on wake a body
+  bakes local vertices with shading FROZEN at the wake pose (the light
+  pattern rides along as it tumbles - baked colors can't re-light per
+  frame), and on sleep the old code set dirty for one world re-bake that
+  re-shaded the rest pose. That discrete wake-shading -> rest-shading jump,
+  on a sphere whose shade gradient is the only orientation cue, reads
+  exactly as "the ball rotated back" - and it fired at the very frame the
+  body froze, welding the two complaints into one artifact. (The freeze
+  itself is the intended sleep; by the time restFrames hits the threshold,
+  friction has decayed the spin to ~0.002deg/frame - imperceptible.) Fix:
+  drop the settle re-bake - a sleeping body keeps its local bake + objMat
+  (one matrix refresh per frame, same as awake). Safe because every
+  fast-path consumer reads objMat or o.data (mirrors compose reflection *
+  objMat, env pass and portal views take the bag's matrix, split band / use
+  targeting / collision read o.data), and the two vertex-array consumers
+  (usable-highlight hull, matcap env normals) were already excluded by
+  physFastPathEligible. Trade-off, documented in the code: a resting body
+  keeps the shading baked at wake - the same shading it showed all flight -
+  instead of snapping to a freshly lit rest pose; a retint / Live Link edit
+  still re-bakes via dirty. Verified with the probe repro (fpp scratch, a
+  pickable+physics sphere and box impulse-launched by an OnStart->Delay->
+  Apply Impulse graph, PCSX2 boot, physlog.txt over 30 s): before -
+  matrixMode flips 1->0 at the sleep frame (the re-bake = the visible pop);
+  after - the identical deterministic trajectory settles at the same
+  rz=259.84deg with matrixMode still 1 at rest (nothing re-bakes, so
+  nothing can pop). In-game pad-throw eyeball is the remaining hands-on
+  check.
+
 - (150) **Thrown-object teleport/stuck regression: the box-collision horizontal
   frame is yaw-only again.** Day-one regression from (149): the new OBB
   footprint test built its local frame from the object's FULL 3D rotation and

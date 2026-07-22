@@ -7427,9 +7427,18 @@ void TerrainGame::updateObjectPhysics() {
       if (o.restFrames >= PHYS_SLEEP_FRAMES) {
         vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
         o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
-        // settle: one world-space rebuild restores rest-pose shading and
-        // hands the vertex arrays back to the world-space consumers
-        if (objectGeometry[i].matrixMode) o.dirty = true;
+        // Fast-path bodies stay on objMat while asleep - NO settle rebuild.
+        // The old world re-bake refreshed the shading for the rest pose, and
+        // that discrete jump from the wake-pose shading that rode the tumble
+        // read as "the rotation snapped back" the instant a thrown body
+        // froze (on a sphere the shade gradient is the only orientation
+        // cue). Nothing needs the world-space arrays at rest: every
+        // fast-path consumer (mirrors, env pass, split band, use targeting,
+        // collision) reads objMat or o.data, and the two vertex-array
+        // consumers (usable highlight, matcap normals) are excluded from
+        // the fast path by physFastPathEligible. Trade-off: a resting body
+        // keeps the shading baked at wake - the same shading it showed all
+        // flight. A retint / Live Link edit still re-bakes via dirty.
       }
     } else {
       o.restFrames = 0;
