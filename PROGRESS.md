@@ -10,6 +10,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (152) **Physics upgrades: hits wake sleeping bodies, tumbled boxes ride
+  their rotated bound (no more sinking), and near-rest bodies settle flat.**
+  Three user asks in one pass over `updateObjectPhysics`. (a) *A thrown
+  body never woke the body it hit*: pass 1 treats sleeping bodies as static
+  solids and resolved the mover OUT of contact, so pass 2 - the one that
+  wakes sleepers and trades momentum - never saw the pair overlap (its
+  `ph <= 0` early-out hit every time). Now a mover faster than
+  `PHYS_WAKE_SPEED2` (~2.5 u/s; rest is ~0.8) skips the wall treatment for
+  a sleeping body and lets the impulse pass handle the hit - wake + mass-
+  split impulse, the existing math; near-rest contacts keep the wall
+  treatment so settled stacks stay cheap and stable. (b) *Boxes/models sank
+  into the terrain "as if they had sphere physics"*: `physExtents` is an
+  unrotated AABB, so a rolled box supported itself on its half-height while
+  its corners visibly pierced the ground. The mover's contact extents are
+  now the support of the ROTATED bound per world axis (sum of |basis
+  column| x half extent, center offset rotated too) - a tumbling box rides
+  its corners (center height breathes with the roll), and yaw-only authored
+  rotation leaves the vertical extent unchanged, so placed blocks rest
+  exactly as before. Spheres skip it (rotation-invariant; their box corners
+  would overestimate the radius). Statics as the OTHER side of a contact
+  keep the plain AABB - the (149) known limitation, unchanged. (c) *Settle-
+  flatten*: a near-rest tumbled body (grounded, under the rest thresholds)
+  eases pitch/roll at 3 deg/frame to the nearest 90deg step instead of
+  sleeping on an edge; the rotated support extent lowers it onto its face
+  as it tips. Euler-order trap (the (150) family): `rotated()` composes
+  Rz*Ry*Rx, and with the roll on an ODD 90 step the pose is only flat when
+  the yaw sits on a step too - so the yaw joins the easing exactly then.
+  Spheres skip flattening (orientation invisible; easing would visibly
+  roll the baked shading). Sleep waits for the easing to finish
+  (flattening resets the countdown); `flatMoved` joins the rebuild
+  condition so slow-path bodies re-bake the eased pose. Verified with the
+  (151) probe repro + a sleeping Target crate in the thrown crate's path
+  (PCSX2, physlog.txt): Target sleeps (rest=24), the crate arrives at ~10
+  u/s, Target wakes with momentum (flies ~3 u, tumbling), the thrower
+  hands off its speed (0.20 -> 0.012 u/frame); mid-tumble center heights
+  match the support math (y=0.690 at rz=58.7deg = 0.5(|cos|+|sin|));
+  both crates ease to exactly 90.00/180.00 and y returns to 0.500; the
+  sphere's trace is byte-identical to the pre-change run (skip paths
+  hold). Editor + Docker PS2 builds clean. In-game pad feel remains the
+  hands-on check.
+
 - (151) **Settling physics bodies no longer "snap their rotation back":
   sleeping fast-path bodies stay on objMat (no settle re-bake).** User
   report: a thrown ball that stops tumbling "freezes and its rotation

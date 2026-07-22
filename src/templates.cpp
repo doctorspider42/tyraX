@@ -6894,6 +6894,11 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // cross and normalize are VU0 macro-mode assembly.
 constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not moving"
 constexpr float PHYS_REST_SPIN = 0.75F;       // deg/frame = "not spinning"
+// A mover this fast treats a SLEEPING body as a body, not a wall: pass 1
+// skips the static resolution so the impulse pass sees the overlap, wakes
+// the sleeper and trades momentum (~2.5 u/s at 50 fps; rest is ~0.8 u/s).
+constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
+constexpr float PHYS_FLATTEN_STEP = 3.0F;     // settle-flatten, deg/frame
 constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 constexpr float PHYS_PUSH = 0.55F;            // player shove gain (scaled 1/mass)
 
@@ -7173,6 +7178,27 @@ void TerrainGame::updateObjectPhysics() {
     }
     float cOff[3], ext[3];
     physExtents(o.data, gm, anim, cOff, ext);
+    // Tumbled bodies contact the world through their ROTATED bound: the
+    // support extent of the OBB along each world axis (sum of |basis
+    // column| * half extent) and the rotated center offset. The plain
+    // axis-aligned ext let a rolled box sink corner-deep into the terrain
+    // as if it were a sphere of its half-height. Spheres skip this - they
+    // are rotation-invariant and their box corners would overestimate the
+    // radius. (Yaw-only rotation leaves the vertical extent unchanged, so
+    // authored yaw blocks rest exactly as before.)
+    if (o.data.type != 1 &&
+        (o.data.rotation[0] != 0.0F || o.data.rotation[1] != 0.0F ||
+         o.data.rotation[2] != 0.0F)) {
+      const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const V3 rc = rotated({cOff[0], cOff[1], cOff[2]}, o.data.rotation);
+      const float lx = ext[0], ly = ext[1], lz = ext[2];
+      ext[0] = fabsf(bx.x) * lx + fabsf(by.x) * ly + fabsf(bz.x) * lz;
+      ext[1] = fabsf(bx.y) * lx + fabsf(by.y) * ly + fabsf(bz.y) * lz;
+      ext[2] = fabsf(bx.z) * lx + fabsf(by.z) * ly + fabsf(bz.z) * lz;
+      cOff[0] = rc.x, cOff[1] = rc.y, cOff[2] = rc.z;
+    }
     const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
     const float bounce = o.data.physBounce;
 
@@ -7309,6 +7335,14 @@ void TerrainGame::updateObjectPhysics() {
       const bool sSleeping =
           s.data.physics && s.restFrames >= PHYS_SLEEP_FRAMES;
       if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
+      // A meaningful hit treats a sleeping body as a body, not a wall: this
+      // static resolution would separate the pair, and the impulse pass -
+      // the one that wakes the sleeper and trades momentum - would never
+      // see the overlap (a thrown crate bounced off a sleeping one without
+      // waking it). Skip it and let pass 2 handle the hit; near-rest
+      // contacts (resting stacks) keep the wall treatment, so settled
+      // stacks stay cheap and stable.
+      if (sSleeping && vel.innerProduct(vel) > PHYS_WAKE_SPEED2) continue;
       if (aimOn) {
         const V3 pax = rotated({1.0F, 0.0F, 0.0F}, s.data.rotation);
         const V3 pay = rotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
@@ -7422,7 +7456,42 @@ void TerrainGame::updateObjectPhysics() {
     const float speed2 = vel.innerProduct(vel);
     const float spinMag =
         fabsf(o.spin[0]) + fabsf(o.spin[1]) + fabsf(o.spin[2]);
-    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN) {
+
+    // Settle-flatten: a near-rest tumbled body eases onto its nearest flat
+    // face instead of sleeping on an edge or corner - pitch/roll walk to
+    // the nearest 90deg step (the crate visibly tips onto its face; the
+    // rotated support extent above lowers it with the tilt). Euler-order
+    // trap: rotated() composes Rz*Ry*Rx, and with the roll on an ODD step
+    // the pose is only flat when the yaw sits on a step too - so the yaw
+    // joins the easing exactly then (a settling crate twisting slightly
+    // reads as natural). Spheres skip it: their orientation is invisible
+    // and easing would visibly roll the baked shading for nothing. Sleep
+    // waits for the easing to finish (flattening resets the countdown).
+    bool flattening = false, flatMoved = false;
+    if (o.data.physTumble && o.data.type != 1 && grounded &&
+        speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN) {
+      auto ease = [&](int axis, float target) {
+        float d = target - o.data.rotation[axis];
+        if (fabsf(d) < 0.001F) return;
+        if (d > PHYS_FLATTEN_STEP) {
+          d = PHYS_FLATTEN_STEP;
+          flattening = true;
+        } else if (d < -PHYS_FLATTEN_STEP) {
+          d = -PHYS_FLATTEN_STEP;
+          flattening = true;
+        }
+        o.data.rotation[axis] += d;
+        flatMoved = true;
+      };
+      const float tz = roundf(o.data.rotation[2] / 90.0F) * 90.0F;
+      ease(0, roundf(o.data.rotation[0] / 90.0F) * 90.0F);
+      ease(2, tz);
+      if (fabsf(fmodf(tz, 180.0F)) > 45.0F)  // roll ends on an ODD 90 step
+        ease(1, roundf(o.data.rotation[1] / 90.0F) * 90.0F);
+    }
+
+    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN &&
+        !flattening) {
       if (o.restFrames < PHYS_SLEEP_FRAMES) ++o.restFrames;
       if (o.restFrames >= PHYS_SLEEP_FRAMES) {
         vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
@@ -7461,7 +7530,7 @@ void TerrainGame::updateObjectPhysics() {
         if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
       }
     }
-    if (dPos > 1e-5F || spinMag > 0.001F) {
+    if (dPos > 1e-5F || spinMag > 0.001F || flatMoved) {
       // Moving: eligible bodies get ONE local-space bake and ride objMat
       // from then on (refreshed in renderScene - no EE re-bake per frame);
       // the rest fall back to the legacy world-space rebuild.
