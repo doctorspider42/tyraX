@@ -4416,9 +4416,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // tilted top - a pitched/rolled box still collides upright, as before
     // (mesh collision is the escape hatch for those). Reduces exactly to the
     // old AABB test when the object is unrotated.
+    //
+    // The frame is YAW ONLY, never the full 3D rotation: physics bodies
+    // tumble (spin writes pitch/roll into rotation), and projecting a pitched
+    // frame onto XZ is not an isometry - part of the horizontal offset
+    // escapes into local Y and gets dropped, so far-away points read as
+    // "inside" and the back-projection contracts the committed position
+    // toward the box center (the player teleported into thrown objects and
+    // stuck inside them).
+    const float yaw = o.data.rotation[1] * PI / 180.0F;
+    const float yawC = cosf(yaw), yawS = sinf(yaw);
     auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
-      const V3 l = invRotated({wx - cx, 0.0F, wz - cz}, o.data.rotation);
-      lx = l.x, lz = l.z;
+      const float dx = wx - cx, dz = wz - cz;
+      lx = dx * yawC - dz * yawS;
+      lz = dx * yawS + dz * yawC;
     };
     float lnx, lnz, lpx, lpz;
     toLocalXZ(*nextX, *nextZ, lnx, lnz);
@@ -4431,9 +4442,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     const bool wasInsideZ = lpz > -hz && lpz < hz;
     // Re-projects a (possibly axis-cancelled) local target back to world.
     auto commitLocal = [&](float lx, float lz) {
-      const V3 w = rotated({lx, 0.0F, lz}, o.data.rotation);
-      *nextX = cx + w.x;
-      *nextZ = cz + w.z;
+      *nextX = cx + lx * yawC + lz * yawS;
+      *nextZ = cz - lx * yawS + lz * yawC;
     };
 
     if (feetY + 0.5F >= top) {

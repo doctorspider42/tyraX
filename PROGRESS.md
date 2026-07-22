@@ -10,6 +10,39 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (150) **Thrown-object teleport/stuck regression: the box-collision horizontal
+  frame is yaw-only again.** Day-one regression from (149): the new OBB
+  footprint test built its local frame from the object's FULL 3D rotation and
+  dropped the Y component in both directions (`invRotated({dx,0,dz})` in,
+  `rotated({lx,0,lz})` out). For a yaw-only rotated placed block that is an
+  exact isometry - but physics bodies TUMBLE (`spin[0]`/`spin[2]` write
+  pitch/roll into `rotation` while sliding), and for a pitched/rolled box the
+  XZ projection is a contraction: part of the horizontal offset escapes into
+  local Y and is discarded, so (a) a player metres away from a tumbling thrown
+  crate read as "inside" its footprint (a 90deg-pitched box collapsed the
+  whole Z axis - `lnz ~ 0` no matter the distance), (b) the blocked-branch
+  commit re-projected the contracted coordinates and *pulled the player to the
+  box center* (the reported "throw teleports me into the object"), and (c)
+  once inside, every frame's full-stop re-commit contracted again - the
+  reported "you can get stuck inside a physics object" (landed tumbled bodies
+  keep their pitch/roll at rest, so walking into one triggered it too).
+  `collidePlayer`'s box mode now builds the horizontal frame from
+  `rotation[1]` alone (one cos/sin pair, inverse = transpose of `rotated`'s Y
+  block): the local<->world round trip is the identity for ANY rotation,
+  identical to (149) for yaw-only blocks (pitch/roll were already documented
+  as "collide upright; mesh mode is the escape hatch") and reduces to the old
+  AABB at zero rotation. The world box *center* still uses the full rotation
+  (a real 3D point, no projection involved). The (149) camera spring-arm
+  sweep is NOT affected - its slab test keeps all three components, a true
+  isometry. Verified: a standalone numeric check reproduces both symptoms
+  against the (149) math (player at Z=5 from a 90deg-pitched box reads INSIDE
+  and commits to the center; arbitrary-tumble round trip drifts 0.31u/frame)
+  and confirms the fix (same player reads FREE, round trip exact to 1e-5,
+  yaw-45 block behavior byte-identical to (149), zero rotation = plain AABB);
+  editor builds clean; a scratch `--new` fpp project's regenerated
+  `terrain_game.cpp` carries the yaw-only code and the Docker PS2 build
+  compiles + links. In-game throw feel is the remaining hands-on check.
+
 - (149) **Rotated box collision: the player now collides with a block's real
   (rotated) faces, not its unrotated bounds.** Box-mode player collision
   (`collidePlayer`, shared by both walkers) built the blocker box straight from
