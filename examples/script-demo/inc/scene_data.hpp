@@ -182,6 +182,7 @@ constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
 constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false};
 constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
 constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
+constexpr bool SCENE_AO_TEXTUREDS[SCENE_COUNT] = {false};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
 constexpr bool CLIP_VU1S[SCENE_COUNT] = {false};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
@@ -344,6 +345,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
 #define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
 #define SCENE_AO_RADIUS SCENE_AO_RADII[g_activeScene]
+#define SCENE_AO_TEXTURED SCENE_AO_TEXTUREDS[g_activeScene]
 #define TERRAIN_AO TERRAIN_AO_TABLES[g_activeScene]
 #define HM_W HM_WS[g_activeScene]
 #define HM_D HM_DS[g_activeScene]

@@ -48,6 +48,7 @@
     "aoEnabled": false,
     "aoStrength": 0.55,
     "aoRadius": 2.5,
+    "aoTextured": false,
     "terrainMaterial": "res/materials/ground.mtl",
     "bloom": 0.16,
     "grain": 0.09,
@@ -107,8 +108,8 @@
   ],
   "defaultGrading": 0,
   "ambience": [
-    { "name": "Default", "skyColor": [0.86, 0.5, 0.32], "skyTopColor": [0.1, 0.16, 0.42], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.5, 0.42, -0.65], "ambient": 0.4, "diffuse": 0.7, "lightColor": [1, 0.82, 0.6], "brightness": 1, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": true, "fogColor": [0.82, 0.55, 0.4], "fogStart": 20, "fogEnd": 82 },
-    { "name": "cavern", "skyColor": [0.05, 0.06, 0.12], "skyTopColor": [0.02, 0.02, 0.06], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.45, 0.4, 0.8], "ambient": 0.15, "diffuse": 0.35, "lightColor": [0.6, 0.75, 1], "brightness": 0.9, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": true, "fogColor": [0.06, 0.08, 0.16], "fogStart": 4, "fogEnd": 42 }
+    { "name": "Default", "skyColor": [0.86, 0.5, 0.32], "skyTopColor": [0.1, 0.16, 0.42], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.5, 0.42, -0.65], "ambient": 0.4, "diffuse": 0.7, "lightColor": [1, 0.82, 0.6], "brightness": 1, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "aoTextured": false, "fogEnabled": true, "fogColor": [0.82, 0.55, 0.4], "fogStart": 20, "fogEnd": 82 },
+    { "name": "cavern", "skyColor": [0.05, 0.06, 0.12], "skyTopColor": [0.02, 0.02, 0.06], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.45, 0.4, 0.8], "ambient": 0.15, "diffuse": 0.35, "lightColor": [0.6, 0.75, 1], "brightness": 0.9, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "aoTextured": false, "fogEnabled": true, "fogColor": [0.06, 0.08, 0.16], "fogStart": 4, "fogEnd": 42 }
   ],
   "defaultAmbience": 0,
   "loadingScreens": [],

@@ -18,7 +18,19 @@ struct AoOccData {
 
 static const AoOccData* const SCENE_AO_OCC_TABLES[] = {nullptr};
 static const int SCENE_AO_OCC_COUNTS[] = {0};
+
+struct AoAtlasRect {
+  float u0, v0, du, dv;
+};
+static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {nullptr};
+static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {nullptr};
+static const char* const SCENE_AO_ATLAS_PATHS[] = {""};
+static const char* const SCENE_AO_MAP_PATHS[] = {""};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
 #define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]
+#define SCENE_AO_ATLAS_RECTS SCENE_AO_ATLAS_RECTS_T[g_activeScene]
+#define SCENE_AO_ATLAS_FIRST SCENE_AO_ATLAS_FIRSTS_T[g_activeScene]
+#define SCENE_AO_ATLAS_PATH SCENE_AO_ATLAS_PATHS[g_activeScene]
+#define SCENE_AO_MAP_PATH SCENE_AO_MAP_PATHS[g_activeScene]
