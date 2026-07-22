@@ -10,6 +10,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (151) **Live texture feeds: camera-to-texture (CCTV) + raytraced-mirror
+  streams (docs/texture-feeds.md).** Any surface can show a live feed via
+  *Properties > Texture feed*: a Camera entity with "Render to texture"
+  renders its view - sky (+resident terrain) + an explicit object list,
+  the Mirror philosophy - into a NEW second instance of the env-map
+  redirect bracket (`RendererCore::camFeed`, 128x128 + own z, ~128 KB of
+  VRAM permanently below every texture, Clamp wrap) every frame from the
+  camera's LIVE transform (+Z lens, Cutscene Director convention) at its
+  baked FOV; or a raytraced Mirror's traced image re-streams onto any
+  other object. Feeds draw EMISSIVE (colors flatten to the object tint at
+  texture scale) through plain surface UVs. One feed camera per scene
+  (first enabled wins, extras warn at codegen); feed surfaces are
+  excluded from static batching; renames remap "camera:<n>"/"mirror:<n>"
+  refs and camera view lists. Chain: SceneObject::camFeed/camFeedTerrain/
+  camFeedObjects + textureFeed (+==, JSON, recipe hashes, properties UI on
+  the Camera + a Texture feed combo in the shared material picker),
+  CAM_FEEDS/CAM_FEED_VIEWS/OBJECT_FEEDS side tables, renderCameraFeed()
+  before all main-frame 3D + the binding in rebuildObjectGeometry.
+  Two raster lessons paid for: the target samples UPSIDE DOWN through
+  plain UVs (GS rows run top-down vs texture V down from row 0 - the env
+  map/portals never showed it; the binding V-flips the surface sts), and
+  Repeat wrap bleeds opposite-edge rows into the border (feed texture is
+  Clamp). Verified in PCSX2 (SW renderer) on examples/raytraced-mirror:
+  the billboard above the mirror shows the CCTV camera's aerial view
+  (textured crate, balls, wobbler, terrain horizon - right side up, clean
+  edges) while the floating monitor streams the VU0-traced mirror image,
+  BOTH live in one frame together with the raytraced mirror itself; boot
+  clean. Walk-around (the feed showing the player moving) remains a
+  hands-on pad test.
+
 - (150) **Raytraced mirror reflections on a VU0 microprogram (experimental
   PoC).** A Mirror object gained *Properties > Mirror > Raytraced (VU0,
   experimental)*: instead of re-submitting reflected geometry, the game

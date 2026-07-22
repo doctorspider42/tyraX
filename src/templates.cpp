@@ -788,6 +788,11 @@ class TerrainGame : public Tyra::Game {
   void buildRtMirrors();
   void freeRtMirrors();
   void renderRtMirror(const MirrorData& mir);
+  // Camera texture feed (CCTV, docs/texture-feeds.md): renders the scene's
+  // feed camera view into the engine's camFeed VRAM target each frame;
+  // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
+  // traced image) as a live emissive texture.
+  void renderCameraFeed();
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -1477,6 +1482,11 @@ class TerrainGame : public Tyra::Game {
   void buildRtMirrors();
   void freeRtMirrors();
   void renderRtMirror(const MirrorData& mir);
+  // Camera texture feed (CCTV, docs/texture-feeds.md): renders the scene's
+  // feed camera view into the engine's camFeed VRAM target each frame;
+  // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
+  // traced image) as a live emissive texture.
+  void renderCameraFeed();
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -6834,6 +6844,40 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (o.data.type == 15)
       for (RtMirror& r : rtMirrors)
         if (r.object == index) { tex = r.texture; break; }
+    // Live texture feed: the camera feed target or a raytraced mirror's
+    // traced image replaces the surface texture; colors flatten to the
+    // object tint at texture scale (128 = 1.0) so the feed reads like an
+    // emissive screen instead of inheriting baked shading.
+    for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi) {
+      const ObjectFeedData& fd = OBJECT_FEEDS[fi];
+      if (fd.scene != currentScene || fd.object != index) continue;
+      Texture* ftex = nullptr;
+      if (fd.kind == 0)
+        ftex = engine->renderer.core.camFeed.getTexture();
+      else
+        for (RtMirror& r : rtMirrors)
+          if (r.object == fd.src) { ftex = r.texture; break; }
+      if (ftex) {
+        tex = ftex;
+        auto c128 = [](float v) {
+          return v * 128.0F > 255.0F ? 255.0F : v * 128.0F;
+        };
+        for (Color& c : part.colors) {
+          c.r = c128(o.data.color[0]);
+          c.g = c128(o.data.color[1]);
+          c.b = c128(o.data.color[2]);
+          c.a = 128.0F;
+        }
+        // The camera feed is a raster render target: GS rows run top-down
+        // while texture V grows downward from row 0, so the image samples
+        // upside down through plain surface UVs - flip V here (fresh sts
+        // every rebuild, so the flip never double-applies). The mirror
+        // feed is a RAM texture with its own consistent mapping.
+        if (fd.kind == 0)
+          for (Vec4& st : part.sts) st.y = 1.0F - st.y;
+      }
+      break;
+    }
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
@@ -7765,6 +7809,10 @@ void TerrainGame::renderScene() {
     core.envMap.end();
   }
 
+  // Camera texture feed: its own VRAM target, so order only matters
+  // relative to the surfaces that sample it - before everything.
+  renderCameraFeed();
+
   // Portal through-view: rendered IN-PLACE into the real framebuffer at
   // full resolution, every frame (the view must stay in lockstep with the
   // player camera or the surface visibly lags). Must run right after the
@@ -8326,6 +8374,71 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   // full-bright white - see rebuildObjectGeometry case 15).
   for (GeoPart& part : objectGeometry[mir.object].parts)
     if (part.bag) stapip.core.render(part.bag.get());
+}
+
+// Camera texture feed (CCTV): render the scene's feed camera view into the
+// engine's camFeed VRAM target - the envMap bracket with the camera's own
+// pose and baked FOV. Runs before any main-frame 3D (the raster redirect
+// is global GS state) and never inside a split half (end() restores a
+// full-screen raster). Content = sky dome (+ terrain) + the explicit view
+// list, the Mirror philosophy: the second-render cost stays visible to the
+// author. Animated targets show their LAST skinned pose (skinning runs
+// later in the frame), exactly like mirrors and portals.
+void TerrainGame::renderCameraFeed() {
+  if (splitPassActive) return;
+  int fi = -1;
+  for (int i = 0; i < CAM_FEED_COUNT; ++i)
+    if (CAM_FEEDS[i].scene == currentScene) { fi = i; break; }
+  if (fi < 0) return;
+  const CamFeedData& fd = CAM_FEEDS[fi];
+  if (fd.camera < 0 || fd.camera >= (int)runtimeObjects.size()) return;
+  RuntimeObject& cam = runtimeObjects[fd.camera];
+  if (!cam.active) return;
+
+  auto& core = engine->renderer.core;
+  const Vec4 eye(cam.data.position[0], cam.data.position[1],
+                 cam.data.position[2], 1.0F);
+  // +Z lens, rotated Z*Y*X - the Cutscene Director camera convention
+  // (seqCameraForward); a flow graph rotating the camera pans the feed.
+  const V3 fwd = rotated({0.0F, 0.0F, 1.0F}, cam.data.rotation);
+  const Vec4 look(eye.x + fwd.x, eye.y + fwd.y, eye.z + fwd.z, 1.0F);
+
+  core.camFeed.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                           scriptCtx.skyColor.b, 128.0F));
+  core.renderer3D.pushEnvView(eye, look, fd.fov,
+                              (float)Tyra::RendererCoreEnvMap::size);
+  if (fd.showTerrain) {
+    if (skyDome.bag) {
+      skyMat.identity();  // dome parked on the feed eye; main pass re-centers
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+      stapip.core.render(skyDome.bag.get());
+      skyDome.infoBag->zTestType = prevZTest;
+    }
+    renderTerrain();  // resident chunks - the ring follows the MAIN camera
+  }
+  for (int t = 0; t < fd.viewCount; ++t) {
+    const int vi2 = CAM_FEED_VIEWS[fd.firstView + t];
+    if (vi2 < 0 || vi2 >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& ro = runtimeObjects[vi2];
+    // no mirrors/portals in a feed: their surfaces are main-pass tricks
+    if (!ro.active || !ro.visible || ro.data.type == 15 ||
+        ro.data.type == 16)
+      continue;
+    if (ro.dirty) rebuildObjectGeometry(vi2);
+    ObjectGeometry& og = objectGeometry[vi2];
+    if (og.matrixMode) updateObjMat(vi2);
+    for (GeoPart& part : og.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (og.animInfoBag && !og.animParts.empty())
+      for (ObjectGeometry::AnimPart& ap : og.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.camFeed.end();
 }
 
 // Portal objects (type 16): a PS2-honest take on the seamless portal. The
@@ -12329,6 +12442,7 @@ static bool staticBatchEligible(const SceneObject& o,
     if (o.pickable) return false;     // carried/thrown - moves at runtime
     if (o.saveState) return false;    // a loaded save repositions it
     if (o.reflected) return false;    // re-submitted into the env map pass
+    if (!o.textureFeed.empty()) return false;  // live feed rebinds textures
     if (o.drawDistance != 0.0f) return false;  // per-object distance cut-off
     if (!o.layer.empty()) return false;        // streamed in/out with a layer
     // Per-object logic: the graph can move self, attached scripts get a
@@ -12988,6 +13102,104 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr int RT_ANIM_PROXY_TRIS["
             << (aIdxCount ? aIdxCount : 1) << "] = {\n"
             << (aIdxCount ? aIdx.str() : "  0") << "\n};\n\n";
+    }
+
+    // Live texture feeds (docs/texture-feeds.md): ONE feed camera per scene
+    // (the first enabled one - others warn and drop) renders sky (+terrain)
+    // + an explicit view list into the engine's camFeed target; OBJECT_FEEDS
+    // maps surfaces to that target (kind 0) or to a raytraced mirror's
+    // traced image (kind 1). All names resolve to indices here; dangling
+    // refs drop silently.
+    {
+        std::ostringstream feeds, views, objFeeds;
+        int feedCount = 0, viewCount = 0, objFeedCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            int feedCam = -1;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                if (objs[oi].type != PrimitiveType::Camera || !objs[oi].camFeed)
+                    continue;
+                if (feedCam >= 0) {
+                    fprintf(stderr,
+                            "warning: scene %d has multiple feed cameras; "
+                            "'%s' is inactive\n",
+                            si, objs[oi].name.c_str());
+                    continue;
+                }
+                feedCam = (int)oi;
+                const int first = viewCount;
+                for (const std::string& name : objs[oi].camFeedObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti) {
+                        if (ti == oi || objs[ti].name != name) continue;
+                        views << (viewCount ? ", " : "") << ti;
+                        ++viewCount;
+                        break;
+                    }
+                feeds << (feedCount ? ",\n    " : "    ") << "{" << si << ", "
+                      << oi << ", " << floatLit(objs[oi].cameraFov) << ", "
+                      << (objs[oi].camFeedTerrain ? 1 : 0) << ", " << first
+                      << ", " << (viewCount - first) << "},  // "
+                      << objs[oi].name;
+                ++feedCount;
+            }
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.textureFeed.empty()) continue;
+                int kind = -1, src = -1;
+                if (o.textureFeed.rfind("camera:", 0) == 0) {
+                    const std::string name = o.textureFeed.substr(7);
+                    if (feedCam >= 0 && objs[feedCam].name == name) {
+                        kind = 0;
+                        src = feedCam;
+                    }
+                } else if (o.textureFeed.rfind("mirror:", 0) == 0) {
+                    const std::string name = o.textureFeed.substr(7);
+                    for (size_t ti = 0; ti < objs.size(); ++ti)
+                        if (objs[ti].name == name &&
+                            objs[ti].type == PrimitiveType::Mirror &&
+                            objs[ti].mirrorRaytraced) {
+                            kind = 1;
+                            src = (int)ti;
+                            break;
+                        }
+                }
+                if (kind < 0) continue;
+                objFeeds << (objFeedCount ? ",\n    " : "    ") << "{" << si
+                         << ", " << oi << ", " << kind << ", " << src
+                         << "},  // " << o.name << " <- " << o.textureFeed;
+                ++objFeedCount;
+            }
+        }
+        out << "// Camera texture feeds: one active feed camera per scene.\n"
+               "struct CamFeedData {\n"
+               "  int scene;        // scene index\n"
+               "  int camera;       // the feed camera's scene-table index\n"
+               "  float fov;        // baked - the fov does not animate\n"
+               "  int showTerrain;  // 1 = sky + terrain under the view list\n"
+               "  int firstView;    // first entry in CAM_FEED_VIEWS\n"
+               "  int viewCount;\n"
+               "};\n"
+            << "constexpr int CAM_FEED_COUNT = " << feedCount << ";\n"
+            << "constexpr CamFeedData CAM_FEEDS["
+            << (feedCount ? feedCount : 1) << "] = {\n"
+            << (feedCount ? feeds.str() : "    {0, -1, 60.0F, 1, 0, 0}")
+            << "\n};\n"
+            << "constexpr int CAM_FEED_VIEWS[" << (viewCount ? viewCount : 1)
+            << "] = {" << (viewCount ? views.str() : "-1") << "};\n"
+            << "// Surfaces showing a live feed: kind 0 = the scene's camera\n"
+               "// feed, kind 1 = a raytraced mirror's traced image (src =\n"
+               "// the mirror's scene-table index).\n"
+               "struct ObjectFeedData {\n"
+               "  int scene;\n"
+               "  int object;\n"
+               "  int kind;\n"
+               "  int src;\n"
+               "};\n"
+            << "constexpr int OBJECT_FEED_COUNT = " << objFeedCount << ";\n"
+            << "constexpr ObjectFeedData OBJECT_FEEDS["
+            << (objFeedCount ? objFeedCount : 1) << "] = {\n"
+            << (objFeedCount ? objFeeds.str() : "    {0, -1, 0, -1}")
+            << "\n};\n\n";
     }
 
     // Portal objects (type 16): same flat side-table pattern as MIRRORS.

@@ -109,7 +109,13 @@ frustum culling `None` + no clip checks (the one legitimate `None` — the
 program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
 be null — it carries the params channel; swapping `right`/`up` on the bag
 and re-rendering draws the same centers for another view, which is what a
-portal through-view pass needs), `RendererCoreEnvMap` (128×128 VRAM render target for
+portal through-view pass needs), `RendererCore::camFeed` (a second `RendererCoreEnvMap`
+instance for the camera texture feeds — CCTV monitors, docs/
+texture-feeds.md; permanently allocated below every texture like the env
+map, +128 KB VRAM, Clamp wrap because feeds sample through plain surface
+UVs — which also read the raster target UPSIDE DOWN unless the surface V
+flips: GS rows run top-down, texture V grows down from row 0),
+`RendererCoreEnvMap` (128×128 VRAM render target for
 GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
 with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/

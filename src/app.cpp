@@ -4003,6 +4003,50 @@ bool App::drawMaterialCombo(SceneObject& o) {
         }
         ImGui::EndCombo();
     }
+
+    // Live texture feed: override the surface with a feed camera's view
+    // (CCTV) or a raytraced mirror's traced image (docs/texture-feeds.md).
+    // Mirrors/portals have dedicated surfaces - no feed on those.
+    if (o.type != PrimitiveType::Mirror && o.type != PrimitiveType::Portal) {
+        std::string cur = "<none>";
+        if (o.textureFeed.rfind("camera:", 0) == 0)
+            cur = "camera: " + o.textureFeed.substr(7);
+        else if (o.textureFeed.rfind("mirror:", 0) == 0)
+            cur = "mirror: " + o.textureFeed.substr(7);
+        if (ImGui::BeginCombo("Texture feed", cur.c_str())) {
+            if (ImGui::Selectable("<none>", o.textureFeed.empty()) &&
+                !o.textureFeed.empty()) {
+                o.textureFeed.clear();
+                changed = true;
+            }
+            for (const SceneObject& t : project_.objects()) {
+                if (t.type == PrimitiveType::Camera && t.camFeed) {
+                    const std::string ref = "camera:" + t.name;
+                    if (ImGui::Selectable(("camera: " + t.name).c_str(),
+                                          o.textureFeed == ref) &&
+                        o.textureFeed != ref) {
+                        o.textureFeed = ref;
+                        changed = true;
+                    }
+                }
+                if (t.type == PrimitiveType::Mirror && t.mirrorRaytraced) {
+                    const std::string ref = "mirror:" + t.name;
+                    if (ImGui::Selectable(("mirror: " + t.name).c_str(),
+                                          o.textureFeed == ref) &&
+                        o.textureFeed != ref) {
+                        o.textureFeed = ref;
+                        changed = true;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (!o.textureFeed.empty() && ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Live 128x128 feed drawn flat (emissive) over this object's\n"
+                "UVs, tinted by the object color. PS2-only - the editor\n"
+                "viewport shows the base material.");
+    }
     return changed;
 }
 
@@ -4794,6 +4838,17 @@ void App::drawPropertiesWindow() {
                 if (m.type == PrimitiveType::Mirror)
                     for (std::string& t : m.mirrorObjects)
                         if (t == from) t = o.name;
+            // Camera feed view lists + per-object texture-feed refs
+            // ("camera:<name>" / "mirror:<name>").
+            for (SceneObject& m : project_.objects()) {
+                if (m.type == PrimitiveType::Camera)
+                    for (std::string& t : m.camFeedObjects)
+                        if (t == from) t = o.name;
+                if (m.textureFeed == "camera:" + from)
+                    m.textureFeed = "camera:" + o.name;
+                else if (m.textureFeed == "mirror:" + from)
+                    m.textureFeed = "mirror:" + o.name;
+            }
             // Portal links + view lists likewise.
             for (SceneObject& m : project_.objects())
                 if (m.type == PrimitiveType::Portal) {
@@ -5512,6 +5567,57 @@ void App::drawPropertiesWindow() {
                             "Cutscene Director) and the shot films from here,\n"
                             "looking down the +Z wedge, with this FOV. Animate\n"
                             "this object in the same sequence for dolly shots.");
+        if (ImGui::Checkbox("Render to texture (CCTV feed)", &o.camFeed))
+            committed = true;
+        if (o.camFeed) {
+            ImGui::TextDisabled(
+                "Renders this camera's view (sky + the list below) into a\n"
+                "128x128 live texture every frame. Put it on any object via\n"
+                "Properties > Texture feed. ONE active feed camera per scene\n"
+                "(the first enabled one wins).");
+            if (ImGui::Checkbox("Show terrain in feed", &o.camFeedTerrain))
+                committed = true;
+            ImGui::TextUnformatted("Objects in feed:");
+            int removeAt = -1;
+            for (size_t i = 0; i < o.camFeedObjects.size(); ++i) {
+                ImGui::PushID((int)(i + 700));
+                if (ImGui::SmallButton("x")) removeAt = (int)i;
+                ImGui::SameLine();
+                bool exists = false;
+                for (const SceneObject& t : project_.objects())
+                    if (t.name == o.camFeedObjects[i]) { exists = true; break; }
+                if (exists)
+                    ImGui::TextUnformatted(o.camFeedObjects[i].c_str());
+                else
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "%s (missing)", o.camFeedObjects[i].c_str());
+                ImGui::PopID();
+            }
+            if (removeAt >= 0) {
+                o.camFeedObjects.erase(o.camFeedObjects.begin() + removeAt);
+                committed = true;
+            }
+            if (ImGui::BeginCombo("##feedAdd", "+ Add object...")) {
+                for (const SceneObject& t : project_.objects()) {
+                    const bool feedable =
+                        t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                        t.type == PrimitiveType::Cylinder ||
+                        t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                        t.type == PrimitiveType::SavePoint ||
+                        t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                    if (!feedable || t.name == o.name) continue;
+                    bool listed = false;
+                    for (const std::string& n : o.camFeedObjects)
+                        if (n == t.name) { listed = true; break; }
+                    if (listed) continue;
+                    if (ImGui::Selectable(t.name.c_str())) {
+                        o.camFeedObjects.push_back(t.name);
+                        committed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
     }
 
     if (isEmpty) {

@@ -49,6 +49,14 @@ against the glass and its traced reflection below it.
   would engulf the glass and never show — that asymmetry is why the kernel
   has two proxy types.)
 - **`pillar-left` / `pillar-right`** — framing only, unlisted.
+- **`cctv-cam` + `cctv-screen`** — a Camera entity with **Render to
+  texture (CCTV feed)** watching the scene from up high, and the billboard
+  above the mirror showing its view live (*Properties > Texture feed >
+  camera: cctv-cam*) — walk around and watch yourself on the big screen.
+  See [docs/texture-feeds.md](../../docs/texture-feeds.md).
+- **`mirror-screen`** — the floating monitor on the left streams the
+  raytraced mirror's traced image as a texture (*Texture feed >
+  mirror: mirror*): the VU0 raytracer's output re-used as a live material.
 
 ## Things to try
 

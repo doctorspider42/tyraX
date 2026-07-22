@@ -5068,6 +5068,40 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (o.data.type == 15)
       for (RtMirror& r : rtMirrors)
         if (r.object == index) { tex = r.texture; break; }
+    // Live texture feed: the camera feed target or a raytraced mirror's
+    // traced image replaces the surface texture; colors flatten to the
+    // object tint at texture scale (128 = 1.0) so the feed reads like an
+    // emissive screen instead of inheriting baked shading.
+    for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi) {
+      const ObjectFeedData& fd = OBJECT_FEEDS[fi];
+      if (fd.scene != currentScene || fd.object != index) continue;
+      Texture* ftex = nullptr;
+      if (fd.kind == 0)
+        ftex = engine->renderer.core.camFeed.getTexture();
+      else
+        for (RtMirror& r : rtMirrors)
+          if (r.object == fd.src) { ftex = r.texture; break; }
+      if (ftex) {
+        tex = ftex;
+        auto c128 = [](float v) {
+          return v * 128.0F > 255.0F ? 255.0F : v * 128.0F;
+        };
+        for (Color& c : part.colors) {
+          c.r = c128(o.data.color[0]);
+          c.g = c128(o.data.color[1]);
+          c.b = c128(o.data.color[2]);
+          c.a = 128.0F;
+        }
+        // The camera feed is a raster render target: GS rows run top-down
+        // while texture V grows downward from row 0, so the image samples
+        // upside down through plain surface UVs - flip V here (fresh sts
+        // every rebuild, so the flip never double-applies). The mirror
+        // feed is a RAM texture with its own consistent mapping.
+        if (fd.kind == 0)
+          for (Vec4& st : part.sts) st.y = 1.0F - st.y;
+      }
+      break;
+    }
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
@@ -5999,6 +6033,10 @@ void TerrainGame::renderScene() {
     core.envMap.end();
   }
 
+  // Camera texture feed: its own VRAM target, so order only matters
+  // relative to the surfaces that sample it - before everything.
+  renderCameraFeed();
+
   // Portal through-view: rendered IN-PLACE into the real framebuffer at
   // full resolution, every frame (the view must stay in lockstep with the
   // player camera or the surface visibly lags). Must run right after the
@@ -6560,6 +6598,71 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   // full-bright white - see rebuildObjectGeometry case 15).
   for (GeoPart& part : objectGeometry[mir.object].parts)
     if (part.bag) stapip.core.render(part.bag.get());
+}
+
+// Camera texture feed (CCTV): render the scene's feed camera view into the
+// engine's camFeed VRAM target - the envMap bracket with the camera's own
+// pose and baked FOV. Runs before any main-frame 3D (the raster redirect
+// is global GS state) and never inside a split half (end() restores a
+// full-screen raster). Content = sky dome (+ terrain) + the explicit view
+// list, the Mirror philosophy: the second-render cost stays visible to the
+// author. Animated targets show their LAST skinned pose (skinning runs
+// later in the frame), exactly like mirrors and portals.
+void TerrainGame::renderCameraFeed() {
+  if (splitPassActive) return;
+  int fi = -1;
+  for (int i = 0; i < CAM_FEED_COUNT; ++i)
+    if (CAM_FEEDS[i].scene == currentScene) { fi = i; break; }
+  if (fi < 0) return;
+  const CamFeedData& fd = CAM_FEEDS[fi];
+  if (fd.camera < 0 || fd.camera >= (int)runtimeObjects.size()) return;
+  RuntimeObject& cam = runtimeObjects[fd.camera];
+  if (!cam.active) return;
+
+  auto& core = engine->renderer.core;
+  const Vec4 eye(cam.data.position[0], cam.data.position[1],
+                 cam.data.position[2], 1.0F);
+  // +Z lens, rotated Z*Y*X - the Cutscene Director camera convention
+  // (seqCameraForward); a flow graph rotating the camera pans the feed.
+  const V3 fwd = rotated({0.0F, 0.0F, 1.0F}, cam.data.rotation);
+  const Vec4 look(eye.x + fwd.x, eye.y + fwd.y, eye.z + fwd.z, 1.0F);
+
+  core.camFeed.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                           scriptCtx.skyColor.b, 128.0F));
+  core.renderer3D.pushEnvView(eye, look, fd.fov,
+                              (float)Tyra::RendererCoreEnvMap::size);
+  if (fd.showTerrain) {
+    if (skyDome.bag) {
+      skyMat.identity();  // dome parked on the feed eye; main pass re-centers
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+      stapip.core.render(skyDome.bag.get());
+      skyDome.infoBag->zTestType = prevZTest;
+    }
+    renderTerrain();  // resident chunks - the ring follows the MAIN camera
+  }
+  for (int t = 0; t < fd.viewCount; ++t) {
+    const int vi2 = CAM_FEED_VIEWS[fd.firstView + t];
+    if (vi2 < 0 || vi2 >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& ro = runtimeObjects[vi2];
+    // no mirrors/portals in a feed: their surfaces are main-pass tricks
+    if (!ro.active || !ro.visible || ro.data.type == 15 ||
+        ro.data.type == 16)
+      continue;
+    if (ro.dirty) rebuildObjectGeometry(vi2);
+    ObjectGeometry& og = objectGeometry[vi2];
+    if (og.matrixMode) updateObjMat(vi2);
+    for (GeoPart& part : og.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (og.animInfoBag && !og.animParts.empty())
+      for (ObjectGeometry::AnimPart& ap : og.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.camFeed.end();
 }
 
 // Portal objects (type 16): a PS2-honest take on the seamless portal. The

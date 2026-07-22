@@ -32,6 +32,15 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   postFx.init(&settings, &gs);
   // Same rule for the dynamic env map's render target (TyraX fork).
   envMap.init(&settings, &gs, &sync, &path1);
+  // Camera-feed render target (TyraX fork, "texture feeds"): a second
+  // instance of the same redirect bracket, permanently allocated below
+  // every texture for the same FIFO-free reason. Costs 128 KB of VRAM
+  // whether the game uses feeds or not. Clamp: feeds sample through plain
+  // surface UVs and the default Repeat bleeds the opposite edge rows into
+  // the screen border.
+  camFeed.init(&settings, &gs, &sync, &path1);
+  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                        TextureWrap::Clamp);
   // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
   splitView.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
@@ -61,6 +70,7 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     gs.reinit();
     postFx.init(&settings, &gs);
     envMap.init(&settings, &gs, &sync, &path1);
+    camFeed.init(&settings, &gs, &sync, &path1);
   } else {
     // Same buffers - only the display window shape changes (1080i widens;
     // the SDTV modes are stretched by the TV, their window stays as-is).

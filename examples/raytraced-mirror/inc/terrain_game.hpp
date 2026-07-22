@@ -355,6 +355,11 @@ class TerrainGame : public Tyra::Game {
   void buildRtMirrors();
   void freeRtMirrors();
   void renderRtMirror(const MirrorData& mir);
+  // Camera texture feed (CCTV, docs/texture-feeds.md): renders the scene's
+  // feed camera view into the engine's camFeed VRAM target each frame;
+  // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
+  // traced image) as a live emissive texture.
+  void renderCameraFeed();
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the

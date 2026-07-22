@@ -1,0 +1,1 @@
+{ "id": "bbbb00000000000b", "name": "cctv-cam", "type": "camera", "position": [6, 4, 2], "rotation": [25.2, -67.4, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "camera": { "fov": 55, "feed": true, "feedTerrain": true, "feedObjects": ["ball-red", "ball-green", "ball-blue", "ball-sun", "crate", "wobbler", "floor"] } }

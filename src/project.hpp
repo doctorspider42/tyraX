@@ -314,6 +314,18 @@ struct SceneObject {
     // view in degrees. A Cutscene Director shot bound to this camera applies
     // it to the real PS2 projection for the duration of the shot.
     float cameraFov = 60.0f;
+    // Camera texture feed (CCTV): the camera renders its view - sky (+
+    // terrain) + an explicit object list, the Mirror philosophy - into the
+    // engine's 128x128 camFeed VRAM target every frame; objects with
+    // textureFeed == "camera:<name>" show it live. ONE active feed camera
+    // per scene (the first enabled one). See docs/texture-feeds.md.
+    bool camFeed = false;
+    bool camFeedTerrain = true;
+    std::vector<std::string> camFeedObjects;
+    // Live texture feed shown on THIS object's surface (any renderable
+    // primitive): "" = none, "camera:<name>" = a feed camera's view,
+    // "mirror:<name>" = a raytraced mirror's traced image. Renames remap.
+    std::string textureFeed;
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -451,6 +463,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.cameraFov == b.cameraFov &&
+           a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
+           a.camFeedObjects == b.camFeedObjects &&
+           a.textureFeed == b.textureFeed &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&

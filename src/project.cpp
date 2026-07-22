@@ -381,8 +381,16 @@ std::string objectJson(const SceneObject& o) {
                 ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
-        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
+        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) +
+                ", \"feed\": " + (o.camFeed ? "true" : "false") +
+                ", \"feedTerrain\": " + (o.camFeedTerrain ? "true" : "false") +
+                ", \"feedObjects\": [";
+        for (size_t i = 0; i < o.camFeedObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + jsonEscape(o.camFeedObjects[i]) + "\"";
+        json += "] }";
     }
+    if (!o.textureFeed.empty())
+        json += ", \"textureFeed\": \"" + jsonEscape(o.textureFeed) + "\"";
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
                 ", \"reflectPlayer\": " +
@@ -2048,7 +2056,17 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
             if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
             if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+            if (const auto* v = cm->find("feed")) o.camFeed = v->boolOr(false);
+            if (const auto* v = cm->find("feedTerrain"))
+                o.camFeedTerrain = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = cm->find("feedObjects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.camFeedObjects.push_back(s.str);
+            }
         }
+        if (const auto* v = jo.find("textureFeed")) o.textureFeed = v->stringOr("");
         if (const auto* mr = jo.find("mirror")) {
             if (const auto* v = mr->find("opacity")) {
                 o.mirrorOpacity = (float)v->numberOr(0.35);
@@ -3400,6 +3418,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0));
     fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
     fnvMixF(h, o.cameraFov);
+    // Texture feeds bake into side tables (CAM_FEEDS / OBJECT_FEEDS).
+    fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
+    for (const auto& n : o.camFeedObjects) fnvMixS(h, n);
+    fnvMixS(h, o.textureFeed);
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);

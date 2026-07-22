@@ -1,0 +1,1 @@
+{ "id": "bbbb00000000000d", "name": "mirror-screen", "type": "box", "position": [3.4, 3.7, 7.4], "rotation": [0, -14, 0], "scale": [2.2, 2.2, 0.15], "color": [1, 1, 1], "physics": false, "collision": "none", "textureFeed": "mirror:mirror" }
