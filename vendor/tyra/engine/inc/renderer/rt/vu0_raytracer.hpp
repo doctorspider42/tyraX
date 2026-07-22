@@ -49,7 +49,10 @@ struct Vu0RtSphere {
 class Vu0Raytracer {
  public:
   static constexpr int MaxSpheres = 8;
+  // Per-kick limit: one VU0 data-memory batch holds 64 output qwords.
   static constexpr int MaxRowTexels = 64;
+  // Image edge limit: rows wider than a batch trace in 64-texel chunks.
+  static constexpr int MaxSize = 128;
 
   /** Upload the microprogram to VU0 micro memory. Idempotent. */
   void init();
@@ -78,7 +81,9 @@ class Vu0Raytracer {
    * Trace a size x size reflection image. origin = world position of texel
    * (0,0)'s center on the mirror plane, du/dv = world step per texel along
    * the image row/column. out receives size*size RGBA32 pixels (row-major,
-   * alpha 0x80). size must be <= MaxRowTexels.
+   * alpha 0x80). size must be <= MaxSize; rows wider than MaxRowTexels
+   * trace in 64-texel chunks (cost scales with size^2 - 128 is a "for
+   * screenshots" tier, ~4x the 64 default).
    */
   void trace(const Vec4& origin, const Vec4& du, const Vec4& dv, u32* out,
              int size);

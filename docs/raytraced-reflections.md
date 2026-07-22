@@ -3,10 +3,11 @@
 Yes, actual ray tracing on a PlayStation 2 — as a proof of concept. A Mirror
 object with **Properties > Mirror > Raytraced (VU0, experimental)** checked
 stops re-submitting reflected geometry and instead **ray-traces its
-reflection on a VU0 microprogram** into a small texture (`RT_MIRROR_SIZE` =
-64×64) that re-uploads to the GS every frame and is sampled by the glass
-quad. Per-pixel reflections, honestly traced — with deliberately simplified
-scene proxies to make it fit the machine.
+reflection on a VU0 microprogram** into a small texture (**Reflection
+resolution**: 32 / 64 / 128, per mirror — `MirrorData::rtSize`) that
+re-uploads to the GS every frame and is sampled by the glass quad. Per-pixel
+reflections, honestly traced — with deliberately simplified scene proxies to
+make it fit the machine.
 
 ## What the rays hit
 
@@ -19,16 +20,25 @@ The traced scene is a stylized stand-in for the real one:
   (`Vu0Raytracer::MaxSpheres`); *Reflect player* adds one more at the
   player's chest height. Moving objects move in the reflection — positions
   are read per frame.
-- **Checkerboard ground plane** — at the terrain height under the glass,
-  classic two-tone checker (2-unit cells) fading into the horizon color with
-  distance. Nothing says "ray tracing" like a checkerboard.
 - **Sky gradient** — misses shade from the scene's horizon→zenith colors
   (`SKY_*` / `SKY_TOP_*`), so the reflection matches the real sky dome.
+
+There is no synthetic ground in the traced image — place real floor/wall
+objects in the scene (and in the target list, if they should reflect; mind
+that flat targets reflect as sphere blobs). The engine kernel does support
+an optional analytic checkerboard plane (`Vu0Raytracer::setFloor`) for
+custom engine users, but the generated game leaves it off.
 
 The glass quad draws opaque full-bright white (colors modulate the texture),
 so in RT mode the *Glass opacity* slider is ignored — the traced image IS
 the reflection. Everything else about the Mirror object (transform, target
 list, Reflect player) keeps its meaning.
+
+**Resolution**: the per-mirror *Reflection resolution* picks the traced
+image edge — 32 (cheap), 64 (default) or 128 (~4× the 64 cost; rows wider
+than one VU0 batch trace in 64-texel chunks, see `Vu0Raytracer::trace`).
+Cost scales with the square of the edge, so treat 128 as a
+close-up/screenshot tier.
 
 ## How it works
 
@@ -48,8 +58,8 @@ VU0 microprogram (vendor/tyra/engine/src/renderer/rt/vu0_rt_kernel.vclpp)
   └─ per texel: normalize ray → nearest-sphere intersection (BRANCHLESS:
      VU floats saturate instead of inf/nan, so clamp(x·1e38, 0, 1) is an
      exact step(0,x) — masks select the nearest hit; the only branches are
-     the two loop back-edges) → sphere lambert / checker plane / sky
-     gradient → clamp, ftoi0, store
+     the two loop back-edges) → sphere lambert / optional checker plane
+     (off in generated games) / sky gradient → clamp, ftoi0, store
 ```
 
 The kernel is written in VCL like the VU1 programs (same
@@ -80,20 +90,22 @@ GS-freed and deleted on scene switch) and the draw.
   so the image lines up with the plane by construction — the mirror can be
   any size, anywhere, at any rotation.
 - Proxies are spheres: a reflected crate is a ball. That is the PoC
-  trade — the rays, the plane and the shading are real; the shapes are not.
+  trade — the rays and the shading are real; the shapes are not.
   (GT3 faked the rays and kept the shapes; we do the opposite.)
-- 16 KB of GS VRAM for the 64×64 RGBA32 target + a 16 KB EE-side pixel
-  buffer per raytraced mirror. If the all-or-nothing texture eviction ever
-  flushes it, the next frame re-allocates and re-uploads automatically.
+- GS VRAM per raytraced mirror: rtSize²×4 bytes (4 KB at 32, 16 KB at 64,
+  64 KB at 128) + an equal EE-side pixel buffer. If the all-or-nothing
+  texture eviction ever flushes it, the next frame re-allocates and
+  re-uploads automatically.
 
 ## Authoring
 
 1. Insert a Mirror (`+ Add object > 3D Object > Mirror`), size and place it.
 2. *Properties > Mirror*: add the objects that should reflect, check
-   **Raytraced (VU0, experimental)**.
+   **Raytraced (VU0, experimental)**, pick a *Reflection resolution*.
 3. Build & run. The editor viewport previews the mirror as a regular planar
    mirror (the VU0 trace is PS2-only); judge the traced look in PCSX2 —
    software renderer, as always.
 
-Serialized as `"raytraced": true` inside the object's `"mirror"` block;
-codegen carries it as `MirrorData::raytraced` in `scene_data.hpp`.
+Serialized as `"raytraced": true` + `"rtSize": N` inside the object's
+`"mirror"` block; codegen carries them as `MirrorData::raytraced` /
+`MirrorData::rtSize` in `scene_data.hpp`.

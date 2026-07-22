@@ -772,11 +772,12 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorAnimMat;
   // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
   // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
-  // re-uploaded every frame - sphere proxies of the target list + a
-  // checkerboard ground plane + the sky gradient - instead of re-submitted
-  // geometry. See docs/raytraced-reflections.md.
+  // re-uploaded every frame - sphere proxies of the target list against
+  // the sky gradient - instead of re-submitted geometry. See
+  // docs/raytraced-reflections.md.
   struct RtMirror {
     int object = -1;                   // the mirror's scene-table index
+    int size = 64;                     // traced image edge (MirrorData::rtSize)
     Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
   };
   std::vector<RtMirror> rtMirrors;
@@ -1460,11 +1461,12 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorAnimMat;
   // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
   // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
-  // re-uploaded every frame - sphere proxies of the target list + a
-  // checkerboard ground plane + the sky gradient - instead of re-submitted
-  // geometry. See docs/raytraced-reflections.md.
+  // re-uploaded every frame - sphere proxies of the target list against
+  // the sky gradient - instead of re-submitted geometry. See
+  // docs/raytraced-reflections.md.
   struct RtMirror {
     int object = -1;                   // the mirror's scene-table index
+    int size = 64;                     // traced image edge (MirrorData::rtSize)
     Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
   };
   std::vector<RtMirror> rtMirrors;
@@ -8026,10 +8028,11 @@ void TerrainGame::renderMirroredObject(int index) {
   }
 }
 
-// Raytraced mirrors (VU0 PoC): one RT_MIRROR_SIZE^2 RGBA32 texture per
-// flagged mirror, ray-traced and re-uploaded every frame (renderRtMirror).
-// The Texture owns its pixel buffer (TextureData frees it on delete); the
-// GS allocation is released before delete so scene switches don't leak
+// Raytraced mirrors (VU0 PoC): one rtSize^2 RGBA32 texture per flagged
+// mirror (MirrorData::rtSize - the authored 32/64/128 resolution),
+// ray-traced and re-uploaded every frame (renderRtMirror). The Texture
+// owns its pixel buffer (TextureData frees it on delete); the GS
+// allocation is released before delete so scene switches don't leak
 // VRAM. Rebuilt by loadScene BEFORE the lazy geometry rebuild, which binds
 // the texture to the glass quad (rebuildObjectGeometry case 15).
 void TerrainGame::freeRtMirrors() {
@@ -8049,18 +8052,19 @@ void TerrainGame::buildRtMirrors() {
       continue;
     RtMirror rm;
     rm.object = mir.object;
+    rm.size = mir.rtSize;
     TextureBuilderData data;
     data.name = "rt-mirror";
-    data.width = RT_MIRROR_SIZE;
-    data.height = RT_MIRROR_SIZE;
-    data.data = new unsigned char[RT_MIRROR_SIZE * RT_MIRROR_SIZE * 4];
-    memset(data.data, 0x40, RT_MIRROR_SIZE * RT_MIRROR_SIZE * 4);
+    data.width = rm.size;
+    data.height = rm.size;
+    data.data = new unsigned char[rm.size * rm.size * 4];
+    memset(data.data, 0x40, rm.size * rm.size * 4);
     data.bpp = bpp32;
     data.gsComponents = TEXTURE_COMPONENTS_RGB;
     data.clut = nullptr;
     rm.texture = new Texture(&data);
-    // Clamp: the default Repeat bilinear-wraps row 63 into row 0 at the
-    // glass edges - a visible seam line across the top of the mirror.
+    // Clamp: the default Repeat bilinear-wraps the last row into row 0 at
+    // the glass edges - a visible seam line across the top of the mirror.
     rm.texture->setWrapSettings(TextureWrap::Clamp, TextureWrap::Clamp);
     rtMirrors.push_back(rm);
     vu0Rt.init();  // upload the microprogram once, on first use
@@ -8069,8 +8073,9 @@ void TerrainGame::buildRtMirrors() {
 
 // Raytraced mirror (experimental PoC): true per-pixel ray tracing on a VU0
 // MICROPROGRAM. Every listed target reflects as a bounding-sphere proxy
-// (color = the object's tint), over a checkerboard ground plane at the
-// terrain height under the glass and the scene's sky gradient. The EE
+// (color = the object's tint) against the scene's sky gradient - authors
+// place real floor/wall objects in the target list instead of a synthetic
+// ground (the engine kernel's optional checker plane stays off). The EE
 // mirrors the camera across the glass plane (the point-wise Householder of
 // the matrix renderMirrors builds), the VU0 kernel traces
 // normalize(P - mirroredEye) per texel, and the traced image re-uploads
@@ -8133,13 +8138,10 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   vu0Rt.setSky(Color(SKY_TOP_R, SKY_TOP_G, SKY_TOP_B),
                Color(skyHorizonR, skyHorizonG, skyHorizonB));
   vu0Rt.setLight(Vec4(0.302F, 0.905F, 0.302F, 0.0F));
-  vu0Rt.setFloor(true, terrainHeightAt(px, pz), 2.0F, 60.0F,
-                 Color(175.0F, 175.0F, 175.0F, 128.0F),
-                 Color(55.0F, 55.0F, 55.0F, 128.0F));
 
   // Texel->world mapping matches the quad's STs exactly (see addDecal):
   // s = 0.5 - xLocal, t = yLocal + 0.5, texel centers at (i + 0.5)/N.
-  const int N = RT_MIRROR_SIZE;
+  const int N = rm->size;
   const float sx = m.data.scale[0], sy = m.data.scale[1];
   const float u0 = (0.5F - 0.5F / N) * sx, v0 = (0.5F / N - 0.5F) * sy;
   const Vec4 origin(px + ax.x * u0 + ay.x * v0, py + ax.y * u0 + ay.y * v0,
@@ -12451,7 +12453,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                       << oi << ", " << floatLit(o.mirrorOpacity) << ", "
                       << (o.mirrorReflectPlayer ? 1 : 0) << ", " << first << ", "
                       << (targetCount - first) << ", "
-                      << (o.mirrorRaytraced ? 1 : 0) << "},  // " << o.name;
+                      << (o.mirrorRaytraced ? 1 : 0) << ", " << o.mirrorRtSize
+                      << "},  // " << o.name;
                 ++mirrorCount;
             }
         }
@@ -12466,17 +12469,16 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int firstTarget;    // first entry in MIRROR_TARGETS\n"
                "  int targetCount;\n"
                "  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)\n"
+               "  int rtSize;         // traced image edge, texels (32/64/128)\n"
                "};\n"
             << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
             << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)
             << "] = {\n"
-            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0, 0}")
+            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0, 0, 64}")
             << "\n};\n"
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
-            << (targetCount ? targets.str() : "-1") << "};\n"
-            << "// Raytraced mirrors (VU0 PoC): reflection image edge, texels\n"
-            << "constexpr int RT_MIRROR_SIZE = 64;\n\n";
+            << (targetCount ? targets.str() : "-1") << "};\n\n";
     }
 
     // Portal objects (type 16): same flat side-table pattern as MIRRORS.

@@ -139,8 +139,8 @@ void Vu0Raytracer::kickRowAndWait() {
 
 void Vu0Raytracer::trace(const Vec4& origin, const Vec4& du, const Vec4& dv,
                          u32* out, int size) {
-  TYRA_ASSERT(size > 0 && size <= MaxRowTexels,
-              "Vu0Raytracer::trace size must be 1..64");
+  TYRA_ASSERT(size > 0 && size <= MaxSize,
+              "Vu0Raytracer::trace size must be 1..128");
   init();
   vu0WaitIdle();
 
@@ -152,7 +152,6 @@ void Vu0Raytracer::trace(const Vec4& origin, const Vec4& du, const Vec4& dv,
   storeQ(6, floorQ);
   storeQ(7, floorA);
   storeQ(8, floorB);
-  storeQi(9, static_cast<u32>(sphereCount), static_cast<u32>(size), 0, 0);
   const float consts2[4] = {0.30F, 0.70F, 0.5F, 1e38F};
   const float consts[4] = {0.01F, 0.0F /* spare */, 255.0F, 1024.0F};
   storeQ(10, consts2);
@@ -167,24 +166,31 @@ void Vu0Raytracer::trace(const Vec4& origin, const Vec4& du, const Vec4& dv,
 
   float rowBase[4] = {0.0F, 0.0F, 0.0F, 0.0F};
   for (int row = 0; row < size; row++) {
-    // The kernel restarts at instruction 0 every vcallms and re-reads all
-    // of data memory, so only the row origin changes between kicks.
-    rowBase[0] = origin.x + dv.x * row;
-    rowBase[1] = origin.y + dv.y * row;
-    rowBase[2] = origin.z + dv.z * row;
-    storeQ(1, rowBase);
+    // Rows wider than one batch (size > 64) trace in 64-texel chunks -
+    // same kernel, the chunk just starts further along the row. The kernel
+    // restarts at instruction 0 every vcallms and re-reads all of data
+    // memory, so only the start point and texel count change between kicks.
+    for (int cx = 0; cx < size; cx += MaxRowTexels) {
+      const int texels = size - cx > MaxRowTexels ? MaxRowTexels : size - cx;
+      rowBase[0] = origin.x + dv.x * row + du.x * cx;
+      rowBase[1] = origin.y + dv.y * row + du.y * cx;
+      rowBase[2] = origin.z + dv.z * row + du.z * cx;
+      storeQ(1, rowBase);
+      storeQi(9, static_cast<u32>(sphereCount), static_cast<u32>(texels), 0,
+              0);
 
-    kickRowAndWait();
+      kickRowAndWait();
 
-    // Pack the row: kernel wrote ftoi0 ints (already clamped 0..255) as
-    // x=r y=g z=b per output qword.
-    u32* dst = out + row * size;
-    for (int i = 0; i < size; i++) {
-      const u64 rg = kVu0Data64[(kOutBase + i) * 2];
-      const u64 bw = kVu0Data64[(kOutBase + i) * 2 + 1];
-      dst[i] = static_cast<u32>(rg & 0xFF) |
-               (static_cast<u32>(rg >> 32 & 0xFF) << 8) |
-               (static_cast<u32>(bw & 0xFF) << 16) | 0x80000000U;
+      // Pack the chunk: kernel wrote ftoi0 ints (already clamped 0..255)
+      // as x=r y=g z=b per output qword.
+      u32* dst = out + row * size + cx;
+      for (int i = 0; i < texels; i++) {
+        const u64 rg = kVu0Data64[(kOutBase + i) * 2];
+        const u64 bw = kVu0Data64[(kOutBase + i) * 2 + 1];
+        dst[i] = static_cast<u32>(rg & 0xFF) |
+                 (static_cast<u32>(rg >> 32 & 0xFF) << 8) |
+                 (static_cast<u32>(bw & 0xFF) << 16) | 0x80000000U;
+      }
     }
   }
 }

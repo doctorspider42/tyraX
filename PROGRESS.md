@@ -14,16 +14,23 @@ Each finished feature lands as its own commit.
   PoC).** A Mirror object gained *Properties > Mirror > Raytraced (VU0,
   experimental)*: instead of re-submitting reflected geometry, the game
   ray-traces the reflection per pixel, per frame, on VU0 — the first (and
-  only) VU0 MICROMODE program in the codebase. Engine: `Tyra::Vu0Raytracer`
+  only) VU0 MICROMODE program in the codebase. Traced scene = sphere
+  proxies of the target list (+ player) against the sky gradient; per-user
+  feedback the generated game draws NO synthetic ground (the kernel's
+  optional checker plane exists but stays off — authors place real floor
+  geometry), and the traced image edge is a per-mirror **Reflection
+  resolution** option, 32/64/128 (`mirrorRtSize`/`MirrorData::rtSize`
+  through the whole chain; 128 traces each row in two 64-texel VU0 batches
+  — `Vu0Raytracer::trace` chunks rows — at ~4x the 64 cost).
+  Engine: `Tyra::Vu0Raytracer`
   (`vendor/tyra/engine/{inc,src}/renderer/rt/`, exported by `<tyra>`) +
   `vu0_rt_kernel.vclpp`, built through the same vclpp/vcl/dvp-as pipeline as
   the VU1 programs but uploaded by the EE to VU0 micro memory (0x11000000)
   and kicked per image row with `vcallms 0`, params/results through VU0 data
   memory (0x11004000), sync by polling VPU STAT. The traced scene is a
   stylized proxy: target objects as spheres (live position, tint color,
-  single-bounce lambert), a checkerboard ground plane at the terrain height
-  under the glass, sky-gradient misses — traced into a 64x64 RGBA32 texture
-  (`RT_MIRROR_SIZE`) the glass quad samples, re-uploaded over PATH3 into its
+  single-bounce lambert), sky-gradient misses — traced into an rtSize^2
+  RGBA32 texture the glass quad samples, re-uploaded over PATH3 into its
   existing GS allocation each frame (`updateTextureInfo`; re-allocates
   automatically after an eviction flush). Two key tricks: the EE mirrors the
   CAMERA across the glass plane once (Householder on the point), so every
@@ -31,11 +38,11 @@ Each finished feature lands as its own commit.
   reflection math; and nearest-hit selection is fully BRANCHLESS — VU floats
   saturate instead of producing inf/nan, so clamp(x*1e38, 0, 1) is an exact
   step(0, x) and masks fold the winner (the only branches are the two loop
-  back-edges). Editor chain: `SceneObject::mirrorRaytraced` (+==, JSON
-  `"mirror": {"raytraced"}`, Mirror properties checkbox, live-link recipe
-  hash), `MirrorData::raytraced` column, game runtime `buildRtMirrors` /
-  `renderRtMirror` (textures created at scene load, GS-freed + deleted on
-  scene switch). Docs: docs/raytraced-reflections.md + README bullet +
+  back-edges). Editor chain: `SceneObject::mirrorRaytraced` + `mirrorRtSize`
+  (+==, JSON `"mirror": {"raytraced", "rtSize"}`, Mirror properties checkbox
+  + resolution combo, live-link recipe hash), `MirrorData::raytraced`/
+  `rtSize` columns, game runtime `buildRtMirrors` / `renderRtMirror`
+  (textures created at scene load, GS-freed + deleted on scene switch). Docs: docs/raytraced-reflections.md + README bullet +
   engine-skill notes (incl. two new VCL traps paid for here: `r`/`q`/`i`/`p`
   are reserved register names, and broadcast fields are only legal on the
   second source operand). Verified: full Docker build clean (kernel = 1152
@@ -45,11 +52,13 @@ Each finished feature lands as its own commit.
   raytraced + reflectPlayer, three colored spheres): boot log prints "VU0
   ray tracing kernel uploaded (1152 bytes)", no asserts, and F8 screenshots
   show the traced image on the glass - round correctly-lit sphere
-  reflections on the physically correct sides, the player proxy, the
-  checker plane and the sky fade. A/B on the same scene: classic mirror
-  EE 38% / VU 4% / GS 9% vs raytraced EE 36-37% / VU 2% / GS 7%, BOTH
-  locked at 50 FPS - the RT mirror trades the copy re-submission for VU0
-  trace time and comes out cost-neutral in this small scene. Walk-around
+  reflections on the physically correct sides, the player proxy, sky fade
+  (the checker plane was verified too, before the no-ground follow-up
+  removed it from the generated game). A/B on the same scene: classic
+  mirror EE 38% / VU 4% / GS 9% vs raytraced EE 36-37% / VU 2% / GS 7%,
+  BOTH locked at 50 FPS - the RT mirror trades the copy re-submission for
+  VU0 trace time and comes out cost-neutral in this small scene; the same
+  scene at rtSize 128 (chunked rows) still renders correctly. Walk-around
   feel (reflection tracking the camera) remains a hands-on pad test. Third
   kernel iteration fixed a subtle one: mix-with-sentinel-BIG selection
   cancels catastrophically in single floats (t - 1e10 + 1e10 == 0), which

@@ -332,6 +332,7 @@ struct SceneObject {
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
     bool mirrorRaytraced = false;
+    int mirrorRtSize = 64;  // traced image edge: 32/64/128 (128 = ~4x cost)
 
     // Portal parameters (used when type == Portal). portalTarget names the
     // destination Portal in the same scene (renames remap; empty or dangling =
@@ -452,6 +453,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
            a.mirrorRaytraced == b.mirrorRaytraced &&
+           a.mirrorRtSize == b.mirrorRtSize &&
            a.portalTarget == b.portalTarget &&
            a.portalObjects == b.portalObjects &&
            a.portalShowTerrain == b.portalShowTerrain &&
