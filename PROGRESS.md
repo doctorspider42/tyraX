@@ -10,6 +10,30 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (154) **Per-object sleep delay: "Sleep after (s)" on the Physics block
+  (default 3 s, was a hard ~0.5 s).** User ask: relax the sleep timing and
+  give it a per-object override. New `SceneObject::physSleep` runs the whole
+  chain - project.hpp field + operator== -> objectJson/parse (emitted only
+  while `physics` is on, like the rest of the material block; clamped
+  0.1-60 s on load) -> Live Link recipe hash (baked table data, a stale
+  value must not force a rebuild on non-physics objects - it sits in the
+  same `if (o.physics)` group) -> Properties drag (Physics section, with a
+  hint line) -> `SceneObjectData::physSleep` column in scene_data.hpp ->
+  runtime. The game-side counter changed shape: the fixed
+  `PHYS_SLEEP_FRAMES = 24` constant is gone; the countdown length is
+  `everyFrames(physSleep)` (wall-clock true under disableVsync, same as
+  every other timer since (114)), `restFrames` widened signed char -> short
+  (3 s at 50 fps = 150 > 127), and on completion the counter pins to a
+  `PHYS_ASLEEP = 0x7FFF` sentinel - the asleep test (`physAsleep(o)`, new
+  helper used by pass 1/pass 2/portal-latch/carry sites) never re-derives
+  the threshold, so a measured-dt wobble can't flap a sleeping body awake.
+  "Write restFrames = 0 to wake" stays the contract for scripts/nodes.
+  Verified (probe repro, PCSX2): three bodies with physSleep 5 / 3 (the
+  default, materialized by --resave round-trip) / 0.5 settle from the same
+  throw and pin to 32767 at rest counts 250 / 150 / 25 frames - exactly
+  5 s / 3 s / 0.5 s at PAL 50; scene_data.hpp carries the column; editor +
+  Docker PS2 builds clean.
+
 - (153) **Settle-flatten v2 (finish the fall) + mesh collision holds for
   tumbled/rotated models (world-space steepness, side-aware push).** Two
   follow-ups. (a) The (152) flatten waited for the tumble to die to the

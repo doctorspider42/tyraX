@@ -293,7 +293,8 @@ std::string objectJson(const SceneObject& o) {
         (o.physics ? ", \"physMass\": " + fmtFloat(o.physMass) +
                          ", \"physBounce\": " + fmtFloat(o.physBounce) +
                          ", \"physFriction\": " + fmtFloat(o.physFriction) +
-                         ", \"physTumble\": " + (o.physTumble ? "true" : "false")
+                         ", \"physTumble\": " + (o.physTumble ? "true" : "false") +
+                         ", \"physSleep\": " + fmtFloat(o.physSleep)
                    : "") +
         (o.usable ? ", \"usable\": true" : "") +
         (o.pickable ? ", \"pickable\": true" : "") +
@@ -1918,6 +1919,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (o.physFriction > 1.0f) o.physFriction = 1.0f;
         if (const auto* v = jo.find("physTumble"))
             o.physTumble = !(v->type == json::Value::Type::Bool && !v->boolean);
+        if (const auto* v = jo.find("physSleep"))
+            o.physSleep = (float)v->numberOr(3.0);
+        if (o.physSleep < 0.1f) o.physSleep = 0.1f;
+        if (o.physSleep > 60.0f) o.physSleep = 60.0f;
         if (const auto* v = jo.find("usable"))
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("pickable")) o.pickable = v->boolOr(false);
@@ -3360,6 +3365,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMixF(h, o.physMass), fnvMixF(h, o.physBounce);
         fnvMixF(h, o.physFriction);
         fnvMix(h, o.physTumble ? 1 : 0);
+        fnvMixF(h, o.physSleep);
     }
     fnvMixS(h, o.modelPath);
     fnvMixS(h, o.materialPath);

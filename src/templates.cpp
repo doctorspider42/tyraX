@@ -5518,7 +5518,7 @@ void TerrainGame::updateCarriedObject() {
 
 // Hands a released object back to whatever moves it. A rigid body (Physics
 // on) simply takes the velocity and WAKES: the sim sleeps settled bodies
-// (restFrames >= PHYS_SLEEP_FRAMES) and skips them entirely, and an object
+// (physAsleep, per-object physSleep countdown) and skips them entirely, and an object
 // picked up off the ground is asleep by definition - without this it would
 // hang in mid-air where it was dropped, and a throw would ignore bounce,
 // friction and tumble. Returns false for a non-physics object, which has no
@@ -7181,7 +7181,7 @@ void TerrainGame::updateObjectPhysics() {
     // Carried/thrown objects are driven by updateCarriedObject this frame.
     if (i == carryIndex || i == thrownIndex) continue;
     if (!o.active || !o.data.physics) continue;
-    if (o.restFrames >= PHYS_SLEEP_FRAMES) continue;  // asleep
+    if (physAsleep(o)) continue;  // asleep
 
     const GameModel* gm = nullptr;
     const SkelModel* anim = nullptr;
@@ -7348,8 +7348,7 @@ void TerrainGame::updateObjectPhysics() {
       if (j == i) continue;
       RuntimeObject& s = runtimeObjects[j];
       if (!s.active || !physObstacle(s.data)) continue;
-      const bool sSleeping =
-          s.data.physics && s.restFrames >= PHYS_SLEEP_FRAMES;
+      const bool sSleeping = s.data.physics && physAsleep(s);
       if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
       // A meaningful hit treats a sleeping body as a body, not a wall: this
       // static resolution would separate the pair, and the impulse pass -
@@ -7534,8 +7533,14 @@ void TerrainGame::updateObjectPhysics() {
 
     if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN &&
         !flattening) {
-      if (o.restFrames < PHYS_SLEEP_FRAMES) ++o.restFrames;
-      if (o.restFrames >= PHYS_SLEEP_FRAMES) {
+      // Countdown length is per-object (Properties > Physics > Sleep after,
+      // seconds); everyFrames tracks the measured frame time so the wait is
+      // wall-clock true with vsync off too. On completion the counter pins
+      // to PHYS_ASLEEP - the asleep test never re-derives the threshold.
+      const int sleepAt = everyFrames(o.data.physSleep);
+      if (o.restFrames < sleepAt) ++o.restFrames;
+      if (o.restFrames >= sleepAt) {
+        o.restFrames = PHYS_ASLEEP;
         vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
         o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
         // Fast-path bodies stay on objMat while asleep - NO settle rebuild.
@@ -7595,9 +7600,7 @@ void TerrainGame::updateObjectPhysics() {
       RuntimeObject& b = runtimeObjects[j];
       if (j == carryIndex || j == thrownIndex) continue;
       if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;
-      if (a.restFrames >= PHYS_SLEEP_FRAMES &&
-          b.restFrames >= PHYS_SLEEP_FRAMES)
-        continue;
+      if (physAsleep(a) && physAsleep(b)) continue;
 
       float aOff[3], aExt[3], bOff[3], bExt[3];
       const GameModel* gm = nullptr;
@@ -8869,7 +8872,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   // A released body stays portal-free only until it settles to sleep.
   if (thrownFreeIndex >= 0 &&
       (thrownFreeIndex >= (int)runtimeObjects.size() ||
-       runtimeObjects[thrownFreeIndex].restFrames >= PHYS_SLEEP_FRAMES))
+       physAsleep(runtimeObjects[thrownFreeIndex])))
     thrownFreeIndex = -1;
   bool playerTeleported = false;
   const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
@@ -11234,9 +11237,11 @@ static const char* TPL_SCRIPT_HPP =
 
 namespace {{NAME_UPPER_NS}} {
 
-/** Frames of near-rest ground contact after which a physics body falls
- * asleep (a sleeping body costs one branch per frame until woken). */
-constexpr int PHYS_SLEEP_FRAMES = 24;
+/** restFrames value of a body that fell asleep. The countdown length is
+ * per-object (SceneObjectData::physSleep seconds, Properties > Physics >
+ * "Sleep after"); on completion the counter is pinned here so the asleep
+ * test never wobbles with the measured frame time. */
+constexpr short PHYS_ASLEEP = 0x7FFF;
 
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
  * `visible` or the velocity fields, then set `dirty = true` so the geometry
@@ -11246,8 +11251,8 @@ struct RuntimeObject {
   bool visible = true;
   // Object physics state (data.physics). Velocities are per-frame
   // displacements (like the player's), spin is degrees/frame. After writing
-  // them from a script set restFrames = 0 too - a body with restFrames >=
-  // PHYS_SLEEP_FRAMES is asleep and skips simulation entirely.
+  // them from a script set restFrames = 0 too - a body at PHYS_ASLEEP is
+  // asleep and skips simulation entirely.
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
   float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
@@ -11255,7 +11260,7 @@ struct RuntimeObject {
   // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
   // stays" when the roll lands on an even 90deg step.
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
-  signed char restFrames = 0;          // sleep counter; write 0 to wake
+  short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
@@ -11277,6 +11282,10 @@ struct RuntimeObject {
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
 };
+
+inline bool physAsleep(const RuntimeObject& o) {
+  return o.restFrames >= PHYS_ASLEEP;
+}
 
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
@@ -12143,6 +12152,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float physBounce;   // restitution 0..1: 0 = thud, 1 = superball\n"
            "  float physFriction; // ground drag 0..1: 0 = ice, 1 = sticky\n"
            "  int physTumble;     // 1 = ground contact converts slide into roll\n"
+           "  float physSleep;    // seconds of near-rest before the body sleeps\n"
            "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
            "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
@@ -12240,7 +12250,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
                     << floatLit(o.physMass) << ", " << floatLit(o.physBounce)
                     << ", " << floatLit(o.physFriction) << ", "
-                    << (o.physTumble ? 1 : 0) << ", "
+                    << (o.physTumble ? 1 : 0) << ", " << floatLit(o.physSleep)
+                    << ", "
                     << modelIndexOf(p, o) << ", " << materialIndexOf(p, o)
                     << ", "
                     // save points are always usable - USE is how they open
