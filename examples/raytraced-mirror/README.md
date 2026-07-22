@@ -35,9 +35,14 @@ against the glass and its traced reflection below it.
 - **`crate`** — a textured `.obj` model (`res/models/crate.obj`), also
   listed: static models trace as REAL TRIANGLE MESHES with their texture —
   the kernel returns barycentric hits and the EE samples `crate.png` per
-  texel. The crate is 12 triangles, under the 36-triangle proxy budget, so
-  its reflection is the exact mesh — rotated 25° like the object itself
+  texel. The crate is 12 triangles, under the proxy budget, so its
+  reflection is the exact mesh — rotated 25° like the object itself
   (triangle proxies honor rotation; slabs and spheres don't).
+- **`wobbler`** — an ANIMATED `.glb` (the Twist clip, autoplaying), also
+  listed: skeletal models reflect as a coarse 18-triangle medoid mesh
+  whose corners read the LIVE skinned vertices every frame — watch the
+  glass, the reflection twists along with the model. Untextured, so it
+  shades with its material color under the tracer's lambert.
 - **`floor`** — a thin box slab, listed too: flat objects (boxes, planes,
   decals) trace as **axis-aligned slab proxies**, so the floor reflects as
   an actual floor under the balls. (A flat object as a bounding *sphere*

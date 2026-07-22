@@ -75,7 +75,7 @@ struct SceneObjectData {
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[10] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[11] = {
     {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
     {15, {0.0F, 2.6F, 9.0F}, {0.0F, 180.0F, 0.0F}, {10.0F, 5.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // mirror
     {1, {-3.4F, 1.1F, 4.2F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {0.9F, 0.2F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // ball-red
@@ -86,12 +86,13 @@ constexpr SceneObjectData SCENE_0_OBJECTS[10] = {
     {2, {-5.6F, 2.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 5.0F, 1.0F}, {0.75F, 0.72F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 1},  // pillar-left
     {2, {5.6F, 2.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 5.0F, 1.0F}, {0.75F, 0.72F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 1},  // pillar-right
     {5, {1.6F, 0.85F, 4.4F}, {0.0F, 25.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 0, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // crate
+    {5, {-2.6F, 0.55F, 5.4F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.8F, 0.8F}, {0.9F, 0.95F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, 0, "Twist", 1, 1, 0.8F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // wobbler
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {10};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {11};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[10] = {0x63e783e6e9455fabULL, 0x6d4c7a4f3a7ed8edULL, 0x6d567a4f3a872d72ULL, 0x6d527a4f3a83449bULL, 0x6d5c7a4f3a8b9920ULL, 0x6d587a4f3a87b049ULL, 0x6d647a4f3a936aceULL, 0x6d607a4f3a8f81f7ULL, 0x6d6a7a4f3a97d67cULL, 0x6d667a4f3a93eda5ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[11] = {0x63e783e6e9455fabULL, 0x6d4c7a4f3a7ed8edULL, 0x6d567a4f3a872d72ULL, 0x6d527a4f3a83449bULL, 0x6d5c7a4f3a8b9920ULL, 0x6d587a4f3a87b049ULL, 0x6d647a4f3a936aceULL, 0x6d607a4f3a8f81f7ULL, 0x6d6a7a4f3a97d67cULL, 0x6d667a4f3a93eda5ULL, 0x6ca87a4f39f2c49dULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -116,9 +117,9 @@ struct MirrorData {
 };
 constexpr int MIRROR_COUNT = 1;
 constexpr MirrorData MIRRORS[1] = {
-    {0, 1, 0.35F, 1, 0, 6, 1, 128},  // mirror
+    {0, 1, 0.35F, 1, 0, 7, 1, 128},  // mirror
 };
-constexpr int MIRROR_TARGETS[6] = {9, 2, 3, 4, 5, 6};
+constexpr int MIRROR_TARGETS[7] = {9, 10, 2, 3, 4, 5, 6};
 
 // Raytraced-mirror model proxies: decimated triangle lists
 // in MODEL LOCAL space, 15 floats per triangle (pos + uv
@@ -168,6 +169,29 @@ constexpr float RT_PROXY_VERTS[180] = {
   , 0.0F, 1.0F, 0.5F, -0.5F, 0.5F, 1.0F
   , 0.0F, -0.5F, -0.5F, 0.5F, 0.0F, 0.0F
   
+};
+// Animated-model proxies: fixed VERTEX indices (3 per
+// triangle, a connected medoid-decimated coarse mesh) into
+// the part's skinned buffers - the game reads the LIVE
+// skinned vertices (and their resident STs) at these
+// indices every frame, so the reflection plays the clip
+// (renderRtMirror).
+struct RtAnimProxyData {
+  int scene;      // scene index
+  int mirror;     // the mirror's index in its scene table
+  int target;     // the animated model object's index
+  int part;       // animParts index (texture + skinned mesh)
+  int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)
+  int triCount;
+};
+constexpr int RT_ANIM_PROXY_COUNT = 1;
+constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
+    {0, 1, 10, 0, 0, 12},  // wobbler
+};
+constexpr int RT_ANIM_PROXY_TRIS[36] = {
+  107, 293, 71, 71, 293, 245, 71, 245, 143, 143, 245, 377, 155, 401, 107, 107
+  , 401, 293, 143, 377, 155, 155, 377, 401, 293, 401, 245, 245, 401, 377, 71, 155
+  , 143, 71, 107, 155
 };
 
 // Portals (type 16): each entry links a surface to its target
@@ -302,7 +326,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 10;
+constexpr int SAVE_OBJECT_MAX = 11;
 
 }  // namespace Raytraced_mirror
 

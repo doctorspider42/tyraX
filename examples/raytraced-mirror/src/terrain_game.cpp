@@ -6352,10 +6352,13 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
   Vu0RtBox slabs[Vu0Raytracer::MaxBoxes];
   int sc = 0, bc = 0;
-  // Model targets with a baked proxy mesh trace as REAL TRIANGLES (up to
-  // two groups; docs/raytraced-reflections.md) - collected here, fed to
-  // the tracer after the loop (group 0 must be set before group 1).
+  // Model targets with a baked proxy trace as REAL TRIANGLES (up to two
+  // groups; docs/raytraced-reflections.md) - collected here, fed to the
+  // tracer after the loop (group 0 must be set before group 1). Static
+  // models use baked local-space geometry; ANIMATED models use baked
+  // triangle indices into the live skinned mesh (proxyAnim).
   int proxySel[2] = {-1, -1}, proxyObj[2] = {-1, -1};
+  bool proxyAnim[2] = {false, false};
   int gc = 0;
   for (int t = 0; t < mir.targetCount; ++t) {
     const int index = MIRROR_TARGETS[mir.firstTarget + t];
@@ -6376,8 +6379,23 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
       if (prox >= 0) {
         proxySel[gc] = prox;
         proxyObj[gc] = index;
+        proxyAnim[gc] = false;
         ++gc;
         continue;  // traced as triangles, not a sphere
+      }
+      for (int pi2 = 0; pi2 < RT_ANIM_PROXY_COUNT; ++pi2)
+        if (RT_ANIM_PROXIES[pi2].scene == currentScene &&
+            RT_ANIM_PROXIES[pi2].mirror == mir.object &&
+            RT_ANIM_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        proxyAnim[gc] = true;
+        ++gc;
+        continue;  // traced as live skinned triangles
       }
     }
     if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12 ||
@@ -6429,9 +6447,60 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
                          Color(160.0F, 160.0F, 160.0F, 128.0F));
       continue;
     }
+    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
+    if (proxyAnim[g]) {
+      // Animated model: read the LIVE skinned vertices at the baked
+      // triangle indices. Skinning ran earlier this frame
+      // (updateAndRenderAnimObjects - renderMirrors comes after), so the
+      // reflection plays the current pose; an off-screen model that
+      // skipped skinning reflects its held pose, exactly like the classic
+      // mirror's re-submitted copies. Vertices are model-space - animMat
+      // (the same matrix the model renders with) lifts them to world.
+      const RtAnimProxyData& pr = RT_ANIM_PROXIES[proxySel[g]];
+      ObjectGeometry& ag = objectGeometry[proxyObj[g]];
+      if (pr.part >= (int)ag.animParts.size() || !ag.animParts[pr.part].bag ||
+          !ag.animParts[pr.part].bag->vertices) {
+        vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                           Color(160.0F, 160.0F, 160.0F, 128.0F));
+        continue;
+      }
+      ObjectGeometry::AnimPart& ap = ag.animParts[pr.part];
+      const Vec4* verts = ap.bag->vertices;
+      const Vec4* sts = ap.texBag ? ap.texBag->coordinates : nullptr;
+      int n = 0;
+      for (int i = 0; i < pr.triCount && n < Vu0Raytracer::MaxTriangles;
+           ++i) {
+        const int* vi3 = &RT_ANIM_PROXY_TRIS[pr.firstIdx + i * 3];
+        if ((u32)vi3[0] >= ap.bag->count || (u32)vi3[1] >= ap.bag->count ||
+            (u32)vi3[2] >= ap.bag->count)
+          continue;
+        Vu0RtTriangle& tb = tbuf[n++];
+        tb.a = ag.animMat * verts[vi3[0]];
+        tb.b = ag.animMat * verts[vi3[1]];
+        tb.c = ag.animMat * verts[vi3[2]];
+        if (sts) {
+          tb.ua = sts[vi3[0]].x, tb.va = sts[vi3[0]].y;
+          tb.ub = sts[vi3[1]].x, tb.vb = sts[vi3[1]].y;
+          tb.uc = sts[vi3[2]].x, tb.vc = sts[vi3[2]].y;
+        }
+      }
+      // Untextured parts fall back to the material's base color; the
+      // kernel's lambert supplies the lighting.
+      Color akd(170.0F, 170.0F, 170.0F, 128.0F);
+      const int am = runtimeObjects[proxyObj[g]].data.animModel;
+      if (am >= 0 && am < (int)gameAnimModels.size() &&
+          gameAnimModels[am].src &&
+          pr.part < (int)gameAnimModels[am].src->parts.size()) {
+        const float* bc = gameAnimModels[am].src->parts[pr.part].color;
+        auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+        akd = Color(c255(bc[0]), c255(bc[1]), c255(bc[2]), 128.0F);
+      }
+      vu0Rt.setTriangles(g, tbuf, n,
+                         ap.texBag ? ap.texBag->texture : nullptr, akd);
+      continue;
+    }
     const RtProxyData& pr = RT_PROXIES[proxySel[g]];
     RuntimeObject& mo = runtimeObjects[proxyObj[g]];
-    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
     const int n = pr.triCount;
     for (int i = 0; i < n; ++i) {
       const float* f = &RT_PROXY_VERTS[pr.firstFloat + i * 15];

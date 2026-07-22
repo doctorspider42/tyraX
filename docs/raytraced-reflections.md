@@ -44,7 +44,19 @@ The traced scene is a stylized stand-in for the real one:
   RAM** (nearest-neighbor; 32/24bpp linear, 8bpp with the CSM1 CLUT
   rotation undone, 4bpp nibble-swapped — every format the PNG loader
   produces) and modulates it by the shade while packing the row. VU0
-  traces, the EE textures. Animated models keep their sphere proxy.
+  traces, the EE textures.
+- **Animated models, LIVE** — a skeletal model (.glb/.fbx) in the list
+  reflects as a coarse mesh that **plays its animation clip in the
+  glass**: at build time a fixed set of VERTEX indices is chosen from the
+  rest pose (medoid clustering — each grid cell is represented by the
+  real source vertex nearest its centroid, so the collapsed triangles
+  share corners and read as one connected body, not confetti), and every
+  frame the game reads the LIVE skinned vertices at those indices — the
+  same buffers the model renders from, skinned earlier in the frame — and
+  lifts them by the model's own `animMat`. Textured parts sample like the
+  static meshes; untextured ones use the material's base color under the
+  kernel lambert. An off-screen model that skipped skinning reflects its
+  held pose, exactly like the classic mirror's re-submitted copies.
 - **Sky gradient** — misses shade from the scene's horizon→zenith colors
   (`SKY_*` / `SKY_TOP_*`), so the reflection matches the real sky dome.
 

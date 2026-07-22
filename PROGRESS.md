@@ -52,7 +52,15 @@ Each finished feature lands as its own commit.
   (record, barycentric u/v, shade); the EE samples the model part's
   texture in RAM while packing (nearest; 32/24bpp linear, 8bpp with the
   CSM1 CLUT rotation undone, 4bpp nibble-swapped — every PNG-loader
-  format) and modulates by the shade. UVs never enter VU0. All proxies
+  format) and modulates by the shade. UVs never enter VU0. ANIMATED
+  models (.glb/.fbx) reflect LIVE: codegen picks a connected coarse mesh
+  of VERTEX indices from the rest pose (medoid clustering - each grid
+  cell represented by the real vertex nearest its centroid, after a
+  first triangle-sampling attempt rendered as disconnected confetti) and
+  the game reads the live skinned vertices at those indices each frame
+  (the same buffers the model renders from; renderMirrors runs after
+  skinning) lifted by animMat - the reflection plays the clip; untextured
+  parts fall back to the material base color. All proxies
   carry live position + tint + single-bounce lambert, sky-gradient
   misses — traced into an rtSize^2
   RGBA32 texture the glass quad samples, re-uploaded over PATH3 into its
@@ -91,8 +99,11 @@ Each finished feature lands as its own commit.
   slab reflecting as a floor under them (an earlier floor made of the
   Plane primitive z-fought its own two coplanar faces at this scale -
   patchy dark wedges; the thin box has no coplanar pair and rendered
-  clean), and the textured crate model (12 tris, exact pass-through)
-  reflecting as a real wood-and-rivets crate at its live 25-degree yaw.
+  clean), the textured crate model (12 tris, exact pass-through)
+  reflecting as a real wood-and-rivets crate at its live 25-degree yaw,
+  and the animated wobbler's coarse green mesh visibly CHANGING POSE
+  between two F8 screenshots taken 4 s apart while correctly occluding
+  the ball reflection behind it - the glass plays the Twist clip.
   The triangle kernel cost THREE VCL failures, all recorded in the engine
   skill: "ERROR: no opt table .. for <loop>" is the REGISTER ALLOCATOR
   running out (31 VF ceiling), not syntax - fixed by reloading

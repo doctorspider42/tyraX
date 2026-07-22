@@ -8118,10 +8118,13 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
   Vu0RtBox slabs[Vu0Raytracer::MaxBoxes];
   int sc = 0, bc = 0;
-  // Model targets with a baked proxy mesh trace as REAL TRIANGLES (up to
-  // two groups; docs/raytraced-reflections.md) - collected here, fed to
-  // the tracer after the loop (group 0 must be set before group 1).
+  // Model targets with a baked proxy trace as REAL TRIANGLES (up to two
+  // groups; docs/raytraced-reflections.md) - collected here, fed to the
+  // tracer after the loop (group 0 must be set before group 1). Static
+  // models use baked local-space geometry; ANIMATED models use baked
+  // triangle indices into the live skinned mesh (proxyAnim).
   int proxySel[2] = {-1, -1}, proxyObj[2] = {-1, -1};
+  bool proxyAnim[2] = {false, false};
   int gc = 0;
   for (int t = 0; t < mir.targetCount; ++t) {
     const int index = MIRROR_TARGETS[mir.firstTarget + t];
@@ -8142,8 +8145,23 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
       if (prox >= 0) {
         proxySel[gc] = prox;
         proxyObj[gc] = index;
+        proxyAnim[gc] = false;
         ++gc;
         continue;  // traced as triangles, not a sphere
+      }
+      for (int pi2 = 0; pi2 < RT_ANIM_PROXY_COUNT; ++pi2)
+        if (RT_ANIM_PROXIES[pi2].scene == currentScene &&
+            RT_ANIM_PROXIES[pi2].mirror == mir.object &&
+            RT_ANIM_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        proxyAnim[gc] = true;
+        ++gc;
+        continue;  // traced as live skinned triangles
       }
     }
     if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12 ||
@@ -8195,9 +8213,60 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
                          Color(160.0F, 160.0F, 160.0F, 128.0F));
       continue;
     }
+    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
+    if (proxyAnim[g]) {
+      // Animated model: read the LIVE skinned vertices at the baked
+      // triangle indices. Skinning ran earlier this frame
+      // (updateAndRenderAnimObjects - renderMirrors comes after), so the
+      // reflection plays the current pose; an off-screen model that
+      // skipped skinning reflects its held pose, exactly like the classic
+      // mirror's re-submitted copies. Vertices are model-space - animMat
+      // (the same matrix the model renders with) lifts them to world.
+      const RtAnimProxyData& pr = RT_ANIM_PROXIES[proxySel[g]];
+      ObjectGeometry& ag = objectGeometry[proxyObj[g]];
+      if (pr.part >= (int)ag.animParts.size() || !ag.animParts[pr.part].bag ||
+          !ag.animParts[pr.part].bag->vertices) {
+        vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                           Color(160.0F, 160.0F, 160.0F, 128.0F));
+        continue;
+      }
+      ObjectGeometry::AnimPart& ap = ag.animParts[pr.part];
+      const Vec4* verts = ap.bag->vertices;
+      const Vec4* sts = ap.texBag ? ap.texBag->coordinates : nullptr;
+      int n = 0;
+      for (int i = 0; i < pr.triCount && n < Vu0Raytracer::MaxTriangles;
+           ++i) {
+        const int* vi3 = &RT_ANIM_PROXY_TRIS[pr.firstIdx + i * 3];
+        if ((u32)vi3[0] >= ap.bag->count || (u32)vi3[1] >= ap.bag->count ||
+            (u32)vi3[2] >= ap.bag->count)
+          continue;
+        Vu0RtTriangle& tb = tbuf[n++];
+        tb.a = ag.animMat * verts[vi3[0]];
+        tb.b = ag.animMat * verts[vi3[1]];
+        tb.c = ag.animMat * verts[vi3[2]];
+        if (sts) {
+          tb.ua = sts[vi3[0]].x, tb.va = sts[vi3[0]].y;
+          tb.ub = sts[vi3[1]].x, tb.vb = sts[vi3[1]].y;
+          tb.uc = sts[vi3[2]].x, tb.vc = sts[vi3[2]].y;
+        }
+      }
+      // Untextured parts fall back to the material's base color; the
+      // kernel's lambert supplies the lighting.
+      Color akd(170.0F, 170.0F, 170.0F, 128.0F);
+      const int am = runtimeObjects[proxyObj[g]].data.animModel;
+      if (am >= 0 && am < (int)gameAnimModels.size() &&
+          gameAnimModels[am].src &&
+          pr.part < (int)gameAnimModels[am].src->parts.size()) {
+        const float* bc = gameAnimModels[am].src->parts[pr.part].color;
+        auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+        akd = Color(c255(bc[0]), c255(bc[1]), c255(bc[2]), 128.0F);
+      }
+      vu0Rt.setTriangles(g, tbuf, n,
+                         ap.texBag ? ap.texBag->texture : nullptr, akd);
+      continue;
+    }
     const RtProxyData& pr = RT_PROXIES[proxySel[g]];
     RuntimeObject& mo = runtimeObjects[proxyObj[g]];
-    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
     const int n = pr.triCount;
     for (int i = 0; i < n; ++i) {
       const float* f = &RT_PROXY_VERTS[pr.firstFloat + i * 15];
@@ -12620,6 +12689,107 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         }
     };
 
+    // Raytraced-mirror ANIMATED model proxies: a fixed set of VERTEX
+    // indices forming a CONNECTED coarse mesh over the rest pose. No
+    // geometry is baked - the game reads the live skinned vertices at
+    // these indices every frame, so the reflection plays the clip.
+    // Selection is medoid clustering: vertices cluster on a shrinking
+    // grid (like the static decimator), but each cluster is represented
+    // by its MEDOID - the real source vertex nearest the cluster centroid
+    // - so the collapsed triangles share corners and read as one rough
+    // body instead of disconnected confetti (an early triangle-sampling
+    // pass produced exactly that). Output: 3 vertex indices per triangle.
+    auto rtPickAnimMesh = [](const glbparser::Part& part, int maxTris,
+                             std::vector<int>& out) {
+        const int triCount = part.vertexCount / 3;
+        if (triCount <= 0 || maxTris <= 0) return;
+        const float* pos = part.positions.data();  // frame 0 leads
+        if (triCount <= maxTris) {
+            for (int i = 0; i < triCount * 3; ++i) out.push_back(i);
+            return;
+        }
+        const int vc = part.vertexCount;
+        float mn[3] = {pos[0], pos[1], pos[2]}, mx[3] = {pos[0], pos[1], pos[2]};
+        for (int i = 0; i < vc; ++i)
+            for (int k = 0; k < 3; ++k) {
+                mn[k] = std::min(mn[k], pos[i * 3 + k]);
+                mx[k] = std::max(mx[k], pos[i * 3 + k]);
+            }
+        for (int res = 10; res >= 1; --res) {
+            auto cellOf = [&](int vi2) {
+                int key = 0;
+                for (int k = 0; k < 3; ++k) {
+                    const float ext = mx[k] - mn[k];
+                    int idx = ext > 1e-6f
+                                  ? (int)((pos[vi2 * 3 + k] - mn[k]) / ext * res)
+                                  : 0;
+                    if (idx >= res) idx = res - 1;
+                    if (idx < 0) idx = 0;
+                    key = key * 16 + idx;  // res <= 10 < 16
+                }
+                return key;
+            };
+            // centroids, then the medoid (nearest real vertex) per cell
+            std::map<int, std::array<double, 4>> cells;
+            for (int i = 0; i < vc; ++i) {
+                auto& e = cells[cellOf(i)];
+                e[0] += pos[i * 3], e[1] += pos[i * 3 + 1];
+                e[2] += pos[i * 3 + 2], e[3] += 1.0;
+            }
+            std::map<int, std::pair<float, int>> medoid;  // cell -> d2, vert
+            for (int i = 0; i < vc; ++i) {
+                const int key = cellOf(i);
+                const auto& e = cells[key];
+                const float dx = pos[i * 3] - (float)(e[0] / e[3]);
+                const float dy = pos[i * 3 + 1] - (float)(e[1] / e[3]);
+                const float dz = pos[i * 3 + 2] - (float)(e[2] / e[3]);
+                const float d2 = dx * dx + dy * dy + dz * dz;
+                auto it = medoid.find(key);
+                if (it == medoid.end() || d2 < it->second.first)
+                    medoid[key] = {d2, i};
+            }
+            std::set<std::array<int, 3>> seen;
+            std::vector<int> cand;
+            bool over = false;
+            for (int i = 0; i < triCount; ++i) {
+                const int ca = cellOf(i * 3), cb = cellOf(i * 3 + 1),
+                          cc = cellOf(i * 3 + 2);
+                if (ca == cb || cb == cc || ca == cc) continue;
+                std::array<int, 3> key = {ca, cb, cc};
+                std::sort(key.begin(), key.end());
+                if (!seen.insert(key).second) continue;
+                if ((int)(cand.size() / 3) >= maxTris) {
+                    over = true;
+                    break;
+                }
+                cand.push_back(medoid[ca].second);
+                cand.push_back(medoid[cb].second);
+                cand.push_back(medoid[cc].second);
+            }
+            if (!over && !cand.empty()) {
+                out = cand;
+                return;
+            }
+        }
+        // last resort: the maxTris largest triangles, own corners
+        std::vector<std::pair<float, int>> byArea(triCount);
+        for (int i = 0; i < triCount; ++i) {
+            const float* a = &pos[i * 9];
+            const float* b = &pos[i * 9 + 3];
+            const float* c = &pos[i * 9 + 6];
+            const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+            const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            const float cx[3] = {e1[1] * e2[2] - e1[2] * e2[1],
+                                 e1[2] * e2[0] - e1[0] * e2[2],
+                                 e1[0] * e2[1] - e1[1] * e2[0]};
+            byArea[i] = {-(cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]), i};
+        }
+        std::sort(byArea.begin(), byArea.end());
+        for (int k = 0; k < maxTris; ++k)
+            for (int c = 0; c < 3; ++c)
+                out.push_back(byArea[k].second * 3 + c);
+    };
+
     // Mirror objects (type 15): a flat side-table keyed by (scene, object)
     // like OBJECT_SCRIPT_ATTACHES, so SceneObjectData stays a fixed POD.
     // Target names resolve to scene-table indices here; a dangling name (the
@@ -12681,15 +12851,15 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // samples on hit. Static .obj models only - animated models keep their
     // sphere proxy.
     {
-        std::ostringstream entries, floats;
-        int proxyCount = 0, floatCount = 0;
+        std::ostringstream entries, floats, aEntries, aIdx;
+        int proxyCount = 0, floatCount = 0, aProxyCount = 0, aIdxCount = 0;
         for (int si = 0; si < sceneCount; ++si) {
             const auto& objs = p.scenes[si].objects;
             for (size_t oi = 0; oi < objs.size(); ++oi) {
                 const SceneObject& o = objs[oi];
                 if (o.type != PrimitiveType::Mirror || !o.mirrorRaytraced)
                     continue;
-                std::vector<size_t> modelTargets;
+                std::vector<size_t> modelTargets;  // static + animated, <= 2
                 for (const std::string& name : o.mirrorObjects)
                     for (size_t ti = 0; ti < objs.size(); ++ti)
                         if (ti != oi && objs[ti].name == name &&
@@ -12703,9 +12873,47 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 const int budget = 36 / (int)modelTargets.size();
                 for (size_t k = 0; k < modelTargets.size(); ++k) {
                     const SceneObject& t = objs[modelTargets[k]];
+                    if (t.modelPath.empty()) continue;
+                    if (isAnimatedModelPath(t.modelPath)) {
+                        // Animated: fixed triangle INDICES only - the game
+                        // reads the live skinned vertices each frame.
+                        glbparser::Baked baked;
+                        std::string err;
+                        if (!animimport::bake(p.dir + "\\" + t.modelPath,
+                                              24.0f, baked, err))
+                            continue;
+                        int part = -1;
+                        for (size_t s2 = 0; s2 < baked.parts.size(); ++s2)
+                            if (baked.parts[s2].image >= 0 &&
+                                baked.parts[s2].vertexCount > 0) {
+                                part = (int)s2;
+                                break;
+                            }
+                        if (part < 0)
+                            for (size_t s2 = 0; s2 < baked.parts.size(); ++s2)
+                                if (baked.parts[s2].vertexCount > 0 &&
+                                    (part < 0 ||
+                                     baked.parts[s2].vertexCount >
+                                         baked.parts[part].vertexCount))
+                                    part = (int)s2;
+                        if (part < 0) continue;
+                        std::vector<int> ids;  // 3 vertex indices per tri
+                        rtPickAnimMesh(baked.parts[part], budget, ids);
+                        if (ids.empty()) continue;
+                        aEntries << (aProxyCount ? ",\n    " : "    ") << "{"
+                                 << si << ", " << oi << ", "
+                                 << modelTargets[k] << ", " << part << ", "
+                                 << aIdxCount << ", " << (int)(ids.size() / 3)
+                                 << "},  // " << t.name;
+                        for (size_t f = 0; f < ids.size(); ++f) {
+                            aIdx << (aIdxCount ? ", " : "  ") << ids[f];
+                            if (++aIdxCount % 16 == 0) aIdx << "\n  ";
+                        }
+                        ++aProxyCount;
+                        continue;
+                    }
                     objparser::Model m;
-                    if (t.modelPath.empty() ||
-                        !objparser::load(p.dir + "\\" + t.modelPath, m))
+                    if (!objparser::load(p.dir + "\\" + t.modelPath, m))
                         continue;
                     int part = -1;
                     for (size_t s2 = 0; s2 < m.submeshes.size(); ++s2)
@@ -12757,7 +12965,29 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "\n};\n"
             << "constexpr float RT_PROXY_VERTS["
             << (floatCount ? floatCount : 1) << "] = {\n"
-            << (floatCount ? floats.str() : "  0.0F") << "\n};\n\n";
+            << (floatCount ? floats.str() : "  0.0F") << "\n};\n"
+            << "// Animated-model proxies: fixed VERTEX indices (3 per\n"
+               "// triangle, a connected medoid-decimated coarse mesh) into\n"
+               "// the part's skinned buffers - the game reads the LIVE\n"
+               "// skinned vertices (and their resident STs) at these\n"
+               "// indices every frame, so the reflection plays the clip\n"
+               "// (renderRtMirror).\n"
+               "struct RtAnimProxyData {\n"
+               "  int scene;      // scene index\n"
+               "  int mirror;     // the mirror's index in its scene table\n"
+               "  int target;     // the animated model object's index\n"
+               "  int part;       // animParts index (texture + skinned mesh)\n"
+               "  int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)\n"
+               "  int triCount;\n"
+               "};\n"
+            << "constexpr int RT_ANIM_PROXY_COUNT = " << aProxyCount << ";\n"
+            << "constexpr RtAnimProxyData RT_ANIM_PROXIES["
+            << (aProxyCount ? aProxyCount : 1) << "] = {\n"
+            << (aProxyCount ? aEntries.str() : "    {0, -1, -1, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr int RT_ANIM_PROXY_TRIS["
+            << (aIdxCount ? aIdxCount : 1) << "] = {\n"
+            << (aIdxCount ? aIdx.str() : "  0") << "\n};\n\n";
     }
 
     // Portal objects (type 16): same flat side-table pattern as MIRRORS.
