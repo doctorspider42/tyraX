@@ -324,9 +324,14 @@ struct SceneObject {
     // FPP players have no body to reflect). The shared `color` field tints
     // the glass quad; mirrorOpacity is its alpha (0 = invisible glass,
     // 1 = opaque - the reflection shows through low values).
+    // mirrorRaytraced (experimental PoC): instead of re-submitting reflected
+    // geometry, the game ray-traces the targets as SPHERE PROXIES on a VU0
+    // microprogram into a small texture mapped onto the glass - true
+    // per-pixel raytracing on PS2 hardware. See docs/raytraced-reflections.md.
     std::vector<std::string> mirrorObjects;
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
+    bool mirrorRaytraced = false;
 
     // Portal parameters (used when type == Portal). portalTarget names the
     // destination Portal in the same scene (renames remap; empty or dangling =
@@ -446,6 +451,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.mirrorRaytraced == b.mirrorRaytraced &&
            a.portalTarget == b.portalTarget &&
            a.portalObjects == b.portalObjects &&
            a.portalShowTerrain == b.portalShowTerrain &&

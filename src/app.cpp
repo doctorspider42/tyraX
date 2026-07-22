@@ -5181,6 +5181,14 @@ void App::drawPropertiesWindow() {
             ImGui::TextDisabled(
                 "Reflects the third-person avatar. An FPP player has no\n"
                 "body to reflect (vampire rules).");
+        if (ImGui::Checkbox("Raytraced (VU0, experimental)", &o.mirrorRaytraced))
+            committed = true;
+        if (o.mirrorRaytraced)
+            ImGui::TextDisabled(
+                "Real per-pixel ray tracing on a VU0 microprogram: the listed\n"
+                "objects reflect as SPHERE PROXIES (plus a checkerboard ground\n"
+                "and the sky) into a 64x64 texture on the glass. A PoC - true\n"
+                "to the rays, loose with the shapes.");
         bool solid = o.collisionMode != 2;
         if (ImGui::Checkbox("Collision (blocks the player)", &solid)) {
             o.collisionMode = solid ? 0 : 2;

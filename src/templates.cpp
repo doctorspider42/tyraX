@@ -770,6 +770,20 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
+  // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
+  // re-uploaded every frame - sphere proxies of the target list + a
+  // checkerboard ground plane + the sky gradient - instead of re-submitted
+  // geometry. See docs/raytraced-reflections.md.
+  struct RtMirror {
+    int object = -1;                   // the mirror's scene-table index
+    Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
+  };
+  std::vector<RtMirror> rtMirrors;
+  Tyra::Vu0Raytracer vu0Rt;
+  void buildRtMirrors();
+  void freeRtMirrors();
+  void renderRtMirror(const MirrorData& mir);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -1444,6 +1458,20 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
+  // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
+  // re-uploaded every frame - sphere proxies of the target list + a
+  // checkerboard ground plane + the sky gradient - instead of re-submitted
+  // geometry. See docs/raytraced-reflections.md.
+  struct RtMirror {
+    int object = -1;                   // the mirror's scene-table index
+    Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
+  };
+  std::vector<RtMirror> rtMirrors;
+  Tyra::Vu0Raytracer vu0Rt;
+  void buildRtMirrors();
+  void freeRtMirrors();
+  void renderRtMirror(const MirrorData& mir);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -4640,6 +4668,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // the batches themselves bake lazily on the first renderScene.
   buildStaticBatchList();
 
+  // Raytraced mirrors (VU0 PoC): create this scene's reflection textures
+  // before the lazy geometry rebuild binds them to the glass quads.
+  buildRtMirrors();
+
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.scene = currentScene;
@@ -6723,12 +6755,21 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         // GS alpha-blends it over the copies drawn just before it.
         addDecal(p0.vertices, p0.colors, p0.sts, o.data);
         float opacity = 0.35F;
+        bool rt = false;
         for (int mi = 0; mi < MIRROR_COUNT; ++mi)
           if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
             opacity = MIRRORS[mi].opacity;
+            rt = MIRRORS[mi].raytraced != 0;
             break;
           }
-        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        if (rt) {
+          // VU0-raytraced glass: the traced image IS the reflection - draw
+          // the quad opaque, full-bright white so the texture (bound in the
+          // tail below) shows unmodulated.
+          for (Color& c : p0.colors) c.r = c.g = c.b = c.a = 128.0F;
+        } else {
+          for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        }
         break;
       }
       case 16: {
@@ -6783,6 +6824,11 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
         o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+    // Raytraced mirror: the glass samples the VU0-traced reflection image
+    // (created by buildRtMirrors before this rebuild ever runs).
+    if (o.data.type == 15)
+      for (RtMirror& r : rtMirrors)
+        if (r.object == index) { tex = r.texture; break; }
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
@@ -7899,6 +7945,13 @@ void TerrainGame::renderMirrors() {
     if (!m.active || !m.visible) continue;
     if (beyondDrawDistance(m.data, cameraPosition)) continue;
 
+    // VU0-raytraced PoC path: no geometry re-submit, the reflection is a
+    // texture ray-traced on VU0 this frame (see renderRtMirror).
+    if (mir.raytraced) {
+      renderRtMirror(mir);
+      continue;
+    }
+
     // Householder reflection about the glass plane (normal = the mirror's
     // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
     V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
@@ -7971,6 +8024,143 @@ void TerrainGame::renderMirroredObject(int index) {
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
+}
+
+// Raytraced mirrors (VU0 PoC): one RT_MIRROR_SIZE^2 RGBA32 texture per
+// flagged mirror, ray-traced and re-uploaded every frame (renderRtMirror).
+// The Texture owns its pixel buffer (TextureData frees it on delete); the
+// GS allocation is released before delete so scene switches don't leak
+// VRAM. Rebuilt by loadScene BEFORE the lazy geometry rebuild, which binds
+// the texture to the glass quad (rebuildObjectGeometry case 15).
+void TerrainGame::freeRtMirrors() {
+  for (RtMirror& r : rtMirrors) {
+    if (!r.texture) continue;
+    engine->renderer.core.texture.freeTextureBuffers(r.texture->id);
+    delete r.texture;
+  }
+  rtMirrors.clear();
+}
+
+void TerrainGame::buildRtMirrors() {
+  freeRtMirrors();
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || !mir.raytraced || mir.object < 0)
+      continue;
+    RtMirror rm;
+    rm.object = mir.object;
+    TextureBuilderData data;
+    data.name = "rt-mirror";
+    data.width = RT_MIRROR_SIZE;
+    data.height = RT_MIRROR_SIZE;
+    data.data = new unsigned char[RT_MIRROR_SIZE * RT_MIRROR_SIZE * 4];
+    memset(data.data, 0x40, RT_MIRROR_SIZE * RT_MIRROR_SIZE * 4);
+    data.bpp = bpp32;
+    data.gsComponents = TEXTURE_COMPONENTS_RGB;
+    data.clut = nullptr;
+    rm.texture = new Texture(&data);
+    // Clamp: the default Repeat bilinear-wraps row 63 into row 0 at the
+    // glass edges - a visible seam line across the top of the mirror.
+    rm.texture->setWrapSettings(TextureWrap::Clamp, TextureWrap::Clamp);
+    rtMirrors.push_back(rm);
+    vu0Rt.init();  // upload the microprogram once, on first use
+  }
+}
+
+// Raytraced mirror (experimental PoC): true per-pixel ray tracing on a VU0
+// MICROPROGRAM. Every listed target reflects as a bounding-sphere proxy
+// (color = the object's tint), over a checkerboard ground plane at the
+// terrain height under the glass and the scene's sky gradient. The EE
+// mirrors the camera across the glass plane (the point-wise Householder of
+// the matrix renderMirrors builds), the VU0 kernel traces
+// normalize(P - mirroredEye) per texel, and the traced image re-uploads
+// over PATH3 into the glass quad's texture. Loose with the shapes, honest
+// with the rays.
+void TerrainGame::renderRtMirror(const MirrorData& mir) {
+  RtMirror* rm = nullptr;
+  for (RtMirror& r : rtMirrors)
+    if (r.object == mir.object) { rm = &r; break; }
+  if (!rm || !rm->texture) return;
+  RuntimeObject& m = runtimeObjects[mir.object];
+
+  // Glass plane basis from the live transform (the addDecal quad: local XY
+  // face, +Z normal; its ST mapping runs texel u along -X, v along +Y).
+  V3 ax = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  V3 ay = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+  if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+  const float px = m.data.position[0], py = m.data.position[1],
+              pz = m.data.position[2];
+
+  // Mirror the camera across the plane: E' = E - 2*((E.n) - d)*n
+  const float d = n.x * px + n.y * py + n.z * pz;
+  const float side = cameraPosition.x * n.x + cameraPosition.y * n.y +
+                     cameraPosition.z * n.z - d;
+  vu0Rt.setEye(Vec4(cameraPosition.x - 2.0F * side * n.x,
+                    cameraPosition.y - 2.0F * side * n.y,
+                    cameraPosition.z - 2.0F * side * n.z, 1.0F));
+
+  // Sphere proxies from the live targets (+ the player). Radius = half the
+  // largest scale axis - a bounding-sphere-ish stand-in, good enough for a
+  // reflection blob that moves and shades correctly.
+  Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
+  int sc = 0;
+  for (int t = 0; t < mir.targetCount && sc < Vu0Raytracer::MaxSpheres; ++t) {
+    const int index = MIRROR_TARGETS[mir.firstTarget + t];
+    if (index < 0 || index >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& o = runtimeObjects[index];
+    if (!o.active || !o.visible || o.data.type == 15) continue;
+    Vu0RtSphere& s = spheres[sc++];
+    s.center = Vec4(o.data.position[0], o.data.position[1],
+                    o.data.position[2], 1.0F);
+    float r = fabsf(o.data.scale[0]);
+    if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+    if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+    s.radius = r * 0.5F;
+    s.color = Color(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
+                    o.data.color[2] * 255.0F, 128.0F);
+  }
+  if (mir.reflectPlayer && players[0].objIndex >= 0 &&
+      sc < Vu0Raytracer::MaxSpheres) {
+    Vu0RtSphere& s = spheres[sc++];
+    s.center = Vec4(players[0].x, players[0].y + 0.9F, players[0].z, 1.0F);
+    s.radius = 0.9F;
+    s.color = Color(210.0F, 170.0F, 140.0F, 128.0F);
+  }
+  vu0Rt.setSpheres(spheres, sc);
+
+  vu0Rt.setSky(Color(SKY_TOP_R, SKY_TOP_G, SKY_TOP_B),
+               Color(skyHorizonR, skyHorizonG, skyHorizonB));
+  vu0Rt.setLight(Vec4(0.302F, 0.905F, 0.302F, 0.0F));
+  vu0Rt.setFloor(true, terrainHeightAt(px, pz), 2.0F, 60.0F,
+                 Color(175.0F, 175.0F, 175.0F, 128.0F),
+                 Color(55.0F, 55.0F, 55.0F, 128.0F));
+
+  // Texel->world mapping matches the quad's STs exactly (see addDecal):
+  // s = 0.5 - xLocal, t = yLocal + 0.5, texel centers at (i + 0.5)/N.
+  const int N = RT_MIRROR_SIZE;
+  const float sx = m.data.scale[0], sy = m.data.scale[1];
+  const float u0 = (0.5F - 0.5F / N) * sx, v0 = (0.5F / N - 0.5F) * sy;
+  const Vec4 origin(px + ax.x * u0 + ay.x * v0, py + ax.y * u0 + ay.y * v0,
+                    pz + ax.z * u0 + ay.z * v0, 1.0F);
+  const Vec4 du(-ax.x * sx / N, -ax.y * sx / N, -ax.z * sx / N, 0.0F);
+  const Vec4 dv(ay.x * sy / N, ay.y * sy / N, ay.z * sy / N, 0.0F);
+  vu0Rt.trace(origin, du, dv,
+              reinterpret_cast<u32*>(rm->texture->core->data), N);
+
+  // Fresh pixels -> GS: re-upload into the existing VRAM allocation, or
+  // allocate on the first frame (and after any eviction flush).
+  auto& coreTex = engine->renderer.core.texture;
+  if (coreTex.getAllocatedBuffersByTextureId(rm->texture->id).id != 0)
+    coreTex.updateTextureInfo(rm->texture);
+  else
+    coreTex.useTexture(rm->texture);
+
+  // The glass quad, textured with the traced reflection (drawn opaque
+  // full-bright white - see rebuildObjectGeometry case 15).
+  for (GeoPart& part : objectGeometry[mir.object].parts)
+    if (part.bag) stapip.core.render(part.bag.get());
 }
 
 // Portal objects (type 16): a PS2-honest take on the seamless portal. The
@@ -12260,7 +12450,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 infos << (mirrorCount ? ",\n    " : "    ") << "{" << si << ", "
                       << oi << ", " << floatLit(o.mirrorOpacity) << ", "
                       << (o.mirrorReflectPlayer ? 1 : 0) << ", " << first << ", "
-                      << (targetCount - first) << "},  // " << o.name;
+                      << (targetCount - first) << ", "
+                      << (o.mirrorRaytraced ? 1 : 0) << "},  // " << o.name;
                 ++mirrorCount;
             }
         }
@@ -12274,15 +12465,18 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int reflectPlayer;  // 1 = also reflect the third-person avatar\n"
                "  int firstTarget;    // first entry in MIRROR_TARGETS\n"
                "  int targetCount;\n"
+               "  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)\n"
                "};\n"
             << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
             << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)
             << "] = {\n"
-            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0}")
+            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0, 0}")
             << "\n};\n"
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
-            << (targetCount ? targets.str() : "-1") << "};\n\n";
+            << (targetCount ? targets.str() : "-1") << "};\n"
+            << "// Raytraced mirrors (VU0 PoC): reflection image edge, texels\n"
+            << "constexpr int RT_MIRROR_SIZE = 64;\n\n";
     }
 
     // Portal objects (type 16): same flat side-table pattern as MIRRORS.

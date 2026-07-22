@@ -386,7 +386,9 @@ std::string objectJson(const SceneObject& o) {
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
                 ", \"reflectPlayer\": " +
-                (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
+                (o.mirrorReflectPlayer ? "true" : "false") +
+                ", \"raytraced\": " + (o.mirrorRaytraced ? "true" : "false") +
+                ", \"objects\": [";
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + jsonEscape(o.mirrorObjects[i]) + "\"";
         json += "] }";
@@ -2054,6 +2056,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             }
             if (const auto* v = mr->find("reflectPlayer"))
                 o.mirrorReflectPlayer = v->boolOr(false);
+            if (const auto* v = mr->find("raytraced"))
+                o.mirrorRaytraced = v->boolOr(false);
             if (const auto* v = mr->find("objects");
                 v && v->type == json::Value::Type::Array) {
                 for (const auto& s : v->arr)
@@ -3397,7 +3401,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.modelYawOffset);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
-    fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
+    fnvMix(h, (o.mirrorReflectPlayer ? 1 : 0) | (o.mirrorRaytraced ? 2 : 0));
     fnvMixF(h, o.mirrorOpacity);
     // Portal parameters live in a baked side table (PORTALS/PORTAL_VIEW_OBJECTS).
     fnvMixS(h, o.portalTarget);

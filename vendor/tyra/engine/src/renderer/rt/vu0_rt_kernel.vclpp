@@ -1,0 +1,254 @@
+; _____        ____   ___
+;   |     \/   ____| |___|
+;   |     |   |   \  |   |
+;---------------------------------------------------------------
+; Copyright 2022, tyra - https://github.com/h4570/tyra
+; Licensed under Apache License 2.0
+; Added by TyraX: VU0 MICROMODE ray tracing kernel (raytraced
+; mirror reflections - see inc/renderer/rt/vu0_raytracer.hpp).
+;
+;---------------------------------------------------------------
+; Traces ONE row of reflection-image texels per vcallms. The EE
+; reflects the camera across the mirror plane once per frame, so
+; each texel's reflected ray is simply normalize(P - mirroredEye)
+; - no per-texel reflection math. Rays intersect a small set of
+; sphere proxies + an optional checkerboard ground plane, misses
+; shade from a vertical sky gradient.
+;
+; VU0-honest: no XGKICK, no EFU (esum/ersqrt are VU1-only), no
+; xtop - fixed VU0 data-mem addresses only. Hit selection is
+; BRANCHLESS: VU floats saturate instead of producing inf/nan,
+; so clamp(x * 1e38, 0, 1) is an exact step(0, x) for any
+; geometrically meaningful x - masks select the nearest hit,
+; the only branches are the two loop back-edges.
+;
+; Data memory layout (qword addresses, EE writes via 0x11004000):
+;   0  eye.xyz      = camera REFLECTED across the mirror plane
+;   1  rowBase.xyz  = world position of this row's first texel
+;   2  du.xyz       = world step per texel along the row
+;   3  light.xyz    = normalized dir TOWARD the light
+;   4  skyTop.rgb   = zenith color 0..255
+;   5  skyBot.rgb   = horizon color 0..255
+;   6  floor: x=planeY  y=checker scale (1/cell)  z=fade (1/dist)
+;            w=enable (0/1)
+;   7  floorA.rgb   = checker color A (pre-lit 0..255)
+;   8  floorB.rgb   = checker color B
+;   9  ints: x=sphereCount  y=texelCount (ILW fields)
+;   10 consts2: x=0.30 (ambient) y=0.70 (diffuse) z=0.5 w=1e38
+;   11 consts:  x=eps (0.01)     y=spare          z=255 w=1024
+;
+; NO sentinel-BIG mixing anywhere: mix(BIG, t, m) computes
+; (t - BIG) + BIG, and in single floats t - 1e10 rounds to exactly
+; -1e10 - the real t is annihilated and every selected distance
+; degenerates to 0 (cost a debugging round: reflections cut off at
+; the checker horizon and shaded from the wrong hit point). The
+; nearest-hit state is (bT, bHit) instead, folded with comparison
+; masks only - subtractions stay at the scale of real distances.
+;   12..19 sphere centers (xyz, w = radius^2)
+;   20..27 sphere colors  (rgb 0..255)
+;   32..95 output row: ftoi0 ints x=red y=green z=blue (max 64)
+;---------------------------------------------------------------
+
+.syntax new
+.name Vu0RtKernel
+.vu
+.init_vf_all
+.init_vi_all
+
+--enter
+--endenter
+
+#vuprog Vu0RtKernel
+
+    lq      eye,        0(vi00)
+    lq      pos,        1(vi00)
+    lq      du,         2(vi00)
+    lq      ldir,       3(vi00)
+    lq      skyTop,     4(vi00)
+    lq      skyBot,     5(vi00)
+    lq      floorP,     6(vi00)
+    lq      floorA,     7(vi00)
+    lq      floorB,     8(vi00)
+    lq      cq2,        10(vi00)
+    lq      cq,         11(vi00)
+    ilw.x   sphCount,   9(vi00)
+    ilw.y   texCount,   9(vi00)
+    iaddiu  outAddr,    vi00,       32
+    ; oneV.x = 1.0 - the fs-side "1" the mask inversions need (broadcast
+    ; fields are only legal on the ft operand, so vf00[w] can't sit first)
+    add.x   oneV,       vf00,       vf00[w]
+
+texelLoop:
+    ;--- unit ray dir R = normalize(P - mirroredEye)
+    sub.xyz     d,      pos,        eye
+    mul.xyz     t0,     d,          d
+    add.x       t0,     t0,         t0[y]
+    add.x       t0,     t0,         t0[z]
+    rsqrt       q,      vf00[w],    t0[x]
+    mulq.xyz    rd,      d,          q
+
+    ;--- nearest-sphere state: bT=0 + bHit=0 ("no hit yet"), center/color
+    ; zeroed (self-sub is a true zero even over saturated garbage; a fully
+    ; selected mix (m=1.0 exactly) then reproduces the sphere values
+    ; with no cancellation error)
+    sub.x       bT,     bT,         bT
+    sub.x       bHit,   bHit,       bHit
+    sub.xyzw    bC,     bC,         bC
+    sub.xyz     bCol,   bCol,       bCol
+
+    iadd        si,     vi00,       sphCount
+    iaddiu      cAddr,  vi00,       12
+    iaddiu      colAddr, vi00,      20
+    ibeq        si,     vi00,       sphDone
+
+sphLoop:
+    lq          c,      0(cAddr)
+    lq          scol,   0(colAddr)
+    sub.xyz     oc,     c,          pos
+    ; b = oc . R
+    mul.xyz     t1,     oc,         rd
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    ; oc2 = oc . oc
+    mul.xyz     t2,     oc,         oc
+    add.x       t2,     t2,         t2[y]
+    add.x       t2,     t2,         t2[z]
+    ; disc = b^2 - oc2 + radius^2
+    mul.x       t3,     t1,         t1[x]
+    sub.x       t3,     t3,         t2[x]
+    add.x       t3,     t3,         c[w]
+    ; sqrt of clamped disc (junk when disc<0 - masked out below)
+    max.x       t4,     t3,         vf00[x]
+    sqrt        q,      t4[x]
+    ; m0 = step(0, disc)
+    mul.x       m0,     t3,         cq2[w]
+    max.x       m0,     m0,         vf00[x]
+    mini.x      m0,     m0,         vf00[w]
+    ; t = b - sqrt(disc); m0 &= step(eps, t)
+    subq.x      t5,     t1,         q
+    sub.x       t6,     t5,         cq[x]
+    mul.x       t6,     t6,         cq2[w]
+    max.x       t6,     t6,         vf00[x]
+    mini.x      t6,     t6,         vf00[w]
+    mul.x       m0,     m0,         t6
+    ; m2 = m0 AND (first hit OR t < bT): the new nearest, compared at
+    ; real-distance scale (see the header note on sentinel-BIG mixing)
+    sub.x       nh,     oneV,       bHit[x]
+    sub.x       cl,     bT,         t5[x]
+    mul.x       cl,     cl,         cq2[w]
+    max.x       cl,     cl,         vf00[x]
+    mini.x      cl,     cl,         vf00[w]
+    max.x       m2,     nh,         cl[x]
+    mul.x       m2,     m2,         m0[x]
+    ; fold into best state
+    sub.x       t8,     t5,         bT
+    mul.x       t8,     t8,         m2[x]
+    add.x       bT,     bT,         t8
+    sub.xyzw    t9,     c,          bC
+    mul.xyzw    t9,     t9,         m2[x]
+    add.xyzw    bC,     bC,         t9
+    sub.xyz     tA,     scol,       bCol
+    mul.xyz     tA,     tA,         m2[x]
+    add.xyz     bCol,   bCol,       tA
+    max.x       bHit,   bHit,       m0
+
+    iaddiu      cAddr,  cAddr,      1
+    iaddiu      colAddr, colAddr,   1
+    iaddi       si,     si,         -1
+    ibgtz       si,     sphLoop
+
+sphDone:
+    ;--- sphere lambert: N = normalize(hit - center), 0.30 + 0.70*max(N.L,0)
+    mul.xyz     h,      rd,          bT[x]
+    add.xyz     h,      h,          pos
+    sub.xyz     n1,     h,          bC
+    mul.xyz     t0,     n1,         n1
+    add.x       t0,     t0,         t0[y]
+    add.x       t0,     t0,         t0[z]
+    ; degenerate-safe: no hit leaves n1 = junk, masked out at compose
+    max.x       t0,     t0,         cq[x]
+    rsqrt       q,      vf00[w],    t0[x]
+    mulq.xyz    n1,     n1,         q
+    mul.xyz     t1,     n1,         ldir
+    add.x       t1,     t1,         t1[y]
+    add.x       t1,     t1,         t1[z]
+    max.x       t1,     t1,         vf00[x]
+    mul.x       t1,     t1,         cq2[y]
+    add.x       t1,     t1,         cq2[x]
+    mul.xyz     sphCol, bCol,       t1[x]
+
+    ;--- checkerboard ground plane: tF = (planeY - P.y) / R.y
+    sub.x       f0,     floorP,     pos[y]
+    div         q,      f0[x],      rd[y]
+    addq.x      f1,     vf00,       q
+    ; mF = step(eps, tF) * enable (tF<0 or ray parallel -> miss)
+    sub.x       mF,     f1,         cq[x]
+    mul.x       mF,     mF,         cq2[w]
+    max.x       mF,     mF,         vf00[x]
+    mini.x      mF,     mF,         vf00[w]
+    mul.x       mF,     mF,         floorP[w]
+    ; checker parity of the hit cell (+1024 keeps trunc == floor)
+    mul.xyz     hf,     rd,          f1[x]
+    add.xyz     hf,     hf,         pos
+    mul.xyz     c0,     hf,         floorP[y]
+    add.xyz     c0,     c0,         cq[w]
+    ftoi0.xyz   ci,     c0
+    itof0.xyz   cf,     ci
+    add.x       s0,     cf,         cf[z]
+    mul.x       s0,     s0,         cq2[z]
+    ftoi0.x     si0,    s0
+    itof0.x     sf0,    si0
+    sub.x       s1,     s0,         sf0
+    add.x       s1,     s1,         s1[x]
+    ; floorCol = mix(A, B, parity), faded toward the horizon color
+    sub.xyz     fc,     floorB,     floorA
+    mul.xyz     fc,     fc,         s1[x]
+    add.xyz     fc,     fc,         floorA
+    mul.x       fd,     f1,         floorP[z]
+    max.x       fd,     fd,         vf00[x]
+    mini.x      fd,     fd,         vf00[w]
+    sub.xyz     t2,     skyBot,     fc
+    mul.xyz     t2,     t2,         fd[x]
+    add.xyz     fc,     fc,         t2
+
+    ;--- sky gradient from the ray's upward component (broadcast fields
+    ; are only legal on the SECOND source operand, hence the vf00 first)
+    max.x       sm,     vf00,       rd[y]
+    mini.x      sm,     sm,         vf00[w]
+    sub.xyz     sc,     skyTop,     skyBot
+    mul.xyz     sc,     sc,         sm[x]
+    add.xyz     sc,     sc,         skyBot
+
+    ;--- compose: sky -> floor (if valid) -> sphere (if valid & nearer)
+    sub.xyz     t3,     fc,         sc
+    mul.xyz     t3,     t3,         mF[x]
+    add.xyz     ground, sc,         t3
+    ; winS = bHit AND (no valid floor OR sphere closer: tF - bT > 0);
+    ; tF may be saturation-huge (grazing rays) - the subtraction stays
+    ; huge and the step is still exact
+    sub.x       w1,     f1,         bT[x]
+    mul.x       w1,     w1,         cq2[w]
+    max.x       w1,     w1,         vf00[x]
+    mini.x      w1,     w1,         vf00[w]
+    sub.x       invF,   oneV,       mF[x]
+    max.x       winS,   invF,      w1[x]
+    mul.x       winS,   winS,       bHit[x]
+    sub.xyz     t5,     sphCol,     ground
+    mul.xyz     t5,     t5,         winS[x]
+    add.xyz     colf,   ground,     t5
+
+    ;--- clamp to 0..255, to ints, store
+    max.xyz     colf,   colf,       vf00[x]
+    mini.xyz    colf,   colf,       cq[z]
+    ftoi0.xyz   oc0,    colf
+    sq.xyz      oc0,    0(outAddr)
+
+    add.xyz     pos,    pos,        du
+    iaddiu      outAddr, outAddr,   1
+    iaddi       texCount, texCount, -1
+    ibgtz       texCount, texelLoop
+
+#endvuprog
+
+--exit
+--endexit
