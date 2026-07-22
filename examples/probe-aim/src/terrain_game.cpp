@@ -6091,12 +6091,19 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
-  auto renderEnvPass = [&](GeoPart& part) {
+  auto renderEnvPass = [&](ObjectGeometry& og, GeoPart& part) {
     if (!part.envBag) return;
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
-    // per-mesh camera basis here.
-    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
-    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    // per-mesh camera basis here. Reflected-probe objects sample with THEIR
+    // probe camera's basis (see renderObjectProbe), everything else with
+    // the main camera's.
+    if (ENV_PROBE_REFLECTED && og.probeBasis) {
+      part.envTexBag->envRight = og.probeRight;
+      part.envTexBag->envUp = og.probeUp;
+    } else {
+      part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+      part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    }
     stapip.core.render(part.envBag.get());
   };
   int hlList[8];
@@ -6151,7 +6158,7 @@ void TerrainGame::renderScene() {
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
-        renderEnvPass(part);
+        renderEnvPass(objectGeometry[i], part);
       }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
@@ -6191,7 +6198,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.bag) {
           stapip.core.render(part.bag.get());
-          renderEnvPass(part);
+          renderEnvPass(objectGeometry[i], part);
         }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
@@ -6764,6 +6771,26 @@ void TerrainGame::renderObjectProbe(int index) {
                       cameraPosition.z + dirC.z * t + n.z * 0.05F, 1.0F);
   const Vec4 probeLook(probeEye.x + rd.x, probeEye.y + rd.y,
                        probeEye.z + rd.z, 1.0F);
+
+  // The matcap ST basis for THIS object must be the probe camera's
+  // right/up (same construction as the classic pass's envRight/envUp,
+  // built from the probe forward) - sampling the probe's map with the
+  // MAIN camera basis mirrors the reflection horizontally whenever the
+  // probe looks back at the player.
+  {
+    V3 pr = {-rd.z, 0.0F, rd.x};  // cross(fwd, worldUp), level
+    const float prl = sqrtf(pr.x * pr.x + pr.z * pr.z);
+    if (prl > 0.0001F)
+      pr.x /= prl, pr.z /= prl;
+    else
+      pr = {1.0F, 0.0F, 0.0F};  // reflecting straight up/down
+    const V3 pu = {pr.y * rd.z - pr.z * rd.y, pr.z * rd.x - pr.x * rd.z,
+                   pr.x * rd.y - pr.y * rd.x};
+    ObjectGeometry& og = objectGeometry[index];
+    og.probeRight.set(pr.x, pr.y, pr.z, 0.0F);
+    og.probeUp.set(pu.x, pu.y, pu.z, 0.0F);
+    og.probeBasis = true;
+  }
 
   core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
                           scriptCtx.skyColor.b, 128.0F));
