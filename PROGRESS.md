@@ -10,6 +10,42 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (150) **Animated models honor a Material (.mtl) override, as an extra option
+  on top of the built-in materials.** Until now an animated `.glb`/`.fbx` model
+  drew only with the materials baked into the file (the docs said so explicitly);
+  a static `.obj` model could already take an assigned `.mtl` as an override that
+  replaces its own libraries by `usemtl` name, but the animated path dropped the
+  override on the floor (`collectAnimModelPaths` keyed the model identity on the
+  path alone, the properties UI suppressed the Material combo with an
+  `!animatedModel` guard, and nothing consumed `materialPath` at bake). Now the
+  same `SceneObject::materialPath` field drives both: the Material combo shows
+  for animated models too (the built-in materials still list read-only above it,
+  so it is an *option besides*, not instead - empty = the model's own), and the
+  override is resolved into the `.tskl` **at bake time** - no engine/runtime
+  change. Mechanically: the animated-model identity became the pair
+  `{modelPath, materialPath}` (`collectAnimModelKeys`, mirroring the static
+  `collectModelKeys`), so the same `.glb` with two different overrides bakes to
+  two distinct `.tskl` files (`animBakedTsklRel` derives a stable
+  `__ovr<fnv16>` suffix, shared verbatim by the emit in `modelDataHeader` and
+  the bake in `bakeAnimAssets`); the override textures extract next to that
+  variant `.tskl` with a variant-unique prefix so they never clobber the base
+  model's. The remap itself is a new shared `objparser::applyMaterialOverride`
+  template (instantiated for both `glbparser::Baked` and `Skel`): it matches each
+  part's material NAME against the library, a hit replacing the part's baseColor
+  (Kd) + texture, a miss falling back to plain white/untextured - **identical**
+  to how `objparser::load`'s `overrideMtl` resolves a static `.obj` (a full
+  replace, not a merge; `refl` has no skeletal slot and is ignored). The viewport
+  preview calls the very same helper on its baked model (cache re-keyed by
+  `path|mtl`), so what you see matches what the console bakes. Verified headlessly
+  on a copy of `examples/showcase`: gave one of six `wobbler.glb` objects an
+  override `.mtl` named `WobblerBody` (magenta Kd + a `map_Kd`), `--refresh-gen`
+  then emitted `ANIM_MODEL_COUNT = 2` with `wobbler.tskl` (base, untextured - the
+  other five) **and** `wobbler__ovre8c2.tskl`; the override `.tskl` contains the
+  magenta baseColor (absent from the base) and references
+  `models/wobbler__ovre8c2_ground.png`, and `scene_data.hpp` maps the overridden
+  object to `animModel` index 1 while the five untouched ones stay 0. Editor
+  builds clean.
+
 - (149) **Rotated box collision: the player now collides with a block's real
   (rotated) faces, not its unrotated bounds.** Box-mode player collision
   (`collidePlayer`, shared by both walkers) built the blocker box straight from

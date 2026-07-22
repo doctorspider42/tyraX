@@ -4923,7 +4923,8 @@ void App::drawPropertiesWindow() {
                     }
                     ImGui::TextDisabled(
                         "Colors come from the model; edit them in the\n"
-                        "modelling tool and re-export the .glb.");
+                        "modelling tool, or assign a Material (below) to\n"
+                        "override these by matching name.");
                 }
                 ImGui::SeparatorText("Animation");
                 const std::string clipLabel =
@@ -5027,15 +5028,22 @@ void App::drawPropertiesWindow() {
     if (isSolid || isDecal) {
         // Material (.mtl asset): primitives take the file's first material
         // (Kd + map_Kd on their UVs, modulated by the object color), models
-        // use it as an override replacing their own libraries. Animated .glb
-        // models carry their own materials - no override.
-        if (!animatedModel && drawMaterialCombo(o)) committed = true;
-        if (!animatedModel && !o.materialPath.empty()) {
+        // (static .obj AND animated .glb/.fbx) use it as an OVERRIDE replacing
+        // their own libraries - usemtl/material names resolve against it. Empty
+        // = the model's own (built-in) materials, so it is an extra option, not
+        // a replacement. An animated override is resolved into the .tskl at
+        // build time (docs/animated-models.md).
+        if (drawMaterialCombo(o)) committed = true;
+        if (!o.materialPath.empty()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Edit..."))
+                // the Material Editor previews on a primitive/.obj; a .glb has
+                // no .obj preview mesh, so leave the model hint off for it
                 openMaterialEditor(o.materialPath,
-                                   o.type == PrimitiveType::Model ? o.modelPath
-                                                                  : "");
+                                   (o.type == PrimitiveType::Model &&
+                                    !animatedModel)
+                                       ? o.modelPath
+                                       : "");
         }
         if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
             const ModelInfo& mat = materialInfo(o.materialPath);

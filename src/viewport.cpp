@@ -1867,10 +1867,15 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
 
 // Animated .glb model: bake once (CPU-side clips kept for the playback
 // preview), upload frame 0 into dynamic per-part meshes, decode embedded
-// textures. Failures cache as !ok and the caller falls back to the box.
-Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
+// textures. An assigned .mtl override is resolved into the bake (part
+// colors/textures remapped by material name), exactly as the game bakes it
+// into the .tskl - so the preview matches. Failures cache as !ok and the
+// caller falls back to the box.
+Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
+                                                 const std::string& materialRel) {
     if (relPath.empty()) return nullptr;
-    auto it = animModelCache_.find(relPath);
+    const std::string key = relPath + "|" + materialRel;
+    auto it = animModelCache_.find(key);
     if (it != animModelCache_.end()) return &it->second;
 
     AnimModelDraw draw;
@@ -1878,6 +1883,10 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
     if (animimport::bake(full, 12.0f, draw.baked, error)) {
         draw.ok = true;
+        if (!materialRel.empty())
+            objparser::applyMaterialOverride(
+                draw.baked,
+                (std::filesystem::path(projectDir_) / materialRel).string());
         std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
         for (size_t i = 0; i < draw.baked.images.size(); ++i) {
             int w = 0, h = 0, comp = 0;
@@ -1906,7 +1915,7 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
             draw.parts.push_back(part);
         }
     }
-    return &animModelCache_.emplace(relPath, std::move(draw)).first->second;
+    return &animModelCache_.emplace(key, std::move(draw)).first->second;
 }
 
 // Interpolates the object's current pose (start clip + preview clock, the
@@ -2331,7 +2340,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                    isAnimatedModelPath(o.modelPath);
             if ((o.type == PrimitiveType::Model || tppAvatar) &&
                 isAnimatedModelPath(o.modelPath)) {
-                AnimModelDraw* ad = animModelDraw(o.modelPath);
+                AnimModelDraw* ad = animModelDraw(o.modelPath, o.materialPath);
                 if (ad && ad->ok) {
                     updateAnimPose(*ad, o);
                     for (const AnimModelDraw::Part& part : ad->parts)
@@ -2423,7 +2432,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const Mat4 mvp = mul(viewProj, model);
             if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
                 // pose already advanced by this frame's scene pass - reuse it
-                AnimModelDraw* ad = animModelDraw(t.modelPath);
+                AnimModelDraw* ad = animModelDraw(t.modelPath, t.materialPath);
                 if (ad && ad->ok) {
                     for (const AnimModelDraw::Part& part : ad->parts)
                         draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
@@ -2490,7 +2499,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     if (p.type != PrimitiveType::Player || p.playerMode != 2 ||
                         !isAnimatedModelPath(p.modelPath) || hiddenAt(k))
                         continue;
-                    AnimModelDraw* ad = animModelDraw(p.modelPath);
+                    AnimModelDraw* ad = animModelDraw(p.modelPath, p.materialPath);
                     if (ad && ad->ok) {
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);

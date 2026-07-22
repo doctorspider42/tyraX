@@ -110,11 +110,32 @@ what ships.
 | **Loop** | On = wraps forever; off = plays once and freezes on the last frame. |
 | **Speed** | Playback multiplier (1.00x = authored speed). |
 | **Color** | Multiplies the model's material colors (tint), like on primitives. |
+| **Material** | Optional `.mtl` **override** on top of the built-in materials — see below. `(model's own)` = the materials baked into the file. |
 | **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
 | **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |
 
-Material (.mtl) overrides do not apply to .glb models - their materials come
-from the file itself.
+### Material override (.mtl)
+
+By default an animated model draws with the materials baked into the `.glb`/
+`.fbx` (base color + texture per part, listed read-only under **Materials**).
+Assigning a **Material** (`.mtl` asset) overrides them — exactly like a static
+`.obj` model, and it is an option *besides* the built-in materials, not a
+replacement of the workflow: leave it `(model's own)` and nothing changes.
+
+The override resolves by **name**: each of the model's parts (the entries in
+the read-only Materials list) is matched against a `newmtl` of the same name in
+the assigned file. A match takes that material's color (`Kd`) and texture
+(`map_Kd`); a part the override does **not** name falls back to plain white and
+untextured — a full replace, the same rule the `.obj` override uses. So name
+your `.mtl` entries to match the part names shown in the panel (e.g. a model
+whose part is `WobblerBody` needs a `newmtl WobblerBody`).
+
+The override is resolved into the `.tskl` **at build time** (the part colors and
+textures are baked in), so it costs the game nothing at runtime. Two objects
+sharing one model but different overrides bake to separate `.tskl` files
+automatically. Reflection (`refl`) is a static-vertex-color effect with no
+skeletal-runtime slot, so a reflective material assigned to an animated model
+tints/textures as usual but does not add a reflection pass.
 
 ## Importing FBX
 

@@ -5,8 +5,10 @@ materials — plain Wavefront `.mtl` files under `res/materials/` (universal
 libraries you assign to any object) and `res/models/` (a model's own library).
 Every entry is a color (`Kd`), a brightness multiplier and an optional PNG
 texture (`map_Kd`); primitives use a file's **first** entry, models resolve
-their `usemtl` names against the assigned file, emitters take the first
-entry's texture for their particles. Edits save to the file on every change —
+their `usemtl` (or, for animated `.glb`/`.fbx`, their part) names against the
+assigned file, emitters take the first entry's texture for their particles.
+The override applies to animated models too — it is baked into the model at
+build time (see [docs/animated-models.md](animated-models.md#material-override-mtl)). Edits save to the file on every change —
 the scene viewport updates live, and the PS2 game parses the very same file.
 
 ## Previewing on your actual model
