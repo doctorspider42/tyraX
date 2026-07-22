@@ -33,7 +33,15 @@ Each finished feature lands as its own commit.
   NOT committed - its generated files would drift wholesale): same
   viewpoint, classic shows the red cube as a small washed smudge in the
   chrome, reflected aim shows it as a large round ball placed differently
-  per sphere - the probe now renders from the surface's vantage. In-game
+  per sphere - the probe now renders from the surface's vantage. Ships
+  with a dedicated sample, **examples/probe-aim**: a chrome "crystal
+  ball" whose equator sits at eye height (a level view ray reflects
+  straight back) mirroring a red crate / yellow ball / blue pillar
+  standing BEHIND the spawn - two authoring lessons baked into its
+  layout: props must stand in the reflected half-space (first draft put
+  them in front and the chrome showed pure sky), and a tall ball makes a
+  level ray hit below the equator and reflect into the ground (the env
+  map has no terrain, so that reads as empty horizon). In-game
   motion (smoothing feel, crosshair slides) remains a hands-on pad test.
 
 - (151) **Live texture feeds: camera-to-texture (CCTV) + raytraced-mirror
