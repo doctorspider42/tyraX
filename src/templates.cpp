@@ -4330,11 +4330,23 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       };
 
       // walls: push a chest-height sphere out of steep triangles (the radius
-      // is approximated by the average XZ scale - exact for uniform scales)
+      // is approximated by the average XZ scale - exact for uniform scales).
+      // "Steep" is judged in WORLD space: a tumbled physics model lying on
+      // its side has world-walls whose LOCAL normal reads as a walkable
+      // floor - so world-up rides into mesh space with the query.
       const V3 c = toLocal(*nextX, feetY + eyeHeight * 0.5F, *nextZ);
       Vec4 center(c.x, c.y, c.z, 1.0F);
       const float sAvg = (sx + sz) * 0.5F;
-      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F)) {
+      const V3 upL = invRotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      // prev rides along so the push is side-aware: a step longer than the
+      // radius that lands past a wall's plane is ejected BACK to the side
+      // the player came from - the plain two-sided push pointed inward
+      // there and sucked fast walkers inside the mesh.
+      const V3 pc = toLocal(prevX, feetY + eyeHeight * 0.5F, prevZ);
+      const Vec4 prevLocal(pc.x, pc.y, pc.z, 1.0F);
+      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
+                                     Vec4(upL.x, upL.y, upL.z, 0.0F),
+                                     &prevLocal)) {
         const V3 w = toWorld({center.x, center.y, center.z});
         *nextX = w.x;
         *nextZ = w.z;
@@ -6899,6 +6911,10 @@ constexpr float PHYS_REST_SPIN = 0.75F;       // deg/frame = "not spinning"
 // the sleeper and trades momentum (~2.5 u/s at 50 fps; rest is ~0.8 u/s).
 constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
 constexpr float PHYS_FLATTEN_STEP = 3.0F;     // settle-flatten, deg/frame
+// Settle-flatten engages while the tumble is still dying (well above the
+// rest-spin gate) so the lay-down continues the motion instead of starting
+// after a visible dead stop.
+constexpr float PHYS_FLATTEN_SPIN = 2.5F;     // deg/frame
 constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 constexpr float PHYS_PUSH = 0.55F;            // player shove gain (scaled 1/mass)
 
@@ -7433,7 +7449,9 @@ void TerrainGame::updateObjectPhysics() {
     // Tumble: rolling without slipping (w = v / r) about the horizontal axis
     // perpendicular to the slide direction; friction bleeds it off with the
     // slide itself. Euler-added per axis - visually right, era-appropriate.
-    if (o.data.physTumble) {
+    // A latched settle-flatten owns the rotation: re-deriving spin from the
+    // residual slide here would fight the ease (overshoot-and-return).
+    if (o.data.physTumble && o.flatTgt[0] > 720.0F) {
       if (grounded) {
         const float ts2 = slideTan.innerProduct(slideTan);
         if (ts2 > 1e-8F) {
@@ -7457,20 +7475,44 @@ void TerrainGame::updateObjectPhysics() {
     const float spinMag =
         fabsf(o.spin[0]) + fabsf(o.spin[1]) + fabsf(o.spin[2]);
 
-    // Settle-flatten: a near-rest tumbled body eases onto its nearest flat
-    // face instead of sleeping on an edge or corner - pitch/roll walk to
-    // the nearest 90deg step (the crate visibly tips onto its face; the
-    // rotated support extent above lowers it with the tilt). Euler-order
-    // trap: rotated() composes Rz*Ry*Rx, and with the roll on an ODD step
-    // the pose is only flat when the yaw sits on a step too - so the yaw
-    // joins the easing exactly then (a settling crate twisting slightly
-    // reads as natural). Spheres skip it: their orientation is invisible
-    // and easing would visibly roll the baked shading for nothing. Sleep
-    // waits for the easing to finish (flattening resets the countdown).
+    // Settle-flatten: a near-rest tumbled body eases onto a flat face
+    // instead of sleeping on an edge or corner - pitch/roll walk to a 90deg
+    // step (the crate visibly tips onto its face; the rotated support
+    // extent above lowers it with the tilt). It engages while the tumble is
+    // still dying (spin under PHYS_FLATTEN_SPIN, well above the rest gate)
+    // and picks each target ONCE with a momentum lookahead - a crate still
+    // tipping forward finishes its fall onto the NEXT face instead of being
+    // yanked back to the nearest one - then takes the residual spin over so
+    // the two drivers never fight. The latched targets keep the choice
+    // stable while the spin decays. Euler-order trap: rotated() composes
+    // Rz*Ry*Rx, and with the roll on an ODD step the pose is only flat when
+    // the yaw sits on a step too - so the yaw joins the easing exactly then
+    // (a settling crate twisting slightly reads as natural). Spheres skip
+    // it: their orientation is invisible and easing would visibly roll the
+    // baked shading for nothing. Sleep waits for the easing to finish
+    // (flattening resets the countdown).
     bool flattening = false, flatMoved = false;
     if (o.data.physTumble && o.data.type != 1 && grounded &&
-        speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN) {
-      auto ease = [&](int axis, float target) {
+        speed2 < PHYS_REST_SPEED2 * 4.0F && spinMag < PHYS_FLATTEN_SPIN) {
+      if (o.flatTgt[0] > 720.0F) {  // unlatched - pick the faces once
+        auto pick = [&](int axis) {
+          // ~20 frames of the dying spin decide whether the tip carries
+          // over the balance point onto the next face
+          return roundf((o.data.rotation[axis] + o.spin[axis] * 20.0F) /
+                        90.0F) *
+                 90.0F;
+        };
+        o.flatTgt[0] = pick(0);
+        o.flatTgt[2] = pick(2);
+        // roll on an ODD 90 step: the yaw must land on a step too
+        o.flatTgt[1] = fabsf(fmodf(o.flatTgt[2], 180.0F)) > 45.0F
+                           ? roundf(o.data.rotation[1] / 90.0F) * 90.0F
+                           : 1e9F;
+        o.spin[0] = o.spin[2] = 0.0F;  // the ease drives from here
+      }
+      auto ease = [&](int axis) {
+        const float target = o.flatTgt[axis];
+        if (target > 720.0F) return;  // yaw not eased this settle
         float d = target - o.data.rotation[axis];
         if (fabsf(d) < 0.001F) return;
         if (d > PHYS_FLATTEN_STEP) {
@@ -7483,11 +7525,11 @@ void TerrainGame::updateObjectPhysics() {
         o.data.rotation[axis] += d;
         flatMoved = true;
       };
-      const float tz = roundf(o.data.rotation[2] / 90.0F) * 90.0F;
-      ease(0, roundf(o.data.rotation[0] / 90.0F) * 90.0F);
-      ease(2, tz);
-      if (fabsf(fmodf(tz, 180.0F)) > 45.0F)  // roll ends on an ODD 90 step
-        ease(1, roundf(o.data.rotation[1] / 90.0F) * 90.0F);
+      ease(0);
+      ease(2);
+      ease(1);
+    } else {
+      o.flatTgt[0] = o.flatTgt[1] = o.flatTgt[2] = 1e9F;  // re-pick next settle
     }
 
     if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN &&
@@ -11209,6 +11251,10 @@ struct RuntimeObject {
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
   float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Settle-flatten targets, latched once per settle so the chosen face
+  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
+  // stays" when the roll lands on an even 90deg step.
+  float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   signed char restFrames = 0;          // sleep counter; write 0 to wake
   bool dirty = true;
   // False while the object's streaming layer is not resident: the object is

@@ -10,6 +10,46 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (153) **Settle-flatten v2 (finish the fall) + mesh collision holds for
+  tumbled/rotated models (world-space steepness, side-aware push).** Two
+  follow-ups. (a) The (152) flatten waited for the tumble to die to the
+  rest gate (spin < 0.75 deg/frame) and re-picked "nearest 90deg step"
+  every frame - a crate still tipping forward could get yanked BACK to the
+  face it was leaving, and the tumble's rolling-without-slipping kept
+  re-deriving spin from the residual slide under the ease (overshoot-and-
+  return, 270.49 -> 270.00). Now the flatten engages while the tumble is
+  still dying (PHYS_FLATTEN_SPIN = 2.5 deg/frame, speed gate 4x rest),
+  picks each target ONCE with a ~20-frame momentum lookahead
+  (roundf((rot + spin*20)/90)) latched in RuntimeObject::flatTgt (reset
+  whenever the gate fails), zeroes the residual spin (the ease drives from
+  there) and suppresses the tumble's spin re-derivation while latched. The
+  sleep rule itself is unchanged and now documented here: a body sleeps
+  after 24 consecutive frames (~0.5 s) of grounded + speed under ~0.8 u/s
+  + spin under 0.75 deg/frame, with flatten-in-progress resetting the
+  countdown. (b) `CollisionMesh::resolveSphere` judged "steep wall vs
+  walkable floor" on the LOCAL normal.y - a mesh-collision physics model
+  lying on its side (tumbled bodies rest with 90deg pitch/roll now) has
+  world-walls whose local normal reads as floor, so the player walked
+  straight through; AND the push itself was two-sided along
+  (center - closest), which for a step landing PAST a wall's plane points
+  INTO the volume - with the FPP step (~0.4 u/frame) longer than the
+  player radius (0.35) a fast walker crossed the plane and got sucked
+  inside (this also affected unrotated meshes). The engine gained a
+  resolveSphere overload taking the up direction in mesh-local space
+  (classification = dot(normal, up), world-up rides in via invRotated)
+  and the pre-move position: the sphere is ejected to prev's side of each
+  face, crossings are caught within a radius+0.6 capture band, gated on
+  the plane distance dominating the gap (sCur^2 > 0.5*d2) so crossing a
+  wall's PLANE near its top edge while walking ON the mesh doesn't yank
+  the walker off the top. Verified (probe repro, PCSX2): a walk-step sweep
+  into a rz=90 mesh cube - approach stops at the face (-5.35 = face -
+  radius), steps landing 0.2-0.4 INSIDE eject back to -5.35 (pre-fix they
+  pulled in deeper); flatten traces are monotone with no overshoot (Crate
+  engages at spin 2.52, eases 64->73->85->90.00 exactly; Target
+  134->...->180.00), the sphere's trace stays byte-identical. Editor +
+  Docker PS2 builds clean (engine lib rebuilt from the bind-mount).
+  In-game pad feel remains the hands-on check.
+
 - (152) **Physics upgrades: hits wake sleeping bodies, tumbled boxes ride
   their rotated bound (no more sinking), and near-rest bodies settle flat.**
   Three user asks in one pass over `updateObjectPhysics`. (a) *A thrown
