@@ -10164,6 +10164,22 @@ void App::drawAmbienceWindow() {
             "vertex colors at build - zero PS2 runtime cost. Animated\n"
             "models are unaffected (they relight dynamically).");
     if (a.aoEnabled) {
+        const char* aoModes[] = {"Vertex colors", "Textured (experimental)"};
+        int aoMode = a.aoTextured ? 1 : 0;
+        ImGui::SetNextItemWidth(scaled(220.0f));
+        if (ImGui::Combo("AO quality", &aoMode, aoModes, 2)) {
+            a.aoTextured = aoMode == 1;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Vertex colors: free (baked into the vertex shade), but on\n"
+                "sparse meshes the Gouraud interpolation shows triangle\n"
+                "edges. Textured: the occlusion bakes into per-pixel AO\n"
+                "textures (a terrain map + a primitive lightmap atlas) drawn\n"
+                "as an extra blended pass - smooth, but costs VRAM, fill\n"
+                "rate, and the covered objects leave static batching.\n"
+                "Imported models keep the vertex bake in both modes.");
         ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         if (ImGui::IsItemHovered())

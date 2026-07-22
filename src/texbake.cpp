@@ -321,7 +321,9 @@ std::string bake(const Project& p,
         const fs::path rel = fs::relative(e.path(), baked, ec);
         // stoch/ holds generated supertiles with no res/ source - regenerated
         // wholesale below, so leave them out of the vanished-source sweep.
-        if (rel.begin()->generic_string() == "stoch") continue;
+        // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too.
+        const std::string top0 = rel.begin()->generic_string();
+        if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas") continue;
         std::error_code sec;
         // "<model>.aov" AO sidecars are generated below with no res/ source -
         // their source is the model itself; they go stale with it or when the
@@ -360,6 +362,65 @@ std::string bake(const Project& p,
         if (aoCount)
             log("[editor] Ambient occlusion: baked " + std::to_string(aoCount) +
                 " model AO sidecar(s)");
+    }
+
+    // Experimental textured AO (docs/ambient-occlusion.md): the terrain AO
+    // map + the primitive lightmap atlas, one pair per AO-textured scene,
+    // regenerated wholesale like the stochastic supertiles. Codegen emits
+    // the matching atlas rects from the SAME deterministic bake
+    // (aobake::bakeSceneAoAtlas), so pixels and UVs cannot drift.
+    fs::remove_all(baked / "aomap", ec);
+    fs::remove_all(baked / "aoatlas", ec);
+    {
+        const aobake::ModelAabbFn aabbFn = [&](const SceneObject& o, float* mn,
+                                               float* mx) {
+            if (o.modelPath.empty()) return false;
+            return aobake::objAabb((fs::path(p.dir) / o.modelPath).string(), mn,
+                                   mx);
+        };
+        auto writeAlphaPng = [&](const fs::path& dst, int size,
+                                 const std::vector<uint8_t>& alpha) {
+            std::vector<unsigned char> rgba((size_t)size * size * 4, 0);
+            for (size_t i = 0; i < alpha.size(); ++i) rgba[i * 4 + 3] = alpha[i];
+            fs::create_directories(dst.parent_path(), ec);
+            std::string err;
+            // Full RGBA32 on purpose: the engine's palettized (tRNS -> CLUT)
+            // path loses the smooth alpha gradient these maps are made of
+            // (verified in PCSX2 - the quantized bake rendered as nothing).
+            // aobake caps both images at 256x256 to keep the VRAM cost sane.
+            if (!pngquant::writePngRGBA(dst.string(), rgba.data(), size, size,
+                                        err)) {
+                log("[editor] textured AO: " + dst.filename().string() + ": " +
+                    err);
+                return false;
+            }
+            return true;
+        };
+        int aoTexCount = 0;
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            const SceneData& sc = p.scenes[si];
+            const ProjectSettings srs = project::resolvedSettings(p, sc);
+            if (!srs.aoEnabled || !srs.aoTextured) continue;
+            const aobake::AoImage map = aobake::terrainAOMap(
+                sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                (float)sc.terrain.depth,
+                aobake::collectOccluders(sc.objects, aabbFn), srs.aoRadius,
+                srs.aoStrength);
+            if (map.size > 0 &&
+                writeAlphaPng(baked / "aomap" / ("scene" + std::to_string(si) + ".png"),
+                              map.size, map.alpha))
+                ++aoTexCount;
+            const aobake::SceneAoAtlas atlas =
+                aobake::bakeSceneAoAtlas(p, sc, aabbFn);
+            if (atlas.size > 0 &&
+                writeAlphaPng(
+                    baked / "aoatlas" / ("scene" + std::to_string(si) + ".png"),
+                    atlas.size, atlas.alpha))
+                ++aoTexCount;
+        }
+        if (aoTexCount)
+            log("[editor] Ambient occlusion: baked " + std::to_string(aoTexCount) +
+                " AO texture(s) (textured mode)");
     }
 
     // Stochastic-tiling supertiles (docs/terrain-painting.md): one

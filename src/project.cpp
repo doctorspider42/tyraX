@@ -705,6 +705,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.aoEnabled = a.aoEnabled;
         r.aoStrength = a.aoStrength;
         r.aoRadius = a.aoRadius;
+        r.aoTextured = a.aoTextured;
         r.fogEnabled = a.fogEnabled;
         r.fogStart = a.fogStart;
         r.fogEnd = a.fogEnd;
@@ -817,6 +818,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"aoStrength\": " << fmtFloat(p.settings.aoStrength) << ",\n"
          << "    \"aoRadius\": " << fmtFloat(p.settings.aoRadius) << ",\n"
+         << "    \"aoTextured\": " << (p.settings.aoTextured ? "true" : "false")
+         << ",\n"
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
@@ -1027,6 +1030,7 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
              << ", \"aoEnabled\": " << (a.aoEnabled ? "true" : "false")
              << ", \"aoStrength\": " << fmtFloat(a.aoStrength)
              << ", \"aoRadius\": " << fmtFloat(a.aoRadius)
+             << ", \"aoTextured\": " << (a.aoTextured ? "true" : "false")
              << ", \"fogEnabled\": " << (a.fogEnabled ? "true" : "false")
              << ", \"fogColor\": " << fmtVec3(a.fogColor)
              << ", \"fogStart\": " << fmtFloat(a.fogStart)
@@ -2298,6 +2302,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.aoRadius = (float)v->numberOr(2.5);
         if (st.aoRadius < 0.1f) st.aoRadius = 0.1f;
         if (st.aoRadius > 50.0f) st.aoRadius = 50.0f;
+        if (const auto* v = s->find("aoTextured")) st.aoTextured = v->boolOr(false);
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("dofAmount"))
@@ -2606,6 +2611,8 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
                 a.aoRadius = (float)v->numberOr(2.5);
             if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
             if (a.aoRadius > 50.0f) a.aoRadius = 50.0f;
+            if (const auto* v = ja.find("aoTextured"))
+                a.aoTextured = v->boolOr(false);
             if (const auto* v = ja.find("fogEnabled")) a.fogEnabled = v->boolOr(false);
             readVec3(ja.find("fogColor"), a.fogColor);
             if (const auto* v = ja.find("fogStart")) a.fogStart = (float)v->numberOr(15.0);
@@ -3127,7 +3134,7 @@ std::string load(Project& out, const std::string& projectDir) {
             a.zenithSize = s.zenithSize;
             a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
             a.aoEnabled = s.aoEnabled, a.aoStrength = s.aoStrength;
-            a.aoRadius = s.aoRadius;
+            a.aoRadius = s.aoRadius, a.aoTextured = s.aoTextured;
             a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
             return a;
         };

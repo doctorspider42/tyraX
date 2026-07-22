@@ -10,6 +10,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (151) **Textured AO quality mode (experimental)** - the follow-up to (150)
+  after the owner's PCSX2 check: per-vertex AO on the sparse terrain grid and
+  on 2-triangle primitive faces shows its Gouraud diamonds. New **AO quality**
+  switch on the ambience preset (`aoTextured`): the same occlusion bakes into
+  **per-pixel AO textures** - a terrain AO map (heightmap self-occlusion +
+  occluder contact, `aobake::terrainAOMap`, ≤256²) and a per-scene **primitive
+  lightmap atlas** (`aobake::bakeSceneAoAtlas`: shelf-packed regions per
+  builder UV layout - box 6 faces / sphere 1 / cylinder 3 / cone 2 / plane 2 -
+  rasterized on the host with the same occluder+ground formulas, now also
+  host-implemented as `aobake::occluderOcclusionAt`). Both draw as extra
+  alpha-blended passes (black texture + GS alpha-over = exact per-pixel
+  `Cd*(1-a)` multiply): the terrain pass after base+layers per chunk, the
+  object pass per part right before the additive env pass, reusing the
+  layer-blend info bag; pushVert emits atlas STs (builders bump `g_aoRegion`)
+  instead of multiplying the shade. texbake writes the PNGs into
+  `.res-baked/aomap|aoatlas/`; codegen emits the matching rects from the same
+  deterministic bake. Covered objects leave static batching; models/physics/
+  pickable/save-state/clones keep the vertex bake. Two dead ends worth
+  remembering: (a) the engine's palettized tRNS→CLUT path loses the smooth
+  alpha gradient - a pngquant-quantized AO map renders as NOTHING in PCSX2
+  (an untextured red-probe pass proved the blend pipeline itself fine), so
+  the AO textures ship as RGBA32, capped at 256² for VRAM; (b) the first
+  "no AO on screen" was a stale-ELF screenshot - verify the camera pose
+  before debugging pixels. Verified in PCSX2 both ways: textured mode shows
+  smooth per-pixel contact shadows (sphere blob, box-on-wall shadow, no
+  triangle edges) at 50 FPS; flipping the combo back reproduces the vertex
+  look exactly. Editor viewport previews per fragment in both modes (its
+  usual look ≈ textured); GUI screenshot still blocked by the machine's
+  white-window quirk - see (150).
+
 - (150) **Baked ambient occlusion** (docs/ambient-occlusion.md). Soft contact
   shadows folded into the same per-vertex colors the directional light bakes
   into - zero PS2 per-frame cost. Three bakes: **terrain self-occlusion**

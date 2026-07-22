@@ -112,6 +112,52 @@ std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
     return out;
 }
 
+float occluderOcclusionAt(const Occluder& oc, const float wp[3],
+                          const float n[3], float range) {
+    const float rel[3] = {wp[0] - oc.pos[0], wp[1] - oc.pos[1],
+                          wp[2] - oc.pos[2]};
+    float dist;
+    float toOcc[3];  // direction from the point toward the occluder surface
+    if (oc.sphere) {
+        const float d =
+            std::sqrt(rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]);
+        dist = d - oc.half[0];
+        if (d > 0.0001f) {
+            toOcc[0] = -rel[0] / d, toOcc[1] = -rel[1] / d, toOcc[2] = -rel[2] / d;
+        } else {
+            toOcc[0] = 0, toOcc[1] = 1, toOcc[2] = 0;
+        }
+    } else {
+        float l[3], q[3], dv[3];
+        for (int k = 0; k < 3; ++k) {
+            l[k] = rel[0] * oc.axis[k][0] + rel[1] * oc.axis[k][1] +
+                   rel[2] * oc.axis[k][2];
+            q[k] = l[k] < -oc.half[k] ? -oc.half[k]
+                                      : (l[k] > oc.half[k] ? oc.half[k] : l[k]);
+            dv[k] = l[k] - q[k];
+        }
+        dist = std::sqrt(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
+        if (dist > 0.0001f) {
+            for (int k = 0; k < 3; ++k) {
+                const float w = dv[0] * oc.axis[0][k] + dv[1] * oc.axis[1][k] +
+                                dv[2] * oc.axis[2][k];
+                toOcc[k] = -w / dist;
+            }
+        } else {
+            toOcc[0] = 0, toOcc[1] = 1, toOcc[2] = 0;
+        }
+    }
+    if (dist <= 0.0f) return 1.0f;  // touching / inside
+    float fade = 1.0f - dist / range;
+    if (fade <= 0.0f) return 0.0f;
+    fade *= fade;
+    // full occlusion facing the occluder, ~0.35 side-on, zero facing away
+    float w = 0.35f + 0.65f * (n[0] * toOcc[0] + n[1] * toOcc[1] + n[2] * toOcc[2]);
+    if (w <= 0.0f) return 0.0f;
+    if (w > 1.0f) w = 1.0f;
+    return fade * w;
+}
+
 std::vector<uint8_t> terrainAO(const std::vector<float>& heights, int w, int d,
                                float stepX, float stepZ, float radiusWorld) {
     std::vector<uint8_t> out;
@@ -357,6 +403,410 @@ std::vector<uint8_t> modelAO(const objparser::Model& m) {
         if (occ < 0.0f) occ = 0.0f;
         if (occ > 1.0f) occ = 1.0f;
         out[pi] = (uint8_t)(255.0f * (1.0f - occ) + 0.5f);
+    }
+    return out;
+}
+
+namespace {
+
+// Bilinear height over the vertex grid, clamped at the borders - the host
+// twin of the generated terrainHeightAtScene (keep the sampling identical).
+float heightAtWorld(const std::vector<float>& heights, int w, int d,
+                    float width, float depth, float x, float z) {
+    if (w < 2 || d < 2 || (int)heights.size() < w * d) return 0.0f;
+    float gx = (x + width * 0.5f) / width * (w - 1);
+    float gz = (z + depth * 0.5f) / depth * (d - 1);
+    if (gx < 0) gx = 0;
+    if (gz < 0) gz = 0;
+    if (gx > w - 1.001f) gx = w - 1.001f;
+    if (gz > d - 1.001f) gz = d - 1.001f;
+    const int ix = (int)gx, iz = (int)gz;
+    const float fx = gx - ix, fz = gz - iz;
+    auto h = [&](int a, int b) { return heights[(size_t)b * w + a]; };
+    const float t = h(ix, iz) * (1 - fx) + h(ix + 1, iz) * fx;
+    const float b = h(ix, iz + 1) * (1 - fx) + h(ix + 1, iz + 1) * fx;
+    return t * (1 - fz) + b * fz;
+}
+
+// The wall-base-softened ground contact term - the host copy of the
+// generated aoShadeMul ground branch (and the viewport shader's). Sync all
+// three when the formula moves.
+float groundOcclusion(float dy, float ny, float range) {
+    if (dy < 0.0f) dy = 0.0f;
+    if (dy >= range) return 0.0f;
+    float fade = 1.0f - dy / range;
+    fade *= fade;
+    float horiz = 0.5f - 0.5f * ny;
+    if (horiz < 0.0f) horiz = 0.0f;
+    return 0.7f * fade * horiz;
+}
+
+int pow2Up(int v) {
+    int p = 1;
+    while (p < v) p <<= 1;
+    return p;
+}
+
+}  // namespace
+
+AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
+                     float width, float depth,
+                     const std::vector<Occluder>& occs, float radiusWorld,
+                     float strength) {
+    AoImage out;
+    if (width <= 0 || depth <= 0 || strength <= 0.0f) return out;
+    const bool hasHeights = w >= 2 && d >= 2 && (int)heights.size() == w * d;
+    // ~4 texels per terrain unit, power of two. Capped at 256: the maps ship
+    // as RGBA32 (see texbake - the engine's palettized alpha path can't carry
+    // the gradient), so 256x256 = 256 KB of the ~1.33 MB GS texture budget.
+    int size = pow2Up((int)std::max(width, depth) * 4);
+    if (size < 64) size = 64;
+    if (size > 256) size = 256;
+    out.size = size;
+    out.alpha.assign((size_t)size * size, 0);
+
+    const float stepX = hasHeights ? width / (w - 1) : width;
+    const float stepZ = hasHeights ? depth / (d - 1) : depth;
+    const float scanRadius = radiusWorld * 3.0f;  // matches terrainAO's caller
+    const float minStep = std::min(stepX, stepZ);
+    int maxSteps = (int)std::ceil(scanRadius / std::max(minStep, 0.001f));
+    if (maxSteps < 2) maxSteps = 2;
+    if (maxSteps > 48) maxSteps = 48;
+    const float dirs[8][2] = {{1, 0},  {-1, 0}, {0, 1},  {0, -1},
+                              {0.7071f, 0.7071f},  {0.7071f, -0.7071f},
+                              {-0.7071f, 0.7071f}, {-0.7071f, -0.7071f}};
+
+    bool any = false;
+    for (int j = 0; j < size; ++j) {
+        for (int i = 0; i < size; ++i) {
+            const float x = ((i + 0.5f) / size - 0.5f) * width;
+            const float z = ((j + 0.5f) / size - 0.5f) * depth;
+            float occ = 0.0f;
+            float h0 = 0.0f;
+            float n[3] = {0, 1, 0};
+            if (hasHeights) {
+                h0 = heightAtWorld(heights, w, d, width, depth, x, z);
+                // central-difference normal, same spirit as the chunk builders
+                const float hx0 = heightAtWorld(heights, w, d, width, depth, x - stepX, z);
+                const float hx1 = heightAtWorld(heights, w, d, width, depth, x + stepX, z);
+                const float hz0 = heightAtWorld(heights, w, d, width, depth, x, z - stepZ);
+                const float hz1 = heightAtWorld(heights, w, d, width, depth, x, z + stepZ);
+                n[0] = hx0 - hx1;
+                n[1] = 2.0f * minStep;
+                n[2] = hz0 - hz1;
+                const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
+                // heightmap self-occlusion: the same horizon scan as
+                // terrainAO, on bilinear heights
+                for (int dir = 0; dir < 8; ++dir) {
+                    float maxSin = 0.0f;
+                    for (int k = 1; k <= maxSteps; ++k) {
+                        const float dist = minStep * k;
+                        if (dist > scanRadius) break;
+                        const float sx = x + dirs[dir][0] * dist;
+                        const float sz = z + dirs[dir][1] * dist;
+                        if (sx < -width * 0.5f || sx > width * 0.5f ||
+                            sz < -depth * 0.5f || sz > depth * 0.5f)
+                            break;
+                        const float dh =
+                            heightAtWorld(heights, w, d, width, depth, sx, sz) - h0;
+                        if (dh <= 0.0f) continue;
+                        const float s = dh / std::sqrt(dh * dh + dist * dist);
+                        if (s > maxSin) maxSin = s;
+                    }
+                    occ += maxSin / 8.0f;
+                }
+            }
+            const float wp[3] = {x, h0, z};
+            for (const Occluder& oc : occs)
+                occ += occluderOcclusionAt(oc, wp, n, radiusWorld);
+            if (occ > 1.0f) occ = 1.0f;
+            const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
+            out.alpha[(size_t)j * size + i] = a;
+            any |= (a != 0);
+        }
+    }
+    if (!any) out.size = 0, out.alpha.clear();
+    return out;
+}
+
+namespace {
+
+// (u,v) -> local position + local normal for one atlas region of a
+// primitive. The forward mapping (the generated builders' UV emission and
+// primmesh's) inverted - keep in sync with addBox/addSphere/addCylinder/
+// addCone/addPlane in templates.cpp.
+void regionPoint(PrimitiveType type, int region, float u, float v,
+                 float pos[3], float nrm[3]) {
+    const float h = 0.5f;
+    auto set = [&](float px, float py, float pz, float nx, float ny, float nz) {
+        pos[0] = px, pos[1] = py, pos[2] = pz;
+        nrm[0] = nx, nrm[1] = ny, nrm[2] = nz;
+    };
+    switch (type) {
+        default:  // Box / SavePoint: face order +X,-X,+Y,-Y,+Z,-Z (addBox)
+            switch (region) {
+                case 0: set(h, -h + u, -h + v, 1, 0, 0); break;
+                case 1: set(-h, -h + u, h - v, -1, 0, 0); break;
+                case 2: set(-h + v, h, -h + u, 0, 1, 0); break;
+                case 3: set(-h + v, -h, h - u, 0, -1, 0); break;
+                case 4: set(-h + u, -h + v, h, 0, 0, 1); break;
+                default: set(h - u, -h + v, -h, 0, 0, -1); break;
+            }
+            break;
+        case PrimitiveType::Sphere: {
+            // u -> longitude, v -> latitude (addSphere: tu = sl/slices,
+            // tv = st/stacks; theta 0 = +Y pole)
+            const float phi = 2.0f * kPi * u;
+            const float theta = kPi * v;
+            const float sx = std::sin(theta) * std::cos(phi);
+            const float sy = std::cos(theta);
+            const float sz = std::sin(theta) * std::sin(phi);
+            set(h * sx, h * sy, h * sz, sx, sy, sz);
+            break;
+        }
+        case PrimitiveType::Cylinder:
+            if (region == 0) {  // side: u wraps, v 0 = top, 1 = bottom
+                const float a = 2.0f * kPi * u;
+                set(h * std::cos(a), h * (1.0f - 2.0f * v), h * std::sin(a),
+                    std::cos(a), 0, std::sin(a));
+            } else if (region == 1) {  // +Y cap, planar (x+0.5, z+0.5)
+                set(u - 0.5f, h, v - 0.5f, 0, 1, 0);
+            } else {  // -Y cap
+                set(u - 0.5f, -h, v - 0.5f, 0, -1, 0);
+            }
+            break;
+        case PrimitiveType::Cone:
+            if (region == 0) {  // side: v 0 = apex, 1 = base rim
+                const float a = 2.0f * kPi * u;
+                const float rv = h * v;
+                const float nl = 0.894f, ny = 0.447f;
+                set(rv * std::cos(a), h * (1.0f - 2.0f * v), rv * std::sin(a),
+                    nl * std::cos(a), ny, nl * std::sin(a));
+            } else {  // base, planar
+                set(u - 0.5f, -h, v - 0.5f, 0, -1, 0);
+            }
+            break;
+        case PrimitiveType::Plane:
+            // addPlane via pushQuad: top face u -> +Z, v -> +X; bottom
+            // mirrored (u -> -Z)
+            if (region == 0)
+                set(-h + v, 0, -h + u, 0, 1, 0);
+            else
+                set(-h + v, 0, h - u, 0, -1, 0);
+            break;
+    }
+}
+
+// World-size estimate (u, v) of one region - drives its texel allocation.
+void regionWorldSize(PrimitiveType type, int region, const float scale[3],
+                     float& su, float& sv) {
+    const float sx = std::fabs(scale[0]);
+    const float sy = std::fabs(scale[1]);
+    const float sz = std::fabs(scale[2]);
+    switch (type) {
+        default:  // box faces
+            switch (region) {
+                case 0:
+                case 1: su = sy, sv = sz; break;
+                case 2:
+                case 3: su = sz, sv = sx; break;
+                default: su = sx, sv = sy; break;
+            }
+            break;
+        case PrimitiveType::Sphere: {
+            const float s = std::max(sx, std::max(sy, sz));
+            su = 3.14f * s * 0.5f + s, sv = 1.57f * s * 0.5f + s;
+            break;
+        }
+        case PrimitiveType::Cylinder:
+            if (region == 0)
+                su = 3.14f * std::max(sx, sz), sv = sy;
+            else
+                su = sx, sv = sz;
+            break;
+        case PrimitiveType::Cone:
+            if (region == 0)
+                su = 3.14f * std::max(sx, sz), sv = sy;
+            else
+                su = sx, sv = sz;
+            break;
+        case PrimitiveType::Plane: su = sz, sv = sx; break;
+    }
+}
+
+int regionCountFor(PrimitiveType t) {
+    switch (t) {
+        case PrimitiveType::Box:
+        case PrimitiveType::SavePoint: return 6;
+        case PrimitiveType::Sphere: return 1;
+        case PrimitiveType::Cylinder: return 3;
+        case PrimitiveType::Cone: return 2;
+        case PrimitiveType::Plane: return 2;
+        default: return 0;
+    }
+}
+
+}  // namespace
+
+SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
+                              const ModelAabbFn& modelAabb) {
+    SceneAoAtlas out;
+    const ProjectSettings rs = project::resolvedSettings(p, sc);
+    out.firstRegion.assign(sc.objects.size(), -1);
+    if (!rs.aoEnabled || !rs.aoTextured || rs.aoStrength <= 0.0f) return out;
+
+    const std::vector<Occluder> occs = collectOccluders(sc.objects, modelAabb);
+
+    // Region list with pixel sizes; shelf-packed, halving the density until
+    // everything fits a 512 atlas (leftovers fall back to vertex AO).
+    struct Region {
+        int obj, idx;
+        int px, py, w, h;
+    };
+    std::vector<Region> regions;
+    for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
+        const SceneObject& o = sc.objects[oi];
+        const int rc = regionCountFor(o.type);
+        if (rc == 0) continue;
+        // Runtime movers keep the vertex bake (which re-bakes on rebuild);
+        // an atlas region would glue the baked shadow to the moved surface.
+        if (o.physics || o.pickable || o.saveState) continue;
+        for (int r = 0; r < rc; ++r) regions.push_back({oi, r, 0, 0, 0, 0});
+    }
+    if (regions.empty()) return out;
+
+    float tpu = 6.0f;  // texels per world unit
+    int atlasSize = 0;
+    for (int attempt = 0; attempt < 6; ++attempt, tpu *= 0.5f) {
+        long long area = 0;
+        for (Region& rg : regions) {
+            float su, sv;
+            regionWorldSize(sc.objects[rg.obj].type, rg.idx,
+                            sc.objects[rg.obj].scale, su, sv);
+            rg.w = std::min(128, std::max(2, (int)(su * tpu + 0.5f))) + 2;
+            rg.h = std::min(128, std::max(2, (int)(sv * tpu + 0.5f))) + 2;
+            area += (long long)rg.w * rg.h;
+        }
+        // 256 cap for the same RGBA32 VRAM reason as the terrain map.
+        atlasSize = pow2Up((int)std::ceil(std::sqrt((double)area * 1.35)));
+        if (atlasSize < 64) atlasSize = 64;
+        if (atlasSize > 256) {
+            if (attempt < 5) continue;
+            atlasSize = 256;
+        }
+        // shelf pack, tallest first
+        std::vector<int> order(regions.size());
+        for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
+        std::sort(order.begin(), order.end(), [&](int a, int b) {
+            return regions[a].h > regions[b].h;
+        });
+        int cx = 0, cy = 0, shelfH = 0;
+        bool ok = true;
+        for (int i : order) {
+            Region& rg = regions[i];
+            if (cx + rg.w > atlasSize) {
+                cx = 0;
+                cy += shelfH;
+                shelfH = 0;
+            }
+            if (cy + rg.h > atlasSize) {
+                ok = false;
+                break;
+            }
+            rg.px = cx, rg.py = cy;
+            cx += rg.w;
+            if (rg.h > shelfH) shelfH = rg.h;
+        }
+        if (ok) break;
+        if (attempt == 5) return out;  // hopeless - whole scene falls back
+    }
+
+    out.size = atlasSize;
+    out.alpha.assign((size_t)atlasSize * atlasSize, 0);
+
+    // Rasterize each region: (u,v) -> local -> world (the pushVert transform:
+    // scale, rotate, translate) -> occluders (excluding self) + ground term.
+    int lastObj = -1;
+    std::vector<const Occluder*> local;
+    for (const Region& rg : regions) {
+        const SceneObject& o = sc.objects[rg.obj];
+        if (rg.obj != lastObj) {
+            lastObj = rg.obj;
+            local.clear();
+            const float reachBase =
+                0.87f * std::sqrt(o.scale[0] * o.scale[0] + o.scale[1] * o.scale[1] +
+                                  o.scale[2] * o.scale[2]) +
+                rs.aoRadius;
+            for (const Occluder& oc : occs) {
+                if (oc.objIndex == rg.obj) continue;
+                const float dx = oc.pos[0] - o.position[0];
+                const float dy = oc.pos[1] - o.position[1];
+                const float dz = oc.pos[2] - o.position[2];
+                const float reach =
+                    reachBase + std::sqrt(oc.half[0] * oc.half[0] +
+                                          oc.half[1] * oc.half[1] +
+                                          oc.half[2] * oc.half[2]);
+                if (dx * dx + dy * dy + dz * dz <= reach * reach)
+                    local.push_back(&oc);
+            }
+        }
+        // interior (the +2 padding ring stays, filled by the dilation below)
+        const int iw = rg.w - 2, ih = rg.h - 2;
+        for (int j = 0; j < ih; ++j) {
+            for (int i = 0; i < iw; ++i) {
+                const float u = (i + 0.5f) / iw;
+                const float v = (j + 0.5f) / ih;
+                float lp[3], ln[3];
+                regionPoint(o.type, rg.idx, u, v, lp, ln);
+                lp[0] *= o.scale[0], lp[1] *= o.scale[1], lp[2] *= o.scale[2];
+                const V3 rp = rotated({lp[0], lp[1], lp[2]}, o.rotation);
+                const V3 rn = rotated({ln[0], ln[1], ln[2]}, o.rotation);
+                const float wp[3] = {rp.x + o.position[0], rp.y + o.position[1],
+                                     rp.z + o.position[2]};
+                const float n[3] = {rn.x, rn.y, rn.z};
+                float occ = 0.0f;
+                for (const Occluder* oc : local)
+                    occ += occluderOcclusionAt(*oc, wp, n, rs.aoRadius);
+                // ground term; an empty heightmap samples the y = 0 plane
+                const float ground = heightAtWorld(
+                    sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                    (float)sc.terrain.depth, wp[0], wp[2]);
+                occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
+                if (occ > 1.0f) occ = 1.0f;
+                out.alpha[(size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i] =
+                    (uint8_t)(255.0f * rs.aoStrength * occ + 0.5f);
+            }
+        }
+        // dilate the interior into the 1-texel padding ring (bilinear guard)
+        auto at = [&](int x, int y) -> uint8_t& {
+            return out.alpha[(size_t)(rg.py + y) * atlasSize + rg.px + x];
+        };
+        for (int i = 0; i < rg.w; ++i) {
+            const int ci = i < 1 ? 1 : (i > rg.w - 2 ? rg.w - 2 : i);
+            at(i, 0) = at(ci, 1);
+            at(i, rg.h - 1) = at(ci, rg.h - 2);
+        }
+        for (int j = 0; j < rg.h; ++j) {
+            const int cj = j < 1 ? 1 : (j > rg.h - 2 ? rg.h - 2 : j);
+            at(0, j) = at(1, cj);
+            at(rg.w - 1, j) = at(rg.w - 2, cj);
+        }
+    }
+
+    // Emit rects (interior only, inset half a texel) + per-object firsts.
+    // regions[] is already in object order, region idx ascending.
+    out.rects.reserve(regions.size());
+    const float inv = 1.0f / atlasSize;
+    for (const Region& rg : regions) {
+        if (out.firstRegion[rg.obj] < 0)
+            out.firstRegion[rg.obj] = (int)out.rects.size();
+        AtlasRect rc;
+        rc.u0 = (rg.px + 1.5f) * inv;
+        rc.v0 = (rg.py + 1.5f) * inv;
+        rc.du = (rg.w - 3.0f) * inv;
+        rc.dv = (rg.h - 3.0f) * inv;
+        out.rects.push_back(rc);
     }
     return out;
 }

@@ -49,6 +49,54 @@ using ModelAabbFn =
 std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
                                        const ModelAabbFn& modelAabb);
 
+// Host reference of the occluder response formula at a surface point
+// (0..1 occlusion; range = aoRadius). The generated game (aoOccluderAt in
+// templates.cpp, per vertex at load) and the viewport fragment shader
+// (aoOcclusion) are twins of THIS function - change one, change all three.
+// The textured AO mode rasterizes it into maps/atlases here on the host.
+float occluderOcclusionAt(const Occluder& oc, const float wp[3],
+                          const float n[3], float range);
+
+// --- textured AO (the experimental "AO quality: Textured" mode) ------------
+
+// A square, power-of-two occlusion image; alpha = strength * occlusion
+// (255 = darken fully). Written as a black RGBA PNG whose alpha the GS
+// alpha-over blend turns into an exact per-pixel multiply (Cd * (1 - a)).
+struct AoImage {
+    int size = 0;  // 0 = nothing to bake
+    std::vector<uint8_t> alpha;
+};
+
+// Terrain AO map covering the full terrain extent: per-texel heightmap
+// self-occlusion (the same horizon scan as terrainAO, on bilinear heights)
+// plus the occluder contact term. Replaces BOTH per-vertex terrain paths
+// when the textured mode is on.
+AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
+                     float width, float depth,
+                     const std::vector<Occluder>& occs, float radiusWorld,
+                     float strength);
+
+// One atlas region: normalized UV rect (inset by half a texel against
+// bilinear bleed). A primitive's base-texture UVs map into it 1:1.
+struct AtlasRect {
+    float u0 = 0, v0 = 0, du = 0, dv = 0;
+};
+
+// Per-scene AO lightmap atlas for the primitives (box/sphere/cylinder/cone/
+// plane/save point - types whose generated UV layout is known analytically).
+// Regions follow the generated builders' emission order exactly: box 6 faces
+// (+X,-X,+Y,-Y,+Z,-Z), sphere 1, cylinder 3 (side, +Y cap, -Y cap), cone 2
+// (side, base), plane 2 (top, bottom). Deterministic - codegen emits the
+// rects and texbake writes the pixels from two independent calls.
+struct SceneAoAtlas {
+    int size = 0;                  // atlas dimension, 0 = no atlas
+    std::vector<uint8_t> alpha;    // size*size occlusion alpha
+    std::vector<int> firstRegion;  // per authored object, -1 = not in atlas
+    std::vector<AtlasRect> rects;  // flat regions, builder order
+};
+SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
+                              const ModelAabbFn& modelAabb);
+
 // Terrain self-occlusion: an 8-direction horizon scan over the heightmap
 // (w x d vertex grid, row-major [z*w+x], cell size stepX/stepZ world units).
 // Scans up to radiusWorld out. Returns one byte per grid vertex, 255 = open

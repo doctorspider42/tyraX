@@ -8,11 +8,48 @@ PS2 pays **zero per-frame cost** — the game only pays a little extra work at
 scene load, where it bakes its vertex buffers anyway.
 
 Authored per **ambience preset** (*Tools > Ambience Editor*, "Ambient
-occlusion" block): an enable toggle, **AO strength** (how dark full occlusion
-gets) and **AO radius** (world units the contact darkening reaches; terrain
-self-shadowing scans 3× this). New projects have it enabled on their default
-preset; projects saved before the feature keep their look until it is turned
-on. The viewport previews the result live and matches the console output.
+occlusion" block): an enable toggle, an **AO quality** switch (see below),
+**AO strength** (how dark full occlusion gets) and **AO radius** (world units
+the contact darkening reaches; terrain self-shadowing scans 3× this). New
+projects have it enabled on their default preset; projects saved before the
+feature keep their look until it is turned on. The viewport previews the
+result live and matches the console output.
+
+## AO quality: Vertex colors vs Textured (experimental)
+
+**Vertex colors** (default) folds the occlusion into the per-vertex shade -
+completely free at runtime and static-batching friendly, but Gouraud
+interpolation across big triangles shows its edges: on the sparse terrain
+grid and on low-tessellation primitive faces a contact shadow becomes a
+diamond-shaped gradient.
+
+**Textured** bakes the same occlusion into **per-pixel AO textures** instead:
+
+- a **terrain AO map** covering the whole terrain (heightmap self-occlusion +
+  occluder contact, ≤256×256), drawn as one extra alpha-blended terrain pass;
+- a per-scene **primitive lightmap atlas**: every static box / sphere /
+  cylinder / cone / plane / save point gets atlas regions (box 6 faces,
+  sphere 1, cylinder 3, cone 2, plane 2 - `aobake::bakeSceneAoAtlas`, the
+  builders' UV layouts inverted), rasterized on the host with the same
+  occluder + ground formulas and drawn as a per-object extra pass.
+
+The textures are black RGBA PNGs whose **alpha is the occlusion** - the GS
+alpha-over blend `(Cs-Cd)*As/128 + Cd` with a black source collapses to
+`Cd*(1-As/128)`, an exact per-pixel multiply. They ship as full RGBA32 on
+purpose: the engine's palettized (tRNS→CLUT) path loses the smooth alpha
+gradient (verified in PCSX2 - a quantized bake renders as nothing), which is
+why both images are capped at 256×256 (~320 KB of the ~1.33 MB GS texture
+budget together).
+
+Costs of Textured, beyond VRAM: one extra blended terrain pass + one extra
+pass per covered object (fill rate + EE submit), and the covered objects
+**leave static batching** (the merge cannot carry the extra pass). Imported
+`.obj` models, physics/pickable/save-state objects and spawned clones keep
+the vertex bake in this mode (their occlusion still re-bakes on rebuild);
+`texbake` writes the images into `.res-baked/aomap/` + `.res-baked/aoatlas/`
+and codegen emits the matching atlas rects from the same deterministic bake,
+so pixels and UVs cannot drift. The editor viewport computes its AO preview
+per fragment either way, so it approximates the Textured look in both modes.
 
 ## The three bakes
 

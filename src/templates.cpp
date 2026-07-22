@@ -493,6 +493,14 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // Experimental textured AO: the terrain AO map blended over the base
+    // (and the layers). Shares the chunk's vertices; own extent-normalized
+    // STs, flat 128 colors (the map's alpha carries the darkening).
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    Tyra::StaPipTextureBag aoTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -508,6 +516,13 @@ class TerrainGame : public Tyra::Game {
   // Same render settings as infoBag but with GS blending on - shared by every
   // chunk's layer passes (the base pass must stay opaque).
   std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
+  // Experimental textured AO: the per-scene terrain AO map + primitive
+  // lightmap atlas (acquired in loadScene when the mode is on; nullptr
+  // otherwise). Both draw as alpha-over passes of black textures - the GS
+  // blend turns the alpha into an exact per-pixel darkening.
+  Tyra::Texture* aoMapTexture = nullptr;
+  Tyra::Texture* aoAtlasTexture = nullptr;
+  std::string aoMapTexPath, aoAtlasTexPath;  // for the release on scene swap
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -532,6 +547,15 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
+    // Experimental textured AO: the scene lightmap atlas multiplied over the
+    // base pass (alpha-over blend of a black texture = per-pixel darkening).
+    // aoSts map this part's vertices into the object's atlas regions; shares
+    // the vertices and bboxVersion like the env pass does.
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;  // flat 128s - the texture carries it all
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -1170,6 +1194,14 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // Experimental textured AO: the terrain AO map blended over the base
+    // (and the layers). Shares the chunk's vertices; own extent-normalized
+    // STs, flat 128 colors (the map's alpha carries the darkening).
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    Tyra::StaPipTextureBag aoTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -1185,6 +1217,13 @@ class TerrainGame : public Tyra::Game {
   // Same render settings as infoBag but with GS blending on - shared by every
   // chunk's layer passes (the base pass must stay opaque).
   std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
+  // Experimental textured AO: the per-scene terrain AO map + primitive
+  // lightmap atlas (acquired in loadScene when the mode is on; nullptr
+  // otherwise). Both draw as alpha-over passes of black textures - the GS
+  // blend turns the alpha into an exact per-pixel darkening.
+  Tyra::Texture* aoMapTexture = nullptr;
+  Tyra::Texture* aoAtlasTexture = nullptr;
+  std::string aoMapTexPath, aoAtlasTexPath;  // for the release on scene swap
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -1209,6 +1248,15 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
+    // Experimental textured AO: the scene lightmap atlas multiplied over the
+    // base pass (alpha-over blend of a black texture = per-pixel darkening).
+    // aoSts map this part's vertices into the object's atlas regions; shares
+    // the vertices and bboxVersion like the env pass does.
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;  // flat 128s - the texture carries it all
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -2101,6 +2149,17 @@ V3 pointLightAt(const V3& wp, const V3& n) {
  * same formula per fragment (viewport.cpp fragment shader) - keep in sync. */
 std::vector<const AoOccData*> g_aoLocal;  // pruned per object/terrain chunk
 
+// Experimental textured AO: while g_aoAtlas is staged, pushVert emits atlas
+// STs (the primitive's face UVs mapped into its SCENE_AO_ATLAS_RECTS region)
+// into g_aoSts instead of multiplying the occlusion into the vertex colors -
+// the lightmap pass samples it per pixel. The builders bump g_aoRegion in
+// their emission order (box 6 faces, sphere 1, cylinder 3, cone 2, plane 2 -
+// mirrored by aobake::bakeSceneAoAtlas on the host; keep in sync).
+bool g_aoAtlas = false;
+const AoAtlasRect* g_aoAtlasRects = nullptr;
+int g_aoRegion = 0;
+std::vector<Vec4>* g_aoSts = nullptr;
+
 /** Occlusion contribution of one occluder at a surface point (0..1). */
 float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
   const V3 rel = {wp.x - oc.pos[0], wp.y - oc.pos[1], wp.z - oc.pos[2]};
@@ -2256,12 +2315,21 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   V3 shade = shadeOf(n);
   // Ambient occlusion multiplies the directional shade BEFORE the point
   // lights add on top (light pools stay bright inside dark corners). selfAo
-  // is the model's baked raycast self-occlusion (255 = open).
+  // is the model's baked raycast self-occlusion (255 = open). With the
+  // textured mode staged, the occlusion arrives per pixel through the atlas
+  // pass instead - only the ST for it is emitted here.
   if (SCENE_AO_ENABLED) {
-    float aoM = aoShadeMul(wp, n, true);
-    if (selfAo != 255)
-      aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
-    shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
+    if (g_aoAtlas) {
+      if (g_aoSts) {
+        const AoAtlasRect& rc = g_aoAtlasRects[g_aoRegion];
+        g_aoSts->push_back(Vec4(rc.u0 + u * rc.du, rc.v0 + v * rc.dv, 1.0F, 0.0F));
+      }
+    } else {
+      float aoM = aoShadeMul(wp, n, true);
+      if (selfAo != 255)
+        aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
+      shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
+    }
   }
   const V3 pl = pointLightAt(wp, n);
   shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
@@ -2300,7 +2368,9 @@ void addBox(std::vector<Vec4>& verts, std::vector<Color>& cols,
   // n x n grid, UVs span 0..1 per face. Mirror of the editor's unitBox.
   const int n = o.primDetail < 1 ? 1 : (o.primDetail > 16 ? 16 : o.primDetail);
   const float h = 0.5F, H = 1.0F;
+  int aoFace = 0;  // atlas region per face (+X,-X,+Y,-Y,+Z,-Z)
   auto face = [&](V3 c0, V3 du, V3 dv, V3 nrm) {
+    g_aoRegion = aoFace++;
     for (int i = 0; i < n; ++i)
       for (int j = 0; j < n; ++j) {
         const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
@@ -2333,6 +2403,7 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
   int stacks = slices * 5 / 7;
   if (stacks < 2) stacks = 2;
   const float r = 0.5F;
+  g_aoRegion = 0;  // the whole sphere is one atlas region (unique UVs)
   for (int st = 0; st < stacks; ++st) {
     const float t0 = PI * st / stacks, t1 = PI * (st + 1) / stacks;
     const float tv0 = (float)st / stacks, tv1 = (float)(st + 1) / stacks;
@@ -2368,17 +2439,20 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
     const float x0 = r * cosf(a0), z0 = r * sinf(a0);
     const float x1 = r * cosf(a1), z1 = r * sinf(a1);
     const V3 n0 = {cosf(a0), 0, sinf(a0)}, n1 = {cosf(a1), 0, sinf(a1)};
-    // side (smooth)
+    // side (smooth) - atlas region 0
+    g_aoRegion = 0;
     pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
     pushVert(verts, cols, sts, o, {x0, h, z0}, n0, u0, 0);
     pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
     pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, n1, u1, 1);
-    // caps (planar mapping)
+    // caps (planar mapping) - atlas regions 1 (+Y) and 2 (-Y)
+    g_aoRegion = 1;
     pushVert(verts, cols, sts, o, {0, h, 0}, {0, 1, 0}, 0.5F, 0.5F);
     pushVert(verts, cols, sts, o, {x1, h, z1}, {0, 1, 0}, x1 + 0.5F, z1 + 0.5F);
     pushVert(verts, cols, sts, o, {x0, h, z0}, {0, 1, 0}, x0 + 0.5F, z0 + 0.5F);
+    g_aoRegion = 2;
     pushVert(verts, cols, sts, o, {0, -h, 0}, {0, -1, 0}, 0.5F, 0.5F);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5F, z0 + 0.5F);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5F, z1 + 0.5F);
@@ -2389,7 +2463,9 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
+  g_aoRegion = 0;  // top face - atlas region 0
   pushQuad(verts, cols, sts, o, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
+  g_aoRegion = 1;  // bottom face - atlas region 1
   pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
 }
 
@@ -2423,12 +2499,14 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
     const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
     const float x0 = r * cosf(a0), z0 = r * sinf(a0);
     const float x1 = r * cosf(a1), z1 = r * sinf(a1);
-    // side
+    // side - atlas region 0
+    g_aoRegion = 0;
     pushVert(verts, cols, sts, o, {0, h, 0}, {nl * cosf(am), ny, nl * sinf(am)},
              (u0 + u1) * 0.5F, 0);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, {nl * cosf(a1), ny, nl * sinf(a1)}, u1, 1);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, {nl * cosf(a0), ny, nl * sinf(a0)}, u0, 1);
-    // base (planar mapping)
+    // base (planar mapping) - atlas region 1
+    g_aoRegion = 1;
     pushVert(verts, cols, sts, o, {0, -h, 0}, {0, -1, 0}, 0.5F, 0.5F);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5F, z0 + 0.5F);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5F, z1 + 0.5F);
@@ -4602,6 +4680,25 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
+
+  // Experimental textured AO: swap the per-scene lightmap textures. Must
+  // happen before any chunk/object bake - the bag wiring reads the pointers.
+  if (!aoMapTexPath.empty()) releaseTexture(aoMapTexPath);
+  if (!aoAtlasTexPath.empty()) releaseTexture(aoAtlasTexPath);
+  aoMapTexPath.clear();
+  aoAtlasTexPath.clear();
+  aoMapTexture = nullptr;
+  aoAtlasTexture = nullptr;
+  if (SCENE_AO_ENABLED && SCENE_AO_TEXTURED) {
+    if (SCENE_AO_MAP_PATH[0]) {
+      aoMapTexPath = SCENE_AO_MAP_PATH;
+      aoMapTexture = acquireTexture(aoMapTexPath);
+    }
+    if (SCENE_AO_ATLAS_PATH[0]) {
+      aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
+      aoAtlasTexture = acquireTexture(aoAtlasTexPath);
+    }
+  }
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -6791,6 +6888,21 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
                    aoRad, index < SCENE_OBJECT_COUNT ? index : -1);
   }
 
+  // Experimental textured AO: authored primitives with an atlas region
+  // sample the scene lightmap per pixel instead of baking occlusion into
+  // vertex colors. Everything else (models, spawned clones, physics bodies -
+  // FIRST is -1 for those) keeps the vertex bake.
+  g_aoAtlas = false;
+  g_aoSts = nullptr;
+  if (partCount > 0) g.parts[0].aoSts.clear();
+  if (SCENE_AO_ENABLED && SCENE_AO_TEXTURED && o.data.type != 5 &&
+      index < SCENE_OBJECT_COUNT && SCENE_AO_ATLAS_FIRST &&
+      SCENE_AO_ATLAS_RECTS && SCENE_AO_ATLAS_FIRST[index] >= 0) {
+    g_aoAtlas = true;
+    g_aoAtlasRects = &SCENE_AO_ATLAS_RECTS[SCENE_AO_ATLAS_FIRST[index]];
+    g_aoSts = &g.parts[0].aoSts;
+  }
+
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
       const GameModelPart& src = gm->parts[pi];
@@ -6886,6 +6998,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     g_envNormals = nullptr;
   }
   g_bakeLocal = false;
+  g_aoAtlas = false;
+  g_aoSts = nullptr;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -7008,6 +7122,33 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.envBag->bboxVersion = part.bag->bboxVersion;
     } else {
       part.envBag.reset();
+    }
+
+    // Experimental textured AO: the lightmap-atlas pass. Reuses the shared
+    // blending info bag of the terrain layer passes (identity model - only
+    // world-space static primitives ever get atlas regions) and this part's
+    // vertices/bboxVersion, like the env pass above.
+    if (!part.aoSts.empty() && part.aoSts.size() == part.vertices.size() &&
+        aoAtlasTexture && layerInfoBag) {
+      part.aoCols.assign(part.vertices.size(),
+                         Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.aoBag) {
+        part.aoColorBag = std::make_unique<StaPipColorBag>();
+        part.aoTexBag = std::make_unique<StaPipTextureBag>();
+        part.aoBag = std::make_unique<StaPipBag>();
+        part.aoBag->info = layerInfoBag.get();
+        part.aoBag->color = part.aoColorBag.get();
+        part.aoBag->texture = part.aoTexBag.get();
+        part.aoBag->lighting = nullptr;
+      }
+      part.aoColorBag->many = part.aoCols.data();
+      part.aoTexBag->texture = aoAtlasTexture;
+      part.aoTexBag->coordinates = part.aoSts.data();
+      part.aoBag->vertices = part.vertices.data();
+      part.aoBag->count = static_cast<u32>(part.vertices.size());
+      part.aoBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.aoBag.reset();
     }
   }
 }
@@ -7941,6 +8082,8 @@ void TerrainGame::renderScene() {
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
+        // textured-AO lightmap multiplies before the additive env pass
+        if (part.aoBag) stapip.core.render(part.aoBag.get());
         renderEnvPass(part);
       }
   }
@@ -9471,13 +9614,18 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       }
     // Ambient occlusion: occluders in reach of this chunk (shadeAt loops the
     // pruned list per vertex - the same staging pushVert gets per object).
-    const float hx = 0.5F * (mgx1 - mgx0) * stepX;
-    const float hy = 0.5F * (ch.maxY - ch.minY);
-    const float hz = 0.5F * (mgz1 - mgz0) * stepZ;
-    aoCollectLocal(startX + 0.5F * (mgx0 + mgx1) * stepX,
-                   0.5F * (ch.minY + ch.maxY),
-                   startZ + 0.5F * (mgz0 + mgz1) * stepZ,
-                   sqrtf(hx * hx + hy * hy + hz * hz), -1);
+    // The textured mode bakes the contact term into the AO map instead.
+    if (!SCENE_AO_TEXTURED) {
+      const float hx = 0.5F * (mgx1 - mgx0) * stepX;
+      const float hy = 0.5F * (ch.maxY - ch.minY);
+      const float hz = 0.5F * (mgz1 - mgz0) * stepZ;
+      aoCollectLocal(startX + 0.5F * (mgx0 + mgx1) * stepX,
+                     0.5F * (ch.minY + ch.maxY),
+                     startZ + 0.5F * (mgz0 + mgz1) * stepZ,
+                     sqrtf(hx * hx + hy * hy + hz * hz), -1);
+    } else {
+      g_aoLocal.clear();
+    }
   }
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
@@ -9488,8 +9636,9 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     // Ambient occlusion: the host-baked heightmap self-occlusion grid plus
     // the contact darkening of nearby occluders (g_aoLocal, pruned per chunk
-    // below). Multiplies before the point lights, like pushVert.
-    if (SCENE_AO_ENABLED) {
+    // below). Multiplies before the point lights, like pushVert. In the
+    // textured mode the AO map pass carries all of this per pixel instead.
+    if (SCENE_AO_ENABLED && !SCENE_AO_TEXTURED) {
       float aoM = aoShadeMul(wp, n, false);
       if (TERRAIN_AO) {
         int ax = ix < 0 ? 0 : (ix > HM_W - 1 ? HM_W - 1 : ix);
@@ -9658,6 +9807,18 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     }
   }
 
+  // Textured-AO map pass STs: the chunk's world XZ normalized over the
+  // terrain extent - one map covers the whole terrain, sampled per pixel.
+  ch.aoSts.clear();
+  if (SCENE_AO_ENABLED && SCENE_AO_TEXTURED && aoMapTexture) {
+    ch.aoSts.reserve(ch.vertices.size());
+    ch.aoCols.assign(ch.vertices.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
+    const float invW = 1.0F / TERRAIN_WIDTH, invD = 1.0F / TERRAIN_DEPTH;
+    for (const Vec4& v : ch.vertices)
+      ch.aoSts.push_back(
+          Vec4((v.x - startX) * invW, (v.z - startZ) * invD, 1.0F, 0.0F));
+  }
+
   if (!ch.bag) {
     ch.colorBag = std::make_unique<StaPipColorBag>();
     ch.bag = std::make_unique<StaPipBag>();
@@ -9702,6 +9863,27 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       lp.bag->texture = nullptr;
     }
     lp.bag->bboxVersion = ++g_bboxStamp;
+  }
+
+  // Textured-AO map pass bag: the AO map alpha-blended over base + layers
+  // (black texture + alpha-over = per-pixel darkening).
+  if (!ch.aoSts.empty() && aoMapTexture && layerInfoBag) {
+    if (!ch.aoBag) {
+      ch.aoColorBag = std::make_unique<StaPipColorBag>();
+      ch.aoBag = std::make_unique<StaPipBag>();
+      ch.aoBag->lighting = nullptr;
+    }
+    ch.aoBag->info = layerInfoBag.get();
+    ch.aoColorBag->many = ch.aoCols.data();
+    ch.aoBag->color = ch.aoColorBag.get();
+    ch.aoBag->vertices = ch.vertices.data();
+    ch.aoBag->count = static_cast<u32>(ch.vertices.size());
+    ch.aoTexBag.texture = aoMapTexture;
+    ch.aoTexBag.coordinates = ch.aoSts.data();
+    ch.aoBag->texture = &ch.aoTexBag;
+    ch.aoBag->bboxVersion = ++g_bboxStamp;
+  } else {
+    ch.aoBag.reset();
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.
@@ -9989,6 +10171,8 @@ void TerrainGame::renderTerrain() {
     // adjacent also keeps the texture cache warm per chunk).
     for (TerrainChunk::LayerPass& lp : ch.layerPasses)
       if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
+    // Textured AO: the map pass darkens base + layers per pixel, last.
+    if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
   }
 }
 )";
@@ -12129,10 +12313,87 @@ static std::string aoDataHeader(const Project& p) {
     out << "};\n"
            "static const int SCENE_AO_OCC_COUNTS[] = {";
     for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << counts[si];
+    out << "};\n\n";
+
+    // Experimental textured AO: the per-scene primitive lightmap atlas
+    // (aobake::bakeSceneAoAtlas - texbake writes the SAME deterministic
+    // bake's pixels into .res-baked/aoatlas/) and the terrain AO map. Rects
+    // map a primitive's face UVs into its atlas region; FIRST is -1 for
+    // objects that fall back to the vertex bake (models, physics bodies).
+    out << "struct AoAtlasRect {\n"
+           "  float u0, v0, du, dv;\n"
+           "};\n";
+    const aobake::ModelAabbFn aabbFn = [&](const SceneObject& o, float* mn,
+                                           float* mx) {
+        if (o.modelPath.empty()) return false;
+        return aobake::objAabb(
+            (std::filesystem::path(p.dir) / o.modelPath).string(), mn, mx);
+    };
+    std::vector<bool> hasAtlas(sceneCount, false);
+    std::vector<bool> hasMap(sceneCount, false);
+    for (int si = 0; si < sceneCount; ++si) {
+        const SceneData& sc = p.scenes[si];
+        const ProjectSettings srs = project::resolvedSettings(p, sc);
+        if (!srs.aoEnabled || !srs.aoTextured) continue;
+        const aobake::SceneAoAtlas atlas = aobake::bakeSceneAoAtlas(p, sc, aabbFn);
+        if (atlas.size > 0 && !atlas.rects.empty()) {
+            hasAtlas[si] = true;
+            out << "static const AoAtlasRect S" << si << "_AO_RECTS["
+                << atlas.rects.size() << "] = {";
+            for (size_t r = 0; r < atlas.rects.size(); ++r) {
+                const aobake::AtlasRect& rc = atlas.rects[r];
+                out << (r ? ", " : "") << "{" << floatLit(rc.u0) << ", "
+                    << floatLit(rc.v0) << ", " << floatLit(rc.du) << ", "
+                    << floatLit(rc.dv) << "}";
+            }
+            out << "};\n"
+                   "static const int S"
+                << si << "_AO_FIRST[" << atlas.firstRegion.size() << "] = {";
+            for (size_t r = 0; r < atlas.firstRegion.size(); ++r)
+                out << (r ? ", " : "") << atlas.firstRegion[r];
+            out << "};\n";
+        }
+        // the terrain map only ships when it has any content (texbake skips
+        // an all-open map the same way - one deterministic bake, two callers)
+        const aobake::AoImage map = aobake::terrainAOMap(
+            sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+            (float)sc.terrain.depth,
+            aobake::collectOccluders(sc.objects, aabbFn), srs.aoRadius,
+            srs.aoStrength);
+        hasMap[si] = map.size > 0;
+    }
+    out << "static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (hasAtlas[si] ? ("S" + std::to_string(si) + "_AO_RECTS")
+                             : "nullptr");
+    out << "};\n"
+           "static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (hasAtlas[si] ? ("S" + std::to_string(si) + "_AO_FIRST")
+                             : "nullptr");
+    out << "};\n"
+           "static const char* const SCENE_AO_ATLAS_PATHS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (hasAtlas[si]
+                    ? ("\"aoatlas/scene" + std::to_string(si) + ".png\"")
+                    : "\"\"");
+    out << "};\n"
+           "static const char* const SCENE_AO_MAP_PATHS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (hasMap[si] ? ("\"aomap/scene" + std::to_string(si) + ".png\"")
+                           : "\"\"");
     out << "};\n"
            "}  // namespace\n\n"
            "#define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]\n"
-           "#define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]\n";
+           "#define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]\n"
+           "#define SCENE_AO_ATLAS_RECTS SCENE_AO_ATLAS_RECTS_T[g_activeScene]\n"
+           "#define SCENE_AO_ATLAS_FIRST SCENE_AO_ATLAS_FIRSTS_T[g_activeScene]\n"
+           "#define SCENE_AO_ATLAS_PATH SCENE_AO_ATLAS_PATHS[g_activeScene]\n"
+           "#define SCENE_AO_MAP_PATH SCENE_AO_MAP_PATHS[g_activeScene]\n";
     return out.str();
 }
 
@@ -12320,6 +12581,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             };
             const std::set<std::string> blocked =
                 batchBlockedNames(p, p.scenes[si]);
+            // Experimental textured AO: atlas-covered primitives carry an
+            // extra per-object lightmap pass the batch merge cannot represent
+            // - they stay solo (a documented cost of the textured mode).
+            const ProjectSettings brs = project::resolvedSettings(p, p.scenes[si]);
+            const bool aoSolo = brs.aoEnabled && brs.aoTextured;
             for (const SceneObject& o : objs) {
                 out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                     << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
@@ -12360,8 +12626,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(o.modelYawOffset) << ", "
                     << clampPrimDetail(o.type, o.primDetail) << ", "
                     << layerIndexIn(o.layer) << ", "
-                    << (staticBatchEligible(o, blocked) ? 1 : 0) << "},  // "
-                    << o.name << "\n";
+                    << ((staticBatchEligible(o, blocked) && !aoSolo) ? 1 : 0)
+                    << "},  // " << o.name << "\n";
             }
         }
         out << "};\n";
@@ -12712,6 +12978,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SCENE_AO_RADII", [&](int si) {
         return floatLit(rs[si].aoRadius < 0.1f ? 0.1f : rs[si].aoRadius);
     });
+    // Experimental textured AO (per-pixel maps instead of vertex colors)
+    sceneBools("SCENE_AO_TEXTUREDS", [&](int si) { return rs[si].aoTextured; });
 
     // Per-scene sky, clipping, post-FX and usable-highlight (Scene > Preferences
     // overrides of Project > Preferences). Accessor macros drop the trailing S.
@@ -12998,6 +13266,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
 #define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
 #define SCENE_AO_RADIUS SCENE_AO_RADII[g_activeScene]
+#define SCENE_AO_TEXTURED SCENE_AO_TEXTUREDS[g_activeScene]
 #define TERRAIN_AO TERRAIN_AO_TABLES[g_activeScene]
 #define HM_W HM_WS[g_activeScene]
 #define HM_D HM_DS[g_activeScene]
@@ -15806,7 +16075,9 @@ static std::string terrainHeightsHeader(const Project& p) {
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
         const ProjectSettings srs = project::resolvedSettings(p, sc);
-        if (!srs.aoEnabled) continue;
+        // The textured AO mode replaces this per-vertex grid with the AO map
+        // pass (ao_data.gen.hpp) - don't ship dead weight.
+        if (!srs.aoEnabled || srs.aoTextured) continue;
         if (!(sc.hmW >= 2 && sc.hmD >= 2 &&
               (int)sc.heights.size() == sc.hmW * sc.hmD))
             continue;
