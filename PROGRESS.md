@@ -8102,3 +8102,28 @@ Each finished feature lands as its own commit.
   overlap/out-of-range/flipped/low-density findings (tri indices checked),
   a clean two-triangle quad reports zero; the whole matbake suite still
   passes (contact shadow, determinism, high-poly, 100k-tri perf).
+- (74) **Material Editor: PS2 CLUT preview + memory budget** - the "how will
+  it actually look on the console" mode today's editor lacked. New
+  pngquant::quantizePreviewRGBA: an in-memory twin of the shipped
+  quantizeRGBA path (same weighted median cut, same nearest-with-2x-alpha
+  metric) that returns the palettized image expanded back to RGBA plus the
+  palette, with three dither flavors - Floyd-Steinberg (identical loop to
+  the shipped bake), 4x4 ordered Bayer (amplitude scaled to palette
+  coarseness: 40 at 16 colors, 18 at 256) and none. The Material Editor
+  display combo gained "PS2 CLUT": the composite is quantized at GL-upload
+  time in matEdUploadComposite (stacked AFTER the AO-on-material multiply,
+  so the preview quantizes what would really ship; disk PNG untouched,
+  painting keeps working and strokes appear pre-quantized), palette size
+  follows the resolved policy (per-asset textureQuality override of the
+  .mtl, else ProjectSettings::textureQuant) or an explicit 16/256/full
+  override, a swatch strip shows the surviving palette, and a live budget
+  line prices the texture ("128x128 4-bit = 8.0 KB + 64 B palette") - the
+  same line now also replaces the bare dims readout under Texture, with the
+  GS +8 KB allocation-overhead caveat in its tooltip. Known approximation:
+  texbake lets the highest quality claimed by ANY asset sharing a PNG win;
+  the editor resolves only the open .mtl's claim (noted in the code).
+  Verified headlessly (scratch harness linking pngquant.cpp + stb impls):
+  a 256-wide RGB gradient quantized to 16 colors holds the budget in all
+  three dither modes (16/16/16 unique colors, 16-entry palette), FS and
+  ordered outputs differ from undithered, and a 4-color image passes
+  through bit-identical with its 4-entry palette (lossless path).

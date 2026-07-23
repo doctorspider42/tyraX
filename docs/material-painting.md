@@ -25,14 +25,30 @@ while painting).
 
 Next to *Spin* sit the **display mode** (Solid / Wireframe overlay /
 **UV checker** — a generated checker replaces every texture so stretch and
-texel density read at a glance) and the **UV** toggle, which splits the
-preview: the 3D mesh on top, the **UV layout panel** below — the entry's
+texel density read at a glance / **PS2 CLUT** — see below) and the **UV**
+toggle, which splits the preview: the 3D mesh on top, the **UV layout panel** below — the entry's
 triangles drawn over its live texture (wheel zooms around the cursor, drag
 pans). The two views hover-sync both ways: rest the mouse on a face in 3D
 and its texture region lights up in the panel (with a dot on the exact
 texel); hover a triangle in the panel and it is outlined on the mesh.
 Overlapping UVs show themselves naturally — one 3D face lights up every
 triangle sharing its region.
+
+## The PS2 CLUT preview and the memory budget
+
+The **PS2 CLUT** display mode shows the texture as the console will
+actually sample it: palette-quantized through the *same median-cut
+quantizer the build's texture bake ships* (16 or 256 colors — "Project
+policy" resolves this material's per-asset override or the project's
+texture-quantization preference), with a **dithering comparison** combo:
+Floyd–Steinberg (what the bake uses), Ordered/Bayer (stable pattern) or
+none (raw banding). Painting keeps working — strokes show up already
+quantized, which is exactly how they will ship. The quantization happens
+at GL-upload time only; the PNG on disk stays full color (texbake
+quantizes at build, as always). A swatch strip shows the palette the
+median cut settled on, and a live **budget line** (also under the texture
+size in the property column) prices the texture in PS2 memory:
+`128x128 4-bit = 8.0 KB + 64 B palette`.
 
 Under the bake block sits **UV check** — *Validate UVs* inspects the
 preview mesh's mapping: **overlapping islands** (painting one paints the

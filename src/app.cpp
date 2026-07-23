@@ -23,6 +23,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "pngquant.hpp"
 #include "stochtile.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
@@ -12322,15 +12323,18 @@ void App::matEdComposite() {
 }
 
 // Composite -> the shared GL texture. The bake's "AO on material" preview
-// multiplies the baked AO in HERE, at upload time only - matEdPaintPixels_
-// (what the PNG saves) never contains the preview, so a stroke saved while
-// previewing ships clean.
+// multiplies the baked AO in HERE, and the "PS2 CLUT" display mode palette-
+// quantizes HERE - both at upload time only. matEdPaintPixels_ (what the
+// PNG saves) never contains a preview, so a stroke saved while previewing
+// ships clean.
 void App::matEdUploadComposite() {
     const int w = matEdPaintW_, h = matEdPaintH_;
     if (w < 1 || h < 1 || matEdPaintTexRel_.empty()) return;
+    const unsigned char* src = matEdPaintPixels_.data();
+    std::vector<unsigned char> tmp;
     if (matBakePreviewMode_ == 1 && !matBakeMaps_.empty()) {
         const matbake::Maps& m = matBakeMaps_;
-        std::vector<unsigned char> tmp = matEdPaintPixels_;
+        tmp = matEdPaintPixels_;
         auto at = [&](int xx, int yy) {
             xx = ((xx % m.w) + m.w) % m.w;
             yy = ((yy % m.h) + m.h) % m.h;
@@ -12351,11 +12355,74 @@ void App::matEdUploadComposite() {
                 for (int c = 0; c < 3; ++c)
                     px[c] = (unsigned char)(px[c] * ao * (1.0f / 255.0f) + 0.5f);
             }
-        viewport_.updateTexturePixels(matEdPaintTexRel_, w, h, tmp.data());
-        return;
+        src = tmp.data();
     }
-    viewport_.updateTexturePixels(matEdPaintTexRel_, w, h,
-                                  matEdPaintPixels_.data());
+    if (matEdDisplayMode_ == 3) {
+        const int cols = matEdPs2Colors();
+        if (cols > 0) {
+            // quantize whatever the mesh would show (AO preview included) -
+            // the closest thing to the shipped .res-baked texture
+            const std::vector<unsigned char> q = pngquant::quantizePreviewRGBA(
+                src, w, h, cols, (pngquant::Dither)matEdPs2Dither_,
+                &matEdPs2Palette_);
+            if (!q.empty()) {
+                viewport_.updateTexturePixels(matEdPaintTexRel_, w, h, q.data());
+                return;
+            }
+        } else {
+            matEdPs2Palette_.clear();
+        }
+    }
+    viewport_.updateTexturePixels(matEdPaintTexRel_, w, h, src);
+}
+
+// Palette size of the "PS2 CLUT" preview (0 = full color): the explicit
+// combo choice, else the shipped policy - the .mtl's per-asset override or
+// the project default. (texbake lets the HIGHEST quality claimed by any
+// asset sharing a texture win; this line resolves only this .mtl's claim,
+// which matches unless another asset pins the same PNG higher.)
+int App::matEdPs2Colors() const {
+    switch (matEdPs2Mode_) {
+        case 1: return 16;
+        case 2: return 256;
+        case 3: return 0;
+        default: break;
+    }
+    std::string q;
+    auto it = project_.textureQuality.find(matEdPath_);
+    if (it != project_.textureQuality.end()) q = it->second;
+    if (q.empty()) q = project_.settings.textureQuant;
+    return q == "8bit" ? 256 : q == "none" ? 0 : 16;
+}
+
+// The live memory-budget line: what this texture costs on the PS2 after
+// texbake, at the quality the CLUT preview resolves to.
+std::string App::matEdBudgetLine(int tw, int th) const {
+    const int cols = matEdPs2Colors();
+    const long px = (long)tw * th;
+    long bytes;
+    const char* what;
+    long palette = 0;
+    if (cols == 16) {
+        bytes = px / 2;
+        palette = 16 * 4;
+        what = "4-bit";
+    } else if (cols == 256) {
+        bytes = px;
+        palette = 256 * 4;
+        what = "8-bit";
+    } else {
+        bytes = px * 4;
+        what = "32-bit";
+    }
+    char buf[128];
+    if (palette)
+        std::snprintf(buf, sizeof(buf), "%dx%d %s = %.1f KB + %ld B palette",
+                      tw, th, what, bytes / 1024.0, palette);
+    else
+        std::snprintf(buf, sizeof(buf), "%dx%d %s = %.1f KB (no palette)", tw,
+                      th, what, bytes / 1024.0);
+    return buf;
 }
 
 void App::matEdSaveLayers() {
@@ -13568,7 +13635,14 @@ void App::drawMaterialEditorWindow() {
                         "%dx%d - not power-of-two; the PS2 GS needs\n"
                         "pow2 texture sizes (e.g. 128x128, 256x256).", tw, th);
                 else
-                    ImGui::TextDisabled("%dx%d", tw, th);
+                    ImGui::TextDisabled("%s", matEdBudgetLine(tw, th).c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "What this texture costs after the build's texture\n"
+                        "bake, at the quality this material resolves to\n"
+                        "(per-asset override, else the project preference).\n"
+                        "The GS adds ~8 KB of allocation overhead per\n"
+                        "resident texture on top.");
             }
         }
 
@@ -13733,13 +13807,17 @@ void App::drawMaterialEditorWindow() {
         if (matEdSpin_ && !matEdPaint_) matEdAngle_ += io.DeltaTime * 24.0f;
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(100.0f));
-        ImGui::Combo("##mat_display", &matEdDisplayMode_,
-                     "Solid\0Wireframe\0UV checker\0");
+        if (ImGui::Combo("##mat_display", &matEdDisplayMode_,
+                         "Solid\0Wireframe\0UV checker\0PS2 CLUT\0"))
+            matEdUploadComposite();  // apply / drop the CLUT quantization
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Preview shading: the material as-is, a dark\n"
-                              "wireframe overlay, or a generated UV checker\n"
-                              "in place of every texture (stretch and texel\n"
-                              "density read at a glance).");
+            ImGui::SetTooltip(
+                "Preview shading: the material as-is, a dark wireframe\n"
+                "overlay, a generated UV checker in place of every texture\n"
+                "(stretch and texel density read at a glance), or the PS2\n"
+                "CLUT look - the texture palette-quantized exactly like the\n"
+                "shipped bake, with a dithering choice and the live memory\n"
+                "budget.");
         ImGui::SameLine();
         ImGui::Checkbox("UV", &matEdUvView_);
         if (ImGui::IsItemHovered())
@@ -13770,6 +13848,65 @@ void App::drawMaterialEditorWindow() {
         // progressive map bake: restart on changed inputs, poll snapshots,
         // finish a pending "Bake & add layer"
         matBakeTick(sel.name, texRel);
+
+        // --- "PS2 CLUT" display mode -----------------------------------------
+        if (matEdDisplayMode_ == 3) {
+            if (!texRel.empty() && matEdPaintTexRel_ != texRel) {
+                // the quantization rides the paint target's GL upload
+                if (matEdLoadPaintTarget(texRel)) matEdComposite();
+            }
+            if (texRel.empty()) {
+                ImGui::TextDisabled("PS2 CLUT: plain colors have no texture\n"
+                                    "to quantize - assign one to see it.");
+            } else {
+                const char* palModes[] = {"Project policy", "16 colors",
+                                          "256 colors", "Full color"};
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                bool changed = ImGui::Combo("##ps2_pal", &matEdPs2Mode_,
+                                            palModes, 4);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Palette budget. \"Project policy\" resolves what\n"
+                        "texbake will actually ship for this material\n"
+                        "(its per-asset override, else the project's\n"
+                        "texture quantization preference).");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(130.0f));
+                changed |= ImGui::Combo("##ps2_dither", &matEdPs2Dither_,
+                                        "Floyd-Steinberg\0Ordered (Bayer)\0"
+                                        "No dithering\0");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Floyd-Steinberg is what the shipped bake uses;\n"
+                        "Ordered trades noise for a stable pattern; None\n"
+                        "shows the raw banding.");
+                if (changed) matEdUploadComposite();
+                if (matEdPaintW_ > 0)
+                    ImGui::TextDisabled(
+                        "%s", matEdBudgetLine(matEdPaintW_, matEdPaintH_).c_str());
+                // palette swatch strip (what survived the median cut)
+                if (!matEdPs2Palette_.empty()) {
+                    const int n = (int)(matEdPs2Palette_.size() / 4);
+                    const float cell = scaled(n > 64 ? 7.0f : 12.0f);
+                    const int perRow = n > 64 ? 32 : 16;
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    for (int i = 0; i < n; ++i) {
+                        const unsigned char* p = &matEdPs2Palette_[(size_t)i * 4];
+                        const ImVec2 a(at.x + (i % perRow) * cell,
+                                       at.y + (i / perRow) * cell);
+                        dl->AddRectFilled(
+                            a, ImVec2(a.x + cell - 1.0f, a.y + cell - 1.0f),
+                            IM_COL32(p[0], p[1], p[2], 255));
+                    }
+                    ImGui::Dummy(ImVec2(perRow * cell,
+                                        ((n + perRow - 1) / perRow) * cell));
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The %d-entry palette the median cut\n"
+                                          "settled on.", n);
+                }
+            }
+        }
 
         // --- paint tool ------------------------------------------------------
         if (ImGui::Checkbox("Paint", &matEdPaint_) && matEdPaint_)

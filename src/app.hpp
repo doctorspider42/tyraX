@@ -860,6 +860,21 @@ private:
     std::string matEdUvIssuesKey_;  // matBakeMeshKey_ at validation time
     int matEdUvIssueSel_ = -1;
     void matEdUvValidateSection(const std::string& entryName);
+
+    // "PS2 CLUT" display mode (matEdDisplayMode_ == 3): the composite is
+    // palette-quantized through the same median-cut quantizer texbake ships
+    // and uploaded in place of the texture (GL-only, like the AO preview -
+    // the PNG on disk never changes). Palette size follows the shipped
+    // policy by default; dithering is selectable for comparison. The last
+    // palette is kept for the swatch strip.
+    int matEdPs2Mode_ = 0;    // 0 follow policy, 1 = 16, 2 = 256, 3 = full
+    int matEdPs2Dither_ = 0;  // pngquant::Dither
+    std::vector<unsigned char> matEdPs2Palette_;
+    // colors the preview quantizes to (0 = full color): the explicit combo
+    // choice, or the .mtl's per-asset override / project default
+    int matEdPs2Colors() const;
+    // "128x128 4-bit = 8 KB + 64 B palette" for the budget line
+    std::string matEdBudgetLine(int tw, int th) const;
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";
