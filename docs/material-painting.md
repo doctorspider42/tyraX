@@ -23,6 +23,11 @@ Camera: **drag** orbits (left button normally, **right button while
 painting**), **mouse wheel** zooms, *Spin* keeps the turntable going (paused
 while painting).
 
+The property column ends in a **Bake maps** block: a progressive raytraced
+bake of the preview mesh (ambient occlusion, curvature, thickness and more)
+that can land as a *"Baked AO" multiply layer* on the entry's texture — see
+`docs/material-baking.md`.
+
 ## Duplicating and deleting a material
 
 **Duplicate** (next to the file path) copies the open `.mtl` under a fresh

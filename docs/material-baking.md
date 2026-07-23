@@ -8,6 +8,33 @@ Host-only, no GL (the decalproj pattern); this is a different animal from
 `aobake.cpp`, which bakes *scene* occlusion (terrain grids + analytic
 occluder atlases). matbake bakes *one model's own* surface detail.
 
+## Using it (Material Editor > Bake maps)
+
+The property column of the Material Editor ends in a **Bake maps** block:
+
+- **Preview** - `AO on material` runs the bake continuously and multiplies
+  the occlusion over the textured preview mesh (upload-time only: nothing
+  is written, painting keeps working); `Map view` shows the selected raw
+  map (AO / curvature / thickness / bent / OS normal / position) instead of
+  the material. Any parameter change re-bakes; the first rough result lands
+  within a round (a few rays per texel) and refines in place.
+- **High-poly** - a dense `.obj` from `res/models` whose detail is
+  projected into the maps (cage projection; the **Cage** field controls the
+  search distance, auto = 2% of the model size).
+- **Resolution / Rays / Max distance / Anti-alias / Backface hits /
+  Padding / Seed** - the bake parameters. *Max distance* is the main
+  artistic knob (small = tight contact shadows, large = broad soft
+  shading). They persist per material file as a `# tyra-bake` comment, so a
+  re-open reproduces the exact same bake (same seed = bit-identical).
+- **Bake & add AO layer** - bakes at full quality and drops the result
+  onto the entry's texture as a **"Baked AO" multiply layer** (paint
+  layers, docs/material-painting.md). Re-bakes overwrite that layer in
+  place; Ctrl+Z undoes it like any layer edit. The entry needs a texture -
+  create one via *Texture > New paintable texture...* first.
+- **Save all maps** - writes the whole map set as PNGs next to the `.mtl`
+  (`<file>-<entry>-ao.png`, `-curvature`, `-thickness`, `-bent`, `-normal`,
+  `-position`) - mask sources for wear/dirt or exports for external tools.
+
 ## How the bake works
 
 1. **UV rasterization.** Every paintable triangle (the parts using the

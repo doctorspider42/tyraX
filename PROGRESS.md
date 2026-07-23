@@ -8027,3 +8027,35 @@ Each finished feature lands as its own commit.
   min=max=255), two fresh bakes bit-identical, high-poly projection changes
   the normal map, 256^2 x 64 rays against a 100,352-tri occluder in 773 ms
   including BVH build (~11M rays/s).
+- (71) **Material Editor: Bake maps UI (progressive preview + auto layer)** -
+  the matbake front end. The property column gained a "Bake maps" block:
+  Preview combo ("AO on material" multiplies the baked occlusion over the
+  textured preview mesh; "Map view" swaps the material for the raw
+  AO/curvature/thickness/bent/OS-normal/position map via a "@matbake-view"
+  pseudo-texture), a High-poly slot (cage projection, auto/manual Cage
+  offset), and the parameters (Resolution 64-512, Rays, Max distance = THE
+  artistic knob, Anti-alias supersampling, Backface hits, Padding, Seed).
+  Parameter changes restart the worker-thread bake immediately - the Baker's
+  gbuffer+BVH cache makes sampling-only drags feel instant, and the first
+  progressive round lands on the mesh in milliseconds. "Bake & add AO layer"
+  = the magic auto-hookup: full-quality bake drops onto the entry's texture
+  as a "Baked AO" MULTIPLY layer (re-bakes overwrite it in place instead of
+  stacking; layer-undo covers it); "Save all maps" writes the six-map set as
+  PNGs next to the .mtl for smart-mask material work. Key safety decision:
+  the AO-on-material preview multiplies into the GL upload ONLY
+  (matEdUploadComposite) - matEdPaintPixels_/the PNG on disk never contain
+  the preview, so saving a paint stroke mid-preview ships clean. Bake
+  params persist per .mtl as a "# tyra-bake" hint line (written only when
+  non-default; %20-escaped high-poly path), so with the fixed seed a
+  re-open reproduces the bake bit for bit. Mesh inputs are cached keyed by
+  path+mtime (external re-exports re-bake automatically); closing the
+  window or switching files cancels the worker. Docs:
+  docs/material-baking.md (Using it), docs/material-painting.md pointer.
+  Verified: build.ps1 links clean; the matbake core underneath has the
+  harness coverage of (70). GUI visual verification is BLOCKED by the known
+  machine state (PROGRESS 2026-07-21 note: editor GL window presents
+  white/black on this AMD driver; reproduced with the pre-change baseline
+  binary at D:\tyra-editor\build - not a regression of this change). A
+  human pass over the new panel is pending: scratch project recipe in
+  the entry-(70) harness notes (steps.obj demo model generator in the
+  session scratchpad).

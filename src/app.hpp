@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
+#include "matbake.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
@@ -790,6 +791,49 @@ private:
     std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
     int matEdPatternW_ = 0, matEdPatternH_ = 0;
     std::string matEdPatternLoaded_;   // path matEdPatternPixels_ came from
+
+    // Map baking (docs/material-baking.md): matbake's progressive UV-space
+    // raytraced bake of the preview mesh - AO, bent normals, thickness,
+    // curvature, position, OS normals in one pass. Previewed live on the
+    // material (AO multiplied over the composite at GL-upload time only -
+    // the saved PNG never contains the preview) or as a raw map view, and
+    // applied as a "Baked AO" multiply layer on the entry's texture. Params
+    // persist per .mtl via a "# tyra-bake" hint line.
+    matbake::Baker matBaker_;
+    int matBakePreviewMode_ = 0;  // 0 off, 1 AO over material, 2 raw map view
+    int matBakeMapView_ = 0;      // map view: 0 ao 1 curvature 2 thickness
+                                  // 3 bent 4 normal 5 position
+    int matBakeSizeIdx_ = 2;      // bake resolution: 64 << idx
+    int matBakeRays_ = 64;        // rays per texel at full quality
+    float matBakeMaxDist_ = 0.0f; // occlusion reach (0 = auto: half the AABB
+                                  // diagonal)
+    int matBakeSSIdx_ = 1;        // supersample grid: 1 << idx per axis
+    bool matBakeBackface_ = true; // back-side hits occlude (thin geometry)
+    int matBakePadding_ = 4;      // dilate ring, texels
+    int matBakeSeed_ = 1;
+    std::string matBakeHigh_;     // high-poly .obj, project-relative ("" = none)
+    float matBakeCage_ = 0.0f;    // cage offset (0 = auto: 2% of the diagonal)
+    uint64_t matBakeStartedSig_ = 0;  // input signature of the running bake
+    uint64_t matBakeSeenVersion_ = 0;
+    matbake::Maps matBakeMaps_;       // latest snapshot
+    bool matBakeApplyWhenDone_ = false;  // "Bake & add layer" pending
+    // cached mesh inputs (rebuilding objparser loads per slider tick would
+    // thrash disk; keys carry the file mtimes so external edits re-bake)
+    matbake::MeshInput matBakeMeshLow_, matBakeMeshHigh_;
+    std::string matBakeMeshKey_, matBakeHighKey_;
+    std::string matBakeMeshError_;
+    void matBakeResetParams();    // defaults (new/awaiting-hint files)
+    matbake::Params matBakeParams() const;
+    bool matBakeBuildMeshes(const std::string& entryName);
+    void matBakeTick(const std::string& entryName, const std::string& texRel);
+    void matBakeUploadSolo();     // selected raw map -> "@matbake-view"
+    void matBakeApplyLayer();     // AO -> "Baked AO" multiply layer + save
+    void matBakeSaveMaps(const std::filesystem::path& mtlDirAbs,
+                         const std::string& entryName);
+    void matEdBakeSection(const std::string& entryName,
+                          const std::string& texRel);
+    // composite -> GL upload; multiplies the AO preview in at upload time
+    void matEdUploadComposite();
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";

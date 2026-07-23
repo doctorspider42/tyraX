@@ -11783,6 +11783,7 @@ void App::drawCutsceneWindow() {
 bool App::loadMaterialFile(const std::string& relPath) {
     matEdMats_.clear();
     matEdSel_ = 0;
+    matBakeResetParams();  // files without a hint get the defaults
     std::ifstream in(std::filesystem::path(project_.dir) / relPath);
     if (!in) return false;
 
@@ -11793,6 +11794,35 @@ bool App::loadMaterialFile(const std::string& relPath) {
         std::istringstream ss(line);
         std::string tag;
         ss >> tag;
+        if (tag == "#") {
+            // "# tyra-bake" = the file's bake parameters (file scope, may sit
+            // above the first newmtl - see saveMaterialFile for the format)
+            std::istringstream hs(line);
+            std::string hash, what;
+            hs >> hash >> what;
+            if (what == "tyra-bake") {
+                int size = 256, rays = 64, ss2 = 2, bf = 1, pad = 4, seed = 1;
+                float maxDist = 0.0f, cage = 0.0f;
+                std::string high;
+                hs >> size >> rays >> ss2 >> maxDist >> bf >> pad >> seed >>
+                    cage >> high;
+                matBakeSizeIdx_ = size >= 512 ? 3 : size >= 256 ? 2
+                                  : size >= 128 ? 1 : 0;
+                matBakeRays_ = std::max(4, std::min(rays, 1024));
+                matBakeSSIdx_ = ss2 >= 4 ? 2 : ss2 >= 2 ? 1 : 0;
+                matBakeMaxDist_ = maxDist < 0.0f ? 0.0f : maxDist;
+                matBakeBackface_ = bf != 0;
+                matBakePadding_ = std::max(0, std::min(pad, 16));
+                matBakeSeed_ = seed;
+                matBakeCage_ = cage < 0.0f ? 0.0f : cage;
+                if (high == "-") high.clear();
+                for (size_t i = 0;
+                     (i = high.find("%20", i)) != std::string::npos;)
+                    high.replace(i, 3, " "), ++i;
+                matBakeHigh_ = high;
+                continue;
+            }
+        }
         if (tag == "newmtl") {
             MatEdEntry e;
             ss >> e.name;
@@ -11888,6 +11918,23 @@ void App::saveMaterialFile() {
         return;
     }
     char buf[128];
+    // bake parameters (file scope) - written only when they left the
+    // defaults, so untouched files stay clean. Spaces in the high-poly path
+    // ride as %20 (the line is whitespace-tokenized on load).
+    const bool bakeDefault =
+        matBakeSizeIdx_ == 2 && matBakeRays_ == 64 && matBakeMaxDist_ == 0.0f &&
+        matBakeSSIdx_ == 1 && matBakeBackface_ && matBakePadding_ == 4 &&
+        matBakeSeed_ == 1 && matBakeHigh_.empty() && matBakeCage_ == 0.0f;
+    if (!bakeDefault) {
+        std::string high = matBakeHigh_.empty() ? "-" : matBakeHigh_;
+        for (size_t i = 0; (i = high.find(' ', i)) != std::string::npos;)
+            high.replace(i, 1, "%20"), i += 3;
+        std::snprintf(buf, sizeof(buf), "# tyra-bake %d %d %d %.6g %d %d %d %.6g ",
+                      64 << matBakeSizeIdx_, matBakeRays_, 1 << matBakeSSIdx_,
+                      matBakeMaxDist_, matBakeBackface_ ? 1 : 0, matBakePadding_,
+                      matBakeSeed_, matBakeCage_);
+        out << buf << high << "\n\n";
+    }
     for (const MatEdEntry& e : matEdMats_) {
         out << "newmtl " << e.name << "\n";
         std::snprintf(buf, sizeof(buf), "# tyra-brightness %.4g", e.brightness);
@@ -11952,6 +11999,11 @@ void App::openMaterialEditor(const std::string& relPath,
         matEdPaintTexRel_.clear();
         matEdLayers_.clear();
         matEdUndo_.clear();
+        // bake results belong to the previous file (params reloaded above)
+        matBaker_.cancel();
+        matBakeMaps_ = matbake::Maps{};
+        matBakeStartedSig_ = 0;
+        matBakeApplyWhenDone_ = false;
         // a model's own library previews best on its model: pick the sibling
         // .obj when the .mtl lives under res/models and no hint was given
         if (modelHint.empty() &&
@@ -12266,6 +12318,42 @@ void App::matEdComposite() {
             dst[3] = (unsigned char)(dst[3] + (255.0f - dst[3]) * sa + 0.5f);
         }
     }
+    matEdUploadComposite();
+}
+
+// Composite -> the shared GL texture. The bake's "AO on material" preview
+// multiplies the baked AO in HERE, at upload time only - matEdPaintPixels_
+// (what the PNG saves) never contains the preview, so a stroke saved while
+// previewing ships clean.
+void App::matEdUploadComposite() {
+    const int w = matEdPaintW_, h = matEdPaintH_;
+    if (w < 1 || h < 1 || matEdPaintTexRel_.empty()) return;
+    if (matBakePreviewMode_ == 1 && !matBakeMaps_.empty()) {
+        const matbake::Maps& m = matBakeMaps_;
+        std::vector<unsigned char> tmp = matEdPaintPixels_;
+        auto at = [&](int xx, int yy) {
+            xx = ((xx % m.w) + m.w) % m.w;
+            yy = ((yy % m.h) + m.h) % m.h;
+            return (float)m.ao[(size_t)yy * m.w + xx];
+        };
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                // bilinear AO at the texel center (map and texture sizes
+                // may differ; both wrap)
+                const float fx = (x + 0.5f) / w * m.w - 0.5f;
+                const float fy = (y + 0.5f) / h * m.h - 0.5f;
+                const int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+                const float tx = fx - x0, ty = fy - y0;
+                const float ao =
+                    (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
+                    (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+                unsigned char* px = &tmp[((size_t)y * w + x) * 4];
+                for (int c = 0; c < 3; ++c)
+                    px[c] = (unsigned char)(px[c] * ao * (1.0f / 255.0f) + 0.5f);
+            }
+        viewport_.updateTexturePixels(matEdPaintTexRel_, w, h, tmp.data());
+        return;
+    }
     viewport_.updateTexturePixels(matEdPaintTexRel_, w, h,
                                   matEdPaintPixels_.data());
 }
@@ -12463,9 +12551,472 @@ void App::matEdPaintTo(float u, float v) {
     matEdLastUV_[1] = v;
 }
 
+// --- Map baking (docs/material-baking.md) ------------------------------------
+// The Material Editor front of matbake: parameters live per .mtl (the
+// "# tyra-bake" hint), the bake runs progressively on matbake's worker
+// thread, snapshots land on the preview mesh within a round (~ms), and the
+// finished AO becomes a "Baked AO" multiply layer of the entry's texture.
+
+namespace {
+uint64_t bakeFnv(const std::string& s, uint64_t h = 1469598103934665603ull) {
+    for (unsigned char c : s) {
+        h ^= c;
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+// Bilinear (wrapping) resample of a single-channel map at the center of
+// texel (x, y) of a w x h target.
+float bakeSampleGray(const std::vector<uint8_t>& map, int mw, int mh, int x,
+                     int y, int w, int h) {
+    const float fx = (x + 0.5f) / w * mw - 0.5f;
+    const float fy = (y + 0.5f) / h * mh - 0.5f;
+    const int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+    const float tx = fx - x0, ty = fy - y0;
+    auto at = [&](int xx, int yy) {
+        xx = ((xx % mw) + mw) % mw;
+        yy = ((yy % mh) + mh) % mh;
+        return (float)map[(size_t)yy * mw + xx];
+    };
+    return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
+           (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+}
+}  // namespace
+
+void App::matBakeResetParams() {
+    matBakeSizeIdx_ = 2;
+    matBakeRays_ = 64;
+    matBakeMaxDist_ = 0.0f;
+    matBakeSSIdx_ = 1;
+    matBakeBackface_ = true;
+    matBakePadding_ = 4;
+    matBakeSeed_ = 1;
+    matBakeHigh_.clear();
+    matBakeCage_ = 0.0f;
+}
+
+matbake::Params App::matBakeParams() const {
+    matbake::Params p;
+    p.size = 64 << matBakeSizeIdx_;
+    p.samples = matBakeRays_;
+    p.maxDist = matBakeMaxDist_;
+    p.supersample = 1 << matBakeSSIdx_;
+    p.backface = matBakeBackface_;
+    p.padding = matBakePadding_;
+    p.seed = (uint32_t)matBakeSeed_;
+    p.cageOffset = matBakeCage_;
+    return p;
+}
+
+// (Re)build the cached matbake inputs. Keys carry the source file mtimes so
+// an external re-export re-bakes; unchanged keys cost two stat calls.
+bool App::matBakeBuildMeshes(const std::string& entryName) {
+    auto mtimeOf = [&](const std::string& rel) {
+        std::error_code ec;
+        const auto t = std::filesystem::last_write_time(
+            std::filesystem::path(project_.dir) / rel, ec);
+        return ec ? std::string("?")
+                  : std::to_string(t.time_since_epoch().count());
+    };
+    std::string key;
+    if (matEdShape_ == 4) {
+        if (matEdModel_.empty()) {
+            matBakeMeshError_ = "No preview model selected";
+            return false;
+        }
+        key = "m|" + matEdModel_ + "|" + matEdPath_ + "|" + entryName + "|" +
+              mtimeOf(matEdModel_);
+    } else {
+        key = "p|" + std::to_string(matEdShape_);
+    }
+    if (key != matBakeMeshKey_) {
+        matBakeMeshKey_ = key;
+        matBakeMeshError_.clear();
+        if (matEdShape_ == 4) {
+            objparser::Model m;
+            if (objparser::load(
+                    (std::filesystem::path(project_.dir) / matEdModel_).string(),
+                    m,
+                    (std::filesystem::path(project_.dir) / matEdPath_).string()))
+                matBakeMeshLow_ = matbake::fromModel(m, entryName);
+            else {
+                matBakeMeshLow_ = matbake::MeshInput{};
+                matBakeMeshError_ = "Cannot read " + matEdModel_;
+            }
+        } else {
+            matBakeMeshLow_ = matbake::fromPrimitive(
+                matEdShape_,
+                matEdShape_ == 0 ? kDefaultBoxDetail : kDefaultPrimDetail);
+        }
+        matBakeMeshLow_.signature = bakeFnv(key);
+    }
+    const std::string hkey =
+        matBakeHigh_.empty() ? ""
+                             : "h|" + matBakeHigh_ + "|" + mtimeOf(matBakeHigh_);
+    if (hkey != matBakeHighKey_) {
+        matBakeHighKey_ = hkey;
+        matBakeMeshHigh_ = matbake::MeshInput{};
+        if (!matBakeHigh_.empty()) {
+            objparser::Model m;
+            if (objparser::load(
+                    (std::filesystem::path(project_.dir) / matBakeHigh_).string(),
+                    m))
+                matBakeMeshHigh_ = matbake::fromModel(m, "");
+            else
+                matBakeMeshError_ = "Cannot read " + matBakeHigh_;
+            matBakeMeshHigh_.signature = bakeFnv(hkey);
+        }
+    }
+    if (matBakeMeshLow_.empty()) {
+        if (matBakeMeshError_.empty()) matBakeMeshError_ = "No mesh to bake";
+        return false;
+    }
+    return true;
+}
+
+// Once per frame while the editor shows a file: restart the bake when any
+// input changed (the Baker caches its gbuffer+BVH, so sampling-only slider
+// drags re-run nearly free), poll snapshots onto the preview, and finish a
+// pending "Bake & add layer".
+void App::matBakeTick(const std::string& entryName, const std::string& texRel) {
+    const bool wantBake = matBakePreviewMode_ > 0 || matBakeApplyWhenDone_;
+    if (wantBake) {
+        // the AO-on-material merge rides the paint target's GL upload
+        if (matBakePreviewMode_ == 1 && !texRel.empty() &&
+            matEdPaintTexRel_ != texRel) {
+            if (matEdLoadPaintTarget(texRel)) matEdComposite();
+        }
+        if (matBakeBuildMeshes(entryName)) {
+            char pb[128];
+            std::snprintf(pb, sizeof(pb), "|%d|%d|%.6g|%d|%d|%d|%d|%.6g",
+                          matBakeSizeIdx_, matBakeRays_, matBakeMaxDist_,
+                          matBakeSSIdx_, (int)matBakeBackface_, matBakePadding_,
+                          matBakeSeed_, matBakeCage_);
+            const uint64_t sig =
+                bakeFnv(pb, bakeFnv(matBakeMeshKey_ + "|" + matBakeHighKey_));
+            if (sig != matBakeStartedSig_) {
+                matBakeStartedSig_ = sig;
+                matBaker_.start(matBakeMeshLow_, matBakeMeshHigh_,
+                                matBakeParams());
+            }
+        } else if (matBakeApplyWhenDone_) {
+            matBakeApplyWhenDone_ = false;
+            statusMessage_ = "Bake: " + matBakeMeshError_;
+        }
+    }
+    if (matBaker_.version() != matBakeSeenVersion_) {
+        matBakeSeenVersion_ = matBaker_.version();
+        matBakeMaps_ = matBaker_.snapshot();
+        if (matBakePreviewMode_ == 1)
+            matEdUploadComposite();
+        else if (matBakePreviewMode_ == 2)
+            matBakeUploadSolo();
+    }
+    if (matBakeApplyWhenDone_ && !matBaker_.running()) {
+        // the final round may land between the poll above and here
+        matBakeMaps_ = matBaker_.snapshot();
+        const std::string err = matBaker_.error();
+        if (!matBakeMaps_.empty() && matBakeMaps_.samplesDone >= matBakeRays_) {
+            matBakeApplyWhenDone_ = false;
+            matBakeApplyLayer();
+        } else if (!err.empty()) {
+            matBakeApplyWhenDone_ = false;
+            statusMessage_ = "Bake failed: " + err;
+        }
+    }
+}
+
+// Raw-map view: the selected map replaces the material texture on the
+// preview mesh via a pseudo-path texture (never touches disk).
+void App::matBakeUploadSolo() {
+    if (matBakeMaps_.empty()) return;
+    const matbake::Maps& m = matBakeMaps_;
+    const std::vector<uint8_t>* gray = matBakeMapView_ == 0   ? &m.ao
+                                       : matBakeMapView_ == 1 ? &m.curvature
+                                       : matBakeMapView_ == 2 ? &m.thickness
+                                                              : nullptr;
+    const std::vector<uint8_t>* rgb = matBakeMapView_ == 3   ? &m.bent
+                                      : matBakeMapView_ == 4 ? &m.normal
+                                      : matBakeMapView_ == 5 ? &m.position
+                                                             : nullptr;
+    std::vector<unsigned char> rgba((size_t)m.w * m.h * 4);
+    for (size_t i = 0; i < (size_t)m.w * m.h; ++i) {
+        unsigned char* px = &rgba[i * 4];
+        if (gray)
+            px[0] = px[1] = px[2] = (*gray)[i];
+        else
+            for (int c = 0; c < 3; ++c) px[c] = (*rgb)[i * 3 + c];
+        px[3] = 255;
+    }
+    viewport_.updateTexturePixels("@matbake-view", m.w, m.h, rgba.data());
+}
+
+// The auto-hookup: the baked AO lands as a "Baked AO" multiply layer of the
+// entry's texture (re-bakes overwrite it in place instead of stacking
+// duplicates), and the .mtl saves so the bake parameters ship next to the
+// result. One click, the model just looks better.
+void App::matBakeApplyLayer() {
+    if (matBakeMaps_.empty()) {
+        statusMessage_ = "Nothing baked yet";
+        return;
+    }
+    if (matEdPaintW_ < 1 || matEdPaintTexRel_.empty()) {
+        statusMessage_ =
+            "Bake: the entry needs a texture (Texture > New paintable texture)";
+        return;
+    }
+    const int w = matEdPaintW_, h = matEdPaintH_;
+    const matbake::Maps& m = matBakeMaps_;
+    std::vector<unsigned char> pixels((size_t)w * h * 4);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const float ao = bakeSampleGray(m.ao, m.w, m.h, x, y, w, h);
+            unsigned char* px = &pixels[((size_t)y * w + x) * 4];
+            px[0] = px[1] = px[2] = (unsigned char)(ao + 0.5f);
+            px[3] = 255;
+        }
+    int at = -1;
+    for (size_t i = 0; i < matEdLayers_.size(); ++i)
+        if (matEdLayers_[i].name == "Baked AO") at = (int)i;
+    if (at >= 0) {
+        matEdPushUndo(MatEdUndoStep::Kind::Paint, at);
+        matEdLayers_[at].pixels = std::move(pixels);
+        matEdLayers_[at].blend = 1;
+        matEdLayers_[at].visible = true;
+    } else {
+        MatEdLayer l;
+        l.name = "Baked AO";
+        l.blend = 1;  // multiply
+        l.pixels = std::move(pixels);
+        at = (int)matEdLayers_.size();
+        matEdLayers_.push_back(std::move(l));
+        matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+    }
+    matEdComposite();
+    matEdSavePaintTarget();
+    saveMaterialFile();  // persists the # tyra-bake parameters
+    statusMessage_ = "Baked AO applied as a multiply layer (" +
+                     std::to_string(m.samplesDone) + " rays/texel)";
+}
+
+// Writes the whole map set as PNGs next to the .mtl - mask sources for
+// hand-painted wear, exports for external tools. They are ordinary res/
+// PNGs afterwards (assignable as textures; delete what the game won't use).
+void App::matBakeSaveMaps(const std::filesystem::path& mtlDirAbs,
+                          const std::string& entryName) {
+    if (matBakeMaps_.empty()) {
+        statusMessage_ = "Nothing baked yet";
+        return;
+    }
+    const matbake::Maps& m = matBakeMaps_;
+    const std::string base = sanitizeAssetName(
+        std::filesystem::path(matEdPath_).stem().string() +
+        (entryName.empty() ? "" : "-" + entryName));
+    struct Out {
+        const char* suffix;
+        const std::vector<uint8_t>* gray;
+        const std::vector<uint8_t>* rgb;
+    };
+    const Out outs[] = {
+        {"-ao.png", &m.ao, nullptr},
+        {"-curvature.png", &m.curvature, nullptr},
+        {"-thickness.png", &m.thickness, nullptr},
+        {"-bent.png", nullptr, &m.bent},
+        {"-normal.png", nullptr, &m.normal},
+        {"-position.png", nullptr, &m.position},
+    };
+    int written = 0;
+    std::vector<unsigned char> rgb((size_t)m.w * m.h * 3);
+    for (const Out& o : outs) {
+        for (size_t i = 0; i < (size_t)m.w * m.h; ++i)
+            for (int c = 0; c < 3; ++c)
+                rgb[i * 3 + c] = o.gray ? (*o.gray)[i] : (*o.rgb)[i * 3 + c];
+        written += stbi_write_png((mtlDirAbs / (base + o.suffix)).string().c_str(),
+                                  m.w, m.h, 3, rgb.data(), m.w * 3)
+                       ? 1
+                       : 0;
+    }
+    saveMaterialFile();  // persists the # tyra-bake parameters
+    statusMessage_ = "Saved " + std::to_string(written) +
+                     " baked maps next to " + matEdPath_;
+}
+
+// The "Bake maps" block of the property column.
+void App::matEdBakeSection(const std::string& entryName,
+                           const std::string& texRel) {
+    ImGui::SeparatorText("Bake maps");
+    const char* prevModes[] = {"Off", "AO on material", "Map view"};
+    ImGui::SetNextItemWidth(scaled(150.0f));
+    if (ImGui::Combo("Preview", &matBakePreviewMode_, prevModes, 3)) {
+        if (matBakePreviewMode_ != 1) matEdUploadComposite();
+        if (matBakePreviewMode_ == 2)
+            matBakeUploadSolo();
+        else if (matBakePreviewMode_ == 0) {
+            matBaker_.cancel();
+            matBakeStartedSig_ = 0;
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Live progressive bake on the preview mesh. \"AO on material\"\n"
+            "multiplies the baked occlusion over the textured material\n"
+            "(preview only - nothing is saved); \"Map view\" shows the raw\n"
+            "baked map. Parameter changes re-bake immediately.");
+    if (matBakePreviewMode_ == 2) {
+        ImGui::SameLine();
+        const char* maps[] = {"AO",        "Curvature", "Thickness",
+                              "Bent normal", "OS normal", "Position"};
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::Combo("##bake_map", &matBakeMapView_, maps, 6))
+            matBakeUploadSolo();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "One bake produces them all: occlusion, geometric edge/cavity\n"
+                "curvature, thickness (white = solid depth below the surface),\n"
+                "average unoccluded direction, object-space normals and\n"
+                "AABB-normalized positions.");
+    }
+
+    // high-poly: bake the detail of a dense mesh into this (low) one
+    {
+        const char* noneLabel = "<none - bake this mesh>";
+        ImGui::SetNextItemWidth(scaled(240.0f));
+        if (ImGui::BeginCombo("High-poly",
+                              matBakeHigh_.empty()
+                                  ? noneLabel
+                                  : std::filesystem::path(matBakeHigh_)
+                                        .filename()
+                                        .string()
+                                        .c_str())) {
+            if (ImGui::Selectable(noneLabel, matBakeHigh_.empty()))
+                matBakeHigh_.clear();
+            for (const std::string& mo : listAssetFiles("models", ".obj")) {
+                const std::string rel = "res/models/" + mo;
+                if (ImGui::Selectable(mo.c_str(), rel == matBakeHigh_))
+                    matBakeHigh_ = rel;
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "A dense version of the preview mesh: every texel is first\n"
+                "projected onto it (cage projection along the smoothed\n"
+                "normals), so the baked maps carry the high mesh's detail -\n"
+                "the low-poly model looks like it has geometry it doesn't.");
+        if (!matBakeHigh_.empty()) {
+            ImGui::SetNextItemWidth(scaled(140.0f));
+            ImGui::DragFloat("Cage", &matBakeCage_, 0.005f, 0.0f, 10.0f,
+                             matBakeCage_ <= 0.0f ? "auto" : "%.3f");
+            if (matBakeCage_ < 0.0f) matBakeCage_ = 0.0f;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How far above the low surface the projection rays start\n"
+                    "(world units; auto = 2%% of the model size). Raise it if\n"
+                    "tall high-poly detail gets clipped, lower it if opposite\n"
+                    "surfaces bleed into each other.");
+        }
+    }
+
+    const char* sizes[] = {"64", "128", "256", "512"};
+    ImGui::SetNextItemWidth(scaled(90.0f));
+    ImGui::Combo("Resolution", &matBakeSizeIdx_, sizes, 4);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Baked map size. Match the entry's texture for the\n"
+                          "layer bake; bigger only helps saved maps.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::SliderInt("Rays", &matBakeRays_, 8, 512, "%d",
+                     ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hemisphere rays per texel at full quality. 64 is\n"
+                          "clean for most props; the preview refines toward\n"
+                          "this progressively.");
+
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::DragFloat("Max distance", &matBakeMaxDist_, 0.02f, 0.0f, 1000.0f,
+                     matBakeMaxDist_ <= 0.0f ? "auto" : "%.2f");
+    if (matBakeMaxDist_ < 0.0f) matBakeMaxDist_ = 0.0f;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Occlusion reach in world units (auto = half the model size).\n"
+            "THE artistic knob: small = tight contact shadows in crevices,\n"
+            "large = broad soft shading. Interiors need a limit or they\n"
+            "bake pitch black.");
+
+    const char* ssLevels[] = {"1x", "2x", "4x"};
+    ImGui::SetNextItemWidth(scaled(90.0f));
+    ImGui::Combo("Anti-alias", &matBakeSSIdx_, ssLevels, 3);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Surface samples per texel axis (supersampling in\n"
+                          "UV space) - smooths island edges.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Backface hits", &matBakeBackface_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rays hitting triangle back sides count as\n"
+                          "occluders. Keep on for thin/unwelded geometry;\n"
+                          "turn off if closed meshes bake too dark inside\n"
+                          "overlaps.");
+
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::SliderInt("Padding", &matBakePadding_, 0, 16, "%d px");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Dilate ring around the UV islands - bilinear\n"
+                          "filtering and mipmaps need it or seams go dark.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(80.0f));
+    ImGui::InputInt("Seed", &matBakeSeed_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Sampling seed. Same seed + same settings = the\n"
+                          "same bake, bit for bit.");
+
+    if (!matBakeMeshError_.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                           matBakeMeshError_.c_str());
+    const std::string bakeErr = matBaker_.error();
+    if (!bakeErr.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                           bakeErr.c_str());
+    if (matBaker_.running()) {
+        ImGui::ProgressBar(matBaker_.progress(), ImVec2(-FLT_MIN, 0));
+    } else if (!matBakeMaps_.empty() && matBakePreviewMode_ > 0) {
+        ImGui::TextDisabled("%d rays/texel baked", matBakeMaps_.samplesDone);
+    }
+
+    ImGui::BeginDisabled(texRel.empty());
+    if (ImGui::Button("Bake & add AO layer")) {
+        matBakeApplyWhenDone_ = true;
+        matBakeStartedSig_ = 0;  // force a fresh full-quality run
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            texRel.empty()
+                ? "The entry needs a texture first\n"
+                  "(Texture > New paintable texture...)."
+                : "Bakes at full quality, then drops the AO onto the\n"
+                  "entry's texture as a \"Baked AO\" multiply layer\n"
+                  "(re-bakes update it in place). Undo with Ctrl+Z.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(matBakeMaps_.empty() || matBaker_.running());
+    if (ImGui::Button("Save all maps")) {
+        matBakeSaveMaps(
+            (std::filesystem::path(project_.dir) / matEdPath_).parent_path(),
+            entryName);
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Writes ao/curvature/thickness/bent/normal/position PNGs next\n"
+            "to the .mtl - mask sources for wear & dirt, or exports for\n"
+            "external tools.");
+}
+
 void App::drawMaterialEditorWindow() {
     if (!showMaterialEditor_ || !hasProject_) {
         matEdFocused_ = false;
+        if (matBaker_.running()) matBaker_.cancel();
+        matBakeApplyWhenDone_ = false;
         return;
     }
 
@@ -12899,6 +13450,14 @@ void App::drawMaterialEditorWindow() {
         }
     }
 
+    // --- Bake maps (docs/material-baking.md) ---------------------------------
+    matEdBakeSection(e.name,
+                     e.texture.empty()
+                         ? ""
+                         : (std::filesystem::path(matEdPath_).parent_path() /
+                            e.texture)
+                               .generic_string());
+
     ImGui::Spacing();
     ImGui::TextDisabled("Saved to the file on every change. The object's own\n"
                         "Color multiplies on top per object.");
@@ -12961,6 +13520,10 @@ void App::drawMaterialEditorWindow() {
                 : (std::filesystem::path(matEdPath_).parent_path() / sel.refl)
                       .generic_string();
 
+        // progressive map bake: restart on changed inputs, poll snapshots,
+        // finish a pending "Bake & add layer"
+        matBakeTick(sel.name, texRel);
+
         // --- paint tool ------------------------------------------------------
         if (ImGui::Checkbox("Paint", &matEdPaint_) && matEdPaint_)
             matEdPaintTexRel_.clear();  // (re)load the target below
@@ -12990,6 +13553,11 @@ void App::drawMaterialEditorWindow() {
                 if (!canPaint)
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
                                        "Texture file unreadable.");
+            }
+            if (canPaint && matBakePreviewMode_ == 2) {
+                ImGui::TextDisabled("Painting paused - the bake Map view\n"
+                                    "replaces the texture on the preview.");
+                canPaint = false;
             }
         }
         if (matEdPaint_ && canPaint) {
@@ -13225,6 +13793,14 @@ void App::drawMaterialEditorWindow() {
         desc.angleDeg = matEdAngle_;
         desc.pitchDeg = matEdPitch_;
         desc.zoom = matEdZoom_;
+        if (matBakePreviewMode_ == 2 && !matBakeMaps_.empty()) {
+            // raw-map view: the baked map replaces the material's look
+            desc.texRel = "@matbake-view";
+            desc.kd[0] = desc.kd[1] = desc.kd[2] = 1.0f;
+            desc.reflRel.clear();
+            desc.reflStrength = 0.0f;
+            desc.reflSky = false;
+        }
 
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
