@@ -76,20 +76,21 @@ struct SceneObjectData {
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[7] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[8] = {
     {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
     {0, {0.0F, 0.45F, 7.0F}, {0.0F, 0.0F, 0.0F}, {2.2F, 0.9F, 2.2F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // pedestal
     {1, {0.0F, 2.05F, 7.0F}, {0.0F, 0.0F, 0.0F}, {2.6F, 2.6F, 2.6F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 24, -1, 1},  // chrome-ball
-    {0, {5.2F, 2.4F, 8.5F}, {0.0F, 25.0F, 0.0F}, {2.4F, 4.8F, 0.8F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // chrome-monolith
+    {0, {5.2F, 2.4F, 8.5F}, {0.0F, 24.9999F, 0.0F}, {8.18852F, 4.8F, 0.8F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // chrome-monolith
     {0, {-1.7F, 0.9F, -2.4F}, {0.0F, 20.0F, 0.0F}, {1.7F, 1.7F, 1.7F}, {0.9F, 0.18F, 0.12F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate-red
     {1, {2.1F, 1.2F, -1.8F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {1.0F, 0.85F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // ball-sun
     {0, {4.4F, 1.6F, -0.6F}, {0.0F, 0.0F, 0.0F}, {1.1F, 3.2F, 1.1F}, {0.22F, 0.4F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // pillar-blue
+    {1, {1.54559F, 0.576821F, 2.78913F}, {0.0F, -0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.72549F, 0.0924645F, 0.0924645F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // ball-sun-copy
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {7};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {8};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[7] = {0x86acb9d0c8234142ULL, 0xf8eadcb08e736f31ULL, 0xf8f4dcb08e7bc3b6ULL, 0xf8f0dcb08e77dadfULL, 0xf8e0dcb08e6b1aacULL, 0xf8dcdcb08e6731d5ULL, 0xf8e6dcb08e6f865aULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[8] = {0x86acb9d0c8234142ULL, 0xf8eadcb08e736f31ULL, 0xf8f4dcb08e7bc3b6ULL, 0xf8f0dcb08e77dadfULL, 0xf8e0dcb08e6b1aacULL, 0xf8dcdcb08e6731d5ULL, 0xf8e6dcb08e6f865aULL, 0x600eb8a38f0aa579ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -319,7 +320,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 7;
+constexpr int SAVE_OBJECT_MAX = 8;
 
 }  // namespace Probe_aim
 
