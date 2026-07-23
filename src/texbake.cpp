@@ -306,12 +306,6 @@ std::string bake(const Project& p,
         }
     }
 
-    // Baked ambient occlusion (docs/ambient-occlusion.md): does any scene
-    // resolve to a preset with AO on? Gates the model sidecar bake below and
-    // keeps the vanished-source sweep from eating fresh sidecars.
-    bool anyAo = false;
-    for (const SceneData& sc : p.scenes)
-        anyAo |= project::resolvedSettings(p, sc).aoEnabled;
 
     // drop baked files whose source vanished (they would still reach bin/) -
     // and editor-only files a pre-exclusion bake may have mirrored
@@ -325,13 +319,11 @@ std::string bake(const Project& p,
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas") continue;
         std::error_code sec;
-        // "<model>.aov" AO sidecars are generated below with no res/ source -
-        // their source is the model itself; they go stale with it or when the
-        // project stops baking AO.
+        // "<model>.aov" AO sidecars: model self-AO is disabled for now (the
+        // per-vertex bake reads as triangulated shading on authored meshes -
+        // see aobake::modelAO), so any previously baked sidecar is stale.
         if (lowerExt(e.path()) == ".aov") {
-            fs::path objSrc = res / rel;
-            objSrc.replace_extension(".obj");
-            if (!anyAo || !fs::exists(objSrc, sec)) stale.push_back(e.path());
+            stale.push_back(e.path());
             continue;
         }
         if (!fs::exists(res / rel, sec) || editorOnly(rel))
@@ -339,33 +331,17 @@ std::string bake(const Project& p,
     }
     for (const fs::path& s : stale) fs::remove(s, ec);
 
-    // Model AO sidecars: raycast self-occlusion per obj position for every
-    // .obj under res/models, written as "<model>.aov" into the mirror (read
-    // by the engine's LeanObjLoader). Skipped when up to date.
-    if (anyAo) {
-        int aoCount = 0;
-        for (const auto& e : fs::recursive_directory_iterator(res / "models", ec)) {
-            if (!e.is_regular_file() || lowerExt(e.path()) != ".obj") continue;
-            fs::path dst = baked / fs::relative(e.path(), res, ec);
-            dst.replace_extension(".aov");
-            std::error_code tec;
-            if (fs::exists(dst, tec) &&
-                fs::last_write_time(dst, tec) >= fs::last_write_time(e.path(), tec))
-                continue;
-            objparser::Model model;
-            if (!objparser::load(e.path().string(), model)) continue;
-            const std::vector<uint8_t> ao = aobake::modelAO(model);
-            if (ao.empty()) continue;
-            fs::create_directories(dst.parent_path(), ec);
-            if (aobake::writeModelAoSidecar(dst.string(), ao)) ++aoCount;
-        }
-        if (aoCount)
-            log("[editor] Ambient occlusion: baked " + std::to_string(aoCount) +
-                " model AO sidecar(s)");
-    }
+    // Model self-AO sidecars: DISABLED for now (owner call, 2026-07) - the
+    // per-vertex bake reads as triangulated shading on authored low-poly
+    // meshes; a proper fix needs a per-model lightmap unwrap. The full
+    // pipeline stays in place for that future path: aobake::modelAO +
+    // writeModelAoSidecar bake "<model>.aov" per .obj under res/models, and
+    // the engine's LeanObjLoader quietly folds an existing sidecar into
+    // per-vertex visibility bytes. To re-enable, restore the loop that was
+    // here (git log this file) and drop the unconditional .aov sweep above.
 
-    // Experimental textured AO (docs/ambient-occlusion.md): the terrain AO
-    // map + the primitive lightmap atlas, one pair per AO-textured scene,
+    // Baked ambient occlusion (docs/ambient-occlusion.md): the terrain AO
+    // map + the primitive lightmap atlas, one pair per AO-enabled scene,
     // regenerated wholesale like the stochastic supertiles. Codegen emits
     // the matching atlas rects from the SAME deterministic bake
     // (aobake::bakeSceneAoAtlas), so pixels and UVs cannot drift.
@@ -400,7 +376,7 @@ std::string bake(const Project& p,
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             const SceneData& sc = p.scenes[si];
             const ProjectSettings srs = project::resolvedSettings(p, sc);
-            if (!srs.aoEnabled || !srs.aoTextured) continue;
+            if (!srs.aoEnabled) continue;
             const aobake::AoImage map = aobake::terrainAOMap(
                 sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                 (float)sc.terrain.depth,
@@ -420,7 +396,7 @@ std::string bake(const Project& p,
         }
         if (aoTexCount)
             log("[editor] Ambient occlusion: baked " + std::to_string(aoTexCount) +
-                " AO texture(s) (textured mode)");
+                " AO texture(s)");
     }
 
     // Stochastic-tiling supertiles (docs/terrain-painting.md): one

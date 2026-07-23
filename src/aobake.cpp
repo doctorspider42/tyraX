@@ -57,6 +57,7 @@ std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
     std::vector<Occluder> out;
     for (int i = 0; i < (int)objects.size(); ++i) {
         const SceneObject& o = objects[i];
+        if (!o.castShadow) continue;  // per-object opt-out (Properties)
         float cLocal[3] = {0, 0, 0};  // occluder center in object-local units
         float half[3];
         bool sphere = false;
@@ -654,7 +655,7 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
     SceneAoAtlas out;
     const ProjectSettings rs = project::resolvedSettings(p, sc);
     out.firstRegion.assign(sc.objects.size(), -1);
-    if (!rs.aoEnabled || !rs.aoTextured || rs.aoStrength <= 0.0f) return out;
+    if (!rs.aoEnabled || rs.aoStrength <= 0.0f) return out;
 
     const std::vector<Occluder> occs = collectOccluders(sc.objects, modelAabb);
 
@@ -727,6 +728,10 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
 
     // Rasterize each region: (u,v) -> local -> world (the pushVert transform:
     // scale, rotate, translate) -> occluders (excluding self) + ground term.
+    // Objects whose every texel comes out fully lit (an isolated prop in the
+    // open) are dropped from the atlas afterwards - no extra pass, and they
+    // stay eligible for static batching.
+    std::vector<char> objHasAo(sc.objects.size(), 0);
     int lastObj = -1;
     std::vector<const Occluder*> local;
     for (const Region& rg : regions) {
@@ -774,8 +779,9 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
                     (float)sc.terrain.depth, wp[0], wp[2]);
                 occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
                 if (occ > 1.0f) occ = 1.0f;
-                out.alpha[(size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i] =
-                    (uint8_t)(255.0f * rs.aoStrength * occ + 0.5f);
+                const uint8_t a = (uint8_t)(255.0f * rs.aoStrength * occ + 0.5f);
+                out.alpha[(size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i] = a;
+                if (a) objHasAo[rg.obj] = 1;
             }
         }
         // dilate the interior into the 1-texel padding ring (bilinear guard)
@@ -795,10 +801,14 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
     }
 
     // Emit rects (interior only, inset half a texel) + per-object firsts.
-    // regions[] is already in object order, region idx ascending.
+    // regions[] is already in object order, region idx ascending; fully-lit
+    // objects keep firstRegion = -1 (their packed space just goes unused).
     out.rects.reserve(regions.size());
     const float inv = 1.0f / atlasSize;
+    bool anyAo = false;
     for (const Region& rg : regions) {
+        if (!objHasAo[rg.obj]) continue;
+        anyAo = true;
         if (out.firstRegion[rg.obj] < 0)
             out.firstRegion[rg.obj] = (int)out.rects.size();
         AtlasRect rc;
@@ -807,6 +817,11 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
         rc.du = (rg.w - 3.0f) * inv;
         rc.dv = (rg.h - 3.0f) * inv;
         out.rects.push_back(rc);
+    }
+    if (!anyAo) {
+        out.size = 0;
+        out.alpha.clear();
+        out.rects.clear();
     }
     return out;
 }

@@ -211,6 +211,10 @@ struct SceneObject {
     // trick's second half. Each marked object costs a second (128x128,
     // wide-FOV) render per frame; mark the few props that sell the effect.
     bool reflected = false;
+    // Ambient occlusion: this object darkens nearby terrain and objects
+    // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
+    // casts nothing; it still receives shadows from others.
+    bool castShadow = true;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -428,7 +432,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
-           a.reflected == b.reflected &&
+           a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -668,12 +672,6 @@ struct ProjectSettings {
     bool aoEnabled = false;
     float aoStrength = 0.55f;  // 0..1, how dark full occlusion gets
     float aoRadius = 2.5f;     // world units the contact darkening reaches
-    // Experimental "Textured" AO quality: instead of vertex colors, the AO
-    // bakes into per-pixel textures - a terrain AO map + a per-scene
-    // primitive lightmap atlas - drawn as an extra alpha-blended pass
-    // (smooth on sparse meshes; costs VRAM, fill rate and disables static
-    // batching for the covered objects). false = the vertex-color bake.
-    bool aoTextured = false;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -757,7 +755,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
-           a.aoRadius == b.aoRadius && a.aoTextured == b.aoTextured &&
+           a.aoRadius == b.aoRadius &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&

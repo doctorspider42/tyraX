@@ -36,7 +36,6 @@ struct AmbiencePreset {
     bool aoEnabled = false;
     float aoStrength = 0.55f;  // 0..1
     float aoRadius = 2.5f;     // world units
-    bool aoTextured = false;   // experimental per-pixel AO maps (see settings)
 
     // GS hardware distance fog.
     bool fogEnabled = false;
@@ -56,7 +55,6 @@ inline bool operator==(const AmbiencePreset& a, const AmbiencePreset& b) {
            a.diffuse == b.diffuse && eq3(a.lightColor, b.lightColor) &&
            a.brightness == b.brightness && a.aoEnabled == b.aoEnabled &&
            a.aoStrength == b.aoStrength && a.aoRadius == b.aoRadius &&
-           a.aoTextured == b.aoTextured &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd;

@@ -57,7 +57,7 @@ std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
 float occluderOcclusionAt(const Occluder& oc, const float wp[3],
                           const float n[3], float range);
 
-// --- textured AO (the experimental "AO quality: Textured" mode) ------------
+// --- the AO textures (how the bake ships) -----------------------------------
 
 // A square, power-of-two occlusion image; alpha = strength * occlusion
 // (255 = darken fully). Written as a black RGBA PNG whose alpha the GS
@@ -69,8 +69,7 @@ struct AoImage {
 
 // Terrain AO map covering the full terrain extent: per-texel heightmap
 // self-occlusion (the same horizon scan as terrainAO, on bilinear heights)
-// plus the occluder contact term. Replaces BOTH per-vertex terrain paths
-// when the textured mode is on.
+// plus the occluder contact term.
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs, float radiusWorld,
@@ -109,6 +108,10 @@ std::vector<uint8_t> terrainAO(const std::vector<float>& heights, int w, int d,
 // traced against the model's own triangles (XZ-grid accelerated). Returns one
 // byte per obj position index (objparser::Submesh::posIdx), 255 = open.
 // Model-local, placement-independent - baked once per asset.
+// CURRENTLY UNUSED (owner call, 2026-07): per-vertex occlusion on authored
+// low-poly meshes reads as triangulated shading, so texbake no longer writes
+// the .aov sidecars and the game stages models AO-off. Kept - with the
+// LeanObjLoader sidecar reader - for a future per-model lightmap-unwrap path.
 std::vector<uint8_t> modelAO(const objparser::Model& m);
 
 // Sidecar IO ("TXAO" + u32 LE count + bytes). The engine-side reader lives in

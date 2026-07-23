@@ -334,7 +334,7 @@ private:
     int uReflRounded_ = -1, uReflCenter_ = -1;
     // Ambient occlusion preview (see setAmbientOcclusion)
     int uAoOn_ = -1, uAoStrength_ = -1, uAoRadius_ = -1, uAoCount_ = -1;
-    int uAoSelfObj_ = -1, uAoGround_ = -1;
+    int uAoSelfObj_ = -1, uAoGround_ = -1, uAoReceive_ = -1;
     int uAoPos_ = -1, uAoAx_ = -1, uAoAy_ = -1, uAoAz_ = -1, uAoObj_ = -1;
     int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
     bool aoOn_ = false;

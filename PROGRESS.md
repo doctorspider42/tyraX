@@ -10,6 +10,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (161) **AO reshaped: per-object "Cast shadow", textures only, model AO
+  parked** - owner feedback on (159/160): the shadows only look right in the
+  textured version, control belongs on the object, and per-vertex model AO
+  reads as triangulated shading on authored meshes. So: the "AO quality"
+  switch is GONE (`aoTextured` removed from settings/preset/serialization) -
+  the texture path is the only one; the terrain per-vertex grid
+  (`TERRAIN_AO_TABLES` + the shadeAt multiply + the chunk occluder staging)
+  is deleted; a new `SceneObject::castShadow` (default on, Properties >
+  "Cast shadow" + the multi-select row, serialized only when false, folded
+  into liveLinkRecipeHash) gates `aobake::collectOccluders`, so casting is
+  per object while receiving stays automatic. Model receive/self-AO is
+  DISABLED (g_aoOff staged for type 5 in the generated rebuild; texbake no
+  longer writes .aov sidecars and sweeps stale ones; the viewport stops
+  baking model self-AO and skips model fragments via a new uAoReceive
+  uniform) - the whole pipeline (aobake::modelAO, the sidecar format, the
+  LeanObjLoader reader) stays in-tree with comments pointing at a future
+  per-model lightmap-unwrap. Batching got smarter: an object whose atlas
+  regions come out fully lit is dropped from the atlas (firstRegion -1) and
+  stays batchable; covered objects render solo (the same deterministic bake
+  reused in the scene-table emitter for the eligibility bit). Verified in
+  PCSX2: the box casts onto terrain AND onto the wall, the sphere keeps its
+  contact blob, the wall with Cast shadow OFF darkens nothing while still
+  receiving the box's shadow, 50 FPS. Possible future win (backlog-worthy):
+  merge the AO passes into static-batch bags (they share one atlas texture)
+  to win batching back.
+
 - (160) **Textured AO quality mode (experimental)** - the follow-up to (159)
   after the owner's PCSX2 check: per-vertex AO on the sparse terrain grid and
   on 2-triangle primitive faces shows its Gouraud diamonds. New **AO quality**

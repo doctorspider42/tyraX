@@ -213,6 +213,7 @@ uniform float uAoRadius;
 uniform int uAoCount;
 uniform int uAoSelfObj;          // scene-object index drawing now (-1 terrain)
 uniform int uAoGround;           // 1 = terrain contact term (objects only)
+uniform int uAoReceive;          // 0 = this draw receives no AO (models)
 uniform vec4 uAoPos[32];         // xyz = center, w = 1 sphere / 0 box
 uniform vec4 uAoAx[32];          // local X axis, w = half extent x (or radius)
 uniform vec4 uAoAy[32];          // local Y axis, w = half extent y
@@ -282,7 +283,7 @@ void main() {
     vec3 shade = vColor;
     // AO multiplies the baked directional shade BEFORE the point lights add
     // on top - mirrors the pushVert/shadeAt order in the generated game.
-    if (uLit != 0 && uAoOn != 0) {
+    if (uLit != 0 && uAoOn != 0 && uAoReceive != 0) {
         vec3 nAo = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         shade *= 1.0 - uAoStrength * aoOcclusion(vWorld, nAo);
     }
@@ -812,6 +813,7 @@ bool Viewport::init() {
     uAoCount_ = glGetUniformLocation(program_, "uAoCount");
     uAoSelfObj_ = glGetUniformLocation(program_, "uAoSelfObj");
     uAoGround_ = glGetUniformLocation(program_, "uAoGround");
+    uAoReceive_ = glGetUniformLocation(program_, "uAoReceive");
     uAoPos_ = glGetUniformLocation(program_, "uAoPos");
     uAoAx_ = glGetUniformLocation(program_, "uAoAx");
     uAoAy_ = glGetUniformLocation(program_, "uAoAy");
@@ -1983,29 +1985,19 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             std::filesystem::path(materialRel.empty() ? relPath : materialRel)
                 .parent_path();
         for (int k = 0; k < 3; ++k) draw.mn[k] = model.min[k], draw.mx[k] = model.max[k];
-        // Raycast self-AO baked into the vertex colors - the same
-        // aobake::modelAO values texbake writes into the .aov sidecar the
-        // PS2 loader reads (per obj position index via Submesh::posIdx).
-        std::vector<uint8_t> aoVals;
-        if (aoOn_ && aoStrength_ > 0.0f) aoVals = aobake::modelAO(model);
+        // Model self-AO (aobake::modelAO into the vertex colors) is DISABLED
+        // for now, matching the game: per-vertex occlusion on authored
+        // low-poly meshes reads as triangulated shading (owner call,
+        // 2026-07). The bake + the .aov sidecar plumbing stay in aobake/
+        // texbake/LeanObjLoader for a future per-model lightmap-unwrap path.
         for (const objparser::Submesh& sub : model.submeshes) {
             std::vector<float> interleaved;
             interleaved.reserve(sub.verts.size());
-            const bool hasAo = !aoVals.empty() &&
-                               sub.posIdx.size() * 8 == sub.verts.size();
             for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
                 // Kd is baked into the vertex colors (the object color still
                 // modulates on top via the tint uniform - same as the game).
-                Vec3 s =
+                const Vec3 s =
                     shadeOf({sub.verts[i + 3], sub.verts[i + 4], sub.verts[i + 5]});
-                if (hasAo) {
-                    const int pi = sub.posIdx[i / 8];
-                    const uint8_t ao =
-                        (pi >= 0 && pi < (int)aoVals.size()) ? aoVals[pi] : 255;
-                    const float aoM =
-                        1.0f - aoStrength_ * (1.0f - ao / 255.0f);
-                    s.x *= aoM, s.y *= aoM, s.z *= aoM;
-                }
                 interleaved.insert(
                     interleaved.end(),
                     {sub.verts[i], sub.verts[i + 1], sub.verts[i + 2],
@@ -2369,6 +2361,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // self-exclusion index and the ground-term toggle change (see draw()).
     int aoSelfObj = -1;
     bool aoGroundOn = false;
+    bool aoReceive = true;  // models neither receive nor self-occlude
     {
         int aoCount = 0;
         if (aoOn_) {
@@ -2459,6 +2452,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform1i(uAoSelfObj_, aoSelfObj);
         glUniform1i(uAoGround_, aoGroundOn ? 1 : 0);
+        glUniform1i(uAoReceive_, aoReceive ? 1 : 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
@@ -2520,6 +2514,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
         aoSelfObj = -1;       // terrain belongs to no scene object
         aoGroundOn = false;   // the ground doesn't sit next to itself
+        aoReceive = true;
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
@@ -2556,6 +2551,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const SceneObject& o = objects[oi];
             aoSelfObj = (int)oi;  // an object never occludes itself
             aoGroundOn = true;
+            // models don't receive AO (matches the game - see modelDraw note)
+            aoReceive = o.type != PrimitiveType::Model &&
+                        !(o.type == PrimitiveType::Player && o.playerMode == 2);
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
@@ -2686,6 +2684,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // one reflected draw - the static subset of the scene pass (marker
         // types never make it into a mirror list)
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            aoReceive = t.type != PrimitiveType::Model;
             const Mat4 mvp = mul(viewProj, model);
             if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
                 // pose already advanced by this frame's scene pass - reuse it
@@ -2762,6 +2761,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     if (ad && ad->ok) {
                         aoSelfObj = (int)k;
                         aoGroundOn = true;
+                        aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
                         for (const AnimModelDraw::Part& part : ad->parts)
@@ -2774,6 +2774,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // glass quad last, blended over whatever the copies drew
             aoSelfObj = (int)mi;
             aoGroundOn = true;
+            aoReceive = true;
             draw(decal_, GL_TRIANGLES, mul(viewProj, mirrorModel), m.color[0],
                  m.color[1], m.color[2], 0, &mirrorModel, false, m.mirrorOpacity);
         }
@@ -2792,6 +2793,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const Mat4 model = modelMatrix(p);
             aoSelfObj = (int)pi;
             aoGroundOn = true;
+            aoReceive = true;
             draw(decal_, GL_TRIANGLES, mul(viewProj, model), p.color[0],
                  p.color[1], p.color[2], 0, &model, false, 0.7f);
         }
