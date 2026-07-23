@@ -83,7 +83,10 @@ the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:
-centroid-radial env normals for flat surfaces), per-bag additive blending for the
+centroid-radial env normals for flat surfaces; quietly picks up the TyraX
+`<model>.aov` baked-ambient-occlusion sidecar — "TXAO" + u32 count + one
+visibility byte per obj `v` entry, docs/ambient-occlusion.md — into
+per-vertex `vertexAo` bytes the generated game folds into its shade bake), per-bag additive blending for the
 reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through

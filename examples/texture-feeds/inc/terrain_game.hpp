@@ -62,6 +62,14 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // Experimental textured AO: the terrain AO map blended over the base
+    // (and the layers). Shares the chunk's vertices; own extent-normalized
+    // STs, flat 128 colors (the map's alpha carries the darkening).
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    Tyra::StaPipTextureBag aoTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -77,6 +85,13 @@ class TerrainGame : public Tyra::Game {
   // Same render settings as infoBag but with GS blending on - shared by every
   // chunk's layer passes (the base pass must stay opaque).
   std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
+  // Experimental textured AO: the per-scene terrain AO map + primitive
+  // lightmap atlas (acquired in loadScene when the mode is on; nullptr
+  // otherwise). Both draw as alpha-over passes of black textures - the GS
+  // blend turns the alpha into an exact per-pixel darkening.
+  Tyra::Texture* aoMapTexture = nullptr;
+  Tyra::Texture* aoAtlasTexture = nullptr;
+  std::string aoMapTexPath, aoAtlasTexPath;  // for the release on scene swap
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -101,6 +116,15 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
+    // Experimental textured AO: the scene lightmap atlas multiplied over the
+    // base pass (alpha-over blend of a black texture = per-pixel darkening).
+    // aoSts map this part's vertices into the object's atlas regions; shares
+    // the vertices and bboxVersion like the env pass does.
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;  // flat 128s - the texture carries it all
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -167,6 +191,9 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // baked ambient-occlusion visibility per vertex (255 = open sky), from
+    // the model's .aov sidecar; empty when the project bakes no AO
+    std::vector<unsigned char> vertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // refl: spherical environment map (nullptr = not reflective).

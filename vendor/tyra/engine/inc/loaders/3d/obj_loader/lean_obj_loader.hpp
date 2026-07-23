@@ -31,6 +31,11 @@ struct LeanObjMaterial {
   float reflStrength = 0.0F;
   bool reflRounded = false;
   std::vector<float> vertices;
+  // Baked ambient-occlusion visibility per emitted vertex (255 = open sky),
+  // parallel to vertices (one byte per 8 floats). Filled only when a
+  // "<model>.aov" sidecar exists next to the model (TyraX bakes one when
+  // the project enables ambient occlusion); empty otherwise.
+  std::vector<u8> vertexAo;
 };
 
 struct LeanObjMesh {
@@ -68,7 +73,10 @@ struct LeanMtlMaterial {
  *   coordinate to image space - the exact semantics of the TyraX
  *   viewport parser (src/objparser.cpp there; keep both in sync), so a scene
  *   previews identically in the editor and on the console,
- * - reads files sequentially into memory (no fseek - unreliable on host fs).
+ * - reads files sequentially into memory (no fseek - unreliable on host fs),
+ * - picks up an optional "<model>.aov" sidecar (TyraX baked ambient
+ *   occlusion: "TXAO" + u32 LE count + one visibility byte per obj `v`
+ *   entry) into LeanObjMaterial::vertexAo; a missing sidecar is not an error.
  */
 class LeanObjLoader {
  public:

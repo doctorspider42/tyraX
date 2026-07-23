@@ -10,6 +10,102 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (161) **AO reshaped: per-object "Cast shadow", textures only, model AO
+  parked** - owner feedback on (159/160): the shadows only look right in the
+  textured version, control belongs on the object, and per-vertex model AO
+  reads as triangulated shading on authored meshes. So: the "AO quality"
+  switch is GONE (`aoTextured` removed from settings/preset/serialization) -
+  the texture path is the only one; the terrain per-vertex grid
+  (`TERRAIN_AO_TABLES` + the shadeAt multiply + the chunk occluder staging)
+  is deleted; a new `SceneObject::castShadow` (default on, Properties >
+  "Cast shadow" + the multi-select row, serialized only when false, folded
+  into liveLinkRecipeHash) gates `aobake::collectOccluders`, so casting is
+  per object while receiving stays automatic. Model receive/self-AO is
+  DISABLED (g_aoOff staged for type 5 in the generated rebuild; texbake no
+  longer writes .aov sidecars and sweeps stale ones; the viewport stops
+  baking model self-AO and skips model fragments via a new uAoReceive
+  uniform) - the whole pipeline (aobake::modelAO, the sidecar format, the
+  LeanObjLoader reader) stays in-tree with comments pointing at a future
+  per-model lightmap-unwrap. Batching got smarter: an object whose atlas
+  regions come out fully lit is dropped from the atlas (firstRegion -1) and
+  stays batchable; covered objects render solo (the same deterministic bake
+  reused in the scene-table emitter for the eligibility bit). Verified in
+  PCSX2: the box casts onto terrain AND onto the wall, the sphere keeps its
+  contact blob, the wall with Cast shadow OFF darkens nothing while still
+  receiving the box's shadow, 50 FPS. Possible future win (backlog-worthy):
+  merge the AO passes into static-batch bags (they share one atlas texture)
+  to win batching back.
+
+- (160) **Textured AO quality mode (experimental)** - the follow-up to (159)
+  after the owner's PCSX2 check: per-vertex AO on the sparse terrain grid and
+  on 2-triangle primitive faces shows its Gouraud diamonds. New **AO quality**
+  switch on the ambience preset (`aoTextured`): the same occlusion bakes into
+  **per-pixel AO textures** - a terrain AO map (heightmap self-occlusion +
+  occluder contact, `aobake::terrainAOMap`, ≤256²) and a per-scene **primitive
+  lightmap atlas** (`aobake::bakeSceneAoAtlas`: shelf-packed regions per
+  builder UV layout - box 6 faces / sphere 1 / cylinder 3 / cone 2 / plane 2 -
+  rasterized on the host with the same occluder+ground formulas, now also
+  host-implemented as `aobake::occluderOcclusionAt`). Both draw as extra
+  alpha-blended passes (black texture + GS alpha-over = exact per-pixel
+  `Cd*(1-a)` multiply): the terrain pass after base+layers per chunk, the
+  object pass per part right before the additive env pass, reusing the
+  layer-blend info bag; pushVert emits atlas STs (builders bump `g_aoRegion`)
+  instead of multiplying the shade. texbake writes the PNGs into
+  `.res-baked/aomap|aoatlas/`; codegen emits the matching rects from the same
+  deterministic bake. Covered objects leave static batching; models/physics/
+  pickable/save-state/clones keep the vertex bake. Two dead ends worth
+  remembering: (a) the engine's palettized tRNS→CLUT path loses the smooth
+  alpha gradient - a pngquant-quantized AO map renders as NOTHING in PCSX2
+  (an untextured red-probe pass proved the blend pipeline itself fine), so
+  the AO textures ship as RGBA32, capped at 256² for VRAM; (b) the first
+  "no AO on screen" was a stale-ELF screenshot - verify the camera pose
+  before debugging pixels. Verified in PCSX2 both ways: textured mode shows
+  smooth per-pixel contact shadows (sphere blob, box-on-wall shadow, no
+  triangle edges) at 50 FPS; flipping the combo back reproduces the vertex
+  look exactly. Editor viewport previews per fragment in both modes (its
+  usual look ≈ textured); GUI screenshot still blocked by the machine's
+  white-window quirk - see (159).
+
+- (159) **Baked ambient occlusion** (docs/ambient-occlusion.md). Soft contact
+  shadows folded into the same per-vertex colors the directional light bakes
+  into - zero PS2 per-frame cost. Three bakes: **terrain self-occlusion**
+  (host, `aobake::terrainAO` 8-direction horizon scan → `TERRAIN_AO_TABLES`
+  in terrain_heights.gen.hpp; the viewport multiplies the identical grid),
+  **contact darkening** (host reduces solid objects to oriented-box/sphere
+  occluders → `inc/ao_data.gen.hpp`; the EE evaluates the response per vertex
+  at scene load in pushVert/shadeAt - `aoOccluderAt`/`aoShadeMul`, pruned per
+  object/chunk per the point-light dcache lesson - plus a ground-contact term
+  off the bilinear heightmap), and **raycast model self-AO** (host,
+  `aobake::modelAO`, 24 deterministic cosine-weighted rays per obj position
+  with an XZ-grid accel; texbake writes a `<model>.aov` sidecar into
+  `.res-baked/models/` that the engine's `LeanObjLoader` quietly picks up -
+  grazing hits are rejected instead of excluding "triangles containing the
+  vertex", because on low-poly models that exclusion removes entire adjacent
+  walls and no interior corner ever darkens; the first bake proved that with
+  an all-255 sidecar). The occlusion response formula is twinned in the
+  viewport fragment shader (per fragment, live - the same pattern as the
+  point-light preview); occluder SHAPES and both grid/model bakes are
+  single-source in aobake.cpp. Settings `aoEnabled/aoStrength/aoRadius` on
+  ProjectSettings + AmbiencePreset (Ambience Editor block, tooltips + a
+  static-bake caveat note); new projects enable it on their Default preset,
+  pre-AO projects read as off. Animated models neither cast nor receive
+  (they relight dynamically, like with baked point lights); a runtime-moved
+  object re-bakes its own shading on rebuild but its cast shadow stays where
+  the scene was built (documented). Verified: editor build clean; headless
+  fixture (boxes + wall + sphere + an open-front hut .obj) - occluder table,
+  per-scene constants and AO grid inspected in the generated sources; full
+  Docker build compiles the generated EE code + the LeanObjLoader fork; PCSX2
+  A/B screenshots (AO off vs on) show contact blobs under the sphere/boxes,
+  wall-base darkening and the hut's interior-corner gradient, and the .aov
+  sidecar bytes match expectations (dark back corners 134-152, open front
+  217-236). The ground term got a 0.7 damp after the first A/B (full
+  half-hemisphere read too muddy on wall bases). Editor-viewport visual
+  parity could not be screenshotted this session - the GUI presents a white
+  window on this machine even on a pre-change baseline build (AMD GL
+  present/compositing quirk, PCSX2's D3D window captures fine) - the shader
+  compiles clean (no stderr) but a human should eyeball the live preview
+  against the PS2 output.
+
 - (158) **Reflection examples split into three focused levels.** The
   combined examples/raytraced-mirror had grown to carry the VU0 raytracer
   AND the texture feeds; per owner it is now three single-topic showcases:

@@ -2,6 +2,7 @@
 
 #include "fbxparser.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -9,6 +10,7 @@
 
 #include <filesystem>
 
+#include "aobake.hpp"
 #include "gl_loader.h"
 #include "objparser.hpp"
 #include "primmesh.hpp"
@@ -201,7 +203,76 @@ uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
 uniform vec3 uReflSkyTop;
 uniform int uReflRounded;        // refl -rounded: centroid-radial normals
 uniform vec3 uReflCenter;        // world-space centroid for the rounded mode
+// Ambient occlusion (docs/ambient-occlusion.md): live preview of what the
+// game bakes into vertex colors at load - the same analytic occluders
+// (aobake::collectOccluders shapes) and the same response formula as the
+// generated aoOccluderAt/aoShadeMul (templates.cpp). Keep them in sync.
+uniform int uAoOn;
+uniform float uAoStrength;
+uniform float uAoRadius;
+uniform int uAoCount;
+uniform int uAoSelfObj;          // scene-object index drawing now (-1 terrain)
+uniform int uAoGround;           // 1 = terrain contact term (objects only)
+uniform int uAoReceive;          // 0 = this draw receives no AO (models)
+uniform vec4 uAoPos[32];         // xyz = center, w = 1 sphere / 0 box
+uniform vec4 uAoAx[32];          // local X axis, w = half extent x (or radius)
+uniform vec4 uAoAy[32];          // local Y axis, w = half extent y
+uniform vec4 uAoAz[32];          // local Z axis, w = half extent z
+uniform int uAoObj[32];          // scene-object index per occluder
+uniform sampler2D uAoHeight;     // terrain heightmap (R32F), texture unit 2
+uniform vec4 uAoHmRect;          // uv = wp.xz * zw + xy (texel centers)
+uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 out vec4 FragColor;
+
+float aoOcclusion(vec3 wp, vec3 n) {
+    float occ = 0.0;
+    for (int i = 0; i < uAoCount; ++i) {
+        if (uAoObj[i] == uAoSelfObj) continue;  // an object never occludes itself
+        vec3 rel = wp - uAoPos[i].xyz;
+        vec3 h = vec3(uAoAx[i].w, uAoAy[i].w, uAoAz[i].w);
+        float dist;
+        vec3 toOcc;
+        if (uAoPos[i].w > 0.5) {
+            float d = length(rel);
+            dist = d - h.x;
+            toOcc = d > 0.0001 ? -rel / d : vec3(0.0, 1.0, 0.0);
+        } else {
+            vec3 l = vec3(dot(rel, uAoAx[i].xyz), dot(rel, uAoAy[i].xyz),
+                          dot(rel, uAoAz[i].xyz));
+            vec3 dv = l - clamp(l, -h, h);
+            dist = length(dv);
+            if (dist > 0.0001) {
+                vec3 w = dv.x * uAoAx[i].xyz + dv.y * uAoAy[i].xyz +
+                         dv.z * uAoAz[i].xyz;
+                toOcc = -w / dist;
+            } else {
+                toOcc = vec3(0.0, 1.0, 0.0);
+            }
+        }
+        if (dist <= 0.0) { occ += 1.0; continue; }  // touching / inside
+        float fade = 1.0 - dist / uAoRadius;
+        if (fade <= 0.0) continue;
+        fade *= fade;
+        // full occlusion facing the occluder, ~0.35 side-on, zero facing away
+        float w = clamp(0.35 + 0.65 * dot(n, toOcc), 0.0, 1.0);
+        occ += fade * w;
+    }
+    if (uAoGround != 0) {
+        float ground = 0.0;
+        if (uAoHmOn != 0) {
+            vec2 uv = wp.xz * uAoHmRect.zw + uAoHmRect.xy;
+            ground = texture(uAoHeight, clamp(uv, 0.0, 1.0)).r;
+        }
+        float dy = max(wp.y - ground, 0.0);
+        if (dy < uAoRadius) {
+            float fade = 1.0 - dy / uAoRadius;
+            // 0.7: same wall-base softening as the game's aoShadeMul
+            occ += 0.7 * fade * fade * max(0.5 - 0.5 * n.y, 0.0);
+        }
+    }
+    return min(occ, 1.0);
+}
+
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
     vec3 tex = texel.rgb;
@@ -210,6 +281,12 @@ void main() {
     float a = uAlpha != 0 ? texel.a : 1.0;
     if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = vColor;
+    // AO multiplies the baked directional shade BEFORE the point lights add
+    // on top - mirrors the pushVert/shadeAt order in the generated game.
+    if (uLit != 0 && uAoOn != 0 && uAoReceive != 0) {
+        vec3 nAo = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        shade *= 1.0 - uAoStrength * aoOcclusion(vWorld, nAo);
+    }
     if (uLit != 0 && uLightCount > 0) {
         vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         vec3 add = vec3(0.0);
@@ -730,8 +807,24 @@ bool Viewport::init() {
     uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
     uReflRounded_ = glGetUniformLocation(program_, "uReflRounded");
     uReflCenter_ = glGetUniformLocation(program_, "uReflCenter");
+    uAoOn_ = glGetUniformLocation(program_, "uAoOn");
+    uAoStrength_ = glGetUniformLocation(program_, "uAoStrength");
+    uAoRadius_ = glGetUniformLocation(program_, "uAoRadius");
+    uAoCount_ = glGetUniformLocation(program_, "uAoCount");
+    uAoSelfObj_ = glGetUniformLocation(program_, "uAoSelfObj");
+    uAoGround_ = glGetUniformLocation(program_, "uAoGround");
+    uAoReceive_ = glGetUniformLocation(program_, "uAoReceive");
+    uAoPos_ = glGetUniformLocation(program_, "uAoPos");
+    uAoAx_ = glGetUniformLocation(program_, "uAoAx");
+    uAoAy_ = glGetUniformLocation(program_, "uAoAy");
+    uAoAz_ = glGetUniformLocation(program_, "uAoAz");
+    uAoObj_ = glGetUniformLocation(program_, "uAoObj");
+    uAoHeight_ = glGetUniformLocation(program_, "uAoHeight");
+    uAoHmRect_ = glGetUniformLocation(program_, "uAoHmRect");
+    uAoHmOn_ = glGetUniformLocation(program_, "uAoHmOn");
     glUseProgram(program_);
-    glUniform1i(uRefl_, 1);  // sphere map lives on texture unit 1
+    glUniform1i(uRefl_, 1);      // sphere map lives on texture unit 1
+    glUniform1i(uAoHeight_, 2);  // AO heightmap lives on texture unit 2
     glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
@@ -801,6 +894,10 @@ void Viewport::shutdown() {
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
     if (particleVao_) glDeleteVertexArrays(1, &particleVao_);
+    if (aoHmTex_) {
+        glDeleteTextures(1, &aoHmTex_);
+        aoHmTex_ = 0;
+    }
     for (Mesh& m : terrainChunkMeshes_) destroyMesh(m);
     terrainChunkMeshes_.clear();
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
@@ -1038,6 +1135,34 @@ void Viewport::buildTerrainMesh() {
     terrainLineMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
     terrainLayerMeshes_.assign(
         terrainLayers_.size() * (size_t)tcChunksX_ * tcChunksZ_, Mesh());
+
+    // Terrain self-AO grid (identical to the shipped TERRAIN_AO_TABLES data:
+    // same aobake::terrainAO call codegen makes) + the R32F heightmap texture
+    // the fragment shader samples for the objects' ground-contact term.
+    aoGrid_.clear();
+    const bool aoHeights =
+        hmW_ >= 2 && hmD_ >= 2 && (int)heights_.size() == hmW_ * hmD_;
+    if (aoOn_ && aoHeights) {
+        aoGrid_ = aobake::terrainAO(heights_, hmW_, hmD_,
+                                    (float)terrain_.width / (hmW_ - 1),
+                                    (float)terrain_.depth / (hmD_ - 1),
+                                    aoRadius_ * 3.0f);
+    }
+    if (aoOn_ && aoHeights) {
+        if (!aoHmTex_) glGenTextures(1, &aoHmTex_);
+        glBindTexture(GL_TEXTURE_2D, aoHmTex_);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, hmW_, hmD_, 0, GL_RED, GL_FLOAT,
+                     heights_.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+        aoHmW_ = hmW_, aoHmD_ = hmD_;
+    } else {
+        aoHmW_ = aoHmD_ = 0;  // flat terrain: the shader uses the y = 0 plane
+    }
+
     for (int cz = 0; cz < tcChunksZ_; ++cz)
         for (int cx = 0; cx < tcChunksX_; ++cx) buildTerrainChunkMesh(cx, cz);
 
@@ -1108,6 +1233,17 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
         Vec3 s = shadeOf(normalize(n));
+        // Terrain self-AO: the same host-baked grid the game ships as
+        // TERRAIN_AO_TABLES, multiplied before everything else (the occluder
+        // contact term arrives per fragment in the shader).
+        if (aoOn_ && (int)aoGrid_.size() == hmW_ * hmD_) {
+            const int ax = ix < 0 ? 0 : (ix > hmW_ - 1 ? hmW_ - 1 : ix);
+            const int az = iz < 0 ? 0 : (iz > hmD_ - 1 ? hmD_ - 1 : iz);
+            const float aoM =
+                1.0f - aoStrength_ *
+                           (1.0f - aoGrid_[(size_t)az * hmW_ + ax] / 255.0f);
+            s.x *= aoM, s.y *= aoM, s.z *= aoM;
+        }
         // Macro ground variation - the game applies the same tint in
         // buildTerrainChunk (base + layer passes shade through one place).
         if (tintVariation_ > 0.0f) {
@@ -1473,6 +1609,13 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse,
     const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
     if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
     else lx = 0, ly = 1, lz = 0;
+    // No-change early-out: the ambience preview pushes these every frame,
+    // and a rebuild re-bakes every mesh (terrain incl. its AO grid).
+    if (gLightDir[0] == lx && gLightDir[1] == ly && gLightDir[2] == lz &&
+        gAmbient == ambient && gDiffuse == diffuse &&
+        gLightColor[0] == color[0] && gLightColor[1] == color[1] &&
+        gLightColor[2] == color[2] && gBrightness == brightness)
+        return;
     gLightDir[0] = lx, gLightDir[1] = ly, gLightDir[2] = lz;
     gAmbient = ambient;
     gDiffuse = diffuse;
@@ -1482,6 +1625,25 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse,
         buildPrimitiveMeshes();  // shade is baked into the unit meshes
         buildTerrainMesh();
         clearModelCache();  // model shading is baked too
+    }
+}
+
+void Viewport::setAmbientOcclusion(bool enabled, float strength, float radius) {
+    if (radius < 0.1f) radius = 0.1f;
+    if (strength < 0.0f) strength = 0.0f;
+    if (strength > 1.0f) strength = 1.0f;
+    if (aoOn_ == enabled && aoStrength_ == strength && aoRadius_ == radius)
+        return;
+    // Strength/radius only move shader uniforms; toggling AO (or changing the
+    // radius, which shapes the terrain grid) re-bakes the CPU-side colors.
+    const bool rebake = aoOn_ != enabled || aoRadius_ != radius;
+    const bool restrength = aoStrength_ != strength;
+    aoOn_ = enabled;
+    aoStrength_ = strength;
+    aoRadius_ = radius;
+    if (program_ && (rebake || restrength)) {
+        buildTerrainMesh();  // terrain self-AO grid is baked into the colors
+        clearModelCache();   // model self-AO is baked into the colors too
     }
 }
 
@@ -1822,6 +1984,12 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
         const std::filesystem::path modelDir =
             std::filesystem::path(materialRel.empty() ? relPath : materialRel)
                 .parent_path();
+        for (int k = 0; k < 3; ++k) draw.mn[k] = model.min[k], draw.mx[k] = model.max[k];
+        // Model self-AO (aobake::modelAO into the vertex colors) is DISABLED
+        // for now, matching the game: per-vertex occlusion on authored
+        // low-poly meshes reads as triangulated shading (owner call,
+        // 2026-07). The bake + the .aov sidecar plumbing stay in aobake/
+        // texbake/LeanObjLoader for a future per-model lightmap-unwrap path.
         for (const objparser::Submesh& sub : model.submeshes) {
             std::vector<float> interleaved;
             interleaved.reserve(sub.verts.size());
@@ -2186,6 +2354,91 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform4fv(uLightPos_, 8, pos);
         glUniform4fv(uLightCol_, 8, col);
     }
+
+    // Ambient occlusion: this frame's occluder set (aobake::collectOccluders,
+    // the same shapes codegen bakes into SCENE_AO_OCC), capped at the
+    // shader's 32 nearest the camera target. Per draw call only the
+    // self-exclusion index and the ground-term toggle change (see draw()).
+    int aoSelfObj = -1;
+    bool aoGroundOn = false;
+    bool aoReceive = true;  // models neither receive nor self-occlude
+    {
+        int aoCount = 0;
+        if (aoOn_) {
+            std::vector<aobake::Occluder> occs = aobake::collectOccluders(
+                objects, [&](const SceneObject& o, float* mn, float* mx) {
+                    const ModelDraw* md = modelDraw(o.modelPath, o.materialPath);
+                    if (!md) return false;
+                    for (int k = 0; k < 3; ++k) mn[k] = md->mn[k], mx[k] = md->mx[k];
+                    return true;
+                });
+            // hidden layers cast nothing (like the point-light preview)
+            occs.erase(std::remove_if(occs.begin(), occs.end(),
+                                      [&](const aobake::Occluder& oc) {
+                                          return hiddenAt((size_t)oc.objIndex);
+                                      }),
+                       occs.end());
+            if ((int)occs.size() > 32) {
+                auto d2 = [&](const aobake::Occluder& oc) {
+                    const float dx = oc.pos[0] - target_[0];
+                    const float dy = oc.pos[1] - target_[1];
+                    const float dz = oc.pos[2] - target_[2];
+                    return dx * dx + dy * dy + dz * dz;
+                };
+                std::partial_sort(occs.begin(), occs.begin() + 32, occs.end(),
+                                  [&](const aobake::Occluder& a,
+                                      const aobake::Occluder& b) {
+                                      return d2(a) < d2(b);
+                                  });
+                occs.resize(32);
+            }
+            float pos[32 * 4] = {}, ax[32 * 4] = {}, ay[32 * 4] = {},
+                  az[32 * 4] = {};
+            int obj[32] = {};
+            for (size_t i = 0; i < occs.size(); ++i) {
+                const aobake::Occluder& oc = occs[i];
+                pos[i * 4 + 0] = oc.pos[0];
+                pos[i * 4 + 1] = oc.pos[1];
+                pos[i * 4 + 2] = oc.pos[2];
+                pos[i * 4 + 3] = oc.sphere ? 1.0f : 0.0f;
+                for (int k = 0; k < 3; ++k) {
+                    ax[i * 4 + k] = oc.axis[0][k];
+                    ay[i * 4 + k] = oc.axis[1][k];
+                    az[i * 4 + k] = oc.axis[2][k];
+                }
+                ax[i * 4 + 3] = oc.half[0];
+                ay[i * 4 + 3] = oc.half[1];
+                az[i * 4 + 3] = oc.half[2];
+                obj[i] = oc.objIndex;
+            }
+            glUniform4fv(uAoPos_, 32, pos);
+            glUniform4fv(uAoAx_, 32, ax);
+            glUniform4fv(uAoAy_, 32, ay);
+            glUniform4fv(uAoAz_, 32, az);
+            glUniform1iv(uAoObj_, 32, obj);
+            aoCount = (int)occs.size();
+        }
+        glUniform1i(uAoOn_, aoOn_ ? 1 : 0);
+        glUniform1f(uAoStrength_, aoStrength_);
+        glUniform1f(uAoRadius_, aoRadius_);
+        glUniform1i(uAoCount_, aoCount);
+        // heightmap for the objects' ground-contact term (texture unit 2);
+        // without one the shader falls back to the y = 0 plane (flat terrain)
+        if (aoOn_ && aoHmTex_ && aoHmW_ >= 2 && aoHmD_ >= 2) {
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, aoHmTex_);
+            glActiveTexture(GL_TEXTURE0);
+            const float stepX = (float)terrain_.width / (aoHmW_ - 1);
+            const float stepZ = (float)terrain_.depth / (aoHmD_ - 1);
+            glUniform4f(uAoHmRect_,
+                        ((float)terrain_.width / (2.0f * stepX) + 0.5f) / aoHmW_,
+                        ((float)terrain_.depth / (2.0f * stepZ) + 0.5f) / aoHmD_,
+                        1.0f / (stepX * aoHmW_), 1.0f / (stepZ * aoHmD_));
+            glUniform1i(uAoHmOn_, 1);
+        } else {
+            glUniform1i(uAoHmOn_, 0);
+        }
+    }
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
@@ -2197,6 +2450,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
+        glUniform1i(uAoSelfObj_, aoSelfObj);
+        glUniform1i(uAoGround_, aoGroundOn ? 1 : 0);
+        glUniform1i(uAoReceive_, aoReceive ? 1 : 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
@@ -2256,6 +2512,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
         const uint32_t terrainTex =
             asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
+        aoSelfObj = -1;       // terrain belongs to no scene object
+        aoGroundOn = false;   // the ground doesn't sit next to itself
+        aoReceive = true;
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
@@ -2290,6 +2549,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
+            aoSelfObj = (int)oi;  // an object never occludes itself
+            aoGroundOn = true;
+            // models don't receive AO (matches the game - see modelDraw note)
+            aoReceive = o.type != PrimitiveType::Model &&
+                        !(o.type == PrimitiveType::Player && o.playerMode == 2);
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
@@ -2420,6 +2684,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // one reflected draw - the static subset of the scene pass (marker
         // types never make it into a mirror list)
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            aoReceive = t.type != PrimitiveType::Model;
             const Mat4 mvp = mul(viewProj, model);
             if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
                 // pose already advanced by this frame's scene pass - reuse it
@@ -2479,6 +2744,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 for (size_t k = 0; k < objects.size(); ++k)
                     if (objects[k].name == tname) { ti = (int)k; break; }
                 if (ti < 0 || hiddenAt((size_t)ti)) continue;
+                aoSelfObj = ti;  // the copy keeps its source's self-exclusion
+                aoGroundOn = true;
                 drawReflected(objects[(size_t)ti],
                               mul(refl, modelMatrix(objects[(size_t)ti])));
             }
@@ -2492,6 +2759,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         continue;
                     AnimModelDraw* ad = animModelDraw(p.modelPath);
                     if (ad && ad->ok) {
+                        aoSelfObj = (int)k;
+                        aoGroundOn = true;
+                        aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
                         for (const AnimModelDraw::Part& part : ad->parts)
@@ -2502,6 +2772,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 }
             }
             // glass quad last, blended over whatever the copies drew
+            aoSelfObj = (int)mi;
+            aoGroundOn = true;
+            aoReceive = true;
             draw(decal_, GL_TRIANGLES, mul(viewProj, mirrorModel), m.color[0],
                  m.color[1], m.color[2], 0, &mirrorModel, false, m.mirrorOpacity);
         }
@@ -2518,6 +2791,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const SceneObject& p = objects[pi];
             if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
             const Mat4 model = modelMatrix(p);
+            aoSelfObj = (int)pi;
+            aoGroundOn = true;
+            aoReceive = true;
             draw(decal_, GL_TRIANGLES, mul(viewProj, model), p.color[0],
                  p.color[1], p.color[2], 0, &model, false, 0.7f);
         }
@@ -2747,6 +3023,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
 
     glUseProgram(program_);
     glUniform1i(uLightCount_, 0);  // no point lights in the preview
+    glUniform1i(uAoOn_, 0);        // no ambient occlusion either
 
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,

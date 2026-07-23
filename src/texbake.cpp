@@ -7,6 +7,7 @@
 
 #include <stb_image.h>
 
+#include "aobake.hpp"    // model AO sidecars (<model>.aov)
 #include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
 #include "objparser.hpp"
 #include "pngquant.hpp"
@@ -305,6 +306,7 @@ std::string bake(const Project& p,
         }
     }
 
+
     // drop baked files whose source vanished (they would still reach bin/) -
     // and editor-only files a pre-exclusion bake may have mirrored
     std::vector<fs::path> stale;
@@ -313,12 +315,89 @@ std::string bake(const Project& p,
         const fs::path rel = fs::relative(e.path(), baked, ec);
         // stoch/ holds generated supertiles with no res/ source - regenerated
         // wholesale below, so leave them out of the vanished-source sweep.
-        if (rel.begin()->generic_string() == "stoch") continue;
+        // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too.
+        const std::string top0 = rel.begin()->generic_string();
+        if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas") continue;
         std::error_code sec;
+        // "<model>.aov" AO sidecars: model self-AO is disabled for now (the
+        // per-vertex bake reads as triangulated shading on authored meshes -
+        // see aobake::modelAO), so any previously baked sidecar is stale.
+        if (lowerExt(e.path()) == ".aov") {
+            stale.push_back(e.path());
+            continue;
+        }
         if (!fs::exists(res / rel, sec) || editorOnly(rel))
             stale.push_back(e.path());
     }
     for (const fs::path& s : stale) fs::remove(s, ec);
+
+    // Model self-AO sidecars: DISABLED for now (owner call, 2026-07) - the
+    // per-vertex bake reads as triangulated shading on authored low-poly
+    // meshes; a proper fix needs a per-model lightmap unwrap. The full
+    // pipeline stays in place for that future path: aobake::modelAO +
+    // writeModelAoSidecar bake "<model>.aov" per .obj under res/models, and
+    // the engine's LeanObjLoader quietly folds an existing sidecar into
+    // per-vertex visibility bytes. To re-enable, restore the loop that was
+    // here (git log this file) and drop the unconditional .aov sweep above.
+
+    // Baked ambient occlusion (docs/ambient-occlusion.md): the terrain AO
+    // map + the primitive lightmap atlas, one pair per AO-enabled scene,
+    // regenerated wholesale like the stochastic supertiles. Codegen emits
+    // the matching atlas rects from the SAME deterministic bake
+    // (aobake::bakeSceneAoAtlas), so pixels and UVs cannot drift.
+    fs::remove_all(baked / "aomap", ec);
+    fs::remove_all(baked / "aoatlas", ec);
+    {
+        const aobake::ModelAabbFn aabbFn = [&](const SceneObject& o, float* mn,
+                                               float* mx) {
+            if (o.modelPath.empty()) return false;
+            return aobake::objAabb((fs::path(p.dir) / o.modelPath).string(), mn,
+                                   mx);
+        };
+        auto writeAlphaPng = [&](const fs::path& dst, int size,
+                                 const std::vector<uint8_t>& alpha) {
+            std::vector<unsigned char> rgba((size_t)size * size * 4, 0);
+            for (size_t i = 0; i < alpha.size(); ++i) rgba[i * 4 + 3] = alpha[i];
+            fs::create_directories(dst.parent_path(), ec);
+            std::string err;
+            // Full RGBA32 on purpose: the engine's palettized (tRNS -> CLUT)
+            // path loses the smooth alpha gradient these maps are made of
+            // (verified in PCSX2 - the quantized bake rendered as nothing).
+            // aobake caps both images at 256x256 to keep the VRAM cost sane.
+            if (!pngquant::writePngRGBA(dst.string(), rgba.data(), size, size,
+                                        err)) {
+                log("[editor] textured AO: " + dst.filename().string() + ": " +
+                    err);
+                return false;
+            }
+            return true;
+        };
+        int aoTexCount = 0;
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            const SceneData& sc = p.scenes[si];
+            const ProjectSettings srs = project::resolvedSettings(p, sc);
+            if (!srs.aoEnabled) continue;
+            const aobake::AoImage map = aobake::terrainAOMap(
+                sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                (float)sc.terrain.depth,
+                aobake::collectOccluders(sc.objects, aabbFn), srs.aoRadius,
+                srs.aoStrength);
+            if (map.size > 0 &&
+                writeAlphaPng(baked / "aomap" / ("scene" + std::to_string(si) + ".png"),
+                              map.size, map.alpha))
+                ++aoTexCount;
+            const aobake::SceneAoAtlas atlas =
+                aobake::bakeSceneAoAtlas(p, sc, aabbFn);
+            if (atlas.size > 0 &&
+                writeAlphaPng(
+                    baked / "aoatlas" / ("scene" + std::to_string(si) + ".png"),
+                    atlas.size, atlas.alpha))
+                ++aoTexCount;
+        }
+        if (aoTexCount)
+            log("[editor] Ambient occlusion: baked " + std::to_string(aoTexCount) +
+                " AO texture(s)");
+    }
 
     // Stochastic-tiling supertiles (docs/terrain-painting.md): one
     // non-repeating supertile per stochastic terrain texture, generated into

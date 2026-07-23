@@ -1358,6 +1358,7 @@ void App::drawViewportWindow() {
                 viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
                 viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
                                       a.brightness);
+                viewport_.setAmbientOcclusion(a.aoEnabled, a.aoStrength, a.aoRadius);
                 viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
                 ambiencePreviewPushed_ = true;
             } else if (ambiencePreviewPushed_) {
@@ -5226,6 +5227,17 @@ void App::drawPropertiesWindow() {
                 "Mark the few props that sell the effect - each one costs a\n"
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
+
+        // Baked ambient occlusion: whether this object darkens nearby
+        // terrain/objects (docs/ambient-occlusion.md; global strength in
+        // the Ambience Editor).
+        if (ImGui::Checkbox("Cast shadow", &o.castShadow)) committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Bakes a soft contact shadow onto nearby terrain and objects\n"
+                "(ambient occlusion - needs it enabled in the scene's\n"
+                "ambience preset). Off = this object casts nothing; it still\n"
+                "receives shadows from others. Rebuild to see it in-game.");
     }
 
     if (isMirror) {
@@ -6112,6 +6124,7 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
+        multiCheck("Cast shadow", &SceneObject::castShadow);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
         if (!anySavePoint) {
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
@@ -10286,6 +10299,35 @@ void App::drawAmbienceWindow() {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::SeparatorText("Ambient occlusion");
+    ImGui::Checkbox("Bake ambient occlusion", &a.aoEnabled);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Soft contact shadows where geometry meets: terrain\n"
+            "self-shadowing (ravines, foot of hills) and darkening where\n"
+            "objects touch the ground and each other - baked into per-pixel\n"
+            "AO textures at build (a terrain map + a primitive lightmap\n"
+            "atlas), drawn as extra blended passes. Which objects cast is\n"
+            "per object: Properties > Cast shadow. Imported and animated\n"
+            "models cast but don't receive.");
+    if (a.aoEnabled) {
+        ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How dark full occlusion gets (0 = invisible).");
+        ImGui::DragFloat("AO radius", &a.aoRadius, 0.05f, 0.1f, 50.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "World units the contact darkening reaches from an\n"
+                "occluder. Terrain self-shadowing scans 3x this.");
+        if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
+        ImGui::TextDisabled("Static bake: moved objects re-shade themselves at "
+                            "runtime, but\nthe shadow they cast stays where the "
+                            "scene was built.");
+    }
 
     ImGui::SeparatorText("Distance fog");
     ImGui::Checkbox("Fog enabled", &a.fogEnabled);
@@ -15549,6 +15591,7 @@ void App::applyProjectToViewport() {
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
+    viewport_.setAmbientOcclusion(rs.aoEnabled, rs.aoStrength, rs.aoRadius);
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's
     // (its Enabled flag is the initial state - the toggle button / flow graph

@@ -1,1 +1,1 @@
-{ "id": "4a99fd7fb8da27de", "name": "cam-dolly", "type": "camera", "position": [-16, 2.5, -10], "rotation": [8, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.3], "physics": false, "camera": { "fov": 45 } }
+{ "id": "4a99fd7fb8da27de", "name": "cam-dolly", "type": "camera", "position": [-16, 2.5, -10], "rotation": [8, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.3], "physics": false, "camera": { "fov": 45, "feed": false, "feedTerrain": true, "feedObjects": [] } }
