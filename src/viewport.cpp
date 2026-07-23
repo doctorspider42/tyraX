@@ -3000,6 +3000,37 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         prevFloor_ = uploadMesh(f);
     }
 
+    // UV checker (displayMode 2): 8-cell two-gray checker with a hue wash
+    // per 2x2 block and a texel grid - stretch and density read at a glance.
+    if (!uvCheckerTex_ && d.displayMode == 2) {
+        const int S = 256, cell = 32;
+        std::vector<unsigned char> px((size_t)S * S * 4);
+        for (int y = 0; y < S; ++y)
+            for (int x = 0; x < S; ++x) {
+                const int cx = x / cell, cy = y / cell;
+                float v = ((cx + cy) & 1) ? 0.42f : 0.72f;
+                if (x % cell == 0 || y % cell == 0) v *= 0.55f;  // grid line
+                // hue wash: block coordinates tint toward red (u) / green (v)
+                const float ru = (cx / 2) / 3.5f, gv = (cy / 2) / 3.5f;
+                unsigned char* p = &px[((size_t)y * S + x) * 4];
+                p[0] = (unsigned char)(255.0f * v * (0.62f + 0.38f * ru));
+                p[1] = (unsigned char)(255.0f * v * (0.62f + 0.38f * gv));
+                p[2] = (unsigned char)(255.0f * v * 0.62f);
+                p[3] = 255;
+            }
+        GLuint t = 0;
+        glGenTextures(1, &t);
+        glBindTexture(GL_TEXTURE_2D, t);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, S, S, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, px.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+        uvCheckerTex_ = t;
+    }
+
     // Model slot (shape 4). A missing/unparseable model falls back to the
     // sphere so the window never goes blank.
     const MatPrevModel* model = nullptr;
@@ -3104,17 +3135,29 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         draw(prevFloor_, mul(viewProj, floorM), 1.0f, 1.0f, 1.0f, 0);
     }
 
+    // displayMode 2 replaces every texture with the generated UV checker
+    // (tint white so the checker colors stay true); mode 1 adds a dark
+    // wireframe overlay after the fill (fill pushed back by polygon offset
+    // so the lines never stitch).
+    const bool checker = d.displayMode == 2;
+    if (d.displayMode == 1) {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 1.0f);
+    }
     if (model) {
         for (const MatPrevPart& part : matPrevModel_.parts) {
             const bool staged = part.material == d.entryName;
             const float* kd = staged ? d.kd : part.kd;
             const std::string& tex = staged ? d.texRel : part.texRel;
             const std::string& refl = staged ? d.reflRel : part.reflRel;
-            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
-                 glTexture(refl),
-                 staged ? d.reflStrength : part.reflStrength,
-                 staged ? d.reflSky : part.reflSky,
-                 staged ? d.reflRounded : part.reflRounded, part.centroid);
+            if (checker)
+                draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
+            else
+                draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
+                     glTexture(refl),
+                     staged ? d.reflStrength : part.reflStrength,
+                     staged ? d.reflSky : part.reflSky,
+                     staged ? d.reflRounded : part.reflRounded, part.centroid);
         }
     } else {
         // unit shapes sit at the origin - that's the rounded-normal centre
@@ -3123,9 +3166,27 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                            : shape == 2 ? &cylinder_
                            : shape == 3 ? &cone_
                                         : &sphere_;
-        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel),
-             glTexture(d.reflRel), d.reflStrength, d.reflSky, d.reflRounded,
-             origin);
+        if (checker)
+            draw(*mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
+        else
+            draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
+                 glTexture(d.texRel), glTexture(d.reflRel), d.reflStrength,
+                 d.reflSky, d.reflRounded, origin);
+    }
+    if (d.displayMode == 1) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        if (model) {
+            for (const MatPrevPart& part : matPrevModel_.parts)
+                draw(part.mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
+        } else {
+            const Mesh* mesh = shape == 0   ? &box_
+                               : shape == 2 ? &cylinder_
+                               : shape == 3 ? &cone_
+                                            : &sphere_;
+            draw(*mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
+        }
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     glBindVertexArray(0);
@@ -3215,6 +3276,21 @@ bool Viewport::materialPreviewPick(float u, float v, float& outU, float& outV,
         sweep(prevShapeTris_[pk.shape], true);
     }
     return found;
+}
+
+bool Viewport::materialPreviewProject(const float world[3], float& outU,
+                                      float& outV) const {
+    const MatPrevPick& pk = matPrevPick_;
+    if (!pk.valid) return false;
+    const float d[3] = {world[0] - pk.eye[0], world[1] - pk.eye[1],
+                        world[2] - pk.eye[2]};
+    const float z = d[0] * pk.fwd[0] + d[1] * pk.fwd[1] + d[2] * pk.fwd[2];
+    if (z <= 1e-4f) return false;  // behind the camera
+    const float x = d[0] * pk.right[0] + d[1] * pk.right[1] + d[2] * pk.right[2];
+    const float y = d[0] * pk.up[0] + d[1] * pk.up[1] + d[2] * pk.up[2];
+    outU = 0.5f + 0.5f * x / (z * pk.tanHalf * pk.aspect);
+    outV = 0.5f - 0.5f * y / (z * pk.tanHalf);
+    return true;
 }
 
 // Live preview of every enabled particle emitter. The per-kind spawn /

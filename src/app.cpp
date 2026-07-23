@@ -13012,6 +13012,133 @@ void App::matEdBakeSection(const std::string& entryName,
             "external tools.");
 }
 
+// The 2D UV-layout panel: the paintable triangles' UV wireframe over the
+// entry's live texture, zoom/pan, and the hover sync - a face hovered in 3D
+// lights up here, a triangle hovered here is outlined on the mesh (and all
+// its UV-overlap twins with it). Validator issues outline red.
+void App::drawMatEdUvPanel(const std::string& entryName,
+                           const std::string& texRel, const ImVec2& size) {
+    ImGui::BeginChild("##mat_uv", size, ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_NoScrollbar |
+                          ImGuiWindowFlags_NoScrollWithMouse);
+    if (!matBakeBuildMeshes(entryName)) {
+        ImGui::TextDisabled("%s", matBakeMeshError_.c_str());
+        matEdUvHoverTri_ = -1;
+        ImGui::EndChild();
+        return;
+    }
+    const matbake::MeshInput& mesh = matBakeMeshLow_;
+    ImGuiIO& io = ImGui::GetIO();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (avail.x < 8.0f || avail.y < 8.0f) {
+        ImGui::EndChild();
+        return;
+    }
+    ImGui::InvisibleButton("##uv_in", avail,
+                           ImGuiButtonFlags_MouseButtonLeft |
+                               ImGuiButtonFlags_MouseButtonRight);
+    const bool hovered = ImGui::IsItemHovered();
+
+    // uv (0..1) -> screen: a centered square scaled by zoom, plus the pan
+    const float base = (avail.x < avail.y ? avail.x : avail.y) * 0.92f;
+    float s = base * matEdUvZoom_;
+    auto origin = [&]() {
+        return ImVec2(p0.x + (avail.x - s) * 0.5f + matEdUvPan_[0],
+                      p0.y + (avail.y - s) * 0.5f + matEdUvPan_[1]);
+    };
+    if (hovered && io.MouseWheel != 0.0f) {
+        // zoom around the cursor: the uv under it stays put
+        const ImVec2 o = origin();
+        const float cu = (io.MousePos.x - o.x) / s;
+        const float cv = (io.MousePos.y - o.y) / s;
+        matEdUvZoom_ *= std::pow(1.15f, io.MouseWheel);
+        matEdUvZoom_ = matEdUvZoom_ < 0.25f ? 0.25f
+                       : matEdUvZoom_ > 64.0f ? 64.0f
+                                              : matEdUvZoom_;
+        s = base * matEdUvZoom_;
+        matEdUvPan_[0] = io.MousePos.x - p0.x - (avail.x - s) * 0.5f - cu * s;
+        matEdUvPan_[1] = io.MousePos.y - p0.y - (avail.y - s) * 0.5f - cv * s;
+    }
+    if (ImGui::IsItemActive() &&
+        (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+        matEdUvPan_[0] += io.MouseDelta.x;
+        matEdUvPan_[1] += io.MouseDelta.y;
+    }
+    const ImVec2 o = origin();
+    auto toScreen = [&](float u, float v) {
+        return ImVec2(o.x + u * s, o.y + v * s);
+    };
+
+    dl->PushClipRect(p0, ImVec2(p0.x + avail.x, p0.y + avail.y), true);
+    dl->AddRectFilled(toScreen(0, 0), toScreen(1, 1), IM_COL32(24, 25, 30, 255));
+    if (!texRel.empty()) {
+        if (const uint32_t tex = viewport_.sharedTexture(texRel))
+            dl->AddImage((ImTextureID)(intptr_t)tex, toScreen(0, 0),
+                         toScreen(1, 1), ImVec2(0, 0), ImVec2(1, 1),
+                         IM_COL32(255, 255, 255, 150));
+    }
+    dl->AddRect(toScreen(0, 0), toScreen(1, 1), IM_COL32(126, 130, 146, 255));
+
+    // hover uv of the panel cursor
+    const float mu = (io.MousePos.x - o.x) / s;
+    const float mv = (io.MousePos.y - o.y) / s;
+    auto contains = [](float ax, float ay, float bx, float by, float cx,
+                       float cy, float px, float py) {
+        const float d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+        const float d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+        const float d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+        const bool neg = d1 < 0 || d2 < 0 || d3 < 0;
+        const bool pos = d1 > 0 || d2 > 0 || d3 > 0;
+        return !(neg && pos);
+    };
+
+    const int tris = mesh.triCount();
+    int hoverTri = -1;
+    const ImU32 wireCol = IM_COL32(255, 196, 96, 150);
+    const ImU32 hiliteFill = IM_COL32(255, 196, 96, 90);
+    const ImU32 hoverFill = IM_COL32(96, 190, 255, 90);
+    for (int t = 0; t < tris; ++t) {
+        if (!mesh.paintTri.empty() && !mesh.paintTri[t]) continue;
+        const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
+        const float* b = &mesh.verts[(size_t)(t * 3 + 1) * 8];
+        const float* c = &mesh.verts[(size_t)(t * 3 + 2) * 8];
+        const ImVec2 pa = toScreen(a[6], a[7]);
+        const ImVec2 pb = toScreen(b[6], b[7]);
+        const ImVec2 pc = toScreen(c[6], c[7]);
+        // the surface point hovered in 3D lights its UV home(s) up
+        if (matEd3dHoverValid_ &&
+            contains(a[6], a[7], b[6], b[7], c[6], c[7], matEd3dHoverUV_[0],
+                     matEd3dHoverUV_[1]))
+            dl->AddTriangleFilled(pa, pb, pc, hiliteFill);
+        if (hovered && hoverTri < 0 &&
+            contains(a[6], a[7], b[6], b[7], c[6], c[7], mu, mv)) {
+            hoverTri = t;
+            dl->AddTriangleFilled(pa, pb, pc, hoverFill);
+        }
+        dl->AddTriangle(pa, pb, pc, wireCol);
+    }
+    // validator issues on top, red
+    for (int t : matEdUvIssueTris_) {
+        if (t < 0 || t >= tris) continue;
+        const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
+        const float* b = &mesh.verts[(size_t)(t * 3 + 1) * 8];
+        const float* c = &mesh.verts[(size_t)(t * 3 + 2) * 8];
+        dl->AddTriangle(toScreen(a[6], a[7]), toScreen(b[6], b[7]),
+                        toScreen(c[6], c[7]), IM_COL32(255, 80, 70, 230),
+                        2.0f);
+    }
+    // the 3D cursor's exact texel
+    if (matEd3dHoverValid_) {
+        const ImVec2 m = toScreen(matEd3dHoverUV_[0], matEd3dHoverUV_[1]);
+        dl->AddCircle(m, 4.0f, IM_COL32(255, 235, 170, 255), 0, 1.5f);
+    }
+    dl->PopClipRect();
+    matEdUvHoverTri_ = hovered ? hoverTri : -1;
+    ImGui::EndChild();
+}
+
 void App::drawMaterialEditorWindow() {
     if (!showMaterialEditor_ || !hasProject_) {
         matEdFocused_ = false;
@@ -13501,6 +13628,23 @@ void App::drawMaterialEditorWindow() {
         ImGui::SameLine();
         ImGui::Checkbox("Spin", &matEdSpin_);
         if (matEdSpin_ && !matEdPaint_) matEdAngle_ += io.DeltaTime * 24.0f;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(100.0f));
+        ImGui::Combo("##mat_display", &matEdDisplayMode_,
+                     "Solid\0Wireframe\0UV checker\0");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Preview shading: the material as-is, a dark\n"
+                              "wireframe overlay, or a generated UV checker\n"
+                              "in place of every texture (stretch and texel\n"
+                              "density read at a glance).");
+        ImGui::SameLine();
+        ImGui::Checkbox("UV", &matEdUvView_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "UV layout panel under the preview: the entry's faces over\n"
+                "its texture. Wheel zooms, drag pans. Hover a face in 3D to\n"
+                "light up its texture region; hover a triangle in the panel\n"
+                "to outline it on the mesh.");
 
         // Staged values of the selected entry (live during slider drags)
         float kd[3];
@@ -13554,9 +13698,9 @@ void App::drawMaterialEditorWindow() {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
                                        "Texture file unreadable.");
             }
-            if (canPaint && matBakePreviewMode_ == 2) {
-                ImGui::TextDisabled("Painting paused - the bake Map view\n"
-                                    "replaces the texture on the preview.");
+            if (canPaint && (matBakePreviewMode_ == 2 || matEdDisplayMode_ == 2)) {
+                ImGui::TextDisabled("Painting paused - the preview is not\n"
+                                    "showing the texture (map view/checker).");
                 canPaint = false;
             }
         }
@@ -13793,6 +13937,7 @@ void App::drawMaterialEditorWindow() {
         desc.angleDeg = matEdAngle_;
         desc.pitchDeg = matEdPitch_;
         desc.zoom = matEdZoom_;
+        desc.displayMode = matEdDisplayMode_;
         if (matBakePreviewMode_ == 2 && !matBakeMaps_.empty()) {
             // raw-map view: the baked map replaces the material's look
             desc.texRel = "@matbake-view";
@@ -13803,8 +13948,17 @@ void App::drawMaterialEditorWindow() {
         }
 
         const ImVec2 avail = ImGui::GetContentRegionAvail();
+        // UV view splits the space: 3D on top, the layout panel below
+        float uvH = 0.0f;
+        if (matEdUvView_) {
+            uvH = avail.y * 0.42f;
+            const float floor = scaled(140.0f);
+            if (uvH < floor) uvH = floor;
+            if (uvH > avail.y - scaled(80.0f)) uvH = avail.y - scaled(80.0f);
+            if (uvH < 0.0f) uvH = 0.0f;
+        }
         const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
-        const int ph = (int)avail.y < 1 ? 1 : (int)avail.y;
+        const int ph = (int)(avail.y - uvH) < 1 ? 1 : (int)(avail.y - uvH);
         const uint32_t tex = viewport_.renderMaterialPreview(pw, ph, desc);
         if (tex) {
             const ImVec2 imgPos = ImGui::GetCursorScreenPos();
@@ -13833,6 +13987,50 @@ void App::drawMaterialEditorWindow() {
                 matEdPitch_ = matEdPitch_ < -5.0f ? -5.0f
                               : matEdPitch_ > 85.0f ? 85.0f
                                                     : matEdPitch_;
+            }
+
+            // Hover sync with the UV panel + validator highlights. The
+            // outlines project the bake mesh's triangles through the
+            // preview camera (matBakeMeshLow_ is (re)built by the panel /
+            // validator; stale indices are bounds-guarded).
+            if (matEdUvView_) {
+                matEd3dHoverValid_ = false;
+                if (hovered && !matEdStroke_ && !orbiting) {
+                    const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                    const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                    float hu = 0.0f, hv = 0.0f;
+                    bool pntbl = false;
+                    if (viewport_.materialPreviewPick(u, v, hu, hv, pntbl) &&
+                        pntbl) {
+                        matEd3dHoverValid_ = true;
+                        matEd3dHoverUV_[0] = hu;
+                        matEd3dHoverUV_[1] = hv;
+                    }
+                }
+            } else {
+                matEd3dHoverValid_ = false;
+            }
+            if (matEdUvHoverTri_ >= 0 || !matEdUvIssueTris_.empty()) {
+                auto outlineTri = [&](int t, ImU32 col, float th) {
+                    const matbake::MeshInput& mesh = matBakeMeshLow_;
+                    if (t < 0 || t >= mesh.triCount()) return;
+                    ImVec2 p[3];
+                    for (int k = 0; k < 3; ++k) {
+                        const float* vtx =
+                            &mesh.verts[(size_t)(t * 3 + k) * 8];
+                        float su = 0.0f, sv = 0.0f;
+                        if (!viewport_.materialPreviewProject(vtx, su, sv))
+                            return;
+                        p[k] = ImVec2(imgPos.x + su * pw, imgPos.y + sv * ph);
+                    }
+                    ImGui::GetWindowDrawList()->AddTriangle(p[0], p[1], p[2],
+                                                            col, th);
+                };
+                for (int t : matEdUvIssueTris_)
+                    outlineTri(t, IM_COL32(255, 80, 70, 255), 2.0f);
+                if (matEdUvView_)
+                    outlineTri(matEdUvHoverTri_, IM_COL32(96, 190, 255, 255),
+                               2.0f);
             }
 
             if (matEdPaint_ && canPaint) {
@@ -13898,6 +14096,8 @@ void App::drawMaterialEditorWindow() {
                 }
             }
         }
+        if (matEdUvView_ && uvH > 8.0f)
+            drawMatEdUvPanel(sel.name, texRel, ImVec2(avail.x, uvH));
     }
     ImGui::EndChild();
 

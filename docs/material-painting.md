@@ -23,6 +23,17 @@ Camera: **drag** orbits (left button normally, **right button while
 painting**), **mouse wheel** zooms, *Spin* keeps the turntable going (paused
 while painting).
 
+Next to *Spin* sit the **display mode** (Solid / Wireframe overlay /
+**UV checker** — a generated checker replaces every texture so stretch and
+texel density read at a glance) and the **UV** toggle, which splits the
+preview: the 3D mesh on top, the **UV layout panel** below — the entry's
+triangles drawn over its live texture (wheel zooms around the cursor, drag
+pans). The two views hover-sync both ways: rest the mouse on a face in 3D
+and its texture region lights up in the panel (with a dot on the exact
+texel); hover a triangle in the panel and it is outlined on the mesh.
+Overlapping UVs show themselves naturally — one 3D face lights up every
+triangle sharing its region.
+
 The property column ends in a **Bake maps** block: a progressive raytraced
 bake of the preview mesh (ambient occlusion, curvature, thickness and more)
 that can land as a *"Baked AO" multiply layer* on the entry's texture — see

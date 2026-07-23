@@ -834,6 +834,23 @@ private:
                           const std::string& texRel);
     // composite -> GL upload; multiplies the AO preview in at upload time
     void matEdUploadComposite();
+
+    // UV inspection (docs/material-painting.md): preview display mode and
+    // the 2D UV-layout panel with two-way hover sync (hover a face in 3D -
+    // its texture region lights up in the panel; hover the panel - the
+    // triangle is outlined on the mesh). The panel reuses the bake's cached
+    // mesh input (matBakeMeshLow_).
+    int matEdDisplayMode_ = 0;  // 0 solid, 1 +wireframe, 2 UV checker
+    bool matEdUvView_ = false;  // UV layout panel under the 3D preview
+    float matEdUvZoom_ = 1.0f;
+    float matEdUvPan_[2] = {0.0f, 0.0f};
+    int matEdUvHoverTri_ = -1;          // panel-hovered triangle (last frame)
+    bool matEd3dHoverValid_ = false;    // 3D cursor rests on a paintable face
+    float matEd3dHoverUV_[2] = {0, 0};  // its surface UV (marked in the panel)
+    // Highlighted triangles (UV validator): outlined red in both views.
+    std::vector<int> matEdUvIssueTris_;
+    void drawMatEdUvPanel(const std::string& entryName,
+                          const std::string& texRel, const ImVec2& size);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";

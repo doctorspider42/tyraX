@@ -167,6 +167,8 @@ public:
         float angleDeg = 40.0f;   // turntable yaw
         float pitchDeg = 30.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier (1 = default framing)
+        int displayMode = 0;      // 0 solid, 1 solid + wireframe overlay,
+                                  // 2 UV checker (replaces every texture)
     };
     uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
 
@@ -176,6 +178,18 @@ public:
     // entry's parts on a model; always for primitive shapes).
     bool materialPreviewPick(float u, float v, float& outU, float& outV,
                              bool& paintable) const;
+
+    // Inverse of the pick: model-space point -> image coords of the LAST
+    // renderMaterialPreview frame (u, v in [0,1], origin top-left). False
+    // when the point is behind the camera. The UV-panel hover sync draws
+    // triangle outlines over the preview image with this.
+    bool materialPreviewProject(const float world[3], float& outU,
+                                float& outV) const;
+
+    // The shared GL texture of a project-relative path (loads on first use;
+    // live paint updates included - it is the same cache updateTexturePixels
+    // writes). 0 when unreadable. The UV-layout panel underlay.
+    uint32_t sharedTexture(const std::string& relPath) { return glTexture(relPath); }
 
     // Replaces the pixels of the cached GL texture for a project-relative
     // path (creating the cache entry when absent) - live texture painting.
@@ -476,6 +490,7 @@ private:
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
     Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
+    uint32_t uvCheckerTex_ = 0;  // generated UV-checker (displayMode 2)
 
     // Model shown in the material preview. Unlike modelCache_ the part Kd is
     // NOT baked into the vertex colors (it rides the tint uniform instead) so

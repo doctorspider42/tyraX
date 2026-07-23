@@ -8059,3 +8059,27 @@ Each finished feature lands as its own commit.
   human pass over the new panel is pending: scratch project recipe in
   the entry-(70) harness notes (steps.obj demo model generator in the
   session scratchpad).
+- (72) **Material Editor: UV layout panel + display modes + hover sync** -
+  the M0 "see your UVs" block. The preview toolbar gained a display-mode
+  combo (Solid / Wireframe overlay / UV checker) and a "UV" toggle. The
+  wireframe overlay is a second glPolygonMode(GL_LINE) pass with the fill
+  pushed back by glPolygonOffset(1,1) (no z-stitching); the UV checker is a
+  generated 256^2 8-cell texture (two grays, texel grid, red-toward-u /
+  green-toward-v hue wash) that replaces every texture on the preview mesh
+  - painting pauses in checker/map-view modes since strokes would be
+  invisible. The UV toggle splits the preview 58/42: 3D on top, a 2D UV
+  layout panel below - the entry's paintable triangles drawn with ImDrawList
+  over the LIVE texture (viewport_.sharedTexture = the same GL cache the
+  painter uploads into, so paint strokes appear in the panel in real time),
+  wheel-zoom around the cursor, drag pan, 0..1 border. Hover sync both
+  ways: 3D hover -> materialPreviewPick UV -> every triangle whose UV
+  region contains it fills amber in the panel (UV overlaps thereby expose
+  themselves) + a dot marks the exact texel; panel hover -> the triangle is
+  outlined blue on the mesh via the new Viewport::materialPreviewProject
+  (exact inverse of the pick raycast: model-space point -> preview image
+  coords through the same stored camera basis). The panel reuses the bake's
+  cached MeshInput (matBakeMeshLow_), so UV data costs nothing extra; a
+  matEdUvIssueTris_ highlight list is already wired into both views for the
+  upcoming UV validator (red outlines). Docs: material-painting.md.
+  Verified: build.ps1 links clean; visual pass pending the same known
+  white-window machine state as (71).
