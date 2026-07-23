@@ -10,6 +10,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (153) **Reflection examples split into three focused levels.** The
+  combined examples/raytraced-mirror had grown to carry the VU0 raytracer
+  AND the texture feeds; per owner it is now three single-topic showcases:
+  **raytraced-mirror** keeps only the RT mirror (glass wall + balls +
+  textured crate + animated wobbler + floor/pillars); **texture-feeds** is
+  new (CCTV camera feed on one monitor, a raytraced mirror streamed onto
+  another - both live in one frame, and the camera feed's terrain vs the
+  mirror stream's terrain-less sky make the two systems visibly distinct);
+  **probe-aim** (152) is the third, unchanged. Verified in PCSX2 (SW
+  renderer): all three boot clean and show their effect. Authoring note
+  worth keeping: in the generated game's view, +X world maps to SCREEN
+  LEFT - a monitor at -X shows on the right; two rounds of "which monitor
+  is which" confusion traced to that, not to any feed bug. Example
+  generated files were regenerated in this same change.
+
 - (152) **Reflection probe aim: reflected ray (Preferences > Rendering,
   docs/reflective-materials.md).** The @sky dynamic env map's camera can
   now aim along the REFLECTED central ray instead of the classic GT3

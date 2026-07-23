@@ -143,7 +143,7 @@ static void updateFrameClock() {
   g_frameScale = dt * 50.0F;
 }
 
-namespace Raytraced_mirror {
+namespace Texture_feeds {
 
 using namespace Tyra;
 
@@ -8768,4 +8768,4 @@ void TerrainGame::updatePlayer() {
                       playerZ + fz * cosf(pitch));
 }
 
-}  // namespace Raytraced_mirror
+}  // namespace Texture_feeds

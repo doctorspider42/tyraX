@@ -9,7 +9,7 @@
 #include "save_system.gen.hpp"
 #include "scripts/script.hpp"
 
-namespace Raytraced_mirror {
+namespace Texture_feeds {
 
 class TerrainGame : public Tyra::Game {
  public:
@@ -702,4 +702,4 @@ class TerrainGame : public Tyra::Game {
   ScriptContext scriptCtx;
 };
 
-}  // namespace Raytraced_mirror
+}  // namespace Texture_feeds
