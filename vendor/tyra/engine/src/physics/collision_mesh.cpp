@@ -256,6 +256,13 @@ void closestPointOnTriangle(const float* tri, const Vec4& p, float* out) {
 
 bool CollisionMesh::resolveSphere(Vec4* center, float radius,
                                   float maxNormalY) const {
+  return resolveSphere(center, radius, maxNormalY,
+                       Vec4(0.0F, 1.0F, 0.0F, 0.0F));
+}
+
+bool CollisionMesh::resolveSphere(Vec4* center, float radius, float maxNormalY,
+                                  const Vec4& upLocal,
+                                  const Vec4* prev) const {
   if (tris.empty()) return false;
 
   bool moved = false;
@@ -276,8 +283,11 @@ bool CollisionMesh::resolveSphere(Vec4* center, float radius,
           if (stamp[t] == stampCounter) continue;
           stamp[t] = stampCounter;
           const float* tri = &tris[t * kTriFloats];
-          const float normalY = tri[10];
-          if (normalY >= maxNormalY || normalY <= -maxNormalY)
+          // "steep" judged against the caller's up (local n dot local up =
+          // the world-space slope when upLocal is world-up in mesh space)
+          const float normalUp =
+              tri[9] * upLocal.x + tri[10] * upLocal.y + tri[11] * upLocal.z;
+          if (normalUp >= maxNormalY || normalUp <= -maxNormalY)
             continue;  // walkable floor/ceiling - the ground raycast owns it
           float closest[3];
           closestPointOnTriangle(tri, *center, closest);
@@ -285,6 +295,48 @@ bool CollisionMesh::resolveSphere(Vec4* center, float radius,
           const float dy = center->y - closest[1];
           const float dz = center->z - closest[2];
           const float d2 = dx * dx + dy * dy + dz * dz;
+          if (prev) {
+            // Side-aware: eject the sphere to prev's side of this face. A
+            // step that crossed the face plane this move is caught within
+            // an extra capture band past the radius (a plain radius test
+            // misses a step longer than the radius).
+            const float sPrev = (prev->x - tri[0]) * tri[9] +
+                                (prev->y - tri[1]) * tri[10] +
+                                (prev->z - tri[2]) * tri[11];
+            const float sCur = (center->x - tri[0]) * tri[9] +
+                               (center->y - tri[1]) * tri[10] +
+                               (center->z - tri[2]) * tri[11];
+            bool crossed = sPrev * sCur < 0.0F;
+            const float capture = crossed ? radius + 0.6F : radius;
+            if (d2 >= capture * capture || d2 <= 1e-12F) continue;
+            // Only treat the crossing as "through this face" when the
+            // sphere sits against the triangle's interior (plane distance
+            // makes up most of the gap). Crossing a wall's PLANE while
+            // walking on the mesh's top face passes near the shared edge -
+            // there the lateral offset dominates and ejecting along the
+            // wall normal would yank the walker off the top.
+            if (crossed && sCur * sCur < 0.5F * d2) {
+              crossed = false;
+              if (d2 >= radius * radius) continue;
+            }
+            // On prev's side the plain push is fine (and handles sphere-
+            // vs-edge/corner directions exactly); a crossed face ejects
+            // along its normal back to prev's side.
+            if (!crossed && sCur * sPrev > 0.0F) {
+              const float d = sqrtf(d2);
+              const float push = (radius - d) / d;
+              center->x += dx * push;
+              center->y += dy * push;
+              center->z += dz * push;
+            } else {
+              const float side = sPrev >= 0.0F ? 1.0F : -1.0F;
+              center->x = closest[0] + tri[9] * side * radius;
+              center->y = closest[1] + tri[10] * side * radius;
+              center->z = closest[2] + tri[11] * side * radius;
+            }
+            movedThisPass = true;
+            continue;
+          }
           if (d2 >= radius * radius || d2 <= 1e-12F) continue;
           const float d = sqrtf(d2);
           const float push = (radius - d) / d;

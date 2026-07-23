@@ -10,6 +10,179 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (154) **Per-object sleep delay: "Sleep after (s)" on the Physics block
+  (default 3 s, was a hard ~0.5 s).** User ask: relax the sleep timing and
+  give it a per-object override. New `SceneObject::physSleep` runs the whole
+  chain - project.hpp field + operator== -> objectJson/parse (emitted only
+  while `physics` is on, like the rest of the material block; clamped
+  0.1-60 s on load) -> Live Link recipe hash (baked table data, a stale
+  value must not force a rebuild on non-physics objects - it sits in the
+  same `if (o.physics)` group) -> Properties drag (Physics section, with a
+  hint line) -> `SceneObjectData::physSleep` column in scene_data.hpp ->
+  runtime. The game-side counter changed shape: the fixed
+  `PHYS_SLEEP_FRAMES = 24` constant is gone; the countdown length is
+  `everyFrames(physSleep)` (wall-clock true under disableVsync, same as
+  every other timer since (114)), `restFrames` widened signed char -> short
+  (3 s at 50 fps = 150 > 127), and on completion the counter pins to a
+  `PHYS_ASLEEP = 0x7FFF` sentinel - the asleep test (`physAsleep(o)`, new
+  helper used by pass 1/pass 2/portal-latch/carry sites) never re-derives
+  the threshold, so a measured-dt wobble can't flap a sleeping body awake.
+  "Write restFrames = 0 to wake" stays the contract for scripts/nodes.
+  Verified (probe repro, PCSX2): three bodies with physSleep 5 / 3 (the
+  default, materialized by --resave round-trip) / 0.5 settle from the same
+  throw and pin to 32767 at rest counts 250 / 150 / 25 frames - exactly
+  5 s / 3 s / 0.5 s at PAL 50; scene_data.hpp carries the column; editor +
+  Docker PS2 builds clean.
+
+- (153) **Settle-flatten v2 (finish the fall) + mesh collision holds for
+  tumbled/rotated models (world-space steepness, side-aware push).** Two
+  follow-ups. (a) The (152) flatten waited for the tumble to die to the
+  rest gate (spin < 0.75 deg/frame) and re-picked "nearest 90deg step"
+  every frame - a crate still tipping forward could get yanked BACK to the
+  face it was leaving, and the tumble's rolling-without-slipping kept
+  re-deriving spin from the residual slide under the ease (overshoot-and-
+  return, 270.49 -> 270.00). Now the flatten engages while the tumble is
+  still dying (PHYS_FLATTEN_SPIN = 2.5 deg/frame, speed gate 4x rest),
+  picks each target ONCE with a ~20-frame momentum lookahead
+  (roundf((rot + spin*20)/90)) latched in RuntimeObject::flatTgt (reset
+  whenever the gate fails), zeroes the residual spin (the ease drives from
+  there) and suppresses the tumble's spin re-derivation while latched. The
+  sleep rule itself is unchanged and now documented here: a body sleeps
+  after 24 consecutive frames (~0.5 s) of grounded + speed under ~0.8 u/s
+  + spin under 0.75 deg/frame, with flatten-in-progress resetting the
+  countdown. (b) `CollisionMesh::resolveSphere` judged "steep wall vs
+  walkable floor" on the LOCAL normal.y - a mesh-collision physics model
+  lying on its side (tumbled bodies rest with 90deg pitch/roll now) has
+  world-walls whose local normal reads as floor, so the player walked
+  straight through; AND the push itself was two-sided along
+  (center - closest), which for a step landing PAST a wall's plane points
+  INTO the volume - with the FPP step (~0.4 u/frame) longer than the
+  player radius (0.35) a fast walker crossed the plane and got sucked
+  inside (this also affected unrotated meshes). The engine gained a
+  resolveSphere overload taking the up direction in mesh-local space
+  (classification = dot(normal, up), world-up rides in via invRotated)
+  and the pre-move position: the sphere is ejected to prev's side of each
+  face, crossings are caught within a radius+0.6 capture band, gated on
+  the plane distance dominating the gap (sCur^2 > 0.5*d2) so crossing a
+  wall's PLANE near its top edge while walking ON the mesh doesn't yank
+  the walker off the top. Verified (probe repro, PCSX2): a walk-step sweep
+  into a rz=90 mesh cube - approach stops at the face (-5.35 = face -
+  radius), steps landing 0.2-0.4 INSIDE eject back to -5.35 (pre-fix they
+  pulled in deeper); flatten traces are monotone with no overshoot (Crate
+  engages at spin 2.52, eases 64->73->85->90.00 exactly; Target
+  134->...->180.00), the sphere's trace stays byte-identical. Editor +
+  Docker PS2 builds clean (engine lib rebuilt from the bind-mount).
+  In-game pad feel remains the hands-on check.
+
+- (152) **Physics upgrades: hits wake sleeping bodies, tumbled boxes ride
+  their rotated bound (no more sinking), and near-rest bodies settle flat.**
+  Three user asks in one pass over `updateObjectPhysics`. (a) *A thrown
+  body never woke the body it hit*: pass 1 treats sleeping bodies as static
+  solids and resolved the mover OUT of contact, so pass 2 - the one that
+  wakes sleepers and trades momentum - never saw the pair overlap (its
+  `ph <= 0` early-out hit every time). Now a mover faster than
+  `PHYS_WAKE_SPEED2` (~2.5 u/s; rest is ~0.8) skips the wall treatment for
+  a sleeping body and lets the impulse pass handle the hit - wake + mass-
+  split impulse, the existing math; near-rest contacts keep the wall
+  treatment so settled stacks stay cheap and stable. (b) *Boxes/models sank
+  into the terrain "as if they had sphere physics"*: `physExtents` is an
+  unrotated AABB, so a rolled box supported itself on its half-height while
+  its corners visibly pierced the ground. The mover's contact extents are
+  now the support of the ROTATED bound per world axis (sum of |basis
+  column| x half extent, center offset rotated too) - a tumbling box rides
+  its corners (center height breathes with the roll), and yaw-only authored
+  rotation leaves the vertical extent unchanged, so placed blocks rest
+  exactly as before. Spheres skip it (rotation-invariant; their box corners
+  would overestimate the radius). Statics as the OTHER side of a contact
+  keep the plain AABB - the (149) known limitation, unchanged. (c) *Settle-
+  flatten*: a near-rest tumbled body (grounded, under the rest thresholds)
+  eases pitch/roll at 3 deg/frame to the nearest 90deg step instead of
+  sleeping on an edge; the rotated support extent lowers it onto its face
+  as it tips. Euler-order trap (the (150) family): `rotated()` composes
+  Rz*Ry*Rx, and with the roll on an ODD 90 step the pose is only flat when
+  the yaw sits on a step too - so the yaw joins the easing exactly then.
+  Spheres skip flattening (orientation invisible; easing would visibly
+  roll the baked shading). Sleep waits for the easing to finish
+  (flattening resets the countdown); `flatMoved` joins the rebuild
+  condition so slow-path bodies re-bake the eased pose. Verified with the
+  (151) probe repro + a sleeping Target crate in the thrown crate's path
+  (PCSX2, physlog.txt): Target sleeps (rest=24), the crate arrives at ~10
+  u/s, Target wakes with momentum (flies ~3 u, tumbling), the thrower
+  hands off its speed (0.20 -> 0.012 u/frame); mid-tumble center heights
+  match the support math (y=0.690 at rz=58.7deg = 0.5(|cos|+|sin|));
+  both crates ease to exactly 90.00/180.00 and y returns to 0.500; the
+  sphere's trace is byte-identical to the pre-change run (skip paths
+  hold). Editor + Docker PS2 builds clean. In-game pad feel remains the
+  hands-on check.
+
+- (151) **Settling physics bodies no longer "snap their rotation back":
+  sleeping fast-path bodies stay on objMat (no settle re-bake).** User
+  report: a thrown ball that stops tumbling "freezes and its rotation
+  resets". The data said otherwise - an in-game probe (owned
+  terrain_game.cpp printing every body's pos/rot/spin/restFrames/matrixMode
+  to a host file twice a second) showed `data.rotation` is PRESERVED through
+  sleep (a rolled ball rests at rz=259.84deg and keeps it forever). What
+  actually snapped was the (114) fast path's settle step: on wake a body
+  bakes local vertices with shading FROZEN at the wake pose (the light
+  pattern rides along as it tumbles - baked colors can't re-light per
+  frame), and on sleep the old code set dirty for one world re-bake that
+  re-shaded the rest pose. That discrete wake-shading -> rest-shading jump,
+  on a sphere whose shade gradient is the only orientation cue, reads
+  exactly as "the ball rotated back" - and it fired at the very frame the
+  body froze, welding the two complaints into one artifact. (The freeze
+  itself is the intended sleep; by the time restFrames hits the threshold,
+  friction has decayed the spin to ~0.002deg/frame - imperceptible.) Fix:
+  drop the settle re-bake - a sleeping body keeps its local bake + objMat
+  (one matrix refresh per frame, same as awake). Safe because every
+  fast-path consumer reads objMat or o.data (mirrors compose reflection *
+  objMat, env pass and portal views take the bag's matrix, split band / use
+  targeting / collision read o.data), and the two vertex-array consumers
+  (usable-highlight hull, matcap env normals) were already excluded by
+  physFastPathEligible. Trade-off, documented in the code: a resting body
+  keeps the shading baked at wake - the same shading it showed all flight -
+  instead of snapping to a freshly lit rest pose; a retint / Live Link edit
+  still re-bakes via dirty. Verified with the probe repro (fpp scratch, a
+  pickable+physics sphere and box impulse-launched by an OnStart->Delay->
+  Apply Impulse graph, PCSX2 boot, physlog.txt over 30 s): before -
+  matrixMode flips 1->0 at the sleep frame (the re-bake = the visible pop);
+  after - the identical deterministic trajectory settles at the same
+  rz=259.84deg with matrixMode still 1 at rest (nothing re-bakes, so
+  nothing can pop). In-game pad-throw eyeball is the remaining hands-on
+  check.
+
+- (150) **Thrown-object teleport/stuck regression: the box-collision horizontal
+  frame is yaw-only again.** Day-one regression from (149): the new OBB
+  footprint test built its local frame from the object's FULL 3D rotation and
+  dropped the Y component in both directions (`invRotated({dx,0,dz})` in,
+  `rotated({lx,0,lz})` out). For a yaw-only rotated placed block that is an
+  exact isometry - but physics bodies TUMBLE (`spin[0]`/`spin[2]` write
+  pitch/roll into `rotation` while sliding), and for a pitched/rolled box the
+  XZ projection is a contraction: part of the horizontal offset escapes into
+  local Y and is discarded, so (a) a player metres away from a tumbling thrown
+  crate read as "inside" its footprint (a 90deg-pitched box collapsed the
+  whole Z axis - `lnz ~ 0` no matter the distance), (b) the blocked-branch
+  commit re-projected the contracted coordinates and *pulled the player to the
+  box center* (the reported "throw teleports me into the object"), and (c)
+  once inside, every frame's full-stop re-commit contracted again - the
+  reported "you can get stuck inside a physics object" (landed tumbled bodies
+  keep their pitch/roll at rest, so walking into one triggered it too).
+  `collidePlayer`'s box mode now builds the horizontal frame from
+  `rotation[1]` alone (one cos/sin pair, inverse = transpose of `rotated`'s Y
+  block): the local<->world round trip is the identity for ANY rotation,
+  identical to (149) for yaw-only blocks (pitch/roll were already documented
+  as "collide upright; mesh mode is the escape hatch") and reduces to the old
+  AABB at zero rotation. The world box *center* still uses the full rotation
+  (a real 3D point, no projection involved). The (149) camera spring-arm
+  sweep is NOT affected - its slab test keeps all three components, a true
+  isometry. Verified: a standalone numeric check reproduces both symptoms
+  against the (149) math (player at Z=5 from a 90deg-pitched box reads INSIDE
+  and commits to the center; arbitrary-tumble round trip drifts 0.31u/frame)
+  and confirms the fix (same player reads FREE, round trip exact to 1e-5,
+  yaw-45 block behavior byte-identical to (149), zero rotation = plain AABB);
+  editor builds clean; a scratch `--new` fpp project's regenerated
+  `terrain_game.cpp` carries the yaw-only code and the Docker PS2 build
+  compiles + links. In-game throw feel is the remaining hands-on check.
+
 - (149) **Rotated box collision: the player now collides with a block's real
   (rotated) faces, not its unrotated bounds.** Box-mode player collision
   (`collidePlayer`, shared by both walkers) built the blocker box straight from

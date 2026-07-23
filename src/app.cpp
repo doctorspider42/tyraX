@@ -5076,10 +5076,15 @@ void App::drawPropertiesWindow() {
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             if (ImGui::Checkbox("Tumble (impacts add spin)", &o.physTumble))
                 committed = true;
+            ImGui::DragFloat("Sleep after (s)", &o.physSleep, 0.1f, 0.1f, 60.0f,
+                             "%.1f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::TextDisabled(
                 "Falls, bounces off slopes and objects, slides with friction\n"
                 "and can be shoved by the player / Apply Impulse nodes.\n"
-                "Mass is relative - it matters only against other bodies.");
+                "Mass is relative - it matters only against other bodies.\n"
+                "Sleep after: seconds of near-rest before the body freezes\n"
+                "(a sleeping body costs nothing until something wakes it).");
             ImGui::Unindent();
         }
         if (o.type == PrimitiveType::SavePoint) {
