@@ -7,9 +7,11 @@
 
 namespace Texture_feeds {
 
-/** Frames of near-rest ground contact after which a physics body falls
- * asleep (a sleeping body costs one branch per frame until woken). */
-constexpr int PHYS_SLEEP_FRAMES = 24;
+/** restFrames value of a body that fell asleep. The countdown length is
+ * per-object (SceneObjectData::physSleep seconds, Properties > Physics >
+ * "Sleep after"); on completion the counter is pinned here so the asleep
+ * test never wobbles with the measured frame time. */
+constexpr short PHYS_ASLEEP = 0x7FFF;
 
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
  * `visible` or the velocity fields, then set `dirty = true` so the geometry
@@ -19,12 +21,16 @@ struct RuntimeObject {
   bool visible = true;
   // Object physics state (data.physics). Velocities are per-frame
   // displacements (like the player's), spin is degrees/frame. After writing
-  // them from a script set restFrames = 0 too - a body with restFrames >=
-  // PHYS_SLEEP_FRAMES is asleep and skips simulation entirely.
+  // them from a script set restFrames = 0 too - a body at PHYS_ASLEEP is
+  // asleep and skips simulation entirely.
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
   float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
-  signed char restFrames = 0;          // sleep counter; write 0 to wake
+  // Settle-flatten targets, latched once per settle so the chosen face
+  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
+  // stays" when the roll lands on an even 90deg step.
+  float flatTgt[3] = {1e9F, 1e9F, 1e9F};
+  short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
@@ -46,6 +52,10 @@ struct RuntimeObject {
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
 };
+
+inline bool physAsleep(const RuntimeObject& o) {
+  return o.restFrames >= PHYS_ASLEEP;
+}
 
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
