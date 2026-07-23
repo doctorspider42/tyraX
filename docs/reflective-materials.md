@@ -169,7 +169,7 @@ never on where the camera points — reflections **stay put when the player
 looks around**, and the pose is continuous per object, so there is **no
 smoothing at all**. Two reflective objects side by side show genuinely
 different, simultaneously-correct reflections. (Two earlier cuts are
-recorded in PROGRESS 152: a crosshair-anchored shared probe decayed to the
+recorded in PROGRESS 157: a crosshair-anchored shared probe decayed to the
 classic aim whenever the object left the screen center, and its constant
 smoothing trailed the camera by ~20 frames.)
 

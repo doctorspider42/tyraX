@@ -183,6 +183,7 @@ struct SceneObject {
     float physBounce = 0.35f;   // restitution 0..1: 0 = thud, 1 = superball
     float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
     bool physTumble = true;     // ground contact converts slide into roll/spin
+    float physSleep = 3.0f;     // seconds of near-rest before the body sleeps
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool pickable = false;    // BTN_USE picks it up: carried in front of the
                               // camera (swept against the world so it cannot
@@ -421,7 +422,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.physMass == b.physMass &&
            a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
-           a.physTumble == b.physTumble && a.usable == b.usable &&
+           a.physTumble == b.physTumble && a.physSleep == b.physSleep &&
+           a.usable == b.usable &&
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
