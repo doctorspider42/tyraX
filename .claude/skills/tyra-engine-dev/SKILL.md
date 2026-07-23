@@ -109,7 +109,13 @@ frustum culling `None` + no clip checks (the one legitimate `None` — the
 program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
 be null — it carries the params channel; swapping `right`/`up` on the bag
 and re-rendering draws the same centers for another view, which is what a
-portal through-view pass needs), `RendererCoreEnvMap` (128×128 VRAM render target for
+portal through-view pass needs), `RendererCore::camFeed` (a second `RendererCoreEnvMap`
+instance for the camera texture feeds — CCTV monitors, docs/
+texture-feeds.md; permanently allocated below every texture like the env
+map, +128 KB VRAM, Clamp wrap because feeds sample through plain surface
+UVs — which also read the raster target UPSIDE DOWN unless the surface V
+flips: GS rows run top-down, texture V grows down from row 0),
+`RendererCoreEnvMap` (128×128 VRAM render target for
 GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
 with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
@@ -126,7 +132,20 @@ the bbox z, cap the quad interior with a z-only ALWAYS fan at the surface
 depth, repaint the still-far ring via a GEQUAL sprite at z=0 that hits
 exactly the reset pixels; both wrappers drain PATH1 unconditionally and do
 NOT latch the post-fx drain gate; maskEnd's NLOOP is 13 + fan verts; see
-`docs/portals.md`), `physics/CollisionMesh` (XZ-grid
+`docs/portals.md`), the **VU0 micromode ray tracer**
+(`renderer/rt/vu0_raytracer.{hpp,cpp}` + `vu0_rt_kernel.vclpp`, exported by
+the `<tyra>` umbrella header — raytraced mirror reflections,
+`docs/raytraced-reflections.md`): the ONLY VU0 microprogram in the codebase —
+built through the same vclpp/vcl/dvp-as pipeline as the VU1 programs but
+uploaded by the EE to VU0 micro memory (0x11000000) and kicked with
+`vcallms 0` per image row, params/results through VU0 data memory
+(0x11004000), sync by polling VPU STAT bit 0 (`cfc2 $29`). VU0-honest
+kernel: no XGKICK/EFU/xtop; branchless nearest-hit via saturation step
+masks (`clamp(x*1e38,0,1)` — VU floats saturate, no inf/nan). Runs
+synchronously: macro-mode COP2 (Vec4/M4x4) shares VU0's register file, so
+the tracer never overlaps engine math, and clobbering VF01+ between kicks
+is safe because every macro op reloads its operands,
+`physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
@@ -203,7 +222,21 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   VU1-side defines must be literals. When VU1 output looks
   wrong, `docker exec <proj>-compiler-1 cat /tyra/engine/obj/.../<prog>.o.vcl`
   shows exactly what vclpp produced — check the expansion before suspecting
-  your math.
+  your math. Three VCL-proper traps (paid for by the VU0 rt kernel):
+  symbolic register names that collide with VU special registers OR
+  instruction mnemonics (case-insensitively) are rejected — don't name a
+  register `r`, `q`, `i`, `p`, `acc`, or anything like `mAx`/`sub` ("can't
+  use r as a name" / "invalid name for register"); a broadcast field
+  selector is only legal on the SECOND source operand — `max.x m, vf00,
+  v[y]` works, `max.x m, v[y], vf00[x]` fails with a misleading "used
+  before set" on the bracketed register; and `ERROR: no opt table ..
+  something failed making table .. for <label>` means the REGISTER
+  ALLOCATOR ran out — too many symbolic registers live across that loop
+  (31 VF ceiling), not a syntax problem. Fix by shrinking the live set:
+  reload fixed-address parameters at their use sites instead of pinning
+  them in registers for the whole program (`lq` is cheap), and lane-pack
+  related scalar fold state into one register's x/y/z fields (assemble
+  candidates with `add.x/y/z reg, vf00, src[x]`, fold once as a vector).
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

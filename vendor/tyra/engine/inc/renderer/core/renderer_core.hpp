@@ -89,6 +89,14 @@ class RendererCore {
   /** Dynamic environment map for reflective materials (TyraX fork). */
   RendererCoreEnvMap envMap;
 
+  /**
+   * Camera-feed render target (TyraX fork, "texture feeds"): a second
+   * env-map-style 128x128 VRAM target the game renders an arbitrary
+   * camera view into (begin/pushEnvView/draw/popEnvView/end), then binds
+   * via getTexture() on any material slot - live CCTV monitors.
+   */
+  RendererCoreEnvMap camFeed;
+
   /** Split-screen viewports for two-player games (TyraX fork). */
   RendererCoreSplitView splitView;
 

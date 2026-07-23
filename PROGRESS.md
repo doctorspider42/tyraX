@@ -10,6 +10,216 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (158) **Reflection examples split into three focused levels.** The
+  combined examples/raytraced-mirror had grown to carry the VU0 raytracer
+  AND the texture feeds; per owner it is now three single-topic showcases:
+  **raytraced-mirror** keeps only the RT mirror (glass wall + balls +
+  textured crate + animated wobbler + floor/pillars); **texture-feeds** is
+  new (CCTV camera feed on one monitor, a raytraced mirror streamed onto
+  another - both live in one frame, and the camera feed's terrain vs the
+  mirror stream's terrain-less sky make the two systems visibly distinct);
+  **probe-aim** (157) is the third, unchanged. Verified in PCSX2 (SW
+  renderer): all three boot clean and show their effect. Authoring note
+  worth keeping: in the generated game's view, +X world maps to SCREEN
+  LEFT - a monitor at -X shows on the right; two rounds of "which monitor
+  is which" confusion traced to that, not to any feed bug. Example
+  generated files were regenerated in this same change.
+
+- (157) **Reflection probe aim: reflected ray (Preferences > Rendering,
+  docs/reflective-materials.md).** The @sky dynamic env map's camera can
+  now aim along the REFLECTED central ray instead of the classic GT3
+  level-forward: each refresh, a camera ray is intersected with the
+  dynamic-reflective objects themselves (detected by their bound env
+  target - no new flags), with analytic normals: OBB face tests in the
+  object's own frame for boxes/save points/planes (live rotation
+  honored), spheres for curved shapes, bounding spheres for models. The
+  probe then renders from the hit point along the reflected direction, so
+  the map shows what the surface actually mirrors. The design went
+  through THREE cuts, each driven by the owner feeling the previous one:
+  (1) crosshair-anchored shared probe with constant alpha-0.25 smoothing
+  - reflections trailed the camera by ~20 frames (alpha per
+  every-2nd-frame refresh compounds); (2) adaptive smoothing (same hit
+  object = instant tracking, cross-fade only on switches) - fixed the
+  trailing but the aim still decayed to classic whenever the object left
+  the screen center ("ucieka jak sie mocno na boki patrzy"); (3) FINAL,
+  owner's own idea: PER-OBJECT probes anchored to the eye->center ray -
+  renderObjectProbe re-renders the shared 128x128 target right before
+  EACH reflective object draws (interleaving works on one VRAM target
+  because the env bracket's begin() drains PATH1, so the previous
+  object's draws sample THEIR map before it is overwritten). The
+  eye->center pose depends only on positions, never on view rotation -
+  reflections stay put when looking around, the pose is continuous per
+  object, NO smoothing exists at all, and side-by-side reflective objects
+  show genuinely different simultaneously-correct reflections (verified:
+  the example's ball and monolith mirror different prop subsets in one
+  frame - the monolith honestly showed pure sky until its rotation was
+  aimed so its reflected cone actually contains the props). Cost scales
+  with reflective object count (one full probe render per object per
+  frame - "10 objects = your own funeral", per the owner); probes skip
+  inside split halves (raster bracket rule). The proximity self-skip keys
+  on the probe eye so the mirror-er never swamps its own map. One more
+  owner-caught bug closed the loop: reflections came out HORIZONTALLY
+  MIRRORED because the VU1 matcap sampled every map with the MAIN
+  camera's right/up - a probe looking back at the player has its left on
+  the player's right, so each probe now stores ITS camera basis on the
+  object geometry and the env pass samples with it (renderEnvPass takes
+  the owning ObjectGeometry; classic mode untouched - its probe shares
+  the player's heading, so the flip never showed there). Chain: ProjectSettings::envProbeReflected (JSON, ==,
+  Preferences > Rendering checkbox, {{ENV_PROBE_REFLECTED}} constant in
+  both game hpp templates), all-runtime aim block in the env pass. OFF by
+  default - existing projects keep their look. Verified in PCSX2 (SW
+  renderer) A/B on examples/reflections (temporary local flip, example
+  NOT committed - its generated files would drift wholesale): same
+  viewpoint, classic shows the red cube as a small washed smudge in the
+  chrome, reflected aim shows it as a large round ball placed differently
+  per sphere - the probe now renders from the surface's vantage. Ships
+  with a dedicated sample, **examples/probe-aim**: a chrome "crystal
+  ball" whose equator sits at eye height (a level view ray reflects
+  straight back) mirroring a red crate / yellow ball / blue pillar
+  standing BEHIND the spawn - two authoring lessons baked into its
+  layout: props must stand in the reflected half-space (first draft put
+  them in front and the chrome showed pure sky), and a tall ball makes a
+  level ray hit below the equator and reflect into the ground (the env
+  map has no terrain, so that reads as empty horizon). In-game
+  motion (smoothing feel, crosshair slides) remains a hands-on pad test.
+
+- (156) **Live texture feeds: camera-to-texture (CCTV) + raytraced-mirror
+  streams (docs/texture-feeds.md).** Any surface can show a live feed via
+  *Properties > Texture feed*: a Camera entity with "Render to texture"
+  renders its view - sky (+resident terrain) + an explicit object list,
+  the Mirror philosophy - into a NEW second instance of the env-map
+  redirect bracket (`RendererCore::camFeed`, 128x128 + own z, ~128 KB of
+  VRAM permanently below every texture, Clamp wrap) every frame from the
+  camera's LIVE transform (+Z lens, Cutscene Director convention) at its
+  baked FOV; or a raytraced Mirror's traced image re-streams onto any
+  other object. Feeds draw EMISSIVE (colors flatten to the object tint at
+  texture scale) through plain surface UVs. One feed camera per scene
+  (first enabled wins, extras warn at codegen); feed surfaces are
+  excluded from static batching; renames remap "camera:<n>"/"mirror:<n>"
+  refs and camera view lists. Chain: SceneObject::camFeed/camFeedTerrain/
+  camFeedObjects + textureFeed (+==, JSON, recipe hashes, properties UI on
+  the Camera + a Texture feed combo in the shared material picker),
+  CAM_FEEDS/CAM_FEED_VIEWS/OBJECT_FEEDS side tables, renderCameraFeed()
+  before all main-frame 3D + the binding in rebuildObjectGeometry.
+  Two raster lessons paid for: the target samples UPSIDE DOWN through
+  plain UVs (GS rows run top-down vs texture V down from row 0 - the env
+  map/portals never showed it; the binding V-flips the surface sts), and
+  Repeat wrap bleeds opposite-edge rows into the border (feed texture is
+  Clamp). Verified in PCSX2 (SW renderer) on examples/raytraced-mirror:
+  the billboard above the mirror shows the CCTV camera's aerial view
+  (textured crate, balls, wobbler, terrain horizon - right side up, clean
+  edges) while the floating monitor streams the VU0-traced mirror image,
+  BOTH live in one frame together with the raytraced mirror itself; boot
+  clean. Walk-around (the feed showing the player moving) remains a
+  hands-on pad test.
+
+- (155) **Raytraced mirror reflections on a VU0 microprogram (experimental
+  PoC).** A Mirror object gained *Properties > Mirror > Raytraced (VU0,
+  experimental)*: instead of re-submitting reflected geometry, the game
+  ray-traces the reflection per pixel, per frame, on VU0 — the first (and
+  only) VU0 MICROMODE program in the codebase. Traced scene = sphere
+  proxies of the target list (+ player) against the sky gradient; per-user
+  feedback the generated game draws NO synthetic ground (the kernel's
+  optional checker plane exists but stays off — authors place real floor
+  geometry), and the traced image edge is a per-mirror **Reflection
+  resolution** option, 32/64/128/256/512 (`mirrorRtSize`/
+  `MirrorData::rtSize` through the whole chain; rows wider than one VU0
+  batch trace in 64-texel chunks — `Vu0Raytracer::trace`; cost scales with
+  edge^2, so 128 is ~4x the default and still a frame rate while 256/512
+  are labeled photo modes in the UI — 512 also costs 1 MB of the ~1.33 MB
+  GS texture budget). Ships with a playable sample level,
+  **examples/raytraced-mirror** (glass wall at 128, four balls +
+  reflectPlayer, thin-box floor + pillars deliberately NOT in the mirror
+  list). Engine: `Tyra::Vu0Raytracer`
+  (`vendor/tyra/engine/{inc,src}/renderer/rt/`, exported by `<tyra>`) +
+  `vu0_rt_kernel.vclpp`, built through the same vclpp/vcl/dvp-as pipeline as
+  the VU1 programs but uploaded by the EE to VU0 micro memory (0x11000000)
+  and kicked per image row with `vcallms 0`, params/results through VU0 data
+  memory (0x11004000), sync by polling VPU STAT. The traced scene is a
+  stylized proxy: curved targets as spheres, FLAT targets (boxes, save
+  points, planes, decals) as axis-aligned slab proxies (`Vu0RtBox`, ray-vs-
+  AABB per-axis fold, face normal from entry-axis masks — added when a
+  user-listed floor never showed: a flat object as a bounding sphere
+  engulfs the glass, ray origins start inside and the entry distance dies
+  on the eps mask; rotation is ignored on both), and — per user request,
+  "jazda na całego" — static .obj model targets as REAL TRIANGLE MESHES
+  WITH TEXTURES (`Vu0RtTriangle`, up to 2 groups / 36 tris per mirror):
+  codegen decimates the model's textured submesh by vertex clustering
+  (under-budget meshes pass through exactly), bakes it model-local
+  (`RT_PROXIES`/`RT_PROXY_VERTS` in scene_data.hpp), and the game
+  re-transforms by the live object transform each frame — triangle proxies
+  DO honor rotation. The kernel runs a dual-basis Moller-Trumbore (no
+  cross products, rational nearest-hit compares by cross-multiplication,
+  one division for the winner) behind per-model bounding-sphere early-outs
+  (exit-distance test — the inside-origin lesson again), and returns
+  (record, barycentric u/v, shade); the EE samples the model part's
+  texture in RAM while packing (nearest; 32/24bpp linear, 8bpp with the
+  CSM1 CLUT rotation undone, 4bpp nibble-swapped — every PNG-loader
+  format) and modulates by the shade. UVs never enter VU0. ANIMATED
+  models (.glb/.fbx) reflect LIVE: codegen picks a connected coarse mesh
+  of VERTEX indices from the rest pose (medoid clustering - each grid
+  cell represented by the real vertex nearest its centroid, after a
+  first triangle-sampling attempt rendered as disconnected confetti) and
+  the game reads the live skinned vertices at those indices each frame
+  (the same buffers the model renders from; renderMirrors runs after
+  skinning) lifted by animMat - the reflection plays the clip; untextured
+  parts fall back to the material base color. All proxies
+  carry live position + tint + single-bounce lambert, sky-gradient
+  misses — traced into an rtSize^2
+  RGBA32 texture the glass quad samples, re-uploaded over PATH3 into its
+  existing GS allocation each frame (`updateTextureInfo`; re-allocates
+  automatically after an eviction flush). Two key tricks: the EE mirrors the
+  CAMERA across the glass plane once (Householder on the point), so every
+  texel's reflected ray is just normalize(P - eyeMirrored) — zero per-texel
+  reflection math; and nearest-hit selection is fully BRANCHLESS — VU floats
+  saturate instead of producing inf/nan, so clamp(x*1e38, 0, 1) is an exact
+  step(0, x) and masks fold the winner (the only branches are the two loop
+  back-edges). Editor chain: `SceneObject::mirrorRaytraced` + `mirrorRtSize`
+  (+==, JSON `"mirror": {"raytraced", "rtSize"}`, Mirror properties checkbox
+  + resolution combo, live-link recipe hash), `MirrorData::raytraced`/
+  `rtSize` columns, game runtime `buildRtMirrors` / `renderRtMirror`
+  (textures created at scene load, GS-freed + deleted on scene switch). Docs: docs/raytraced-reflections.md + README bullet +
+  engine-skill notes (incl. two new VCL traps paid for here: `r`/`q`/`i`/`p`
+  are reserved register names, and broadcast fields are only legal on the
+  second source operand). Verified: full Docker build clean (kernel = 1152
+  bytes = 144 instructions, comfortably inside VU0's 4KB;
+  `Vu0RtKernel_CodeStart/End` symbols confirmed with nm); e2e in PCSX2 on
+  the SOFTWARE renderer with a scratch FPP scene (8x4 wall mirror,
+  raytraced + reflectPlayer, three colored spheres): boot log prints "VU0
+  ray tracing kernel uploaded (1152 bytes)", no asserts, and F8 screenshots
+  show the traced image on the glass - round correctly-lit sphere
+  reflections on the physically correct sides, the player proxy, sky fade
+  (the checker plane was verified too, before the no-ground follow-up
+  removed it from the generated game). A/B on the same scene: classic
+  mirror EE 38% / VU 4% / GS 9% vs raytraced EE 36-37% / VU 2% / GS 7%,
+  BOTH locked at 50 FPS - the RT mirror trades the copy re-submission for
+  VU0 trace time and comes out cost-neutral in this small scene; the same
+  scene renders correctly at rtSize 128 AND 512 (chunked rows, no seam at
+  any 64-texel chunk boundary; 512's frame rate was not measured - the
+  ~64x cost figure is analytic, the image is verifiably right). The
+  example level boots clean and its F8 screenshot shows all four balls +
+  the player proxy reflecting on the correct sides, the listed floor
+  slab reflecting as a floor under them (an earlier floor made of the
+  Plane primitive z-fought its own two coplanar faces at this scale -
+  patchy dark wedges; the thin box has no coplanar pair and rendered
+  clean), the textured crate model (12 tris, exact pass-through)
+  reflecting as a real wood-and-rivets crate at its live 25-degree yaw,
+  and the animated wobbler's coarse green mesh visibly CHANGING POSE
+  between two F8 screenshots taken 4 s apart while correctly occluding
+  the ball reflection behind it - the glass plays the Twist clip.
+  The triangle kernel cost THREE VCL failures, all recorded in the engine
+  skill: "ERROR: no opt table .. for <loop>" is the REGISTER ALLOCATOR
+  running out (31 VF ceiling), not syntax - fixed by reloading
+  fixed-address params at use sites and lane-packing the fold state
+  (the group-loop unroll and the cross-product-free dual-basis rewrite
+  made along the way were kept: simpler CFG, 4-qword records). Kernel is
+  now 3872 of 4096 bytes - at ~95% of VU0 micro memory, the next feature
+  needs a diet first. Walk-around
+  feel (reflection tracking the camera) remains a hands-on pad test. Third
+  kernel iteration fixed a subtle one: mix-with-sentinel-BIG selection
+  cancels catastrophically in single floats (t - 1e10 + 1e10 == 0), which
+  cut every reflection off at the checker horizon - the nearest-hit state
+  is comparison-mask-folded instead (see the kernel header note).
 - (154) **Per-object sleep delay: "Sleep after (s)" on the Physics block
   (default 3 s, was a hard ~0.5 s).** User ask: relax the sleep timing and
   give it a per-object override. New `SceneObject::physSleep` runs the whole
