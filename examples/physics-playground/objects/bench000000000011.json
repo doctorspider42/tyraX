@@ -1,1 +1,1 @@
-{ "id": "bench000000000011", "name": "b11", "type": "sphere", "position": [6.35, 11, 8.96], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.46, 0.5, 0.8], "physics": true, "physMass": 1, "physBounce": 0.88, "physFriction": 0.08, "physTumble": true }
+{ "id": "bench000000000011", "name": "b11", "type": "sphere", "position": [6.35, 11, 8.96], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.46, 0.5, 0.8], "physics": true, "physMass": 1, "physBounce": 0.88, "physFriction": 0.08, "physTumble": true, "physSleep": 3 }

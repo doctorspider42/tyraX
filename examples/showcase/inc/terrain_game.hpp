@@ -137,6 +137,14 @@ class TerrainGame : public Tyra::Game {
     // settled body gets correct rest-pose shading back.
     Tyra::M4x4 objMat;
     bool matrixMode = false;
+    // Reflected-probe mode: the matcap ST basis must be the PROBE camera's
+    // right/up, not the main camera's - a probe looking back at the player
+    // has its left on the player's right, and sampling its map with the
+    // main basis mirrors every reflection horizontally (owner report).
+    // Written by renderObjectProbe, consumed by the env pass.
+    Tyra::Vec4 probeRight;
+    Tyra::Vec4 probeUp;
+    bool probeBasis = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -367,6 +375,32 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
+  // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
+  // re-uploaded every frame - sphere proxies of the target list against
+  // the sky gradient - instead of re-submitted geometry. See
+  // docs/raytraced-reflections.md.
+  struct RtMirror {
+    int object = -1;                   // the mirror's scene-table index
+    int size = 64;                     // traced image edge (MirrorData::rtSize)
+    Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
+  };
+  std::vector<RtMirror> rtMirrors;
+  Tyra::Vu0Raytracer vu0Rt;
+  void buildRtMirrors();
+  void freeRtMirrors();
+  void renderRtMirror(const MirrorData& mir);
+  // Camera texture feed (CCTV, docs/texture-feeds.md): renders the scene's
+  // feed camera view into the engine's camFeed VRAM target each frame;
+  // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
+  // traced image) as a live emissive texture.
+  void renderCameraFeed();
+  // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
+  // map for ONE reflective object - aimed by the eye->center reflection -
+  // right before that object draws. Interleaving works on a single VRAM
+  // target because the bracket's begin() drains PATH1: the previous
+  // object's draws sample THEIR map before it is overwritten.
+  void renderObjectProbe(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
