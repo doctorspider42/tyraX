@@ -7882,3 +7882,22 @@ Each finished feature lands as its own commit.
   is byte-IDENTICAL (the transfer introduced no pin/param/text drift); a
   scratch shake.flownode with desc shows the text in its catalog line; GUI
   screenshot shows the hover tooltip on a node (On Button + its desc).
+- (69) **Preference descriptions moved to hover tooltips** - the Project and
+  Scene Preferences dialogs had grown to several screens tall because nearly
+  every control carried its multi-paragraph explanation inline as a
+  `TextDisabled` block under it. Added a tiny `prefHelp(tip)` helper (SameLine
+  + a dimmed `(?)` + `SetTooltip` - the exact idiom the Layers list and node
+  tooltips already use) and folded every one of those long descriptions into a
+  `(?)` marker sitting on the same line as its control. Section notes with no
+  control of their own (Ambience, Loading screens, AI support) attach the `(?)`
+  to their button instead; the dynamic "Resident terrain mesh" readout and the
+  short one-line footer stay inline. The vestigial "Post effects" section (just
+  a "bloom/grain moved to the UI Editor" redirect, no control) was dropped
+  entirely. Gotcha caught in review: the old
+  `TextDisabled` blocks are printf format strings (literal `%` written `%%`),
+  but `prefHelp` passes the text through `SetTooltip("%s", tip)`, so the two
+  affected strings (display-mode "14%", mesh-LOD "~50%/~25%") had their `%%`
+  collapsed to `%` or they would have shown a stray percent. Net effect: the
+  Project Preferences modal now fits without scrolling and the same wording is
+  one hover away. Verified: `build.ps1` links clean; the tooltip idiom is
+  byte-identical to the existing working markers (fontCombo, layers, scenes).
