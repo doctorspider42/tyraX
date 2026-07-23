@@ -16,12 +16,15 @@
 
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
+#include <map>
+
 #include "aobake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "menubake.hpp"
 #include "navmesh.hpp"
+#include "objparser.hpp"
 #include "project.hpp"
 #include "stochtile.hpp"
 
@@ -415,6 +418,12 @@ constexpr float MESH_LOD_DISTANCE = {{MESH_LOD_DISTANCE}};
 // its batch. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = {{STATIC_BATCHING}};
 
+// Dynamic reflection probe aim (Preferences > Rendering): false = the
+// classic GT3 level-forward aim; true = a camera ray is intersected with
+// the dynamic-reflective objects and the probe renders from the hit point
+// along the smoothed REFLECTED ray (docs/reflective-materials.md).
+constexpr bool ENV_PROBE_REFLECTED = {{ENV_PROBE_REFLECTED}};
+
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
 constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
@@ -568,6 +577,14 @@ class TerrainGame : public Tyra::Game {
     // settled body gets correct rest-pose shading back.
     Tyra::M4x4 objMat;
     bool matrixMode = false;
+    // Reflected-probe mode: the matcap ST basis must be the PROBE camera's
+    // right/up, not the main camera's - a probe looking back at the player
+    // has its left on the player's right, and sampling its map with the
+    // main basis mirrors every reflection horizontally (owner report).
+    // Written by renderObjectProbe, consumed by the env pass.
+    Tyra::Vec4 probeRight;
+    Tyra::Vec4 probeUp;
+    bool probeBasis = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -798,6 +815,32 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
+  // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
+  // re-uploaded every frame - sphere proxies of the target list against
+  // the sky gradient - instead of re-submitted geometry. See
+  // docs/raytraced-reflections.md.
+  struct RtMirror {
+    int object = -1;                   // the mirror's scene-table index
+    int size = 64;                     // traced image edge (MirrorData::rtSize)
+    Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
+  };
+  std::vector<RtMirror> rtMirrors;
+  Tyra::Vu0Raytracer vu0Rt;
+  void buildRtMirrors();
+  void freeRtMirrors();
+  void renderRtMirror(const MirrorData& mir);
+  // Camera texture feed (CCTV, docs/texture-feeds.md): renders the scene's
+  // feed camera view into the engine's camFeed VRAM target each frame;
+  // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
+  // traced image) as a live emissive texture.
+  void renderCameraFeed();
+  // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
+  // map for ONE reflective object - aimed by the eye->center reflection -
+  // right before that object draws. Interleaving works on a single VRAM
+  // target because the bracket's begin() drains PATH1: the previous
+  // object's draws sample THEIR map before it is overwritten.
+  void renderObjectProbe(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -1269,6 +1312,14 @@ class TerrainGame : public Tyra::Game {
     // settled body gets correct rest-pose shading back.
     Tyra::M4x4 objMat;
     bool matrixMode = false;
+    // Reflected-probe mode: the matcap ST basis must be the PROBE camera's
+    // right/up, not the main camera's - a probe looking back at the player
+    // has its left on the player's right, and sampling its map with the
+    // main basis mirrors every reflection horizontally (owner report).
+    // Written by renderObjectProbe, consumed by the env pass.
+    Tyra::Vec4 probeRight;
+    Tyra::Vec4 probeUp;
+    bool probeBasis = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -1499,6 +1550,32 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
+  // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
+  // re-uploaded every frame - sphere proxies of the target list against
+  // the sky gradient - instead of re-submitted geometry. See
+  // docs/raytraced-reflections.md.
+  struct RtMirror {
+    int object = -1;                   // the mirror's scene-table index
+    int size = 64;                     // traced image edge (MirrorData::rtSize)
+    Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
+  };
+  std::vector<RtMirror> rtMirrors;
+  Tyra::Vu0Raytracer vu0Rt;
+  void buildRtMirrors();
+  void freeRtMirrors();
+  void renderRtMirror(const MirrorData& mir);
+  // Camera texture feed (CCTV, docs/texture-feeds.md): renders the scene's
+  // feed camera view into the engine's camFeed VRAM target each frame;
+  // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
+  // traced image) as a live emissive texture.
+  void renderCameraFeed();
+  // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
+  // map for ONE reflective object - aimed by the eye->center reflection -
+  // right before that object draws. Interleaving works on a single VRAM
+  // target because the bracket's begin() drains PATH1: the previous
+  // object's draws sample THEIR map before it is overwritten.
+  void renderObjectProbe(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -4522,11 +4599,23 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       };
 
       // walls: push a chest-height sphere out of steep triangles (the radius
-      // is approximated by the average XZ scale - exact for uniform scales)
+      // is approximated by the average XZ scale - exact for uniform scales).
+      // "Steep" is judged in WORLD space: a tumbled physics model lying on
+      // its side has world-walls whose LOCAL normal reads as a walkable
+      // floor - so world-up rides into mesh space with the query.
       const V3 c = toLocal(*nextX, feetY + eyeHeight * 0.5F, *nextZ);
       Vec4 center(c.x, c.y, c.z, 1.0F);
       const float sAvg = (sx + sz) * 0.5F;
-      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F)) {
+      const V3 upL = invRotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      // prev rides along so the push is side-aware: a step longer than the
+      // radius that lands past a wall's plane is ejected BACK to the side
+      // the player came from - the plain two-sided push pointed inward
+      // there and sucked fast walkers inside the mesh.
+      const V3 pc = toLocal(prevX, feetY + eyeHeight * 0.5F, prevZ);
+      const Vec4 prevLocal(pc.x, pc.y, pc.z, 1.0F);
+      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
+                                     Vec4(upL.x, upL.y, upL.z, 0.0F),
+                                     &prevLocal)) {
         const V3 w = toWorld({center.x, center.y, center.z});
         *nextX = w.x;
         *nextZ = w.z;
@@ -4608,9 +4697,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // tilted top - a pitched/rolled box still collides upright, as before
     // (mesh collision is the escape hatch for those). Reduces exactly to the
     // old AABB test when the object is unrotated.
+    //
+    // The frame is YAW ONLY, never the full 3D rotation: physics bodies
+    // tumble (spin writes pitch/roll into rotation), and projecting a pitched
+    // frame onto XZ is not an isometry - part of the horizontal offset
+    // escapes into local Y and gets dropped, so far-away points read as
+    // "inside" and the back-projection contracts the committed position
+    // toward the box center (the player teleported into thrown objects and
+    // stuck inside them).
+    const float yaw = o.data.rotation[1] * PI / 180.0F;
+    const float yawC = cosf(yaw), yawS = sinf(yaw);
     auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
-      const V3 l = invRotated({wx - cx, 0.0F, wz - cz}, o.data.rotation);
-      lx = l.x, lz = l.z;
+      const float dx = wx - cx, dz = wz - cz;
+      lx = dx * yawC - dz * yawS;
+      lz = dx * yawS + dz * yawC;
     };
     float lnx, lnz, lpx, lpz;
     toLocalXZ(*nextX, *nextZ, lnx, lnz);
@@ -4623,9 +4723,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     const bool wasInsideZ = lpz > -hz && lpz < hz;
     // Re-projects a (possibly axis-cancelled) local target back to world.
     auto commitLocal = [&](float lx, float lz) {
-      const V3 w = rotated({lx, 0.0F, lz}, o.data.rotation);
-      *nextX = cx + w.x;
-      *nextZ = cz + w.z;
+      *nextX = cx + lx * yawC + lz * yawS;
+      *nextZ = cz - lx * yawS + lz * yawC;
     };
 
     if (feetY + 0.5F >= top) {
@@ -4850,6 +4949,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // streamed in above, so the reflective-material opt-out can decide here;
   // the batches themselves bake lazily on the first renderScene.
   buildStaticBatchList();
+
+  // Raytraced mirrors (VU0 PoC): create this scene's reflection textures
+  // before the lazy geometry rebuild binds them to the glass quads.
+  buildRtMirrors();
 
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -5707,7 +5810,7 @@ void TerrainGame::updateCarriedObject() {
 
 // Hands a released object back to whatever moves it. A rigid body (Physics
 // on) simply takes the velocity and WAKES: the sim sleeps settled bodies
-// (restFrames >= PHYS_SLEEP_FRAMES) and skips them entirely, and an object
+// (physAsleep, per-object physSleep countdown) and skips them entirely, and an object
 // picked up off the ground is asleep by definition - without this it would
 // hang in mid-air where it was dropped, and a throw would ignore bounce,
 // friction and tumble. Returns false for a non-physics object, which has no
@@ -6974,12 +7077,21 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         // GS alpha-blends it over the copies drawn just before it.
         addDecal(p0.vertices, p0.colors, p0.sts, o.data);
         float opacity = 0.35F;
+        bool rt = false;
         for (int mi = 0; mi < MIRROR_COUNT; ++mi)
           if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
             opacity = MIRRORS[mi].opacity;
+            rt = MIRRORS[mi].raytraced != 0;
             break;
           }
-        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        if (rt) {
+          // VU0-raytraced glass: the traced image IS the reflection - draw
+          // the quad opaque, full-bright white so the texture (bound in the
+          // tail below) shows unmodulated.
+          for (Color& c : p0.colors) c.r = c.g = c.b = c.a = 128.0F;
+        } else {
+          for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        }
         break;
       }
       case 16: {
@@ -7036,6 +7148,45 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
         o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+    // Raytraced mirror: the glass samples the VU0-traced reflection image
+    // (created by buildRtMirrors before this rebuild ever runs).
+    if (o.data.type == 15)
+      for (RtMirror& r : rtMirrors)
+        if (r.object == index) { tex = r.texture; break; }
+    // Live texture feed: the camera feed target or a raytraced mirror's
+    // traced image replaces the surface texture; colors flatten to the
+    // object tint at texture scale (128 = 1.0) so the feed reads like an
+    // emissive screen instead of inheriting baked shading.
+    for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi) {
+      const ObjectFeedData& fd = OBJECT_FEEDS[fi];
+      if (fd.scene != currentScene || fd.object != index) continue;
+      Texture* ftex = nullptr;
+      if (fd.kind == 0)
+        ftex = engine->renderer.core.camFeed.getTexture();
+      else
+        for (RtMirror& r : rtMirrors)
+          if (r.object == fd.src) { ftex = r.texture; break; }
+      if (ftex) {
+        tex = ftex;
+        auto c128 = [](float v) {
+          return v * 128.0F > 255.0F ? 255.0F : v * 128.0F;
+        };
+        for (Color& c : part.colors) {
+          c.r = c128(o.data.color[0]);
+          c.g = c128(o.data.color[1]);
+          c.b = c128(o.data.color[2]);
+          c.a = 128.0F;
+        }
+        // The camera feed is a raster render target: GS rows run top-down
+        // while texture V grows downward from row 0, so the image samples
+        // upside down through plain surface UVs - flip V here (fresh sts
+        // every rebuild, so the flip never double-applies). The mirror
+        // feed is a RAM texture with its own consistent mapping.
+        if (fd.kind == 0)
+          for (Vec4& st : part.sts) st.y = 1.0F - st.y;
+      }
+      break;
+    }
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
@@ -7164,6 +7315,15 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // cross and normalize are VU0 macro-mode assembly.
 constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not moving"
 constexpr float PHYS_REST_SPIN = 0.75F;       // deg/frame = "not spinning"
+// A mover this fast treats a SLEEPING body as a body, not a wall: pass 1
+// skips the static resolution so the impulse pass sees the overlap, wakes
+// the sleeper and trades momentum (~2.5 u/s at 50 fps; rest is ~0.8 u/s).
+constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
+constexpr float PHYS_FLATTEN_STEP = 3.0F;     // settle-flatten, deg/frame
+// Settle-flatten engages while the tumble is still dying (well above the
+// rest-spin gate) so the lay-down continues the motion instead of starting
+// after a visible dead stop.
+constexpr float PHYS_FLATTEN_SPIN = 2.5F;     // deg/frame
 constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 constexpr float PHYS_PUSH = 0.55F;            // player shove gain (scaled 1/mass)
 
@@ -7430,7 +7590,7 @@ void TerrainGame::updateObjectPhysics() {
     // Carried/thrown objects are driven by updateCarriedObject this frame.
     if (i == carryIndex || i == thrownIndex) continue;
     if (!o.active || !o.data.physics) continue;
-    if (o.restFrames >= PHYS_SLEEP_FRAMES) continue;  // asleep
+    if (physAsleep(o)) continue;  // asleep
 
     const GameModel* gm = nullptr;
     const SkelModel* anim = nullptr;
@@ -7443,6 +7603,27 @@ void TerrainGame::updateObjectPhysics() {
     }
     float cOff[3], ext[3];
     physExtents(o.data, gm, anim, cOff, ext);
+    // Tumbled bodies contact the world through their ROTATED bound: the
+    // support extent of the OBB along each world axis (sum of |basis
+    // column| * half extent) and the rotated center offset. The plain
+    // axis-aligned ext let a rolled box sink corner-deep into the terrain
+    // as if it were a sphere of its half-height. Spheres skip this - they
+    // are rotation-invariant and their box corners would overestimate the
+    // radius. (Yaw-only rotation leaves the vertical extent unchanged, so
+    // authored yaw blocks rest exactly as before.)
+    if (o.data.type != 1 &&
+        (o.data.rotation[0] != 0.0F || o.data.rotation[1] != 0.0F ||
+         o.data.rotation[2] != 0.0F)) {
+      const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const V3 rc = rotated({cOff[0], cOff[1], cOff[2]}, o.data.rotation);
+      const float lx = ext[0], ly = ext[1], lz = ext[2];
+      ext[0] = fabsf(bx.x) * lx + fabsf(by.x) * ly + fabsf(bz.x) * lz;
+      ext[1] = fabsf(bx.y) * lx + fabsf(by.y) * ly + fabsf(bz.y) * lz;
+      ext[2] = fabsf(bx.z) * lx + fabsf(by.z) * ly + fabsf(bz.z) * lz;
+      cOff[0] = rc.x, cOff[1] = rc.y, cOff[2] = rc.z;
+    }
     const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
     const float bounce = o.data.physBounce;
 
@@ -7576,9 +7757,16 @@ void TerrainGame::updateObjectPhysics() {
       if (j == i) continue;
       RuntimeObject& s = runtimeObjects[j];
       if (!s.active || !physObstacle(s.data)) continue;
-      const bool sSleeping =
-          s.data.physics && s.restFrames >= PHYS_SLEEP_FRAMES;
+      const bool sSleeping = s.data.physics && physAsleep(s);
       if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
+      // A meaningful hit treats a sleeping body as a body, not a wall: this
+      // static resolution would separate the pair, and the impulse pass -
+      // the one that wakes the sleeper and trades momentum - would never
+      // see the overlap (a thrown crate bounced off a sleeping one without
+      // waking it). Skip it and let pass 2 handle the hit; near-rest
+      // contacts (resting stacks) keep the wall treatment, so settled
+      // stacks stay cheap and stable.
+      if (sSleeping && vel.innerProduct(vel) > PHYS_WAKE_SPEED2) continue;
       if (aimOn) {
         const V3 pax = rotated({1.0F, 0.0F, 0.0F}, s.data.rotation);
         const V3 pay = rotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
@@ -7669,7 +7857,9 @@ void TerrainGame::updateObjectPhysics() {
     // Tumble: rolling without slipping (w = v / r) about the horizontal axis
     // perpendicular to the slide direction; friction bleeds it off with the
     // slide itself. Euler-added per axis - visually right, era-appropriate.
-    if (o.data.physTumble) {
+    // A latched settle-flatten owns the rotation: re-deriving spin from the
+    // residual slide here would fight the ease (overshoot-and-return).
+    if (o.data.physTumble && o.flatTgt[0] > 720.0F) {
       if (grounded) {
         const float ts2 = slideTan.innerProduct(slideTan);
         if (ts2 > 1e-8F) {
@@ -7692,14 +7882,88 @@ void TerrainGame::updateObjectPhysics() {
     const float speed2 = vel.innerProduct(vel);
     const float spinMag =
         fabsf(o.spin[0]) + fabsf(o.spin[1]) + fabsf(o.spin[2]);
-    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN) {
-      if (o.restFrames < PHYS_SLEEP_FRAMES) ++o.restFrames;
-      if (o.restFrames >= PHYS_SLEEP_FRAMES) {
+
+    // Settle-flatten: a near-rest tumbled body eases onto a flat face
+    // instead of sleeping on an edge or corner - pitch/roll walk to a 90deg
+    // step (the crate visibly tips onto its face; the rotated support
+    // extent above lowers it with the tilt). It engages while the tumble is
+    // still dying (spin under PHYS_FLATTEN_SPIN, well above the rest gate)
+    // and picks each target ONCE with a momentum lookahead - a crate still
+    // tipping forward finishes its fall onto the NEXT face instead of being
+    // yanked back to the nearest one - then takes the residual spin over so
+    // the two drivers never fight. The latched targets keep the choice
+    // stable while the spin decays. Euler-order trap: rotated() composes
+    // Rz*Ry*Rx, and with the roll on an ODD step the pose is only flat when
+    // the yaw sits on a step too - so the yaw joins the easing exactly then
+    // (a settling crate twisting slightly reads as natural). Spheres skip
+    // it: their orientation is invisible and easing would visibly roll the
+    // baked shading for nothing. Sleep waits for the easing to finish
+    // (flattening resets the countdown).
+    bool flattening = false, flatMoved = false;
+    if (o.data.physTumble && o.data.type != 1 && grounded &&
+        speed2 < PHYS_REST_SPEED2 * 4.0F && spinMag < PHYS_FLATTEN_SPIN) {
+      if (o.flatTgt[0] > 720.0F) {  // unlatched - pick the faces once
+        auto pick = [&](int axis) {
+          // ~20 frames of the dying spin decide whether the tip carries
+          // over the balance point onto the next face
+          return roundf((o.data.rotation[axis] + o.spin[axis] * 20.0F) /
+                        90.0F) *
+                 90.0F;
+        };
+        o.flatTgt[0] = pick(0);
+        o.flatTgt[2] = pick(2);
+        // roll on an ODD 90 step: the yaw must land on a step too
+        o.flatTgt[1] = fabsf(fmodf(o.flatTgt[2], 180.0F)) > 45.0F
+                           ? roundf(o.data.rotation[1] / 90.0F) * 90.0F
+                           : 1e9F;
+        o.spin[0] = o.spin[2] = 0.0F;  // the ease drives from here
+      }
+      auto ease = [&](int axis) {
+        const float target = o.flatTgt[axis];
+        if (target > 720.0F) return;  // yaw not eased this settle
+        float d = target - o.data.rotation[axis];
+        if (fabsf(d) < 0.001F) return;
+        if (d > PHYS_FLATTEN_STEP) {
+          d = PHYS_FLATTEN_STEP;
+          flattening = true;
+        } else if (d < -PHYS_FLATTEN_STEP) {
+          d = -PHYS_FLATTEN_STEP;
+          flattening = true;
+        }
+        o.data.rotation[axis] += d;
+        flatMoved = true;
+      };
+      ease(0);
+      ease(2);
+      ease(1);
+    } else {
+      o.flatTgt[0] = o.flatTgt[1] = o.flatTgt[2] = 1e9F;  // re-pick next settle
+    }
+
+    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN &&
+        !flattening) {
+      // Countdown length is per-object (Properties > Physics > Sleep after,
+      // seconds); everyFrames tracks the measured frame time so the wait is
+      // wall-clock true with vsync off too. On completion the counter pins
+      // to PHYS_ASLEEP - the asleep test never re-derives the threshold.
+      const int sleepAt = everyFrames(o.data.physSleep);
+      if (o.restFrames < sleepAt) ++o.restFrames;
+      if (o.restFrames >= sleepAt) {
+        o.restFrames = PHYS_ASLEEP;
         vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
         o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
-        // settle: one world-space rebuild restores rest-pose shading and
-        // hands the vertex arrays back to the world-space consumers
-        if (objectGeometry[i].matrixMode) o.dirty = true;
+        // Fast-path bodies stay on objMat while asleep - NO settle rebuild.
+        // The old world re-bake refreshed the shading for the rest pose, and
+        // that discrete jump from the wake-pose shading that rode the tumble
+        // read as "the rotation snapped back" the instant a thrown body
+        // froze (on a sphere the shade gradient is the only orientation
+        // cue). Nothing needs the world-space arrays at rest: every
+        // fast-path consumer (mirrors, env pass, split band, use targeting,
+        // collision) reads objMat or o.data, and the two vertex-array
+        // consumers (usable highlight, matcap normals) are excluded from
+        // the fast path by physFastPathEligible. Trade-off: a resting body
+        // keeps the shading baked at wake - the same shading it showed all
+        // flight. A retint / Live Link edit still re-bakes via dirty.
       }
     } else {
       o.restFrames = 0;
@@ -7722,7 +7986,7 @@ void TerrainGame::updateObjectPhysics() {
         if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
       }
     }
-    if (dPos > 1e-5F || spinMag > 0.001F) {
+    if (dPos > 1e-5F || spinMag > 0.001F || flatMoved) {
       // Moving: eligible bodies get ONE local-space bake and ride objMat
       // from then on (refreshed in renderScene - no EE re-bake per frame);
       // the rest fall back to the legacy world-space rebuild.
@@ -7745,9 +8009,7 @@ void TerrainGame::updateObjectPhysics() {
       RuntimeObject& b = runtimeObjects[j];
       if (j == carryIndex || j == thrownIndex) continue;
       if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;
-      if (a.restFrames >= PHYS_SLEEP_FRAMES &&
-          b.restFrames >= PHYS_SLEEP_FRAMES)
-        continue;
+      if (physAsleep(a) && physAsleep(b)) continue;
 
       float aOff[3], aExt[3], bOff[3], bExt[3];
       const GameModel* gm = nullptr;
@@ -7941,12 +8203,12 @@ void TerrainGame::renderScene() {
   // Not inside a split half: the env bracket's end() restores a full-screen
   // raster, which would undo the half's scissor/offset. Reflections keep the
   // last rendered map while split-screen is active.
-  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
+  // Reflected-probe mode renders a probe PER OBJECT, interleaved with the
+  // object draws (renderObjectProbe) - this shared pass covers only the
+  // classic level-forward aim.
+  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
+      envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
-    skyMat.identity();
-    skyMat.data[12] = cameraPosition.x;
-    skyMat.data[13] = cameraPosition.y;
-    skyMat.data[14] = cameraPosition.z;
     // Level forward: keeps the sphere map's horizon on its center line.
     V3 lvl = {envFwd.x, 0.0F, envFwd.z};
     const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
@@ -7954,11 +8216,18 @@ void TerrainGame::renderScene() {
       lvl.x /= ll, lvl.z /= ll;
     else
       lvl = {1.0F, 0.0F, 0.0F};
-    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
-                 cameraPosition.z + lvl.z, 1.0F);
+    const Vec4 probeEye = cameraPosition;
+    const V3 probeDir = lvl;
+
+    skyMat.identity();
+    skyMat.data[12] = probeEye.x;
+    skyMat.data[13] = probeEye.y;
+    skyMat.data[14] = probeEye.z;
+    Vec4 envLook(probeEye.x + probeDir.x, probeEye.y + probeDir.y,
+                 probeEye.z + probeDir.z, 1.0F);
     core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
                             scriptCtx.skyColor.b, 128.0F));
-    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+    core.renderer3D.pushEnvView(probeEye, envLook, 110.0F,
                                 (float)Tyra::RendererCoreEnvMap::size);
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
@@ -7970,19 +8239,21 @@ void TerrainGame::renderScene() {
     for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
-      // Skip the object the camera is standing at: it would swamp the whole
+      // Skip the object the PROBE stands at: it would swamp the whole
       // map - typically the very reflective surface being inspected, whose
-      // own dark self-reflection reads as ugly patches up close. (Bounding
-      // radius approximated from the scale; unit primitives fit a 1x1x1
-      // cube, so half-diagonal = 0.87 * max scale.)
+      // own dark self-reflection reads as ugly patches up close. In
+      // reflected-aim mode the probe eye sits ON the hit surface, so this
+      // same check self-skips the mirror-er. (Bounding radius approximated
+      // from the scale; unit primitives fit a 1x1x1 cube, so
+      // half-diagonal = 0.87 * max scale.)
       {
         float half = ro.data.scale[0];
         if (ro.data.scale[1] > half) half = ro.data.scale[1];
         if (ro.data.scale[2] > half) half = ro.data.scale[2];
         const float skipR = 0.87F * half * 1.9F;
-        const float sdx = ro.data.position[0] - cameraPosition.x;
-        const float sdy = ro.data.position[1] - cameraPosition.y;
-        const float sdz = ro.data.position[2] - cameraPosition.z;
+        const float sdx = ro.data.position[0] - probeEye.x;
+        const float sdy = ro.data.position[1] - probeEye.y;
+        const float sdz = ro.data.position[2] - probeEye.z;
         if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
       }
       if (ro.dirty) rebuildObjectGeometry(ri);
@@ -7993,6 +8264,13 @@ void TerrainGame::renderScene() {
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
     core.envMap.end();
   }
+
+  // Camera texture feed: its own VRAM target, so order only matters
+  // relative to the surfaces that sample it - before everything.
+  renderCameraFeed();
+
+  // Per-object probe rendering happens inline in the object draw loop
+  // below (renderObjectProbe) when ENV_PROBE_REFLECTED is on.
 
   // Portal through-view: rendered IN-PLACE into the real framebuffer at
   // full resolution, every frame (the view must stay in lockstep with the
@@ -8036,12 +8314,19 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
-  auto renderEnvPass = [&](GeoPart& part) {
+  auto renderEnvPass = [&](ObjectGeometry& og, GeoPart& part) {
     if (!part.envBag) return;
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
-    // per-mesh camera basis here.
-    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
-    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    // per-mesh camera basis here. Reflected-probe objects sample with THEIR
+    // probe camera's basis (see renderObjectProbe), everything else with
+    // the main camera's.
+    if (ENV_PROBE_REFLECTED && og.probeBasis) {
+      part.envTexBag->envRight = og.probeRight;
+      part.envTexBag->envUp = og.probeUp;
+    } else {
+      part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+      part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    }
     stapip.core.render(part.envBag.get());
   };
   int hlList[8];
@@ -8079,12 +8364,26 @@ void TerrainGame::renderScene() {
       hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
+    // Reflected-probe mode: re-render the shared env map for THIS object
+    // right before it draws (begin() drains PATH1 first, so the previous
+    // object already sampled its own map). Not inside split halves - the
+    // bracket restores a full-screen raster. A highlight-deferred body
+    // redrawn later this frame samples the last probe's map instead of
+    // its own - an accepted approximation.
+    if (ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && !splitPassActive) {
+      Texture* envTex = engine->renderer.core.envMap.getTexture();
+      for (GeoPart& part : objectGeometry[i].parts)
+        if (part.envTexBag && part.envTexBag->texture == envTex) {
+          renderObjectProbe(i);
+          break;
+        }
+    }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
         // textured-AO lightmap multiplies before the additive env pass
         if (part.aoBag) stapip.core.render(part.aoBag.get());
-        renderEnvPass(part);
+        renderEnvPass(objectGeometry[i], part);
       }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
@@ -8124,7 +8423,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.bag) {
           stapip.core.render(part.bag.get());
-          renderEnvPass(part);
+          renderEnvPass(objectGeometry[i], part);
         }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
@@ -8180,6 +8479,13 @@ void TerrainGame::renderMirrors() {
     RuntimeObject& m = runtimeObjects[mir.object];
     if (!m.active || !m.visible) continue;
     if (beyondDrawDistance(m.data, cameraPosition)) continue;
+
+    // VU0-raytraced PoC path: no geometry re-submit, the reflection is a
+    // texture ray-traced on VU0 this frame (see renderRtMirror).
+    if (mir.raytraced) {
+      renderRtMirror(mir);
+      continue;
+    }
 
     // Householder reflection about the glass plane (normal = the mirror's
     // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
@@ -8253,6 +8559,500 @@ void TerrainGame::renderMirroredObject(int index) {
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
+}
+
+// Raytraced mirrors (VU0 PoC): one rtSize^2 RGBA32 texture per flagged
+// mirror (MirrorData::rtSize - the authored 32/64/128 resolution),
+// ray-traced and re-uploaded every frame (renderRtMirror). The Texture
+// owns its pixel buffer (TextureData frees it on delete); the GS
+// allocation is released before delete so scene switches don't leak
+// VRAM. Rebuilt by loadScene BEFORE the lazy geometry rebuild, which binds
+// the texture to the glass quad (rebuildObjectGeometry case 15).
+void TerrainGame::freeRtMirrors() {
+  for (RtMirror& r : rtMirrors) {
+    if (!r.texture) continue;
+    engine->renderer.core.texture.freeTextureBuffers(r.texture->id);
+    delete r.texture;
+  }
+  rtMirrors.clear();
+}
+
+void TerrainGame::buildRtMirrors() {
+  freeRtMirrors();
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || !mir.raytraced || mir.object < 0)
+      continue;
+    RtMirror rm;
+    rm.object = mir.object;
+    rm.size = mir.rtSize;
+    TextureBuilderData data;
+    data.name = "rt-mirror";
+    data.width = rm.size;
+    data.height = rm.size;
+    data.data = new unsigned char[rm.size * rm.size * 4];
+    memset(data.data, 0x40, rm.size * rm.size * 4);
+    data.bpp = bpp32;
+    data.gsComponents = TEXTURE_COMPONENTS_RGB;
+    data.clut = nullptr;
+    rm.texture = new Texture(&data);
+    // Clamp: the default Repeat bilinear-wraps the last row into row 0 at
+    // the glass edges - a visible seam line across the top of the mirror.
+    rm.texture->setWrapSettings(TextureWrap::Clamp, TextureWrap::Clamp);
+    rtMirrors.push_back(rm);
+    vu0Rt.init();  // upload the microprogram once, on first use
+  }
+}
+
+// Raytraced mirror (experimental PoC): true per-pixel ray tracing on a VU0
+// MICROPROGRAM. Every listed target reflects as a bounding-sphere proxy
+// (color = the object's tint) against the scene's sky gradient - authors
+// place real floor/wall objects in the target list instead of a synthetic
+// ground (the engine kernel's optional checker plane stays off). The EE
+// mirrors the camera across the glass plane (the point-wise Householder of
+// the matrix renderMirrors builds), the VU0 kernel traces
+// normalize(P - mirroredEye) per texel, and the traced image re-uploads
+// over PATH3 into the glass quad's texture. Loose with the shapes, honest
+// with the rays.
+void TerrainGame::renderRtMirror(const MirrorData& mir) {
+  RtMirror* rm = nullptr;
+  for (RtMirror& r : rtMirrors)
+    if (r.object == mir.object) { rm = &r; break; }
+  if (!rm || !rm->texture) return;
+  RuntimeObject& m = runtimeObjects[mir.object];
+
+  // Glass plane basis from the live transform (the addDecal quad: local XY
+  // face, +Z normal; its ST mapping runs texel u along -X, v along +Y).
+  V3 ax = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  V3 ay = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+  if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+  const float px = m.data.position[0], py = m.data.position[1],
+              pz = m.data.position[2];
+
+  // Mirror the camera across the plane: E' = E - 2*((E.n) - d)*n
+  const float d = n.x * px + n.y * py + n.z * pz;
+  const float side = cameraPosition.x * n.x + cameraPosition.y * n.y +
+                     cameraPosition.z * n.z - d;
+  vu0Rt.setEye(Vec4(cameraPosition.x - 2.0F * side * n.x,
+                    cameraPosition.y - 2.0F * side * n.y,
+                    cameraPosition.z - 2.0F * side * n.z, 1.0F));
+
+  // Proxies from the live targets (+ the player). Flat shapes - boxes,
+  // planes, decals - trace as axis-aligned slabs (a floor as a bounding
+  // SPHERE would engulf the glass and never show; rotation is ignored,
+  // the PoC trade). Everything else is a sphere: radius = half the
+  // largest scale axis, good enough for a reflection blob that moves and
+  // shades correctly.
+  Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
+  Vu0RtBox slabs[Vu0Raytracer::MaxBoxes];
+  int sc = 0, bc = 0;
+  // Model targets with a baked proxy trace as REAL TRIANGLES (up to two
+  // groups; docs/raytraced-reflections.md) - collected here, fed to the
+  // tracer after the loop (group 0 must be set before group 1). Static
+  // models use baked local-space geometry; ANIMATED models use baked
+  // triangle indices into the live skinned mesh (proxyAnim).
+  int proxySel[2] = {-1, -1}, proxyObj[2] = {-1, -1};
+  bool proxyAnim[2] = {false, false};
+  int gc = 0;
+  for (int t = 0; t < mir.targetCount; ++t) {
+    const int index = MIRROR_TARGETS[mir.firstTarget + t];
+    if (index < 0 || index >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& o = runtimeObjects[index];
+    if (!o.active || !o.visible || o.data.type == 15) continue;
+    const Color tint(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
+                     o.data.color[2] * 255.0F, 128.0F);
+    if (o.data.type == 5 && gc < 2) {
+      int prox = -1;
+      for (int pi2 = 0; pi2 < RT_PROXY_COUNT; ++pi2)
+        if (RT_PROXIES[pi2].scene == currentScene &&
+            RT_PROXIES[pi2].mirror == mir.object &&
+            RT_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        proxyAnim[gc] = false;
+        ++gc;
+        continue;  // traced as triangles, not a sphere
+      }
+      for (int pi2 = 0; pi2 < RT_ANIM_PROXY_COUNT; ++pi2)
+        if (RT_ANIM_PROXIES[pi2].scene == currentScene &&
+            RT_ANIM_PROXIES[pi2].mirror == mir.object &&
+            RT_ANIM_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        proxyAnim[gc] = true;
+        ++gc;
+        continue;  // traced as live skinned triangles
+      }
+    }
+    if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12 ||
+        o.data.type == 13) {
+      if (bc >= Vu0Raytracer::MaxBoxes) continue;
+      Vu0RtBox& b = slabs[bc++];
+      const float hx = fabsf(o.data.scale[0]) * 0.5F;
+      // planes and decals are flat quads - give the slab a hair of
+      // thickness so grazing rays still register an entry face
+      const float hy = (o.data.type == 12 || o.data.type == 13)
+                           ? 0.02F
+                           : fabsf(o.data.scale[1]) * 0.5F;
+      const float hz = fabsf(o.data.scale[2]) * 0.5F;
+      b.min = Vec4(o.data.position[0] - hx, o.data.position[1] - hy,
+                   o.data.position[2] - hz, 1.0F);
+      b.max = Vec4(o.data.position[0] + hx, o.data.position[1] + hy,
+                   o.data.position[2] + hz, 1.0F);
+      b.color = tint;
+    } else {
+      if (sc >= Vu0Raytracer::MaxSpheres) continue;
+      Vu0RtSphere& s = spheres[sc++];
+      s.center = Vec4(o.data.position[0], o.data.position[1],
+                      o.data.position[2], 1.0F);
+      float r = fabsf(o.data.scale[0]);
+      if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+      if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+      s.radius = r * 0.5F;
+      s.color = tint;
+    }
+  }
+  if (mir.reflectPlayer && players[0].objIndex >= 0 &&
+      sc < Vu0Raytracer::MaxSpheres) {
+    Vu0RtSphere& s = spheres[sc++];
+    s.center = Vec4(players[0].x, players[0].y + 0.9F, players[0].z, 1.0F);
+    s.radius = 0.9F;
+    s.color = Color(210.0F, 170.0F, 140.0F, 128.0F);
+  }
+  vu0Rt.setSpheres(spheres, sc);
+  vu0Rt.setBoxes(slabs, bc);
+
+  // Triangle groups: transform the baked model-local proxies by the live
+  // object transform (scale -> rotate -> translate, pushVert's order) and
+  // hand them to the tracer with the part's texture; a not-yet-streamed
+  // texture falls back to the part's kd as a flat color. Unused groups
+  // are cleared - stale triangles must not survive a target going hidden.
+  for (int g = 0; g < 2; ++g) {
+    if (g >= gc) {
+      vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                         Color(160.0F, 160.0F, 160.0F, 128.0F));
+      continue;
+    }
+    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
+    if (proxyAnim[g]) {
+      // Animated model: read the LIVE skinned vertices at the baked
+      // triangle indices. Skinning ran earlier this frame
+      // (updateAndRenderAnimObjects - renderMirrors comes after), so the
+      // reflection plays the current pose; an off-screen model that
+      // skipped skinning reflects its held pose, exactly like the classic
+      // mirror's re-submitted copies. Vertices are model-space - animMat
+      // (the same matrix the model renders with) lifts them to world.
+      const RtAnimProxyData& pr = RT_ANIM_PROXIES[proxySel[g]];
+      ObjectGeometry& ag = objectGeometry[proxyObj[g]];
+      if (pr.part >= (int)ag.animParts.size() || !ag.animParts[pr.part].bag ||
+          !ag.animParts[pr.part].bag->vertices) {
+        vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                           Color(160.0F, 160.0F, 160.0F, 128.0F));
+        continue;
+      }
+      ObjectGeometry::AnimPart& ap = ag.animParts[pr.part];
+      const Vec4* verts = ap.bag->vertices;
+      const Vec4* sts = ap.texBag ? ap.texBag->coordinates : nullptr;
+      int n = 0;
+      for (int i = 0; i < pr.triCount && n < Vu0Raytracer::MaxTriangles;
+           ++i) {
+        const int* vi3 = &RT_ANIM_PROXY_TRIS[pr.firstIdx + i * 3];
+        if ((u32)vi3[0] >= ap.bag->count || (u32)vi3[1] >= ap.bag->count ||
+            (u32)vi3[2] >= ap.bag->count)
+          continue;
+        Vu0RtTriangle& tb = tbuf[n++];
+        tb.a = ag.animMat * verts[vi3[0]];
+        tb.b = ag.animMat * verts[vi3[1]];
+        tb.c = ag.animMat * verts[vi3[2]];
+        if (sts) {
+          tb.ua = sts[vi3[0]].x, tb.va = sts[vi3[0]].y;
+          tb.ub = sts[vi3[1]].x, tb.vb = sts[vi3[1]].y;
+          tb.uc = sts[vi3[2]].x, tb.vc = sts[vi3[2]].y;
+        }
+      }
+      // Untextured parts fall back to the material's base color; the
+      // kernel's lambert supplies the lighting.
+      Color akd(170.0F, 170.0F, 170.0F, 128.0F);
+      const int am = runtimeObjects[proxyObj[g]].data.animModel;
+      if (am >= 0 && am < (int)gameAnimModels.size() &&
+          gameAnimModels[am].src &&
+          pr.part < (int)gameAnimModels[am].src->parts.size()) {
+        const float* bc = gameAnimModels[am].src->parts[pr.part].color;
+        auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+        akd = Color(c255(bc[0]), c255(bc[1]), c255(bc[2]), 128.0F);
+      }
+      vu0Rt.setTriangles(g, tbuf, n,
+                         ap.texBag ? ap.texBag->texture : nullptr, akd);
+      continue;
+    }
+    const RtProxyData& pr = RT_PROXIES[proxySel[g]];
+    RuntimeObject& mo = runtimeObjects[proxyObj[g]];
+    const int n = pr.triCount;
+    for (int i = 0; i < n; ++i) {
+      const float* f = &RT_PROXY_VERTS[pr.firstFloat + i * 15];
+      Vec4* corners[3] = {&tbuf[i].a, &tbuf[i].b, &tbuf[i].c};
+      float* uvs[3][2] = {{&tbuf[i].ua, &tbuf[i].va},
+                          {&tbuf[i].ub, &tbuf[i].vb},
+                          {&tbuf[i].uc, &tbuf[i].vc}};
+      for (int c = 0; c < 3; ++c) {
+        V3 lp = {f[c * 5] * mo.data.scale[0], f[c * 5 + 1] * mo.data.scale[1],
+                 f[c * 5 + 2] * mo.data.scale[2]};
+        lp = rotated(lp, mo.data.rotation);
+        corners[c]->set(lp.x + mo.data.position[0],
+                        lp.y + mo.data.position[1],
+                        lp.z + mo.data.position[2], 1.0F);
+        *uvs[c][0] = f[c * 5 + 3];
+        *uvs[c][1] = f[c * 5 + 4];
+      }
+    }
+    const Texture* tex = nullptr;
+    Color kdCol(160.0F, 160.0F, 160.0F, 128.0F);
+    const int mi2 = mo.data.model;
+    if (mi2 >= 0 && mi2 < (int)gameModels.size() &&
+        pr.part < (int)gameModels[mi2].parts.size()) {
+      const GameModelPart& gp = gameModels[mi2].parts[pr.part];
+      tex = gp.texture;
+      auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+      kdCol = Color(c255(gp.kd[0]), c255(gp.kd[1]), c255(gp.kd[2]), 128.0F);
+    }
+    vu0Rt.setTriangles(g, tbuf, n, tex, kdCol);
+  }
+
+  vu0Rt.setSky(Color(SKY_TOP_R, SKY_TOP_G, SKY_TOP_B),
+               Color(skyHorizonR, skyHorizonG, skyHorizonB));
+  vu0Rt.setLight(Vec4(0.302F, 0.905F, 0.302F, 0.0F));
+
+  // Texel->world mapping matches the quad's STs exactly (see addDecal):
+  // s = 0.5 - xLocal, t = yLocal + 0.5, texel centers at (i + 0.5)/N.
+  const int N = rm->size;
+  const float sx = m.data.scale[0], sy = m.data.scale[1];
+  const float u0 = (0.5F - 0.5F / N) * sx, v0 = (0.5F / N - 0.5F) * sy;
+  const Vec4 origin(px + ax.x * u0 + ay.x * v0, py + ax.y * u0 + ay.y * v0,
+                    pz + ax.z * u0 + ay.z * v0, 1.0F);
+  const Vec4 du(-ax.x * sx / N, -ax.y * sx / N, -ax.z * sx / N, 0.0F);
+  const Vec4 dv(ay.x * sy / N, ay.y * sy / N, ay.z * sy / N, 0.0F);
+  vu0Rt.trace(origin, du, dv,
+              reinterpret_cast<u32*>(rm->texture->core->data), N);
+
+  // Fresh pixels -> GS: re-upload into the existing VRAM allocation, or
+  // allocate on the first frame (and after any eviction flush).
+  auto& coreTex = engine->renderer.core.texture;
+  if (coreTex.getAllocatedBuffersByTextureId(rm->texture->id).id != 0)
+    coreTex.updateTextureInfo(rm->texture);
+  else
+    coreTex.useTexture(rm->texture);
+
+  // The glass quad, textured with the traced reflection (drawn opaque
+  // full-bright white - see rebuildObjectGeometry case 15).
+  for (GeoPart& part : objectGeometry[mir.object].parts)
+    if (part.bag) stapip.core.render(part.bag.get());
+}
+
+// Camera texture feed (CCTV): render the scene's feed camera view into the
+// engine's camFeed VRAM target - the envMap bracket with the camera's own
+// pose and baked FOV. Runs before any main-frame 3D (the raster redirect
+// is global GS state) and never inside a split half (end() restores a
+// full-screen raster). Content = sky dome (+ terrain) + the explicit view
+// list, the Mirror philosophy: the second-render cost stays visible to the
+// author. Animated targets show their LAST skinned pose (skinning runs
+// later in the frame), exactly like mirrors and portals.
+void TerrainGame::renderCameraFeed() {
+  if (splitPassActive) return;
+  int fi = -1;
+  for (int i = 0; i < CAM_FEED_COUNT; ++i)
+    if (CAM_FEEDS[i].scene == currentScene) { fi = i; break; }
+  if (fi < 0) return;
+  const CamFeedData& fd = CAM_FEEDS[fi];
+  if (fd.camera < 0 || fd.camera >= (int)runtimeObjects.size()) return;
+  RuntimeObject& cam = runtimeObjects[fd.camera];
+  if (!cam.active) return;
+
+  auto& core = engine->renderer.core;
+  const Vec4 eye(cam.data.position[0], cam.data.position[1],
+                 cam.data.position[2], 1.0F);
+  // +Z lens, rotated Z*Y*X - the Cutscene Director camera convention
+  // (seqCameraForward); a flow graph rotating the camera pans the feed.
+  const V3 fwd = rotated({0.0F, 0.0F, 1.0F}, cam.data.rotation);
+  const Vec4 look(eye.x + fwd.x, eye.y + fwd.y, eye.z + fwd.z, 1.0F);
+
+  core.camFeed.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                           scriptCtx.skyColor.b, 128.0F));
+  core.renderer3D.pushEnvView(eye, look, fd.fov,
+                              (float)Tyra::RendererCoreEnvMap::size);
+  if (fd.showTerrain) {
+    if (skyDome.bag) {
+      skyMat.identity();  // dome parked on the feed eye; main pass re-centers
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+      stapip.core.render(skyDome.bag.get());
+      skyDome.infoBag->zTestType = prevZTest;
+    }
+    renderTerrain();  // resident chunks - the ring follows the MAIN camera
+  }
+  for (int t = 0; t < fd.viewCount; ++t) {
+    const int vi2 = CAM_FEED_VIEWS[fd.firstView + t];
+    if (vi2 < 0 || vi2 >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& ro = runtimeObjects[vi2];
+    // no mirrors/portals in a feed: their surfaces are main-pass tricks
+    if (!ro.active || !ro.visible || ro.data.type == 15 ||
+        ro.data.type == 16)
+      continue;
+    if (ro.dirty) rebuildObjectGeometry(vi2);
+    ObjectGeometry& og = objectGeometry[vi2];
+    if (og.matrixMode) updateObjMat(vi2);
+    for (GeoPart& part : og.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (og.animInfoBag && !og.animParts.empty())
+      for (ObjectGeometry::AnimPart& ap : og.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.camFeed.end();
+}
+
+// Reflected-probe mode (ENV_PROBE_REFLECTED): one probe render PER
+// reflective object, right before it draws. The aim is anchored to the
+// OBJECT, not the crosshair: the eye->center ray is reflected at the
+// surface (analytic normal - OBB face for boxes/planes with live
+// rotation, else the sphere normal, which for the exact eye->center ray
+// simply looks back at the player). That pose depends only on positions,
+// never on where the camera POINTS - reflections stay put when the player
+// looks around (the crosshair-anchored first cut decayed to the classic
+// aim whenever the object left the screen center), and it is continuous
+// per object, so NO smoothing is needed at all. Every object gets its own
+// fresh map every frame; cost is one full probe render (PATH1 drain +
+// 128^2 sky + reflected list) PER OBJECT PER FRAME - author responsibly.
+void TerrainGame::renderObjectProbe(int index) {
+  auto& core = engine->renderer.core;
+  RuntimeObject& o = runtimeObjects[index];
+  V3 toC = {o.data.position[0] - cameraPosition.x,
+            o.data.position[1] - cameraPosition.y,
+            o.data.position[2] - cameraPosition.z};
+  const float dist = sqrtf(toC.x * toC.x + toC.y * toC.y + toC.z * toC.z);
+  if (dist < 0.2F) return;  // eye inside the object: keep the last map
+  const V3 dirC = {toC.x / dist, toC.y / dist, toC.z / dist};
+
+  float t = -1.0F;
+  V3 n = {0.0F, 1.0F, 0.0F};
+  if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12) {
+    // OBB entry face along eye->center (the ray passes through the center,
+    // so it always hits; rotation honored)
+    const V3 rel = {-toC.x, -toC.y, -toC.z};
+    const V3 lo = invRotated(rel, o.data.rotation);
+    const V3 ld = invRotated(dirC, o.data.rotation);
+    const float he[3] = {0.5F * o.data.scale[0],
+                         o.data.type == 12 ? 0.02F : 0.5F * o.data.scale[1],
+                         0.5F * o.data.scale[2]};
+    const float lop[3] = {lo.x, lo.y, lo.z};
+    const float ldp[3] = {ld.x, ld.y, ld.z};
+    float tn = -1e30F;
+    int axis = 0;
+    for (int a = 0; a < 3; ++a) {
+      if (fabsf(ldp[a]) < 1e-6F) continue;
+      float t1 = (-he[a] - lop[a]) / ldp[a];
+      float t2 = (he[a] - lop[a]) / ldp[a];
+      if (t1 > t2) t1 = t2;
+      if (t1 > tn) { tn = t1, axis = a; }
+    }
+    if (tn > 0.05F) {
+      t = tn;
+      V3 ln = {0.0F, 0.0F, 0.0F};
+      const float lhit = lop[axis] + ldp[axis] * tn;
+      (axis == 0 ? ln.x : axis == 1 ? ln.y : ln.z) =
+          lhit > 0.0F ? 1.0F : -1.0F;
+      n = rotated(ln, o.data.rotation);
+    }
+  } else {
+    // curved shapes (and models by bounding sphere): the eye->center hit
+    // has the normal facing the eye
+    float r = fabsf(o.data.scale[0]);
+    if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+    if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+    r *= o.data.type == 5 ? 0.87F : 0.5F;
+    if (dist - r > 0.05F) {
+      t = dist - r;
+      n = {-dirC.x, -dirC.y, -dirC.z};
+    }
+  }
+  if (t < 0.0F) return;  // too close: keep the last map
+
+  const float dn = 2.0F * (dirC.x * n.x + dirC.y * n.y + dirC.z * n.z);
+  V3 rd = {dirC.x - dn * n.x, dirC.y - dn * n.y, dirC.z - dn * n.z};
+  const Vec4 probeEye(cameraPosition.x + dirC.x * t + n.x * 0.05F,
+                      cameraPosition.y + dirC.y * t + n.y * 0.05F,
+                      cameraPosition.z + dirC.z * t + n.z * 0.05F, 1.0F);
+  const Vec4 probeLook(probeEye.x + rd.x, probeEye.y + rd.y,
+                       probeEye.z + rd.z, 1.0F);
+
+  // The matcap ST basis for THIS object must be the probe camera's
+  // right/up (same construction as the classic pass's envRight/envUp,
+  // built from the probe forward) - sampling the probe's map with the
+  // MAIN camera basis mirrors the reflection horizontally whenever the
+  // probe looks back at the player.
+  {
+    V3 pr = {-rd.z, 0.0F, rd.x};  // cross(fwd, worldUp), level
+    const float prl = sqrtf(pr.x * pr.x + pr.z * pr.z);
+    if (prl > 0.0001F)
+      pr.x /= prl, pr.z /= prl;
+    else
+      pr = {1.0F, 0.0F, 0.0F};  // reflecting straight up/down
+    const V3 pu = {pr.y * rd.z - pr.z * rd.y, pr.z * rd.x - pr.x * rd.z,
+                   pr.x * rd.y - pr.y * rd.x};
+    ObjectGeometry& og = objectGeometry[index];
+    og.probeRight.set(pr.x, pr.y, pr.z, 0.0F);
+    og.probeUp.set(pu.x, pu.y, pu.z, 0.0F);
+    og.probeBasis = true;
+  }
+
+  core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                          scriptCtx.skyColor.b, 128.0F));
+  core.renderer3D.pushEnvView(probeEye, probeLook, 110.0F,
+                              (float)Tyra::RendererCoreEnvMap::size);
+  if (skyDome.bag) {
+    skyMat.identity();  // dome parked on the probe; main pass re-centers
+    skyMat.data[12] = probeEye.x;
+    skyMat.data[13] = probeEye.y;
+    skyMat.data[14] = probeEye.z;
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+  }
+  for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+    RuntimeObject& ro = runtimeObjects[ri];
+    if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+    if (ri == index) continue;  // never the mirror-er itself
+    // proximity self-skip against the probe eye (see the classic pass)
+    {
+      float half = ro.data.scale[0];
+      if (ro.data.scale[1] > half) half = ro.data.scale[1];
+      if (ro.data.scale[2] > half) half = ro.data.scale[2];
+      const float skipR = 0.87F * half * 1.9F;
+      const float sdx = ro.data.position[0] - probeEye.x;
+      const float sdy = ro.data.position[1] - probeEye.y;
+      const float sdz = ro.data.position[2] - probeEye.z;
+      if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+    }
+    if (ro.dirty) rebuildObjectGeometry(ri);
+    if (objectGeometry[ri].matrixMode) updateObjMat(ri);
+    for (GeoPart& part : objectGeometry[ri].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.envMap.end();
 }
 
 // Portal objects (type 16): a PS2-honest take on the seamless portal. The
@@ -9021,7 +9821,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   // A released body stays portal-free only until it settles to sleep.
   if (thrownFreeIndex >= 0 &&
       (thrownFreeIndex >= (int)runtimeObjects.size() ||
-       runtimeObjects[thrownFreeIndex].restFrames >= PHYS_SLEEP_FRAMES))
+       physAsleep(runtimeObjects[thrownFreeIndex])))
     thrownFreeIndex = -1;
   bool playerTeleported = false;
   const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
@@ -11449,9 +12249,11 @@ static const char* TPL_SCRIPT_HPP =
 
 namespace {{NAME_UPPER_NS}} {
 
-/** Frames of near-rest ground contact after which a physics body falls
- * asleep (a sleeping body costs one branch per frame until woken). */
-constexpr int PHYS_SLEEP_FRAMES = 24;
+/** restFrames value of a body that fell asleep. The countdown length is
+ * per-object (SceneObjectData::physSleep seconds, Properties > Physics >
+ * "Sleep after"); on completion the counter is pinned here so the asleep
+ * test never wobbles with the measured frame time. */
+constexpr short PHYS_ASLEEP = 0x7FFF;
 
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
  * `visible` or the velocity fields, then set `dirty = true` so the geometry
@@ -11461,12 +12263,16 @@ struct RuntimeObject {
   bool visible = true;
   // Object physics state (data.physics). Velocities are per-frame
   // displacements (like the player's), spin is degrees/frame. After writing
-  // them from a script set restFrames = 0 too - a body with restFrames >=
-  // PHYS_SLEEP_FRAMES is asleep and skips simulation entirely.
+  // them from a script set restFrames = 0 too - a body at PHYS_ASLEEP is
+  // asleep and skips simulation entirely.
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
   float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
-  signed char restFrames = 0;          // sleep counter; write 0 to wake
+  // Settle-flatten targets, latched once per settle so the chosen face
+  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
+  // stays" when the roll lands on an even 90deg step.
+  float flatTgt[3] = {1e9F, 1e9F, 1e9F};
+  short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
@@ -11488,6 +12294,10 @@ struct RuntimeObject {
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
 };
+
+inline bool physAsleep(const RuntimeObject& o) {
+  return o.restFrames >= PHYS_ASLEEP;
+}
 
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
@@ -12455,6 +13265,7 @@ static bool staticBatchEligible(const SceneObject& o,
     if (o.pickable) return false;     // carried/thrown - moves at runtime
     if (o.saveState) return false;    // a loaded save repositions it
     if (o.reflected) return false;    // re-submitted into the env map pass
+    if (!o.textureFeed.empty()) return false;  // live feed rebinds textures
     if (o.drawDistance != 0.0f) return false;  // per-object distance cut-off
     if (!o.layer.empty()) return false;        // streamed in/out with a layer
     // Per-object logic: the graph can move self, attached scripts get a
@@ -12490,6 +13301,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float physBounce;   // restitution 0..1: 0 = thud, 1 = superball\n"
            "  float physFriction; // ground drag 0..1: 0 = ice, 1 = sticky\n"
            "  int physTumble;     // 1 = ground contact converts slide into roll\n"
+           "  float physSleep;    // seconds of near-rest before the body sleeps\n"
            "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
            "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
@@ -12592,7 +13404,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
                     << floatLit(o.physMass) << ", " << floatLit(o.physBounce)
                     << ", " << floatLit(o.physFriction) << ", "
-                    << (o.physTumble ? 1 : 0) << ", "
+                    << (o.physTumble ? 1 : 0) << ", " << floatLit(o.physSleep)
+                    << ", "
                     << modelIndexOf(p, o) << ", " << materialIndexOf(p, o)
                     << ", "
                     // save points are always usable - USE is how they open
@@ -12723,6 +13536,204 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     });
     out << "\n";
 
+    // Raytraced-mirror model proxies: decimate a model submesh to a small
+    // triangle budget for the VU0 tracer. Source verts are objparser's flat
+    // tri list (8 floats: pos, normal, uv); output is 15 floats per tri
+    // (pos + uv per corner), MODEL LOCAL space. Small meshes pass through
+    // EXACTLY; big ones collapse by vertex clustering on a shrinking grid
+    // (corner UVs stay original, so texturing survives roughly right);
+    // pathological cases fall back to the N largest triangles.
+    auto rtDecimateProxy = [](const std::vector<float>& v, int maxTris,
+                              std::vector<float>& out) {
+        const int triCount = (int)(v.size() / 24);
+        if (triCount == 0 || maxTris <= 0) return;
+        auto emitCorner = [](std::vector<float>& dst, const float* q,
+                             const float* pos) {
+            dst.push_back(pos[0]), dst.push_back(pos[1]), dst.push_back(pos[2]);
+            dst.push_back(q[6]), dst.push_back(q[7]);
+        };
+        if (triCount <= maxTris) {
+            for (int i = 0; i < triCount * 3; ++i)
+                emitCorner(out, &v[i * 8], &v[i * 8]);
+            return;
+        }
+        float mn[3] = {v[0], v[1], v[2]}, mx[3] = {v[0], v[1], v[2]};
+        for (int i = 0; i < triCount * 3; ++i)
+            for (int a = 0; a < 3; ++a) {
+                mn[a] = std::min(mn[a], v[i * 8 + a]);
+                mx[a] = std::max(mx[a], v[i * 8 + a]);
+            }
+        for (int res = 12; res >= 1; --res) {
+            auto cellOf = [&](const float* q) {
+                int key = 0;
+                for (int a = 0; a < 3; ++a) {
+                    const float ext = mx[a] - mn[a];
+                    int idx = ext > 1e-6f
+                                  ? (int)((q[a] - mn[a]) / ext * res)
+                                  : 0;
+                    if (idx >= res) idx = res - 1;
+                    if (idx < 0) idx = 0;
+                    key = key * 16 + idx;  // res <= 12 < 16
+                }
+                return key;
+            };
+            std::map<int, std::array<double, 4>> cells;  // xyz sum + count
+            for (int i = 0; i < triCount * 3; ++i) {
+                auto& e = cells[cellOf(&v[i * 8])];
+                e[0] += v[i * 8], e[1] += v[i * 8 + 1], e[2] += v[i * 8 + 2];
+                e[3] += 1.0;
+            }
+            std::set<std::array<int, 3>> seen;
+            std::vector<float> cand;
+            bool over = false;
+            for (int i = 0; i < triCount; ++i) {
+                const float* c3[3] = {&v[i * 24], &v[i * 24 + 8],
+                                      &v[i * 24 + 16]};
+                std::array<int, 3> key = {cellOf(c3[0]), cellOf(c3[1]),
+                                          cellOf(c3[2])};
+                if (key[0] == key[1] || key[1] == key[2] || key[0] == key[2])
+                    continue;  // collapsed to a line/point
+                std::array<int, 3> sorted = key;
+                std::sort(sorted.begin(), sorted.end());
+                if (!seen.insert(sorted).second) continue;  // duplicate
+                if ((int)(cand.size() / 15) >= maxTris) { over = true; break; }
+                for (int k = 0; k < 3; ++k) {
+                    const auto& e = cells[key[k]];
+                    const float pos[3] = {(float)(e[0] / e[3]),
+                                          (float)(e[1] / e[3]),
+                                          (float)(e[2] / e[3])};
+                    emitCorner(cand, c3[k], pos);
+                }
+            }
+            if (!over && !cand.empty()) {
+                out = cand;
+                return;
+            }
+        }
+        // last resort: the maxTris largest triangles, exact geometry
+        std::vector<std::pair<float, int>> byArea(triCount);
+        for (int i = 0; i < triCount; ++i) {
+            const float* a = &v[i * 24];
+            const float* b = &v[i * 24 + 8];
+            const float* c = &v[i * 24 + 16];
+            const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+            const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            const float cxp[3] = {e1[1] * e2[2] - e1[2] * e2[1],
+                                  e1[2] * e2[0] - e1[0] * e2[2],
+                                  e1[0] * e2[1] - e1[1] * e2[0]};
+            byArea[i] = {-(cxp[0] * cxp[0] + cxp[1] * cxp[1] +
+                           cxp[2] * cxp[2]),
+                         i};
+        }
+        std::sort(byArea.begin(), byArea.end());
+        for (int k = 0; k < maxTris; ++k) {
+            const int i = byArea[k].second;
+            for (int c = 0; c < 3; ++c)
+                emitCorner(out, &v[i * 24 + c * 8], &v[i * 24 + c * 8]);
+        }
+    };
+
+    // Raytraced-mirror ANIMATED model proxies: a fixed set of VERTEX
+    // indices forming a CONNECTED coarse mesh over the rest pose. No
+    // geometry is baked - the game reads the live skinned vertices at
+    // these indices every frame, so the reflection plays the clip.
+    // Selection is medoid clustering: vertices cluster on a shrinking
+    // grid (like the static decimator), but each cluster is represented
+    // by its MEDOID - the real source vertex nearest the cluster centroid
+    // - so the collapsed triangles share corners and read as one rough
+    // body instead of disconnected confetti (an early triangle-sampling
+    // pass produced exactly that). Output: 3 vertex indices per triangle.
+    auto rtPickAnimMesh = [](const glbparser::Part& part, int maxTris,
+                             std::vector<int>& out) {
+        const int triCount = part.vertexCount / 3;
+        if (triCount <= 0 || maxTris <= 0) return;
+        const float* pos = part.positions.data();  // frame 0 leads
+        if (triCount <= maxTris) {
+            for (int i = 0; i < triCount * 3; ++i) out.push_back(i);
+            return;
+        }
+        const int vc = part.vertexCount;
+        float mn[3] = {pos[0], pos[1], pos[2]}, mx[3] = {pos[0], pos[1], pos[2]};
+        for (int i = 0; i < vc; ++i)
+            for (int k = 0; k < 3; ++k) {
+                mn[k] = std::min(mn[k], pos[i * 3 + k]);
+                mx[k] = std::max(mx[k], pos[i * 3 + k]);
+            }
+        for (int res = 10; res >= 1; --res) {
+            auto cellOf = [&](int vi2) {
+                int key = 0;
+                for (int k = 0; k < 3; ++k) {
+                    const float ext = mx[k] - mn[k];
+                    int idx = ext > 1e-6f
+                                  ? (int)((pos[vi2 * 3 + k] - mn[k]) / ext * res)
+                                  : 0;
+                    if (idx >= res) idx = res - 1;
+                    if (idx < 0) idx = 0;
+                    key = key * 16 + idx;  // res <= 10 < 16
+                }
+                return key;
+            };
+            // centroids, then the medoid (nearest real vertex) per cell
+            std::map<int, std::array<double, 4>> cells;
+            for (int i = 0; i < vc; ++i) {
+                auto& e = cells[cellOf(i)];
+                e[0] += pos[i * 3], e[1] += pos[i * 3 + 1];
+                e[2] += pos[i * 3 + 2], e[3] += 1.0;
+            }
+            std::map<int, std::pair<float, int>> medoid;  // cell -> d2, vert
+            for (int i = 0; i < vc; ++i) {
+                const int key = cellOf(i);
+                const auto& e = cells[key];
+                const float dx = pos[i * 3] - (float)(e[0] / e[3]);
+                const float dy = pos[i * 3 + 1] - (float)(e[1] / e[3]);
+                const float dz = pos[i * 3 + 2] - (float)(e[2] / e[3]);
+                const float d2 = dx * dx + dy * dy + dz * dz;
+                auto it = medoid.find(key);
+                if (it == medoid.end() || d2 < it->second.first)
+                    medoid[key] = {d2, i};
+            }
+            std::set<std::array<int, 3>> seen;
+            std::vector<int> cand;
+            bool over = false;
+            for (int i = 0; i < triCount; ++i) {
+                const int ca = cellOf(i * 3), cb = cellOf(i * 3 + 1),
+                          cc = cellOf(i * 3 + 2);
+                if (ca == cb || cb == cc || ca == cc) continue;
+                std::array<int, 3> key = {ca, cb, cc};
+                std::sort(key.begin(), key.end());
+                if (!seen.insert(key).second) continue;
+                if ((int)(cand.size() / 3) >= maxTris) {
+                    over = true;
+                    break;
+                }
+                cand.push_back(medoid[ca].second);
+                cand.push_back(medoid[cb].second);
+                cand.push_back(medoid[cc].second);
+            }
+            if (!over && !cand.empty()) {
+                out = cand;
+                return;
+            }
+        }
+        // last resort: the maxTris largest triangles, own corners
+        std::vector<std::pair<float, int>> byArea(triCount);
+        for (int i = 0; i < triCount; ++i) {
+            const float* a = &pos[i * 9];
+            const float* b = &pos[i * 9 + 3];
+            const float* c = &pos[i * 9 + 6];
+            const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+            const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            const float cx[3] = {e1[1] * e2[2] - e1[2] * e2[1],
+                                 e1[2] * e2[0] - e1[0] * e2[2],
+                                 e1[0] * e2[1] - e1[1] * e2[0]};
+            byArea[i] = {-(cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]), i};
+        }
+        std::sort(byArea.begin(), byArea.end());
+        for (int k = 0; k < maxTris; ++k)
+            for (int c = 0; c < 3; ++c)
+                out.push_back(byArea[k].second * 3 + c);
+    };
+
     // Mirror objects (type 15): a flat side-table keyed by (scene, object)
     // like OBJECT_SCRIPT_ATTACHES, so SceneObjectData stays a fixed POD.
     // Target names resolve to scene-table indices here; a dangling name (the
@@ -12746,7 +13757,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 infos << (mirrorCount ? ",\n    " : "    ") << "{" << si << ", "
                       << oi << ", " << floatLit(o.mirrorOpacity) << ", "
                       << (o.mirrorReflectPlayer ? 1 : 0) << ", " << first << ", "
-                      << (targetCount - first) << "},  // " << o.name;
+                      << (targetCount - first) << ", "
+                      << (o.mirrorRaytraced ? 1 : 0) << ", " << o.mirrorRtSize
+                      << "},  // " << o.name;
                 ++mirrorCount;
             }
         }
@@ -12760,15 +13773,263 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int reflectPlayer;  // 1 = also reflect the third-person avatar\n"
                "  int firstTarget;    // first entry in MIRROR_TARGETS\n"
                "  int targetCount;\n"
+               "  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)\n"
+               "  int rtSize;         // traced image edge, texels (32..512)\n"
                "};\n"
             << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
             << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)
             << "] = {\n"
-            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0}")
+            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0, 0, 64}")
             << "\n};\n"
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
             << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
+
+    // Raytraced-mirror model proxies: MODEL targets of raytraced mirrors
+    // trace as decimated triangle meshes on VU0 (docs/
+    // raytraced-reflections.md). Baked here in MODEL LOCAL space (the game
+    // re-transforms by the live object transform every frame, so moving
+    // models reflect correctly); 36 triangles per mirror shared across at
+    // most 2 model targets; `part` names the submesh whose texture the EE
+    // samples on hit. Static .obj models only - animated models keep their
+    // sphere proxy.
+    {
+        std::ostringstream entries, floats, aEntries, aIdx;
+        int proxyCount = 0, floatCount = 0, aProxyCount = 0, aIdxCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Mirror || !o.mirrorRaytraced)
+                    continue;
+                std::vector<size_t> modelTargets;  // static + animated, <= 2
+                for (const std::string& name : o.mirrorObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti)
+                        if (ti != oi && objs[ti].name == name &&
+                            objs[ti].type == PrimitiveType::Model &&
+                            modelTargets.size() < 2) {
+                            modelTargets.push_back(ti);
+                            break;
+                        }
+                if (modelTargets.empty()) continue;
+                // Vu0Raytracer::MaxTriangles across the mirror's proxies
+                const int budget = 36 / (int)modelTargets.size();
+                for (size_t k = 0; k < modelTargets.size(); ++k) {
+                    const SceneObject& t = objs[modelTargets[k]];
+                    if (t.modelPath.empty()) continue;
+                    if (isAnimatedModelPath(t.modelPath)) {
+                        // Animated: fixed triangle INDICES only - the game
+                        // reads the live skinned vertices each frame.
+                        glbparser::Baked baked;
+                        std::string err;
+                        if (!animimport::bake(p.dir + "\\" + t.modelPath,
+                                              24.0f, baked, err))
+                            continue;
+                        int part = -1;
+                        for (size_t s2 = 0; s2 < baked.parts.size(); ++s2)
+                            if (baked.parts[s2].image >= 0 &&
+                                baked.parts[s2].vertexCount > 0) {
+                                part = (int)s2;
+                                break;
+                            }
+                        if (part < 0)
+                            for (size_t s2 = 0; s2 < baked.parts.size(); ++s2)
+                                if (baked.parts[s2].vertexCount > 0 &&
+                                    (part < 0 ||
+                                     baked.parts[s2].vertexCount >
+                                         baked.parts[part].vertexCount))
+                                    part = (int)s2;
+                        if (part < 0) continue;
+                        std::vector<int> ids;  // 3 vertex indices per tri
+                        rtPickAnimMesh(baked.parts[part], budget, ids);
+                        if (ids.empty()) continue;
+                        aEntries << (aProxyCount ? ",\n    " : "    ") << "{"
+                                 << si << ", " << oi << ", "
+                                 << modelTargets[k] << ", " << part << ", "
+                                 << aIdxCount << ", " << (int)(ids.size() / 3)
+                                 << "},  // " << t.name;
+                        for (size_t f = 0; f < ids.size(); ++f) {
+                            aIdx << (aIdxCount ? ", " : "  ") << ids[f];
+                            if (++aIdxCount % 16 == 0) aIdx << "\n  ";
+                        }
+                        ++aProxyCount;
+                        continue;
+                    }
+                    objparser::Model m;
+                    if (!objparser::load(p.dir + "\\" + t.modelPath, m))
+                        continue;
+                    int part = -1;
+                    for (size_t s2 = 0; s2 < m.submeshes.size(); ++s2)
+                        if (!m.submeshes[s2].texture.empty() &&
+                            !m.submeshes[s2].verts.empty()) {
+                            part = (int)s2;
+                            break;
+                        }
+                    if (part < 0)
+                        for (size_t s2 = 0; s2 < m.submeshes.size(); ++s2)
+                            if (!m.submeshes[s2].verts.empty()) {
+                                part = (int)s2;
+                                break;
+                            }
+                    if (part < 0) continue;
+                    std::vector<float> tris;
+                    rtDecimateProxy(m.submeshes[part].verts, budget, tris);
+                    if (tris.empty()) continue;
+                    entries << (proxyCount ? ",\n    " : "    ") << "{" << si
+                            << ", " << oi << ", " << modelTargets[k] << ", "
+                            << part << ", " << floatCount << ", "
+                            << (int)(tris.size() / 15) << "},  // "
+                            << t.name;
+                    for (size_t f = 0; f < tris.size(); ++f) {
+                        floats << (floatCount ? ", " : "  ")
+                               << floatLit(tris[f]);
+                        if (++floatCount % 6 == 0) floats << "\n  ";
+                    }
+                    ++proxyCount;
+                }
+            }
+        }
+        out << "// Raytraced-mirror model proxies: decimated triangle lists\n"
+               "// in MODEL LOCAL space, 15 floats per triangle (pos + uv\n"
+               "// per corner). The game transforms them by the target's\n"
+               "// live transform each frame (renderRtMirror).\n"
+               "struct RtProxyData {\n"
+               "  int scene;       // scene index\n"
+               "  int mirror;      // the mirror's index in its scene table\n"
+               "  int target;      // the model object's index\n"
+               "  int part;        // model part whose texture shades hits\n"
+               "  int firstFloat;  // offset into RT_PROXY_VERTS\n"
+               "  int triCount;\n"
+               "};\n"
+            << "constexpr int RT_PROXY_COUNT = " << proxyCount << ";\n"
+            << "constexpr RtProxyData RT_PROXIES["
+            << (proxyCount ? proxyCount : 1) << "] = {\n"
+            << (proxyCount ? entries.str() : "    {0, -1, -1, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr float RT_PROXY_VERTS["
+            << (floatCount ? floatCount : 1) << "] = {\n"
+            << (floatCount ? floats.str() : "  0.0F") << "\n};\n"
+            << "// Animated-model proxies: fixed VERTEX indices (3 per\n"
+               "// triangle, a connected medoid-decimated coarse mesh) into\n"
+               "// the part's skinned buffers - the game reads the LIVE\n"
+               "// skinned vertices (and their resident STs) at these\n"
+               "// indices every frame, so the reflection plays the clip\n"
+               "// (renderRtMirror).\n"
+               "struct RtAnimProxyData {\n"
+               "  int scene;      // scene index\n"
+               "  int mirror;     // the mirror's index in its scene table\n"
+               "  int target;     // the animated model object's index\n"
+               "  int part;       // animParts index (texture + skinned mesh)\n"
+               "  int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)\n"
+               "  int triCount;\n"
+               "};\n"
+            << "constexpr int RT_ANIM_PROXY_COUNT = " << aProxyCount << ";\n"
+            << "constexpr RtAnimProxyData RT_ANIM_PROXIES["
+            << (aProxyCount ? aProxyCount : 1) << "] = {\n"
+            << (aProxyCount ? aEntries.str() : "    {0, -1, -1, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr int RT_ANIM_PROXY_TRIS["
+            << (aIdxCount ? aIdxCount : 1) << "] = {\n"
+            << (aIdxCount ? aIdx.str() : "  0") << "\n};\n\n";
+    }
+
+    // Live texture feeds (docs/texture-feeds.md): ONE feed camera per scene
+    // (the first enabled one - others warn and drop) renders sky (+terrain)
+    // + an explicit view list into the engine's camFeed target; OBJECT_FEEDS
+    // maps surfaces to that target (kind 0) or to a raytraced mirror's
+    // traced image (kind 1). All names resolve to indices here; dangling
+    // refs drop silently.
+    {
+        std::ostringstream feeds, views, objFeeds;
+        int feedCount = 0, viewCount = 0, objFeedCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            int feedCam = -1;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                if (objs[oi].type != PrimitiveType::Camera || !objs[oi].camFeed)
+                    continue;
+                if (feedCam >= 0) {
+                    fprintf(stderr,
+                            "warning: scene %d has multiple feed cameras; "
+                            "'%s' is inactive\n",
+                            si, objs[oi].name.c_str());
+                    continue;
+                }
+                feedCam = (int)oi;
+                const int first = viewCount;
+                for (const std::string& name : objs[oi].camFeedObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti) {
+                        if (ti == oi || objs[ti].name != name) continue;
+                        views << (viewCount ? ", " : "") << ti;
+                        ++viewCount;
+                        break;
+                    }
+                feeds << (feedCount ? ",\n    " : "    ") << "{" << si << ", "
+                      << oi << ", " << floatLit(objs[oi].cameraFov) << ", "
+                      << (objs[oi].camFeedTerrain ? 1 : 0) << ", " << first
+                      << ", " << (viewCount - first) << "},  // "
+                      << objs[oi].name;
+                ++feedCount;
+            }
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.textureFeed.empty()) continue;
+                int kind = -1, src = -1;
+                if (o.textureFeed.rfind("camera:", 0) == 0) {
+                    const std::string name = o.textureFeed.substr(7);
+                    if (feedCam >= 0 && objs[feedCam].name == name) {
+                        kind = 0;
+                        src = feedCam;
+                    }
+                } else if (o.textureFeed.rfind("mirror:", 0) == 0) {
+                    const std::string name = o.textureFeed.substr(7);
+                    for (size_t ti = 0; ti < objs.size(); ++ti)
+                        if (objs[ti].name == name &&
+                            objs[ti].type == PrimitiveType::Mirror &&
+                            objs[ti].mirrorRaytraced) {
+                            kind = 1;
+                            src = (int)ti;
+                            break;
+                        }
+                }
+                if (kind < 0) continue;
+                objFeeds << (objFeedCount ? ",\n    " : "    ") << "{" << si
+                         << ", " << oi << ", " << kind << ", " << src
+                         << "},  // " << o.name << " <- " << o.textureFeed;
+                ++objFeedCount;
+            }
+        }
+        out << "// Camera texture feeds: one active feed camera per scene.\n"
+               "struct CamFeedData {\n"
+               "  int scene;        // scene index\n"
+               "  int camera;       // the feed camera's scene-table index\n"
+               "  float fov;        // baked - the fov does not animate\n"
+               "  int showTerrain;  // 1 = sky + terrain under the view list\n"
+               "  int firstView;    // first entry in CAM_FEED_VIEWS\n"
+               "  int viewCount;\n"
+               "};\n"
+            << "constexpr int CAM_FEED_COUNT = " << feedCount << ";\n"
+            << "constexpr CamFeedData CAM_FEEDS["
+            << (feedCount ? feedCount : 1) << "] = {\n"
+            << (feedCount ? feeds.str() : "    {0, -1, 60.0F, 1, 0, 0}")
+            << "\n};\n"
+            << "constexpr int CAM_FEED_VIEWS[" << (viewCount ? viewCount : 1)
+            << "] = {" << (viewCount ? views.str() : "-1") << "};\n"
+            << "// Surfaces showing a live feed: kind 0 = the scene's camera\n"
+               "// feed, kind 1 = a raytraced mirror's traced image (src =\n"
+               "// the mirror's scene-table index).\n"
+               "struct ObjectFeedData {\n"
+               "  int scene;\n"
+               "  int object;\n"
+               "  int kind;\n"
+               "  int src;\n"
+               "};\n"
+            << "constexpr int OBJECT_FEED_COUNT = " << objFeedCount << ";\n"
+            << "constexpr ObjectFeedData OBJECT_FEEDS["
+            << (objFeedCount ? objFeedCount : 1) << "] = {\n"
+            << (objFeedCount ? objFeeds.str() : "    {0, -1, 0, -1}")
+            << "\n};\n\n";
     }
 
     // Portal objects (type 16): same flat side-table pattern as MIRRORS.
@@ -13486,6 +14747,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
+    s = replaceAll(s, "{{ENV_PROBE_REFLECTED}}",
+                   st.envProbeReflected ? "true" : "false");
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");

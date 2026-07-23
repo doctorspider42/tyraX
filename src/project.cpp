@@ -293,7 +293,8 @@ std::string objectJson(const SceneObject& o) {
         (o.physics ? ", \"physMass\": " + fmtFloat(o.physMass) +
                          ", \"physBounce\": " + fmtFloat(o.physBounce) +
                          ", \"physFriction\": " + fmtFloat(o.physFriction) +
-                         ", \"physTumble\": " + (o.physTumble ? "true" : "false")
+                         ", \"physTumble\": " + (o.physTumble ? "true" : "false") +
+                         ", \"physSleep\": " + fmtFloat(o.physSleep)
                    : "") +
         (o.usable ? ", \"usable\": true" : "") +
         (o.pickable ? ", \"pickable\": true" : "") +
@@ -381,12 +382,23 @@ std::string objectJson(const SceneObject& o) {
                 ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
-        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
+        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) +
+                ", \"feed\": " + (o.camFeed ? "true" : "false") +
+                ", \"feedTerrain\": " + (o.camFeedTerrain ? "true" : "false") +
+                ", \"feedObjects\": [";
+        for (size_t i = 0; i < o.camFeedObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + jsonEscape(o.camFeedObjects[i]) + "\"";
+        json += "] }";
     }
+    if (!o.textureFeed.empty())
+        json += ", \"textureFeed\": \"" + jsonEscape(o.textureFeed) + "\"";
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
                 ", \"reflectPlayer\": " +
-                (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
+                (o.mirrorReflectPlayer ? "true" : "false") +
+                ", \"raytraced\": " + (o.mirrorRaytraced ? "true" : "false") +
+                ", \"rtSize\": " + std::to_string(o.mirrorRtSize) +
+                ", \"objects\": [";
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + jsonEscape(o.mirrorObjects[i]) + "\"";
         json += "] }";
@@ -784,6 +796,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         << "    \"envProbeReflected\": "
+         << (p.settings.envProbeReflected ? "true" : "false") << ",\n"
          << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
@@ -1935,6 +1949,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (o.physFriction > 1.0f) o.physFriction = 1.0f;
         if (const auto* v = jo.find("physTumble"))
             o.physTumble = !(v->type == json::Value::Type::Bool && !v->boolean);
+        if (const auto* v = jo.find("physSleep"))
+            o.physSleep = (float)v->numberOr(3.0);
+        if (o.physSleep < 0.1f) o.physSleep = 0.1f;
+        if (o.physSleep > 60.0f) o.physSleep = 60.0f;
         if (const auto* v = jo.find("usable"))
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("pickable")) o.pickable = v->boolOr(false);
@@ -2062,7 +2080,17 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
             if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
             if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+            if (const auto* v = cm->find("feed")) o.camFeed = v->boolOr(false);
+            if (const auto* v = cm->find("feedTerrain"))
+                o.camFeedTerrain = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = cm->find("feedObjects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.camFeedObjects.push_back(s.str);
+            }
         }
+        if (const auto* v = jo.find("textureFeed")) o.textureFeed = v->stringOr("");
         if (const auto* mr = jo.find("mirror")) {
             if (const auto* v = mr->find("opacity")) {
                 o.mirrorOpacity = (float)v->numberOr(0.35);
@@ -2071,6 +2099,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             }
             if (const auto* v = mr->find("reflectPlayer"))
                 o.mirrorReflectPlayer = v->boolOr(false);
+            if (const auto* v = mr->find("raytraced"))
+                o.mirrorRaytraced = v->boolOr(false);
+            if (const auto* v = mr->find("rtSize")) {
+                const int s = (int)v->numberOr(64);
+                o.mirrorRtSize =
+                    (s == 32 || s == 128 || s == 256 || s == 512) ? s : 64;
+            }
             if (const auto* v = mr->find("objects");
                 v && v->type == json::Value::Type::Array) {
                 for (const auto& s : v->arr)
@@ -2231,6 +2266,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("envProbeReflected"))
+            st.envProbeReflected = v->boolOr(false);
         if (const auto* v = s->find("navCellSize")) {
             st.navCellSize = (float)v->numberOr(1.0);
             if (st.navCellSize < 0.25f) st.navCellSize = 0.25f;
@@ -3398,6 +3435,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMixF(h, o.physMass), fnvMixF(h, o.physBounce);
         fnvMixF(h, o.physFriction);
         fnvMix(h, o.physTumble ? 1 : 0);
+        fnvMixF(h, o.physSleep);
     }
     fnvMixS(h, o.modelPath);
     fnvMixS(h, o.materialPath);
@@ -3428,6 +3466,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0));
     fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
     fnvMixF(h, o.cameraFov);
+    // Texture feeds bake into side tables (CAM_FEEDS / OBJECT_FEEDS).
+    fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
+    for (const auto& n : o.camFeedObjects) fnvMixS(h, n);
+    fnvMixS(h, o.textureFeed);
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
@@ -3435,7 +3477,8 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.modelYawOffset);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
-    fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
+    fnvMix(h, (o.mirrorReflectPlayer ? 1 : 0) | (o.mirrorRaytraced ? 2 : 0));
+    fnvMix(h, (uint64_t)o.mirrorRtSize);
     fnvMixF(h, o.mirrorOpacity);
     // Portal parameters live in a baked side table (PORTALS/PORTAL_VIEW_OBJECTS).
     fnvMixS(h, o.portalTarget);

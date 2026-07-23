@@ -183,6 +183,7 @@ struct SceneObject {
     float physBounce = 0.35f;   // restitution 0..1: 0 = thud, 1 = superball
     float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
     bool physTumble = true;     // ground contact converts slide into roll/spin
+    float physSleep = 3.0f;     // seconds of near-rest before the body sleeps
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool pickable = false;    // BTN_USE picks it up: carried in front of the
                               // camera (swept against the world so it cannot
@@ -314,6 +315,18 @@ struct SceneObject {
     // view in degrees. A Cutscene Director shot bound to this camera applies
     // it to the real PS2 projection for the duration of the shot.
     float cameraFov = 60.0f;
+    // Camera texture feed (CCTV): the camera renders its view - sky (+
+    // terrain) + an explicit object list, the Mirror philosophy - into the
+    // engine's 128x128 camFeed VRAM target every frame; objects with
+    // textureFeed == "camera:<name>" show it live. ONE active feed camera
+    // per scene (the first enabled one). See docs/texture-feeds.md.
+    bool camFeed = false;
+    bool camFeedTerrain = true;
+    std::vector<std::string> camFeedObjects;
+    // Live texture feed shown on THIS object's surface (any renderable
+    // primitive): "" = none, "camera:<name>" = a feed camera's view,
+    // "mirror:<name>" = a raytraced mirror's traced image. Renames remap.
+    std::string textureFeed;
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -324,9 +337,17 @@ struct SceneObject {
     // FPP players have no body to reflect). The shared `color` field tints
     // the glass quad; mirrorOpacity is its alpha (0 = invisible glass,
     // 1 = opaque - the reflection shows through low values).
+    // mirrorRaytraced (experimental PoC): instead of re-submitting reflected
+    // geometry, the game ray-traces the targets as SPHERE PROXIES on a VU0
+    // microprogram into a small texture mapped onto the glass - true
+    // per-pixel raytracing on PS2 hardware. See docs/raytraced-reflections.md.
     std::vector<std::string> mirrorObjects;
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
+    bool mirrorRaytraced = false;
+    // Traced image edge: 32/64/128/256/512. Cost scales with the square
+    // (VU0 traces every texel) - 256/512 are photo modes, not frame rates.
+    int mirrorRtSize = 64;
 
     // Portal parameters (used when type == Portal). portalTarget names the
     // destination Portal in the same scene (renames remap; empty or dangling =
@@ -401,7 +422,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.physMass == b.physMass &&
            a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
-           a.physTumble == b.physTumble && a.usable == b.usable &&
+           a.physTumble == b.physTumble && a.physSleep == b.physSleep &&
+           a.usable == b.usable &&
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
@@ -443,9 +465,14 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.cameraFov == b.cameraFov &&
+           a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
+           a.camFeedObjects == b.camFeedObjects &&
+           a.textureFeed == b.textureFeed &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.mirrorRaytraced == b.mirrorRaytraced &&
+           a.mirrorRtSize == b.mirrorRtSize &&
            a.portalTarget == b.portalTarget &&
            a.portalObjects == b.portalObjects &&
            a.portalShowTerrain == b.portalShowTerrain &&
@@ -549,6 +576,17 @@ struct ProjectSettings {
     // actions) trigger a batch rebuild. Off = every object submits its own
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
+
+    // Dynamic reflection probe aim (docs/reflective-materials.md). false =
+    // the classic GT3 aim: the env camera looks level along the player
+    // forward from the eye. true = "reflected ray": each frame a ray from
+    // the camera is intersected with the dynamic-reflective objects
+    // (analytic normals - OBB faces for boxes, spheres for curved shapes,
+    // bounding spheres for models) and the probe renders from the hit
+    // point along the REFLECTED ray (smoothed), so the map shows what the
+    // surface the player looks at actually reflects. Off by default -
+    // existing projects keep their look.
+    bool envProbeReflected = false;
 
     // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
     // host at build time (navmesh.cpp) from the terrain slope + blocking
@@ -699,6 +737,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
            a.staticBatching == b.staticBatching &&
+           a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&

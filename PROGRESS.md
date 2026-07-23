@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (151) **Textured AO quality mode (experimental)** - the follow-up to (150)
+- (160) **Textured AO quality mode (experimental)** - the follow-up to (159)
   after the owner's PCSX2 check: per-vertex AO on the sparse terrain grid and
   on 2-triangle primitive faces shows its Gouraud diamonds. New **AO quality**
   switch on the ambience preset (`aoTextured`): the same occlusion bakes into
@@ -38,9 +38,9 @@ Each finished feature lands as its own commit.
   triangle edges) at 50 FPS; flipping the combo back reproduces the vertex
   look exactly. Editor viewport previews per fragment in both modes (its
   usual look ≈ textured); GUI screenshot still blocked by the machine's
-  white-window quirk - see (150).
+  white-window quirk - see (159).
 
-- (150) **Baked ambient occlusion** (docs/ambient-occlusion.md). Soft contact
+- (159) **Baked ambient occlusion** (docs/ambient-occlusion.md). Soft contact
   shadows folded into the same per-vertex colors the directional light bakes
   into - zero PS2 per-frame cost. Three bakes: **terrain self-occlusion**
   (host, `aobake::terrainAO` 8-direction horizon scan → `TERRAIN_AO_TABLES`
@@ -79,6 +79,389 @@ Each finished feature lands as its own commit.
   present/compositing quirk, PCSX2's D3D window captures fine) - the shader
   compiles clean (no stderr) but a human should eyeball the live preview
   against the PS2 output.
+
+- (158) **Reflection examples split into three focused levels.** The
+  combined examples/raytraced-mirror had grown to carry the VU0 raytracer
+  AND the texture feeds; per owner it is now three single-topic showcases:
+  **raytraced-mirror** keeps only the RT mirror (glass wall + balls +
+  textured crate + animated wobbler + floor/pillars); **texture-feeds** is
+  new (CCTV camera feed on one monitor, a raytraced mirror streamed onto
+  another - both live in one frame, and the camera feed's terrain vs the
+  mirror stream's terrain-less sky make the two systems visibly distinct);
+  **probe-aim** (157) is the third, unchanged. Verified in PCSX2 (SW
+  renderer): all three boot clean and show their effect. Authoring note
+  worth keeping: in the generated game's view, +X world maps to SCREEN
+  LEFT - a monitor at -X shows on the right; two rounds of "which monitor
+  is which" confusion traced to that, not to any feed bug. Example
+  generated files were regenerated in this same change.
+
+- (157) **Reflection probe aim: reflected ray (Preferences > Rendering,
+  docs/reflective-materials.md).** The @sky dynamic env map's camera can
+  now aim along the REFLECTED central ray instead of the classic GT3
+  level-forward: each refresh, a camera ray is intersected with the
+  dynamic-reflective objects themselves (detected by their bound env
+  target - no new flags), with analytic normals: OBB face tests in the
+  object's own frame for boxes/save points/planes (live rotation
+  honored), spheres for curved shapes, bounding spheres for models. The
+  probe then renders from the hit point along the reflected direction, so
+  the map shows what the surface actually mirrors. The design went
+  through THREE cuts, each driven by the owner feeling the previous one:
+  (1) crosshair-anchored shared probe with constant alpha-0.25 smoothing
+  - reflections trailed the camera by ~20 frames (alpha per
+  every-2nd-frame refresh compounds); (2) adaptive smoothing (same hit
+  object = instant tracking, cross-fade only on switches) - fixed the
+  trailing but the aim still decayed to classic whenever the object left
+  the screen center ("ucieka jak sie mocno na boki patrzy"); (3) FINAL,
+  owner's own idea: PER-OBJECT probes anchored to the eye->center ray -
+  renderObjectProbe re-renders the shared 128x128 target right before
+  EACH reflective object draws (interleaving works on one VRAM target
+  because the env bracket's begin() drains PATH1, so the previous
+  object's draws sample THEIR map before it is overwritten). The
+  eye->center pose depends only on positions, never on view rotation -
+  reflections stay put when looking around, the pose is continuous per
+  object, NO smoothing exists at all, and side-by-side reflective objects
+  show genuinely different simultaneously-correct reflections (verified:
+  the example's ball and monolith mirror different prop subsets in one
+  frame - the monolith honestly showed pure sky until its rotation was
+  aimed so its reflected cone actually contains the props). Cost scales
+  with reflective object count (one full probe render per object per
+  frame - "10 objects = your own funeral", per the owner); probes skip
+  inside split halves (raster bracket rule). The proximity self-skip keys
+  on the probe eye so the mirror-er never swamps its own map. One more
+  owner-caught bug closed the loop: reflections came out HORIZONTALLY
+  MIRRORED because the VU1 matcap sampled every map with the MAIN
+  camera's right/up - a probe looking back at the player has its left on
+  the player's right, so each probe now stores ITS camera basis on the
+  object geometry and the env pass samples with it (renderEnvPass takes
+  the owning ObjectGeometry; classic mode untouched - its probe shares
+  the player's heading, so the flip never showed there). Chain: ProjectSettings::envProbeReflected (JSON, ==,
+  Preferences > Rendering checkbox, {{ENV_PROBE_REFLECTED}} constant in
+  both game hpp templates), all-runtime aim block in the env pass. OFF by
+  default - existing projects keep their look. Verified in PCSX2 (SW
+  renderer) A/B on examples/reflections (temporary local flip, example
+  NOT committed - its generated files would drift wholesale): same
+  viewpoint, classic shows the red cube as a small washed smudge in the
+  chrome, reflected aim shows it as a large round ball placed differently
+  per sphere - the probe now renders from the surface's vantage. Ships
+  with a dedicated sample, **examples/probe-aim**: a chrome "crystal
+  ball" whose equator sits at eye height (a level view ray reflects
+  straight back) mirroring a red crate / yellow ball / blue pillar
+  standing BEHIND the spawn - two authoring lessons baked into its
+  layout: props must stand in the reflected half-space (first draft put
+  them in front and the chrome showed pure sky), and a tall ball makes a
+  level ray hit below the equator and reflect into the ground (the env
+  map has no terrain, so that reads as empty horizon). In-game
+  motion (smoothing feel, crosshair slides) remains a hands-on pad test.
+
+- (156) **Live texture feeds: camera-to-texture (CCTV) + raytraced-mirror
+  streams (docs/texture-feeds.md).** Any surface can show a live feed via
+  *Properties > Texture feed*: a Camera entity with "Render to texture"
+  renders its view - sky (+resident terrain) + an explicit object list,
+  the Mirror philosophy - into a NEW second instance of the env-map
+  redirect bracket (`RendererCore::camFeed`, 128x128 + own z, ~128 KB of
+  VRAM permanently below every texture, Clamp wrap) every frame from the
+  camera's LIVE transform (+Z lens, Cutscene Director convention) at its
+  baked FOV; or a raytraced Mirror's traced image re-streams onto any
+  other object. Feeds draw EMISSIVE (colors flatten to the object tint at
+  texture scale) through plain surface UVs. One feed camera per scene
+  (first enabled wins, extras warn at codegen); feed surfaces are
+  excluded from static batching; renames remap "camera:<n>"/"mirror:<n>"
+  refs and camera view lists. Chain: SceneObject::camFeed/camFeedTerrain/
+  camFeedObjects + textureFeed (+==, JSON, recipe hashes, properties UI on
+  the Camera + a Texture feed combo in the shared material picker),
+  CAM_FEEDS/CAM_FEED_VIEWS/OBJECT_FEEDS side tables, renderCameraFeed()
+  before all main-frame 3D + the binding in rebuildObjectGeometry.
+  Two raster lessons paid for: the target samples UPSIDE DOWN through
+  plain UVs (GS rows run top-down vs texture V down from row 0 - the env
+  map/portals never showed it; the binding V-flips the surface sts), and
+  Repeat wrap bleeds opposite-edge rows into the border (feed texture is
+  Clamp). Verified in PCSX2 (SW renderer) on examples/raytraced-mirror:
+  the billboard above the mirror shows the CCTV camera's aerial view
+  (textured crate, balls, wobbler, terrain horizon - right side up, clean
+  edges) while the floating monitor streams the VU0-traced mirror image,
+  BOTH live in one frame together with the raytraced mirror itself; boot
+  clean. Walk-around (the feed showing the player moving) remains a
+  hands-on pad test.
+
+- (155) **Raytraced mirror reflections on a VU0 microprogram (experimental
+  PoC).** A Mirror object gained *Properties > Mirror > Raytraced (VU0,
+  experimental)*: instead of re-submitting reflected geometry, the game
+  ray-traces the reflection per pixel, per frame, on VU0 — the first (and
+  only) VU0 MICROMODE program in the codebase. Traced scene = sphere
+  proxies of the target list (+ player) against the sky gradient; per-user
+  feedback the generated game draws NO synthetic ground (the kernel's
+  optional checker plane exists but stays off — authors place real floor
+  geometry), and the traced image edge is a per-mirror **Reflection
+  resolution** option, 32/64/128/256/512 (`mirrorRtSize`/
+  `MirrorData::rtSize` through the whole chain; rows wider than one VU0
+  batch trace in 64-texel chunks — `Vu0Raytracer::trace`; cost scales with
+  edge^2, so 128 is ~4x the default and still a frame rate while 256/512
+  are labeled photo modes in the UI — 512 also costs 1 MB of the ~1.33 MB
+  GS texture budget). Ships with a playable sample level,
+  **examples/raytraced-mirror** (glass wall at 128, four balls +
+  reflectPlayer, thin-box floor + pillars deliberately NOT in the mirror
+  list). Engine: `Tyra::Vu0Raytracer`
+  (`vendor/tyra/engine/{inc,src}/renderer/rt/`, exported by `<tyra>`) +
+  `vu0_rt_kernel.vclpp`, built through the same vclpp/vcl/dvp-as pipeline as
+  the VU1 programs but uploaded by the EE to VU0 micro memory (0x11000000)
+  and kicked per image row with `vcallms 0`, params/results through VU0 data
+  memory (0x11004000), sync by polling VPU STAT. The traced scene is a
+  stylized proxy: curved targets as spheres, FLAT targets (boxes, save
+  points, planes, decals) as axis-aligned slab proxies (`Vu0RtBox`, ray-vs-
+  AABB per-axis fold, face normal from entry-axis masks — added when a
+  user-listed floor never showed: a flat object as a bounding sphere
+  engulfs the glass, ray origins start inside and the entry distance dies
+  on the eps mask; rotation is ignored on both), and — per user request,
+  "jazda na całego" — static .obj model targets as REAL TRIANGLE MESHES
+  WITH TEXTURES (`Vu0RtTriangle`, up to 2 groups / 36 tris per mirror):
+  codegen decimates the model's textured submesh by vertex clustering
+  (under-budget meshes pass through exactly), bakes it model-local
+  (`RT_PROXIES`/`RT_PROXY_VERTS` in scene_data.hpp), and the game
+  re-transforms by the live object transform each frame — triangle proxies
+  DO honor rotation. The kernel runs a dual-basis Moller-Trumbore (no
+  cross products, rational nearest-hit compares by cross-multiplication,
+  one division for the winner) behind per-model bounding-sphere early-outs
+  (exit-distance test — the inside-origin lesson again), and returns
+  (record, barycentric u/v, shade); the EE samples the model part's
+  texture in RAM while packing (nearest; 32/24bpp linear, 8bpp with the
+  CSM1 CLUT rotation undone, 4bpp nibble-swapped — every PNG-loader
+  format) and modulates by the shade. UVs never enter VU0. ANIMATED
+  models (.glb/.fbx) reflect LIVE: codegen picks a connected coarse mesh
+  of VERTEX indices from the rest pose (medoid clustering - each grid
+  cell represented by the real vertex nearest its centroid, after a
+  first triangle-sampling attempt rendered as disconnected confetti) and
+  the game reads the live skinned vertices at those indices each frame
+  (the same buffers the model renders from; renderMirrors runs after
+  skinning) lifted by animMat - the reflection plays the clip; untextured
+  parts fall back to the material base color. All proxies
+  carry live position + tint + single-bounce lambert, sky-gradient
+  misses — traced into an rtSize^2
+  RGBA32 texture the glass quad samples, re-uploaded over PATH3 into its
+  existing GS allocation each frame (`updateTextureInfo`; re-allocates
+  automatically after an eviction flush). Two key tricks: the EE mirrors the
+  CAMERA across the glass plane once (Householder on the point), so every
+  texel's reflected ray is just normalize(P - eyeMirrored) — zero per-texel
+  reflection math; and nearest-hit selection is fully BRANCHLESS — VU floats
+  saturate instead of producing inf/nan, so clamp(x*1e38, 0, 1) is an exact
+  step(0, x) and masks fold the winner (the only branches are the two loop
+  back-edges). Editor chain: `SceneObject::mirrorRaytraced` + `mirrorRtSize`
+  (+==, JSON `"mirror": {"raytraced", "rtSize"}`, Mirror properties checkbox
+  + resolution combo, live-link recipe hash), `MirrorData::raytraced`/
+  `rtSize` columns, game runtime `buildRtMirrors` / `renderRtMirror`
+  (textures created at scene load, GS-freed + deleted on scene switch). Docs: docs/raytraced-reflections.md + README bullet +
+  engine-skill notes (incl. two new VCL traps paid for here: `r`/`q`/`i`/`p`
+  are reserved register names, and broadcast fields are only legal on the
+  second source operand). Verified: full Docker build clean (kernel = 1152
+  bytes = 144 instructions, comfortably inside VU0's 4KB;
+  `Vu0RtKernel_CodeStart/End` symbols confirmed with nm); e2e in PCSX2 on
+  the SOFTWARE renderer with a scratch FPP scene (8x4 wall mirror,
+  raytraced + reflectPlayer, three colored spheres): boot log prints "VU0
+  ray tracing kernel uploaded (1152 bytes)", no asserts, and F8 screenshots
+  show the traced image on the glass - round correctly-lit sphere
+  reflections on the physically correct sides, the player proxy, sky fade
+  (the checker plane was verified too, before the no-ground follow-up
+  removed it from the generated game). A/B on the same scene: classic
+  mirror EE 38% / VU 4% / GS 9% vs raytraced EE 36-37% / VU 2% / GS 7%,
+  BOTH locked at 50 FPS - the RT mirror trades the copy re-submission for
+  VU0 trace time and comes out cost-neutral in this small scene; the same
+  scene renders correctly at rtSize 128 AND 512 (chunked rows, no seam at
+  any 64-texel chunk boundary; 512's frame rate was not measured - the
+  ~64x cost figure is analytic, the image is verifiably right). The
+  example level boots clean and its F8 screenshot shows all four balls +
+  the player proxy reflecting on the correct sides, the listed floor
+  slab reflecting as a floor under them (an earlier floor made of the
+  Plane primitive z-fought its own two coplanar faces at this scale -
+  patchy dark wedges; the thin box has no coplanar pair and rendered
+  clean), the textured crate model (12 tris, exact pass-through)
+  reflecting as a real wood-and-rivets crate at its live 25-degree yaw,
+  and the animated wobbler's coarse green mesh visibly CHANGING POSE
+  between two F8 screenshots taken 4 s apart while correctly occluding
+  the ball reflection behind it - the glass plays the Twist clip.
+  The triangle kernel cost THREE VCL failures, all recorded in the engine
+  skill: "ERROR: no opt table .. for <loop>" is the REGISTER ALLOCATOR
+  running out (31 VF ceiling), not syntax - fixed by reloading
+  fixed-address params at use sites and lane-packing the fold state
+  (the group-loop unroll and the cross-product-free dual-basis rewrite
+  made along the way were kept: simpler CFG, 4-qword records). Kernel is
+  now 3872 of 4096 bytes - at ~95% of VU0 micro memory, the next feature
+  needs a diet first. Walk-around
+  feel (reflection tracking the camera) remains a hands-on pad test. Third
+  kernel iteration fixed a subtle one: mix-with-sentinel-BIG selection
+  cancels catastrophically in single floats (t - 1e10 + 1e10 == 0), which
+  cut every reflection off at the checker horizon - the nearest-hit state
+  is comparison-mask-folded instead (see the kernel header note).
+- (154) **Per-object sleep delay: "Sleep after (s)" on the Physics block
+  (default 3 s, was a hard ~0.5 s).** User ask: relax the sleep timing and
+  give it a per-object override. New `SceneObject::physSleep` runs the whole
+  chain - project.hpp field + operator== -> objectJson/parse (emitted only
+  while `physics` is on, like the rest of the material block; clamped
+  0.1-60 s on load) -> Live Link recipe hash (baked table data, a stale
+  value must not force a rebuild on non-physics objects - it sits in the
+  same `if (o.physics)` group) -> Properties drag (Physics section, with a
+  hint line) -> `SceneObjectData::physSleep` column in scene_data.hpp ->
+  runtime. The game-side counter changed shape: the fixed
+  `PHYS_SLEEP_FRAMES = 24` constant is gone; the countdown length is
+  `everyFrames(physSleep)` (wall-clock true under disableVsync, same as
+  every other timer since (114)), `restFrames` widened signed char -> short
+  (3 s at 50 fps = 150 > 127), and on completion the counter pins to a
+  `PHYS_ASLEEP = 0x7FFF` sentinel - the asleep test (`physAsleep(o)`, new
+  helper used by pass 1/pass 2/portal-latch/carry sites) never re-derives
+  the threshold, so a measured-dt wobble can't flap a sleeping body awake.
+  "Write restFrames = 0 to wake" stays the contract for scripts/nodes.
+  Verified (probe repro, PCSX2): three bodies with physSleep 5 / 3 (the
+  default, materialized by --resave round-trip) / 0.5 settle from the same
+  throw and pin to 32767 at rest counts 250 / 150 / 25 frames - exactly
+  5 s / 3 s / 0.5 s at PAL 50; scene_data.hpp carries the column; editor +
+  Docker PS2 builds clean.
+
+- (153) **Settle-flatten v2 (finish the fall) + mesh collision holds for
+  tumbled/rotated models (world-space steepness, side-aware push).** Two
+  follow-ups. (a) The (152) flatten waited for the tumble to die to the
+  rest gate (spin < 0.75 deg/frame) and re-picked "nearest 90deg step"
+  every frame - a crate still tipping forward could get yanked BACK to the
+  face it was leaving, and the tumble's rolling-without-slipping kept
+  re-deriving spin from the residual slide under the ease (overshoot-and-
+  return, 270.49 -> 270.00). Now the flatten engages while the tumble is
+  still dying (PHYS_FLATTEN_SPIN = 2.5 deg/frame, speed gate 4x rest),
+  picks each target ONCE with a ~20-frame momentum lookahead
+  (roundf((rot + spin*20)/90)) latched in RuntimeObject::flatTgt (reset
+  whenever the gate fails), zeroes the residual spin (the ease drives from
+  there) and suppresses the tumble's spin re-derivation while latched. The
+  sleep rule itself is unchanged and now documented here: a body sleeps
+  after 24 consecutive frames (~0.5 s) of grounded + speed under ~0.8 u/s
+  + spin under 0.75 deg/frame, with flatten-in-progress resetting the
+  countdown. (b) `CollisionMesh::resolveSphere` judged "steep wall vs
+  walkable floor" on the LOCAL normal.y - a mesh-collision physics model
+  lying on its side (tumbled bodies rest with 90deg pitch/roll now) has
+  world-walls whose local normal reads as floor, so the player walked
+  straight through; AND the push itself was two-sided along
+  (center - closest), which for a step landing PAST a wall's plane points
+  INTO the volume - with the FPP step (~0.4 u/frame) longer than the
+  player radius (0.35) a fast walker crossed the plane and got sucked
+  inside (this also affected unrotated meshes). The engine gained a
+  resolveSphere overload taking the up direction in mesh-local space
+  (classification = dot(normal, up), world-up rides in via invRotated)
+  and the pre-move position: the sphere is ejected to prev's side of each
+  face, crossings are caught within a radius+0.6 capture band, gated on
+  the plane distance dominating the gap (sCur^2 > 0.5*d2) so crossing a
+  wall's PLANE near its top edge while walking ON the mesh doesn't yank
+  the walker off the top. Verified (probe repro, PCSX2): a walk-step sweep
+  into a rz=90 mesh cube - approach stops at the face (-5.35 = face -
+  radius), steps landing 0.2-0.4 INSIDE eject back to -5.35 (pre-fix they
+  pulled in deeper); flatten traces are monotone with no overshoot (Crate
+  engages at spin 2.52, eases 64->73->85->90.00 exactly; Target
+  134->...->180.00), the sphere's trace stays byte-identical. Editor +
+  Docker PS2 builds clean (engine lib rebuilt from the bind-mount).
+  In-game pad feel remains the hands-on check.
+
+- (152) **Physics upgrades: hits wake sleeping bodies, tumbled boxes ride
+  their rotated bound (no more sinking), and near-rest bodies settle flat.**
+  Three user asks in one pass over `updateObjectPhysics`. (a) *A thrown
+  body never woke the body it hit*: pass 1 treats sleeping bodies as static
+  solids and resolved the mover OUT of contact, so pass 2 - the one that
+  wakes sleepers and trades momentum - never saw the pair overlap (its
+  `ph <= 0` early-out hit every time). Now a mover faster than
+  `PHYS_WAKE_SPEED2` (~2.5 u/s; rest is ~0.8) skips the wall treatment for
+  a sleeping body and lets the impulse pass handle the hit - wake + mass-
+  split impulse, the existing math; near-rest contacts keep the wall
+  treatment so settled stacks stay cheap and stable. (b) *Boxes/models sank
+  into the terrain "as if they had sphere physics"*: `physExtents` is an
+  unrotated AABB, so a rolled box supported itself on its half-height while
+  its corners visibly pierced the ground. The mover's contact extents are
+  now the support of the ROTATED bound per world axis (sum of |basis
+  column| x half extent, center offset rotated too) - a tumbling box rides
+  its corners (center height breathes with the roll), and yaw-only authored
+  rotation leaves the vertical extent unchanged, so placed blocks rest
+  exactly as before. Spheres skip it (rotation-invariant; their box corners
+  would overestimate the radius). Statics as the OTHER side of a contact
+  keep the plain AABB - the (149) known limitation, unchanged. (c) *Settle-
+  flatten*: a near-rest tumbled body (grounded, under the rest thresholds)
+  eases pitch/roll at 3 deg/frame to the nearest 90deg step instead of
+  sleeping on an edge; the rotated support extent lowers it onto its face
+  as it tips. Euler-order trap (the (150) family): `rotated()` composes
+  Rz*Ry*Rx, and with the roll on an ODD 90 step the pose is only flat when
+  the yaw sits on a step too - so the yaw joins the easing exactly then.
+  Spheres skip flattening (orientation invisible; easing would visibly
+  roll the baked shading). Sleep waits for the easing to finish
+  (flattening resets the countdown); `flatMoved` joins the rebuild
+  condition so slow-path bodies re-bake the eased pose. Verified with the
+  (151) probe repro + a sleeping Target crate in the thrown crate's path
+  (PCSX2, physlog.txt): Target sleeps (rest=24), the crate arrives at ~10
+  u/s, Target wakes with momentum (flies ~3 u, tumbling), the thrower
+  hands off its speed (0.20 -> 0.012 u/frame); mid-tumble center heights
+  match the support math (y=0.690 at rz=58.7deg = 0.5(|cos|+|sin|));
+  both crates ease to exactly 90.00/180.00 and y returns to 0.500; the
+  sphere's trace is byte-identical to the pre-change run (skip paths
+  hold). Editor + Docker PS2 builds clean. In-game pad feel remains the
+  hands-on check.
+
+- (151) **Settling physics bodies no longer "snap their rotation back":
+  sleeping fast-path bodies stay on objMat (no settle re-bake).** User
+  report: a thrown ball that stops tumbling "freezes and its rotation
+  resets". The data said otherwise - an in-game probe (owned
+  terrain_game.cpp printing every body's pos/rot/spin/restFrames/matrixMode
+  to a host file twice a second) showed `data.rotation` is PRESERVED through
+  sleep (a rolled ball rests at rz=259.84deg and keeps it forever). What
+  actually snapped was the (114) fast path's settle step: on wake a body
+  bakes local vertices with shading FROZEN at the wake pose (the light
+  pattern rides along as it tumbles - baked colors can't re-light per
+  frame), and on sleep the old code set dirty for one world re-bake that
+  re-shaded the rest pose. That discrete wake-shading -> rest-shading jump,
+  on a sphere whose shade gradient is the only orientation cue, reads
+  exactly as "the ball rotated back" - and it fired at the very frame the
+  body froze, welding the two complaints into one artifact. (The freeze
+  itself is the intended sleep; by the time restFrames hits the threshold,
+  friction has decayed the spin to ~0.002deg/frame - imperceptible.) Fix:
+  drop the settle re-bake - a sleeping body keeps its local bake + objMat
+  (one matrix refresh per frame, same as awake). Safe because every
+  fast-path consumer reads objMat or o.data (mirrors compose reflection *
+  objMat, env pass and portal views take the bag's matrix, split band / use
+  targeting / collision read o.data), and the two vertex-array consumers
+  (usable-highlight hull, matcap env normals) were already excluded by
+  physFastPathEligible. Trade-off, documented in the code: a resting body
+  keeps the shading baked at wake - the same shading it showed all flight -
+  instead of snapping to a freshly lit rest pose; a retint / Live Link edit
+  still re-bakes via dirty. Verified with the probe repro (fpp scratch, a
+  pickable+physics sphere and box impulse-launched by an OnStart->Delay->
+  Apply Impulse graph, PCSX2 boot, physlog.txt over 30 s): before -
+  matrixMode flips 1->0 at the sleep frame (the re-bake = the visible pop);
+  after - the identical deterministic trajectory settles at the same
+  rz=259.84deg with matrixMode still 1 at rest (nothing re-bakes, so
+  nothing can pop). In-game pad-throw eyeball is the remaining hands-on
+  check.
+
+- (150) **Thrown-object teleport/stuck regression: the box-collision horizontal
+  frame is yaw-only again.** Day-one regression from (149): the new OBB
+  footprint test built its local frame from the object's FULL 3D rotation and
+  dropped the Y component in both directions (`invRotated({dx,0,dz})` in,
+  `rotated({lx,0,lz})` out). For a yaw-only rotated placed block that is an
+  exact isometry - but physics bodies TUMBLE (`spin[0]`/`spin[2]` write
+  pitch/roll into `rotation` while sliding), and for a pitched/rolled box the
+  XZ projection is a contraction: part of the horizontal offset escapes into
+  local Y and is discarded, so (a) a player metres away from a tumbling thrown
+  crate read as "inside" its footprint (a 90deg-pitched box collapsed the
+  whole Z axis - `lnz ~ 0` no matter the distance), (b) the blocked-branch
+  commit re-projected the contracted coordinates and *pulled the player to the
+  box center* (the reported "throw teleports me into the object"), and (c)
+  once inside, every frame's full-stop re-commit contracted again - the
+  reported "you can get stuck inside a physics object" (landed tumbled bodies
+  keep their pitch/roll at rest, so walking into one triggered it too).
+  `collidePlayer`'s box mode now builds the horizontal frame from
+  `rotation[1]` alone (one cos/sin pair, inverse = transpose of `rotated`'s Y
+  block): the local<->world round trip is the identity for ANY rotation,
+  identical to (149) for yaw-only blocks (pitch/roll were already documented
+  as "collide upright; mesh mode is the escape hatch") and reduces to the old
+  AABB at zero rotation. The world box *center* still uses the full rotation
+  (a real 3D point, no projection involved). The (149) camera spring-arm
+  sweep is NOT affected - its slab test keeps all three components, a true
+  isometry. Verified: a standalone numeric check reproduces both symptoms
+  against the (149) math (player at Z=5 from a 90deg-pitched box reads INSIDE
+  and commits to the center; arbitrary-tumble round trip drifts 0.31u/frame)
+  and confirms the fix (same player reads FREE, round trip exact to 1e-5,
+  yaw-45 block behavior byte-identical to (149), zero rotation = plain AABB);
+  editor builds clean; a scratch `--new` fpp project's regenerated
+  `terrain_game.cpp` carries the yaw-only code and the Docker PS2 build
+  compiles + links. In-game throw feel is the remaining hands-on check.
 
 - (149) **Rotated box collision: the player now collides with a block's real
   (rotated) faces, not its unrotated bounds.** Box-mode player collision
@@ -7569,3 +7952,22 @@ Each finished feature lands as its own commit.
   is byte-IDENTICAL (the transfer introduced no pin/param/text drift); a
   scratch shake.flownode with desc shows the text in its catalog line; GUI
   screenshot shows the hover tooltip on a node (On Button + its desc).
+- (69) **Preference descriptions moved to hover tooltips** - the Project and
+  Scene Preferences dialogs had grown to several screens tall because nearly
+  every control carried its multi-paragraph explanation inline as a
+  `TextDisabled` block under it. Added a tiny `prefHelp(tip)` helper (SameLine
+  + a dimmed `(?)` + `SetTooltip` - the exact idiom the Layers list and node
+  tooltips already use) and folded every one of those long descriptions into a
+  `(?)` marker sitting on the same line as its control. Section notes with no
+  control of their own (Ambience, Loading screens, AI support) attach the `(?)`
+  to their button instead; the dynamic "Resident terrain mesh" readout and the
+  short one-line footer stay inline. The vestigial "Post effects" section (just
+  a "bloom/grain moved to the UI Editor" redirect, no control) was dropped
+  entirely. Gotcha caught in review: the old
+  `TextDisabled` blocks are printf format strings (literal `%` written `%%`),
+  but `prefHelp` passes the text through `SetTooltip("%s", tip)`, so the two
+  affected strings (display-mode "14%", mesh-LOD "~50%/~25%") had their `%%`
+  collapsed to `%` or they would have shown a stray percent. Net effect: the
+  Project Preferences modal now fits without scrolling and the same wording is
+  one hover away. Verified: `build.ps1` links clean; the tooltip idiom is
+  byte-identical to the existing working markers (fontCombo, layers, scenes).
