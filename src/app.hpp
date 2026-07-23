@@ -851,6 +851,15 @@ private:
     std::vector<int> matEdUvIssueTris_;
     void drawMatEdUvPanel(const std::string& entryName,
                           const std::string& texRel, const ImVec2& size);
+
+    // UV validator: overlaps, out-of-range, flipped/degenerate triangles,
+    // texel-density outliers over the preview mesh's paintable UVs. Results
+    // are pinned to the mesh key they were computed for; clicking a finding
+    // highlights its triangle(s) in the UV panel and on the mesh.
+    std::vector<matbake::UvIssue> matEdUvIssues_;
+    std::string matEdUvIssuesKey_;  // matBakeMeshKey_ at validation time
+    int matEdUvIssueSel_ = -1;
+    void matEdUvValidateSection(const std::string& entryName);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";

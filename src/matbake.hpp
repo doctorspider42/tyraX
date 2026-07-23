@@ -51,6 +51,34 @@ MeshInput fromModel(const objparser::Model& m, const std::string& entryName);
 // Unit primitive (0 box, 1 sphere, 2 cylinder, 3 cone) at the given detail.
 MeshInput fromPrimitive(int shape, int detail);
 
+// --- UV validation -------------------------------------------------------
+
+// One finding of validateUv, anchored to the offending triangle(s) so the
+// UI can highlight them in the UV panel and on the mesh.
+struct UvIssue {
+    enum class Kind {
+        Overlap,      // tri and otherTri claim the same texels (mod 1 -
+                      // painting one paints the other)
+        OutOfRange,   // UVs leave 0..1 (wraps on the GS - intentional
+                      // tiling or a stray island)
+        Flipped,      // minority UV winding (mirrored island - brush
+                      // strokes and text appear mirrored)
+        Degenerate,   // zero UV area over real surface (bakes/paints as a
+                      // single smeared texel)
+        DensityLow,   // far fewer texels per world unit than the average
+        DensityHigh,  // far more
+    };
+    Kind kind;
+    int tri = -1;
+    int otherTri = -1;  // Overlap only
+    float value = 0.0f; // Overlap: shared texels; Density: ratio to average
+};
+
+// Inspects the paintable triangles' UV mapping at the given texture size.
+// Deterministic; capped at a few hundred findings (worst first is not
+// attempted - triangle order is source order).
+std::vector<UvIssue> validateUv(const MeshInput& m, int texSize);
+
 struct Params {
     int size = 256;        // output width = height, clamped to pow2 32..1024
     int samples = 64;      // hemisphere rays per texel at full quality

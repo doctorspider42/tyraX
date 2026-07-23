@@ -650,6 +650,127 @@ MeshInput fromPrimitive(int shape, int detail) {
     return out;
 }
 
+std::vector<UvIssue> validateUv(const MeshInput& m, int texSize) {
+    std::vector<UvIssue> out;
+    const int tris = m.triCount();
+    if (!tris) return out;
+    if (texSize < 64) texSize = 64;
+    if (texSize > 512) texSize = 512;
+    auto paintable = [&](int t) {
+        return m.paintTri.empty() || m.paintTri[t] != 0;
+    };
+
+    // per-triangle signed UV area + world area, orientation census
+    std::vector<float> uvArea(tris, 0.0f), wArea(tris, 0.0f);
+    int windPos = 0, windNeg = 0;
+    for (int t = 0; t < tris; ++t) {
+        const float* a = &m.verts[(size_t)(t * 3 + 0) * 8];
+        const float* b = &m.verts[(size_t)(t * 3 + 1) * 8];
+        const float* c = &m.verts[(size_t)(t * 3 + 2) * 8];
+        uvArea[t] = 0.5f * ((b[6] - a[6]) * (c[7] - a[7]) -
+                            (b[7] - a[7]) * (c[6] - a[6]));
+        float e1[3], e2[3], n[3];
+        v3sub(b, a, e1);
+        v3sub(c, a, e2);
+        v3cross(e1, e2, n);
+        wArea[t] = 0.5f * v3len(n);
+        if (!paintable(t) || std::fabs(uvArea[t]) < 1e-9f) continue;
+        (uvArea[t] > 0.0f ? windPos : windNeg) += 1;
+    }
+    const float majority = windPos >= windNeg ? 1.0f : -1.0f;
+
+    // density baseline: texels per world area, area-weighted mean
+    double uvSum = 0.0, wSum = 0.0;
+    for (int t = 0; t < tris; ++t) {
+        if (!paintable(t) || wArea[t] < 1e-9f) continue;
+        uvSum += std::fabs(uvArea[t]);
+        wSum += wArea[t];
+    }
+    const float meanDensity = wSum > 1e-9 ? (float)(uvSum / wSum) : 0.0f;
+
+    const float eps = 1e-3f;
+    for (int t = 0; t < tris && (int)out.size() < 400; ++t) {
+        if (!paintable(t)) continue;
+        const float* a = &m.verts[(size_t)(t * 3 + 0) * 8];
+        const float* b = &m.verts[(size_t)(t * 3 + 1) * 8];
+        const float* c = &m.verts[(size_t)(t * 3 + 2) * 8];
+        if (std::fabs(uvArea[t]) < 1e-9f) {
+            if (wArea[t] > 1e-9f) out.push_back({UvIssue::Kind::Degenerate, t});
+            continue;
+        }
+        if (uvArea[t] * majority < 0.0f)
+            out.push_back({UvIssue::Kind::Flipped, t});
+        bool oor = false;
+        for (const float* v : {a, b, c})
+            oor |= v[6] < -eps || v[6] > 1.0f + eps || v[7] < -eps ||
+                   v[7] > 1.0f + eps;
+        if (oor) out.push_back({UvIssue::Kind::OutOfRange, t});
+        if (meanDensity > 0.0f && wArea[t] > 1e-9f) {
+            const float ratio = std::fabs(uvArea[t]) / wArea[t] / meanDensity;
+            if (ratio < 0.25f) {
+                UvIssue i{UvIssue::Kind::DensityLow, t};
+                i.value = ratio;
+                out.push_back(i);
+            } else if (ratio > 4.0f) {
+                UvIssue i{UvIssue::Kind::DensityHigh, t};
+                i.value = ratio;
+                out.push_back(i);
+            }
+        }
+    }
+
+    // Overlaps: rasterize texel centers (wrapping, like the GS and the
+    // baker) and record triangle pairs claiming the same texel. Texel
+    // centers land strictly inside one triangle of a shared UV edge, so
+    // adjacent islands don't false-positive; a >= 2 texel floor guards the
+    // rare exactly-on-edge center.
+    std::vector<int32_t> owner((size_t)texSize * texSize, -1);
+    std::map<std::pair<int, int>, int> pairTexels;
+    const float W = (float)texSize;
+    for (int t = 0; t < tris; ++t) {
+        if (!paintable(t) || std::fabs(uvArea[t]) < 1e-9f) continue;
+        const float* a = &m.verts[(size_t)(t * 3 + 0) * 8];
+        const float* b = &m.verts[(size_t)(t * 3 + 1) * 8];
+        const float* c = &m.verts[(size_t)(t * 3 + 2) * 8];
+        const float ax = a[6] * W, ay = a[7] * W;
+        const float bx = b[6] * W, by = b[7] * W;
+        const float cx = c[6] * W, cy = c[7] * W;
+        const float inv = 1.0f / (2.0f * uvArea[t] * W * W);
+        const int x0 = (int)std::floor(std::min({ax, bx, cx}));
+        const int x1 = (int)std::ceil(std::max({ax, bx, cx}));
+        const int y0 = (int)std::floor(std::min({ay, by, cy}));
+        const int y1 = (int)std::ceil(std::max({ay, by, cy}));
+        if ((int64_t)(x1 - x0) * (y1 - y0) > (int64_t)texSize * texSize * 8)
+            continue;  // runaway mapping - OutOfRange already covers it
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x) {
+                const float px = x + 0.5f, py = y + 0.5f;
+                const float bu =
+                    ((px - ax) * (cy - ay) - (py - ay) * (cx - ax)) * inv;
+                const float bv =
+                    ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * inv;
+                if (bu <= 0.0f || bv <= 0.0f || bu + bv >= 1.0f) continue;
+                const size_t texel =
+                    (size_t)wrapc(y, texSize) * texSize + wrapc(x, texSize);
+                const int prev = owner[texel];
+                if (prev < 0) {
+                    owner[texel] = t;
+                } else if (prev != t) {
+                    ++pairTexels[{prev, t}];
+                }
+            }
+    }
+    for (const auto& [pair, count] : pairTexels) {
+        if ((int)out.size() >= 400) break;
+        if (count < 2) continue;
+        UvIssue i{UvIssue::Kind::Overlap, pair.first};
+        i.otherTri = pair.second;
+        i.value = (float)count;
+        out.push_back(i);
+    }
+    return out;
+}
+
 // --- Baker -----------------------------------------------------------------------
 
 // Everything derived from (mesh, high, size, supersample, cage): the

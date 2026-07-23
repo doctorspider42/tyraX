@@ -34,6 +34,15 @@ texel); hover a triangle in the panel and it is outlined on the mesh.
 Overlapping UVs show themselves naturally — one 3D face lights up every
 triangle sharing its region.
 
+Under the bake block sits **UV check** — *Validate UVs* inspects the
+preview mesh's mapping: **overlapping islands** (painting one paints the
+other — texel-exact, computed modulo the 0–1 wrap like the GS samples),
+UVs **outside 0–1**, **flipped** (mirrored) and **degenerate** triangles,
+and extreme **texel-density outliers** (4× above/below the mesh average).
+Click a finding and the offending triangle(s) outline red in the UV panel
+and on the mesh. Note the box primitive intentionally maps all six faces
+onto the same square — its overlap findings are by design.
+
 The property column ends in a **Bake maps** block: a progressive raytraced
 bake of the preview mesh (ambient occlusion, curvature, thickness and more)
 that can land as a *"Baked AO" multiply layer* on the entry's texture — see

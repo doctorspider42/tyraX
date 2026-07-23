@@ -8083,3 +8083,22 @@ Each finished feature lands as its own commit.
   upcoming UV validator (red outlines). Docs: material-painting.md.
   Verified: build.ps1 links clean; visual pass pending the same known
   white-window machine state as (71).
+- (73) **Material Editor: UV validator** - matbake::validateUv (host-only,
+  harness-testable) inspects the preview mesh's paintable UVs: overlapping
+  islands via a texel-center ownership raster (wrapping modulo 1 like the
+  GS samples, >= 2 shared texels to ignore exactly-on-edge centers - shared
+  island edges never false-positive because a texel center lies strictly
+  inside one triangle), UVs outside 0-1 (eps 1e-3), flipped triangles
+  (minority UV winding - the majority orientation is the mesh's convention,
+  so a fully mirrored map doesn't drown the list), degenerate UV area over
+  real surface, and texel-density outliers (>4x / <0.25x of the
+  area-weighted mesh average). Findings cap at 400. UI: "UV check" section
+  under Bake maps - a Validate button, a per-kind summary line and a
+  clickable list; selecting a finding highlights the triangle(s) red in the
+  UV panel AND on the 3D mesh (the matEdUvIssueTris_ hook from (72)),
+  auto-opening the UV view. Results pin to the mesh key they ran against
+  and clear when the shape/model/entry changes. Verified in the headless
+  harness: a crafted 5-triangle mesh yields exactly the expected
+  overlap/out-of-range/flipped/low-density findings (tri indices checked),
+  a clean two-triangle quad reports zero; the whole matbake suite still
+  passes (contact shadow, determinism, high-poly, 100k-tri perf).

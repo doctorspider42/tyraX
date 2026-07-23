@@ -13012,6 +13012,106 @@ void App::matEdBakeSection(const std::string& entryName,
             "external tools.");
 }
 
+// UV validator: the "why does my texture look wrong" list. Runs matbake's
+// validateUv over the preview mesh on demand; findings are clickable and
+// highlight the offending triangle(s) red in the UV panel and on the mesh.
+void App::matEdUvValidateSection(const std::string& entryName) {
+    ImGui::SeparatorText("UV check");
+    if (ImGui::Button("Validate UVs")) {
+        matEdUvIssues_.clear();
+        matEdUvIssueTris_.clear();
+        matEdUvIssueSel_ = -1;
+        if (matBakeBuildMeshes(entryName)) {
+            matEdUvIssues_ =
+                matbake::validateUv(matBakeMeshLow_, 64 << matBakeSizeIdx_);
+            matEdUvIssuesKey_ = matBakeMeshKey_;
+            if (!matEdUvIssues_.empty()) matEdUvView_ = true;
+        } else {
+            matEdUvIssuesKey_.clear();
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Checks the preview mesh's UVs: overlapping islands (painting\n"
+            "one paints the other), UVs outside 0-1, mirrored (flipped) and\n"
+            "degenerate triangles, extreme texel-density outliers. Click a\n"
+            "finding to highlight it in the UV panel and on the mesh.");
+    if (matEdUvIssuesKey_.empty()) return;
+    if (matEdUvIssuesKey_ != matBakeMeshKey_) {
+        // different mesh/entry since the run - results no longer apply
+        matEdUvIssues_.clear();
+        matEdUvIssueTris_.clear();
+        matEdUvIssuesKey_.clear();
+        matEdUvIssueSel_ = -1;
+        return;
+    }
+    if (matEdUvIssues_.empty()) {
+        ImGui::TextDisabled("No UV issues found.");
+        return;
+    }
+    int counts[6] = {0, 0, 0, 0, 0, 0};
+    for (const matbake::UvIssue& i : matEdUvIssues_) counts[(int)i.kind]++;
+    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                       "%d finding(s): %d overlap, %d out-of-range, %d "
+                       "flipped, %d degenerate, %d density",
+                       (int)matEdUvIssues_.size(), counts[0], counts[1],
+                       counts[2], counts[3], counts[4] + counts[5]);
+    const float listH =
+        std::min(scaled(150.0f), (matEdUvIssues_.size() + 1) *
+                                     ImGui::GetTextLineHeightWithSpacing());
+    ImGui::BeginChild("##uv_issues", ImVec2(-FLT_MIN, listH),
+                      ImGuiChildFlags_Borders);
+    char label[128];
+    for (int n = 0; n < (int)matEdUvIssues_.size(); ++n) {
+        const matbake::UvIssue& i = matEdUvIssues_[n];
+        switch (i.kind) {
+            case matbake::UvIssue::Kind::Overlap:
+                std::snprintf(label, sizeof(label),
+                              "Overlap: tri %d and tri %d share %d texel(s)",
+                              i.tri, i.otherTri, (int)i.value);
+                break;
+            case matbake::UvIssue::Kind::OutOfRange:
+                std::snprintf(label, sizeof(label),
+                              "Out of 0-1: tri %d (wraps on the PS2)", i.tri);
+                break;
+            case matbake::UvIssue::Kind::Flipped:
+                std::snprintf(label, sizeof(label),
+                              "Flipped: tri %d is mirrored in UV", i.tri);
+                break;
+            case matbake::UvIssue::Kind::Degenerate:
+                std::snprintf(label, sizeof(label),
+                              "Degenerate: tri %d has no UV area", i.tri);
+                break;
+            case matbake::UvIssue::Kind::DensityLow:
+                std::snprintf(label, sizeof(label),
+                              "Low density: tri %d at %.2fx of average",
+                              i.tri, i.value);
+                break;
+            default:
+                std::snprintf(label, sizeof(label),
+                              "High density: tri %d at %.1fx of average",
+                              i.tri, i.value);
+                break;
+        }
+        ImGui::PushID(n);
+        if (ImGui::Selectable(label, matEdUvIssueSel_ == n)) {
+            matEdUvIssueSel_ = n;
+            matEdUvIssueTris_.clear();
+            matEdUvIssueTris_.push_back(i.tri);
+            if (i.otherTri >= 0) matEdUvIssueTris_.push_back(i.otherTri);
+            matEdUvView_ = true;  // the highlight lives there
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    if (!matEdUvIssueTris_.empty()) {
+        if (ImGui::SmallButton("Clear highlight")) {
+            matEdUvIssueTris_.clear();
+            matEdUvIssueSel_ = -1;
+        }
+    }
+}
+
 // The 2D UV-layout panel: the paintable triangles' UV wireframe over the
 // entry's live texture, zoom/pan, and the hover sync - a face hovered in 3D
 // lights up here, a triangle hovered here is outlined on the mesh (and all
@@ -13584,6 +13684,9 @@ void App::drawMaterialEditorWindow() {
                          : (std::filesystem::path(matEdPath_).parent_path() /
                             e.texture)
                                .generic_string());
+
+    // --- UV validator ---------------------------------------------------------
+    matEdUvValidateSection(e.name);
 
     ImGui::Spacing();
     ImGui::TextDisabled("Saved to the file on every change. The object's own\n"
