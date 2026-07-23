@@ -7997,3 +7997,33 @@ Each finished feature lands as its own commit.
   Project Preferences modal now fits without scrolling and the same wording is
   one hover away. Verified: `build.ps1` links clean; the tooltip idiom is
   byte-identical to the existing working markers (fontCombo, layers, scenes).
+- (70) **matbake: UV-space raytraced map baker (Material Editor core)** - the
+  foundation of the Material Editor expansion: a new host-only module
+  (src/matbake.cpp/.hpp, the decalproj pattern - no GL) that rasterizes a
+  mesh's paintable triangles in UV space (conservative: corner-grazed texels
+  get a nearest-interior-point sample, so island borders never gap),
+  interpolates 3D position/normal per texel through the barycentrics, and
+  fires cosine-weighted hemisphere rays through a flat binned-SAH BVH. One
+  pass produces the whole map set: AO (linear distance falloff, epsilon
+  origin offset - no acne), bent normals, thickness (same spiral mirrored
+  below the surface), curvature (discrete mean curvature from edge normal
+  deltas, p90-normalized - no rays), position and object-space normal maps.
+  High-poly support: with a second mesh the texel points are cage-projected
+  along the smoothed low-poly normals onto the dense mesh first, and rays
+  occlude against it. Deviations from the backlog, on purpose: golden-angle
+  spiral + per-texel seeded hash rotation instead of Hammersley (the proven
+  aobake recipe; any prefix is well distributed, which makes progressive
+  rounds honest), and all bonus maps ride the same rays instead of separate
+  bakes. Progressive matbake::Baker (worker thread, growing rounds
+  8/16/32..., full snapshot after each; gbuffer+BVH cached across start()
+  calls keyed by mesh signature + raster params, so sampling-only slider
+  drags restart nearly free). Deterministic by construction: fixed spiral,
+  seeded hash, threads own fixed texel ranges - same inputs = bit-identical
+  maps at any core count. All maps flood-dilated N texels (ring averages
+  filled neighbors, UV-wrapping) against bilinear/mip seam bleed. Docs:
+  docs/material-baking.md. Verified with a scratch harness linking the
+  build .obj files (memory recipe): sphere-over-plane contact shadow
+  gradient (center 113 / penumbra 223 / open 255, no acne - open-plane
+  min=max=255), two fresh bakes bit-identical, high-poly projection changes
+  the normal map, 256^2 x 64 rays against a 100,352-tri occluder in 773 ms
+  including BVH build (~11M rays/s).

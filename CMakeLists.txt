@@ -65,6 +65,7 @@ add_executable(tyrax-editor
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
+    src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp

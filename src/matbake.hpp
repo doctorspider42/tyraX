@@ -1,0 +1,119 @@
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "objparser.hpp"
+
+// matbake: UV-space raytraced map baker for the Material Editor
+// (docs/material-baking.md). Host-only, no GL - the decalproj pattern.
+//
+// The bake rasterizes the preview mesh's triangles in UV space (conservative:
+// a texel touched by any part of a triangle gets a sample), interpolating 3D
+// position + normal per texel, then fires cosine-weighted hemisphere rays at
+// every covered texel through a SAH BVH. One pass yields the whole map set:
+// ambient occlusion, bent normals, thickness, curvature (geometric, not
+// raytraced), position and object-space normals. With a high-poly mesh the
+// texel points are first projected onto it along the smoothed low-poly
+// normals (cage projection), so the maps carry the dense geometry's detail.
+//
+// Everything is deterministic: a fixed golden-angle sample spiral rotated
+// per texel by a seeded hash, threads partitioned by texel ranges - the same
+// inputs produce bit-identical maps regardless of core count or progressive
+// round boundaries.
+namespace matbake {
+
+// Triangle soup in model space, 8 floats per corner (pos3 + nrm3 + uv2),
+// 3 corners per triangle. Every triangle occludes; paintTri marks the ones
+// whose UVs land on the baked texture (empty = all). posIdx (one entry per
+// corner, objparser semantics) welds corners for smooth normals + curvature;
+// empty = weld by quantized position (primitives).
+struct MeshInput {
+    std::vector<float> verts;
+    std::vector<int> posIdx;
+    std::vector<char> paintTri;
+    // Caller-provided identity of (geometry + UV set): the Baker reuses the
+    // rasterized geometry buffer + BVH across starts while it matches.
+    // 0 = never cache.
+    uint64_t signature = 0;
+    int triCount() const { return (int)(verts.size() / 24); }
+    bool empty() const { return verts.empty(); }
+};
+
+// Model triangles for the bake: parts whose usemtl matches entryName are
+// paintable (empty entryName = all), every part occludes.
+MeshInput fromModel(const objparser::Model& m, const std::string& entryName);
+// Unit primitive (0 box, 1 sphere, 2 cylinder, 3 cone) at the given detail.
+MeshInput fromPrimitive(int shape, int detail);
+
+struct Params {
+    int size = 256;        // output width = height, clamped to pow2 32..1024
+    int samples = 64;      // hemisphere rays per texel at full quality
+    float maxDist = 0.0f;  // occlusion reach, world units (<= 0 = auto: half
+                           // the occluder AABB diagonal)
+    int supersample = 2;   // subsample grid per texel axis (1/2/4)
+    bool backface = true;  // rays hitting triangle back sides count as
+                           // occluders (thin unwelded geometry needs this)
+    int padding = 4;       // dilate ring in texels (bilinear/mip seam guard)
+    uint32_t seed = 1;     // per-texel rotation hash seed
+    float cageOffset = 0.0f;  // high-poly search distance along the smoothed
+                              // low normal (<= 0 = auto: 2% of the diagonal)
+};
+
+// The bake output. All maps are size*size; texels outside the dilated
+// islands hold the neutral value (AO/thickness white, bent/normal flat +Z,
+// curvature mid-gray, position black).
+struct Maps {
+    int w = 0, h = 0;
+    std::vector<uint8_t> mask;       // 255 = island texel (pre-dilate)
+    std::vector<uint8_t> ao;         // gray, white = fully open
+    std::vector<uint8_t> bent;       // rgb, object-space bent normal
+    std::vector<uint8_t> thickness;  // gray, white = thick / open below
+    std::vector<uint8_t> curvature;  // gray, 128 flat, >128 convex edges
+    std::vector<uint8_t> position;   // rgb, AABB-normalized position
+    std::vector<uint8_t> normal;     // rgb, object-space normal
+    int samplesDone = 0;             // rays per texel accumulated so far
+    bool empty() const { return w == 0; }
+};
+
+// Progressive asynchronous baker. start() kicks a worker thread that
+// prepares the geometry buffer + BVH (cached across starts while the mesh
+// signature and raster params hold), then accumulates rays in growing
+// rounds, publishing a full map snapshot after each - the UI polls
+// version()/snapshot() and shows occlusion within the first round (a few
+// rays per texel), refining to `samples` in place. start() on a running
+// bake cancels it first; sampling-only param changes restart cheaply.
+class Baker {
+public:
+    ~Baker() { cancel(); }
+    // high may be empty (bake against the low mesh itself).
+    void start(MeshInput mesh, MeshInput high, const Params& p);
+    void cancel();  // stop the worker and join (fast - tiles poll the flag)
+    bool running() const { return running_.load(); }
+    float progress() const;      // 0..1 across the sampling schedule
+    uint64_t version() const { return version_.load(); }
+    Maps snapshot() const;       // copy of the latest published maps
+    std::string error() const;   // non-empty = the last bake failed (why)
+
+private:
+    struct Prepared;  // gbuffer + BVH cache (matbake.cpp)
+    void run(MeshInput mesh, MeshInput high, Params p);
+
+    std::thread worker_;
+    std::atomic<bool> cancel_{false};
+    std::atomic<bool> running_{false};
+    std::atomic<uint64_t> version_{0};
+    std::atomic<int> samplesDone_{0};
+    std::atomic<int> samplesTarget_{1};
+    mutable std::mutex mapsMutex_;
+    Maps maps_;
+    std::string error_;
+    std::shared_ptr<Prepared> cache_;  // survives across start() calls
+};
+
+}  // namespace matbake
