@@ -3691,6 +3691,31 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
+    // Migration: res/.gitignore is written at project creation only (the user
+    // may have added rules), but static models now bake to res/models/*.tmdl -
+    // a few hundred KB per model, regenerated on every build. A project made
+    // before that would start tracking them, so append the rule if it is
+    // missing. Same shape as the .tskl/.tanm rules already in the file.
+    {
+        const fs::path ignore = fs::path(p.dir) / "res" / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            if (content.str().find("/models/*.tmdl") == std::string::npos) {
+                std::string text = content.str();
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked static-model output (the .obj next to it is the "
+                    "source;\n# regenerated on every build - "
+                    "docs/model-pipeline.md).\n/models/*.tmdl\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
+        }
+    }
+
     // Migration: generated script sources used to live in src/scripts/ next
     // to the user's own scripts - confusing in the Scripts panel, and now
     // that they are written to src/gen/ a leftover copy would be compiled

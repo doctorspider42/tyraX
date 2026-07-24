@@ -1,9 +1,15 @@
 # A binary format for static models (`.tmdl`) + static mesh LODs — design & plan
 
-Developer design doc (not a user guide). Status: **planned, nothing
-implemented**. M0 (measurement) gates everything else; the format work (M1)
-and the LOD work (M2–M4) are independent enough to land as separate PRs, in
-that order.
+Developer design doc (not a user guide). Status: **M1–M3 done** — the format
+ships, static models carry distance LOD tiers, and a model can name its own
+LOD meshes. The user-facing guide is [model-pipeline.md](model-pipeline.md).
+M4 (custom LOD meshes for *animated* models, i.e. joint remap by name) and M5
+(prebuilt collider, quantization, folding the per-object shade bake into
+codegen) are untouched.
+
+Three things the plan got wrong, corrected in place below: the disc gets
+BIGGER, not smaller; the tiers cannot weld on normals; and "pixel-identical"
+was the wrong bar.
 
 Two problems, one artifact:
 
@@ -39,6 +45,41 @@ is a flat triangle list of **8 interleaved floats** (pos3, nrm3, uv2), which
 flat normals, the `1-v` UV flip, the atlas `# tyra-uvrect` fold, `.aov` AO
 bytes — is a pure function of build-time inputs. A baked file can be
 `readWholeFile` + one `memcpy` per part.
+
+**Measured outcome (2026-07-25, PCSX2 SW renderer, PAL, host: boot).** A
+9 216-vertex model: the loader call went 286.4 ms → 39.2 ms (7.3x), the whole
+`loadModelAsset` 306 ms → 59 ms. Twelve instances of it at 8 units:
+`renderScene` 27.1 ms → 11.5 ms with decimated tiers (25 → 50 FPS), 6.5 ms
+with hand-authored ones. Tiers came out at 4368 (47%) and 1938 (21%) corners.
+
+**Correction 1 — the disc gets bigger, not smaller.** The plan claimed ASCII
+is "3–5x bigger"; measured, the 168 KB `.obj` bakes to a 295 KB `.tmdl`
+(497 KB with tiers). An `.obj` shares vertices through indices while the
+runtime needs a flat triangle list, and indexing the binary would not help:
+this pipeline derives a FLAT normal per face (`vn` is ignored), so adjacent
+triangles share no corner attributes and welding recovers almost nothing.
+RAM is unchanged — the `.obj` path built the same arrays anyway — so the
+trade is disc space for load time, and the ISO-size argument is retired.
+
+**Correction 2 — tiers must not weld on normals.** For the same reason: with
+per-face normals every corner of a position carries a different normal, so
+every position looks like a uv/normal seam twin, the collapse's position-twin
+lock fires on all of them and nothing decimates. The first implementation
+produced byte-identical "tiers" for exactly this reason. Static tiers weld by
+position+uv and recompute face normals after the collapse — which is also
+what flat shading wants (each tier flat-shaded on its own faces). The
+animated path keeps welding on normals: authored smooth normals are real
+data and a hard edge must stay a seam.
+
+**Correction 3 — "pixel-identical" was the wrong bar.** Positions and UVs
+(atlas rect included) ARE bit-identical, verified by loading both formats in
+one run and comparing on the console. Normals differ by up to 146 ulp,
+because the cross product now runs on the host FPU instead of the EE's
+non-IEEE one — which is a fix, not a regression: the console's normals now
+match the ones the editor viewport shades with. Screen-level A/B was
+abandoned as meaningless here: the scene's orbit camera is at a different
+phase in every run, so window captures never line up (and the interlaced
+FIELD mode's field phase differs too).
 
 **Static LODs are where the FPS is.** Per instance, a static object holds
 48 B/vertex (`vertices` 16 + `colors` 16 + `sts` 16 in `GeoPart`,
@@ -327,6 +368,9 @@ and `modelDraw`'s signature with a tier and read the baked tier from the
 
 ## Milestones
 
+M0–M3 are **done** (numbers above; per-milestone verification notes in
+PROGRESS). M4–M5 are open.
+
 **M0 — measure (gates everything).** Scratch project (`--new`) with a
 genuinely large `.obj`, COP0 timers around `LeanObjLoader::load`, the
 per-object `pushVert` bake, and `collider.build` separately; record ISO size
@@ -335,11 +379,11 @@ PROGRESS that say which of parse / shade bake / collider dominates. If the
 shade bake dominates, the format still helps but the priority order changes.
 
 **M1 — `.tmdl`, no LODs.** Baker + engine loader + codegen path switch +
-mirror exclusion + ISO ordering. Verify: `--refresh-gen` produces the file
-headlessly; a Docker + PCSX2 SW-renderer run **pixel-compares identical**
-against the `.obj` path (same triangulation, normals, UVs and shade inputs,
-so anything else is a bug); load-time COP0 before/after; ISO size before/
-after.
+mirror exclusion + ISO ordering. Verified: `--refresh-gen` produces the file
+headlessly; both formats loaded in ONE PCSX2 run and compared on the console
+(positions/UVs bit-identical, normals ≤146 ulp — correction 3 above);
+load-time COP0 before/after. The Runner also sweeps a superseded `.obj` out
+of `bin/`, which the plan had left as "documented staleness".
 
 **M2 — automatic static LODs.** Promote the decimator, write tiers into
 `.tmdl`, per-tier `GeoPart` arrays, tier pick in `renderScene`, the
