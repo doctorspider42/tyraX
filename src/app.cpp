@@ -12520,11 +12520,103 @@ void App::matEdSavePaintTarget() {
     const std::string full =
         (std::filesystem::path(project_.dir) / matEdPaintTexRel_).string();
     if (stbi_write_png(full.c_str(), matEdPaintW_, matEdPaintH_, 4,
-                       matEdPaintPixels_.data(), matEdPaintW_ * 4))
+                       matEdPaintPixels_.data(), matEdPaintW_ * 4)) {
         statusMessage_ = "Painted " + matEdPaintTexRel_;
-    else
+        liveTexNotify(matEdPaintTexRel_);  // hot-reload the running game
+    } else {
         statusMessage_ = "Cannot write " + matEdPaintTexRel_;
+    }
     matEdSaveLayers();
+}
+
+// Texture hot reload (docs/live-link.md): after a paint/bake save, re-bake
+// the texture the way the build shipped it - the palette format is detected
+// from the existing bin/ PNG's IHDR, so the swap is format-identical - drop
+// it next to the ELF (tmp + rename, the game never sees a half file) and
+// bump bin/livetex.bin. The generated live_tex poller re-decodes the file
+// and re-sends the pixels to the texture's existing GS VRAM address.
+void App::liveTexNotify(const std::string& texResRel) {
+    if (!hasProject_) return;
+    if (project_.settings.buildProfile != "debug" ||
+        !project_.settings.liveLink)
+        return;  // mirrors the poller's existence in the build
+    if (texResRel.rfind("res/", 0) != 0) return;
+    if (matEdPaintW_ < 1 || matEdPaintPixels_.empty()) return;
+    const std::string gameRel = texResRel.substr(4);
+    if (gameRel.size() >= 96) return;  // record path field is 96 bytes
+    namespace fs = std::filesystem;
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    const fs::path dst = binDir / gameRel;
+    std::error_code ec;
+    if (!fs::exists(dst, ec)) return;  // never shipped - nothing to reload
+
+    // shipped format from the PNG header: color type 3 = paletted, bit
+    // depth picks the palette size; anything else = full color
+    int cols = 0;
+    {
+        std::ifstream in(dst, std::ios::binary);
+        unsigned char hdr[26] = {};
+        in.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
+        if (in.gcount() >= 26 && hdr[25] == 3)
+            cols = hdr[24] == 4 ? 16 : 256;
+    }
+    const fs::path tmp = binDir / (gameRel + ".txtmp");
+    fs::create_directories(tmp.parent_path(), ec);
+    std::string err;
+    const bool ok =
+        cols > 0 ? pngquant::quantizeRGBA(tmp.string(),
+                                          matEdPaintPixels_.data(),
+                                          matEdPaintW_, matEdPaintH_, cols, err)
+                 : pngquant::writePngRGBA(tmp.string(),
+                                          matEdPaintPixels_.data(),
+                                          matEdPaintW_, matEdPaintH_, err);
+    if (!ok) {
+        fs::remove(tmp, ec);
+        return;
+    }
+    fs::rename(tmp, dst, ec);
+    if (ec) {  // the game holds the file open right now - drop this update
+        fs::remove(tmp, ec);
+        return;
+    }
+
+    // announce: livetex.bin lists every repainted texture with a growing
+    // generation; the poller applies the ones it hasn't seen. The list is
+    // cumulative for the session so a game booted later catches up.
+    ++liveTexGen_[gameRel];
+    if (liveTexGen_.size() > 64) {  // record cap; keep the current one
+        const uint32_t keep = liveTexGen_[gameRel];
+        liveTexGen_.clear();
+        liveTexGen_[gameRel] = keep;
+    }
+    const uint32_t seq = ++liveTexSeq_;
+    std::vector<unsigned char> file;
+    auto app32 = [&](uint32_t v) {
+        const unsigned char* b = reinterpret_cast<const unsigned char*>(&v);
+        file.insert(file.end(), b, b + 4);
+    };
+    app32(0x544C5854u);  // "TXLT"
+    app32(1u);
+    app32(seq);
+    app32((uint32_t)liveTexGen_.size());
+    for (const auto& [rel, gen] : liveTexGen_) {
+        char rec[104] = {};
+        std::snprintf(rec, 96, "%s", rel.c_str());
+        std::memcpy(rec + 96, &gen, 4);
+        file.insert(file.end(), rec, rec + 104);
+    }
+    app32(seq ^ 0x5A5A5A5Au);
+    const fs::path mtmp = binDir / "livetex.tmp";
+    const fs::path mdst = binDir / "livetex.bin";
+    {
+        std::ofstream out(mtmp, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(reinterpret_cast<const char*>(file.data()),
+                  (std::streamsize)file.size());
+        if (!out) return;
+    }
+    fs::rename(mtmp, mdst, ec);
+    if (ec) fs::remove(mtmp, ec);
 }
 
 // One stamp at a surface UV (image space, v down), onto the ACTIVE layer

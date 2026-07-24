@@ -585,6 +585,9 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
             std::error_code ec;
             fs::create_directories(fs::path(p.dir) / "bin", ec);
             fs::remove(fs::path(p.dir) / "bin" / "livelink.bin", ec);
+            // texture hot-reload manifest: the fresh build re-bakes every
+            // texture, so a stale reload list must not replay at boot
+            fs::remove(fs::path(p.dir) / "bin" / "livetex.bin", ec);
             if (p.settings.buildProfile == "debug" && p.settings.liveLink) {
                 std::ofstream sig(fs::path(p.dir) / "bin" / "livelink.sig",
                                   std::ios::trunc);

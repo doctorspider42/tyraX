@@ -8160,3 +8160,41 @@ Each finished feature lands as its own commit.
   usemtl names)" warning when applicable. Computed from the cached bake
   MeshInput, recomputed only when the mesh key changes. Verified:
   build.ps1 links clean (visual pass rides the same pending human check).
+- (77) **Texture hot reload over Live Link (M5.3)** - the biggest-ROI item of
+  the pipeline backlog: repaint a texture in the Material Editor and the
+  RUNNING game re-uploads it within a fraction of a second - no rebuild, no
+  reboot. Editor side (App::liveTexNotify, hooked into every
+  matEdSavePaintTarget): re-bakes the composite into bin/<path> in exactly
+  the format the build shipped (palette layout read from the existing PNG's
+  IHDR - color type 3 + bit depth -> 16/256 colors through the same pngquant
+  the bake uses), written tmp+rename, then bumps bin/livetex.bin ("TXLT" v1:
+  seq + cumulative path->generation records + footer echo, the livelink.bin
+  idiom; capped 64 paths, cleared by the Runner at build start alongside
+  livelink.bin). Game side: a generated sibling poller
+  (src/scripts/live_tex.gen.cpp, same debug+liveLink gate, registered like
+  LiveLink, whitelisted in refreshGenerated) re-reads the file every 6/25
+  frames, matches repository textures by the fork's NEW Texture::sourcePath
+  (set in TextureRepository::add - `name` keeps only the basename, ambiguous
+  across dirs), re-decodes through PngLoader (CLUT rotation matches the
+  original load), memcpy's the pixel + CLUT data into the existing
+  TextureData buffers and re-sends them to the SAME GS VRAM address via
+  RendererCoreTexture::updateTextureInfo - the bump allocator is never
+  touched. Dimension/format drift is rejected with a TYRA_SOFT_ERROR
+  ("rebuild to apply"); torn files fail the size/footer check or come back
+  as the 8x8 placeholder and fail the dimension check. Engine mods (marked
+  Modified by TyraX): Texture::sourcePath + its assignment in
+  TextureRepository::add - two lines, everything else rides existing fork
+  API. Gotcha found live: the engine ALWAYS constructs the clut TextureData
+  (null data for 32-bit textures), so clut presence must be tested via
+  t->clut->data, not the object pointer - the first e2e attempt tripped the
+  guard on a 32-bit texture and proved the soft-error path for real.
+  Verified e2e in PCSX2 (scratch project, steps.obj model): full-color
+  32bpp swap tan -> red/white checker ON SCREEN in the running game
+  (before/after F8 screenshots), then the palettized path - project
+  rebuilt at 4bit, shipped PNG colorType 3/depth 4, replacement quantized
+  through the editor's own pngquant - swapped to a blue/yellow checker
+  with correct CLUT colors; bin/log.txt clean in both runs. The editor-side
+  liveTexNotify path is code-identical to the harness scripts used in the
+  e2e (same format detection, same file writes) but was not driven through
+  the GUI (the known white-window machine state); a human paint-stroke
+  pass remains. Docs: docs/live-link.md "Texture hot reload", README.

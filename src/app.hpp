@@ -906,6 +906,15 @@ private:
     std::string matEdStatsLine_;
     std::string matEdStatsKey_;
     bool matEdStatsWarn_ = false;  // mesh has no usable UVs
+
+    // Texture hot reload (docs/live-link.md): every saved paint target is
+    // re-baked into bin/<rel> in the format the build shipped and announced
+    // via bin/livetex.bin; the generated live_tex poller re-uploads the
+    // pixels into the running game's existing GS VRAM allocation. Paint in
+    // the editor, watch the texture change on the console.
+    std::map<std::string, uint32_t> liveTexGen_;  // game-relative -> generation
+    uint32_t liveTexSeq_ = 0;
+    void liveTexNotify(const std::string& texResRel);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";

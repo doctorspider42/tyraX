@@ -3568,6 +3568,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\scripts\\live_link.gen.cpp" ||
+            f.relativePath == "src\\scripts\\live_tex.gen.cpp" ||
             f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\scripts\\screen_fx.gen.cpp" ||
             f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||
