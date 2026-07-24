@@ -8309,3 +8309,11 @@ Each finished feature lands as its own commit.
   "Layers" section + the example README. Verified: build.ps1 clean; brace
   restructure only - stroke/ghost gating unchanged (canPaint semantics
   preserved), rides the same pending human visual pass.
+- (83) **Material Editor: an orbit drag unchecks Spin** (user request,
+  refining (80)) - the 1.5 s turntable pause turned out to be the wrong
+  model: the user wants the hand to WIN permanently. Any orbit drag now
+  sets matEdSpin_ = false (the checkbox visibly unchecks - the state is
+  discoverable, not a hidden timer), framing stays put, and re-ticking
+  Spin resumes the turntable. The matEdLastOrbitT_ pause timer from (80)
+  is removed; the checkbox gained a tooltip stating the behavior. Docs
+  updated. Verified: build.ps1 clean (one-line interaction change).

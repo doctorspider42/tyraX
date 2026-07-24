@@ -704,13 +704,11 @@ private:
     int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,
                                // 4 = the .obj in matEdModel_
     std::string matEdModel_;   // res/models .obj shown when matEdShape_ == 4
-    bool matEdSpin_ = true;    // turntable
+    bool matEdSpin_ = true;    // turntable; an orbit drag unchecks it (the
+                               // hand wins - re-tick to resume spinning)
     float matEdAngle_ = 40.0f;
     float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
     float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
-    // The turntable pauses while (and briefly after) a drag, so Spin never
-    // fights the hand - before this, dragging with Spin on felt dead.
-    double matEdLastOrbitT_ = -1e9;
     // Preview panel's share of the window width (the draggable splitter
     // between the property column and the preview; editor.ini, machine
     // setting like uiScale).

@@ -14221,11 +14221,10 @@ void App::drawMaterialEditorWindow() {
                               "matched to the model's usemtl names.");
         ImGui::SameLine();
         ImGui::Checkbox("Spin", &matEdSpin_);
-        // the turntable yields to the hand: paused while dragging and for a
-        // beat after, so a drag's result actually sticks
-        if (matEdSpin_ && !matEdPaint_ &&
-            ImGui::GetTime() - matEdLastOrbitT_ > 1.5)
-            matEdAngle_ += io.DeltaTime * 24.0f;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Turntable. Grabbing the preview unchecks it -\n"
+                              "your framing stays put; re-tick to resume.");
+        if (matEdSpin_ && !matEdPaint_) matEdAngle_ += io.DeltaTime * 24.0f;
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(100.0f));
         if (ImGui::Combo("##mat_display", &matEdDisplayMode_,
@@ -14782,7 +14781,8 @@ void App::drawMaterialEditorWindow() {
                 matEdPitch_ = matEdPitch_ < -30.0f ? -30.0f
                               : matEdPitch_ > 85.0f ? 85.0f
                                                     : matEdPitch_;
-                matEdLastOrbitT_ = ImGui::GetTime();  // pauses the turntable
+                matEdSpin_ = false;  // taking the camera unchecks the
+                                     // turntable - the framing stays put
             }
 
             // Hover sync with the UV panel + validator highlights. The

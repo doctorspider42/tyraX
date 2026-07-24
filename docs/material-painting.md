@@ -21,9 +21,10 @@ model object's *Properties > Material > Edit...* (or opening a model's own
 
 Camera: **drag** orbits (left button normally; the **right button always**
 orbits, painting or not), **mouse wheel** zooms, *Spin* keeps the turntable
-going (paused while painting — and it **yields to the hand**: dragging
-pauses the auto-spin for a moment, so your rotation sticks instead of
-drifting away). The camera can dip to low angles for hero shots.
+going (paused while painting). **Grabbing the preview unchecks Spin** — the
+moment you rotate by hand, the turntable stops fighting you and your
+framing stays put; re-tick it to resume. The camera can dip to low angles
+for hero shots.
 
 The **splitter between the property column and the preview is draggable** —
 grab the divider line and trade property width for preview width; the split
