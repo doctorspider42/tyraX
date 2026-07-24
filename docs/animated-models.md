@@ -108,8 +108,8 @@ what ships.
 | **Start clip** | Clip playing at scene start (`(first)` = the file's first clip). |
 | **Autoplay at scene start** | Off = the model holds the clip's first frame until a script/flow node starts it. |
 | **Loop** | On = wraps forever; off = plays once and freezes on the last frame. |
-| **Speed** | Playback multiplier (1.00x = authored speed). |
-| **Color** | Multiplies the model's material colors (tint), like on primitives. |
+| **Speed** | Playback multiplier (1.00x = authored speed, itself scaled by the project's animation fps and the clip's own time scale - see [Animation editor](#animation-editor)). |
+| **Color** | *Not used by animated models.* Their look comes from the model's own materials (or the `.mtl` override below); the console folds only the part color into the lit pass, so the field only tints the placeholder box shown while a model is missing. |
 | **Material** | Optional `.mtl` **override** on top of the built-in materials — see below. `(model's own)` = the materials baked into the file. |
 | **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
 | **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |

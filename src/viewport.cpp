@@ -2415,6 +2415,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Point lights in the scene -> fragment shader uniforms (live preview of
     // what the game bakes into vertex colors; capped at the shader's 8).
+    int pointLightCount = 0;
     {
         float pos[8 * 4] = {};
         float col[8 * 4] = {};
@@ -2436,6 +2437,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uLightCount_, count);
         glUniform4fv(uLightPos_, 8, pos);
         glUniform4fv(uLightCol_, 8, col);
+        pointLightCount = count;
     }
 
     // Ambient occlusion: this frame's occluder set (aobake::collectOccluders,
@@ -2562,6 +2564,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         if (blend) glDisable(GL_BLEND);
     };
 
+    // Animated models (.glb/.fbx) draw through their own helper because the
+    // console lights them differently from everything else: a SkelInstance
+    // gets the scene's directional light + ambient folded into the .tskl
+    // part color and NOTHING else (templates.cpp, setupAnimObject's
+    // litColors). So the object's own tint colour and the scene point lights
+    // - both of which the game only ever bakes into STATIC vertex colours -
+    // must stay out of the preview, or a cyan-tinted Player object renders a
+    // cyan avatar here and a correct one on the console.
+    auto drawAnimParts = [&](const AnimModelDraw& ad, const Mat4& mvp,
+                             const Mat4* model, float shade, bool asLines) {
+        if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
+        for (const AnimModelDraw::Part& part : ad.parts)
+            draw(part.mesh, GL_TRIANGLES, mvp, shade, shade, shade,
+                 asLines ? 0 : part.tex, model);
+        if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
+    };
+
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
         switch (o.type) {
             case PrimitiveType::Box:
@@ -2681,10 +2700,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 AnimModelDraw* ad = animModelDraw(o.modelPath, o.materialPath);
                 if (ad && ad->ok) {
                     updateAnimPose(*ad, o);
-                    for (const AnimModelDraw::Part& part : ad->parts)
-                        draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
-                             o.color[1] * tintScale, o.color[2] * tintScale,
-                             asLines ? 0 : part.tex, lit ? &model : nullptr);
+                    drawAnimParts(*ad, mvp, lit ? &model : nullptr, tintScale,
+                                  asLines);
                     continue;
                 }
                 // unusable .glb falls through to the placeholder box
@@ -2773,9 +2790,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 // pose already advanced by this frame's scene pass - reuse it
                 AnimModelDraw* ad = animModelDraw(t.modelPath, t.materialPath);
                 if (ad && ad->ok) {
-                    for (const AnimModelDraw::Part& part : ad->parts)
-                        draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
-                             t.color[2], part.tex, &model);
+                    drawAnimParts(*ad, mvp, &model, 1.0f, false);
                     return;
                 }
             }
@@ -2847,9 +2862,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
-                        for (const AnimModelDraw::Part& part : ad->parts)
-                            draw(part.mesh, GL_TRIANGLES, mvp, p.color[0],
-                                 p.color[1], p.color[2], part.tex, &model);
+                        drawAnimParts(*ad, mvp, &model, 1.0f, false);
                     }
                     break;  // first player entity wins, like in the game
                 }
