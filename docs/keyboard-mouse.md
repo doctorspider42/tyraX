@@ -99,85 +99,68 @@ drivers never load, `KbdMouse::init()` never runs and `applyKeyboardMouseInput`
 is a no-op. The pad loads separately, so **pad works but keyboard/mouse gives
 zero reaction** — that is the guard doing its job, not a bug.
 
-### Debugging on real hardware (experimental override)
+### Keyboard & mouse over ps2link: the TyraX ps2link
 
 Reading logs is the hard part on hardware: a burned ISO has no `host:`
 filesystem, so there is no `bin/log.txt`. A ps2link deploy is the opposite —
 it forwards the EE console over the network (the editor's *Output* panel /
-`ps2client` show `TYRA_LOG` live) — but it is exactly where the feature is
-disabled. To bridge that gap there is an experimental switch:
+`ps2client` show `TYRA_LOG` live) — but it is exactly where the feature is off
+by default.
 
-*Project > Preferences > Build > Keyboard & mouse controls > **Force under
-ps2link (experimental)*** (stored as `"keyboardMousePs2Link"`). With it on, a
-ps2link deploy keeps the drivers and **loads its own `usbd` + `ps2kbd` /
-`ps2mouse`**. This targets a **network-booted ps2link** (its device list shows
-`tty:(TTY via SMAP UDP)` + `dev9x:` and no USB): such a ps2link carries no
-`usbd` of its own, so loading one is safe and is the only way to get a USB
-stack at all. On a ps2link **booted from USB** (a `usbd` is already resident) a
-second one may wedge the USB host — boot the game from that USB directly
-instead.
+Why it can't simply be switched on: `ps2kbd`/`ps2mouse` import `usbd`'s
+symbols, and a network-booted ps2link (its device list shows
+`tty:(TTY via SMAP UDP)` + `dev9x:` and no USB) carries no `usbd` at all.
+Adding the stack to a ps2link that is **already running** doesn't work either —
+its IOP is never reset, the keyboard half-comes-up via its iomanX device
+(`usbkbd:`) but `PS2MouseInit()` spins forever on a `ps2mouse` RPC server that
+never registered, freezing the boot on the Tyra logo.
 
-**Keyboard only on a stock ps2link.** The real reason the mouse can't come up
-this way: `ps2kbd`/`ps2mouse` import `usbd`'s symbols, and loading `usbd`
-ourselves onto ps2link's already-running (un-reset) IOP doesn't bring the USB
-stack up cleanly — the keyboard half-works via its iomanX device (`usbkbd:`),
-but `PS2MouseInit()` spins forever on a `ps2mouse` RPC server that never
-registers, hanging the boot on the Tyra logo. So on a **stock** ps2link the
-override initialises the **keyboard only** and skips `PS2MouseInit`. For
-keyboard **and** mouse over the network deploy, boot a **custom ps2link** (next
-section). Full mouse without any of this = an exported ISO — off ps2link
-`PS2MouseInit` returns normally.
-
-Then boot with F6 and watch *Output* / `ps2client`:
-
-- `IRX: Loading usbd...` → the engine is loading its own USB stack (new: this
-  is what was missing on a network ps2link before the "load own usbd" fix).
-- `open name usbkbd:dev ... open fd = 3` + `KbdMouse: keyboard driver ready` →
-  `PS2KbdInit` opened the keyboard device. **This is success** — test WASD /
-  `E` / `Space` / arrows / `Esc`.
-- `KbdMouse: mouse skipped (keyboard only under ps2link)` → expected; see
-  above.
-- `Unknown device 'usbkbd'` + `open fd = -19` + `KbdMouse: keyboard driver NOT
-  ready` **followed by a freeze** → the *no-usbd* failure: `ps2kbd` / `ps2mouse`
-  found no `usbd`, self-unloaded, and `PS2MouseInit` span forever on the
-  missing RPC server. The "load own usbd" + "keyboard only" fixes remove this
-  on a network ps2link; if it still freezes, no `usbd` came up at all — test
-  via an exported ISO instead.
-- the keyboard is "ready" but no keys arrive → the device itself is not being
-  read. `ps2kbd`/`ps2mouse` only speak the **USB HID boot protocol**; many
-  wireless dongles and gaming keyboards do not expose it cleanly, so they work
-  in PCSX2 (which emulates a compliant device) but not on hardware. Try a
-  plain wired USB keyboard.
-
-The engine also gives the USB stack a short settle delay after loading
-`ps2kbd`/`ps2mouse` (enumeration is asynchronous on real hardware and
-instantaneous in PCSX2), so `PS2KbdInit`/`PS2MouseInit` don't run before a
-device has attached. This helps the ISO/USB boot path too, not just ps2link.
-
-### Full keyboard + mouse over ps2link: a custom ps2link
-
-The stock ps2link loads no `usbd`, which is the whole problem. The fix is to
-bake `usbd` + `ps2kbd` + `ps2mouse` into **ps2link's own boot** (loaded on its
-freshly-reset IOP, `usbd` first): their drivers and RPC servers are then
-resident and registered before any game runs, and the game **reuses** them —
-no second `usbd` (which would wedge the first), and `PS2MouseInit` binds the
-already-registered server instead of spinning.
-
-Build one from [`tools/ps2link-usbhid/`](../tools/ps2link-usbhid/README.md):
+The fix is to bake `usbd` + `ps2kbd` + `ps2mouse` into **ps2link's own boot**
+(on its freshly-reset IOP, `usbd` first), so the drivers and their RPC servers
+are resident before any game runs and the game just **reuses** them. Build that
+ps2link from [`tools/ps2link-usbhid/`](../tools/ps2link-usbhid/README.md):
 
 ```powershell
 tools/ps2link-usbhid/build.ps1
 ```
 
-produces a `ps2link.elf` with the USB HID stack baked in (it clones a pinned
-ps2link, applies a three-file patch, and builds in the `ps2dev/ps2dev`
-toolchain image). Flash it onto your PS2 in place of stock ps2link, plug in a
-**wired** USB keyboard + mouse, then in *Preferences > Build > Keyboard & mouse
-controls* tick **both** *Force under ps2link* **and** *ps2link already has USB
-drivers (reuse + mouse)*. Build + F6 and both drivers come up:
-`KbdMouse: keyboard driver ready` **and** `mouse driver ready`.
+It clones a pinned ps2link, applies a three-file patch and builds in the
+`ps2dev/ps2dev` toolchain image, producing a `ps2link.elf` whose boot screen
+reads **“Welcome to TyraX ps2link (USB keyboard + mouse)”**. Flash it onto your
+PS2 in place of stock ps2link and plug in a **wired** USB keyboard + mouse.
 
-Only tick "ps2link already has USB drivers" when you actually booted the custom
-ps2link — on a stock one the reuse path finds no drivers and `PS2MouseInit`
-hangs. The baked-in drivers survive only because the generated game keeps the
-IOP resident under ps2link; a game that reset the IOP would wipe them.
+Then in *Project > Preferences > Build > Keyboard & mouse controls* tick
+**Also over ps2link — needs the TyraX ps2link** (stored as
+`"keyboardMousePs2Link"`), build and hit F6. The engine loads no USB modules of
+its own (a second `usbd` would wedge the resident one) and initialises the
+drivers ps2link already has. Watch *Output* / `ps2client`:
+
+- `open name usbkbd:dev ... open fd = 3` + `KbdMouse: keyboard driver ready`
+  **and** `KbdMouse: mouse driver ready` → both drivers are up; test WASD /
+  mouse look / `E` / `Space` / arrows / `Esc`.
+- `KbdMouse: mouse skipped (no resident USB stack - is this the TyraX
+  ps2link?)` → the keyboard device didn't open, so the mouse was skipped on
+  purpose (that guard is what keeps a stock ps2link from freezing the boot).
+  You are almost certainly running stock ps2link.
+- `Unknown device 'usbkbd'` + `open fd = -19` + `keyboard driver NOT ready` →
+  same thing: no resident USB stack.
+- both drivers "ready" but nothing responds → the **devices** are the problem,
+  not the software. `ps2kbd`/`ps2mouse` only speak the **USB HID boot
+  protocol**; plenty of wireless dongles and gaming keyboards/mice don't expose
+  it cleanly, so they work in PCSX2 (which emulates a compliant device) and are
+  invisible on hardware — including to other homebrew like uLaunchELF. Testing
+  a keyboard/mouse in uLaunchELF first is the quickest way to tell a device
+  problem from a TyraX problem.
+
+The baked-in drivers survive only because the generated game keeps the IOP
+resident under ps2link; a game that reset the IOP would wipe them. The engine
+also gives the USB stack a short settle delay after loading `ps2kbd`/`ps2mouse`
+(enumeration is asynchronous on real hardware and instantaneous in PCSX2), so
+`PS2KbdInit`/`PS2MouseInit` don't run before a device has attached — that helps
+the ISO/USB boot path too.
+
+> **Status:** this path is **not confirmed on real hardware.** It got as far as
+> both drivers reporting ready on a physical PS2, but the test devices turned
+> out not to be recognised by the console at all (uLaunchELF didn't see them
+> either), so keystrokes/motion could never be verified end-to-end. PCSX2 is
+> fully verified.

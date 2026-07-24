@@ -25,7 +25,7 @@ KbdMouse::KbdMouse() {
   prevButtons = 0;
 }
 
-void KbdMouse::init(bool withMouse) {
+void KbdMouse::init(bool underPs2Link) {
   // PS2KbdInit: 1 = opened, 2 = already open, 0 = device file missing
   // (driver not loaded). The driver defaults to non-blocking reads, so a
   // frame with no key events costs one empty read.
@@ -41,12 +41,13 @@ void KbdMouse::init(bool withMouse) {
     TYRA_LOG("KbdMouse: keyboard driver NOT ready (no device / no usbd?)");
   }
 
-  // PS2MouseInit binds the ps2mouse RPC server in a while(server==0) spin.
-  // With ps2mouse.irx loaded off ps2link that returns at once (DIFF read
-  // mode: x/y/wheel accumulate on the IOP and reset on every read). Under a
-  // resident-IOP ps2link the RPC server never comes up and the spin never
-  // ends - so withMouse=false there (keyboard only) to keep the boot alive.
-  if (withMouse) {
+  // PS2MouseInit binds the ps2mouse RPC server in a while(server==0) spin, so
+  // it must only run where that server exists. Off ps2link we loaded the
+  // drivers ourselves, so it does. Under ps2link they belong to the custom
+  // TyraX ps2link - and the keyboard device opening above is the proof that
+  // stack is really resident; on a stock ps2link it is not, and calling
+  // PS2MouseInit would spin forever, freezing the boot on the Tyra logo.
+  if (!underPs2Link || kbdOk) {
     mouseOk = PS2MouseInit() >= 0;
     if (mouseOk) {
       // Force relative deltas. We treat every read as a per-frame delta (the
@@ -61,7 +62,8 @@ void KbdMouse::init(bool withMouse) {
     }
   } else {
     mouseOk = false;
-    TYRA_LOG("KbdMouse: mouse skipped (keyboard only under ps2link)");
+    TYRA_LOG("KbdMouse: mouse skipped (no resident USB stack - is this the "
+             "TyraX ps2link?)");
   }
 }
 

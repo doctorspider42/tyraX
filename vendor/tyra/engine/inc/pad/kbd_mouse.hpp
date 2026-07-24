@@ -40,11 +40,12 @@ class KbdMouse {
   KbdMouse();
 
   /** Open the drivers. Call once, after the IRX modules are loaded.
-   * withMouse=false skips PS2MouseInit entirely (keyboard only): under a
-   * resident-IOP ps2link the SDK's PS2MouseInit spins forever binding an RPC
-   * server that never registers, which hangs the boot on the Tyra logo. The
-   * keyboard path uses an iomanX device instead and is unaffected. */
-  void init(bool withMouse = true);
+   * underPs2Link=true means the drivers are not ours but the custom TyraX
+   * ps2link's resident ones; the mouse is then only initialised if the
+   * keyboard device opened (proof that stack is really there). Without that
+   * guard, PS2MouseInit on a stock ps2link spins forever binding an RPC
+   * server that never registered and hangs the boot on the Tyra logo. */
+  void init(bool underPs2Link = false);
 
   /** Poll both devices. Called by Engine::realLoop() once per frame,
    * before the game loop runs. No-op when init() was skipped/failed. */

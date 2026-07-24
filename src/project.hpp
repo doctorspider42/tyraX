@@ -572,25 +572,14 @@ struct ProjectSettings {
     // wedges the USB stack.
     bool keyboardMouse = true;
 
-    // Experimental (debug): force the keyboard driver on even under a ps2link
-    // deploy, where it is normally skipped. Meant for the network-deploy dev
-    // loop: a network-booted ps2link (SMAP/dev9) has no usbd, so the engine
-    // loads its own plus ps2kbd and the EE console (Output / ps2client) shows
-    // the load live. KEYBOARD ONLY: the SDK's PS2MouseInit spins forever on a
-    // resident-IOP ps2link, so mouse-look needs an exported ISO. On a USB-
-    // booted ps2link (usbd already resident) it may wedge the USB stack - boot
-    // from that USB instead. Off by default.
+    // Experimental (debug): keep keyboard/mouse working on a "Run on PS2"
+    // (ps2link) deploy, where they are normally skipped. REQUIRES the custom
+    // TyraX ps2link (tools/ps2link-usbhid) - it bakes usbd + ps2kbd + ps2mouse
+    // into its own boot, so the engine reuses that resident stack and loads
+    // none of its own (a second usbd would wedge it). On a stock ps2link there
+    // is no USB stack to reuse: the drivers just report "not ready". See
+    // docs/keyboard-mouse.md. Off by default.
     bool keyboardMousePs2Link = false;
-
-    // Experimental (debug): only when keyboardMousePs2Link is on. Tick this if
-    // you boot a CUSTOM ps2link that already has usbd + ps2kbd + ps2mouse
-    // baked in (their RPC servers register at ps2link's own clean boot). The
-    // engine then REUSES that resident stack - loads none of its own (a second
-    // usbd would wedge it) - and the mouse works too, because PS2MouseInit
-    // binds the already-registered server instead of spinning. Leave OFF for a
-    // stock ps2link (no USB): the engine loads its own drivers, keyboard only.
-    // See docs/keyboard-mouse.md (custom ps2link). Off by default.
-    bool keyboardMousePs2LinkResident = false;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -781,7 +770,6 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.liveLink == b.liveLink &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
-           a.keyboardMousePs2LinkResident == b.keyboardMousePs2LinkResident &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&

@@ -37,25 +37,36 @@ here. (It builds with the current ps2dev toolchain, independent of the older
 
 The patch is three mechanical edits to ps2link's `ee/` tree:
 `ee/Makefile` (embed the three IRX), `ee/irx_variables.h` (extern the buffers),
-`ee/ps2link.c` `loadModules()` (three `SifExecModuleBuffer`, **`usbd` first**).
-It ships prebuilt `usbd`/`ps2kbd`/`ps2mouse` IRX from `$PS2SDK/iop/irx/`.
+`ee/ps2link.c` (`loadModules()` gains three `SifExecModuleBuffer`, **`usbd`
+first**; the welcome screen is branded). It ships prebuilt
+`usbd`/`ps2kbd`/`ps2mouse` IRX from `$PS2SDK/iop/irx/`.
+
+You can tell the build apart on the console: its boot screen says
+**“Welcome to TyraX ps2link (USB keyboard + mouse)”** instead of
+“Welcome to ps2link”.
 
 ## Use it
 
 1. **Flash** the built `ps2link.elf` onto your PS2 in place of stock ps2link
    (memory card via uLaunchELF/FMCB, or whatever boots your ps2link), and boot
-   it as usual. Plug a **wired USB keyboard and mouse** into the front ports.
+   it as usual — the screen should greet you as *TyraX ps2link*. Plug a
+   **wired USB keyboard and mouse** into the front ports.
 2. In the editor: *Project > Preferences > Build > Keyboard & mouse controls*,
-   then tick both **Force under ps2link (experimental)** and
-   **ps2link already has USB drivers (reuse + mouse)**.
+   then tick **Also over ps2link — needs the TyraX ps2link**.
 3. Build + **F6**. Watch the *Output* panel / `ps2client`:
    `KbdMouse: keyboard driver ready` **and** `mouse driver ready` = full
    keyboard + mouse over the network deploy.
 
-> Only tick "ps2link already has USB drivers" when you actually booted this
-> custom ps2link. On stock ps2link the reuse path finds no drivers and
-> `PS2MouseInit` hangs — leave it off there (keyboard-only) and use an exported
-> ISO for full mouse.
+> That checkbox assumes this ps2link. On a stock one there is no USB stack to
+> reuse: the keyboard reports "not ready" and the mouse is skipped on purpose
+> (the engine guards `PS2MouseInit`, which would otherwise hang the boot).
+
+> **Status:** not confirmed end-to-end on real hardware. Both drivers reported
+> ready on a physical PS2, but the test keyboard/mouse turned out not to be
+> recognised by the console at all (uLaunchELF didn't see them either), so
+> keystrokes could never be verified. If your devices don't respond, check them
+> in uLaunchELF first: `ps2kbd`/`ps2mouse` only speak the USB HID **boot
+> protocol**, which many wireless/gaming devices don't expose.
 
 ## Caveat
 

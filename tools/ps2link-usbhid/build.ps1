@@ -27,7 +27,14 @@ function Invoke-Checked([string]$what) {
     if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE)" }
 }
 
-if ($Clean -and (Test-Path $work)) { Remove-Item -Recurse -Force $work }
+if ($Clean -and (Test-Path $work)) {
+    # git keeps object files read-only, which can make a plain -Force removal
+    # fail; clear the attribute first, then verify - a silent failure here used
+    # to fall through to "reusing existing clone" and build a stale tree.
+    Get-ChildItem -Recurse -Force $work | ForEach-Object { $_.Attributes = 'Normal' }
+    Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    if (Test-Path $work) { throw "could not remove $work (a file is locked?)" }
+}
 
 if (-not (Test-Path (Join-Path $work '.git'))) {
     Write-Host "== Cloning ps2link @ $($commit.Substring(0,10)) =="

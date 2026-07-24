@@ -36,21 +36,13 @@ struct EngineOptions {
   bool loadUsbKbdMouse = false;
 
   /** Experimental (TyraX fork): keep the keyboard/mouse drivers on even under
-   * a ps2link deploy, where loadUsbKbdMouse is otherwise ignored. Intended for
-   * the network-deploy dev loop: a network-booted ps2link (SMAP/dev9) carries
-   * no usbd, so the engine loads its own plus ps2kbd/ps2mouse and the EE
-   * console shows the load live. On a USB-booted ps2link (usbd already
-   * resident) this may wedge the USB stack - boot the game from that USB
-   * instead. */
+   * a ps2link deploy, where loadUsbKbdMouse is otherwise ignored. REQUIRES the
+   * custom TyraX ps2link (tools/ps2link-usbhid), which bakes usbd + ps2kbd +
+   * ps2mouse into its own boot: the engine REUSES that resident stack and
+   * loads none of its own (a second usbd would wedge it, and drivers added to
+   * a running ps2link's IOP never come up cleanly). With a stock ps2link there
+   * is nothing to reuse and the drivers just report "not ready". */
   bool loadUsbKbdMouseUnderPs2Link = false;
-
-  /** Experimental (TyraX fork): set with loadUsbKbdMouseUnderPs2Link when the
-   * ps2link in use is a CUSTOM build with usbd+ps2kbd+ps2mouse already baked
-   * in. The engine then REUSES that resident stack (loads none of its own - a
-   * second usbd would wedge it) and enables the mouse: its RPC server
-   * registered at ps2link's clean boot, so PS2MouseInit binds instead of
-   * spinning. Ignored off ps2link. */
-  bool ps2LinkHasUsbHid = false;
 
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;

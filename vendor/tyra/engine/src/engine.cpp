@@ -56,37 +56,24 @@ void Engine::initAll(const EngineOptions& options) {
   ChangeThreadPriority(GetThreadId(), 0x40);
 
   srand(time(nullptr));
-  // No keyboard/mouse under ps2link by default: a USB-booted ps2link already
-  // runs usbd, and loading a second USB stack wedges the first. Skipping the
-  // drivers also means PS2MouseInit() must not run - without a usbd, ps2mouse
-  // self-unloads and PS2MouseInit spins forever binding an RPC server that is
-  // gone. The experimental loadUsbKbdMouseUnderPs2Link override forces them on
-  // anyway (debug aid for the network-deploy dev loop): a NETWORK-booted
-  // ps2link has no usbd resident, so loadAll loads its own and the HID drivers
-  // attach to it. On a USB-booted ps2link the override may wedge - boot the
-  // game from that USB instead.
+  // No keyboard/mouse under ps2link by default: USB drivers cannot be added
+  // safely to a ps2link that is already running (its IOP is never reset, and
+  // ps2kbd/ps2mouse need a usbd that a network-booted ps2link does not carry).
+  // The experimental loadUsbKbdMouseUnderPs2Link override targets the custom
+  // TyraX ps2link (tools/ps2link-usbhid), which bakes usbd + ps2kbd + ps2mouse
+  // into its OWN boot: we then reuse that resident stack and load nothing of
+  // our own - a second usbd would wedge it.
   const bool underPs2Link = IrxLoader::keepIopResident;
   const bool withKbdMouse =
       options.loadUsbKbdMouse &&
       (!underPs2Link || options.loadUsbKbdMouseUnderPs2Link);
-  // A CUSTOM ps2link with usbd+ps2kbd+ps2mouse baked in already has the whole
-  // stack resident (RPC servers registered at its clean boot): reuse it. Do
-  // NOT load our own (a second usbd would wedge it), and the mouse works too
-  // because PS2MouseInit binds the already-registered server instead of
-  // spinning. Stock ps2link (no USB) keeps the load-our-own, keyboard-only
-  // path.
-  const bool reuseResidentHid =
-      withKbdMouse && underPs2Link && options.ps2LinkHasUsbHid;
-  const bool loadOwnHid = withKbdMouse && !reuseResidentHid;
+  const bool loadOwnHid = withKbdMouse && !underPs2Link;
   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
   renderer.init(options.videoMode, options.displayMode, options.widescreen);
   banner.show(&renderer);
   audio.init();
   pad.init();
-  // Mouse runs off ps2link (PCSX2 / exported ISO) and on a custom ps2link with
-  // the stack resident; it is skipped only on a stock ps2link where we loaded
-  // our own drivers - there PS2MouseInit spins forever (see KbdMouse::init).
-  if (withKbdMouse) kbdMouse.init(!underPs2Link || reuseResidentHid);
+  if (withKbdMouse) kbdMouse.init(underPs2Link);
 }
 
 }  // namespace Tyra

@@ -170,14 +170,22 @@ deltas + button mask) drivers, loaded by the IrxLoader behind
 `EngineOptions::loadUsbKbdMouse`; `Pad::injectVirtual` overlays a virtual
 pad — held buttons OR into the polled state, click edges derived from the
 previous overlay, stick offsets clamped — which is how generated games map
-keys onto the pad; **skipped under ps2link**: a second usbd on an IOP that
-may already run one wedges the USB stack, and PS2MouseInit would spin
-forever binding an RPC whose server never loaded — the experimental
-`loadUsbKbdMouseUnderPs2Link` override forces it on anyway and reuses
-ps2link's resident usbd instead of loading a second one, a debug aid so the
-driver-load logs reach the EE console; the IrxLoader gives HID a fixed
-settle delay after load since USB enumeration is async on real hardware but
-instant in PCSX2), **two-player support**
+keys onto the pad; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
+symbols and drivers added to an already-running ps2link's un-reset IOP never
+come up cleanly (PS2MouseInit then spins forever on an RPC server that never
+registered — a boot freeze on the Tyra logo). The
+`loadUsbKbdMouseUnderPs2Link` option instead targets the **custom TyraX
+ps2link** (`tools/ps2link-usbhid` — bakes usbd+ps2kbd+ps2mouse into ps2link's
+OWN boot): the engine then loads NO USB modules and reuses that resident
+stack. `KbdMouse::init(underPs2Link)` guards PS2MouseInit on the keyboard
+device having opened, so mis-ticking it on stock ps2link logs instead of
+hanging. Two real-hardware traps found the hard way: PS2MouseData must be
+zero-initialised (a real mouse sends no packet on a still frame, so garbage
+read as a constant delta spins the camera — PCSX2 never shows it) and the
+read mode is set to DIFF explicitly; the IrxLoader gives HID a fixed settle
+delay after load since USB enumeration is async on real hardware but instant
+in PCSX2. **Hardware-unconfirmed** beyond "drivers ready" — the test devices
+didn't speak USB HID boot protocol), **two-player support**
 (docs/multiplayer.md): `Pad::initOptional(port, slot)` (padInit is now
 once-global; an optional pad never blocks or asserts on a missing controller —
 upstream `update()` busy-waited forever on DISCONN — and keeps polling for a

@@ -18208,30 +18208,16 @@ void App::drawPreferencesModal() {
         "USB devices on a console. Skipped on ps2link deploys.");
     ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
     ImGui::Indent(scaled(16));
-    ImGui::Checkbox("Force under ps2link (experimental)",
+    ImGui::Checkbox("Also over ps2link - needs the TyraX ps2link",
                     &prefSettings_.keyboardMousePs2Link);
     prefHelp(
-        "Debug aid: keep the keyboard drivers on even for a Run on PS2\n"
-        "(ps2link) deploy, where they are normally skipped. On a stock ps2link\n"
-        "the engine loads its own usbd + ps2kbd (a network-booted ps2link has\n"
-        "none) and runs KEYBOARD ONLY - the SDK's mouse init spins forever on\n"
-        "a resident-IOP ps2link. The driver-load logs show up live in Output /\n"
-        "ps2client. For keyboard AND mouse over ps2link, boot a custom ps2link\n"
-        "and tick the option below. Full mouse without any of this = an\n"
-        "exported ISO.");
-    ImGui::BeginDisabled(!prefSettings_.keyboardMousePs2Link);
-    ImGui::Indent(scaled(16));
-    ImGui::Checkbox("ps2link already has USB drivers (reuse + mouse)",
-                    &prefSettings_.keyboardMousePs2LinkResident);
-    prefHelp(
-        "Tick this ONLY if you boot a custom ps2link with usbd + ps2kbd +\n"
-        "ps2mouse baked in (see docs/keyboard-mouse.md). Their RPC servers\n"
-        "register at ps2link's own clean boot, so the engine reuses that\n"
-        "resident stack (loads none of its own - a second usbd would wedge it)\n"
-        "and the mouse works too. On a stock ps2link (no USB) leave this OFF,\n"
-        "or PS2KbdInit finds no device and PS2MouseInit hangs.");
-    ImGui::Unindent(scaled(16));
-    ImGui::EndDisabled();
+        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy, where\n"
+        "they are normally skipped. Requires the custom TyraX ps2link built by\n"
+        "tools/ps2link-usbhid (its boot screen says \"TyraX ps2link\"): stock\n"
+        "ps2link loads no USB drivers at all, and they cannot be added safely\n"
+        "afterwards - with it the engine just reuses the resident stack. The\n"
+        "driver logs show up live in Output / ps2client. On a stock ps2link\n"
+        "the drivers simply report \"not ready\". See docs/keyboard-mouse.md.");
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);

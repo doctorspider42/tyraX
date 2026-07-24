@@ -364,17 +364,12 @@ int main(int argc, char** argv) {
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
   // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
   options.loadUsbKbdMouse = {{KBD_MOUSE}};
-  // Experimental (Preferences > Build > Keyboard & mouse > Force under
-  // ps2link): normally the drivers are skipped under ps2link. With this on the
-  // engine keeps them and loads its own usbd (a network-booted ps2link has
-  // none), logging the load over the EE console. May wedge a USB-booted
-  // ps2link. See docs/keyboard-mouse.md (Debugging on real hardware).
+  // Experimental (Preferences > Build > Keyboard & mouse > Also over ps2link):
+  // normally the drivers are skipped under ps2link. With this on the engine
+  // reuses the USB stack of the custom TyraX ps2link (tools/ps2link-usbhid),
+  // which bakes usbd+ps2kbd+ps2mouse into its own boot - it loads none of its
+  // own. See docs/keyboard-mouse.md (Debugging on real hardware).
   options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
-  // ...and if that ps2link is a CUSTOM build with usbd+ps2kbd+ps2mouse baked
-  // in: reuse its resident stack (load none of our own) and enable the mouse
-  // (its RPC server registered at ps2link's clean boot, so PS2MouseInit binds
-  // instead of spinning). See docs/keyboard-mouse.md (custom ps2link).
-  options.ps2LinkHasUsbHid = {{KBD_MOUSE_PS2LINK_RESIDENT}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -14965,8 +14960,6 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
-    s = replaceAll(s, "{{KBD_MOUSE_PS2LINK_RESIDENT}}",
-                   st.keyboardMousePs2LinkResident ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");

@@ -8734,3 +8734,30 @@ Each finished feature lands as its own commit.
   spin). Pure engine change (kbd_mouse.cpp), reaches the game via the Docker
   resync - no editor rebuild. Fixes mouse-look on ALL real-hardware paths (ISO
   too), not just ps2link. Hardware retest pending.
+
+- (98) **Keyboard/mouse: one ps2link option + TyraX-branded ps2link; hardware
+  verification parked**. The hardware hunt ended inconclusively: with the custom
+  ps2link both drivers report ready and the game boots, but no input arrives -
+  and the user's keyboard/mouse turn out not to be recognised by the console at
+  ALL (uLaunchELF doesn't see them either), i.e. they don't speak the USB HID
+  **boot protocol** `ps2kbd`/`ps2mouse` require. Nothing left to fix on our
+  side without hardware that works, so the path is documented as **verified in
+  PCSX2, unconfirmed on hardware** (docs + tools README carry a Status note;
+  the uLaunchELF cross-check is written down as the way to tell a device
+  problem from a TyraX problem). Cleanups the user asked for:
+  (a) **two nested checkboxes collapsed into one** - *Also over ps2link - needs
+  the TyraX ps2link* (`keyboardMousePs2Link`). It now always means the custom
+  ps2link, so `keyboardMousePs2LinkResident` / `EngineOptions::ps2LinkHasUsbHid`
+  and the whole "stock ps2link, load our own, keyboard-only" branch are gone;
+  the engine under ps2link simply reuses the resident stack. Load tolerates the
+  retired key (verified by round-tripping a .tyra that still has it).
+  (b) A **safety guard replaces the removed branch**: `KbdMouse::init` only runs
+  `PS2MouseInit` if the keyboard device opened (proof the stack is resident), so
+  ticking the box on a stock ps2link logs "mouse skipped" instead of freezing
+  the boot on the Tyra logo.
+  (c) **ps2link boot screen branded** "Welcome to TyraX ps2link (USB keyboard +
+  mouse)" so the custom build is identifiable on the console; patch regenerated
+  and the elf rebuilt (`strings` confirms branding + HID drivers).
+  Also fixed a silent `build.ps1 -Clean` failure (read-only git objects made the
+  removal fail, then it built a stale tree while printing "reusing existing
+  clone"). Editor builds and links clean; all 17 examples regenerated.
