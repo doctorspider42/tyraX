@@ -8470,3 +8470,21 @@ Each finished feature lands as its own commit.
   outside the modal) refresh without a restart. Verified: both unwrap
   harnesses green including the user's actual spider2.glb (Baked + Skel
   paths carry the fix, per-part validator-clean, delete-restores).
+- (87) **Multi-entry workflow: pick-to-select + one-click textures** (user
+  request: "mud only on the clothes, quickly") - the per-entry model was
+  all there but navigating it was blind. Three additions: (1)
+  materialPreviewPick gained an outMaterial param (the sweep knows the hit
+  part) and clicking a part in the 3D preview JUMPS TO ITS ENTRY - hover
+  names the part ("spider.legs - click to edit this entry"; parts without
+  a matching entry say so), a clean click is distinguished from an orbit
+  drag by MouseDragMaxDistanceSqr, and painting keeps LMB for the brush;
+  (2) when the selected entry has no texture the Layers box shows a
+  "Create texture for this entry" button (matEdEnsurePaintTexture: a
+  256^2 white "<entry>-tex.png" next to the .mtl, unique-named, Props
+  undo, assigned + saved + loaded as the paint target) - masks, presets
+  and painting bootstrap in one click; (3) the Entry combo marks
+  untextured entries with "(no texture)". Combined with (86)'s dimmed
+  whole-model UV panel, the clothes-mud flow is: click the shirt in the
+  preview -> Create texture -> Presets -> worn-stone; click the pants ->
+  repeat. Verified: build.ps1 clean; input-logic + file-creation paths
+  ride the standing human GUI pass (known white-window machine state).

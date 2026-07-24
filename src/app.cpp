@@ -13922,6 +13922,44 @@ void App::matEdUvValidateSection(const std::string& entryName) {
     }
 }
 
+bool App::matEdEnsurePaintTexture() {
+    if (matEdSel_ < 0 || matEdSel_ >= (int)matEdMats_.size()) return false;
+    MatEdEntry& e = matEdMats_[matEdSel_];
+    const std::filesystem::path mtlDirAbs =
+        (std::filesystem::path(project_.dir) / matEdPath_).parent_path();
+    if (e.texture.empty()) {
+        // fresh 256^2 white canvas named after the entry
+        const std::string base = sanitizeAssetName(e.name + "-tex");
+        std::string fileName;
+        std::error_code ec;
+        for (int n = 1;; ++n) {
+            fileName = base + (n == 1 ? "" : "-" + std::to_string(n)) + ".png";
+            if (!std::filesystem::exists(mtlDirAbs / fileName, ec)) break;
+        }
+        std::vector<unsigned char> px((size_t)256 * 256 * 4, 255);
+        if (!stbi_write_png((mtlDirAbs / fileName).string().c_str(), 256, 256,
+                            4, px.data(), 256 * 4)) {
+            statusMessage_ = "Cannot create " + fileName;
+            return false;
+        }
+        matEdPushUndo(MatEdUndoStep::Kind::Props);  // texture assignment
+        e.texture = fileName;
+        saveMaterialFile();
+        statusMessage_ = "Created " + fileName + " for entry " + e.name;
+    }
+    const std::string texRel =
+        (std::filesystem::path(matEdPath_).parent_path() / e.texture)
+            .generic_string();
+    if (matEdPaintTexRel_ != texRel) {
+        if (!matEdLoadPaintTarget(texRel)) {
+            statusMessage_ = "Cannot read " + texRel;
+            return false;
+        }
+        matEdComposite();
+    }
+    return matEdPaintW_ > 0;
+}
+
 // The 2D UV-layout panel: the paintable triangles' UV wireframe over the
 // entry's live texture, zoom/pan, and the hover sync - a face hovered in 3D
 // lights up here, a triangle hovered here is outlined on the mesh (and all
@@ -14206,6 +14244,7 @@ void App::drawMaterialEditorWindow() {
                 ImGui::PushID(i);
                 std::string label = matEdMats_[i].name;
                 if (i == 0) label += "  [primitives use this]";
+                if (matEdMats_[i].texture.empty()) label += "  (no texture)";
                 if (ImGui::Selectable(label.c_str(), i == matEdSel_)) matEdSel_ = i;
                 ImGui::PopID();
             }
@@ -15094,6 +15133,18 @@ void App::drawMaterialEditorWindow() {
 
             // generator controls of the active smart-mask layer
             matEdGenControls();
+        } else if (texRel.empty() && !matEdMats_.empty()) {
+            // no texture on this entry yet: one click bootstraps the whole
+            // layers/masks/presets flow ("mud on the shirt" starts here)
+            ImGui::Spacing();
+            ImGui::TextDisabled("Layers");
+            if (ImGui::Button("Create texture for this entry"))
+                matEdEnsurePaintTexture();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Creates a blank 256x256 PNG named after the entry,\n"
+                    "assigns it and opens the layer stack - masks, presets\n"
+                    "and painting all need a texture to land on.");
         }
 
         // --- the preview image + mouse interaction ---------------------------
@@ -15166,26 +15217,48 @@ void App::drawMaterialEditorWindow() {
                                      // turntable - the framing stays put
             }
 
-            // Hover sync with the UV panel + validator highlights. The
-            // outlines project the bake mesh's triangles through the
-            // preview camera (matBakeMeshLow_ is (re)built by the panel /
-            // validator; stale indices are bounds-guarded).
-            if (matEdUvView_) {
-                matEd3dHoverValid_ = false;
-                if (hovered && !matEdStroke_ && !orbiting) {
-                    const float u = (io.MousePos.x - imgPos.x) / (float)pw;
-                    const float v = (io.MousePos.y - imgPos.y) / (float)ph;
-                    float hu = 0.0f, hv = 0.0f;
-                    bool pntbl = false;
-                    if (viewport_.materialPreviewPick(u, v, hu, hv, pntbl) &&
-                        pntbl) {
-                        matEd3dHoverValid_ = true;
-                        matEd3dHoverUV_[0] = hu;
-                        matEd3dHoverUV_[1] = hv;
+            // Hover pick: feeds the UV-panel sync AND the click-a-part
+            // entry selection. The outlines project the bake mesh's
+            // triangles through the preview camera (matBakeMeshLow_ is
+            // (re)built by the panel / validator; stale indices are
+            // bounds-guarded).
+            matEd3dHoverValid_ = false;
+            if (hovered && !matEdStroke_ && !orbiting &&
+                (matEdUvView_ || (!matEdPaint_ && matEdShape_ == 4))) {
+                const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                float hu = 0.0f, hv = 0.0f;
+                bool pntbl = false;
+                std::string hoverEntry;
+                const bool hit = viewport_.materialPreviewPick(
+                    u, v, hu, hv, pntbl, &hoverEntry);
+                if (hit && pntbl && matEdUvView_) {
+                    matEd3dHoverValid_ = true;
+                    matEd3dHoverUV_[0] = hu;
+                    matEd3dHoverUV_[1] = hv;
+                }
+                // a multi-part model: click any part to jump to its entry
+                // (models only - primitives always use the first entry;
+                // painting keeps LMB for the brush)
+                if (hit && !matEdPaint_ && matEdShape_ == 4 &&
+                    !hoverEntry.empty()) {
+                    int hitIdx = -1;
+                    for (size_t i = 0; i < matEdMats_.size(); ++i)
+                        if (matEdMats_[i].name == hoverEntry)
+                            hitIdx = (int)i;
+                    if (hitIdx >= 0 && hitIdx != matEdSel_) {
+                        ImGui::SetTooltip("%s - click to edit this entry",
+                                          hoverEntry.c_str());
+                        // a clean click, not the tail of an orbit drag
+                        if (ImGui::IsMouseReleased(0) &&
+                            io.MouseDragMaxDistanceSqr[0] < 16.0f)
+                            matEdSel_ = hitIdx;
+                    } else if (hitIdx < 0) {
+                        ImGui::SetTooltip(
+                            "part '%s' has no entry in this file",
+                            hoverEntry.c_str());
                     }
                 }
-            } else {
-                matEd3dHoverValid_ = false;
             }
             if (matEdUvHoverTri_ >= 0 || !matEdUvIssueTris_.empty()) {
                 auto outlineTri = [&](int t, ImU32 col, float th) {

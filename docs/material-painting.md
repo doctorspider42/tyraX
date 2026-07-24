@@ -23,6 +23,18 @@ its **staged** values live while you drag sliders. Opening the editor from a
 model object's *Properties > Material > Edit...* lands directly on the right
 mesh (for a static model's own `.mtl`, the sibling `.obj` is auto-picked).
 
+**Multi-part models** (a character with skin/shirt/pants parts, the spider
+with body/legs/jaw...) are edited **one entry at a time** — the *Entry*
+combo at the top of the property column picks which part you are working
+on (untextured entries are marked), and everything below follows: texture,
+paint layers, smart masks, bake, the UV panel (other entries' islands stay
+visible, dimmed). Two shortcuts make this fast: **click a part right in
+the 3D preview** to jump to its entry (hover names it; painting keeps the
+left button for the brush), and when an entry has no texture yet the
+Layers box offers **Create texture for this entry** — one click and masks,
+presets and painting have somewhere to land. "Mud only on the clothes" is:
+click the shirt, create/apply, click the pants, apply again.
+
 An animated model has no sibling `.mtl` to assign, so the material picker in
 *Properties* has a **+ New material from this model...** entry: it extracts the
 model's built-in materials (part names, base colors, embedded textures) into a

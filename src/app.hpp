@@ -854,6 +854,12 @@ private:
                           const std::string& texRel);
     // composite -> GL upload; multiplies the AO preview in at upload time
     void matEdUploadComposite();
+    // Auto-creates a paintable texture for the selected entry when it has
+    // none ("<entry>-tex.png", 256^2 white, next to the .mtl), assigns it,
+    // saves the file and loads it as the paint target. The one-click
+    // enabler for masks/presets/bakes on a fresh multi-part model. Returns
+    // true when a loaded paint target exists afterwards.
+    bool matEdEnsurePaintTexture();
 
     // UV inspection (docs/material-painting.md): preview display mode and
     // the 2D UV-layout panel with two-way hover sync (hover a face in 3D -
