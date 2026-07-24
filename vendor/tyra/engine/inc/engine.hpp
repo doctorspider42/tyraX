@@ -12,6 +12,7 @@
 
 #include "./renderer/renderer.hpp"
 #include "./pad/pad.hpp"
+#include "./pad/kbd_mouse.hpp"
 #include "./audio/audio.hpp"
 #include "./irx/irx_loader.hpp"
 #include "./info/info.hpp"
@@ -28,6 +29,20 @@ struct EngineOptions {
   bool writeLogsToFile = false;
 
   bool loadUsbDriver = false;
+
+  /** Load the USB keyboard/mouse drivers (TyraX fork) and poll them each
+   * frame through Engine::kbdMouse. Games map that state onto the pad
+   * (Pad::injectVirtual) / camera themselves. */
+  bool loadUsbKbdMouse = false;
+
+  /** Experimental (TyraX fork): keep the keyboard/mouse drivers on even under
+   * a ps2link deploy, where loadUsbKbdMouse is otherwise ignored. REQUIRES the
+   * custom TyraX ps2link (tools/ps2link-usbhid), which bakes usbd + ps2kbd +
+   * ps2mouse into its own boot: the engine REUSES that resident stack and
+   * loads none of its own (a second usbd would wedge it, and drivers added to
+   * a running ps2link's IOP never come up cleanly). With a stock ps2link there
+   * is nothing to reuse and the drivers just report "not ready". */
+  bool loadUsbKbdMouseUnderPs2Link = false;
 
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
@@ -56,6 +71,7 @@ class Engine {
 
   Renderer renderer;
   Pad pad;
+  KbdMouse kbdMouse;
   Audio audio;
   Info info;
 

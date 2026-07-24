@@ -10,6 +10,7 @@
 
 #include <filesystem>
 
+#include "animedit.hpp"
 #include "aobake.hpp"
 #include "gl_loader.h"
 #include "objparser.hpp"
@@ -2162,29 +2163,74 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
 
 // Interpolates the object's current pose (start clip + preview clock, the
 // same frame lerp the PS2 does on VU1) into the part VBOs.
+const AnimClipEdit* Viewport::animEditFor(const std::string& modelRel,
+                                          const std::string& sourceClip) const {
+    for (const AnimClipEdit& e : animEdits_)
+        if (e.model == modelRel && e.clip == sourceClip) return &e;
+    return nullptr;
+}
+
 void Viewport::updateAnimPose(AnimModelDraw& draw, const SceneObject& o) {
     const glbparser::Baked& b = draw.baked;
     if (b.clips.empty()) return;
+    // SceneObject::animClip holds the EFFECTIVE (post-rename) name - the one
+    // the game resolves against - so map it back to the source clip the
+    // preview bake is keyed by before looking it up.
+    std::string want = o.animClip;
+    for (const AnimClipEdit& e : animEdits_)
+        if (e.model == o.modelPath && !e.rename.empty() && e.rename == want) {
+            want = e.clip;
+            break;
+        }
     const glbparser::Clip* clip = &b.clips.front();
-    if (!o.animClip.empty())
+    if (!want.empty())
         for (const glbparser::Clip& c : b.clips)
-            if (c.name == o.animClip) {
+            if (c.name == want) {
                 clip = &c;
                 break;
             }
 
+    // Trim window, in frames of the preview bake. Source seconds * fps is the
+    // frame index because bake() samples each clip at exactly `fps`.
+    const AnimClipEdit* edit = animEditFor(o.modelPath, clip->name);
+    int first = clip->firstFrame;
+    int count = clip->frameCount;
+    if (edit && b.fps > 0.01f && count > 1) {
+        const float dur = (float)(count - 1) / b.fps;
+        float a = 0.0f, e2 = dur;
+        animedit::trimWindow(edit, dur, a, e2);
+        const int fa = (int)std::lround(a * b.fps);
+        const int fb = (int)std::lround(e2 * b.fps);
+        if (fb > fa) {
+            first = clip->firstFrame + fa;
+            count = fb - fa + 1;
+        }
+    }
+
     // Fractional frame inside the clip. The preview always loops - a frozen
     // one-shot tells the user nothing about the motion.
     float pos = 0.0f;
-    if (o.animAutoplay && clip->frameCount > 1) {
-        const float speed = o.animSpeed > 0.01f ? o.animSpeed : 1.0f;
-        pos = std::fmod((float)(animClock_ * b.fps * speed), (float)clip->frameCount);
+    if (o.animAutoplay && count > 1) {
+        float speed = o.animSpeed > 0.01f ? o.animSpeed : 1.0f;
+        speed *= animProjectScale_;
+        if (edit && edit->timeScale > 0.001f) speed *= edit->timeScale;
+        pos = std::fmod((float)(animClock_ * b.fps * speed), (float)count);
     }
-    const int local0 = (int)pos;
-    const float alpha = pos - (float)local0;
-    const int f0 = clip->firstFrame + local0;
+    uploadAnimPose(draw, first, count, pos);
+}
+
+void Viewport::uploadAnimPose(AnimModelDraw& draw, int firstFrame,
+                              int frameCount, float frame) {
+    const glbparser::Baked& b = draw.baked;
+    if (frameCount < 1) frameCount = 1;
+    if (frame < 0.0f || frame >= (float)frameCount)
+        frame = std::fmod(frame, (float)frameCount);
+    if (frame < 0.0f) frame += (float)frameCount;
+    const int local0 = (int)frame;
+    const float alpha = frame - (float)local0;
+    const int f0 = firstFrame + local0;
     // looping wraps last -> first, like the engine's loop state
-    const int f1 = clip->firstFrame + (local0 + 1) % clip->frameCount;
+    const int f1 = firstFrame + (local0 + 1) % frameCount;
 
     std::vector<float> interleaved;
     for (size_t pi = 0; pi < draw.parts.size() && pi < b.parts.size(); ++pi) {
@@ -2415,6 +2461,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Point lights in the scene -> fragment shader uniforms (live preview of
     // what the game bakes into vertex colors; capped at the shader's 8).
+    int pointLightCount = 0;
     {
         float pos[8 * 4] = {};
         float col[8 * 4] = {};
@@ -2436,6 +2483,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uLightCount_, count);
         glUniform4fv(uLightPos_, 8, pos);
         glUniform4fv(uLightCol_, 8, col);
+        pointLightCount = count;
     }
 
     // Ambient occlusion: this frame's occluder set (aobake::collectOccluders,
@@ -2562,6 +2610,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         if (blend) glDisable(GL_BLEND);
     };
 
+    // Animated models (.glb/.fbx) draw through their own helper because the
+    // console lights them differently from everything else: a SkelInstance
+    // gets the scene's directional light + ambient folded into the .tskl
+    // part color and NOTHING else (templates.cpp, setupAnimObject's
+    // litColors). So the object's own tint colour and the scene point lights
+    // - both of which the game only ever bakes into STATIC vertex colours -
+    // must stay out of the preview, or a cyan-tinted Player object renders a
+    // cyan avatar here and a correct one on the console.
+    auto drawAnimParts = [&](const AnimModelDraw& ad, const Mat4& mvp,
+                             const Mat4* model, float shade, bool asLines) {
+        if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
+        for (const AnimModelDraw::Part& part : ad.parts)
+            draw(part.mesh, GL_TRIANGLES, mvp, shade, shade, shade,
+                 asLines ? 0 : part.tex, model);
+        if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
+    };
+
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
         switch (o.type) {
             case PrimitiveType::Box:
@@ -2681,10 +2746,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 AnimModelDraw* ad = animModelDraw(o.modelPath, o.materialPath);
                 if (ad && ad->ok) {
                     updateAnimPose(*ad, o);
-                    for (const AnimModelDraw::Part& part : ad->parts)
-                        draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
-                             o.color[1] * tintScale, o.color[2] * tintScale,
-                             asLines ? 0 : part.tex, lit ? &model : nullptr);
+                    drawAnimParts(*ad, mvp, lit ? &model : nullptr, tintScale,
+                                  asLines);
                     continue;
                 }
                 // unusable .glb falls through to the placeholder box
@@ -2773,9 +2836,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 // pose already advanced by this frame's scene pass - reuse it
                 AnimModelDraw* ad = animModelDraw(t.modelPath, t.materialPath);
                 if (ad && ad->ok) {
-                    for (const AnimModelDraw::Part& part : ad->parts)
-                        draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
-                             t.color[2], part.tex, &model);
+                    drawAnimParts(*ad, mvp, &model, 1.0f, false);
                     return;
                 }
             }
@@ -2847,9 +2908,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
-                        for (const AnimModelDraw::Part& part : ad->parts)
-                            draw(part.mesh, GL_TRIANGLES, mvp, p.color[0],
-                                 p.color[1], p.color[2], part.tex, &model);
+                        drawAnimParts(*ad, mvp, &model, 1.0f, false);
                     }
                     break;  // first player entity wins, like in the game
                 }
@@ -3304,6 +3363,195 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                         {src[i], src[i + 1], src[i + 2], src[i + 6], src[i + 7]});
     }
 
+    return prevTex_;
+}
+
+std::vector<std::string> Viewport::animClipNames(const std::string& modelRel,
+                                                 const std::string& materialRel) {
+    std::vector<std::string> names;
+    const AnimModelDraw* ad = animModelDraw(modelRel, materialRel);
+    if (!ad || !ad->ok) return names;
+    for (const glbparser::Clip& c : ad->baked.clips) names.push_back(c.name);
+    return names;
+}
+
+float Viewport::animClipDuration(const std::string& modelRel,
+                                 const std::string& materialRel,
+                                 const std::string& clip) {
+    const AnimModelDraw* ad = animModelDraw(modelRel, materialRel);
+    if (!ad || !ad->ok || ad->baked.clips.empty()) return 0.0f;
+    const glbparser::Baked& b = ad->baked;
+    const glbparser::Clip* c = &b.clips.front();
+    if (!clip.empty())
+        for (const glbparser::Clip& k : b.clips)
+            if (k.name == clip) {
+                c = &k;
+                break;
+            }
+    if (c->frameCount < 2 || b.fps < 0.01f) return 0.0f;
+    // bake() lays a clip out as round(duration * fps) + 1 samples, so this
+    // inverts to the authored duration (within half a preview frame).
+    return (float)(c->frameCount - 1) / b.fps;
+}
+
+// Animation Editor live preview. Deliberately much simpler than the material
+// preview: no reflections, no UV checker, no picking - one model, one pose,
+// one floor. The pose is whatever `d.time` says, so play/pause/scrub lives in
+// the panel and the preview stays a pure function of the staged values.
+uint32_t Viewport::renderAnimPreview(int width, int height,
+                                     const AnimPreviewDesc& d) {
+    if (!program_) return 0;
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    ensurePreviewFramebuffer(width, height);
+
+    AnimModelDraw* ad = animModelDraw(d.modelRel, d.materialRel);
+    const glbparser::Baked* b = (ad && ad->ok) ? &ad->baked : nullptr;
+
+    // Resolve the clip and its trim window, then pose. Same frame math as the
+    // scene preview (updateAnimPose) - source seconds * fps = frame index.
+    if (b && !b->clips.empty()) {
+        const glbparser::Clip* clip = &b->clips.front();
+        if (!d.clip.empty())
+            for (const glbparser::Clip& c : b->clips)
+                if (c.name == d.clip) {
+                    clip = &c;
+                    break;
+                }
+        int first = clip->firstFrame, count = clip->frameCount;
+        if (b->fps > 0.01f && count > 1) {
+            const float dur = (float)(count - 1) / b->fps;
+            float a = std::clamp(d.trimStart, 0.0f, dur);
+            float e = d.trimEnd > 0.0f ? std::clamp(d.trimEnd, 0.0f, dur) : dur;
+            if (e - a > 1e-4f) {
+                const int fa = (int)std::lround(a * b->fps);
+                const int fb = (int)std::lround(e * b->fps);
+                if (fb > fa) {
+                    first = clip->firstFrame + fa;
+                    count = fb - fa + 1;
+                }
+            }
+        }
+        uploadAnimPose(*ad, first, count, d.time * (b->fps > 0.01f ? b->fps : 12.0f));
+    }
+
+    if (!prevBg_.vao) {
+        std::vector<float> q;
+        const float bot[3] = {0.09f, 0.10f, 0.13f}, top[3] = {0.24f, 0.27f, 0.34f};
+        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
+        pushVertexColor(q, 1, -1, 0, bot[0], bot[1], bot[2]);
+        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
+        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
+        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
+        pushVertexColor(q, -1, 1, 0, top[0], top[1], top[2]);
+        prevBg_ = uploadMesh(q);
+    }
+    if (!prevFloor_.vao) {
+        std::vector<float> f;
+        const int n = 8;
+        const float ext = 2.0f, cell = 2.0f * ext / n;
+        for (int z = 0; z < n; ++z)
+            for (int x = 0; x < n; ++x) {
+                const float g = ((x + z) % 2 == 0) ? 0.30f : 0.235f;
+                const float ax = -ext + x * cell, az = -ext + z * cell;
+                const float bx = ax + cell, bz = az + cell;
+                pushVertexColor(f, ax, 0, az, g, g, g);
+                pushVertexColor(f, bx, 0, az, g, g, g);
+                pushVertexColor(f, ax, 0, bz, g, g, g);
+                pushVertexColor(f, bx, 0, az, g, g, g);
+                pushVertexColor(f, bx, 0, bz, g, g, g);
+                pushVertexColor(f, ax, 0, bz, g, g, g);
+            }
+        prevFloor_ = uploadMesh(f);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo_);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(program_);
+    glUniform1i(uLightCount_, 0);  // console lights animated models with the
+    glUniform1i(uAoOn_, 0);        // scene directional + ambient only
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uFlashOn_, 0);
+    glUniform1i(uReflOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float bl,
+                    uint32_t texture) {
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uAoSelfObj_, -1);
+        glUniform1i(uAoGround_, 0);
+        glUniform1i(uAoReceive_, 0);
+        glUniform3f(uTint_, r, g, bl);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, 0);
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+
+    glDisable(GL_DEPTH_TEST);
+    draw(prevBg_, id, 1.0f, 1.0f, 1.0f, 0);
+    glEnable(GL_DEPTH_TEST);
+
+    // Frame the model's bind-pose AABB (Baked::min/max). A missing model
+    // leaves just the backdrop - the panel says why in text.
+    Vec3 center{0.0f, 0.0f, 0.0f};
+    float radius = 1.0f, minY = -0.5f;
+    if (b) {
+        center = {(b->min[0] + b->max[0]) * 0.5f, (b->min[1] + b->max[1]) * 0.5f,
+                  (b->min[2] + b->max[2]) * 0.5f};
+        const float ex = b->max[0] - b->min[0], ey = b->max[1] - b->min[1],
+                    ez = b->max[2] - b->min[2];
+        radius = 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez);
+        if (radius < 0.05f) radius = 0.05f;
+        minY = b->min[1];
+    }
+    const float zoom = std::clamp(d.zoom, 0.05f, 16.0f);
+    const float dist = radius * 2.6f / zoom;
+    const float p = std::clamp(d.pitchDeg, -30.0f, 85.0f) * kPi / 180.0f;
+    const float a = d.angleDeg * kPi / 180.0f;
+    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
+                   center.y + dist * std::sin(p),
+                   center.z + dist * std::cos(p) * std::sin(a)};
+    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const Mat4 proj =
+        perspective(45.0f * kPi / 180.0f, (float)width / (float)height,
+                    std::max(0.01f, dist * 0.01f), dist + radius * 4.0f + 50.0f);
+    const Mat4 viewProj = mul(proj, view);
+
+    draw(prevFloor_, mul(viewProj, mul(translation(center.x, minY, center.z),
+                                       scaleM(radius, 1.0f, radius))),
+         1.0f, 1.0f, 1.0f, 0);
+
+    if (ad && ad->ok) {
+        if (d.wireframe) {
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(1.0f, 1.0f);
+        }
+        for (const AnimModelDraw::Part& part : ad->parts)
+            draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, part.tex);
+        if (d.wireframe) {
+            glDisable(GL_POLYGON_OFFSET_FILL);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            for (const AnimModelDraw::Part& part : ad->parts)
+                draw(part.mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
+    }
+
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // The scene pass re-poses every visible instance from its own clock, so
+    // hijacking the shared VBOs for this preview cannot desync anything.
     return prevTex_;
 }
 

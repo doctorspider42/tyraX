@@ -1237,6 +1237,11 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+#ifdef TYRAX_KBD_MOUSE
+  // USB keyboard/mouse (controls.hpp): fold onto the pad before anything
+  // reads input this frame. No-op when the drivers are not loaded.
+  applyKeyboardMouseInput(engine);
+#endif
   // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
   if (MULTIPLAYER_MODE != 0) pad2.update();
 
@@ -4708,10 +4713,21 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (ownCamera) {
     if (!fixedCam || PP_CAM_YAW_ROTATE(pi))
       P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+#ifdef TYRAX_KBD_MOUSE
+    // Mouse look (controls.hpp): the USB mouse drives player 1 (pad 1). The
+    // deltas are the counts accumulated since the previous frame, so no
+    // g_frameScale: the same swipe turns the same angle at any frame rate.
+    if (pi == 0 && (!fixedCam || PP_CAM_YAW_ROTATE(pi)))
+      P.yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
+#endif
     if (fixedCam) {
       P.pitch = -PP_CAM_PITCH(pi);  // elevation in radians; down = negative
     } else {
       P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+#ifdef TYRAX_KBD_MOUSE
+      if (pi == 0)
+        P.pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+#endif
       if (P.pitch > 1.35F) P.pitch = 1.35F;
       if (P.pitch < -1.35F) P.pitch = -1.35F;
     }
@@ -9140,6 +9156,13 @@ void TerrainGame::updatePlayer() {
   // Right stick: look around (stick right = turn right)
   yaw -= axisR(rightJoy.h) * 0.05F * LOOK_SPEED * g_frameScale;
   pitch -= axisR(rightJoy.v) * 0.035F * LOOK_SPEED * g_frameScale;
+#ifdef TYRAX_KBD_MOUSE
+  // Mouse look (controls.hpp). The deltas are the counts accumulated since
+  // the previous frame, so no g_frameScale: the same swipe turns the same
+  // angle at any frame rate.
+  yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
+  pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+#endif
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
 

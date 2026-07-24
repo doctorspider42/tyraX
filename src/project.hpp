@@ -563,6 +563,24 @@ struct ProjectSettings {
     // for anyone who does not want their debug builds patched from outside.
     bool liveLink = true;
 
+    // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
+    // drivers and maps keys/mouse onto a virtual pad (bindings live in the
+    // generated controls.hpp). Works in PCSX2 (the editor configures its
+    // emulated USB devices before launch) and with real USB devices on a
+    // console. Skipped automatically on ps2link deploys - a second usbd on
+    // an IOP that may already run one (ps2link booted from a USB stick)
+    // wedges the USB stack.
+    bool keyboardMouse = true;
+
+    // Experimental (debug): keep keyboard/mouse working on a "Run on PS2"
+    // (ps2link) deploy, where they are normally skipped. REQUIRES the custom
+    // TyraX ps2link (tools/ps2link-usbhid) - it bakes usbd + ps2kbd + ps2mouse
+    // into its own boot, so the engine reuses that resident stack and loads
+    // none of its own (a second usbd would wedge it). On a stock ps2link there
+    // is no USB stack to reuse: the drivers just report "not ready". See
+    // docs/keyboard-mouse.md. Off by default.
+    bool keyboardMousePs2Link = false;
+
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
     // of screen tearing. Gameplay speed is unaffected either way - the
@@ -576,6 +594,18 @@ struct ProjectSettings {
     // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
     // (cull-only). Projects saved before the vu1 default keep their value.
     std::string clipping = "vu1";
+
+    // Animation frame rate. glTF and FBX store keyframe times in SECONDS,
+    // never an fps, so a clip authored as N frames for F fps but exported
+    // from a scene running at S fps arrives S/F times too long - the
+    // classic "Blender scene is 24 fps, the animation was made for 30"
+    // mismatch, which plays back visibly too slow on the console. These two
+    // numbers say what the source fps was and what it should have been; the
+    // build scales every clip's keyframe times by animSourceFps /
+    // animPlayFps at bake time, so nothing is destroyed and the .glb is
+    // never touched. Equal values (the default) = no scaling at all.
+    float animSourceFps = 24.0f;  // fps the clips were exported at
+    float animPlayFps = 24.0f;    // fps they should play at
 
     // Animation LOD: animated-model instances farther than this from the
     // camera refresh their pose/skinning every 2nd frame (every 4th beyond
@@ -750,9 +780,13 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink &&
+           a.keyboardMouse == b.keyboardMouse &&
+           a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.animSourceFps == b.animSourceFps &&
+           a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
@@ -1286,6 +1320,38 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
     return a.name == b.name && a.value == b.value;
 }
 
+// One non-destructive edit of one animation clip of one model asset
+// (Tools > Animation Editor). The source file is never rewritten: these
+// numbers are folded into the clip on its way into the .tskl at build time,
+// and the editor's preview applies the identical math (animedit.hpp).
+//
+// Order of operations, both here and in the preview: trim in SOURCE seconds,
+// then rebase the trimmed range to start at 0, then scale time. The clip the
+// game sees is `rename` (when set) with duration
+// (trimEnd - trimStart) / (timeScale * project fps ratio).
+struct AnimClipEdit {
+    std::string model;   // project-relative asset, e.g. "res/models/hero.glb"
+    std::string clip;    // source clip name, as authored in the file
+    std::string rename;  // "" = keep the source name
+    float timeScale = 1.0f;   // >1 plays faster; on top of the project fps ratio
+    float trimStart = 0.0f;   // seconds into the source clip; 0 = from the start
+    float trimEnd = 0.0f;     // seconds into the source clip; 0 = to the end
+    bool loop = true;         // default Loop for objects that pick this clip
+
+    // True when this entry changes nothing - the Animation Editor drops such
+    // entries on save so an untouched project keeps an empty list.
+    bool isDefault() const {
+        return rename.empty() && timeScale == 1.0f && trimStart == 0.0f &&
+               trimEnd == 0.0f && loop;
+    }
+};
+
+inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
+    return a.model == b.model && a.clip == b.clip && a.rename == b.rename &&
+           a.timeScale == b.timeScale && a.trimStart == b.trimStart &&
+           a.trimEnd == b.trimEnd && a.loop == b.loop;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -1428,6 +1494,16 @@ struct Project {
     // of undo/redo. The Play/Stop Sequence flow nodes drive them at runtime.
     std::vector<Sequence> sequences;
 
+    // Non-destructive animation-clip edits (Tools > Animation Editor). One
+    // entry per (model, source clip) the user has touched; clips with no
+    // entry bake exactly as authored. The source .glb/.fbx is never
+    // modified - the edits are applied to the parsed skeleton on the way
+    // into the .tskl at build time (animedit::applyClipEdits), and the
+    // viewport preview applies the same numbers, so what you scrub is what
+    // ships. Like the preset collections above these persist through save()
+    // but are not part of undo/redo.
+    std::vector<AnimClipEdit> animClipEdits;
+
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
     // file). Restores the editing session on reopen.
@@ -1519,6 +1595,7 @@ enum class Section {
     Splash,          // "splashScreens"
     Sequences,       // "sequences"
     Menus,           // "menus"
+    AnimEdits,       // "animClipEdits"
 };
 constexpr int kSectionCount = 12;
 
