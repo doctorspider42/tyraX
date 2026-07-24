@@ -25,7 +25,8 @@ profile so Live Link + hot reload work straight after F5.
 
 1. Open the project, then **Tools > Material Editor** and pick
    `models/altar.mtl` — the preview lands on the altar model.
-2. Turn on **Paint**: the **Layers** list shows the full stack —
+2. The **Layers** list (always visible — *Paint* only arms the brush)
+   shows the full stack —
    `Background`, `Baked AO` (multiply), `Cavity grime *` and `Edge wear *`
    (the `*` marks generated smart-mask layers). Select a mask layer and
    tune the generator that appears below (Range, Breakup, Seed…) — the

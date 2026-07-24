@@ -14367,12 +14367,13 @@ void App::drawMaterialEditorWindow() {
 
         // --- paint tool ------------------------------------------------------
         if (ImGui::Checkbox("Paint", &matEdPaint_) && matEdPaint_)
-            matEdPaintTexRel_.clear();  // (re)load the target below
+            matEdPaintTexRel_.clear();  // force the target check below
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Paint on the preview mesh, straight into this\n"
                               "entry's texture (through the UVs). The PNG is\n"
                               "saved on every stroke - what you paint is what\n"
-                              "the PS2 loads.");
+                              "the PS2 loads. The layer stack below is always\n"
+                              "visible; Paint only arms the brush.");
         if (matEdPaint_) {
             ImGui::SameLine();
             ImGui::Checkbox("Live dab", &matEdGhostOn_);
@@ -14381,27 +14382,30 @@ void App::drawMaterialEditorWindow() {
                                   "clicking - one uncommitted dab drawn on the\n"
                                   "preview each frame.");
         }
-        bool canPaint = false;
+        // The layer stack lives on the entry's texture and is shown whenever
+        // one is loaded - Paint only gates the brush (the "babranie").
+        bool haveTarget = false;
+        if (!texRel.empty()) {
+            if (matEdPaintTexRel_ != texRel && !matEdLoadPaintTarget(texRel))
+                statusMessage_ = "Cannot read " + texRel;
+            haveTarget = matEdPaintW_ > 0;
+        }
+        bool canPaint = matEdPaint_ && haveTarget;
         if (matEdPaint_) {
-            if (texRel.empty()) {
+            if (texRel.empty())
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                    "No texture on this entry.\n"
                                    "Texture > New paintable texture...");
-            } else {
-                if (matEdPaintTexRel_ != texRel && !matEdLoadPaintTarget(texRel))
-                    statusMessage_ = "Cannot read " + texRel;
-                canPaint = matEdPaintW_ > 0;
-                if (!canPaint)
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                       "Texture file unreadable.");
-            }
+            else if (!haveTarget)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Texture file unreadable.");
             if (canPaint && (matBakePreviewMode_ == 2 || matEdDisplayMode_ == 2)) {
                 ImGui::TextDisabled("Painting paused - the preview is not\n"
                                     "showing the texture (map view/checker).");
                 canPaint = false;
             }
         }
-        if (matEdPaint_ && canPaint) {
+        if (canPaint) {
 
             ImGui::SetNextItemWidth(scaled(90.0f));
             ImGui::Combo("##brush_mode", &matEdBrushMode_,
@@ -14528,9 +14532,13 @@ void App::drawMaterialEditorWindow() {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
                                        "Brush unreadable.");
             }
+        }
 
-            // --- layers: painted strokes land on the active (selected) layer;
-            // the composite of the stack is the PNG that ships. Top-most first.
+        // --- layers: painted strokes land on the active (selected) layer;
+        // the composite of the stack is the PNG that ships. Top-most first.
+        // Shown whenever the entry's texture is loaded - stack edits, smart
+        // masks and presets work with the brush disarmed.
+        if (haveTarget) {
             ImGui::Spacing();
             ImGui::TextDisabled("Layers");
             ImGui::SameLine();

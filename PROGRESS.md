@@ -8295,3 +8295,17 @@ Each finished feature lands as its own commit.
   it (16-color quantized PNG matching the shipped IHDR + livetex.bin
   bump) - the wall repainted to rainbow stripes IN THE RUNNING GAME
   within the poll interval; clean log with the atlas boot line intact.
+- (82) **Material Editor: layers always visible, Paint only arms the brush**
+  (user request) - the whole layer stack UI (list, blend/opacity/visibility,
+  "+ Mask" smart masks, Presets, generator controls) previously lived
+  inside the Paint gate, so inspecting or tuning a stack forced paint mode
+  on. Split: the paint target now loads whenever the selected entry has a
+  texture (same matEdPaintTexRel_ guard the bake/CLUT previews already
+  used), the layers section renders whenever a target is loaded, and Paint
+  gates only the brush controls + stroke/ghost input. Side benefit:
+  opening a material with smart-mask layers refreshes the masks (and
+  requests bake maps) immediately, without touching Paint - material-lab's
+  altar stack shows up the moment the file opens. Docs: material-painting
+  "Layers" section + the example README. Verified: build.ps1 clean; brace
+  restructure only - stroke/ghost gating unchanged (canPaint semantics
+  preserved), rides the same pending human visual pass.

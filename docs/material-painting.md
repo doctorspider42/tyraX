@@ -130,7 +130,10 @@ quantizes it like any other PNG).
 
 ## Layers
 
-Painting happens on a **layer stack** (the *Layers* box in the paint pane):
+The **layer stack is always visible while the entry has a texture** — the
+*Paint* checkbox only arms the brush. Stack edits (reorder, blend, opacity,
+visibility), **smart masks** and **presets** all work with the brush
+disarmed; painting happens on the stack's active layer:
 the Background plus any number of transparent layers above it, each with a
 **blend mode** (Normal / Multiply / Add / Overlay), an **opacity** slider
 and a visibility toggle. Strokes land on the *active* (selected) layer;
