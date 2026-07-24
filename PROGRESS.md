@@ -8524,3 +8524,7 @@ Each finished feature lands as its own commit.
   universal materials with no consumer still land on the sphere, as
   before. Verified: build.ps1 clean; the pick chain is pure path logic
   riding the standing human GUI pass.
+- (90) **UI nit: the lone "+ Add" button now says "+ Add entry"** (user
+  report) - with a single-entry .mtl the Entry combo hides and the add
+  button stood alone with no context. Label only; the tooltip already
+  explained the semantics.

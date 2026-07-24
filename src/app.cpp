@@ -14324,7 +14324,7 @@ void App::drawMaterialEditorWindow() {
         }
         ImGui::SameLine();
     }
-    if (ImGui::SmallButton("+ Add")) {
+    if (ImGui::SmallButton("+ Add entry")) {
         MatEdEntry e;
         std::string base = "mat";
         for (int n = 1;; ++n) {
