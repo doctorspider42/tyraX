@@ -19361,10 +19361,13 @@ static std::string inputMapHeader(const Project& p) {
            "// Folds the USB keyboard/mouse onto the virtual pad through the LIVE\n"
            "// bindings - what controls.hpp's applyKeyboardMouseInput() calls.\n"
            "void inputApplyKeyboardMouse(Tyra::Engine* engine);\n"
-           "// The input the player just pressed as an INPUT_CODES index, or 0 =\n"
-           "// nothing yet (a rebind row's capture mode polls this).\n"
+           "// The PAD BUTTON the player just pressed as an INPUT_CODES index,\n"
+           "// or 0 = nothing yet (a rebind row's capture mode polls this).\n"
+           "// Keyboard/mouse are not captured - that path is experimental and\n"
+           "// authored in the editor's Input Map; it gets its own menu later.\n"
            "int inputCapture(Tyra::Engine* engine);\n"
-           "// What `action` is bound to right now, for a rebind row's value.\n"
+           "// The action's PAD binding, for a rebind row's value (\"---\" when\n"
+           "// it has none). Keyboard/mouse are omitted for the same reason.\n"
            "const char* inputBindLabel(int action);\n\n"
            "}  // namespace "
         << ns << "\n";
@@ -19610,10 +19613,15 @@ void inputRebuild() {
   for (int a = 0; a < INPUT_ACTION_COUNT; ++a) {
     g_inputBind[a] = INPUT_PRESETS[pr][a];
     const int code = g_inputOverride[a];
-    // An override REPLACES the preset's inputs for that action (a player who
-    // rebinds Jump to Triangle expects Cross to stop jumping).
-    if (code > 0 && code < INPUT_CODE_COUNT && INPUT_REBINDABLE[a])
-      g_inputBind[a] = INPUT_CODES[code];
+    // A rebind row captures a PAD BUTTON, so the override replaces the pad slot
+    // and only that: the player who moves Jump to Triangle expects Cross to
+    // stop jumping, but not their keyboard key to stop working (the Input Map
+    // authored it, and no in-game row can put it back yet). A code that is not
+    // a pad button - e.g. a save written by a build that still captured keys -
+    // is ignored rather than allowed to unbind the pad silently.
+    if (code > 0 && code < INPUT_CODE_COUNT && INPUT_REBINDABLE[a] &&
+        INPUT_CODES[code].pad >= 0)
+      g_inputBind[a].pad = INPUT_CODES[code].pad;
   }
   applyControlsHeader();
   for (int a = 0; a < INPUT_ACTION_COUNT; ++a) g_bindLabel[a][0] = 0;
@@ -19701,22 +19709,16 @@ void inputApplyKeyboardMouse(Tyra::Engine* engine) {
 }
 
 int inputCapture(Tyra::Engine* engine) {
-  // Scan the code space in table order and report the first thing that went
-  // down this frame. The pad half works with no keyboard attached, so a
-  // controls menu is usable on a stock console.
+  // Pad buttons only: report the first one that went down this frame. Keyboard
+  // and mouse are deliberately NOT captured here - that path is experimental,
+  // its bindings are authored in the editor's Input Map, and inputBindLabel()
+  // does not show them, so capturing one would leave a row reading "---" after
+  // a successful rebind. A dedicated keyboard/mouse menu comes later.
   if (!g_inputEngine) g_inputEngine = engine;
   const Tyra::PadButtons& clicked = engine->pad.getClicked();
   for (int c = 1; c < INPUT_CODE_COUNT; ++c) {
     const InputBind& b = INPUT_CODES[c];
     if (b.pad >= 0 && padBit(clicked, b.pad)) return c;
-  }
-  if (Tyra::KbdMouse* km = kbd()) {
-    for (int c = 1; c < INPUT_CODE_COUNT; ++c) {
-      const InputBind& b = INPUT_CODES[c];
-      if (b.key != 0 && km->isKeyClicked(b.key)) return c;
-      if (b.mouse != 0 && (km->getMouse().clicked & (1 << (b.mouse - 1))) != 0)
-        return c;
-    }
   }
   return 0;
 }
@@ -19735,22 +19737,14 @@ const char* inputBindLabel(int action) {
     for (; *s && w < (int)sizeof(g_bindLabel[0]) - 1; ++s) dst[w++] = *s;
     dst[w] = 0;
   };
-  // The first matching code label per slot - the same names the editor shows.
-  // Pad + key only: a menu row is narrow and "Cross+Space+Mouse Right" would
-  // run over the row's baked label. The mouse shows when it is the ONLY
-  // binding, so nothing is ever reported as unbound while it works.
+  // PAD ONLY, on purpose. The keyboard/mouse support is still experimental
+  // (docs/keyboard-mouse.md - the hardware path is unconfirmed) and its keys
+  // are authored in the editor's Input Map, so a shipped controls menu does not
+  // advertise them; the row would also have to fit "Cross+Space+Mouse Right"
+  // into ~100px next to its baked label. Keyboard/mouse bindings get their own
+  // menu later - inputCapture() ignores them for the same reason.
   for (int c = 1; c < INPUT_CODE_COUNT && b.pad >= 0; ++c)
     if (INPUT_CODES[c].pad == b.pad) {
-      append(INPUT_CODE_LABELS[c]);
-      break;
-    }
-  for (int c = 1; c < INPUT_CODE_COUNT && b.key != 0; ++c)
-    if (INPUT_CODES[c].key == b.key) {
-      append(INPUT_CODE_LABELS[c]);
-      break;
-    }
-  for (int c = 1; c < INPUT_CODE_COUNT && b.mouse != 0 && w == 0; ++c)
-    if (INPUT_CODES[c].mouse == b.mouse) {
       append(INPUT_CODE_LABELS[c]);
       break;
     }

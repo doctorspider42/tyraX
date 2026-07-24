@@ -12,7 +12,13 @@ Three layers, each optional:
 | --- | --- | --- |
 | **Actions** — what the game asks about ("jump", "sprint") | the project author | *Tools > Input Map* |
 | **Presets** — which button/key each action is bound to | the project author (one or many) | *Tools > Input Map*, `"input"` in the `.tyra` |
-| **Overrides** — one action moved to another button | the **player**, in-game | a menu *Rebind key* row → a save value on the memory card |
+| **Overrides** — one action moved to another **pad button** | the **player**, in-game | a menu *Rebind key* row → a save value on the memory card |
+
+> **Scope note:** in-game rebinding covers the **pad** only. Keyboard and mouse
+> bindings are authored in the Input Map and are not shown or captured by a
+> rebind row — that support is still experimental
+> ([docs/keyboard-mouse.md](keyboard-mouse.md): the hardware path is
+> unconfirmed), and it is meant to get its own dedicated menu later.
 
 The generated game reads bindings through `inputPressed(pad, action)` /
 `inputClicked(pad, action)`, so all three layers land everywhere at once: the
@@ -75,11 +81,15 @@ Two presets are the classic "Default / Southpaw" pair; one preset is fine too.
   binding**, so a fresh save plays exactly as authored.
 
 In game: the cursor lands on the row, *confirm* arms capture mode (the row reads
-`PRESS...`), and the next button or key the player presses becomes the binding.
+`PRESS...`), and the next **pad button** the player presses becomes the binding.
 *Back* cancels; *menu left* clears the row back to the preset binding. The row's
 current binding is drawn as **runtime text** from the menu font's glyph atlas —
 a baked option strip could not cover every possible binding name, so
 `Project::atlasFontIndices()` bakes an atlas for any menu that has a rebind row.
+
+The override replaces the action's **pad** slot and nothing else: the keyboard
+key and mouse button the preset gave it keep working, since no in-game row can
+put them back yet. An action with no pad binding at all shows `---`.
 
 Two shortcuts build the whole page for you:
 

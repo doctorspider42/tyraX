@@ -104,10 +104,13 @@ void inputMoveKeys(Tyra::Engine* engine, short* outH, short* outV);
 // Folds the USB keyboard/mouse onto the virtual pad through the LIVE
 // bindings - what controls.hpp's applyKeyboardMouseInput() calls.
 void inputApplyKeyboardMouse(Tyra::Engine* engine);
-// The input the player just pressed as an INPUT_CODES index, or 0 =
-// nothing yet (a rebind row's capture mode polls this).
+// The PAD BUTTON the player just pressed as an INPUT_CODES index,
+// or 0 = nothing yet (a rebind row's capture mode polls this).
+// Keyboard/mouse are not captured - that path is experimental and
+// authored in the editor's Input Map; it gets its own menu later.
 int inputCapture(Tyra::Engine* engine);
-// What `action` is bound to right now, for a rebind row's value.
+// The action's PAD binding, for a rebind row's value ("---" when
+// it has none). Keyboard/mouse are omitted for the same reason.
 const char* inputBindLabel(int action);
 
 }  // namespace Reflections

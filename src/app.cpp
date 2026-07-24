@@ -8276,7 +8276,9 @@ void App::drawInputMapWindow() {
             ImGui::SetTooltip(
                 "Off = a menu \"Rebind key\" row shows the binding but refuses\n"
                 "to change it. Keep the menu navigation actions off, or a bad\n"
-                "rebind can lock the player out of the menu that would fix it.");
+                "rebind can lock the player out of the menu that would fix it.\n"
+                "In-game rebinding covers the PAD button only; the keyboard and\n"
+                "mouse bindings below stay exactly as you author them here.");
 
         // --- presets ------------------------------------------------------
         ImGui::SeparatorText("Bindings per preset");
@@ -16831,7 +16833,10 @@ void App::drawMenusWindow() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "Input Map action this row rebinds. Only actions marked\n"
-                    "\"Player may rebind it in-game\" are listed.");
+                    "\"Player may rebind it in-game\" are listed.\n"
+                    "The row covers the PAD button only - keyboard/mouse keys\n"
+                    "stay as the Input Map authored them (that support is\n"
+                    "experimental and gets its own menu later).");
             ImGui::SameLine();
             paramCombo("##rebindvalue", "<value>", project_.saveValues,
                        [](const SaveValue& v) -> const std::string& { return v.name; });

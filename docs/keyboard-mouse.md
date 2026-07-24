@@ -58,8 +58,11 @@ so out of the box nothing changed:
 | Left / right / middle button | — | `BTN_USE` / `BTN_JUMP` / Circle |
 
 Every one of these is one action's `key` slot in the Input Map's default preset,
-so they are all editable per project (and rebindable in-game where the action
-allows it). The fold itself lives in `src/gen/input_map.gen.cpp`
+so they are all editable per project. They are **not** rebindable in-game: a
+menu *Rebind key* row covers the pad only, because this whole feature is still
+experimental (see the hardware status below) — keyboard/mouse rebinding is meant
+to get its own dedicated menu later. The fold itself lives in
+`src/gen/input_map.gen.cpp`
 (`inputApplyKeyboardMouse`) and walks the LIVE bindings, which is why a preset
 switch or a rebind moves the keys too;
 `controls.hpp`'s `applyKeyboardMouseInput()` is now a one-line call into it.

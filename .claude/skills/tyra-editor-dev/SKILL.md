@@ -309,7 +309,11 @@ classic switch-on-change path.
 A **`MenuEntry::RebindKey`** row (action 10) is the in-game key-assignment row
 (docs/input-bindings.md): `bindAction` names the Input Map action, `param` the
 save value holding the player's override as an `inputCodes()` index (0 = the
-preset's binding). It is the one row whose value cannot be baked into the
+preset's binding). It is deliberately **pad-only** — `inputCapture` ignores
+keyboard/mouse and `inputBindLabel` omits them (that path is experimental and
+gets its own menu later), so an override replaces the action's `pad` slot alone
+and the preset's key/mouse survive. Lifting that restriction means touching all
+three of those spots together. It is the one row whose value cannot be baked into the
 option strip — the binding name is only known at runtime — so it draws as
 **runtime text** from the menu font's glyph atlas, which is why
 `Project::atlasFontIndices()` bakes an atlas for any menu carrying such a row

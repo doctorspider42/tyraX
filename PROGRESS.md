@@ -42,7 +42,16 @@ Each finished feature lands as its own commit.
   `applyKeyboardMouseInput` is now a one-liner into the generated fold, so keys
   rebind as well.
   In-game rebinding is a new Menu Editor row (`MenuEntry::RebindKey`, action
-  10): `bindAction` names the action, `param` the save value holding the
+  10) and is deliberately **pad-only**: `inputCapture` ignores keyboard/mouse
+  and `inputBindLabel` omits them, because that support is still experimental
+  (docs/keyboard-mouse.md - the hardware path is unconfirmed) and is meant to
+  get its own dedicated menu later. Consequence worth spelling out: an override
+  therefore replaces the action's `pad` slot **alone**, so the key and mouse
+  button the preset authored keep working - replacing the whole binding would
+  silently kill a keyboard key that no in-game row can put back. A saved code
+  that is not a pad button (written by the interim build that did capture keys)
+  is ignored rather than allowed to unbind the pad.
+  `bindAction` names the action, `param` the save value holding the
   override, so it persists on the memory card and re-applies after a load
   (`applyInputBindings`, next to `applyMenuBindings`). Selecting it arms capture
   mode (`menuRebindRow`, cleared on every menu transition) — the next button or
@@ -74,17 +83,22 @@ Each finished feature lands as its own commit.
   bindings, not a baked table. A screenshot of the in-game CONTROLS menu shows
   the rebind rows drawing their bindings as runtime atlas text
   (`Jump  Cross+Space`, `Sprint  R2+Left Shift`) next to a baked `Preset
-  Default` strip. That screenshot found the one real bug of the feature: the
-  first attempt read `Cross+Space+Mouse Right` and ran straight over the row's
-  baked label — the value column of a 256px panel is ~100px. Fixed twice over:
-  `inputBindLabel` now composes **pad + key only** (the mouse slot shows only
-  when it is the sole binding, so nothing ever reads as unbound while it works)
-  and `renderGameMenu` shrinks the text to the available width with a 50% floor.
+  Default` strip. That screenshot is what settled the pad-only scope: the first
+  attempt read `Cross+Space+Mouse Right` and ran straight over the row's baked
+  label (the value column of a 256px panel is ~100px). Shrinking the text to fit
+  (kept, 50% floor) made it legible but not *right* — advertising experimental
+  keyboard/mouse keys in a shipped controls menu was premature, so the row now
+  shows and captures the pad alone and reads `Jump  Cross` / `Sprint  R2`
+  (screenshot). Re-verified afterwards that the keyboard still WORKS while no
+  longer being displayed: Left Shift fires the sprint trigger, and Backspace
+  (the `back` action) closes the pause menu.
   Still unverified visually: the capture-mode `PRESS...` state and the actual
   rebind — driving it needs synthetic keystrokes and
   `SetForegroundWindow` cannot reliably raise PCSX2 from a background process,
-  so the keys land in whatever window has focus. Worth a human pass (open the
-  pause menu, pick a row, press something).
+  so the keys land in whatever window has focus (they went into another app's
+  window once here, which is exactly why the keyboard checks above now assert
+  `GetForegroundWindow()` first). Worth a human pass with a real pad: open the
+  pause menu, pick a row, press a button.
 
 - (120) **Scripts panel cleanup: `src/scripts/` is exclusively the user's;
   generated sources moved to `src/gen/`; subfolders supported.** The Scripts
