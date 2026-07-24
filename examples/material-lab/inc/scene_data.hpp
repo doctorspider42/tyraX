@@ -76,7 +76,7 @@ struct SceneObjectData {
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[7] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[8] = {
     {5, {0.0F, 0.0F, 0.0F}, {0.0F, 20.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 0, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // altar
     {0, {-5.0F, 1.4F, -5.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 2.8F, 0.9F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // pillar1
     {0, {5.0F, 1.4F, -5.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 2.8F, 0.9F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // pillar2
@@ -84,12 +84,13 @@ constexpr SceneObjectData SCENE_0_OBJECTS[7] = {
     {0, {5.0F, 1.4F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 2.8F, 0.9F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // pillar4
     {1, {-7.5F, 0.8F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // orb-west
     {1, {7.5F, 0.8F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // orb-east
+    {0, {0.0F, 1.6F, 8.5F}, {0.0F, 0.0F, 0.0F}, {6.0F, 3.2F, 0.35F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 2, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // paint-canvas
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {7};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {8};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[7] = {0xf8eadcb08e736f31ULL, 0xefd7b3b089315fd3ULL, 0xefdbb3b0893548aaULL, 0xefd1b3b0892cf425ULL, 0xefd3b3b0892d76fcULL, 0xe6c28ab083eecd9eULL, 0xe6be8ab083eae4c7ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[8] = {0xf8eadcb08e736f31ULL, 0xefd7b3b089315fd3ULL, 0xefdbb3b0893548aaULL, 0xefd1b3b0892cf425ULL, 0xefd3b3b0892d76fcULL, 0xe6c28ab083eecd9eULL, 0xe6be8ab083eae4c7ULL, 0xddab61b07ea8d569ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -322,7 +323,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 7;
+constexpr int SAVE_OBJECT_MAX = 8;
 
 }  // namespace Material_lab
 

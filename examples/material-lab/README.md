@@ -3,8 +3,11 @@
 A small diorama built to show the whole Material Editor toolchain in one
 place: a stone **altar** whose texture is a live **layer stack** (base stone
 → **Baked AO** → **smart masks**), brick **pillars** and tiled **orbs**
-whose textures ship inside a shared **texture atlas**, and a reusable
-**material preset**.
+whose textures ship inside a shared **texture atlas**, a big **paint
+canvas** wall wired for **live texture hot reload**, and a reusable
+**material preset**. The project opens with the **Material Editor already
+docked** (every window layout requests it), and ships in the **debug**
+profile so Live Link + hot reload work straight after F5.
 
 ## What to look at in the game (Build & Run)
 
@@ -39,10 +42,14 @@ whose textures ship inside a shared **texture atlas**, and a reusable
    CLUT** preview with the memory budget line, and the **UV** panel with
    hover sync; **Validate UVs** reports the box primitives' by-design
    overlaps.
-6. With the *debug* build profile, repaint any pillar texture while the
-   game runs — **texture hot reload** pushes the stroke to the console
-   within a fraction of a second (the altar texture is atlased, so it
-   needs a rebuild — the log explains).
+6. **Paint the canvas while the game runs**: Build & Run (F5), open
+   `materials/canvas.mtl` in the Material Editor, tick **Paint** and draw
+   on the big wall behind the altar — every released stroke lands on the
+   console **within a fraction of a second** (texture hot reload,
+   docs/live-link.md). The canvas texture is 256×256 *on purpose*: too big
+   for the atlas, so it stays an individual hot-reloadable file. The
+   atlased textures (altar/pillars/orbs) need a rebuild to repaint — try
+   one and watch the editor quietly skip it, as documented.
 
 Docs: [material-baking.md](../../docs/material-baking.md),
 [material-painting.md](../../docs/material-painting.md),

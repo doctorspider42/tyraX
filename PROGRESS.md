@@ -8278,3 +8278,20 @@ Each finished feature lands as its own commit.
   build.ps1 clean; the splitter/orbit math is input-driven UI logic riding
   the same pending human visual pass as the rest of the epic (known
   white-window machine state).
+- (81) **examples/material-lab: live-loop out of the box** (user request) -
+  the showcase now demonstrates the whole epic without any setup: build
+  profile switched to DEBUG (Live Link + texture hot reload compiled in),
+  every window layout requests the Material Editor ("open": ["material"]
+  in the manifest), and a new 6x3.2 "paint-canvas" wall stands behind the
+  altar with a 256x256 plaster+target texture - 256 is deliberately over
+  the atlas's 128 eligibility cap, so the canvas stays an individual
+  hot-reloadable file while the altar/pillars/orbs keep demonstrating the
+  atlas ("Texture atlas: 3 textures in 2 page(s)" unchanged). The asset
+  generator gained the canvas (deterministic - regen left every existing
+  asset byte-identical, only canvas.* appeared). README rewritten around
+  the F5-paint-watch loop and the intentional atlased-vs-hot-reloadable
+  split. Verified e2e in PCSX2: booted the rebuilt example, F8 before
+  shot, then simulated a paint save exactly the way liveTexNotify writes
+  it (16-color quantized PNG matching the shipped IHDR + livetex.bin
+  bump) - the wall repainted to rainbow stripes IN THE RUNNING GAME
+  within the poll interval; clean log with the atlas boot line intact.

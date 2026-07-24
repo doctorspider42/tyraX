@@ -19,10 +19,11 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 2;
+constexpr int MATERIAL_COUNT = 3;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "materials/pillar.mtl",
     "materials/trim.mtl",
+    "materials/canvas.mtl",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
