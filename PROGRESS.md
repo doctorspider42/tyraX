@@ -8679,3 +8679,20 @@ Each finished feature lands as its own commit.
   full keyboard+mouse on hardware is the exported-ISO path. Docs / tooltip /
   project.hpp updated. Engine-side, reaches the game via the Docker resync;
   hardware retest pending.
+
+- (95) **ps2link kbd/mouse: reuse-resident mode (for a custom ps2link)** -
+  part A of getting full keyboard+mouse over the network dev loop. The mouse
+  can't init when we load ps2mouse post-hoc onto a running ps2link (its RPC
+  server never registers). The plan: boot a CUSTOM ps2link with
+  usbd+ps2kbd+ps2mouse baked in, so those register at ps2link's own clean
+  boot; the game then reuses the resident stack. New nested preference
+  `keyboardMousePs2LinkResident` (Build > Keyboard & mouse > Force under
+  ps2link > "ps2link already has USB drivers (reuse + mouse)") ->
+  `EngineOptions::ps2LinkHasUsbHid`. When set (with the ps2link override, under
+  ps2link) the engine loads NONE of its own USB modules (a second usbd would
+  wedge the resident one) and enables the mouse - `PS2MouseInit` binds the
+  already-registered server instead of spinning. Stock ps2link (flag off) keeps
+  the (94) load-our-own keyboard-only path. Full chain wired (project.hpp +
+  `operator==`, save/load, nested Preferences checkbox, `{{KBD_MOUSE_PS2LINK_
+  RESIDENT}}` codegen, engine.hpp/.cpp). Editor compiles clean. Part B (the
+  custom ps2link.elf build recipe) and the hardware test are separate/pending.

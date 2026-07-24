@@ -18212,13 +18212,26 @@ void App::drawPreferencesModal() {
                     &prefSettings_.keyboardMousePs2Link);
     prefHelp(
         "Debug aid: keep the keyboard drivers on even for a Run on PS2\n"
-        "(ps2link) deploy, where they are normally skipped. For the network\n"
-        "deploy the engine loads its own usbd + ps2kbd (a network-booted\n"
-        "ps2link has none), and the driver-load logs show up live in Output /\n"
-        "ps2client. KEYBOARD ONLY here: the SDK's mouse init spins forever on\n"
-        "a resident-IOP ps2link, so mouse-look needs an exported ISO. On a\n"
-        "ps2link booted from USB (usbd already resident) this may wedge the\n"
-        "USB stack - boot the game from that USB instead.");
+        "(ps2link) deploy, where they are normally skipped. On a stock ps2link\n"
+        "the engine loads its own usbd + ps2kbd (a network-booted ps2link has\n"
+        "none) and runs KEYBOARD ONLY - the SDK's mouse init spins forever on\n"
+        "a resident-IOP ps2link. The driver-load logs show up live in Output /\n"
+        "ps2client. For keyboard AND mouse over ps2link, boot a custom ps2link\n"
+        "and tick the option below. Full mouse without any of this = an\n"
+        "exported ISO.");
+    ImGui::BeginDisabled(!prefSettings_.keyboardMousePs2Link);
+    ImGui::Indent(scaled(16));
+    ImGui::Checkbox("ps2link already has USB drivers (reuse + mouse)",
+                    &prefSettings_.keyboardMousePs2LinkResident);
+    prefHelp(
+        "Tick this ONLY if you boot a custom ps2link with usbd + ps2kbd +\n"
+        "ps2mouse baked in (see docs/keyboard-mouse.md). Their RPC servers\n"
+        "register at ps2link's own clean boot, so the engine reuses that\n"
+        "resident stack (loads none of its own - a second usbd would wedge it)\n"
+        "and the mouse works too. On a stock ps2link (no USB) leave this OFF,\n"
+        "or PS2KbdInit finds no device and PS2MouseInit hangs.");
+    ImGui::Unindent(scaled(16));
+    ImGui::EndDisabled();
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);

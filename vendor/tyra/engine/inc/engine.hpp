@@ -44,6 +44,14 @@ struct EngineOptions {
    * instead. */
   bool loadUsbKbdMouseUnderPs2Link = false;
 
+  /** Experimental (TyraX fork): set with loadUsbKbdMouseUnderPs2Link when the
+   * ps2link in use is a CUSTOM build with usbd+ps2kbd+ps2mouse already baked
+   * in. The engine then REUSES that resident stack (loads none of its own - a
+   * second usbd would wedge it) and enables the mouse: its RPC server
+   * registered at ps2link's clean boot, so PS2MouseInit binds instead of
+   * spinning. Ignored off ps2link. */
+  bool ps2LinkHasUsbHid = false;
+
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
 

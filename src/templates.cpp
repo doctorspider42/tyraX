@@ -370,6 +370,11 @@ int main(int argc, char** argv) {
   // none), logging the load over the EE console. May wedge a USB-booted
   // ps2link. See docs/keyboard-mouse.md (Debugging on real hardware).
   options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
+  // ...and if that ps2link is a CUSTOM build with usbd+ps2kbd+ps2mouse baked
+  // in: reuse its resident stack (load none of our own) and enable the mouse
+  // (its RPC server registered at ps2link's clean boot, so PS2MouseInit binds
+  // instead of spinning). See docs/keyboard-mouse.md (custom ps2link).
+  options.ps2LinkHasUsbHid = {{KBD_MOUSE_PS2LINK_RESIDENT}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -14960,6 +14965,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
+    s = replaceAll(s, "{{KBD_MOUSE_PS2LINK_RESIDENT}}",
+                   st.keyboardMousePs2LinkResident ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");

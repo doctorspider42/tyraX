@@ -805,6 +805,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
          << (p.settings.keyboardMousePs2Link ? "true" : "false") << ",\n"
+         << "    \"keyboardMousePs2LinkResident\": "
+         << (p.settings.keyboardMousePs2LinkResident ? "true" : "false") << ",\n"
          << "    \"disableVsync\": "
          << (p.settings.disableVsync ? "true" : "false") << ",\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
@@ -2279,6 +2281,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.keyboardMouse = v->boolOr(true);
         if (const auto* v = s->find("keyboardMousePs2Link"))
             st.keyboardMousePs2Link = v->boolOr(false);
+        if (const auto* v = s->find("keyboardMousePs2LinkResident"))
+            st.keyboardMousePs2LinkResident = v->boolOr(false);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
