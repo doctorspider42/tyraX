@@ -116,8 +116,10 @@ tyrax-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
 writes `<name>-esr.iso`, the same disc made bootable through the
 [ESR](https://consolemods.org/wiki/PS2:ESR) loader on a modchip-free PS2 (a UDF
 bridge whose partition is patched to a fake DVD-Video structure — see the
-Credits below). Both need an already-built `bin/`; the GUI's *Project* menu has
-the same two items.
+Credits below). The GUI's *Project* menu has both items; they **build the game
+first** (full Docker build), then write the image, show progress in the Project
+panel, and offer to open the output folder when done. The `--export-*` CLI flags
+are export-only — run `--build` first.
 
 `--resave` loads a project and writes it straight back out, running every
 on-disk format migration in the process (e.g. stamping stable object ids on

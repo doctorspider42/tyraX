@@ -1059,6 +1059,13 @@ private:
     int discSelected_ = -1;   // index into discPlan_.items (list <-> disc sync)
     int discCapacity_ = 2;    // 0 = fit to data, 1 = CD-R 700 MB, 2 = DVD-5
 
+    // ISO export (Project > Export PS2 ISO / Export ESR ISO): build+export runs
+    // on the Runner; when it finishes a completion popup offers to open the
+    // output folder. exportInFlight_ guards the one-shot transition detection.
+    bool exportInFlight_ = false;
+    std::string exportDonePath_;   // set on success -> drives the completion popup
+    bool openExportDonePopup_ = false;
+
     // "Project Preferences" modal staging (applied on OK). Edits project-wide
     // defaults only (project_.settings + terrain + game template).
     bool openPreferencesPopup_ = false;

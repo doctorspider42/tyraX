@@ -10,6 +10,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (164) **ISO export now builds first, shows progress, and offers to open the
+  output folder** (owner request, follow-up to (163)). *Export PS2 ISO* and
+  *Export ESR ISO* used to run `isoexport` straight over whatever was in `bin/`
+  — so a stale/empty `bin/` silently shipped, or the export failed with
+  "build the project first". Both menu items (and the Disc Layout window's
+  *Export ISO*) now route through the Runner's `worker()` with a new
+  `exportMode` (1 = plain, 2 = ESR): a full Docker build runs first, then the
+  image is written from the fresh `bin/`. The Runner exposes `statusLabel()`
+  ("Building..." → "Exporting ISO..." / "Exporting ESR ISO...") and
+  `lastExportPath()`; the Project panel's status line now shows that label plus
+  an indeterminate progress bar (Docker/export give no percentage), and on
+  success a modal pops with the written path and an **Open folder** button
+  (Explorer `/select`, via `CreateProcess` like the rest of the editor). The
+  headless `--export-iso`/`--export-esr` stay export-only (the primitive; run
+  `--build` first) so they remain Docker-free for scripting/tests. **Verified:**
+  editor builds clean; the export launchers set `exportMode` and the completion
+  detection mirrors the existing `aiGenInFlight_` consume pattern (one-shot,
+  guarded on `Runner::State::Success`). The full build+export+popup round-trip
+  needs Docker + a click, left to the owner's run.
 - (163) **ESR ISO export for modded PS2s** (user request, based on
   [esrtool](https://github.com/ali-raheem/esrtool) by ali-raheem, MIT). New
   *Project > Export ESR ISO (for modded PS2)* (+ `--export-esr <projectDir>`,

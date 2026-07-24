@@ -33,6 +33,21 @@ void Runner::clearLog() {
     log_.clear();
 }
 
+std::string Runner::statusLabel() const {
+    std::lock_guard<std::mutex> lock(statusMutex_);
+    return statusLabel_;
+}
+
+std::string Runner::lastExportPath() const {
+    std::lock_guard<std::mutex> lock(statusMutex_);
+    return lastExportPath_;
+}
+
+void Runner::setStatus(const std::string& label) {
+    std::lock_guard<std::mutex> lock(statusMutex_);
+    statusLabel_ = label;
+}
+
 void Runner::appendLine(const std::string& line) {
     // Timestamp every line - over the network host: filesystem load times are
     // dominated by asset sizes, and the [ps2] log stream is the only way to
@@ -52,30 +67,34 @@ void Runner::buildAndRun(const Project& p, bool runEmulator) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
+    setStatus("Building...");
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false);
+    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false, 0);
 }
 
 void Runner::runEmulatorOnly(const Project& p) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
+    setStatus("Launching PCSX2...");
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, false, true, false);
+    thread_ = std::thread(&Runner::worker, this, p, false, true, false, 0);
 }
 
 void Runner::buildAndRunPs2(const Project& p, bool build) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
+    setStatus(build ? "Building..." : "Deploying to PS2...");
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, build, true, true);
+    thread_ = std::thread(&Runner::worker, this, p, build, true, true, 0);
 }
 
 void Runner::clean(const Project& p) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
+    setStatus("Cleaning...");
     state_ = State::Running;
     thread_ = std::thread([this, p] {
         appendLine("[editor] === Clean: " + p.name + " ===");
@@ -131,27 +150,19 @@ void Runner::clean(const Project& p) {
 void Runner::exportIso(const Project& p) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
+    setStatus("Building...");
     state_ = State::Running;
-    thread_ = std::thread([this, p] {
-        appendLine("[editor] === ISO export: " + p.name + " ===");
-        const std::string err =
-            isoexport::build(p, [this](const std::string& l) { appendLine(l); });
-        if (!err.empty()) appendLine("[editor] ISO export failed: " + err);
-        state_ = err.empty() ? State::Success : State::Failed;
-    });
+    thread_ = std::thread(&Runner::worker, this, p, true, false, false, 1);
 }
 
 void Runner::exportEsrIso(const Project& p) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
+    setStatus("Building...");
     state_ = State::Running;
-    thread_ = std::thread([this, p] {
-        appendLine("[editor] === ESR ISO export: " + p.name + " ===");
-        const std::string err =
-            isoexport::buildEsr(p, [this](const std::string& l) { appendLine(l); });
-        if (!err.empty()) appendLine("[editor] ESR ISO export failed: " + err);
-        state_ = err.empty() ? State::Success : State::Failed;
-    });
+    thread_ = std::thread(&Runner::worker, this, p, true, false, false, 2);
 }
 
 void Runner::cancel() {
@@ -368,6 +379,7 @@ void Runner::stopPs2(const Project& p) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
+    setStatus("Stopping PS2...");
     state_ = State::Running;
     thread_ = std::thread([this, p] {
         appendLine("[editor] Stopping the game on the PS2...");
@@ -428,6 +440,7 @@ void Runner::stopEmulator() {
     if (busy()) return;
     join();
     cancelRequested_ = false;
+    setStatus("Stopping PCSX2...");
     state_ = State::Running;
     thread_ = std::thread([this] {
         appendLine("[editor] Stopping PCSX2...");
@@ -576,8 +589,12 @@ bool Runner::deployToPs2(const Project& p) {
     return true;
 }
 
-void Runner::worker(Project p, bool build, bool run, bool ps2) {
+void Runner::worker(Project p, bool build, bool run, bool ps2, int exportMode) {
     bool ok = true;
+    {
+        std::lock_guard<std::mutex> lock(statusMutex_);
+        lastExportPath_ = "";  // only a fresh successful export sets it
+    }
 
     if (build) {
         appendLine("[editor] === Build started: " + p.name + " ===");
@@ -808,6 +825,24 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
     }
 
     if (ok && run && !cancelRequested_) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
+
+    if (ok && exportMode && !cancelRequested_) {
+        const bool esr = exportMode == 2;
+        setStatus(esr ? "Exporting ESR ISO..." : "Exporting ISO...");
+        appendLine(esr ? "[editor] === ESR ISO export: " + p.name + " ==="
+                       : "[editor] === ISO export: " + p.name + " ===");
+        auto log = [this](const std::string& l) { appendLine(l); };
+        const std::string err = esr ? isoexport::buildEsr(p, log) : isoexport::build(p, log);
+        if (!err.empty()) {
+            appendLine("[editor] ISO export failed: " + err);
+            ok = false;
+        } else {
+            const fs::path iso =
+                fs::path(p.dir) / (p.name + (esr ? "-esr.iso" : ".iso"));
+            std::lock_guard<std::mutex> lock(statusMutex_);
+            lastExportPath_ = iso.string();
+        }
+    }
 
     state_ = (ok && !cancelRequested_) ? State::Success : State::Failed;
 }
