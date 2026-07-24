@@ -34,6 +34,22 @@ Each finished feature lands as its own commit.
   links via the recursive Makefile find (=== Build OK ===). The panel's
   visual list (nested rel-paths render, click opens VS Code) still wants a
   quick GUI eyeball pass.
+- (162) **Scripts panel polish: subfolders render as a tree, the help
+  blurb moves to a `(?)` tooltip.** Follow-up to (120)'s GUI eyeball note.
+  The panel used to print a four-line explanatory paragraph under the list on
+  every frame (object vs global scripts, "generated code lives in src\gen") -
+  a wall of text that dwarfed a short script list. It's now a single `(?)`
+  hover next to the New script... / Open in VS Code buttons. Subfolder scripts
+  used to list as flat backslashed rel-paths (`sub\my_script.cpp`); the panel
+  now builds a small `ScriptNode` tree from the recursive `.cpp` scan and
+  renders folders as `DefaultOpen` `TreeNodeEx` nodes with the files nested
+  under them (folders sorted first, files alphabetical). The per-folder
+  TreeNode ID scope also fixes a latent ImGui ID collision - two files named
+  the same in different folders (root `my_script.cpp` vs `sub\my_script.cpp`)
+  now get distinct IDs instead of sharing one selectable. Click still opens
+  the file in VS Code (the tree accumulates the `src\scripts\`-relative
+  prefix for the path). Verified: editor builds clean. Pure editor UI, no
+  codegen or generated-project change.
 - (151) **Edit an animated model's materials: create an override from its
   built-ins, and preview/paint it on the model in the Material Editor.** (150)
   let an animated `.glb`/`.fbx` take a Material (.mtl) override, but you still
