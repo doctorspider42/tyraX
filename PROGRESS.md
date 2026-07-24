@@ -8448,3 +8448,25 @@ Each finished feature lands as its own commit.
   code in the design pass), so the harness's Skel-path check covers what
   ships; a visual PCSX2 pass on a textured animated model stays on the
   human-check list with the rest of the GUI passes.
+- (86) **Unwrap: chart fold-over fix + multi-part UV visibility** (user
+  report: spider2.glb "unwrap only covered the abdomen"). Two findings.
+  REAL BUG: a planar chart spanning too much curvature can FOLD over
+  itself - two faces of spider.tee landed on the same 816 texels (the
+  validator harness caught it once pointed at the real model). Fix in
+  unwrapCore: chart growing is now a reusable subset pass, every grown
+  chart runs a 64x64 ownership-raster fold check in its own projection,
+  and folded charts RE-GROW at half the angle threshold (recursively; at
+  <=6 degrees coincident/duplicated geometry isolates into per-face charts,
+  which cannot overlap - guaranteed termination). spider2: 91 -> 92
+  charts, validator-clean on every part; the cube harness unchanged.
+  UX CONFUSION (the actual "tylko dupe objal"): the model has THREE parts
+  (spider 4 tris / spider.legs 350 / spider.tee 10) and the UV panel only
+  drew the SELECTED ENTRY's islands - the unwrap covered everything, but
+  with entry "spider" selected the panel showed 4 triangles. The panel now
+  draws the OTHER entries' islands dimmed gray for context (whole-model
+  layout visible, selected entry highlighted; switch entries in the combo
+  to edit each part). Also: the animated bake-mesh cache key now includes
+  the .uvs sidecar mtime, so external sidecar changes (delete/re-unwrap
+  outside the modal) refresh without a restart. Verified: both unwrap
+  harnesses green including the user's actual spider2.glb (Baked + Skel
+  paths carry the fix, per-part validator-clean, delete-restores).

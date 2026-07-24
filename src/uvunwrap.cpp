@@ -76,41 +76,151 @@ bool unwrapCore(const std::vector<V3>& pos,
             if (a != b) edges[{a, b}].push_back((int)fi);
         }
 
-    // chart growing: biggest unclaimed face seeds, BFS within the angle
+    // chart growing: biggest unclaimed face seeds, BFS within the angle.
+    // Reusable over a subset - the self-overlap fix below re-grows a folded
+    // chart with a tighter threshold.
+    std::vector<char> inSubset(faces.size(), 0);
+    std::vector<int> claimed(faces.size(), -1);
+    auto grow = [&](const std::vector<int>& subset, float cosT) {
+        std::vector<std::vector<int>> out;
+        for (int f : subset) {
+            inSubset[f] = 1;
+            claimed[f] = -1;
+        }
+        std::vector<int> order = subset;
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            return faces[a].area > faces[b].area;
+        });
+        for (int seed : order) {
+            if (claimed[seed] >= 0) continue;
+            std::vector<int> chart{seed};
+            claimed[seed] = 1;
+            std::vector<int> queue{seed};
+            while (!queue.empty()) {
+                const int fi = queue.back();
+                queue.pop_back();
+                for (size_t k = 0; k < faceIdx[fi].size(); ++k) {
+                    int a = faceIdx[fi][k];
+                    int b = faceIdx[fi][(k + 1) % faceIdx[fi].size()];
+                    if (a > b) std::swap(a, b);
+                    if (a == b) continue;
+                    for (int nf : edges[{a, b}]) {
+                        if (!inSubset[nf] || claimed[nf] >= 0) continue;
+                        if (dot(faces[nf].normal, faces[seed].normal) < cosT)
+                            continue;
+                        claimed[nf] = 1;
+                        chart.push_back(nf);
+                        queue.push_back(nf);
+                    }
+                }
+            }
+            out.push_back(std::move(chart));
+        }
+        for (int f : subset) inSubset[f] = 0;
+        return out;
+    };
+
+    // A planar projection of a chart spanning too much curvature can FOLD
+    // over itself (two faces land on the same texture region even though
+    // each projects with positive area). Detect it per chart with a small
+    // ownership raster and re-grow offenders at half the angle - single
+    // faces cannot overlap, so the loop always terminates.
+    auto seedNormalOf = [&](const std::vector<int>& chart) {
+        int best = chart[0];
+        for (int f : chart)
+            if (faces[f].area > faces[best].area) best = f;
+        return faces[best].normal;
+    };
+    auto chartFolds = [&](const std::vector<int>& chart, const V3& n) {
+        if (chart.size() < 2) return false;
+        V3 up = std::fabs(n.y) < 0.9f ? V3{0, 1, 0} : V3{1, 0, 0};
+        V3 u = cross(up, n);
+        if (!norm(u)) u = {1, 0, 0};
+        const V3 v = cross(n, u);
+        float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f;
+        std::map<int, std::pair<float, float>> pr;
+        for (int f : chart)
+            for (int vi : faceIdx[f]) {
+                if (pr.count(vi)) continue;
+                const std::pair<float, float> q = {dot(pos[vi], u),
+                                                   dot(pos[vi], v)};
+                pr[vi] = q;
+                x0 = std::min(x0, q.first), x1 = std::max(x1, q.first);
+                y0 = std::min(y0, q.second), y1 = std::max(y1, q.second);
+            }
+        const float ex = std::max(x1 - x0, 1e-9f), ey = std::max(y1 - y0, 1e-9f);
+        constexpr int R = 64;
+        std::vector<int> owner((size_t)R * R, -1);
+        int doubles = 0;
+        for (int f : chart) {
+            // triangle-fan the polygon in projected space
+            const auto& idx = faceIdx[f];
+            for (size_t k = 2; k < idx.size(); ++k) {
+                const auto A = pr[idx[0]], B = pr[idx[k - 1]], C = pr[idx[k]];
+                const float ax = (A.first - x0) / ex * R,
+                            ay = (A.second - y0) / ey * R;
+                const float bx = (B.first - x0) / ex * R,
+                            by = (B.second - y0) / ey * R;
+                const float cx = (C.first - x0) / ex * R,
+                            cy = (C.second - y0) / ey * R;
+                const float area2 =
+                    (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+                if (std::fabs(area2) < 1e-6f) continue;
+                const float inv = 1.0f / area2;
+                const int px0 = std::max(0, (int)std::floor(std::min({ax, bx, cx})));
+                const int px1 = std::min(R - 1, (int)std::ceil(std::max({ax, bx, cx})));
+                const int py0 = std::max(0, (int)std::floor(std::min({ay, by, cy})));
+                const int py1 = std::min(R - 1, (int)std::ceil(std::max({ay, by, cy})));
+                for (int y = py0; y <= py1; ++y)
+                    for (int x = px0; x <= px1; ++x) {
+                        const float qx = x + 0.5f, qy = y + 0.5f;
+                        const float bu = ((qx - ax) * (cy - ay) -
+                                          (qy - ay) * (cx - ax)) * inv;
+                        const float bv = ((bx - ax) * (qy - ay) -
+                                          (by - ay) * (qx - ax)) * inv;
+                        if (bu <= 0.0f || bv <= 0.0f || bu + bv >= 1.0f)
+                            continue;
+                        int& o = owner[(size_t)y * R + x];
+                        if (o < 0)
+                            o = f;
+                        else if (o != f)
+                            ++doubles;
+                    }
+            }
+        }
+        return doubles >= 3;  // a couple of shared texels = edge noise
+    };
+
     const float cosThresh =
         std::cos(std::max(1.0f, std::min(p.angleDeg, 89.0f)) * 3.14159265f /
                  180.0f);
-    std::vector<int> order(faces.size());
-    for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
-    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-        return faces[a].area > faces[b].area;
-    });
-    int chartCount = 0;
-    std::vector<V3> chartNormal;
-    for (int seed : order) {
-        if (faces[seed].chart >= 0) continue;
-        const int chart = chartCount++;
-        chartNormal.push_back(faces[seed].normal);
-        std::vector<int> queue{seed};
-        faces[seed].chart = chart;
-        while (!queue.empty()) {
-            const int fi = queue.back();
-            queue.pop_back();
-            for (size_t k = 0; k < faceIdx[fi].size(); ++k) {
-                int a = faceIdx[fi][k];
-                int b = faceIdx[fi][(k + 1) % faceIdx[fi].size()];
-                if (a > b) std::swap(a, b);
-                if (a == b) continue;
-                for (int nf : edges[{a, b}]) {
-                    if (faces[nf].chart >= 0) continue;
-                    if (dot(faces[nf].normal, faces[seed].normal) < cosThresh)
-                        continue;
-                    faces[nf].chart = chart;
-                    queue.push_back(nf);
-                }
+    std::vector<int> allFaces(faces.size());
+    for (size_t i = 0; i < allFaces.size(); ++i) allFaces[i] = (int)i;
+    std::vector<std::pair<std::vector<int>, V3>> finalCharts;
+    std::vector<std::pair<std::vector<int>, float>> work;
+    work.push_back({allFaces, std::max(1.0f, std::min(p.angleDeg, 89.0f))});
+    while (!work.empty()) {
+        auto [subset, angle] = std::move(work.back());
+        work.pop_back();
+        for (auto& chart : grow(subset, std::cos(angle * 3.14159265f / 180.0f))) {
+            const V3 n = seedNormalOf(chart);
+            if (chart.size() > 1 && angle > 6.0f && chartFolds(chart, n)) {
+                work.push_back({std::move(chart), angle * 0.5f});
+            } else if (chart.size() > 1 && angle <= 6.0f &&
+                       chartFolds(chart, n)) {
+                // coincident/duplicated geometry - isolate every face
+                for (int f : chart) finalCharts.push_back({{f}, faces[f].normal});
+            } else {
+                finalCharts.push_back({std::move(chart), n});
             }
         }
     }
+    const int chartCount = (int)finalCharts.size();
+    (void)cosThresh;
+    for (size_t fi = 0; fi < finalCharts.size(); ++fi)
+        for (int f : finalCharts[fi].first) faces[f].chart = (int)fi;
+    std::vector<V3> chartNormal(chartCount);
+    for (int c = 0; c < chartCount; ++c) chartNormal[c] = finalCharts[c].second;
 
     // per chart: planar projection + tightest-bbox rotation
     struct Chart {

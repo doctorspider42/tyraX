@@ -13049,8 +13049,10 @@ bool App::matBakeBuildMeshes(const std::string& entryName) {
             matBakeMeshError_ = "No preview model selected";
             return false;
         }
+        // the .uvs replacement-UV sidecar changes the baked mesh without
+        // touching the model file - its mtime joins the key
         key = "m|" + matEdModel_ + "|" + matEdPath_ + "|" + entryName + "|" +
-              mtimeOf(matEdModel_);
+              mtimeOf(matEdModel_) + "|" + mtimeOf(matEdModel_ + ".uvs");
     } else {
         key = "p|" + std::to_string(matEdShape_);
     }
@@ -14007,6 +14009,20 @@ void App::drawMatEdUvPanel(const std::string& entryName,
     const ImU32 wireCol = IM_COL32(255, 196, 96, 150);
     const ImU32 hiliteFill = IM_COL32(255, 196, 96, 90);
     const ImU32 hoverFill = IM_COL32(96, 190, 255, 90);
+    // other entries' islands draw dimmed for context - a multi-part model
+    // (spider body/legs/jaw...) shows its WHOLE layout, with the selected
+    // entry highlighted (switch entries in the combo up top to edit them)
+    if (!mesh.paintTri.empty()) {
+        const ImU32 dimCol = IM_COL32(140, 144, 158, 60);
+        for (int t = 0; t < tris; ++t) {
+            if (mesh.paintTri[t]) continue;
+            const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
+            const float* b = &mesh.verts[(size_t)(t * 3 + 1) * 8];
+            const float* c = &mesh.verts[(size_t)(t * 3 + 2) * 8];
+            dl->AddTriangle(toScreen(a[6], a[7]), toScreen(b[6], b[7]),
+                            toScreen(c[6], c[7]), dimCol);
+        }
+    }
     for (int t = 0; t < tris; ++t) {
         if (!mesh.paintTri.empty() && !mesh.paintTri[t]) continue;
         const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
