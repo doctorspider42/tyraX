@@ -112,7 +112,7 @@ const char* kExampleTemplate =
     "#              (default 0, range 0..1). Define them in order from param0.\n"
     "#\n"
     "# Everything after --- is the raw C++ effect body, emitted into\n"
-    "# src/scripts/screen_fx.gen.cpp. In scope: `fx` (Tyra::RendererCorePostFx\n"
+    "# src/gen/screen_fx.gen.cpp. In scope: `fx` (Tyra::RendererCorePostFx\n"
     "# - blit()/flatQuad()/currentFbVram()/currentFbBufW()/screenW()/screenH()/\n"
     "# noiseTexVram()/lowBuf0()/nextRand()), `q` (the qword_t* GS packet cursor\n"
     "# - append primitives and advance it), and `param` (const float* - the\n"

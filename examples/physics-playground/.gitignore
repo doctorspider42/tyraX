@@ -1,6 +1,0 @@
-obj/
-bin/*.elf
-*.history
-.vscode/
-.res-baked/
-docker-compose.yml

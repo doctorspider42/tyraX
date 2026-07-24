@@ -14897,7 +14897,7 @@ std::string sequencesHeader(const Project& p) {
         << ns
         << " {\n"
            "namespace sequences {\n"
-           "// Cutscene Director runtime (see src/scripts/sequences.gen.cpp),\n"
+           "// Cutscene Director runtime (see src/gen/sequences.gen.cpp),\n"
            "// driven by the Play Sequence / Stop Sequence flow nodes.\n"
            "void play(int index);  // start Project::sequences[index] at t=0\n"
            "void stop();           // stop the active sequence, free the camera\n"
@@ -16966,7 +16966,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
     return out.str();
 }
 
-// src/scripts/live_link.gen.cpp - the Live Link poller. Debug builds with the
+// src/gen/live_link.gen.cpp - the Live Link poller. Debug builds with the
 // "Live Link" project preference on: the editor mirrors scene edits into the
 // running game by writing livelink.bin next to the ELF, which the game
 // already reaches over host: (PCSX2 Host Filesystem or the ps2link file
@@ -17230,7 +17230,7 @@ static std::string liveLinkScript(const Project& p) {
     return out.str();
 }
 
-// src/scripts/live_tex.gen.cpp - texture hot reload (docs/live-link.md), the
+// src/gen/live_tex.gen.cpp - texture hot reload (docs/live-link.md), the
 // Live Link sibling: the editor re-bakes a repainted texture into bin/ and
 // announces it in bin/livetex.bin; this poller re-decodes the PNG and
 // re-uploads the pixels INTO THE TEXTURE'S EXISTING GS VRAM ALLOCATION
@@ -17624,7 +17624,7 @@ static std::string terrainHeightsHeader(const Project& p) {
 // ---------------------------------------------------------------------------
 // NavMesh + NPC AI (docs/navigation-ai.md). The walkable-cell grid is baked
 // on the host (navmesh.cpp) into inc/nav_data.gen.hpp; the runtime -
-// src/scripts/navigation.gen.cpp - runs A* over that bitmap on the EE and
+// src/gen/navigation.gen.cpp - runs A* over that bitmap on the EE and
 // ticks every AI agent each frame (the Patrol/Chase/Flee flow nodes only set
 // the agent's state; one shared state per object, so a Chase interrupts a
 // Patrol). Everything below is gated on the AI nodes actually appearing in a
@@ -17773,7 +17773,7 @@ static std::string navigationHeader(const Project& p) {
 // agent state per runtime object - starting a behavior replaces the current
 // one. Movement runs in the generated NavAiScript every frame: A* over the
 // baked nav grid (at most one pathfind per frame, round-robin), terrain
-// snapping, turn-to-face. See src/scripts/navigation.gen.cpp.
+// snapping, turn-to-face. See src/gen/navigation.gen.cpp.
 void navPatrol(ScriptContext& ctx, int obj, const int* waypoints, int count,
                float speed, float pauseSec, int once);
 void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,
@@ -17792,7 +17792,7 @@ bool navPlayerSeen(ScriptContext& ctx, int obj, float range, float fovDeg,
     return out.str();
 }
 
-// src/scripts/navigation.gen.cpp - A* + the per-frame AI agent tick
+// src/gen/navigation.gen.cpp - A* + the per-frame AI agent tick
 static std::string navigationSource(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     std::ostringstream out;
@@ -19472,7 +19472,7 @@ std::vector<File> bakeAnimAssets(const Project& p,
     return files;
 }
 
-// src/scripts/object_scripts.gen.cpp - the object-script runtime: attachment
+// src/gen/object_scripts.gen.cpp - the object-script runtime: attachment
 // table (scene index, object index, class name - straight from the editor's
 // Properties > Scripts) plus a driver that owns the instances. The driver is
 // a regular global Script, so any generated game runs it without changes to
@@ -19612,7 +19612,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\nav_data.gen.hpp", navDataHeader(p)},
         {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
-        {"src\\scripts\\navigation.gen.cpp", navigationSource(p)},
+        {"src\\gen\\navigation.gen.cpp", navigationSource(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\ao_data.gen.hpp", aoDataHeader(p)},
@@ -19621,14 +19621,14 @@ std::vector<File> generate(const Project& p) {
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"inc\\scripts\\sequences.gen.hpp", sequencesHeader(p)},
-        {"src\\scripts\\sequences.gen.cpp", sequencesScript(p)},
+        {"src\\gen\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
-        {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
-        {"src\\scripts\\live_link.gen.cpp", liveLinkScript(p)},
-        {"src\\scripts\\live_tex.gen.cpp", liveTexScript(p)},
+        {"src\\gen\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"src\\gen\\live_link.gen.cpp", liveLinkScript(p)},
+        {"src\\gen\\live_tex.gen.cpp", liveTexScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},
-        {"src\\scripts\\screen_fx.gen.cpp", screenFxSource(p)},
-        {"src\\scripts\\object_scripts.gen.cpp", objectScriptsSource(p)},
+        {"src\\gen\\screen_fx.gen.cpp", screenFxSource(p)},
+        {"src\\gen\\object_scripts.gen.cpp", objectScriptsSource(p)},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties()},

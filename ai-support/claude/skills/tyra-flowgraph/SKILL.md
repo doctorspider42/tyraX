@@ -9,7 +9,7 @@ description: TyraX flow graphs - the visual logic scripts attached to scene obje
 
 A flow graph is a CryEngine-style visual script. **Every scene object owns its
 own graph** (stored inside its `objects/<id>.json` under `"flowGraph"`); at
-build time all graphs compile into `src/scripts/flow_graph.gen.cpp` - one
+build time all graphs compile into `src/gen/flow_graph.gen.cpp` - one
 script class per graph. There is no interpreter on the PS2: graphs become
 plain C++.
 

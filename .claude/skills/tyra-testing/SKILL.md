@@ -79,7 +79,7 @@ without building:
 - For an **existing** project, `project::refreshGenerated()` runs at the very
   start of `--build`, *before* Docker is contacted — so even with Docker
   stopped, a failed `--build` still refreshes `inc/scene_data.hpp`,
-  `src/scripts/flow_graph.gen.cpp`, etc. for inspection. There is no
+  `src/gen/flow_graph.gen.cpp`, etc. for inspection. There is no
   `--no-docker` flag; the expected outcome is "Failed to start docker
   container..." + exit code 1 with fresh generated files on disk.
 - When inspecting, remember the ownership split (see tyra-editor-dev): `.gen.*`

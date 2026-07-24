@@ -32,7 +32,7 @@ builds in Docker (PS2DEV toolchain) and runs in PCSX2.
 ## Flow graphs (game logic)
 
 Every scene object owns a flow graph (in its `objects/<id>.json`), compiled to
-`src/scripts/flow_graph.gen.cpp` at build. Graph JSON:
+`src/gen/flow_graph.gen.cpp` at build. Graph JSON:
 `{"nodes":[{"id":1,"type":"OnStart","pos":[0,0],"str":"","num":[0,0,0,0]}],`
 `"links":[{"from":1,"to":2,"kind":"exec"}]}` with link kinds
 `exec`/`object`/`pos`/`bool`/`text`. Triggers have the exec output; actions

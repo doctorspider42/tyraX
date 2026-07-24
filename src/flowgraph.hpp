@@ -6,7 +6,7 @@
 
 // Visual logic graph (CryEngine-FlowGraph-like). Every scene object can carry
 // its own graph; the graph is stored inside the object in the .tyra file and
-// compiled into src/scripts/flow_graph.gen.cpp on every build (one script
+// compiled into src/gen/flow_graph.gen.cpp on every build (one script
 // class per object graph).
 //
 // Link kinds:

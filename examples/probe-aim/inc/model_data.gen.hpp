@@ -25,4 +25,7 @@ inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "materials/chrome-dyn.mtl",
 };
 
+// texture atlas summary, logged at scene boot ("" = no atlas)
+constexpr const char* TEXTURE_ATLAS_INFO = "";
+
 }  // namespace Probe_aim

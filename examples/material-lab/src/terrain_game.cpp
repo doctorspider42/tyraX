@@ -3091,6 +3091,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
     runtimeObjects[P.objIndex].visible =
         PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0) {
+      // Fixed-angle style: the camera starts on its authored heading and
+      // elevation instead of behind the avatar (the avatar itself still
+      // starts facing its authored yaw - P.faceYaw keeps that above).
+      P.yaw = PP_CAM_YAW(pi);
+      P.pitch = -PP_CAM_PITCH(pi);
+    }
     if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
@@ -4639,13 +4646,23 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
 
   // Right stick: look around (stick right = turn right). A shared-screen P2
   // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
-  // only players that own a view read the right stick.
+  // only players that own a view read the right stick. A fixed-angle
+  // third-person style (top-down / isometric / fixed) additionally pins the
+  // pitch every frame - and the yaw too unless the style allows stick
+  // rotation - so the camera holds its authored angle while the left stick
+  // drives the avatar.
   const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  const bool fixedCam = PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0;
   if (ownCamera) {
-    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
-    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
-    if (P.pitch > 1.35F) P.pitch = 1.35F;
-    if (P.pitch < -1.35F) P.pitch = -1.35F;
+    if (!fixedCam || PP_CAM_YAW_ROTATE(pi))
+      P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (fixedCam) {
+      P.pitch = -PP_CAM_PITCH(pi);  // elevation in radians; down = negative
+    } else {
+      P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+      if (P.pitch > 1.35F) P.pitch = 1.35F;
+      if (P.pitch < -1.35F) P.pitch = -1.35F;
+    }
   }
 
   const float fx = sinf(P.yaw);

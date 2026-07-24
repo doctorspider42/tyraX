@@ -6292,7 +6292,10 @@ std::vector<std::string> App::objectScriptNames() {
         std::filesystem::path(project_.dir) / "src" / "scripts";
     std::error_code ec;
     if (!std::filesystem::exists(dir, ec)) return names;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+    for (std::filesystem::recursive_directory_iterator walk(dir, ec), end;
+         walk != end && !ec; walk.increment(ec)) {
+        const auto& entry = *walk;
+        if (!entry.is_regular_file(ec)) continue;
         if (entry.path().extension() != ".cpp") continue;
         const std::string key = entry.path().string();
         const auto mtime = std::filesystem::last_write_time(entry.path(), ec);
@@ -16031,32 +16034,85 @@ void App::drawScriptsSection() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Open in VS Code")) openInVSCode();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Object scripts (TYRA_OBJECT_SCRIPT) run when attached to objects:\n"
+            "Properties > Scripts. Plain TYRA_SCRIPT classes run globally every\n"
+            "frame. Subfolders are compiled too; generated code lives in src\\gen.");
 
-    // List src/scripts/*.cpp (user scripts live there and are compiled
-    // automatically by the project Makefile). Click one to open it in VS Code
-    // in the project context.
+    // List user scripts as a folder tree: every .cpp under src/scripts,
+    // subfolders included - that directory is exclusively the user's. Engine-
+    // generated sources live in src/gen and never show here (any stray
+    // *.gen.cpp left by an old editor version is filtered out for good
+    // measure). Click a file to open it in VS Code in the project context.
     const std::filesystem::path dir = std::filesystem::path(project_.dir) / "src" / "scripts";
     std::error_code ec;
+
+    struct ScriptNode {
+        std::map<std::string, ScriptNode> folders;  // sorted subfolders
+        std::vector<std::string> files;             // leaf filenames
+    };
+    ScriptNode root;
     bool any = false;
     if (std::filesystem::exists(dir, ec)) {
-        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (entry.path().extension() != ".cpp") continue;
-            const std::string fname = entry.path().filename().string();
-            ImGui::Bullet();
-            ImGui::SameLine();
-            if (ImGui::Selectable(fname.c_str())) openInVSCode("src\\scripts\\" + fname);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Open in VS Code");
+        for (std::filesystem::recursive_directory_iterator it(dir, ec), end;
+             it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            if (it->path().extension() != ".cpp") continue;
+            const std::string fname = it->path().filename().string();
+            if (fname.size() > 8 &&
+                fname.compare(fname.size() - 8, 8, ".gen.cpp") == 0)
+                continue;
+            // Slot the relative path into the tree: walk/create a folder node
+            // per path segment, drop the filename in the final node's files.
+            const std::string rel =
+                std::filesystem::relative(it->path(), dir, ec).string();
+            ScriptNode* node = &root;
+            for (size_t start = 0;;) {
+                size_t sep = rel.find_first_of("/\\", start);
+                if (sep == std::string::npos) {
+                    node->files.push_back(rel.substr(start));
+                    break;
+                }
+                node = &node->folders[rel.substr(start, sep - start)];
+                start = sep + 1;
+            }
             any = true;
         }
     }
+
     if (!any) {
         ImGui::TextDisabled("No scripts yet.");
-    } else {
-        ImGui::TextDisabled("Object scripts (TYRA_OBJECT_SCRIPT) run when attached\n"
-                            "to objects: Properties > Scripts. Plain TYRA_SCRIPT\n"
-                            "classes run globally every frame.");
+        return;
     }
+
+    // Render folders first (open by default), then files. TreeNodeEx pushes an
+    // ID scope per folder, so same-named files in different folders don't
+    // collide. prefix carries the src\scripts-relative path for opening.
+    std::function<void(const ScriptNode&, const std::string&)> drawNode =
+        [&](const ScriptNode& n, const std::string& prefix) {
+            for (const auto& [name, child] : n.folders) {
+                if (ImGui::TreeNodeEx(name.c_str(),
+                                      ImGuiTreeNodeFlags_DefaultOpen |
+                                          ImGuiTreeNodeFlags_SpanAvailWidth)) {
+                    drawNode(child, prefix + name + "\\");
+                    ImGui::TreePop();
+                }
+            }
+            std::vector<std::string> files = n.files;
+            std::sort(files.begin(), files.end());
+            for (const std::string& f : files) {
+                ImGui::Bullet();
+                ImGui::SameLine();
+                if (ImGui::Selectable(f.c_str()))
+                    openInVSCode("src\\scripts\\" + prefix + f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open in VS Code");
+            }
+        };
+    drawNode(root, "");
 }
 
 void App::drawNewScriptModal() {
@@ -16072,7 +16128,8 @@ void App::drawNewScriptModal() {
         return;
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-    ImGui::TextDisabled("Creates src\\scripts\\%s.cpp", newScriptName_);
+    ImGui::TextDisabled("Creates src\\scripts\\%s.cpp (subfolders allowed: ai/guard)",
+                        newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
                             project_.objects()[newScriptAttachTo_].name.c_str());
@@ -16083,16 +16140,28 @@ void App::drawNewScriptModal() {
     ImGui::Separator();
     if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
         std::string name = newScriptName_;
-        bool valid = !name.empty();
+        for (char& c : name)
+            if (c == '\\') c = '/';  // one separator form for path + display
+        // Segments of letters/digits/_/- split by '/': "ai/guard" makes the
+        // subfolder. Empty segments (leading//trailing slash) are invalid;
+        // ".." is impossible since '.' is rejected.
+        bool valid = !name.empty() && name.front() != '/' && name.back() != '/';
         for (char c : name)
-            if (!isalnum((unsigned char)c) && c != '_' && c != '-') valid = false;
+            if (!isalnum((unsigned char)c) && c != '_' && c != '-' && c != '/')
+                valid = false;
+        if (name.find("//") != std::string::npos) valid = false;
 
         if (!valid) {
-            newScriptError_ = "Name may contain only letters, digits, '_' and '-'";
+            newScriptError_ =
+                "Name may contain only letters, digits, '_', '-' and '/'";
         } else {
-            // File name -> C++ class name (my-script -> My_script)
+            // File name -> C++ class name (ai/my-script -> My_script)
+            std::string base = name;
+            if (const size_t slash = base.find_last_of('/');
+                slash != std::string::npos)
+                base = base.substr(slash + 1);
             std::string className;
-            for (char c : name) className += (isalnum((unsigned char)c) ? c : '_');
+            for (char c : base) className += (isalnum((unsigned char)c) ? c : '_');
             if (isdigit((unsigned char)className[0])) className = "Script" + className;
             className[0] = (char)toupper((unsigned char)className[0]);
 

@@ -261,6 +261,10 @@ class TerrainGame : public Tyra::Game {
     bool reflDynamic = false;
     bool reflRounded = false;
     std::string reflTexPath;  // texture-cache ref held ("" = none)
+    // texture atlasing ("# tyra-uvrect" in the baked .mtl): primitive
+    // builders map their generated 0..1 UVs onto this sub-rectangle of the
+    // (shared page) texture. {0,0,1,1} = no atlas.
+    float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);

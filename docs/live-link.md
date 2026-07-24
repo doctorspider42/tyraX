@@ -84,7 +84,7 @@ mechanism, both targets.
   the 12 live floats — and writes `bin/livelink.bin` (`TXLL` magic, version,
   sequence number, a footer echoing the sequence) atomically via a sibling
   tmp file + rename, whenever the payload changed.
-- The game side is a generated global script, `src/scripts/live_link.gen.cpp`
+- The game side is a generated global script, `src/gen/live_link.gen.cpp`
   (debug profile + Live Link preference only; otherwise an empty translation
   unit). It re-reads the file every 6 frames (every 25 under ps2link — each
   `fopen` there is a network round-trip), validates magic/size/footer so a

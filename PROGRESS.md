@@ -10,6 +10,46 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (120) **Scripts panel cleanup: `src/scripts/` is exclusively the user's;
+  generated sources moved to `src/gen/`; subfolders supported.** The Scripts
+  list used to show the six engine-generated `*.gen.cpp` files (flow_graph,
+  sequences, screen_fx, live_link, navigation, object_scripts) next to the
+  user's own scripts — confusing ("what are these files I never wrote?").
+  Now: (1) codegen writes them to `src/gen/` (registrations in
+  `templates::generate` + the always-overwrite list in `refreshGenerated`;
+  the engine's `Makefile.base` finds sources recursively, so no Makefile
+  change), (2) `refreshGenerated` **deletes stale copies** from
+  `src/scripts/` on the first build of an older project — critical, a
+  leftover pair would be compiled twice into duplicate symbols, (3) the
+  Scripts panel and the `TYRA_OBJECT_SCRIPT` attach-scan walk `src/scripts`
+  **recursively** (subfolder scripts list as `ai\guard.cpp`, compile and
+  scan like any other; `*.gen.cpp` filtered out for good measure), and (4)
+  **New script...** accepts `ai/guard` to create `src/scripts/ai/guard.cpp`
+  (segment-validated, class name from the basename). All 11 example
+  projects regenerated (old copies pruned, new `src/gen/` committed); docs +
+  ai-support skills + editor-skill path references updated. Verified:
+  editor builds clean; `examples/script-demo` Docker build passes with the
+  new layout (link line shows `obj/gen/*.gen.o`); a scratch project with a
+  hand-made `src/scripts/ai/guard_brain.cpp` object script compiles and
+  links via the recursive Makefile find (=== Build OK ===). The panel's
+  visual list (nested rel-paths render, click opens VS Code) still wants a
+  quick GUI eyeball pass.
+- (162) **Scripts panel polish: subfolders render as a tree, the help
+  blurb moves to a `(?)` tooltip.** Follow-up to (120)'s GUI eyeball note.
+  The panel used to print a four-line explanatory paragraph under the list on
+  every frame (object vs global scripts, "generated code lives in src\gen") -
+  a wall of text that dwarfed a short script list. It's now a single `(?)`
+  hover next to the New script... / Open in VS Code buttons. Subfolder scripts
+  used to list as flat backslashed rel-paths (`sub\my_script.cpp`); the panel
+  now builds a small `ScriptNode` tree from the recursive `.cpp` scan and
+  renders folders as `DefaultOpen` `TreeNodeEx` nodes with the files nested
+  under them (folders sorted first, files alphabetical). The per-folder
+  TreeNode ID scope also fixes a latent ImGui ID collision - two files named
+  the same in different folders (root `my_script.cpp` vs `sub\my_script.cpp`)
+  now get distinct IDs instead of sharing one selectable. Click still opens
+  the file in VS Code (the tree accumulates the `src\scripts\`-relative
+  prefix for the path). Verified: editor builds clean. Pure editor UI, no
+  codegen or generated-project change.
 - (151) **Edit an animated model's materials: create an override from its
   built-ins, and preview/paint it on the model in the Material Editor.** (150)
   let an animated `.glb`/`.fbx` take a Material (.mtl) override, but you still
