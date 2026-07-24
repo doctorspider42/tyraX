@@ -83,7 +83,11 @@ the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:
-centroid-radial env normals for flat surfaces; quietly picks up the TyraX
+centroid-radial env normals for flat surfaces; parses the TyraX
+`# tyra-uvrect u0 v0 du dv` hint the texture-atlas bake writes into baked
+.mtl files (docs/texture-atlasing.md) - model vertex UVs multiply through
+it at load and `LeanMtlMaterial::uvRect` exposes it for the generated
+game's primitive builders; quietly picks up the TyraX
 `<model>.aov` baked-ambient-occlusion sidecar — "TXAO" + u32 count + one
 visibility byte per obj `v` entry, docs/ambient-occlusion.md — into
 per-vertex `vertexAo` bytes the generated game folds into its shade bake), per-bag additive blending for the

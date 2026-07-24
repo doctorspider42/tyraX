@@ -423,6 +423,11 @@ void aoCollectLocal(float cx, float cy, float cz, float radius, int selfIndex) {
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+// Texture atlasing: the staged material's UV rect ("# tyra-uvrect" in the
+// baked .mtl), applied to the primitive builders' generated 0..1 UVs.
+// nullptr = identity. Model parts never use it - LeanObjLoader already
+// remapped their UVs at load.
+const float* g_primUvRect = nullptr;
 // Physics fast path: push LOCAL-space positions (scale baked, rotation and
 // translation left to ObjectGeometry::objMat). Shading still bakes from the
 // full wake pose, so the switch itself never pops a color.
@@ -516,7 +521,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   cols.push_back(Color(c255(o.color[0] * scale * shade.x),
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
-  sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  // staged-material path only (kdArg = a model part whose UVs the loader
+  // already remapped)
+  if (!kdArg && g_primUvRect)
+    sts.push_back(Vec4(g_primUvRect[0] + u * g_primUvRect[2],
+                       g_primUvRect[1] + v * g_primUvRect[3], 1.0F, 0.0F));
+  else
+    sts.push_back(Vec4(u, v, 1.0F, 0.0F));
   if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
@@ -1951,6 +1962,7 @@ void TerrainGame::loadMaterialAsset(int i) {
   if (!mat.textureName.empty()) {
     gmat.texPath = dir + mat.textureName;
     gmat.texture = acquireTexture(gmat.texPath);
+    for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
   }
   if (mat.reflTextureName == "@sky") {
     // Dynamic env map (see loadModelAsset).
@@ -5168,6 +5180,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_primUvRect = g_primTextured ? gmat->uvRect : nullptr;
     g_envNormals =
         (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
@@ -5606,6 +5619,7 @@ void TerrainGame::buildStaticBatchList() {
     if (objectBatchOf[i] >= 0) ++batched;
   TYRA_LOG("Static batching: ", batched, " objects in ",
            (int)staticBatches.size(), " batches");
+  if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 
 // One batch's bake: re-run the primitive builders for every shown member

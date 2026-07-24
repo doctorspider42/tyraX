@@ -30,6 +30,11 @@ struct LeanObjMaterial {
   std::string reflTextureName;
   float reflStrength = 0.0F;
   bool reflRounded = false;
+  // "# tyra-uvrect u0 v0 du dv" (texture atlasing): the sub-rectangle of the
+  // texture this material's UVs map onto. The loader already multiplied the
+  // emitted vertex UVs through it; exposed for diagnostics. {0,0,1,1} = the
+  // whole texture (no atlas).
+  float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
   std::vector<float> vertices;
   // Baked ambient-occlusion visibility per emitted vertex (255 = open sky),
   // parallel to vertices (one byte per 8 floats). Filled only when a
@@ -59,6 +64,11 @@ struct LeanMtlMaterial {
   std::string reflTextureName;
   float reflStrength = 0.0F;
   bool reflRounded = false;
+  // "# tyra-uvrect u0 v0 du dv" (texture atlasing): the sub-rectangle of
+  // textureName this material's 0..1 UVs must map onto - consumers that
+  // generate their own UVs (the game's primitive builders) multiply through
+  // it. {0,0,1,1} = the whole texture (no atlas).
+  float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
 };
 
 /**

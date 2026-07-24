@@ -79,6 +79,7 @@ add_executable(tyrax-editor
     src/screenfx.cpp
     src/session.cpp
     src/stochtile.cpp
+    src/texatlas.cpp
     src/texbake.cpp
     src/save_assets.cpp
     src/templates.cpp

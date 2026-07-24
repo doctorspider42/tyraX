@@ -534,6 +534,11 @@ struct ProjectSettings {
     // overrides live in Project::textureQuality. "none" = full color,
     // "8bit" = 256 colors, "4bit" = 16 colors (default - era-correct).
     std::string textureQuant = "4bit";
+    // Texture atlasing at build (docs/texture-atlasing.md): small clamp-safe
+    // map_Kd textures pack into shared 256x256 pages - one GS allocation
+    // (+~8 KB overhead) per page instead of per texture. Conservative
+    // eligibility, computed by texatlas::plan; off = classic per-file bake.
+    bool textureAtlas = false;
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD

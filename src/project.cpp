@@ -780,6 +780,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
+         << "    \"textureAtlas\": " << (p.settings.textureAtlas ? "true" : "false")
+         << ",\n"
          << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
          << "    \"showMemory\": " << (p.settings.showMemory ? "true" : "false")
          << ",\n"
@@ -2237,6 +2239,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             const std::string q = v->stringOr("none");
             st.textureQuant = (q == "8bit" || q == "4bit") ? q : "none";
         }
+        if (const auto* v = s->find("textureAtlas"))
+            st.textureAtlas = v->boolOr(false);
         if (const auto* v = s->find("showFps")) st.showFps = v->boolOr(false);
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("showProfiler"))

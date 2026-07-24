@@ -17698,6 +17698,16 @@ void App::drawPreferencesModal() {
         "model/material in the Assets section - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
+    ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
+    prefHelp(
+        "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
+        "pages at build: one GS VRAM allocation (+~8 KB overhead) per page\n"
+        "instead of per texture, fewer texture switches. Conservative - tiled\n"
+        "terrain textures, emitters, decals, sphere maps and textures whose\n"
+        "model UVs leave 0..1 keep their own files. Palettized projects share\n"
+        "one 256-color palette per page (the era-authentic trade). The boot\n"
+        "log prints what was packed.");
+
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
              "if any, tiles across it - set the tiling on the material's\n"

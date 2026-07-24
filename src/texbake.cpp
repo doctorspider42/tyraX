@@ -1,8 +1,11 @@
 #include "texbake.hpp"
 
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <vector>
 
 #include <stb_image.h>
@@ -12,6 +15,7 @@
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "stochtile.hpp"
+#include "texatlas.hpp"  // shared texture atlas plan (docs/texture-atlasing.md)
 
 namespace fs = std::filesystem;
 
@@ -55,6 +59,67 @@ int nearestValidDim(int v) {
 // failure it falls back to a full-color write - still a valid size, so the
 // game never asserts. Returns false only if the source cannot be decoded or
 // nothing could be written (then the caller copies verbatim).
+// Rewrites a .mtl into the bake with atlased map_Kd references redirected
+// to their page + a "# tyra-uvrect u0 v0 du dv" hint line right after (the
+// engine's LeanObjLoader applies it per material - see texatlas.hpp).
+// Returns false when the file references no atlas member (caller copies
+// verbatim). dirRel = res-relative directory of the .mtl.
+bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
+                        const std::string& dirRel,
+                        const texatlas::Plan& plan) {
+    std::ifstream in(src);
+    if (!in) return false;
+    std::ostringstream out;
+    bool any = false;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        std::istringstream ss(line);
+        std::string tag;
+        ss >> tag;
+        if (tag == "map_Kd") {
+            std::vector<std::string> toks;
+            for (std::string t; ss >> t;) toks.push_back(t);
+            std::string tex = toks.empty() ? "" : toks.back();
+            for (char& c : tex)
+                if (c == '\\') c = '/';
+            if (!tex.empty() && tex.find('/') == std::string::npos) {
+                if (const texatlas::Entry* en = plan.find(dirRel + "/" + tex)) {
+                    // eligibility rejected tiling/options, so the line can
+                    // be regenerated plain
+                    out << "map_Kd "
+                        << fs::path(en->pageRel).filename().string() << "\n";
+                    char buf[96];
+                    std::snprintf(buf, sizeof(buf),
+                                  "# tyra-uvrect %.6g %.6g %.6g %.6g", en->u0,
+                                  en->v0, en->du, en->dv);
+                    out << buf << "\n";
+                    any = true;
+                    continue;
+                }
+            }
+        }
+        out << line << "\n";
+    }
+    if (!any) return false;
+    std::ofstream o(dst, std::ios::trunc);
+    if (!o) return false;
+    o << out.str();
+    return true;
+}
+
+// A previously baked .mtl carrying atlas rewrites - must be re-copied
+// verbatim when the plan no longer covers it (the timestamp gate alone
+// would keep the stale rewrite).
+bool bakedMtlWasRewritten(const fs::path& dst) {
+    std::ifstream in(dst);
+    if (!in) return false;
+    std::string line;
+    while (std::getline(in, line))
+        if (line.rfind("# tyra-uvrect", 0) == 0) return true;
+    return false;
+}
+
 bool bakeHudImage(const fs::path& src, const fs::path& dst, const HudImage& hi,
                   const std::string& quant,
                   const std::function<void(const std::string&)>& log) {
@@ -205,6 +270,10 @@ std::string bake(const Project& p,
         return top == "brushes";
     };
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
+    // Texture atlasing (docs/texture-atlasing.md): the shared deterministic
+    // plan - members skip their individual bake (the composited pages are
+    // written after the loop) and their .mtl consumers are rewritten.
+    const texatlas::Plan atlasPlan = texatlas::plan(p);
     int quantized = 0, copied = 0;
     for (const auto& e : fs::recursive_directory_iterator(res, ec)) {
         if (!e.is_regular_file()) continue;
@@ -215,6 +284,27 @@ std::string bake(const Project& p,
 
         const std::string relRes = ("res/" + rel.generic_string());
         const std::string top = rel.begin()->generic_string();
+
+        // atlas members ship only inside their page
+        if (atlasPlan.find(relRes)) {
+            fs::remove(dst, ec);  // a pre-atlas bake may have mirrored it
+            continue;
+        }
+        if (lowerExt(e.path()) == ".mtl" &&
+            (top == "models" || top == "materials" || top == "textures")) {
+            const std::string dirRel =
+                "res/" + rel.parent_path().generic_string();
+            if (!atlasPlan.empty() &&
+                rewriteMtlForAtlas(e.path(), dst, dirRel, atlasPlan)) {
+                ++quantized;
+                continue;
+            }
+            // plan no longer covers this file: purge a stale rewrite that
+            // the timestamp gate below would otherwise keep
+            std::error_code mec;
+            if (fs::exists(dst, mec) && bakedMtlWasRewritten(dst))
+                fs::remove(dst, mec);
+        }
 
         // HUD sprites: resize to a PS2-valid size (+ optional quantize) so a
         // mis-sized import cannot assert in-game. Built-in HUD assets (use.png,
@@ -318,6 +408,9 @@ std::string bake(const Project& p,
         // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too.
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas") continue;
+        // atlas pages have no res/ source; the atlas block below removes the
+        // ones the current plan no longer produces
+        if (rel.filename().string().rfind("tyra-atlas-", 0) == 0) continue;
         std::error_code sec;
         // "<model>.aov" AO sidecars: model self-AO is disabled for now (the
         // per-vertex bake reads as triangulated shading on authored meshes -
@@ -339,6 +432,87 @@ std::string bake(const Project& p,
     // the engine's LeanObjLoader quietly folds an existing sidecar into
     // per-vertex visibility bytes. To re-enable, restore the loop that was
     // here (git log this file) and drop the unconditional .aov sweep above.
+
+    // Texture atlas pages (docs/texture-atlasing.md): composite the plan's
+    // members into shared pages, regenerated wholesale each bake. Members
+    // are blitted at their baked size with a 2-texel edge-dilated gutter
+    // (bilinear filtering never reaches a neighbor), then the whole page
+    // quantizes as ONE image - a shared 256-color CLUT per page (the
+    // era-authentic trade), or full color when the project ships full color.
+    {
+        // pages the current plan no longer produces
+        for (const auto& e : fs::recursive_directory_iterator(baked, ec)) {
+            if (!e.is_regular_file()) continue;
+            if (e.path().filename().string().rfind("tyra-atlas-", 0) != 0)
+                continue;
+            const std::string rel =
+                "res/" + fs::relative(e.path(), baked, ec).generic_string();
+            bool wanted = false;
+            for (const std::string& pg : atlasPlan.pages) wanted |= pg == rel;
+            if (!wanted) fs::remove(e.path(), ec);
+        }
+        const int S = atlasPlan.pageSize;
+        for (size_t pi = 0; pi < atlasPlan.pages.size(); ++pi) {
+            std::vector<unsigned char> page((size_t)S * S * 4, 0);
+            for (size_t i = 3; i < page.size(); i += 4) page[i] = 255;
+            for (const texatlas::Entry& en : atlasPlan.entries) {
+                if (en.page != (int)pi) continue;
+                int sw = 0, sh = 0, comp = 0;
+                unsigned char* px = stbi_load(
+                    (fs::path(p.dir) / en.resRel).string().c_str(), &sw, &sh,
+                    &comp, 4);
+                if (!px) {
+                    log("[editor] texture atlas: cannot decode " + en.resRel);
+                    continue;
+                }
+                std::vector<unsigned char> buf;
+                const unsigned char* pix = px;
+                if (sw != en.w || sh != en.h) {
+                    buf = pngquant::resizeRGBA(px, sw, sh, en.w, en.h);
+                    pix = buf.data();
+                }
+                for (int y = 0; y < en.h; ++y)
+                    std::memcpy(&page[(((size_t)en.y + y) * S + en.x) * 4],
+                                pix + (size_t)y * en.w * 4, (size_t)en.w * 4);
+                stbi_image_free(px);
+                // gutter: replicate the member's edges 2 texels outward
+                // (rows first, then columns over the expanded rows so the
+                // corners fill too)
+                constexpr int G = 2;
+                for (int gy = 1; gy <= G; ++gy) {
+                    std::memcpy(&page[(((size_t)en.y - gy) * S + en.x) * 4],
+                                &page[((size_t)en.y * S + en.x) * 4],
+                                (size_t)en.w * 4);
+                    std::memcpy(
+                        &page[(((size_t)en.y + en.h - 1 + gy) * S + en.x) * 4],
+                        &page[(((size_t)en.y + en.h - 1) * S + en.x) * 4],
+                        (size_t)en.w * 4);
+                }
+                for (int y = -G; y < en.h + G; ++y)
+                    for (int gx = 1; gx <= G; ++gx) {
+                        const size_t row = ((size_t)en.y + y) * S;
+                        std::memcpy(&page[(row + en.x - gx) * 4],
+                                    &page[(row + en.x) * 4], 4);
+                        std::memcpy(&page[(row + en.x + en.w - 1 + gx) * 4],
+                                    &page[(row + en.x + en.w - 1) * 4], 4);
+                    }
+            }
+            const fs::path dst =
+                baked / fs::path(atlasPlan.pages[pi].substr(4));
+            fs::create_directories(dst.parent_path(), ec);
+            std::string err;
+            const bool ok =
+                atlasPlan.fullColor
+                    ? pngquant::writePngRGBA(dst.string(), page.data(), S, S,
+                                             err)
+                    : pngquant::quantizeRGBA(dst.string(), page.data(), S, S,
+                                             256, err);
+            if (!ok)
+                log("[editor] texture atlas: " + atlasPlan.pages[pi] + ": " +
+                    err);
+        }
+        if (!atlasPlan.empty()) log("[editor] " + texatlas::info(atlasPlan));
+    }
 
     // Baked ambient occlusion (docs/ambient-occlusion.md): the terrain AO
     // map + the primitive lightmap atlas, one pair per AO-enabled scene,

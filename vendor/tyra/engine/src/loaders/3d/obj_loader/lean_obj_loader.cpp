@@ -43,6 +43,7 @@ struct MtlEntry {
   std::string reflTexture;
   float reflStrength = 0.0F;
   bool reflRounded = false;
+  float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};  // "# tyra-uvrect" (atlasing)
 };
 
 /** newmtl/Kd/map_Kd/refl from one .mtl buffer (map_Kd/refl: last token of the
@@ -93,6 +94,17 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
       m.reflTexture = last;
       if (m.reflStrength <= 0.0F && !m.reflTexture.empty())
         m.reflStrength = 0.5F;  // refl without -mm: sensible default
+    } else if (tag == "#" && !current.empty()) {
+      // Modified by TyraX: "# tyra-uvrect u0 v0 du dv" - the editor's
+      // texture-atlas bake writes it right after an atlased map_Kd; the
+      // material's 0..1 UVs map onto that sub-rectangle of the (shared)
+      // page texture. Other comments fall through untouched.
+      std::string what;
+      ss >> what;
+      if (what == "tyra-uvrect") {
+        MtlEntry& m = out[current];
+        ss >> m.uvRect[0] >> m.uvRect[1] >> m.uvRect[2] >> m.uvRect[3];
+      }
     }
   }
 }
@@ -120,6 +132,7 @@ std::vector<LeanMtlMaterial> LeanObjLoader::loadMtl(
     m.reflTextureName = materials[name].reflTexture;
     m.reflStrength = materials[name].reflStrength;
     m.reflRounded = materials[name].reflRounded;
+    for (int i = 0; i < 4; ++i) m.uvRect[i] = materials[name].uvRect[i];
     result.push_back(m);
   }
   return result;
@@ -200,6 +213,7 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
       m.reflTextureName = mtl->second.reflTexture;
       m.reflStrength = mtl->second.reflStrength;
       m.reflRounded = mtl->second.reflRounded;
+      for (int i = 0; i < 4; ++i) m.uvRect[i] = mtl->second.uvRect[i];
     }
     result->materials.push_back(m);
     materialIndex[name] = (int)result->materials.size() - 1;
@@ -324,6 +338,10 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
         const float* pts[3] = {a, b, c};
         const float* uvs[3] = {uva, uvb, uvc};
         const int ids[3] = {ia, ib, ic};
+        // Modified by TyraX: atlased materials map their 0..1 UVs onto a
+        // sub-rectangle of the shared page ("# tyra-uvrect", identity when
+        // no atlas is in play).
+        const float* rc = result->materials[current].uvRect;
         for (int i = 0; i < 3; ++i) {
           grow(pts[i]);
           out.push_back(pts[i][0]);
@@ -332,8 +350,8 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
           out.push_back(nx);
           out.push_back(ny);
           out.push_back(nz);
-          out.push_back(uvs[i][0]);
-          out.push_back(uvs[i][1]);
+          out.push_back(rc[0] + uvs[i][0] * rc[2]);
+          out.push_back(rc[1] + uvs[i][1] * rc[3]);
           if (!aoTable.empty())
             outAo.push_back(ids[i] < (int)aoTable.size() ? aoTable[ids[i]]
                                                          : 255);

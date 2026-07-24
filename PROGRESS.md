@@ -8198,3 +8198,40 @@ Each finished feature lands as its own commit.
   e2e (same format detection, same file writes) but was not driven through
   the GUI (the known white-window machine state); a human paint-stroke
   pass remains. Docs: docs/live-link.md "Texture hot reload", README.
+- (78) **Texture atlasing with GS page control (M5.4)** - the last big item
+  of the pipeline backlog. Preferences > Build > "Texture atlasing" (default
+  off, ProjectSettings::textureAtlas): small clamp-safe map_Kd textures pack
+  into shared 256x256 pages at build - one GS VRAM allocation (+~8 KB
+  overhead) per page instead of per texture, fewer texture switches. New
+  host module src/texatlas.cpp computes the DETERMINISTIC plan (the aobake
+  single-source pattern): eligibility scan (models' textured submesh UVs
+  checked against the real mesh via objparser, <=128 baked size via the
+  texbake dim rule, same-directory map_Kd tokens only - pages group by the
+  .mtl's directory so the rewritten reference never needs ".." over PS2
+  host fs; terrain/emitters/decals/mirrors/portals/refl-maps/
+  textureQuality-pinned assets excluded with reasons), then dir-grouped
+  shelf packing with 2-texel gutters. texbake consumes the plan: composites
+  members into .res-baked/<dir>/tyra-atlas-N.png (edge-dilated gutters,
+  page quantized AS ONE IMAGE - shared 256-color CLUT when the project is
+  palettized, the era trade), skips the members' individual bakes, rewrites
+  baked .mtls (map_Kd -> page + "# tyra-uvrect u0 v0 du dv" hint;
+  stale-rewrite purge when the plan stops covering a file; sweep exemption
+  for the sourceless pages). Engine (Modified by TyraX): LeanObjLoader
+  parses the hint - model vertex UVs multiply through the rect at load,
+  LeanMtlMaterial::uvRect exposes it. Codegen: GameMaterial::uvRect (both
+  template copies!) <- loadMaterialAsset, staged as g_primUvRect and
+  multiplied in pushVert's staged-material path only (model parts pass
+  kdArg and are already remapped - no double-apply); TEXTURE_ATLAS_INFO
+  constant in model_data.gen.hpp logged at scene boot; live_tex hot reload
+  naturally no-ops for atlased members (missing individual bin PNG).
+  Verified: headless harness (temp project fixture): membership exactly as
+  designed (2 primitive textures + 1 model texture in, oversized/emitter/
+  out-of-bounds-UV textures out), same-dir grouping, non-overlapping
+  gutter-respecting placements, bit-deterministic plan, off => empty. E2E
+  in PCSX2: scene with a patterned model + striped box + ringed sphere
+  built with atlas OFF then ON - screenshots visually identical (all three
+  patterns correct, no seam bleed), bake log + game boot log both report
+  "Texture atlas: 3 textures in 2 page(s)", .res-baked member PNGs gone,
+  baked .mtl carries the page + rect. 4bit project policy => shared
+  256-color pages exercised. Docs: docs/texture-atlasing.md, README,
+  both skills.
