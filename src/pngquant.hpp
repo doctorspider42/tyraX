@@ -27,6 +27,23 @@ bool quantizeRGBA(const std::string& dstPath, const unsigned char* rgba, int w,
 bool writePngRGBA(const std::string& dstPath, const unsigned char* rgba, int w,
                   int h, std::string& error);
 
+// Dithering flavors for the in-memory preview below. The shipped bake
+// (quantizeRGBA) always uses Floyd-Steinberg; the preview lets the eye
+// compare before committing a texture to a palette budget.
+enum class Dither {
+    FloydSteinberg = 0,  // error diffusion - what texbake ships
+    Ordered = 1,         // 4x4 Bayer - stable under motion, visible pattern
+    None = 2,            // nearest color - hard banding
+};
+
+// In-memory preview of the CLUT look: the same median-cut palette the
+// shipped bake computes, the chosen dithering, and the palettized result
+// expanded back to RGBA (what the GS displays). outPalette, when given,
+// receives the palette as RGBA entries (<= colors of them).
+std::vector<unsigned char> quantizePreviewRGBA(
+    const unsigned char* rgba, int w, int h, int colors, Dither dither,
+    std::vector<unsigned char>* outPalette = nullptr);
+
 // Bilinear resample of an RGBA buffer to dw x dh (returns dw*dh*4 bytes).
 std::vector<unsigned char> resizeRGBA(const unsigned char* rgba, int sw, int sh,
                                       int dw, int dh);

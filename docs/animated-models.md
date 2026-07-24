@@ -1,7 +1,10 @@
-# Animated models (.glb)
+# Animated models (.glb, .fbx)
 
 The editor plays skeletal animations authored in Blender (or any glTF
-exporter) on the PS2 - with a real skeletal runtime. At build time the
+exporter) on the PS2 - with a real skeletal runtime. **FBX files import
+too** - see [Importing FBX](#importing-fbx) below; everything in this
+document applies to them identically, because an imported .fbx is parsed
+into the exact same data the .glb path produces. At build time the
 model's node hierarchy, skin (inverse bind matrices, per-vertex joints and
 weights), bind-pose mesh and raw keyframe tracks are serialized to a compact
 `.tskl` file. The game evaluates the pose on the EE every frame (keyframe
@@ -107,10 +110,66 @@ what ships.
 | **Loop** | On = wraps forever; off = plays once and freezes on the last frame. |
 | **Speed** | Playback multiplier (1.00x = authored speed). |
 | **Color** | Multiplies the model's material colors (tint), like on primitives. |
+| **Material** | Optional `.mtl` **override** on top of the built-in materials — see below. `(model's own)` = the materials baked into the file. |
 | **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
+| **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |
 
-Material (.mtl) overrides do not apply to .glb models - their materials come
-from the file itself.
+### Material override (.mtl)
+
+By default an animated model draws with the materials baked into the `.glb`/
+`.fbx` (base color + texture per part). Assigning a **Material** (`.mtl` asset)
+overrides them — exactly like a static `.obj` model, and it is an option
+*besides* the built-in materials, not a replacement of the workflow: leave it
+`(model's own)` and nothing changes.
+
+The override resolves by **name**: each of the model's parts is matched against
+a `newmtl` of the same name in the assigned file. A match takes that material's
+color (`Kd`) and texture (`map_Kd`); a part the override does **not** name falls
+back to plain white and untextured — a full replace, the same rule the `.obj`
+override uses. So name your `.mtl` entries to match the model's part names
+(e.g. a model whose part is `WobblerBody` needs a `newmtl WobblerBody`).
+
+Because an animated model has no sibling `.mtl` to assign, the **Material**
+picker has a **+ New material from this model...** entry: it extracts the
+model's built-in materials — part names, base colors, embedded textures — into
+a new `res/materials/<model>.mtl`, assigns it and opens the **Material Editor**
+previewed **on the model itself** (bind pose). That is the one-click way to
+start editing an animated model's look: its own materials become an editable
+override you recolor/repaint, and what the editor shows matches what the console
+bakes. (A part whose material is **unnamed** can't be name-matched — name it in
+the modelling tool first.)
+
+The override is resolved into the `.tskl` **at build time** (the part colors and
+textures are baked in), so it costs the game nothing at runtime. Two objects
+sharing one model but different overrides bake to separate `.tskl` files
+automatically. Reflection (`refl`) is a static-vertex-color effect with no
+skeletal-runtime slot, so a reflective material assigned to an animated model
+tints/textures as usual but does not add a reflection pass.
+
+## Importing FBX
+
+**Project > Assets > Import model...** accepts `.fbx` next to `.glb` - both
+land in `res/models/` and flow through the same pipeline (`.tskl`
+serialization, viewport preview, LODs, locomotion mapping). The reader is the
+vendored [ufbx](https://github.com/ufbx/ufbx) library, so binary and ASCII
+FBX from Blender, Maya and 3ds Max all load. Differences from `.glb` worth
+knowing:
+
+- **Axes and units are auto-normalized** to the glTF convention
+  (right-handed Y-up, meters): a Maya/Max rig authored in centimeters
+  imports at the same size as its .glb twin. Geometry transforms (Maya
+  pivots) are baked into the vertices.
+- **Animation curves are resampled**, not translated: each FBX take is
+  sampled at 24 Hz and keyframe-reduced per channel (RDP), which sidesteps
+  the FBX curve soup (rotation orders, pre/post rotations, pivots) while
+  keeping any authored pose within half a frame. Takes named
+  `Armature|Walk` shorten to `Walk` (the full name is kept on a collision).
+- **External textures are copied in**: a .glb embeds its textures, an .fbx
+  often references image files - import copies the referenced files next to
+  the copied .fbx so the project stays self-contained (non-PNG images are
+  transcoded; power-of-two still required, like every PS2 texture).
+- **Not supported** (imports with a warning, piece skipped): blend
+  shapes/morph targets, procedural textures.
 
 ## Third-person player avatars
 
@@ -127,8 +186,19 @@ in *Properties*:
 | **Run clip** | Optional (`<none>` = walk covers all speeds). |
 | **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
 | **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
+| **Style** | The camera rig: **Orbit (behind)** = free look (right stick orbits), **Top-down** / **Isometric** / **Fixed angle** = the camera is pinned to a set angle for camera-locked games. Top-down and Isometric are presets of Fixed angle — picking them seeds the angles below, which stay editable. |
+| **Angle / Direction** | Fixed styles only: elevation above the horizon (85 = nearly straight down, ~35 = the classic isometric slant) and the world heading the camera looks along (which way is "up" on screen). |
+| **Right stick rotates** | Fixed styles only: let the player orbit the pinned view with the right stick (the elevation stays locked). |
 | **Distance / Height / Shoulder** | The camera rig offset in the camera's own frame: back, up, sideways. `Shoulder` 0 = centered behind, ~0.6 = over-the-shoulder, negative = the left shoulder. |
 | **Turn rate** | How fast the avatar turns to face its movement direction. |
+
+**Camera styles:** the fixed styles pin `entPitch` every frame (and the yaw
+unless *Right stick rotates* is on), so the camera holds its authored angle
+while the left stick moves the avatar **relative to the camera heading** —
+exactly the control scheme a top-down or isometric game wants. Everything else
+is unchanged: the spring arm still shortens the boom against terrain and
+geometry, *Distance* sets how far out the camera rides, and locomotion clips
+keep auto-selecting from speed.
 
 **Over-the-shoulder:** `Shoulder` slides the *whole* rig — the eye and the
 look-at alike — along the camera's right vector, so the avatar sits off-center
@@ -139,8 +209,12 @@ player is hugging; that second cast costs nothing when `Shoulder` is 0.
 
 The camera rides a **spring arm**: each frame the boom is cast from the avatar's
 head toward the desired eye, and the camera stops at the first blocker so it
-never enters walls, props or the terrain - snapping in on a hit (a late pull-in
-would show a clipped frame) and easing back out when the way is clear.
+never enters walls, props or the terrain. Two extra **whisker casts**, splayed
+~20° to either side of the boom, spot walls the camera is about to sweep behind
+and ease the boom in *ahead* of the hit, so approaching cover reads as a smooth
+dolly-in instead of a snap; a hard clamp at the straight ray's hit distance
+remains the never-clip guarantee for anything the whiskers missed, and the boom
+eases back out when the way is clear.
 *Distance* is therefore the maximum boom length, not a guarantee. Objects set to
 collision **none** are ignored by the arm (the camera passes through them),
 which doubles as the opt-out for scenery that should never shove the camera.
@@ -191,8 +265,21 @@ budget - two are **per-project preferences**, one is **per object**:
 | **Mesh LOD distance** | Project > Preferences > **Rendering** | per project | The build bakes ~50% and ~25%-vertex variants of every animated model into the `.tskl` (quadric-error decimation; skin weights and uvs are preserved, never blended). Instances render the 50% mesh beyond the distance and the 25% one beyond twice the distance. `off` (0) = no LODs baked or kept in RAM. |
 
 Both preferences live in the project file (`.tyra`), so every project tunes
-its own values; there are no per-scene overrides. Distances are world units
-from the camera to the object center, the same units as object positions.
+its own values. Distances are world units from the camera to the object
+center, the same units as object positions.
+
+**Per-object overrides:** any animated object (and any Player avatar) can
+override either preference in its Properties - **Override animation LOD** /
+**Override mesh LOD** next to the playback fields. Unchecked (the default)
+the project preference applies; checked, the object uses its own distance,
+and dragging the value to `0` turns that LOD off for this object entirely
+(a hero character that must never decimate next to a crowd that always
+does). A mesh-LOD override > 0 also makes the build bake the decimated
+chains for that object's model even when the project preference is `off`.
+In a **two-player** scene the two Player objects each carry their own set,
+so the P1 and P2 avatars tune independently - e.g. keep both full-detail
+in split screen (each is small in the *other* player's half anyway), or
+decimate only the second player's avatar.
 
 Tuning guidance:
 

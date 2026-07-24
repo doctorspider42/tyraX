@@ -103,7 +103,9 @@ refreshes it every frame. Mutate the object through it, then set
 | `self->data.position/rotation/scale` | The transform (rotation in degrees, X→Y→Z order). |
 | `self->data.color` | RGB 0..1 - mesh tint on solids, particle tint on emitters, free parameter on empties. |
 | `self->visible` | Show/hide (also mutes sound emitters, disables particle emitters). |
-| `self->velocityY` | Vertical velocity used by object physics. |
+| `self->velocityX/Y/Z` | Rigid-body velocity (per-frame displacements) used by object physics. |
+| `self->spin` | Angular velocity, degrees/frame (X/Y/Z) - tumbling. |
+| `self->restFrames` | Physics sleep counter; write `0` after changing velocities to wake a sleeping body (`PHYS_SLEEP_FRAMES` = asleep). |
 | `self->dirty` | Set true after changing any of the above so the frame's rebuild picks it up. |
 | `self->anim*` | Animated-model playback state - prefer the `playAnimation`/`stopAnimation`/`animationFinished` helpers (see [animated-models.md](animated-models.md)). |
 
@@ -129,6 +131,7 @@ The same context global scripts receive; the fields you will actually use:
 | `ctx.usedObject` | Index of the object USEd this frame (-1 none) - `onUsed` is the ergonomic form. |
 | `ctx.saveValues`, `ctx.saveTexts` | Named values persisted in memory-card saves. |
 | `ctx.openMenu`, `ctx.menuEvent` | Open a game menu / react to a menu entry's flow event. |
+| `ctx.rumble*` | Pad vibration request — prefer the `padVibrate(ctx, big, small, seconds)` helper (big = heavy motor 0..1, small = the buzz motor, seconds > 0 auto-stops, 0 = until the next call). |
 | `ctx.scene`, `ctx.requestScene` | Active scene index; write an index to switch scenes after this frame. |
 | `ctx.sceneGeneration` | Bumps on every scene (re)load - object scripts rarely need it (their lifetime already tracks it). |
 

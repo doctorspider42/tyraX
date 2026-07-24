@@ -77,11 +77,20 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
+player, `bboxVersion` on `StaPipBag` for moving geometry, `Pad::setActuators` (act-direct DualShock rumble —
+the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
+`padVibrate()` script helper), `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:
-centroid-radial env normals for flat surfaces), per-bag additive blending for the
+centroid-radial env normals for flat surfaces; parses the TyraX
+`# tyra-uvrect u0 v0 du dv` hint the texture-atlas bake writes into baked
+.mtl files (docs/texture-atlasing.md) - model vertex UVs multiply through
+it at load and `LeanMtlMaterial::uvRect` exposes it for the generated
+game's primitive builders; quietly picks up the TyraX
+`<model>.aov` baked-ambient-occlusion sidecar — "TXAO" + u32 count + one
+visibility byte per obj `v` entry, docs/ambient-occlusion.md — into
+per-vertex `vertexAo` bytes the generated game folds into its shade bake), per-bag additive blending for the
 reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
@@ -91,17 +100,88 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
-`VU1_ENV_BASIS_ADDR`), `RendererCoreEnvMap` (128×128 VRAM render target for
+`VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
+(`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
+one qword of 2×2 basis weights per particle, colors one per particle; VU1
+expands each center into a camera-facing quad — 6 GS vertices — from the
+camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
+once per mesh, and culls per QUAD with one `clipw` judgement per corner.
+The two programs are NOT resident: the VU1-clipping program set fills micro
+memory to ~2036/2042, so they live in their own packet swapped in on demand
+(`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
+restored by the next non-billboard bag. The C++ side must keep the prim
+giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
+NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
+frustum culling `None` + no clip checks (the one legitimate `None` — the
+program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
+be null — it carries the params channel; swapping `right`/`up` on the bag
+and re-rendering draws the same centers for another view, which is what a
+portal through-view pass needs), `RendererCore::camFeed` (a second `RendererCoreEnvMap`
+instance for the camera texture feeds — CCTV monitors, docs/
+texture-feeds.md; permanently allocated below every texture like the env
+map, +128 KB VRAM, Clamp wrap because feeds sample through plain surface
+UVs — which also read the raster target UPSIDE DOWN unless the surface V
+flips: GS rows run top-down, texture V grows down from row 0),
+`RendererCoreEnvMap` (128×128 VRAM render target for
 GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
 with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
 popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
-`docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
+`docs/reflective-materials.md`), the TyraX portal through-view machinery
+(`RendererCore3D::pushPortalView` — view-matrix-only swap, main projection
+kept, exact frustum planes at the virtual camera — plus
+`RendererCore::portalViewBegin/End` → `RendererCorePostFx::portalMask*`:
+the destination scene renders IN-PLACE into the real framebuffer right
+after the frame clear, scissored to the quad's screen bbox, and the shaped
+opening is carved with reversed-z ops since the GS has no stencil: re-far
+the bbox z, cap the quad interior with a z-only ALWAYS fan at the surface
+depth, repaint the still-far ring via a GEQUAL sprite at z=0 that hits
+exactly the reset pixels; both wrappers drain PATH1 unconditionally and do
+NOT latch the post-fx drain gate; maskEnd's NLOOP is 13 + fan verts; see
+`docs/portals.md`), the **VU0 micromode ray tracer**
+(`renderer/rt/vu0_raytracer.{hpp,cpp}` + `vu0_rt_kernel.vclpp`, exported by
+the `<tyra>` umbrella header — raytraced mirror reflections,
+`docs/raytraced-reflections.md`): the ONLY VU0 microprogram in the codebase —
+built through the same vclpp/vcl/dvp-as pipeline as the VU1 programs but
+uploaded by the EE to VU0 micro memory (0x11000000) and kicked with
+`vcallms 0` per image row, params/results through VU0 data memory
+(0x11004000), sync by polling VPU STAT bit 0 (`cfc2 $29`). VU0-honest
+kernel: no XGKICK/EFU/xtop; branchless nearest-hit via saturation step
+masks (`clamp(x*1e38,0,1)` — VU floats saturate, no inf/nan). Runs
+synchronously: macro-mode COP2 (Vec4/M4x4) shares VU0's register file, so
+the tracer never overlaps engine math, and clobbering VF01+ between kicks
+is safe because every macro op reloads its operands,
+`Texture::sourcePath` (the full load path, set by
+`TextureRepository::add` - `name` keeps only the basename; the generated
+texture hot-reload poller `live_tex.gen.cpp` matches repainted files against
+it and re-uploads via `RendererCoreTexture::updateTextureInfo` to the SAME
+VRAM address - see docs/live-link.md; NOTE the engine always constructs the
+clut `TextureData`, a non-paletted texture just has `clut->data == nullptr` -
+test data presence, not the object pointer),
+`physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
-`rand() % 1000000` object ids (see the pitfall below), and a **quiet-halt
+`rand() % 1000000` object ids (see the pitfall below), **two-player support**
+(docs/multiplayer.md): `Pad::initOptional(port, slot)` (padInit is now
+once-global; an optional pad never blocks or asserts on a missing controller —
+upstream `update()` busy-waited forever on DISCONN — and keeps polling for a
+hot-join; sticks are centered while disconnected) plus
+`RendererCoreSplitView` (`renderer/core/splitview/`, public
+`RendererCore::splitView`): the split-screen raster bracket modeled on the
+env-map redirect — per half it drains PATH1 and shifts XYOFFSET so the
+CENTRAL h/2 rows of the *unchanged* full-screen projection land on that half
+(a vertical crop; no projection change, proportions stay exact), scissored to
+the half. Deliberately NO per-half clear: beginFrame's full-screen clear
+covers both halves and the scissor clips every raster write (z included) —
+the first version copied the env map's clear sprite and paid two half-screen
+GS fills + FINISH stalls per frame for nothing. The game swaps cameras
+between halves with `renderer3D.update(cam2)` (the pipelines read
+view/frustum lazily per mesh) and must run animation advance/skinning only
+in the FIRST half (see the generated game's `splitSecondPass`). Mind the
+interplay: any bracket that restores a full-screen raster (env map!) must
+not run inside a split half. And a **quiet-halt
 assert** (`debug/debug.hpp` `TyraDebug::trap`): a failed `TYRA_ASSERT` /
 `TYRA_TRAP` no longer runs upstream's `init_scr()` + infinite `scr_printf` loop
 that seized the whole screen; it still prints the dump to the console / host
@@ -156,7 +236,21 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   VU1-side defines must be literals. When VU1 output looks
   wrong, `docker exec <proj>-compiler-1 cat /tyra/engine/obj/.../<prog>.o.vcl`
   shows exactly what vclpp produced — check the expansion before suspecting
-  your math.
+  your math. Three VCL-proper traps (paid for by the VU0 rt kernel):
+  symbolic register names that collide with VU special registers OR
+  instruction mnemonics (case-insensitively) are rejected — don't name a
+  register `r`, `q`, `i`, `p`, `acc`, or anything like `mAx`/`sub` ("can't
+  use r as a name" / "invalid name for register"); a broadcast field
+  selector is only legal on the SECOND source operand — `max.x m, vf00,
+  v[y]` works, `max.x m, v[y], vf00[x]` fails with a misleading "used
+  before set" on the bracketed register; and `ERROR: no opt table ..
+  something failed making table .. for <label>` means the REGISTER
+  ALLOCATOR ran out — too many symbolic registers live across that loop
+  (31 VF ceiling), not a syntax problem. Fix by shrinking the live set:
+  reload fixed-address parameters at their use sites instead of pinning
+  them in registers for the whole program (`lq` is cheap), and lane-pack
+  related scalar fold state into one register's x/y/z fields (assemble
+  candidates with `add.x/y/z reg, vf00, src[x]`, fold once as a vector).
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
@@ -207,6 +301,14 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   half-line alignment lives in `flipBuffers` (CSR.FIELD read after vsync,
   inverted — the frame being rendered displays one field later — then an
   XYOFFSET +8 on odd fields appended to the flip packet).
+- **Full-height PAL (`DisplayMode::Pal576i`)**: the "true PAL" 512-line
+  frame - a 512x512 framebuffer scanned through the SAME stock interlaced
+  FIELD path (`programDisplay`'s default case with the signal pinned to
+  GRAPH_MODE_PAL, flicker filter kept); 512 lines is ps2sdk's own full PAL
+  frame height, so `graph_set_screen` handles the window - no setDtvDisplay
+  needed. Always 50 Hz regardless of VideoMode/region (getRefreshRate
+  special-cases it, like the DTV modes' 60). Costs ~380 KB more GS VRAM
+  (three 512-line buffers), leaving ~1 MB for textures.
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
   (TyraX fork) switches the scan mode / widescreen between frames.
   A mode change resets the whole VRAM bump allocator (`vram.reset()`),

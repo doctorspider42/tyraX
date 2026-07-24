@@ -1,5 +1,8 @@
 #include "viewport.hpp"
 
+#include "fbxparser.hpp"
+
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -7,6 +10,7 @@
 
 #include <filesystem>
 
+#include "aobake.hpp"
 #include "gl_loader.h"
 #include "objparser.hpp"
 #include "primmesh.hpp"
@@ -98,9 +102,13 @@ Mat4 rotZ(float a) {
 }
 
 // Same composition as the generated PS2 code: scale -> rotX -> rotY -> rotZ -> translate
+// (+ the animated-model content-forward correction between scale and rotation,
+// mirroring the game's modelYaw pre-rotation - keep the two in sync).
 Mat4 modelMatrix(const SceneObject& o) {
     const float d2r = kPi / 180.0f;
     Mat4 m = scaleM(o.scale[0], o.scale[1], o.scale[2]);
+    if (o.modelYawOffset != 0.0f && isAnimatedModelPath(o.modelPath))
+        m = mul(rotY(o.modelYawOffset * d2r), m);  // avatars included
     m = mul(rotX(o.rotation[0] * d2r), m);
     m = mul(rotY(o.rotation[1] * d2r), m);
     m = mul(rotZ(o.rotation[2] * d2r), m);
@@ -195,7 +203,76 @@ uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
 uniform vec3 uReflSkyTop;
 uniform int uReflRounded;        // refl -rounded: centroid-radial normals
 uniform vec3 uReflCenter;        // world-space centroid for the rounded mode
+// Ambient occlusion (docs/ambient-occlusion.md): live preview of what the
+// game bakes into vertex colors at load - the same analytic occluders
+// (aobake::collectOccluders shapes) and the same response formula as the
+// generated aoOccluderAt/aoShadeMul (templates.cpp). Keep them in sync.
+uniform int uAoOn;
+uniform float uAoStrength;
+uniform float uAoRadius;
+uniform int uAoCount;
+uniform int uAoSelfObj;          // scene-object index drawing now (-1 terrain)
+uniform int uAoGround;           // 1 = terrain contact term (objects only)
+uniform int uAoReceive;          // 0 = this draw receives no AO (models)
+uniform vec4 uAoPos[32];         // xyz = center, w = 1 sphere / 0 box
+uniform vec4 uAoAx[32];          // local X axis, w = half extent x (or radius)
+uniform vec4 uAoAy[32];          // local Y axis, w = half extent y
+uniform vec4 uAoAz[32];          // local Z axis, w = half extent z
+uniform int uAoObj[32];          // scene-object index per occluder
+uniform sampler2D uAoHeight;     // terrain heightmap (R32F), texture unit 2
+uniform vec4 uAoHmRect;          // uv = wp.xz * zw + xy (texel centers)
+uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 out vec4 FragColor;
+
+float aoOcclusion(vec3 wp, vec3 n) {
+    float occ = 0.0;
+    for (int i = 0; i < uAoCount; ++i) {
+        if (uAoObj[i] == uAoSelfObj) continue;  // an object never occludes itself
+        vec3 rel = wp - uAoPos[i].xyz;
+        vec3 h = vec3(uAoAx[i].w, uAoAy[i].w, uAoAz[i].w);
+        float dist;
+        vec3 toOcc;
+        if (uAoPos[i].w > 0.5) {
+            float d = length(rel);
+            dist = d - h.x;
+            toOcc = d > 0.0001 ? -rel / d : vec3(0.0, 1.0, 0.0);
+        } else {
+            vec3 l = vec3(dot(rel, uAoAx[i].xyz), dot(rel, uAoAy[i].xyz),
+                          dot(rel, uAoAz[i].xyz));
+            vec3 dv = l - clamp(l, -h, h);
+            dist = length(dv);
+            if (dist > 0.0001) {
+                vec3 w = dv.x * uAoAx[i].xyz + dv.y * uAoAy[i].xyz +
+                         dv.z * uAoAz[i].xyz;
+                toOcc = -w / dist;
+            } else {
+                toOcc = vec3(0.0, 1.0, 0.0);
+            }
+        }
+        if (dist <= 0.0) { occ += 1.0; continue; }  // touching / inside
+        float fade = 1.0 - dist / uAoRadius;
+        if (fade <= 0.0) continue;
+        fade *= fade;
+        // full occlusion facing the occluder, ~0.35 side-on, zero facing away
+        float w = clamp(0.35 + 0.65 * dot(n, toOcc), 0.0, 1.0);
+        occ += fade * w;
+    }
+    if (uAoGround != 0) {
+        float ground = 0.0;
+        if (uAoHmOn != 0) {
+            vec2 uv = wp.xz * uAoHmRect.zw + uAoHmRect.xy;
+            ground = texture(uAoHeight, clamp(uv, 0.0, 1.0)).r;
+        }
+        float dy = max(wp.y - ground, 0.0);
+        if (dy < uAoRadius) {
+            float fade = 1.0 - dy / uAoRadius;
+            // 0.7: same wall-base softening as the game's aoShadeMul
+            occ += 0.7 * fade * fade * max(0.5 - 0.5 * n.y, 0.0);
+        }
+    }
+    return min(occ, 1.0);
+}
+
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
     vec3 tex = texel.rgb;
@@ -204,6 +281,12 @@ void main() {
     float a = uAlpha != 0 ? texel.a : 1.0;
     if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = vColor;
+    // AO multiplies the baked directional shade BEFORE the point lights add
+    // on top - mirrors the pushVert/shadeAt order in the generated game.
+    if (uLit != 0 && uAoOn != 0 && uAoReceive != 0) {
+        vec3 nAo = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        shade *= 1.0 - uAoStrength * aoOcclusion(vWorld, nAo);
+    }
     if (uLit != 0 && uLightCount > 0) {
         vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         vec3 add = vec3(0.0);
@@ -649,6 +732,29 @@ Viewport::Mesh Viewport::uploadMesh(const std::vector<float>& interleaved) {
     return m;
 }
 
+// The particle-shader layout (pos3 + rgba4 + uv2): terrain layer passes carry
+// the painted weight in the vertex alpha, exactly like the PS2's color stream.
+Viewport::Mesh Viewport::uploadMesh9(const std::vector<float>& interleaved) {
+    Mesh m;
+    m.vertexCount = (int)(interleaved.size() / 9);
+    glGenVertexArrays(1, &m.vao);
+    glGenBuffers(1, &m.vbo);
+    glBindVertexArray(m.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(interleaved.size() * sizeof(float)),
+                 interleaved.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(7 * sizeof(float)));
+    glBindVertexArray(0);
+    return m;
+}
+
 void Viewport::destroyMesh(Mesh& m) {
     if (m.vbo) glDeleteBuffers(1, &m.vbo);
     if (m.vao) glDeleteVertexArrays(1, &m.vao);
@@ -701,8 +807,24 @@ bool Viewport::init() {
     uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
     uReflRounded_ = glGetUniformLocation(program_, "uReflRounded");
     uReflCenter_ = glGetUniformLocation(program_, "uReflCenter");
+    uAoOn_ = glGetUniformLocation(program_, "uAoOn");
+    uAoStrength_ = glGetUniformLocation(program_, "uAoStrength");
+    uAoRadius_ = glGetUniformLocation(program_, "uAoRadius");
+    uAoCount_ = glGetUniformLocation(program_, "uAoCount");
+    uAoSelfObj_ = glGetUniformLocation(program_, "uAoSelfObj");
+    uAoGround_ = glGetUniformLocation(program_, "uAoGround");
+    uAoReceive_ = glGetUniformLocation(program_, "uAoReceive");
+    uAoPos_ = glGetUniformLocation(program_, "uAoPos");
+    uAoAx_ = glGetUniformLocation(program_, "uAoAx");
+    uAoAy_ = glGetUniformLocation(program_, "uAoAy");
+    uAoAz_ = glGetUniformLocation(program_, "uAoAz");
+    uAoObj_ = glGetUniformLocation(program_, "uAoObj");
+    uAoHeight_ = glGetUniformLocation(program_, "uAoHeight");
+    uAoHmRect_ = glGetUniformLocation(program_, "uAoHmRect");
+    uAoHmOn_ = glGetUniformLocation(program_, "uAoHmOn");
     glUseProgram(program_);
-    glUniform1i(uRefl_, 1);  // sphere map lives on texture unit 1
+    glUniform1i(uRefl_, 1);      // sphere map lives on texture unit 1
+    glUniform1i(uAoHeight_, 2);  // AO heightmap lives on texture unit 2
     glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
@@ -772,10 +894,16 @@ void Viewport::shutdown() {
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
     if (particleVao_) glDeleteVertexArrays(1, &particleVao_);
+    if (aoHmTex_) {
+        glDeleteTextures(1, &aoHmTex_);
+        aoHmTex_ = 0;
+    }
     for (Mesh& m : terrainChunkMeshes_) destroyMesh(m);
     terrainChunkMeshes_.clear();
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
     terrainLineMeshes_.clear();
+    for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
+    terrainLayerMeshes_.clear();
     destroyMesh(navOverlayMesh_);
     destroyMesh(axes_);
     destroyMesh(box_);
@@ -791,6 +919,8 @@ void Viewport::shutdown() {
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    destroyMesh(segment_);
+    destroyMesh(portalArrow_);
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
@@ -916,6 +1046,8 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    destroyMesh(segment_);
+    destroyMesh(portalArrow_);
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
@@ -929,6 +1061,32 @@ void Viewport::buildPrimitiveMeshes() {
     wireSphere_ = uploadMesh(unitWireSphere());
     cameraBody_ = uploadMesh(unitCameraBody());
     cameraFrustum_ = uploadMesh(unitCameraFrustum());
+    {
+        // unit +Z segment - stretched onto arbitrary endpoints for the
+        // portal link line (only the third matrix column + translation
+        // matter: the two vertices sit at z=0 and z=1).
+        std::vector<float> seg;
+        pushVertexColor(seg, 0, 0, 0, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(seg, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        segment_ = uploadMesh(seg);
+    }
+    {
+        // +Z arrow (shaft + 4 head barbs): marks the portal's ENTRY side -
+        // the front face that shows the view and accepts the crossing.
+        std::vector<float> ar;
+        pushVertexColor(ar, 0, 0, 0, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        const float b = 0.12f, zb = 0.78f;
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, b, 0, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, -b, 0, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, b, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, -b, zb, 1.0f, 1.0f, 1.0f);
+        portalArrow_ = uploadMesh(ar);
+    }
 }
 
 const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
@@ -963,6 +1121,7 @@ void Viewport::buildTerrainMesh() {
     if (!program_) return;  // init() not called yet
     for (Mesh& m : terrainChunkMeshes_) destroyMesh(m);
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
+    for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
     destroyMesh(axes_);
 
     // Match the generated PS2 game: checker pattern, capped cell count,
@@ -974,6 +1133,36 @@ void Viewport::buildTerrainMesh() {
     tcChunksZ_ = (tcCellsZ_ + kTerrainChunkCells - 1) / kTerrainChunkCells;
     terrainChunkMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
     terrainLineMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
+    terrainLayerMeshes_.assign(
+        terrainLayers_.size() * (size_t)tcChunksX_ * tcChunksZ_, Mesh());
+
+    // Terrain self-AO grid (identical to the shipped TERRAIN_AO_TABLES data:
+    // same aobake::terrainAO call codegen makes) + the R32F heightmap texture
+    // the fragment shader samples for the objects' ground-contact term.
+    aoGrid_.clear();
+    const bool aoHeights =
+        hmW_ >= 2 && hmD_ >= 2 && (int)heights_.size() == hmW_ * hmD_;
+    if (aoOn_ && aoHeights) {
+        aoGrid_ = aobake::terrainAO(heights_, hmW_, hmD_,
+                                    (float)terrain_.width / (hmW_ - 1),
+                                    (float)terrain_.depth / (hmD_ - 1),
+                                    aoRadius_ * 3.0f);
+    }
+    if (aoOn_ && aoHeights) {
+        if (!aoHmTex_) glGenTextures(1, &aoHmTex_);
+        glBindTexture(GL_TEXTURE_2D, aoHmTex_);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, hmW_, hmD_, 0, GL_RED, GL_FLOAT,
+                     heights_.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+        aoHmW_ = hmW_, aoHmD_ = hmD_;
+    } else {
+        aoHmW_ = aoHmD_ = 0;  // flat terrain: the shader uses the y = 0 plane
+    }
+
     for (int cz = 0; cz < tcChunksZ_; ++cz)
         for (int cx = 0; cx < tcChunksX_; ++cx) buildTerrainChunkMesh(cx, cz);
 
@@ -988,6 +1177,34 @@ void Viewport::buildTerrainMesh() {
     pushVertexColor(lines, 0, 0.02f, 0, 0.3f, 0.4f, 1.0f);
     pushVertexColor(lines, 0, 0.02f, axisLen, 0.3f, 0.4f, 1.0f);
     axes_ = uploadMesh(lines);
+}
+
+// Macro ground variation: deterministic world-position value noise (two
+// smoothstepped octaves) multiplied into the vertex shade. Twin of
+// tintHash/tintValue/tintNoise2 in the generated game (templates.cpp,
+// above buildTerrainChunk) - keep the formulas in sync.
+static float tintHash(int ix, int iz) {
+    unsigned h = (unsigned)ix * 73856093u ^ (unsigned)iz * 19349663u;
+    h ^= h >> 13;
+    h *= 0x85EBCA6Bu;
+    h ^= h >> 16;
+    return (float)(h & 0xFFFFu) / 65535.0f;
+}
+static float tintValue(float x, float z, float scale) {
+    const float gx = x / scale, gz = z / scale;
+    const float fxf = std::floor(gx), fzf = std::floor(gz);
+    const int ix = (int)fxf, iz = (int)fzf;
+    float fx = gx - fxf, fz = gz - fzf;
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fz = fz * fz * (3.0f - 2.0f * fz);
+    const float a = tintHash(ix, iz), b = tintHash(ix + 1, iz);
+    const float c = tintHash(ix, iz + 1), d = tintHash(ix + 1, iz + 1);
+    return (a * (1.0f - fx) + b * fx) * (1.0f - fz) +
+           (c * (1.0f - fx) + d * fx) * fz;
+}
+static float tintNoise2(float x, float z, float scale) {
+    return tintValue(x, z, scale) * 0.7f +
+           tintValue(x + 191.0f, z - 353.0f, scale * 0.37f) * 0.3f;
 }
 
 // One terrain chunk (kTerrainChunkCells^2 cells at most): triangles + grid
@@ -1015,9 +1232,35 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
-        return shadeOf(normalize(n));
+        Vec3 s = shadeOf(normalize(n));
+        // Terrain self-AO: the same host-baked grid the game ships as
+        // TERRAIN_AO_TABLES, multiplied before everything else (the occluder
+        // contact term arrives per fragment in the shader).
+        if (aoOn_ && (int)aoGrid_.size() == hmW_ * hmD_) {
+            const int ax = ix < 0 ? 0 : (ix > hmW_ - 1 ? hmW_ - 1 : ix);
+            const int az = iz < 0 ? 0 : (iz > hmD_ - 1 ? hmD_ - 1 : iz);
+            const float aoM =
+                1.0f - aoStrength_ *
+                           (1.0f - aoGrid_[(size_t)az * hmW_ + ax] / 255.0f);
+            s.x *= aoM, s.y *= aoM, s.z *= aoM;
+        }
+        // Macro ground variation - the game applies the same tint in
+        // buildTerrainChunk (base + layer passes shade through one place).
+        if (tintVariation_ > 0.0f) {
+            const float tv =
+                1.0f + tintVariation_ * (tintNoise2(x0 + ix * sx, z0 + iz * sz,
+                                                    tintScale_) -
+                                         0.5f);
+            s.x = std::min(s.x * tv, 1.0f);
+            s.y = std::min(s.y * tv, 1.0f);
+            s.z = std::min(s.z * tv, 1.0f);
+        }
+        return s;
     };
 
+    // With a material every cell takes its Kd tint (the shader modulates the
+    // texture by it when one is bound; a flat color otherwise). Without a
+    // material the terrain falls back to the two-green checker.
     // With a material every cell takes its Kd tint (the shader modulates the
     // texture by it when one is bound; a flat color otherwise). Without a
     // material the terrain falls back to the two-green checker.
@@ -1030,6 +1273,8 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     // Texture tiling from the material's map_Kd "-s": UV repeats per world
     // unit, per axis (u across X, v across Z). Matches the game's st() lambda.
     const float tu = terrainTile_[0], tv = terrainTile_[1];
+    auto uvU = [&](float wx) { return wx * tu; };
+    auto uvV = [&](float wz) { return wz * tv; };
 
     const int gx0 = cx * kTerrainChunkCells;
     const int gz0 = cz * kTerrainChunkCells;
@@ -1048,17 +1293,17 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
             const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
             const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
             pushVertexColor(tri, ax, h00, az, c[0] * s00.x, c[1] * s00.y, c[2] * s00.z,
-                            ax * tu, az * tv);
+                            uvU(ax), uvV(az));
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx * tu, az * tv);
+                            uvU(bx), uvV(az));
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax * tu, bz * tv);
+                            uvU(ax), uvV(bz));
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx * tu, az * tv);
+                            uvU(bx), uvV(az));
             pushVertexColor(tri, bx, h11, bz, c[0] * s11.x, c[1] * s11.y, c[2] * s11.z,
-                            bx * tu, bz * tv);
+                            uvU(bx), uvV(bz));
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax * tu, bz * tv);
+                            uvU(ax), uvV(bz));
         }
     }
     terrainChunkMeshes_[ci] = uploadMesh(tri);
@@ -1092,6 +1337,68 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
         }
     }
     terrainLineMeshes_[ci] = uploadMesh(lines);
+
+    // Painted-layer passes (docs/terrain-painting.md): per layer with any
+    // weight on this chunk, the same triangles again - tiled layer UVs,
+    // shade-lit tint, vertex alpha = the painted weight. The GS twin builds
+    // identical passes in buildTerrainChunk (templates.cpp); keep them in sync.
+    const int layerN = (int)terrainLayers_.size();
+    const int vw = cellsX + 1, vd = cellsZ + 1;  // weights live on the vertices
+    const bool haveSplat =
+        layerN > 0 && (int)splat_.size() == vw * vd * layerN;
+    for (int l = 0; l < layerN; ++l) {
+        Mesh& lm =
+            terrainLayerMeshes_[(size_t)l * tcChunksX_ * tcChunksZ_ + ci];
+        destroyMesh(lm);
+        if (!haveSplat) continue;
+        auto wAt = [&](int ix, int iz) {
+            ix = ix < 0 ? 0 : ix > vw - 1 ? vw - 1 : ix;
+            iz = iz < 0 ? 0 : iz > vd - 1 ? vd - 1 : iz;
+            return splat_[((size_t)iz * vw + ix) * layerN + l] / 255.0f;
+        };
+        bool any = false;
+        for (int z = gz0; z <= gz1 && !any; ++z)
+            for (int x = gx0; x <= gx1; ++x)
+                if (wAt(x, z) > 0.0f) {
+                    any = true;
+                    break;
+                }
+        if (!any) continue;  // empty Mesh = no pass for this layer here
+
+        const TerrainLayerDraw& L = terrainLayers_[l];
+        std::vector<float> lt;
+        lt.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6 * 9);
+        auto pushL = [&](float px, float pz, float h, const Vec3& s, float wgt) {
+            lt.push_back(px);
+            lt.push_back(h);
+            lt.push_back(pz);
+            lt.push_back(L.kd[0] * s.x);
+            lt.push_back(L.kd[1] * s.y);
+            lt.push_back(L.kd[2] * s.z);
+            lt.push_back(wgt);
+            lt.push_back(px * L.tile[0]);
+            lt.push_back(pz * L.tile[1]);
+        };
+        for (int z = gz0; z < gz1; ++z) {
+            for (int x = gx0; x < gx1; ++x) {
+                const float ax = x0 + x * sx, az = z0 + z * sz;
+                const float bx = ax + sx, bz = az + sz;
+                const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
+                const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
+                const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
+                const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+                const float w00 = wAt(x, z), w10 = wAt(x + 1, z);
+                const float w01 = wAt(x, z + 1), w11 = wAt(x + 1, z + 1);
+                pushL(ax, az, h00, s00, w00);
+                pushL(bx, az, h10, s10, w10);
+                pushL(ax, bz, h01, s01, w01);
+                pushL(bx, az, h10, s10, w10);
+                pushL(bx, bz, h11, s11, w11);
+                pushL(ax, bz, h01, s01, w01);
+            }
+        }
+        lm = uploadMesh9(lt);
+    }
 }
 
 void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worldX,
@@ -1302,6 +1609,13 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse,
     const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
     if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
     else lx = 0, ly = 1, lz = 0;
+    // No-change early-out: the ambience preview pushes these every frame,
+    // and a rebuild re-bakes every mesh (terrain incl. its AO grid).
+    if (gLightDir[0] == lx && gLightDir[1] == ly && gLightDir[2] == lz &&
+        gAmbient == ambient && gDiffuse == diffuse &&
+        gLightColor[0] == color[0] && gLightColor[1] == color[1] &&
+        gLightColor[2] == color[2] && gBrightness == brightness)
+        return;
     gLightDir[0] = lx, gLightDir[1] = ly, gLightDir[2] = lz;
     gAmbient = ambient;
     gDiffuse = diffuse;
@@ -1311,6 +1625,25 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse,
         buildPrimitiveMeshes();  // shade is baked into the unit meshes
         buildTerrainMesh();
         clearModelCache();  // model shading is baked too
+    }
+}
+
+void Viewport::setAmbientOcclusion(bool enabled, float strength, float radius) {
+    if (radius < 0.1f) radius = 0.1f;
+    if (strength < 0.0f) strength = 0.0f;
+    if (strength > 1.0f) strength = 1.0f;
+    if (aoOn_ == enabled && aoStrength_ == strength && aoRadius_ == radius)
+        return;
+    // Strength/radius only move shader uniforms; toggling AO (or changing the
+    // radius, which shapes the terrain grid) re-bakes the CPU-side colors.
+    const bool rebake = aoOn_ != enabled || aoRadius_ != radius;
+    const bool restrength = aoStrength_ != strength;
+    aoOn_ = enabled;
+    aoStrength_ = strength;
+    aoRadius_ = radius;
+    if (program_ && (rebake || restrength)) {
+        buildTerrainMesh();  // terrain self-AO grid is baked into the colors
+        clearModelCache();   // model self-AO is baked into the colors too
     }
 }
 
@@ -1407,6 +1740,46 @@ void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[
     if (program_) buildTerrainMesh();
 }
 
+void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
+                                const std::vector<uint8_t>& weights) {
+    // No cheap equality check: callers send this on layer edits and scene
+    // switches, both of which want the rebuild anyway.
+    terrainLayers_ = layers;
+    splat_ = weights;
+    if (program_) buildTerrainMesh();
+}
+
+void Viewport::setTerrainTint(float variation, float scaleWorld) {
+    if (scaleWorld < 1.0f) scaleWorld = 1.0f;
+    if (tintVariation_ == variation && tintScale_ == scaleWorld) return;
+    tintVariation_ = variation;
+    tintScale_ = scaleWorld;
+    if (program_) buildTerrainMesh();
+}
+
+void Viewport::updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
+                                 float worldZ, float radius) {
+    splat_ = weights;
+    if (terrainChunkMeshes_.empty()) {
+        buildTerrainMesh();
+        return;
+    }
+    // Same brush-to-chunk mapping as updateTerrainRegion (heights sculpting).
+    const float w = (float)terrain_.width, d = (float)terrain_.depth;
+    const float sx = w / tcCellsX_, sz = d / tcCellsZ_;
+    const int minCellX = (int)((worldX - radius + w * 0.5f) / sx) - 2;
+    const int maxCellX = (int)((worldX + radius + w * 0.5f) / sx) + 2;
+    const int minCellZ = (int)((worldZ - radius + d * 0.5f) / sz) - 2;
+    const int maxCellZ = (int)((worldZ + radius + d * 0.5f) / sz) + 2;
+    auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    const int c0x = clampi(minCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c1x = clampi(maxCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c0z = clampi(minCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    const int c1z = clampi(maxCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    for (int cz = c0z; cz <= c1z; ++cz)
+        for (int cx = c0x; cx <= c1x; ++cx) buildTerrainChunkMesh(cx, cz);
+}
+
 void Viewport::setUsableHighlight(bool enabled, const float* rgb) {
     usableHighlight_ = enabled;
     for (int i = 0; i < 3; ++i) usableHighlightCol_[i] = rgb[i];
@@ -1468,6 +1841,75 @@ void Viewport::clearMatPrevModel() {
 // The material preview's model slot (single entry - the editor shows one
 // model at a time). Kd stays out of the vertex colors on purpose, see the
 // struct comment.
+// Fills matPrevModel_ from an animated model's BIND-POSE geometry (frame 0),
+// resolving the assigned .mtl exactly as the console bakes it into the .tskl:
+// each glTF part's material NAME is matched against the override library (full
+// replace - a miss renders plain white, refl has no skeletal slot), so what
+// the preview shows is what the game draws. Textures come off disk from the
+// override .mtl (the same file the paint pipeline writes), so live painting
+// updates the preview through the shared texCache_ just like the .obj path.
+void Viewport::buildMatPrevAnimated(const std::string& modelRel,
+                                    const std::string& mtlRel) {
+    glbparser::Baked baked;
+    std::string error;
+    if (!animimport::bake(
+            (std::filesystem::path(projectDir_) / modelRel).string(), 12.0f,
+            baked, error))
+        return;  // !ok - caller falls back to the sphere
+
+    std::vector<objparser::MtlMaterial> lib;
+    const std::filesystem::path mtlDir =
+        mtlRel.empty() ? std::filesystem::path()
+                       : std::filesystem::path(mtlRel).parent_path();
+    if (!mtlRel.empty())
+        objparser::loadMtl((std::filesystem::path(projectDir_) / mtlRel).string(),
+                           lib);
+
+    for (const glbparser::Part& src : baked.parts) {
+        MatPrevPart part;
+        part.material = src.material;  // raw name - matched like the console
+        // override lookup: hit replaces Kd + texture, miss -> plain white
+        const objparser::MtlMaterial* hit = nullptr;
+        for (const objparser::MtlMaterial& m : lib)
+            if (m.name == src.material) {
+                hit = &m;
+                break;
+            }
+        if (hit) {
+            part.kd[0] = hit->kd[0], part.kd[1] = hit->kd[1], part.kd[2] = hit->kd[2];
+            if (!hit->texture.empty())
+                part.texRel = (mtlDir / hit->texture).generic_string();
+        }
+        // frame-0 bind pose: interleave pos + baked shade + uv (Kd rides the
+        // tint uniform, staged live). tris (pos3+uv2) feed the paint raycast.
+        std::vector<float> interleaved;
+        interleaved.reserve((size_t)src.vertexCount * 8);
+        part.tris.reserve((size_t)src.vertexCount * 5);
+        for (int v = 0; v < src.vertexCount; ++v) {
+            const float x = src.positions[v * 3], y = src.positions[v * 3 + 1],
+                        z = src.positions[v * 3 + 2];
+            const Vec3 s = shadeOf({src.normals[v * 3], src.normals[v * 3 + 1],
+                                    src.normals[v * 3 + 2]});
+            const bool hasUv = src.uvs.size() >= (size_t)(v + 1) * 2;
+            const float u = hasUv ? src.uvs[v * 2] : 0.0f;
+            const float w = hasUv ? src.uvs[v * 2 + 1] : 0.0f;
+            interleaved.insert(interleaved.end(), {x, y, z, s.x, s.y, s.z, u, w});
+            part.tris.insert(part.tris.end(), {x, y, z, u, w});
+        }
+        part.mesh = uploadMesh(interleaved);
+        matPrevModel_.parts.push_back(std::move(part));
+    }
+    matPrevModel_.ok = !matPrevModel_.parts.empty();
+    for (int i = 0; i < 3; ++i)
+        matPrevModel_.center[i] = (baked.min[i] + baked.max[i]) * 0.5f;
+    matPrevModel_.minY = baked.min[1];
+    const float dx = baked.max[0] - baked.min[0];
+    const float dy = baked.max[1] - baked.min[1];
+    const float dz = baked.max[2] - baked.min[2];
+    matPrevModel_.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (matPrevModel_.radius < 0.01f) matPrevModel_.radius = 0.01f;
+}
+
 const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
     const std::string& modelRel, const std::string& mtlRel) {
     const std::string key = modelRel + "|" + mtlRel;
@@ -1475,6 +1917,11 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
 
     clearMatPrevModel();
     matPrevModel_.key = key;
+
+    if (isAnimatedModelPath(modelRel)) {
+        buildMatPrevAnimated(modelRel, mtlRel);
+        return &matPrevModel_;
+    }
 
     objparser::Model model;
     if (!objparser::load(
@@ -1611,6 +2058,12 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
         const std::filesystem::path modelDir =
             std::filesystem::path(materialRel.empty() ? relPath : materialRel)
                 .parent_path();
+        for (int k = 0; k < 3; ++k) draw.mn[k] = model.min[k], draw.mx[k] = model.max[k];
+        // Model self-AO (aobake::modelAO into the vertex colors) is DISABLED
+        // for now, matching the game: per-vertex occlusion on authored
+        // low-poly meshes reads as triangulated shading (owner call,
+        // 2026-07). The bake + the .aov sidecar plumbing stay in aobake/
+        // texbake/LeanObjLoader for a future per-model lightmap-unwrap path.
         for (const objparser::Submesh& sub : model.submeshes) {
             std::vector<float> interleaved;
             interleaved.reserve(sub.verts.size());
@@ -1656,17 +2109,26 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
 
 // Animated .glb model: bake once (CPU-side clips kept for the playback
 // preview), upload frame 0 into dynamic per-part meshes, decode embedded
-// textures. Failures cache as !ok and the caller falls back to the box.
-Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
+// textures. An assigned .mtl override is resolved into the bake (part
+// colors/textures remapped by material name), exactly as the game bakes it
+// into the .tskl - so the preview matches. Failures cache as !ok and the
+// caller falls back to the box.
+Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
+                                                 const std::string& materialRel) {
     if (relPath.empty()) return nullptr;
-    auto it = animModelCache_.find(relPath);
+    const std::string key = relPath + "|" + materialRel;
+    auto it = animModelCache_.find(key);
     if (it != animModelCache_.end()) return &it->second;
 
     AnimModelDraw draw;
     std::string error;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
-    if (glbparser::bake(full, 12.0f, draw.baked, error)) {
+    if (animimport::bake(full, 12.0f, draw.baked, error)) {
         draw.ok = true;
+        if (!materialRel.empty())
+            objparser::applyMaterialOverride(
+                draw.baked,
+                (std::filesystem::path(projectDir_) / materialRel).string());
         std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
         for (size_t i = 0; i < draw.baked.images.size(); ++i) {
             int w = 0, h = 0, comp = 0;
@@ -1695,7 +2157,7 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
             draw.parts.push_back(part);
         }
     }
-    return &animModelCache_.emplace(relPath, std::move(draw)).first->second;
+    return &animModelCache_.emplace(key, std::move(draw)).first->second;
 }
 
 // Interpolates the object's current pose (start clip + preview clock, the
@@ -1975,6 +2437,91 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform4fv(uLightPos_, 8, pos);
         glUniform4fv(uLightCol_, 8, col);
     }
+
+    // Ambient occlusion: this frame's occluder set (aobake::collectOccluders,
+    // the same shapes codegen bakes into SCENE_AO_OCC), capped at the
+    // shader's 32 nearest the camera target. Per draw call only the
+    // self-exclusion index and the ground-term toggle change (see draw()).
+    int aoSelfObj = -1;
+    bool aoGroundOn = false;
+    bool aoReceive = true;  // models neither receive nor self-occlude
+    {
+        int aoCount = 0;
+        if (aoOn_) {
+            std::vector<aobake::Occluder> occs = aobake::collectOccluders(
+                objects, [&](const SceneObject& o, float* mn, float* mx) {
+                    const ModelDraw* md = modelDraw(o.modelPath, o.materialPath);
+                    if (!md) return false;
+                    for (int k = 0; k < 3; ++k) mn[k] = md->mn[k], mx[k] = md->mx[k];
+                    return true;
+                });
+            // hidden layers cast nothing (like the point-light preview)
+            occs.erase(std::remove_if(occs.begin(), occs.end(),
+                                      [&](const aobake::Occluder& oc) {
+                                          return hiddenAt((size_t)oc.objIndex);
+                                      }),
+                       occs.end());
+            if ((int)occs.size() > 32) {
+                auto d2 = [&](const aobake::Occluder& oc) {
+                    const float dx = oc.pos[0] - target_[0];
+                    const float dy = oc.pos[1] - target_[1];
+                    const float dz = oc.pos[2] - target_[2];
+                    return dx * dx + dy * dy + dz * dz;
+                };
+                std::partial_sort(occs.begin(), occs.begin() + 32, occs.end(),
+                                  [&](const aobake::Occluder& a,
+                                      const aobake::Occluder& b) {
+                                      return d2(a) < d2(b);
+                                  });
+                occs.resize(32);
+            }
+            float pos[32 * 4] = {}, ax[32 * 4] = {}, ay[32 * 4] = {},
+                  az[32 * 4] = {};
+            int obj[32] = {};
+            for (size_t i = 0; i < occs.size(); ++i) {
+                const aobake::Occluder& oc = occs[i];
+                pos[i * 4 + 0] = oc.pos[0];
+                pos[i * 4 + 1] = oc.pos[1];
+                pos[i * 4 + 2] = oc.pos[2];
+                pos[i * 4 + 3] = oc.sphere ? 1.0f : 0.0f;
+                for (int k = 0; k < 3; ++k) {
+                    ax[i * 4 + k] = oc.axis[0][k];
+                    ay[i * 4 + k] = oc.axis[1][k];
+                    az[i * 4 + k] = oc.axis[2][k];
+                }
+                ax[i * 4 + 3] = oc.half[0];
+                ay[i * 4 + 3] = oc.half[1];
+                az[i * 4 + 3] = oc.half[2];
+                obj[i] = oc.objIndex;
+            }
+            glUniform4fv(uAoPos_, 32, pos);
+            glUniform4fv(uAoAx_, 32, ax);
+            glUniform4fv(uAoAy_, 32, ay);
+            glUniform4fv(uAoAz_, 32, az);
+            glUniform1iv(uAoObj_, 32, obj);
+            aoCount = (int)occs.size();
+        }
+        glUniform1i(uAoOn_, aoOn_ ? 1 : 0);
+        glUniform1f(uAoStrength_, aoStrength_);
+        glUniform1f(uAoRadius_, aoRadius_);
+        glUniform1i(uAoCount_, aoCount);
+        // heightmap for the objects' ground-contact term (texture unit 2);
+        // without one the shader falls back to the y = 0 plane (flat terrain)
+        if (aoOn_ && aoHmTex_ && aoHmW_ >= 2 && aoHmD_ >= 2) {
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, aoHmTex_);
+            glActiveTexture(GL_TEXTURE0);
+            const float stepX = (float)terrain_.width / (aoHmW_ - 1);
+            const float stepZ = (float)terrain_.depth / (aoHmD_ - 1);
+            glUniform4f(uAoHmRect_,
+                        ((float)terrain_.width / (2.0f * stepX) + 0.5f) / aoHmW_,
+                        ((float)terrain_.depth / (2.0f * stepZ) + 0.5f) / aoHmD_,
+                        1.0f / (stepX * aoHmW_), 1.0f / (stepZ * aoHmD_));
+            glUniform1i(uAoHmOn_, 1);
+        } else {
+            glUniform1i(uAoHmOn_, 0);
+        }
+    }
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
@@ -1986,6 +2533,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
+        glUniform1i(uAoSelfObj_, aoSelfObj);
+        glUniform1i(uAoGround_, aoGroundOn ? 1 : 0);
+        glUniform1i(uAoReceive_, aoReceive ? 1 : 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
@@ -2022,6 +2572,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::Mirror: return &decal_;  // glass quad, +Z face
+            case PrimitiveType::Portal: return &decal_;  // surface quad, +Z face
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
@@ -2044,12 +2595,48 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
         const uint32_t terrainTex =
             asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
+        aoSelfObj = -1;       // terrain belongs to no scene object
+        aoGroundOn = false;   // the ground doesn't sit next to itself
+        aoReceive = true;
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
+
+        // Painted terrain layers: alpha-blend each layer's pass over the base
+        // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain
+        // in templates.cpp). Same geometry, and the frame already runs with
+        // LEQUAL depth, so the equal-depth pass wins; no depth writes so later
+        // object draws still z-test against the base terrain.
+        if (!asLines && !terrainLayerMeshes_.empty()) {
+            glUseProgram(particleProgram_);
+            glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj.m);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);
+            const size_t chunkCount = (size_t)tcChunksX_ * tcChunksZ_;
+            for (size_t l = 0; l < terrainLayers_.size(); ++l) {
+                const uint32_t tex = glTexture(terrainLayers_[l].texture);
+                glUniform1i(uPartUseTex_, tex ? 1 : 0);
+                if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+                for (size_t ci = 0; ci < chunkCount; ++ci) {
+                    const Mesh& lm = terrainLayerMeshes_[l * chunkCount + ci];
+                    if (!lm.vao || lm.vertexCount == 0) continue;
+                    glBindVertexArray(lm.vao);
+                    glDrawArrays(GL_TRIANGLES, 0, lm.vertexCount);
+                }
+            }
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            glUseProgram(program_);
+        }
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
+            aoSelfObj = (int)oi;  // an object never occludes itself
+            aoGroundOn = true;
+            // models don't receive AO (matches the game - see modelDraw note)
+            aoReceive = o.type != PrimitiveType::Model &&
+                        !(o.type == PrimitiveType::Player && o.playerMode == 2);
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
@@ -2073,9 +2660,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 continue;
             }
             // Mirrors draw in their own pass after the scene (reflected
-            // copies first, glass blended over them); the wire passes still
-            // outline the quad here so wireframe views show the rectangle.
-            if (o.type == PrimitiveType::Mirror && !asLines) continue;
+            // copies first, glass blended over them); portals blend their
+            // surface after the scene too. The wire passes still outline
+            // both quads here so wireframe views show the rectangle.
+            if ((o.type == PrimitiveType::Mirror ||
+                 o.type == PrimitiveType::Portal) && !asLines)
+                continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -2088,7 +2678,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                    isAnimatedModelPath(o.modelPath);
             if ((o.type == PrimitiveType::Model || tppAvatar) &&
                 isAnimatedModelPath(o.modelPath)) {
-                AnimModelDraw* ad = animModelDraw(o.modelPath);
+                AnimModelDraw* ad = animModelDraw(o.modelPath, o.materialPath);
                 if (ad && ad->ok) {
                     updateAnimPose(*ad, o);
                     for (const AnimModelDraw::Part& part : ad->parts)
@@ -2177,10 +2767,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // one reflected draw - the static subset of the scene pass (marker
         // types never make it into a mirror list)
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            aoReceive = t.type != PrimitiveType::Model;
             const Mat4 mvp = mul(viewProj, model);
             if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
                 // pose already advanced by this frame's scene pass - reuse it
-                AnimModelDraw* ad = animModelDraw(t.modelPath);
+                AnimModelDraw* ad = animModelDraw(t.modelPath, t.materialPath);
                 if (ad && ad->ok) {
                     for (const AnimModelDraw::Part& part : ad->parts)
                         draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
@@ -2236,6 +2827,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 for (size_t k = 0; k < objects.size(); ++k)
                     if (objects[k].name == tname) { ti = (int)k; break; }
                 if (ti < 0 || hiddenAt((size_t)ti)) continue;
+                aoSelfObj = ti;  // the copy keeps its source's self-exclusion
+                aoGroundOn = true;
                 drawReflected(objects[(size_t)ti],
                               mul(refl, modelMatrix(objects[(size_t)ti])));
             }
@@ -2247,8 +2840,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     if (p.type != PrimitiveType::Player || p.playerMode != 2 ||
                         !isAnimatedModelPath(p.modelPath) || hiddenAt(k))
                         continue;
-                    AnimModelDraw* ad = animModelDraw(p.modelPath);
+                    AnimModelDraw* ad = animModelDraw(p.modelPath, p.materialPath);
                     if (ad && ad->ok) {
+                        aoSelfObj = (int)k;
+                        aoGroundOn = true;
+                        aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
                         for (const AnimModelDraw::Part& part : ad->parts)
@@ -2259,9 +2855,45 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 }
             }
             // glass quad last, blended over whatever the copies drew
+            aoSelfObj = (int)mi;
+            aoGroundOn = true;
+            aoReceive = true;
             draw(decal_, GL_TRIANGLES, mul(viewProj, mirrorModel), m.color[0],
                  m.color[1], m.color[2], 0, &mirrorModel, false, m.mirrorOpacity);
         }
+    }
+
+    // Portal surfaces: the editor has no live through-view (that is the
+    // game's in-place render), so the quad blends as a translucent energy
+    // surface in the object color - linked pairs read via the link line
+    // drawn with the other gizmos below. The entry-side arrow (out of the
+    // +Z front face - the side that shows the view and teleports) draws in
+    // every view mode: authoring needs the orientation at a glance.
+    if (viewMode_ != ViewMode::Wireframe) {
+        for (size_t pi = 0; pi < objects.size(); ++pi) {
+            const SceneObject& p = objects[pi];
+            if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+            const Mat4 model = modelMatrix(p);
+            aoSelfObj = (int)pi;
+            aoGroundOn = true;
+            aoReceive = true;
+            draw(decal_, GL_TRIANGLES, mul(viewProj, model), p.color[0],
+                 p.color[1], p.color[2], 0, &model, false, 0.7f);
+        }
+    }
+    for (size_t pi = 0; pi < objects.size(); ++pi) {
+        const SceneObject& p = objects[pi];
+        if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+        const float d2r = kPi / 180.0f;
+        Mat4 m = scaleM(1.2f, 1.2f, 1.2f);  // fixed length, quad-scale-free
+        m = mul(rotX(p.rotation[0] * d2r), m);
+        m = mul(rotY(p.rotation[1] * d2r), m);
+        m = mul(rotZ(p.rotation[2] * d2r), m);
+        m = mul(translation(p.position[0], p.position[1], p.position[2]), m);
+        // brightened toward white so it pops against the tinted surface
+        draw(portalArrow_, GL_LINES, mul(viewProj, m),
+             0.5f + 0.5f * p.color[0], 0.5f + 0.5f * p.color[1],
+             0.5f + 0.5f * p.color[2]);
     }
 
     // Grid lines, axes and the selection outline are unaffected by view mode
@@ -2305,6 +2937,31 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
              o.color[2]);
     }
 
+    // Portal link line: portal -> its target portal, in the portal's color.
+    // Only the segment's third matrix column and translation matter (the
+    // mesh's two vertices sit at local z=0 and z=1).
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Portal || hiddenAt(oi)) continue;
+        if (o.portalTarget.empty()) continue;
+        const SceneObject* tgt = nullptr;
+        for (const SceneObject& t : objects)
+            if (t.type == PrimitiveType::Portal && t.name == o.portalTarget) {
+                tgt = &t;
+                break;
+            }
+        if (!tgt) continue;
+        Mat4 seg = identity();
+        seg.m[8] = tgt->position[0] - o.position[0];
+        seg.m[9] = tgt->position[1] - o.position[1];
+        seg.m[10] = tgt->position[2] - o.position[2];
+        seg.m[12] = o.position[0];
+        seg.m[13] = o.position[1];
+        seg.m[14] = o.position[2];
+        draw(segment_, GL_LINES, mul(viewProj, seg), o.color[0], o.color[1],
+             o.color[2]);
+    }
+
     // "Highlight usable objects" preference: wire box in the highlight color
     // around every usable object (the proximity condition only applies
     // in-game; the editor just shows which objects qualify and the color).
@@ -2315,6 +2972,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const Mat4 mvp = mul(viewProj, modelMatrix(o));
             draw(wireCube_, GL_LINES, mvp, usableHighlightCol_[0],
                  usableHighlightCol_[1], usableHighlightCol_[2]);
+        }
+    }
+
+    // Session peers' selections first (their color), so the local outline
+    // below always draws on top when both select the same object.
+    for (const PeerSel& ps : peerSels_) {
+        for (int idx : ps.indices) {
+            if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
+            const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
+            draw(wireCube_, GL_LINES, mvp, ps.color[0], ps.color[1], ps.color[2]);
         }
     }
 
@@ -2416,6 +3083,37 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         prevFloor_ = uploadMesh(f);
     }
 
+    // UV checker (displayMode 2): 8-cell two-gray checker with a hue wash
+    // per 2x2 block and a texel grid - stretch and density read at a glance.
+    if (!uvCheckerTex_ && d.displayMode == 2) {
+        const int S = 256, cell = 32;
+        std::vector<unsigned char> px((size_t)S * S * 4);
+        for (int y = 0; y < S; ++y)
+            for (int x = 0; x < S; ++x) {
+                const int cx = x / cell, cy = y / cell;
+                float v = ((cx + cy) & 1) ? 0.42f : 0.72f;
+                if (x % cell == 0 || y % cell == 0) v *= 0.55f;  // grid line
+                // hue wash: block coordinates tint toward red (u) / green (v)
+                const float ru = (cx / 2) / 3.5f, gv = (cy / 2) / 3.5f;
+                unsigned char* p = &px[((size_t)y * S + x) * 4];
+                p[0] = (unsigned char)(255.0f * v * (0.62f + 0.38f * ru));
+                p[1] = (unsigned char)(255.0f * v * (0.62f + 0.38f * gv));
+                p[2] = (unsigned char)(255.0f * v * 0.62f);
+                p[3] = 255;
+            }
+        GLuint t = 0;
+        glGenTextures(1, &t);
+        glBindTexture(GL_TEXTURE_2D, t);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, S, S, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, px.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+        uvCheckerTex_ = t;
+    }
+
     // Model slot (shape 4). A missing/unparseable model falls back to the
     // sphere so the window never goes blank.
     const MatPrevModel* model = nullptr;
@@ -2439,6 +3137,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
 
     glUseProgram(program_);
     glUniform1i(uLightCount_, 0);  // no point lights in the preview
+    glUniform1i(uAoOn_, 0);        // no ambient occlusion either
 
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
@@ -2490,7 +3189,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     float zoom = d.zoom < 0.05f ? 0.05f : (d.zoom > 16.0f ? 16.0f : d.zoom);
     const float dist = baseDist / zoom;
     float pitch = d.pitchDeg;
-    if (pitch < -5.0f) pitch = -5.0f;
+    if (pitch < -30.0f) pitch = -30.0f;  // low-angle shots allowed (app clamp twin)
     if (pitch > 85.0f) pitch = 85.0f;
     const float a = d.angleDeg * kPi / 180.0f;
     const float p = pitch * kPi / 180.0f;
@@ -2519,17 +3218,29 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         draw(prevFloor_, mul(viewProj, floorM), 1.0f, 1.0f, 1.0f, 0);
     }
 
+    // displayMode 2 replaces every texture with the generated UV checker
+    // (tint white so the checker colors stay true); mode 1 adds a dark
+    // wireframe overlay after the fill (fill pushed back by polygon offset
+    // so the lines never stitch).
+    const bool checker = d.displayMode == 2;
+    if (d.displayMode == 1) {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 1.0f);
+    }
     if (model) {
         for (const MatPrevPart& part : matPrevModel_.parts) {
             const bool staged = part.material == d.entryName;
             const float* kd = staged ? d.kd : part.kd;
             const std::string& tex = staged ? d.texRel : part.texRel;
             const std::string& refl = staged ? d.reflRel : part.reflRel;
-            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
-                 glTexture(refl),
-                 staged ? d.reflStrength : part.reflStrength,
-                 staged ? d.reflSky : part.reflSky,
-                 staged ? d.reflRounded : part.reflRounded, part.centroid);
+            if (checker)
+                draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
+            else
+                draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
+                     glTexture(refl),
+                     staged ? d.reflStrength : part.reflStrength,
+                     staged ? d.reflSky : part.reflSky,
+                     staged ? d.reflRounded : part.reflRounded, part.centroid);
         }
     } else {
         // unit shapes sit at the origin - that's the rounded-normal centre
@@ -2538,9 +3249,27 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                            : shape == 2 ? &cylinder_
                            : shape == 3 ? &cone_
                                         : &sphere_;
-        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel),
-             glTexture(d.reflRel), d.reflStrength, d.reflSky, d.reflRounded,
-             origin);
+        if (checker)
+            draw(*mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
+        else
+            draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
+                 glTexture(d.texRel), glTexture(d.reflRel), d.reflStrength,
+                 d.reflSky, d.reflRounded, origin);
+    }
+    if (d.displayMode == 1) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        if (model) {
+            for (const MatPrevPart& part : matPrevModel_.parts)
+                draw(part.mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
+        } else {
+            const Mesh* mesh = shape == 0   ? &box_
+                               : shape == 2 ? &cylinder_
+                               : shape == 3 ? &cone_
+                                            : &sphere_;
+            draw(*mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
+        }
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     glBindVertexArray(0);
@@ -2630,6 +3359,21 @@ bool Viewport::materialPreviewPick(float u, float v, float& outU, float& outV,
         sweep(prevShapeTris_[pk.shape], true);
     }
     return found;
+}
+
+bool Viewport::materialPreviewProject(const float world[3], float& outU,
+                                      float& outV) const {
+    const MatPrevPick& pk = matPrevPick_;
+    if (!pk.valid) return false;
+    const float d[3] = {world[0] - pk.eye[0], world[1] - pk.eye[1],
+                        world[2] - pk.eye[2]};
+    const float z = d[0] * pk.fwd[0] + d[1] * pk.fwd[1] + d[2] * pk.fwd[2];
+    if (z <= 1e-4f) return false;  // behind the camera
+    const float x = d[0] * pk.right[0] + d[1] * pk.right[1] + d[2] * pk.right[2];
+    const float y = d[0] * pk.up[0] + d[1] * pk.up[1] + d[2] * pk.up[2];
+    outU = 0.5f + 0.5f * x / (z * pk.tanHalf * pk.aspect);
+    outV = 0.5f - 0.5f * y / (z * pk.tanHalf);
+    return true;
 }
 
 // Live preview of every enabled particle emitter. The per-kind spawn /

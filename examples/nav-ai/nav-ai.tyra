@@ -1,6 +1,7 @@
 {
   "name": "nav-ai",
   "template": "fpp",
+  "projectId": "2f60535ad604cdf3",
   "settings": {
     "videoSystem": "auto",
     "displayMode": "interlaced",
@@ -15,6 +16,8 @@
     "clipping": "precise",
     "animLodDistance": 0,
     "meshLodDistance": 0,
+    "staticBatching": true,
+    "envProbeReflected": false,
     "navCellSize": 1,
     "navMaxSlope": 40,
     "navAgentRadius": 0.4,
@@ -33,6 +36,8 @@
     "stickCurveR": 0,
     "stickExpL": 2,
     "stickExpR": 2,
+    "multiplayer": "off",
+    "p2JoinOnStart": true,
     "orbitSpeed": 1,
     "gravity": 9.8,
     "jumpSpeed": 4.5,
@@ -41,6 +46,9 @@
     "diffuse": 0.45,
     "lightColor": [1, 1, 1],
     "brightness": 1,
+    "aoEnabled": false,
+    "aoStrength": 0.55,
+    "aoRadius": 2.5,
     "terrainMaterial": "",
     "bloom": 0,
     "grain": 0,
@@ -66,6 +74,9 @@
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["2e4fee126541139d", "ee00000000000001", "ee00000000000002", "ee00000000000003", "ee00000000000004", "ee00000000000005", "ee00000000000006"] }
   ],
+  "fonts": [
+    { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
+  ],
   "hud": [],
   "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
   "hudTexts": [],
@@ -78,7 +89,7 @@
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [
-    { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
+    { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
   ],
   "defaultAmbience": 0,
   "loadingScreens": [],

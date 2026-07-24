@@ -2,7 +2,7 @@ name: large-terrain
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-7576c54b
+    name: tyra-engine-5de0959b
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "F:/Projects/tyra-editor/.claude/worktrees/maraton-update-85d0f2/vendor/tyra:/engine-src:ro"
+      - "F:/Projects/tyra-editor/vendor/tyra:/engine-src:ro"

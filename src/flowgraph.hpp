@@ -208,6 +208,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Glides the target toward X/Y/Z (or a linked position, "
                  "re-read every frame) at num[3] (Speed) units/s until it "
                  "arrives."},
+        {.key = "PushObject", .title = "Apply Impulse", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"X", "Y", "Z"}, .idIn = true, .idOut = true,
+         .desc = "Physics: adds velocity (units/s) to a rigid body and wakes "
+                 "it. num[0..2] = X/Y/Z impulse. On a non-physics object it "
+                 "only nudges the stored velocity - harmless."},
         {.key = "SetObjectColor", .title = "Set Object Color",
          .category = "Object", .strKind = FlowParamKind::ObjectName,
          .numCount = 3, .numKind = FlowParamKind::Color, .idIn = true,
@@ -328,6 +334,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Changes the analog stick response curve live. num[0] "
                  "Stick: 0 left, 1 right, 2 both. num[1] Curve: 0 Linear, 1 "
                  "Exponential, 2 S-Curve. num[2] Exponent >= 1."},
+        {.key = "VibratePad", .title = "Vibrate Pad", .category = "Player",
+         .numCount = 3, .numLabels = {"Big", "Small", "Seconds"},
+         .desc = "Vibrates the DualShock pad. num[0] Big: heavy-motor "
+                 "strength 0..1. num[1] Small: the on/off buzz motor (!= 0 = "
+                 "on). num[2] Seconds > 0 auto-stops after that long, 0 = "
+                 "vibrate until the next Vibrate Pad. Big 0 + Small off stops."},
         // Scene
         {.key = "SetSky", .title = "Set Sky Color", .category = "Scene",
          .numCount = 3, .numKind = FlowParamKind::Color,
@@ -379,7 +391,8 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .numLabels = {"Mode", "Confirm s"},
          .desc = "Switches the scan mode. num[0] Mode: 0 interlaced, 1 "
                  "progressive 480p, 2 1080i, 3 interlaced field rendering "
-                 "(a fresh half-height image every field). num[1] Confirm "
+                 "(a fresh half-height image every field), 4 full-height "
+                 "PAL 576i (always 50 Hz). num[1] Confirm "
                  "seconds > 0 shows a keep-or-revert prompt with automatic "
                  "rollback."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",

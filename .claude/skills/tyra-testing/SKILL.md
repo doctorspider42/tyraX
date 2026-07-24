@@ -102,6 +102,19 @@ asserts on the emitted strings. This works because `project.cpp`,
 tiny host harness without the GUI. Fine pattern; keep such harnesses in the
 scratchpad, not the repo.
 
+**Collaboration sessions are headless-testable the same way**: `session.cpp` +
+`wire.cpp` have no GUI dependency, so a harness can run a host `Session` and a
+client `Session` **in one process over 127.0.0.1 with real sockets** (drain
+`drainEvents()` in a sleep loop) to test join/transfer/cache/kick/refresh, and
+drive `session::diffModel`/`applyEdit` directly on two `Project` replicas for
+convergence property tests (random concurrent edits + the host relay rule →
+assert byte-identical serializations; that test caught two real divergence
+bugs). Link the same .obj set as the model harness plus `session`, `wire`, and
+`-lws2_32`. For the interactive layer, run **two editor instances on one
+machine** (the second without a project), host from A, join from B at
+`127.0.0.1` — loopback is not blocked by Windows Firewall even when the LAN
+prompt was declined.
+
 ## Layer 3 — full e2e: Docker build + PCSX2 boot
 
 Prerequisites: Docker Desktop **running**, PCSX2 installed in
@@ -170,6 +183,13 @@ Notes:
   meter on the PCSX2 process (e.g. via `AudioMeterInformation`) — silence vs
   bursts at expected times proved music/sfx features before; a by-ear speaker
   check stays with the human.
+- **Two-player modes** (docs/multiplayer.md): the split/shared toggle is
+  testable with ONE keyboard: give the scene two Player objects and a pause
+  menu with the "Player count" option block, then drive pad 1 via PostMessage
+  (Start=Return opens the menu, Cross=K cycles the row) and screenshot — the
+  frame visibly flips between full-screen and the top/bottom split (or the
+  pulled-back shared camera). Pad-2 hot-join (Start on pad 2) needs a second
+  pad configured in PCSX2's Pad2 slot — that part stays a hands-on test.
 - **Flow-graph / gameplay logic**: wire the behavior to an unattended trigger
   (`On Start`, `Every N Seconds`) so it fires without a pad; note in
   PROGRESS.md when the interactive path (pad buttons, mouse feel) still needs

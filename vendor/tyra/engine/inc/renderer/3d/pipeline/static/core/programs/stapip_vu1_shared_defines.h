@@ -36,6 +36,11 @@
 // env bags never carry lighting). Kept as a LITERAL: vclpp expands #defines
 // only one level, an alias reaches dvp-as unresolved.
 #define VU1_ENV_BASIS_ADDR 4
+// Modified by TyraX: particle billboard basis (right, up - 2 qwords) for the
+// billboard program family. Same lights-matrix area as the env basis
+// (billboard bags never carry lighting); kept as a LITERAL for the same
+// vclpp one-level-#define reason.
+#define VU1_BILLBOARD_BASIS_ADDR 4
 #define VU1_STAPIP_LAST_ITEM_ADDR 21
 
 // Bias used to turn the constant near/far plane tests into clipw judgements
