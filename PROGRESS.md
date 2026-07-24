@@ -8696,3 +8696,24 @@ Each finished feature lands as its own commit.
   `operator==`, save/load, nested Preferences checkbox, `{{KBD_MOUSE_PS2LINK_
   RESIDENT}}` codegen, engine.hpp/.cpp). Editor compiles clean. Part B (the
   custom ps2link.elf build recipe) and the hardware test are separate/pending.
+
+- (96) **Custom ps2link with USB HID baked in** (part B - the console side of
+  (95)). New `tools/ps2link-usbhid/`: a three-file patch to ps2dev/ps2link
+  (`ee/Makefile` embeds usbd+ps2kbd+ps2mouse IRX, `ee/irx_variables.h` externs
+  them, `ee/ps2link.c` `loadModules()` execs them after ps2link_irx - **usbd
+  first**, since ps2kbd/ps2mouse import its symbols) plus a `build.ps1` that
+  clones a pinned ps2link, applies the patch and builds `ps2link.elf` in the
+  official `ps2dev/ps2dev` toolchain image, and a README. A research subagent
+  (web, cited) mapped ps2link's `loadModules` and corrected the root cause:
+  ps2mouse's RPC registration is NOT gated on clean-vs-busy IOP timing (my
+  earlier hypothesis) - it hard-depends on **usbd being resident** at load, and
+  loading usbd ourselves onto ps2link's running IOP doesn't bring it up
+  cleanly; baking it into ps2link's own reset-then-load boot does. Built with
+  the current ps2dev toolchain, NOT the older `h4570/tyra` game image (ps2link
+  master needs newer ps2sdk headers - `startup.h`, `PS2_DISABLE_AUTOSTART_
+  PTHREAD`; ps2link is standalone so the toolchain need not match the game's).
+  Verified: `build.ps1 -Clean` reproduces end-to-end (patch applies clean, elf
+  = 283188 bytes, `strings` confirms "PS2 USB keyboard driver" / ps2mouse
+  embedded). The elf and its `build/` tree are gitignored (binary sent to the
+  user directly). Real-hardware test - flash it, tick both ps2link checkboxes,
+  F6, expect `keyboard driver ready` AND `mouse driver ready` - pending.

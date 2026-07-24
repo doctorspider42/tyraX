@@ -117,13 +117,16 @@ stack at all. On a ps2link **booted from USB** (a `usbd` is already resident) a
 second one may wedge the USB host — boot the game from that USB directly
 instead.
 
-**Keyboard only under ps2link.** Over a resident-IOP ps2link the SDK's
-`PS2MouseInit()` spins forever binding a `ps2mouse` RPC server that never
-registers — it hangs the boot on the Tyra logo (the keyboard uses an iomanX
-device, `usbkbd:`, and is fine). So the override initialises the **keyboard
-only** and skips `PS2MouseInit`; mouse-look over the ps2link debug path is not
-available. For full keyboard **and** mouse on hardware, use an exported ISO —
-off ps2link `PS2MouseInit` returns normally.
+**Keyboard only on a stock ps2link.** The real reason the mouse can't come up
+this way: `ps2kbd`/`ps2mouse` import `usbd`'s symbols, and loading `usbd`
+ourselves onto ps2link's already-running (un-reset) IOP doesn't bring the USB
+stack up cleanly — the keyboard half-works via its iomanX device (`usbkbd:`),
+but `PS2MouseInit()` spins forever on a `ps2mouse` RPC server that never
+registers, hanging the boot on the Tyra logo. So on a **stock** ps2link the
+override initialises the **keyboard only** and skips `PS2MouseInit`. For
+keyboard **and** mouse over the network deploy, boot a **custom ps2link** (next
+section). Full mouse without any of this = an exported ISO — off ps2link
+`PS2MouseInit` returns normally.
 
 Then boot with F6 and watch *Output* / `ps2client`:
 
@@ -150,3 +153,31 @@ The engine also gives the USB stack a short settle delay after loading
 `ps2kbd`/`ps2mouse` (enumeration is asynchronous on real hardware and
 instantaneous in PCSX2), so `PS2KbdInit`/`PS2MouseInit` don't run before a
 device has attached. This helps the ISO/USB boot path too, not just ps2link.
+
+### Full keyboard + mouse over ps2link: a custom ps2link
+
+The stock ps2link loads no `usbd`, which is the whole problem. The fix is to
+bake `usbd` + `ps2kbd` + `ps2mouse` into **ps2link's own boot** (loaded on its
+freshly-reset IOP, `usbd` first): their drivers and RPC servers are then
+resident and registered before any game runs, and the game **reuses** them —
+no second `usbd` (which would wedge the first), and `PS2MouseInit` binds the
+already-registered server instead of spinning.
+
+Build one from [`tools/ps2link-usbhid/`](../tools/ps2link-usbhid/README.md):
+
+```powershell
+tools/ps2link-usbhid/build.ps1
+```
+
+produces a `ps2link.elf` with the USB HID stack baked in (it clones a pinned
+ps2link, applies a three-file patch, and builds in the `ps2dev/ps2dev`
+toolchain image). Flash it onto your PS2 in place of stock ps2link, plug in a
+**wired** USB keyboard + mouse, then in *Preferences > Build > Keyboard & mouse
+controls* tick **both** *Force under ps2link* **and** *ps2link already has USB
+drivers (reuse + mouse)*. Build + F6 and both drivers come up:
+`KbdMouse: keyboard driver ready` **and** `mouse driver ready`.
+
+Only tick "ps2link already has USB drivers" when you actually booted the custom
+ps2link — on a stock one the reuse path finds no drivers and `PS2MouseInit`
+hangs. The baked-in drivers survive only because the generated game keeps the
+IOP resident under ps2link; a game that reset the IOP would wipe them.

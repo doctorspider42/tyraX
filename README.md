@@ -207,7 +207,7 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
 - `vendor/` (rest) — editor dependencies (not versioned; see `setup.ps1`).
-- `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1`) and the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
+- `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1`), a [custom ps2link with USB keyboard+mouse](tools/ps2link-usbhid/README.md) (`ps2link-usbhid`, for playing kbd/mouse over the F6 network deploy on real hardware), and the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
 
 ## Credits
 
