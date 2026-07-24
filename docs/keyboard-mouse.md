@@ -29,11 +29,19 @@ Keyboard & mouse controls* (on by default, stored as `"keyboardMouse"` in the
   same angle at any frame rate (no `g_frameScale`, no deadzone eating slow
   movements).
 
-## Default bindings (`inc/controls.hpp`)
+## Default bindings
 
-The bindings live in the generated `controls.hpp` — a **user-ownable** file
-(delete the marker line to take ownership and remap per project). Keys are
-USB HID usage codes (usb.org HID Usage Tables).
+The bindings are authored in **Tools > Input Map** and reach the game two ways:
+the generated `inc/input_map.gen.hpp`/`.cpp` tables (what the runtime reads, and
+what a player's in-game rebind changes) and the generated, still **user-ownable**
+`inc/controls.hpp` macros derived from the same default preset. Rebind buttons in
+the Input Map, not by hand — see
+[docs/input-bindings.md](input-bindings.md). Keys are USB HID usage codes
+(usb.org HID Usage Tables).
+
+The table below is the **default preset** every project starts with (and that
+`project::ensureInputActions` backfills into projects predating the Input Map),
+so out of the box nothing changed:
 
 | Input | Code | Maps to |
 | --- | --- | --- |
@@ -45,12 +53,22 @@ USB HID usage codes (usb.org HID Usage Tables).
 | `Esc` | 0x29 | Start (pause menu) |
 | `R` | 0x15 | Circle (save menu: load slot) |
 | Arrow keys | 0x4F–0x52 | d-pad |
+| `Left Shift` | 0xE1 | the **sprint** action (pad R2) |
 | Mouse motion | — | camera look (`MOUSE_SENSITIVITY`, radians per count = 0.003 × value) |
 | Left / right / middle button | — | `BTN_USE` / `BTN_JUMP` / Circle |
 
+Every one of these is one action's `key` slot in the Input Map's default preset,
+so they are all editable per project (and rebindable in-game where the action
+allows it). The fold itself lives in `src/gen/input_map.gen.cpp`
+(`inputApplyKeyboardMouse`) and walks the LIVE bindings, which is why a preset
+switch or a rebind moves the keys too;
+`controls.hpp`'s `applyKeyboardMouseInput()` is now a one-line call into it.
+
 An older user-owned `controls.hpp` (without the keyboard section) keeps
 compiling against a regenerated game: every call site in `terrain_game.cpp`
-is guarded by the `TYRAX_KBD_MOUSE` define the new file introduces.
+is guarded by the `TYRAX_KBD_MOUSE` define the new file introduces. Such a file
+also keeps its own hardcoded fold, so keyboard *rebinding* does nothing until you
+delete it and let the current version regenerate.
 
 ## PCSX2
 

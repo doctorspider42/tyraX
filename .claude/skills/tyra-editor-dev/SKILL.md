@@ -56,6 +56,7 @@ Two sibling skills cover the rest of the system:
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
 | `project.cpp/.hpp` | ~1050 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()`: the `<name>.tyra` **manifest** (project-wide data + per-scene ordered object-id list + editor state + the named window layouts) plus one `objects/<id>.json` body per object — `save()` writes every live object then prunes orphaned files; `load()`→`readSceneObjects()` dispatches split (id strings) vs legacy inline (object bodies). Both are **recomposed from per-section writer/reader pairs** (`Section` enum + `sectionJson()`/`applySectionJson()` — one manifest key group as a standalone JSON blob; apply is total-replace-with-defaults, the collaboration LWW unit). **A new manifest key must join a `write*Section`/`read*Section` pair** (or the scene table / editor tail) or it reaches the file but never the collaboration wire. `objectJson()`/`parseObject()` (public): one object ⇄ wire string. `manifestFiles()`: in-memory byte images of .tyra + objects/*.json + heights from the LIVE model. `Project::projectId` + `ensureProjectId()` (stable 16-hex project identity — the remote-cache key). `ensureObjectIds()` (stamps stable ids), `create()`, `seedBuiltinLayouts()` (the Default/Director/Material `WindowLayout` set, also used to migrate a legacy single `"layout"` dump), `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack — stays monolithic/inline, gitignored), `refreshGenerated()`. **Window layouts** are `std::vector<WindowLayout> windowLayouts` + `activeLayout`; a `WindowLayout` is `{name, ini, recipe, openWindows}` where an empty `ini` + a `LayoutRecipe` id is (re)built by `App::buildLayoutRecipe` (DockBuilder) the first time it's shown. The Layout menu / switching / capture logic lives in app.cpp (`switchLayout`/`applyActiveLayout`/`captureActiveLayout`/`buildLayoutRecipe`, applied at a frame boundary). Editor state, not undo. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config (`.vscode/c_cpp_properties.json` always-overwritten; `.vscode/extensions.json` written-if-missing — recommends the `tools/vscode-tyrax` extension). |
+| `input.hpp` | ~250 | **Configurable input model** (docs/input-bindings.md), header-only. `InputAction` (name + label + `Role` + rebindable), `InputBinding` (pad name / USB HID key / mouse button - all three may fire one action), `InputPreset`, `InputMap` (on `Project::input`; `Section::Input`). Plus the shared tables every layer agrees on: `kPadButtonNames` (Tyra::PadButtons order - the index codegen stores), `inputKeyNames()` (the offered HID keys), and **`inputCodes()`** - the dense rebind code space whose index 0 means "the preset's binding" and whose numbers land in players' memory-card saves, so it is **append-only**; `INPUT_CODES` in the generated game is its twin. `project::ensureInputActions` seeds/backfills the built-in roles with exactly the bindings that used to be hardcoded in controls.hpp. |
 | `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool / text link kinds, plus `toPin` — which exec input an exec link fires), `FlowGraph`, the built-in `flowNodeTypes()` registry, the retired-type migration table (`flowLegacyNodes`), and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
 | `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. **When you add/change a header key or `{placeholder}` here, mirror it in the VS Code extension's `SPEC` table (`tools/vscode-tyrax/extension.js`) and the grammar** — that is what colours/validates `.flownode` files (see `docs/vscode-extension.md`). |
 | `screenfx.cpp` / `.hpp` | ~230 | Loads project-defined **custom screen effects** from `<project>/screen-effects/*.screenfx` text files into the global `customScreenEffects()` registry (`screenfx::loadForProject`, called by `project::load` before placements are read). The full-screen-post-effect analogue of custom flow nodes: a manifest (title + up to four numeric params) plus a raw low-level GS-blit C++ body. A `Project` references one only by placement (`ScreenFxPlacement` in project.hpp: key + stack `layer` + `enabled` + params). Placed/reordered in the *UI Editor* screen stack (like bloom/grain), codegen'd to `src/gen/screen_fx.gen.cpp` (`screenFxSource`/`screenFxHeader` in templates.cpp), run via `RendererCore::applyCustomPostFx` at the effect's slot in the frame loop. Unknown-key placements are dropped on load. See `docs/custom-screen-effects.md`. (Header keys/`{pN}` placeholders are also mirrored in the VS Code extension's `SPEC` — `tools/vscode-tyrax/extension.js`; keep them in sync.) |
@@ -220,6 +221,25 @@ per-player Player-object property must be added to the paired table emitter
 gate everything; menu bind 7 = Player count (edge-triggered +
 `syncPlayerCountMenuValue` write-back).
 
+**Anything that reads a button.** Never emit `pad.getClicked().<Button>` for
+gameplay: the generated game reads inputs through **named actions**
+(docs/input-bindings.md) — `inputPressed(pad, IA_ROLE_JUMP)` /
+`inputClicked(...)` from `inc/input_map.gen.hpp`, defined in
+`src/gen/input_map.gen.cpp` (`inputMapHeader`/`inputMapSource` in
+templates.cpp). A new built-in behavior that needs its own button adds an
+`InputAction::Role` (input.hpp) → a `kSeeds` entry in
+`project::ensureInputActions` (so existing projects get a default binding) →
+a role slot in the `kRoles` table of `inputMapHeader` (emits `IA_ROLE_*`, -1
+when the project has no such action) → the read site. The three layers the
+runtime folds are preset → player override (an `inputCodes()` index persisted
+in a save value by a `MenuEntry::RebindKey` row, applied by
+`TerrainGame::applyInputBindings`) → a **user-owned** `controls.hpp`'s
+`BTN_*`/`KEY_*` (which only wins when it disagrees with the default preset —
+the generated copy is derived from that preset, so they normally agree).
+`Pad::injectVirtual` folding of the USB keyboard/mouse is table-driven in the
+same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
+`OnButton` flow node stays raw on purpose; `OnAction` is the configurable one.
+
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
@@ -286,10 +306,21 @@ save value, the APPLY row commits the switch (`updateGameMenu` case 9), and
 outside a menu the row snaps back to the live mode each frame (also covers a
 reverted keep-or-revert confirm). Without the APPLY row bind 5 keeps the
 classic switch-on-change path.
+A **`MenuEntry::RebindKey`** row (action 10) is the in-game key-assignment row
+(docs/input-bindings.md): `bindAction` names the Input Map action, `param` the
+save value holding the player's override as an `inputCodes()` index (0 = the
+preset's binding). It is the one row whose value cannot be baked into the
+option strip — the binding name is only known at runtime — so it draws as
+**runtime text** from the menu font's glyph atlas, which is why
+`Project::atlasFontIndices()` bakes an atlas for any menu carrying such a row
+(`MenuData::font` is that FONTS slot) and `updateGameMenu` grows a capture mode
+(`menuRebindRow`, cleared on every menu transition). `bind` 8 =
+`BindInputPreset` cycles the Input Map presets from a Choice row.
 The *Menu Editor* "+ Option block" popup and "+ Options menu" scaffolder
-(`addOptionBlock`/`addOptionsMenuPages`, app.cpp) create pre-configured rows +
-their backing save values (the scaffolded DISPLAY page includes the APPLY
-row). So a menu change can touch: `MenuEntry` (+ `==`) →
+(`addOptionBlock`/`addOptionsMenuPages`/`addRebindRows`, app.cpp) create
+pre-configured rows + their backing save values (the scaffolded DISPLAY page
+includes the APPLY row, CONTROLS the rebind rows). So a menu change can touch:
+`MenuEntry` (+ `==`) →
 menu JSON in project.cpp → `MenuEntryData` codegen + `applyMenuBindings` in
 templates.cpp → the runtime setting site (audio call, `axis`/`axisValue`,
 `applyVideoRequests`) → the Menu Editor UI.

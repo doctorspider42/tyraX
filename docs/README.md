@@ -60,6 +60,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
   Player / Flee From Player / Stop AI / On Player Seen) with the classic
   guard wiring, plus the deliberate era-appropriate limitations.
+- [Configurable buttons & keys](input-bindings.md) - the Input Map: named
+  actions instead of hardcoded pad buttons, per-project binding presets, the
+  in-game *Rebind key* menu row (capture mode, overrides persisted in save
+  values), the configurable sprint, and the On Action / On Key / Set Input
+  Preset flow nodes. Pairs with [keyboard & mouse](keyboard-mouse.md).
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

@@ -104,6 +104,8 @@ enum class FlowParamKind {
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
+    InputActionName,  // name of a Project::input action (Tools > Input Map)
+    KeyName,   // a keyboard key label from inputKeyNames() ("Space", "F1")
 };
 
 struct FlowNodeType {
@@ -155,7 +157,27 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Fires once when the scene starts."},
         {.key = "OnButton", .title = "On Button", .category = "Triggers",
          .trigger = true, .strKind = FlowParamKind::Button,
-         .desc = "Fires the frame the pad button (str) is pressed."},
+         .desc = "Fires the frame the pad button (str) is pressed. This is the "
+                 "RAW button - for something the player can rebind use On "
+                 "Action instead."},
+        // The configurable half of the input story (docs/input-bindings.md):
+        // these two follow the Input Map, so a preset switch or an in-game
+        // rebind moves the trigger with the binding.
+        {.key = "OnAction", .title = "On Action", .category = "Triggers",
+         .trigger = true, .strKind = FlowParamKind::InputActionName,
+         .boolOut = true, .execInCount = 1,
+         .desc = "Fires the frame the input action named str is pressed - "
+                 "\"jump\", \"sprint\" or any action from Tools > Input Map, "
+                 "whatever button/key it is currently bound to (including a "
+                 "player's own rebind). Its bool output is the live \"held "
+                 "right now\" condition for the logic gates."},
+        {.key = "OnKey", .title = "On Key", .category = "Triggers",
+         .trigger = true, .strKind = FlowParamKind::KeyName, .boolOut = true,
+         .desc = "Fires the frame the USB keyboard key named str goes down "
+                 "(needs Preferences > Build > Keyboard & mouse). Bypasses the "
+                 "Input Map: use it for a fixed debug/cheat key, not for "
+                 "gameplay the player should be able to rebind. Its bool "
+                 "output is \"held right now\"."},
         {.key = "NearObject", .title = "Near Object", .category = "Triggers",
          .trigger = true, .strKind = FlowParamKind::ObjectName, .numCount = 1,
          .numLabels = {"Radius"}, .idIn = true, .idOut = true,
@@ -328,6 +350,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .numCount = 1, .numLabels = {"On"},
          .desc = "num[0] = 1 turns the player's flashlight master switch on, "
                  "0 off."},
+        {.key = "SetInputPreset", .title = "Set Input Preset",
+         .category = "Player", .strKind = FlowParamKind::Text,
+         .desc = "Switches the active binding preset (Tools > Input Map) to the "
+                 "one named str. The player's own rebinds are re-applied on "
+                 "top. Unknown name = no change."},
         {.key = "SetStickCurve", .title = "Set Stick Curve",
          .category = "Player", .numCount = 3,
          .numLabels = {"Stick", "Curve", "Exponent"},

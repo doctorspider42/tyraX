@@ -3,14 +3,23 @@
 
 #include <tyra>
 
-// Global pad mapping - the single place gameplay buttons are defined.
+#include "input_map.gen.hpp"  // the Input Map's action table + runtime
+
+// Global pad mapping. Since the Input Map (Tools > Input Map,
+// docs/input-bindings.md) these values are GENERATED from its default preset -
+// rebind buttons there, not here, and the game (which reads every button
+// through inputPressed()/inputClicked()) follows, including at runtime.
 // Values are Tyra pad button member names (Cross, Circle, Square, Triangle,
 // L1, R1, DpadUp, ...), used as engine->pad.getClicked().BTN_USE etc.
+//
+// Taking ownership of this file (deleting the marker line above) still works
+// and still wins: the generated input runtime seeds the built-in roles from
+// these macros, so an owned copy keeps overriding the Input Map's presets.
 #define BTN_USE Square
 #define BTN_JUMP Cross
 #define BTN_FLY_UP Cross     // noclip: ascend
 #define BTN_FLY_DOWN Square  // noclip: descend
-#define BTN_THROW Circle     // throw a carried pickable object ("Can throw")
+#define BTN_THROW Circle     // throw a carried pickable ("Can throw")
 
 // "Use" interaction (objects marked usable in the editor)
 constexpr float USE_DISTANCE = 4.0F;   // max distance to the object surface
@@ -29,61 +38,35 @@ constexpr float USE_LOOK_DOT = 0.92F;  // how directly you must look (cos angle)
 // dormant otherwise and applyKeyboardMouseInput() returns immediately.
 // Keys are USB HID usage codes (usb.org HID Usage Tables, e.g. 0x1A = W)
 // mapped onto pad buttons through Pad::injectVirtual - so menus, save
-// slots, flow-graph Pad Button triggers and the walkers all react to the
-// keyboard without knowing it exists. TYRAX_KBD_MOUSE guards every call
-// site in terrain_game.cpp: an older user-owned controls.hpp without this
-// section keeps compiling against a regenerated game.
+// slots, flow-graph triggers and the walkers all react to the keyboard
+// without knowing it exists. TYRAX_KBD_MOUSE guards every call site in
+// terrain_game.cpp: an older user-owned controls.hpp without this section
+// keeps compiling against a regenerated game.
+//
+// These too are generated from the Input Map's default preset.
 #define TYRAX_KBD_MOUSE 1
 
-#define KEY_MOVE_FORWARD 0x1A  // W      -> left stick up
-#define KEY_MOVE_BACK 0x16     // S      -> left stick down
-#define KEY_MOVE_LEFT 0x04     // A      -> left stick left
-#define KEY_MOVE_RIGHT 0x07    // D      -> left stick right
-#define KEY_JUMP 0x2C          // Space  -> BTN_JUMP (jump / menu select)
-#define KEY_USE 0x08           // E      -> BTN_USE (interact)
-#define KEY_CONFIRM 0x28       // Enter  -> Cross (menus: select)
-#define KEY_BACK 0x2A          // Bksp   -> Triangle (menus: back / close)
-#define KEY_MENU 0x29          // Esc    -> Start (pause menu)
-#define KEY_ALT 0x15           // R      -> Circle (save menu: load slot)
-// Arrow keys (0x4F-0x52) always drive the d-pad.
+#define KEY_MOVE_FORWARD 0x1A  // -> left stick up
+#define KEY_MOVE_BACK 0x16     // -> left stick down
+#define KEY_MOVE_LEFT 0x04     // -> left stick left
+#define KEY_MOVE_RIGHT 0x07    // -> left stick right
+#define KEY_JUMP 0x2C          // -> BTN_JUMP (jump / menu select)
+#define KEY_USE 0x08           // -> BTN_USE (interact)
+#define KEY_CONFIRM 0x28       // -> menus: select
+#define KEY_BACK 0x2A          // -> menus: back / close
+#define KEY_MENU 0x29          // -> pause menu
+#define KEY_ALT 0x15           // -> save menu: load slot
 
-// Mouse buttons -> pad buttons; motion turns the camera directly (the FPP
-// and Player-entity walkers add dx/dy to yaw/pitch below).
-#define MOUSE_LEFT_BTN BTN_USE
-#define MOUSE_RIGHT_BTN BTN_JUMP
-#define MOUSE_MIDDLE_BTN Circle
 // Look speed: radians per mouse count = 0.003 * MOUSE_SENSITIVITY.
 constexpr float MOUSE_SENSITIVITY = 1.0F;
 
 // Folds the keyboard/mouse state onto the virtual pad. Called first thing
 // in TerrainGame::loop() every frame, so everything downstream reads one
-// merged pad. Buttons OR onto the physical pad; WASD deflects the left
-// stick fully (the analog deadzone/response curve applies as usual).
+// merged pad. The fold itself lives in the generated input runtime
+// (src/gen/input_map.gen.cpp): it walks the LIVE bindings, so a preset
+// switch or an in-game rebind moves the keys too. Buttons OR onto the
+// physical pad; the move-* actions deflect the left stick fully (the analog
+// deadzone/response curve applies as usual).
 inline void applyKeyboardMouseInput(Tyra::Engine* engine) {
-  auto& km = engine->kbdMouse;
-  if (!km.isEnabled()) return;
-  auto key = [&](const unsigned char code) {
-    return code != 0 && km.isKeyDown(code);
-  };
-  Tyra::PadButtons held = {};
-  held.BTN_JUMP |= key(KEY_JUMP);
-  held.BTN_USE |= key(KEY_USE);
-  held.Cross |= key(KEY_CONFIRM);
-  held.Triangle |= key(KEY_BACK);
-  held.Start |= key(KEY_MENU);
-  held.Circle |= key(KEY_ALT);
-  held.DpadUp |= key(0x52);
-  held.DpadDown |= key(0x51);
-  held.DpadLeft |= key(0x50);
-  held.DpadRight |= key(0x4F);
-  const Tyra::MouseState& m = km.getMouse();
-  held.MOUSE_LEFT_BTN |= (m.buttons & 1) != 0;
-  held.MOUSE_RIGHT_BTN |= (m.buttons & 2) != 0;
-  held.MOUSE_MIDDLE_BTN |= (m.buttons & 4) != 0;
-  s16 lh = 0, lv = 0;
-  if (key(KEY_MOVE_LEFT)) lh -= 127;
-  if (key(KEY_MOVE_RIGHT)) lh += 127;
-  if (key(KEY_MOVE_FORWARD)) lv -= 127;
-  if (key(KEY_MOVE_BACK)) lv += 127;
-  engine->pad.injectVirtual(held, lh, lv, 0, 0);
+  Object_spawning::inputApplyKeyboardMouse(engine);
 }

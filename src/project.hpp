@@ -8,6 +8,7 @@
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "input.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
 
@@ -672,6 +673,11 @@ struct ProjectSettings {
     float walkSpeed = 0.4f;
     float lookSpeed = 1.0f;  // multiplier
 
+    // Sprint: while the "sprint" input action (Tools > Input Map) is held, the
+    // walkers multiply their walk speed by this. 1.0 = sprinting does nothing
+    // (the switch that turns the feature off without unbinding the button).
+    float sprintMultiplier = 1.8f;  // 1..4
+
     // Analog sticks: offsets below this fraction of full deflection read as
     // zero (real DualShock sticks rest off-center); motion rescales smoothly
     // from the deadzone edge. Per stick - worn pads rarely drift equally.
@@ -797,6 +803,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.sprintMultiplier == b.sprintMultiplier &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
            a.stickCurveL == b.stickCurveL && a.stickCurveR == b.stickCurveR &&
@@ -1191,6 +1198,14 @@ struct MenuEntry {
         // confirm). Without one, display rows keep the classic
         // switch-on-change behavior.
         ApplyVideo = 9,
+        // Rebinds one input action (docs/input-bindings.md). `bindAction` names
+        // the Tools > Input Map action, `param` the save value holding the
+        // player's override as an inputCodes() index (0 = the project's preset
+        // binding). Selecting the row arms capture mode: the next button or
+        // key the player presses becomes the binding. The row draws its
+        // current binding as runtime text from the menu's font atlas, so it is
+        // not limited to a baked option strip.
+        RebindKey = 10,
     };
     int action = Close;
     std::string param;
@@ -1221,14 +1236,20 @@ struct MenuEntry {
                               // / PAL 576i (see MenuEntry::optionModes)
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
         BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
+        BindInputPreset = 8,  // Tools > Input Map preset (options = presets)
     };
     int settingBind = BindNone;
+    // RebindKey rows only: which InputAction the row rebinds (by name). Last
+    // field on purpose - the positional MenuEntry{...} initializers in app.cpp
+    // predate it and must keep meaning what they say.
+    std::string bindAction;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
-           a.amount == b.amount && a.options == b.options &&
-           a.optionModes == b.optionModes && a.settingBind == b.settingBind;
+           a.bindAction == b.bindAction && a.amount == b.amount &&
+           a.options == b.options && a.optionModes == b.optionModes &&
+           a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -1456,6 +1477,11 @@ struct Project {
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
+    // Configurable buttons/keys (Tools > Input Map, docs/input-bindings.md).
+    // Named actions + per-project binding presets; the generated game reads
+    // every gameplay button through them. Never empty after a load -
+    // project::ensureInputActions() seeds the built-in roles.
+    InputMap input;
     // Color grading presets (Tools > Color Grading): project-wide looks
     // applied as GS full-screen passes. defaultGrading is the index applied
     // at game boot (-1 = none); the Set Color Grading flow node switches
@@ -1554,6 +1580,18 @@ void ensureObjectIds(Project& p);
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
 
+// Fills in the built-in input actions and the "Default" preset (Tools > Input
+// Map) with the bindings that were hardcoded before the Input Map existed, so
+// a project from an older TyraX plays identically. Only ADDS what is missing:
+// an action the user renamed/rebound/deleted stays as it is, and re-running is
+// a no-op. Called from create() and at the end of load().
+void ensureInputActions(Project& p);
+
+// The built-in action name for a role (InputAction::Role), e.g. "jump" - what
+// ensureInputActions seeds and what the codegen role slots look for. Empty for
+// RoleNone / out-of-range values.
+const char* inputRoleName(int role);
+
 // --- Per-object / per-section (de)serialization ------------------------------
 // The building blocks of both the on-disk format and the collaboration wire
 // format: an object body is the exact JSON written to objects/<id>.json, a
@@ -1586,8 +1624,9 @@ enum class Section {
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
+    Input,           // "input" (actions + binding presets)
 };
-constexpr int kSectionCount = 12;
+constexpr int kSectionCount = 13;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

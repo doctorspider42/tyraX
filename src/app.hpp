@@ -239,6 +239,12 @@ private:
     // fontPath changed. Only the Font Manager resolves real files.
     bool fontSourceCombo(std::string& fontPath);
     void drawFontManagerWindow();
+    // Tools > Input Map (docs/input-bindings.md): the named actions every
+    // gameplay button goes through, plus the per-project binding presets.
+    void drawInputMapWindow();
+    // One action's pad / key / mouse pickers inside `preset`. Returns true when
+    // something changed (the caller commits).
+    bool inputBindingRow(InputPreset& preset, const InputAction& action);
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -260,6 +266,10 @@ private:
     // Renames a font and follows the reference into every text, menu and
     // Display Text node, the way HUD text renames do.
     void renameFont(int index, const std::string& newName);
+    // Same for input actions / binding presets: the name is the reference key
+    // (preset bindings, On Action nodes, menu rebind rows, Set Input Preset).
+    void renameInputAction(int index, const std::string& newName);
+    void renameInputPreset(int index, const std::string& newName);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -583,6 +593,9 @@ private:
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
+    bool showInputMap_ = false;
+    int inputActionSel_ = 0;  // row selected in the Input Map action list
+    int inputPresetSel_ = 0;  // preset tab being edited
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;

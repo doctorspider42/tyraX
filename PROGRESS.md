@@ -10,6 +10,82 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (165) **Configurable buttons & keys: the Input Map, in-game rebinding and a
+  sprint action.** Every gameplay button in a generated game was a `#define` in
+  `inc/controls.hpp` — jump was Cross, full stop, and a player had no say. Now
+  the game reads inputs through **named actions** and three layers resolve them:
+  project **presets** → the **player's** in-game override → a *user-owned*
+  `controls.hpp`. New model in `src/input.hpp` (`InputAction` with a `Role`,
+  `InputBinding` = pad **and/or** USB HID key **and/or** mouse button,
+  `InputPreset`, `InputMap` on `Project::input` + `Section::Input`) plus the
+  shared **`inputCodes()`** table — the dense rebind code space whose numbers
+  land in players' memory-card saves, hence append-only, with `INPUT_CODES` in
+  the generated game as its twin. `project::ensureInputActions` seeds/backfills
+  the 18 built-in actions with *exactly* the bindings that were hardcoded, so an
+  existing project plays identically (verified by generating a project and
+  diffing the emitted `controls.hpp` against the old constants); the one
+  behavior addition is **sprint** (pad R2 / Left Shift, `sprintMultiplier`
+  ×1.8, 1.0 = off), applied in all three walker modes — and deliberately NOT
+  folded into the animation `step`, so a third-person avatar crosses its run
+  threshold while sprinting and plays the run clip for free.
+  Codegen: `inc/input_map.gen.hpp` (action indices, `IA_ROLE_*` slots — `-1`
+  when the project has no action for a role — preset tables, `SPRINT_MULT`) +
+  `src/gen/input_map.gen.cpp` (`inputPressed`/`inputClicked`, preset+override
+  resolution, table-driven keyboard/mouse folding, rebind capture, binding
+  labels). Every read site moved off `pad.getClicked().<Button>`: both walkers,
+  the noclip fly keys, use/throw/carry, the save menu and the whole pause-menu
+  navigation (which means a project can now *move* menu buttons too).
+  `controls.hpp` stays ownable and stays authoritative when owned — the
+  generated copy is derived from the default preset, so the runtime only lets
+  the macros win when they **disagree** with it (otherwise a preset switch or a
+  rebind would be overwritten every `inputRebuild()`); its
+  `applyKeyboardMouseInput` is now a one-liner into the generated fold, so keys
+  rebind as well.
+  In-game rebinding is a new Menu Editor row (`MenuEntry::RebindKey`, action
+  10): `bindAction` names the action, `param` the save value holding the
+  override, so it persists on the memory card and re-applies after a load
+  (`applyInputBindings`, next to `applyMenuBindings`). Selecting it arms capture
+  mode (`menuRebindRow`, cleared on every menu transition) — the next button or
+  key pressed becomes the binding, *back* cancels, *menu left* clears to the
+  preset. Its value is the one menu value that **cannot** be baked into the
+  option strip (the binding name is only known at runtime), so it draws as
+  runtime text from the menu font's glyph atlas — `atlasFontIndices()` now bakes
+  an atlas for any menu with such a row and `MenuData` carries that FONTS slot.
+  Also: menu bind 8 = *Input preset*, a *+ Option block > Key bindings* item and
+  rebind rows in the scaffolded CONTROLS page, flow nodes **On Action** (follows
+  the binding, bool output = held) / **On Key** (raw key, for debug/cheat keys)
+  / **Set Input Preset**, `--dump` lists input actions + presets and the AI
+  generator's context/catalog carry them. Docs:
+  new [docs/input-bindings.md](docs/input-bindings.md), keyboard-mouse.md,
+  README, both ai-support guides and the editor skill.
+  Verified, all the way to the console: editor builds clean; headless `--new`
+  reproduces the old bindings in `controls.hpp` and a full 18-action/1-preset
+  table; `--apply-graph` + `--refresh-gen` show On Action compiling to
+  `inputClicked(ctx.engine->pad, 5)  // sprint`, On Key to `isKeyClicked(62) //
+  F5`, Set Input Preset to `inputSetPreset(0)` and an unknown action name to a
+  `// node N (OnAction): unknown input action` comment; a hand-authored controls
+  menu round-trips through `--resave` and emits
+  `{10, 0, 0.0F, 0, -1, 0, 4, nullptr}` rows plus `FONT_COUNT = 1` (the atlas
+  the rebind row needs). **Full Docker build of the generated game returns
+  `Build OK`** (`obj/gen/input_map.gen.o` compiles, the ELF links), it **boots
+  in PCSX2** with both USB drivers ready and no assert, and pressing **Left
+  Shift on the host keyboard fires the `On Action "sprint"` trigger exactly
+  once** (a rising edge, as designed) — proving the fold reads the LIVE
+  bindings, not a baked table. A screenshot of the in-game CONTROLS menu shows
+  the rebind rows drawing their bindings as runtime atlas text
+  (`Jump  Cross+Space`, `Sprint  R2+Left Shift`) next to a baked `Preset
+  Default` strip. That screenshot found the one real bug of the feature: the
+  first attempt read `Cross+Space+Mouse Right` and ran straight over the row's
+  baked label — the value column of a 256px panel is ~100px. Fixed twice over:
+  `inputBindLabel` now composes **pad + key only** (the mouse slot shows only
+  when it is the sole binding, so nothing ever reads as unbound while it works)
+  and `renderGameMenu` shrinks the text to the available width with a 50% floor.
+  Still unverified visually: the capture-mode `PRESS...` state and the actual
+  rebind — driving it needs synthetic keystrokes and
+  `SetForegroundWindow` cannot reliably raise PCSX2 from a background process,
+  so the keys land in whatever window has focus. Worth a human pass (open the
+  pause menu, pick a row, press something).
+
 - (120) **Scripts panel cleanup: `src/scripts/` is exclusively the user's;
   generated sources moved to `src/gen/`; subfolders supported.** The Scripts
   list used to show the six engine-generated `*.gen.cpp` files (flow_graph,

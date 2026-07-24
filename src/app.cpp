@@ -557,6 +557,7 @@ void App::drawUI() {
     drawTerrainWindow();
     drawUiEditorWindow();
     drawFontManagerWindow();
+    drawInputMapWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
@@ -904,6 +905,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
+            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::EndMenu();
         }
@@ -2290,6 +2292,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "terrain") return &showTerrainEditor_;
     if (key == "ui") return &showUiEditor_;
     if (key == "fonts") return &showFontManager_;
+    if (key == "input") return &showInputMap_;
     if (key == "menus") return &showMenusEditor_;
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
@@ -6702,6 +6705,49 @@ void App::drawFlowGraphWindow() {
                 }
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::InputActionName) {
+            // Configurable input (Tools > Input Map): the action, not a button.
+            const char* current = n.str.empty() ? "(pick an action)" : n.str.c_str();
+            if (ImGui::BeginCombo("Action", current)) {
+                for (const InputAction& a : project_.input.actions) {
+                    const std::string label =
+                        a.label.empty() ? a.name : a.label + "  (" + a.name + ")";
+                    if (ImGui::Selectable(label.c_str(), a.name == n.str)) {
+                        n.str = a.name;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (!n.str.empty() && !project_.input.findAction(n.str)) {
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                   "unknown action - the trigger never fires");
+            } else if (const InputAction* a = project_.input.findAction(n.str)) {
+                ImGui::TextDisabled("bound to %s",
+                                    inputBindingLabel(project_.input.resolve(a->name))
+                                        .c_str());
+            }
+        } else if (t->strKind == FlowParamKind::KeyName) {
+            if (ImGui::BeginCombo("Key", n.str.empty() ? "(pick a key)"
+                                                       : n.str.c_str())) {
+                for (const InputKeyName& k : inputKeyNames())
+                    if (ImGui::Selectable(k.label, n.str == k.label)) {
+                        n.str = k.label;
+                        changed = true;
+                    }
+                ImGui::EndCombo();
+            }
+            ImGui::TextDisabled("USB keyboard (Preferences > Build)");
+        } else if (n.type == "SetInputPreset") {
+            const char* current = n.str.empty() ? "(pick a preset)" : n.str.c_str();
+            if (ImGui::BeginCombo("Preset", current)) {
+                for (const InputPreset& pr : project_.input.presets)
+                    if (ImGui::Selectable(pr.name.c_str(), pr.name == n.str)) {
+                        n.str = pr.name;
+                        changed = true;
+                    }
+                ImGui::EndCombo();
+            }
         } else if (n.type == "Animation") {
             // Clip picker when the resolved target is an animated .glb model
             // (explicit object wired/named, or self); free text otherwise.
@@ -7475,6 +7521,15 @@ void App::drawFlowGraphWindow() {
                     n.id = fg.nextId++;
                     n.type = t.key;
                     if (t.strKind == FlowParamKind::Button) n.str = "Cross";
+                    // A fresh On Action / Set Input Preset starts on something
+                    // that exists, so it compiles before the user touches it.
+                    if (t.strKind == FlowParamKind::InputActionName &&
+                        !project_.input.actions.empty())
+                        n.str = project_.input.actions.front().name;
+                    if (t.strKind == FlowParamKind::KeyName) n.str = "Space";
+                    if (std::string(t.key) == "SetInputPreset" &&
+                        !project_.input.presets.empty())
+                        n.str = project_.input.presets.front().name;
                     if (t.numKind == FlowParamKind::Color)
                         n.num[0] = n.num[1] = n.num[2] = 1.0f;
                     if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
@@ -7834,6 +7889,43 @@ void App::renameFont(int index, const std::string& newName) {
             }
 }
 
+// Input actions are referenced by name (preset bindings, On Action nodes, menu
+// rebind rows), so a rename has to follow into all three or the reference
+// silently stops resolving.
+void App::renameInputAction(int index, const std::string& newName) {
+    if (index < 0 || index >= (int)project_.input.actions.size()) return;
+    const std::string oldName = project_.input.actions[index].name;
+    if (newName == oldName || newName.empty()) return;
+    project_.input.actions[index].name = newName;
+    for (InputPreset& pr : project_.input.presets)
+        for (InputBinding& b : pr.bindings)
+            if (b.action == oldName) b.action = newName;
+    for (GameMenu& m : project_.menus)
+        for (MenuEntry& e : m.entries)
+            if (e.bindAction == oldName) e.bindAction = newName;
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (ft && ft->strKind == FlowParamKind::InputActionName &&
+                    fn.str == oldName)
+                    fn.str = newName;
+            }
+}
+
+// Presets are referenced by name from the Set Input Preset node only.
+void App::renameInputPreset(int index, const std::string& newName) {
+    if (index < 0 || index >= (int)project_.input.presets.size()) return;
+    const std::string oldName = project_.input.presets[index].name;
+    if (newName == oldName || newName.empty()) return;
+    project_.input.presets[index].name = newName;
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes)
+                if (fn.type == "SetInputPreset" && fn.str == oldName)
+                    fn.str = newName;
+}
+
 // Tools > Font Manager: the project's typefaces. Every text (HUD texts, menus,
 // loading screens, Display Text nodes) names one of these, so restyling a
 // project is an edit here rather than a hunt through every text.
@@ -8020,6 +8112,299 @@ void App::drawFontManagerWindow() {
     if (project_.fonts.size() <= 1 && ImGui::IsItemHovered())
         ImGui::SetTooltip("The default font cannot be deleted - it is what\n"
                           "every unset font reference resolves to.");
+    ImGui::EndGroup();
+
+    if (changed) commitChange();
+    ImGui::End();
+}
+
+// One action's bindings inside one preset: a pad-button, a keyboard-key and a
+// mouse-button picker, each with a "(none)" entry - an action may be bound to
+// any combination, and all of them fire it.
+bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
+    bool changed = false;
+    InputBinding& b = preset.at(action.name);
+
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    if (ImGui::BeginCombo("Pad button",
+                          b.pad.empty() ? "(none)" : b.pad.c_str())) {
+        if (ImGui::Selectable("(none)", b.pad.empty())) {
+            b.pad.clear();
+            changed = true;
+        }
+        for (int i = 0; i < 16; ++i)
+            if (ImGui::Selectable(kPadButtonNames[i], b.pad == kPadButtonNames[i])) {
+                b.pad = kPadButtonNames[i];
+                changed = true;
+            }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    const char* keyLabel = b.key ? inputKeyLabel(b.key) : "(none)";
+    if (ImGui::BeginCombo("Keyboard key", *keyLabel ? keyLabel : "(none)")) {
+        if (ImGui::Selectable("(none)", b.key == 0)) {
+            b.key = 0;
+            changed = true;
+        }
+        for (const InputKeyName& k : inputKeyNames())
+            if (ImGui::Selectable(k.label, b.key == k.code)) {
+                b.key = k.code;
+                changed = true;
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(USB keyboard)");
+
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    if (ImGui::Combo("Mouse button", &b.mouse,
+                     "(none)\0Left\0Right\0Middle\0"))
+        changed = true;
+
+    ImGui::TextDisabled("Resolves to: %s", inputBindingLabel(b).c_str());
+    return changed;
+}
+
+// Tools > Input Map (docs/input-bindings.md). Left: the project's named
+// actions. Right: the selected action's identity plus its binding in each
+// preset. The presets are what "bindings per project" means; a player's own
+// rebinds happen in-game through a menu Rebind key row and never touch this.
+void App::drawInputMapWindow() {
+    if (!showInputMap_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(680.0f), scaled(460.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Input Map", &showInputMap_)) {
+        ImGui::End();
+        return;
+    }
+
+    InputMap& im = project_.input;
+    if (im.presets.empty()) im.presets.push_back(InputPreset{});
+    if (inputPresetSel_ < 0 || inputPresetSel_ >= (int)im.presets.size())
+        inputPresetSel_ = 0;
+    if (im.activePreset < 0 || im.activePreset >= (int)im.presets.size())
+        im.activePreset = 0;
+
+    bool changed = false;
+
+    // --- left: the action list -------------------------------------------
+    ImGui::BeginChild("##inputactions", ImVec2(scaled(200.0f), 0),
+                      ImGuiChildFlags_Borders);
+    for (size_t i = 0; i < im.actions.size(); ++i) {
+        ImGui::PushID((int)i);
+        const InputAction& a = im.actions[i];
+        std::string label = a.label.empty() ? a.name : a.label;
+        if (a.role == InputAction::RoleNone) label += "  *";  // custom action
+        if (ImGui::Selectable(label.c_str(), inputActionSel_ == (int)i))
+            inputActionSel_ = (int)i;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "%s\nBound to: %s\n%s", a.name.c_str(),
+                inputBindingLabel(im.presets[inputPresetSel_].at(a.name)).c_str(),
+                a.role == InputAction::RoleNone
+                    ? "Custom action - only the On Action flow trigger reads it."
+                    : "Built-in role - the generated game reads it directly.");
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    if (inputActionSel_ < 0 || inputActionSel_ >= (int)im.actions.size())
+        inputActionSel_ = 0;
+
+    if (im.actions.empty()) {
+        ImGui::TextWrapped(
+            "This project has no input actions. \"Restore built-ins\" brings "
+            "back the standard set (jump / use / sprint / menu navigation).");
+    } else {
+        InputAction& a = im.actions[inputActionSel_];
+        {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", a.label.c_str());
+            ImGui::SetNextItemWidth(scaled(200.0f));
+            if (ImGui::InputText("Label", buf, sizeof(buf))) a.label = buf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        {
+            // The name is the reference key (flow nodes, menu rows), so a
+            // rename has to follow into them - and must stay unique.
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", a.name.c_str());
+            ImGui::SetNextItemWidth(scaled(200.0f));
+            if (ImGui::InputText("Name", buf, sizeof(buf))) {
+                std::string want = buf;
+                bool clash = want.empty();
+                for (size_t i = 0; i < im.actions.size(); ++i)
+                    if ((int)i != inputActionSel_ && im.actions[i].name == want)
+                        clash = true;
+                if (!clash) renameInputAction(inputActionSel_, want);
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(referenced by name)");
+
+        // Role: which built-in behavior the action drives. Reassigning is
+        // allowed (that is how you move "sprint" onto a custom action).
+        {
+            static const char* kRoleLabels =
+                "(custom - flow graph only)\0Jump\0Use\0Throw\0Sprint\0"
+                "Fly up (noclip)\0Fly down (noclip)\0Menu confirm\0Menu back\0"
+                "Pause menu\0Alternate (load slot)\0Menu up\0Menu down\0"
+                "Menu left\0Menu right\0Move forward\0Move back\0Move left\0"
+                "Move right\0";
+            ImGui::SetNextItemWidth(scaled(220.0f));
+            if (ImGui::Combo("Role", &a.role, kRoleLabels)) changed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What the generated game uses this action for. Only one\n"
+                    "action per role reaches the game (the first one wins);\n"
+                    "\"custom\" actions exist purely for the On Action trigger.");
+            // A duplicated role is silently dropped at codegen - say so here.
+            const int owner = im.roleIndex(a.role);
+            if (a.role != InputAction::RoleNone && owner != inputActionSel_)
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                   "\"%s\" already owns this role - this "
+                                   "action is inert",
+                                   im.actions[owner].label.c_str());
+        }
+        if (ImGui::Checkbox("Player may rebind it in-game", &a.rebindable))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Off = a menu \"Rebind key\" row shows the binding but refuses\n"
+                "to change it. Keep the menu navigation actions off, or a bad\n"
+                "rebind can lock the player out of the menu that would fix it.");
+
+        // --- presets ------------------------------------------------------
+        ImGui::SeparatorText("Bindings per preset");
+        if (ImGui::BeginTabBar("##presets")) {
+            for (size_t i = 0; i < im.presets.size(); ++i) {
+                ImGui::PushID((int)i);
+                std::string title = im.presets[i].name;
+                if ((int)i == im.activePreset) title += " *";
+                if (ImGui::BeginTabItem(title.c_str())) {
+                    inputPresetSel_ = (int)i;
+                    changed |= inputBindingRow(im.presets[i], a);
+                    ImGui::EndTabItem();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTabBar();
+        }
+    }
+
+    // --- preset management ------------------------------------------------
+    ImGui::SeparatorText("Presets");
+    {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s",
+                      im.presets[inputPresetSel_].name.c_str());
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        if (ImGui::InputText("Preset name", buf, sizeof(buf))) {
+            // Flow-graph Set Input Preset nodes reference presets by name.
+            renameInputPreset(inputPresetSel_, buf);
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ImGui::SetNextItemWidth(scaled(160.0f));
+    {
+        std::string items;
+        for (const InputPreset& pr : im.presets) {
+            items += pr.name;
+            items.push_back('\0');
+        }
+        items.push_back('\0');
+        if (ImGui::Combo("Preset at game start", &im.activePreset, items.c_str()))
+            changed = true;
+    }
+    if (ImGui::Button("+ Add preset")) {
+        // A new preset starts as a copy of the edited one - the point of a
+        // preset is a few deliberate differences, not a blank slate.
+        InputPreset np = im.presets[inputPresetSel_];
+        std::string base = "preset";
+        np.name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const InputPreset& pr : im.presets) taken |= (pr.name == np.name);
+            if (!taken) break;
+            np.name = base + "-" + std::to_string(n);
+        }
+        im.presets.push_back(std::move(np));
+        inputPresetSel_ = (int)im.presets.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(im.presets.size() <= 1);
+    if (ImGui::Button("Delete preset")) {
+        im.presets.erase(im.presets.begin() + inputPresetSel_);
+        if (inputPresetSel_ >= (int)im.presets.size())
+            inputPresetSel_ = (int)im.presets.size() - 1;
+        if (im.activePreset >= (int)im.presets.size()) im.activePreset = 0;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Actions");
+    if (ImGui::Button("+ Add action")) {
+        InputAction na;
+        std::string base = "action";
+        na.name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const InputAction& e : im.actions) taken |= (e.name == na.name);
+            if (!taken) break;
+            na.name = base + "-" + std::to_string(n);
+        }
+        na.label = na.name;
+        im.actions.push_back(std::move(na));
+        inputActionSel_ = (int)im.actions.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(im.actions.empty());
+    if (ImGui::Button("Delete action")) {
+        const std::string gone = im.actions[inputActionSel_].name;
+        im.actions.erase(im.actions.begin() + inputActionSel_);
+        for (InputPreset& pr : im.presets)
+            for (size_t i = 0; i < pr.bindings.size();)
+                if (pr.bindings[i].action == gone)
+                    pr.bindings.erase(pr.bindings.begin() + i);
+                else
+                    ++i;
+        if (inputActionSel_ >= (int)im.actions.size())
+            inputActionSel_ = (int)im.actions.size() - 1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Restore built-ins")) {
+        // Only adds what is missing (project::ensureInputActions) - existing
+        // bindings are never overwritten.
+        project::ensureInputActions(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Re-adds any missing built-in action (jump, use,\n"
+                          "sprint, menu navigation...) with its default\n"
+                          "binding. Never changes an action you already have.");
+
+    ImGui::Separator();
+    if (ImGui::Checkbox("Allow in-game rebinding", &im.allowRebind))
+        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Master switch for the menu \"Rebind key\" rows.\n"
+                          "Off = the rows display bindings read-only.");
+    ImGui::SetNextItemWidth(scaled(160.0f));
+    if (ImGui::DragFloat("Sprint speed", &project_.settings.sprintMultiplier,
+                         0.02f, 1.0f, 4.0f, "%.2fx"))
+        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Walk-speed multiplier while the sprint action is\n"
+                          "held. 1.00x switches sprinting off without\n"
+                          "unbinding the button.");
     ImGui::EndGroup();
 
     if (changed) commitChange();
@@ -15914,6 +16299,45 @@ void addOptionBlock(Project& p, GameMenu& m, int kind) {
     m.entries.push_back(std::move(en));
 }
 
+// A save value by name, created with `def` when the project has none yet.
+// Returns the name, so a caller can assign it straight into MenuEntry::param.
+std::string ensureSaveValue(Project& p, const std::string& name, float def) {
+    for (const SaveValue& sv : p.saveValues)
+        if (sv.name == name) return name;
+    SaveValue sv;
+    sv.name = name;
+    sv.value = def;
+    p.saveValues.push_back(std::move(sv));
+    return name;
+}
+
+// Scaffold a CONTROLS page: one "Rebind key" row per rebindable input action,
+// plus a preset picker when the project has more than one preset. This is the
+// whole in-game key-assignment story wired up in one click
+// (docs/input-bindings.md).
+void addRebindRows(Project& p, GameMenu& m) {
+    if (p.input.presets.size() > 1) {
+        MenuEntry pr;
+        pr.label = "PRESET";
+        pr.action = MenuEntry::Choice;
+        pr.settingBind = MenuEntry::BindInputPreset;
+        pr.param = ensureSaveValue(p, "input-preset",
+                                   (float)p.input.activePreset);
+        for (const InputPreset& e : p.input.presets) pr.options.push_back(e.name);
+        m.entries.push_back(std::move(pr));
+    }
+    for (const InputAction& a : p.input.actions) {
+        if (!a.rebindable) continue;
+        if ((int)m.entries.size() >= menubake::kMaxEntries) break;
+        MenuEntry en;
+        en.label = a.label.empty() ? a.name : a.label;
+        en.action = MenuEntry::RebindKey;
+        en.bindAction = a.name;
+        en.param = ensureSaveValue(p, "bind-" + a.name, 0.0f);
+        m.entries.push_back(std::move(en));
+    }
+}
+
 // The plain "APPLY" action row that commits a display-mode row's staged
 // selection (MenuEntry::ApplyVideo) - inserted next to the DISPLAY block.
 MenuEntry makeApplyVideoEntry() {
@@ -15942,7 +16366,7 @@ int addOptionsMenuPages(Project& p) {
     // shows the "^ BACK" hint); a Close-action "back" row would instead dismiss
     // the whole menu tree, so submenus carry only their option blocks.
     auto makeSub = [&](const char* base, const char* title, int b0, int b1,
-                       bool applyVideo = false) {
+                       bool applyVideo = false, bool rebinds = false) {
         GameMenu sub;
         sub.name = uniqueName(base);
         sub.title = title;
@@ -15951,11 +16375,15 @@ int addOptionsMenuPages(Project& p) {
         // The APPLY row makes the display-mode row stage-then-commit: the
         // player browses the modes freely, the switch fires on APPLY.
         if (applyVideo) sub.entries.push_back(makeApplyVideoEntry());
+        // CONTROLS also gets the key-assignment rows (docs/input-bindings.md):
+        // one per rebindable Input Map action, each with its own save value.
+        if (rebinds) addRebindRows(p, sub);
         p.menus.push_back(std::move(sub));
         return p.menus.back().name;
     };
     const std::string audio = makeSub("options-audio", "AUDIO", 0, 1);
-    const std::string controls = makeSub("options-controls", "CONTROLS", 2, 3);
+    const std::string controls =
+        makeSub("options-controls", "CONTROLS", 2, 3, false, true);
     const std::string display = makeSub("options-display", "DISPLAY", 4, 5, true);
     GameMenu root;
     root.name = uniqueName("options");
@@ -16282,7 +16710,7 @@ void App::drawMenusWindow() {
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
         "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice",         "Apply video mode"};
+        "Choice",         "Apply video mode",  "Rebind key"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -16312,7 +16740,7 @@ void App::drawMenusWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames, 10)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames, 11)) {
             en.param.clear();
             en.optionModes.clear();
             // Stateful rows start with a sensible option set; everything
@@ -16377,6 +16805,41 @@ void App::drawMenusWindow() {
                     "Save value holding the state (the option index).\n"
                     "Its default is the initial state; flow graphs react\n"
                     "via Value At Least -> On Condition.");
+        } else if (en.action == MenuEntry::RebindKey) {
+            // Two references: WHICH action to rebind, and the save value the
+            // player's override is persisted in (docs/input-bindings.md).
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::BeginCombo("##rebindaction", en.bindAction.empty()
+                                                        ? "<action>"
+                                                        : en.bindAction.c_str())) {
+                for (const InputAction& a : project_.input.actions) {
+                    if (!a.rebindable) continue;  // not offered to the player
+                    if (ImGui::Selectable(a.name.c_str(), a.name == en.bindAction)) {
+                        en.bindAction = a.name;
+                        if (en.label == "New entry" || en.label.empty())
+                            en.label = a.label;
+                        // Give the row its backing save value straight away -
+                        // without one the override cannot persist.
+                        if (en.param.empty())
+                            en.param =
+                                ensureSaveValue(project_, "bind-" + a.name, 0.0f);
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Input Map action this row rebinds. Only actions marked\n"
+                    "\"Player may rebind it in-game\" are listed.");
+            ImGui::SameLine();
+            paramCombo("##rebindvalue", "<value>", project_.saveValues,
+                       [](const SaveValue& v) -> const std::string& { return v.name; });
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Save value the override is stored in (an inputCodes\n"
+                    "index; 0 = the project's preset binding). Persists in\n"
+                    "memory card saves like every other menu state.");
         } else if (en.action == MenuEntry::ApplyVideo) {
             ImGui::TextDisabled("(?)");
             if (ImGui::IsItemHovered())
@@ -16539,7 +17002,7 @@ void App::drawMenusWindow() {
             if (ImGui::Combo("Bind##optbind", &en.settingBind,
                              "None\0Music volume\0Sound volume\0Deadzone\0"
                              "Stick curve\0Display mode\0Widescreen\0"
-                             "Player count\0")) {
+                             "Player count\0Input preset\0")) {
                 // Display rows carry an explicit option->mode table (edited
                 // above); every other bind maps by option position.
                 if (en.settingBind == MenuEntry::BindDisplayMode) {
@@ -16548,6 +17011,13 @@ void App::drawMenusWindow() {
                         en.optionModes[o] = (int)(o < 4 ? o : 4);
                 } else {
                     en.optionModes.clear();
+                }
+                // An input-preset row's options ARE the presets, in order -
+                // the option index is the preset index at runtime.
+                if (en.settingBind == MenuEntry::BindInputPreset) {
+                    en.options.clear();
+                    for (const InputPreset& pr : project_.input.presets)
+                        en.options.push_back(pr.name);
                 }
                 changed = true;
             }
@@ -16562,7 +17032,8 @@ void App::drawMenusWindow() {
                     "its mode from a dropdown;\n"
                     "add an Apply video mode row so switching waits for APPLY),\n"
                     "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
-                    "mode + a second Player object). None = a plain save-value\n"
+                    "mode + a second Player object), input preset (the Tools >\n"
+                    "Input Map presets, in order). None = a plain save-value\n"
                     "row (flow graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
@@ -16591,6 +17062,19 @@ void App::drawMenusWindow() {
                     addOptionBlock(project_, m, b);
                     changed = true;
                 }
+            ImGui::Separator();
+            if (ImGui::Selectable("Key bindings (all rebindable actions)")) {
+                // One Rebind key row per action + a preset picker: the whole
+                // controls page (docs/input-bindings.md).
+                addRebindRows(project_, m);
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Adds a \"Rebind key\" row for every Input Map action\n"
+                    "marked \"Player may rebind it in-game\", each backed by\n"
+                    "its own save value, plus a preset picker when the project\n"
+                    "has more than one preset.");
             ImGui::Separator();
             if (ImGui::Selectable("Apply video mode (row)")) {
                 m.entries.push_back(makeApplyVideoEntry());
@@ -18923,6 +19407,13 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Input");
+    ImGui::DragFloat("Sprint speed", &prefSettings_.sprintMultiplier, 0.02f, 1.0f,
+                     4.0f, "%.2fx");
+    prefHelp(
+        "Walk-speed multiplier while the \"sprint\" input action is held\n"
+        "(Tools > Input Map - pad R2 / Left Shift by default). 1.00x turns\n"
+        "sprinting off without unbinding the button. A third-person avatar\n"
+        "crosses its run threshold while sprinting, so it plays the run clip.");
     ImGui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
                        "%.2f");
     ImGui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,

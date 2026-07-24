@@ -35,6 +35,7 @@
     "eyeHeight": 1.8,
     "walkSpeed": 0.4,
     "lookSpeed": 1,
+    "sprintMultiplier": 1.8,
     "stickDeadzoneL": 0.2,
     "stickDeadzoneR": 0.2,
     "stickCurveL": 0,
@@ -132,6 +133,52 @@
         { "label": "CLOSE", "action": "close" }
       ] }
   ],
+  "input": {
+    "activePreset": 0,
+    "allowRebind": true,
+    "actions": [
+      { "name": "move-forward", "label": "Move forward", "role": "move-forward" },
+      { "name": "move-back", "label": "Move back", "role": "move-back" },
+      { "name": "move-left", "label": "Move left", "role": "move-left" },
+      { "name": "move-right", "label": "Move right", "role": "move-right" },
+      { "name": "jump", "label": "Jump", "role": "jump" },
+      { "name": "sprint", "label": "Sprint", "role": "sprint" },
+      { "name": "use", "label": "Use", "role": "use" },
+      { "name": "throw", "label": "Throw", "role": "throw" },
+      { "name": "fly-up", "label": "Fly up", "role": "fly-up" },
+      { "name": "fly-down", "label": "Fly down", "role": "fly-down" },
+      { "name": "confirm", "label": "Confirm", "role": "confirm", "rebindable": false },
+      { "name": "back", "label": "Back", "role": "back", "rebindable": false },
+      { "name": "menu", "label": "Pause menu", "role": "menu", "rebindable": false },
+      { "name": "alt", "label": "Alternate", "role": "alt", "rebindable": false },
+      { "name": "menu-up", "label": "Menu up", "role": "menu-up", "rebindable": false },
+      { "name": "menu-down", "label": "Menu down", "role": "menu-down", "rebindable": false },
+      { "name": "menu-left", "label": "Menu left", "role": "menu-left", "rebindable": false },
+      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false }
+    ],
+    "presets": [
+      { "name": "Default", "bindings": [
+          { "action": "move-forward", "key": 26 },
+          { "action": "move-back", "key": 22 },
+          { "action": "move-left", "key": 4 },
+          { "action": "move-right", "key": 7 },
+          { "action": "jump", "pad": "Cross", "key": 44, "mouse": 2 },
+          { "action": "sprint", "pad": "R2", "key": 225 },
+          { "action": "use", "pad": "Square", "key": 8, "mouse": 1 },
+          { "action": "throw", "pad": "Circle", "mouse": 3 },
+          { "action": "fly-up", "pad": "Cross", "key": 44 },
+          { "action": "fly-down", "pad": "Square", "key": 8 },
+          { "action": "confirm", "pad": "Cross", "key": 40 },
+          { "action": "back", "pad": "Triangle", "key": 42 },
+          { "action": "menu", "pad": "Start", "key": 41 },
+          { "action": "alt", "pad": "Circle", "key": 21, "mouse": 3 },
+          { "action": "menu-up", "pad": "DpadUp", "key": 82 },
+          { "action": "menu-down", "pad": "DpadDown", "key": 81 },
+          { "action": "menu-left", "pad": "DpadLeft", "key": 80 },
+          { "action": "menu-right", "pad": "DpadRight", "key": 79 }
+        ] }
+    ]
+  },
   "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
   "activeLayout": 0,
   "layouts": [

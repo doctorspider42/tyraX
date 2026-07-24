@@ -77,6 +77,15 @@ std::vector<int> Project::atlasFontIndices() const {
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes)
                 if (n.type == "DisplayText") want(n.str);
+    // A menu with a "Rebind key" row draws the current binding name as runtime
+    // text (the string is only known while the game runs - see
+    // docs/input-bindings.md), so that menu's font needs an atlas too.
+    for (const GameMenu& m : menus)
+        for (const MenuEntry& e : m.entries)
+            if (e.action == MenuEntry::RebindKey) {
+                want(m.font);
+                break;
+            }
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -833,6 +842,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
+         << "    \"sprintMultiplier\": " << fmtFloat(p.settings.sprintMultiplier)
+         << ",\n"
          << "    \"stickDeadzoneL\": " << fmtFloat(p.settings.stickDeadzoneL) << ",\n"
          << "    \"stickDeadzoneR\": " << fmtFloat(p.settings.stickDeadzoneR) << ",\n"
          << "    \"stickCurveL\": " << p.settings.stickCurveL << ",\n"
@@ -1194,7 +1205,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
-                                         "apply-video"};
+                                         "apply-video", "rebind"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -1235,10 +1246,14 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         json << ",\n      \"entries\": [";
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
-            const int a = (en.action >= 0 && en.action <= 9) ? en.action : 0;
+            const int a = (en.action >= 0 && en.action <= 10) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
+                 << (en.bindAction.empty()
+                         ? ""
+                         : ", \"bindAction\": \"" + jsonEscape(en.bindAction) +
+                               "\"")
                  << (en.amount != 0.0f ? ", \"amount\": " + fmtFloat(en.amount) : "");
             if (!en.options.empty()) {
                 json << ", \"options\": [";
@@ -1254,15 +1269,117 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                 json << "]";
             }
             static const char* kMenuBinds[] = {
-                "",           "music-volume", "sfx-volume",  "deadzone",
-                "stick-curve", "display-mode", "widescreen", "player-count"};
-            if (en.settingBind >= 1 && en.settingBind <= 7)
+                "",            "music-volume", "sfx-volume",  "deadzone",
+                "stick-curve", "display-mode", "widescreen",  "player-count",
+                "input-preset"};
+            if (en.settingBind >= 1 && en.settingBind <= 8)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
     }
     json << (p.menus.empty() ? "]" : "\n  ]");
+}
+
+// Input actions + binding presets (Tools > Input Map). Always emitted: after
+// ensureInputActions every project has the built-in actions, and a project
+// whose .tyra lost the key would silently fall back to the seeded defaults
+// instead of the user's bindings.
+static void writeInputSection(std::ostream& json, const Project& p) {
+    // Role -> stable json name. Index = InputAction::Role.
+    static const char* kRoles[] = {
+        "",        "jump",      "use",       "throw",     "sprint",
+        "fly-up",  "fly-down",  "confirm",   "back",      "menu",
+        "alt",     "menu-up",   "menu-down", "menu-left", "menu-right",
+        "move-forward", "move-back", "move-left", "move-right"};
+    json << "\"input\": {\n    \"activePreset\": " << p.input.activePreset
+         << ",\n    \"allowRebind\": "
+         << (p.input.allowRebind ? "true" : "false") << ",\n    \"actions\": [";
+    for (size_t i = 0; i < p.input.actions.size(); ++i) {
+        const InputAction& a = p.input.actions[i];
+        const int r = (a.role > 0 && a.role < InputAction::RoleCount) ? a.role : 0;
+        json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+             << jsonEscape(a.name) << "\", \"label\": \"" << jsonEscape(a.label)
+             << "\"";
+        if (r != 0) json << ", \"role\": \"" << kRoles[r] << "\"";
+        if (!a.rebindable) json << ", \"rebindable\": false";
+        json << " }";
+    }
+    json << (p.input.actions.empty() ? "]" : "\n    ]") << ",\n    \"presets\": [";
+    for (size_t i = 0; i < p.input.presets.size(); ++i) {
+        const InputPreset& pr = p.input.presets[i];
+        json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+             << jsonEscape(pr.name) << "\", \"bindings\": [";
+        for (size_t b = 0; b < pr.bindings.size(); ++b) {
+            const InputBinding& bd = pr.bindings[b];
+            json << (b ? ",\n          " : "\n          ") << "{ \"action\": \""
+                 << jsonEscape(bd.action) << "\"";
+            if (!bd.pad.empty()) json << ", \"pad\": \"" << bd.pad << "\"";
+            if (bd.key != 0) json << ", \"key\": " << bd.key;
+            if (bd.mouse != 0) json << ", \"mouse\": " << bd.mouse;
+            json << " }";
+        }
+        json << (pr.bindings.empty() ? "]" : "\n        ]") << " }";
+    }
+    json << (p.input.presets.empty() ? "]" : "\n    ]") << "\n  }";
+}
+
+static void readInputSection(const json::Value& root, Project& out) {
+    out.input = InputMap{};
+    const auto* in = root.find("input");
+    if (!in || in->type != json::Value::Type::Object) return;
+    if (const auto* v = in->find("activePreset"))
+        out.input.activePreset = (int)v->numberOr(0.0);
+    if (const auto* v = in->find("allowRebind"))
+        out.input.allowRebind = v->boolOr(true);
+    if (const auto* arr = in->find("actions");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const auto& ja : arr->arr) {
+            InputAction a;
+            if (const auto* v = ja.find("name")) a.name = v->stringOr("");
+            if (const auto* v = ja.find("label")) a.label = v->stringOr("");
+            if (const auto* v = ja.find("role")) {
+                const std::string r = v->stringOr("");
+                for (int i = 1; i < InputAction::RoleCount; ++i)
+                    if (r == inputRoleName(i)) a.role = i;
+            }
+            if (const auto* v = ja.find("rebindable"))
+                a.rebindable = v->boolOr(true);
+            if (a.name.empty()) continue;  // an unnamed action addresses nothing
+            if (a.label.empty()) a.label = a.name;
+            out.input.actions.push_back(std::move(a));
+        }
+    }
+    if (const auto* arr = in->find("presets");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const auto& jp : arr->arr) {
+            InputPreset pr;
+            if (const auto* v = jp.find("name")) pr.name = v->stringOr("Preset");
+            if (const auto* bs = jp.find("bindings");
+                bs && bs->type == json::Value::Type::Array) {
+                for (const auto& jb : bs->arr) {
+                    InputBinding b;
+                    if (const auto* v = jb.find("action"))
+                        b.action = v->stringOr("");
+                    if (const auto* v = jb.find("pad")) b.pad = v->stringOr("");
+                    if (const auto* v = jb.find("key")) b.key = (int)v->numberOr(0.0);
+                    if (const auto* v = jb.find("mouse"))
+                        b.mouse = (int)v->numberOr(0.0);
+                    // Drop what the game could not use: an unknown pad name or
+                    // an out-of-range key/mouse would reach codegen as junk.
+                    if (b.action.empty()) continue;
+                    if (!b.pad.empty() && padButtonIndex(b.pad) < 0) b.pad.clear();
+                    if (b.key < 0 || b.key > 255) b.key = 0;
+                    if (b.mouse < 0 || b.mouse > 3) b.mouse = 0;
+                    pr.bindings.push_back(std::move(b));
+                }
+            }
+            if (!pr.name.empty()) out.input.presets.push_back(std::move(pr));
+        }
+    }
+    if (out.input.activePreset < 0 ||
+        out.input.activePreset >= (int)out.input.presets.size())
+        out.input.activePreset = 0;
 }
 
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
@@ -1306,6 +1423,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::Input: writeInputSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1324,6 +1442,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::Input: return "input";
     }
     return "unknown";
 }
@@ -1416,6 +1535,97 @@ void ensureProjectId(Project& p) {
     if (p.projectId.empty()) p.projectId = newObjectId();
 }
 
+const char* inputRoleName(int role) {
+    switch (role) {
+        case InputAction::RoleJump: return "jump";
+        case InputAction::RoleUse: return "use";
+        case InputAction::RoleThrow: return "throw";
+        case InputAction::RoleSprint: return "sprint";
+        case InputAction::RoleFlyUp: return "fly-up";
+        case InputAction::RoleFlyDown: return "fly-down";
+        case InputAction::RoleConfirm: return "confirm";
+        case InputAction::RoleBack: return "back";
+        case InputAction::RoleMenu: return "menu";
+        case InputAction::RoleAlt: return "alt";
+        case InputAction::RoleMenuUp: return "menu-up";
+        case InputAction::RoleMenuDown: return "menu-down";
+        case InputAction::RoleMenuLeft: return "menu-left";
+        case InputAction::RoleMenuRight: return "menu-right";
+        case InputAction::RoleMoveForward: return "move-forward";
+        case InputAction::RoleMoveBack: return "move-back";
+        case InputAction::RoleMoveLeft: return "move-left";
+        case InputAction::RoleMoveRight: return "move-right";
+        default: return "";
+    }
+}
+
+void ensureInputActions(Project& p) {
+    // The bindings TyraX hardcoded before the Input Map existed (the old
+    // controls.hpp defaults - see docs/keyboard-mouse.md), plus the new sprint
+    // action. Order is the order the Input Map window and a scaffolded controls
+    // menu list them in.
+    struct Seed {
+        int role;
+        const char* label;
+        const char* pad;
+        int key;
+        int mouse;
+        bool rebindable;
+    };
+    static const Seed kSeeds[] = {
+        {InputAction::RoleMoveForward, "Move forward", "", 0x1A, 0, true},
+        {InputAction::RoleMoveBack, "Move back", "", 0x16, 0, true},
+        {InputAction::RoleMoveLeft, "Move left", "", 0x04, 0, true},
+        {InputAction::RoleMoveRight, "Move right", "", 0x07, 0, true},
+        {InputAction::RoleJump, "Jump", "Cross", 0x2C, 2, true},
+        {InputAction::RoleSprint, "Sprint", "R2", 0xE1, 0, true},
+        {InputAction::RoleUse, "Use", "Square", 0x08, 1, true},
+        {InputAction::RoleThrow, "Throw", "Circle", 0, 3, true},
+        {InputAction::RoleFlyUp, "Fly up", "Cross", 0x2C, 0, true},
+        {InputAction::RoleFlyDown, "Fly down", "Square", 0x08, 0, true},
+        // The menu set is deliberately NOT rebindable by default: a player who
+        // rebinds "Confirm" to a button they cannot reach is locked out of the
+        // menu they would need to fix it.
+        {InputAction::RoleConfirm, "Confirm", "Cross", 0x28, 0, false},
+        {InputAction::RoleBack, "Back", "Triangle", 0x2A, 0, false},
+        {InputAction::RoleMenu, "Pause menu", "Start", 0x29, 0, false},
+        {InputAction::RoleAlt, "Alternate", "Circle", 0x15, 3, false},
+        {InputAction::RoleMenuUp, "Menu up", "DpadUp", 0x52, 0, false},
+        {InputAction::RoleMenuDown, "Menu down", "DpadDown", 0x51, 0, false},
+        {InputAction::RoleMenuLeft, "Menu left", "DpadLeft", 0x50, 0, false},
+        {InputAction::RoleMenuRight, "Menu right", "DpadRight", 0x4F, 0, false},
+    };
+
+    if (p.input.presets.empty()) p.input.presets.push_back(InputPreset{});
+    if (p.input.activePreset < 0 ||
+        p.input.activePreset >= (int)p.input.presets.size())
+        p.input.activePreset = 0;
+
+    for (const Seed& s : kSeeds) {
+        const char* name = inputRoleName(s.role);
+        // A role already covered (even under a user-chosen name) is left alone.
+        int idx = p.input.roleIndex(s.role);
+        if (idx < 0 && p.input.findAction(name)) continue;
+        if (idx < 0) {
+            InputAction a;
+            a.name = name;
+            a.label = s.label;
+            a.role = s.role;
+            a.rebindable = s.rebindable;
+            p.input.actions.push_back(std::move(a));
+            idx = (int)p.input.actions.size() - 1;
+            // A newly seeded action needs its default binding in EVERY preset,
+            // not just the active one - otherwise switching preset unbinds it.
+            for (InputPreset& pr : p.input.presets) {
+                InputBinding& b = pr.at(p.input.actions[idx].name);
+                b.pad = s.pad;
+                b.key = s.key;
+                b.mouse = s.mouse;
+            }
+        }
+    }
+}
+
 void ensureObjectIds(Project& p) {
     // Single pass: an object gets a fresh id when it has none (legacy / just
     // pasted) or when its id already appeared on an earlier object (accidental
@@ -1495,6 +1705,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
 
     ensureProjectId(out);
     ensureObjectIds(out);
+    ensureInputActions(out);
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
@@ -2373,6 +2584,13 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
+        // Sprint: projects that predate it read 1.8 like a fresh one (the
+        // sprint action ensureInputActions seeds is what actually enables it).
+        if (const auto* v = s->find("sprintMultiplier")) {
+            st.sprintMultiplier = (float)v->numberOr(1.8);
+            if (st.sprintMultiplier < 1.0f) st.sprintMultiplier = 1.0f;
+            if (st.sprintMultiplier > 4.0f) st.sprintMultiplier = 4.0f;
+        }
         // Legacy single-value key seeds both sticks; per-stick keys override.
         if (const auto* v = s->find("stickDeadzone")) {
             st.stickDeadzoneL = (float)v->numberOr(0.2);
@@ -3032,9 +3250,12 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "toggle"    ? MenuEntry::Toggle
                                     : a == "choice"    ? MenuEntry::Choice
                                     : a == "apply-video" ? MenuEntry::ApplyVideo
+                                    : a == "rebind"    ? MenuEntry::RebindKey
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
+                    if (const auto* v = je.find("bindAction"))
+                        en.bindAction = v->stringOr("");
                     if (const auto* v = je.find("amount"))
                         en.amount = (float)v->numberOr(0.0);
                     if (const auto* v = je.find("options");
@@ -3064,6 +3285,7 @@ static void readMenusSection(const json::Value& root, Project& out) {
                             : b == "display-mode" ? MenuEntry::BindDisplayMode
                             : b == "widescreen"  ? MenuEntry::BindWidescreen
                             : b == "player-count" ? MenuEntry::BindPlayerCount
+                            : b == "input-preset" ? MenuEntry::BindInputPreset
                                                  : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));
@@ -3120,6 +3342,12 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        // A section blob is total, so a peer that never had the Input Map
+        // would wipe it - re-seed the built-ins after applying (idempotent).
+        case Section::Input:
+            readInputSection(root, p);
+            ensureInputActions(p);
+            break;
     }
     return true;
 }
@@ -3299,6 +3527,12 @@ std::string load(Project& out, const std::string& projectDir) {
         out.defaultAmbience = -1;
 
     readMenusSection(root, out);
+
+    readInputSection(root, out);
+    // Backfill the built-in actions/preset: a project from before the Input Map
+    // (or one whose "input" key was hand-trimmed) gets exactly the bindings
+    // that used to be hardcoded, so it plays the same.
+    ensureInputActions(out);
 
     loadHeights(out);
     ensureHeightmap(out);
@@ -3709,7 +3943,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\ao_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
-            f.relativePath == "inc\\menu_data.gen.hpp") {
+            f.relativePath == "inc\\menu_data.gen.hpp" ||
+            f.relativePath == "inc\\input_map.gen.hpp" ||
+            f.relativePath == "src\\gen\\input_map.gen.cpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||

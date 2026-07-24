@@ -700,6 +700,9 @@ class TerrainGame : public Tyra::Game {
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
+  // Rebind rows (Menu Editor > Rebind key): push each row's saved override
+  // into the live input bindings (docs/input-bindings.md).
+  void applyInputBindings();
   std::vector<Tyra::Sprite> menuSprites;
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
@@ -729,6 +732,8 @@ class TerrainGame : public Tyra::Game {
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;
+  // Entry index of the rebind row waiting for a press (-1 = not capturing).
+  int menuRebindRow = -1;
 
   ScriptContext scriptCtx;
 };
