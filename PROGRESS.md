@@ -8258,3 +8258,23 @@ Each finished feature lands as its own commit.
   brick pillars and orbs - all sampling shared atlas pages. Editor-side
   panel walkthrough is described in the example README (the visual GUI
   pass rides the same pending human check as the rest of the epic).
+- (80) **Material Editor: draggable panel splitter + preview-rotation UX**
+  (user request) - the property/preview split was a fixed 48%/260px-floor
+  formula and the preview often came out cramped; it is now a real
+  splitter: an InvisibleButton strip between the columns with a drawn
+  separator line (hover/active tinted, ResizeEW cursor), dragging trades
+  property width for preview width within 25..75% (both sides keep a
+  scaled floor), and the ratio persists per machine as editor.ini
+  matEdSplit through the standard EditorConfig chain (field + load/save +
+  saveGlobalConfig aggregate + startup seeding - the skill recipe), saved
+  on drag release. Rotation with Paint off: the reported "can't rotate the
+  model" was Spin fighting the hand - the turntable kept adding yaw DURING
+  a drag, so drags never stuck. The turntable now yields: any orbit drag
+  records matEdLastOrbitT_ and the auto-spin pauses while dragging and for
+  1.5 s after. Also: RMB-drag now orbits ALWAYS (previously only while
+  painting - one muscle memory for both modes), and the pitch floor
+  loosened from -5 to -30 degrees (low-angle shots; clamp changed in BOTH
+  twins - the app input clamp and renderMaterialPreview's). Verified:
+  build.ps1 clean; the splitter/orbit math is input-driven UI logic riding
+  the same pending human visual pass as the rest of the epic (known
+  white-window machine state).

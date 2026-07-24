@@ -95,6 +95,9 @@ struct EditorConfig {
     // config, not project data: which CLIs/keys exist is a property of this
     // PC. The --ai-graph CLI reads the same keys (main.cpp).
     aigen::Config ai;
+    // Material Editor: the preview panel's share of the window width
+    // (0.25..0.75), set by dragging the splitter between the columns.
+    float matEdSplit = 0.48f;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -139,6 +142,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("aiBackend", v)) cfg.ai.backend = v;
         else if (match("aiModel", v)) cfg.ai.model = v;
         else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
+        else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
     }
     if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
@@ -169,7 +173,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "sessionCacheDir=" << cfg.sessionCacheDir << "\n"
       << "aiBackend=" << cfg.ai.backend << "\n"
       << "aiModel=" << cfg.ai.model << "\n"
-      << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n";
+      << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
+      << "matEdSplit=" << cfg.matEdSplit << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -381,6 +386,7 @@ int App::run(const std::string& initialProjectDir) {
         globalDisplayName_ = cfg.displayName;
         globalSessionCacheDir_ = cfg.sessionCacheDir;
         globalAi_ = cfg.ai;
+        matEdSplit_ = cfg.matEdSplit;
     }
     applyUiScale();
 
@@ -659,7 +665,8 @@ void App::applyUiScale() {
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
-                      globalDisplayName_, globalSessionCacheDir_, globalAi_});
+                      globalDisplayName_, globalSessionCacheDir_, globalAi_,
+                      matEdSplit_});
 }
 
 void App::setUiScale(float userScale) {
@@ -13780,12 +13787,20 @@ void App::drawMaterialEditorWindow() {
     bool committed = false;
 
     // --- middle: the selected entry's properties ------------------------------
-    // The preview is the working surface (paint lives there): give it the
-    // larger share of the window, the property column keeps a workable floor.
-    float previewW = ImGui::GetContentRegionAvail().x * 0.48f;
-    if (previewW < scaled(260.0f)) previewW = scaled(260.0f);
+    // The split between the property column and the preview is a draggable
+    // splitter (matEdSplit_ = the preview's share, persisted in editor.ini);
+    // both sides keep a workable floor.
+    const float totalW = ImGui::GetContentRegionAvail().x;
+    if (matEdSplit_ < 0.25f) matEdSplit_ = 0.25f;
+    if (matEdSplit_ > 0.75f) matEdSplit_ = 0.75f;
+    float previewW = totalW * matEdSplit_;
+    const float minPreview = scaled(240.0f);
+    const float minProps = scaled(260.0f);
+    if (previewW < minPreview) previewW = minPreview;
+    if (totalW - previewW < minProps) previewW = totalW - minProps;
+    if (previewW < scaled(80.0f)) previewW = scaled(80.0f);  // tiny window
     ImGui::BeginChild("##mat_edit",
-                      ImVec2(ImGui::GetContentRegionAvail().x - previewW - scaled(8.0f), 0));
+                      ImVec2(totalW - previewW - scaled(9.0f), 0));
     ImGui::TextDisabled("%s", matEdPath_.c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Duplicate")) duplicateMaterialAsset();
@@ -14145,7 +14160,31 @@ void App::drawMaterialEditorWindow() {
                         "Color multiplies on top per object.");
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    // --- splitter: drag to trade property-column width for preview width -----
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::InvisibleButton("##mat_split", ImVec2(scaled(9.0f), -1.0f));
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    if (ImGui::IsItemActive() && totalW > minPreview + minProps) {
+        previewW -= ImGui::GetIO().MouseDelta.x;
+        if (previewW < minPreview) previewW = minPreview;
+        if (previewW > totalW - minProps) previewW = totalW - minProps;
+        matEdSplit_ = previewW / totalW;
+        if (matEdSplit_ < 0.25f) matEdSplit_ = 0.25f;
+        if (matEdSplit_ > 0.75f) matEdSplit_ = 0.75f;
+    }
+    if (ImGui::IsItemDeactivated()) saveGlobalConfig();  // persist the split
+    {
+        const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+        const float cx = (mn.x + mx.x) * 0.5f;
+        ImGui::GetWindowDrawList()->AddLine(
+            ImVec2(cx, mn.y + scaled(4.0f)), ImVec2(cx, mx.y - scaled(4.0f)),
+            ImGui::GetColorU32(ImGui::IsItemActive()   ? ImGuiCol_SeparatorActive
+                               : ImGui::IsItemHovered() ? ImGuiCol_SeparatorHovered
+                                                        : ImGuiCol_Separator),
+            scaled(2.0f));
+    }
+    ImGui::SameLine(0.0f, 0.0f);
 
     // --- right: live preview + paint tool ---------------------------------------
     ImGui::BeginChild("##mat_preview", ImVec2(previewW, 0));  // previewW already scaled
@@ -14182,7 +14221,11 @@ void App::drawMaterialEditorWindow() {
                               "matched to the model's usemtl names.");
         ImGui::SameLine();
         ImGui::Checkbox("Spin", &matEdSpin_);
-        if (matEdSpin_ && !matEdPaint_) matEdAngle_ += io.DeltaTime * 24.0f;
+        // the turntable yields to the hand: paused while dragging and for a
+        // beat after, so a drag's result actually sticks
+        if (matEdSpin_ && !matEdPaint_ &&
+            ImGui::GetTime() - matEdLastOrbitT_ > 1.5)
+            matEdAngle_ += io.DeltaTime * 24.0f;
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(100.0f));
         if (ImGui::Combo("##mat_display", &matEdDisplayMode_,
@@ -14720,16 +14763,18 @@ void App::drawMaterialEditorWindow() {
                              : matEdZoom_ > 12.0f ? 12.0f
                                                   : matEdZoom_;
             }
-            // orbit: LMB (RMB while painting - LMB is the brush then)
+            // orbit: LMB when not painting (the brush owns LMB then), RMB
+            // always
             const bool orbiting =
-                active && ((matEdPaint_ && ImGui::IsMouseDown(1)) ||
+                active && (ImGui::IsMouseDown(1) ||
                            (!matEdPaint_ && ImGui::IsMouseDown(0)));
             if (orbiting) {
                 matEdAngle_ += io.MouseDelta.x * 0.5f;
                 matEdPitch_ += io.MouseDelta.y * 0.4f;
-                matEdPitch_ = matEdPitch_ < -5.0f ? -5.0f
+                matEdPitch_ = matEdPitch_ < -30.0f ? -30.0f
                               : matEdPitch_ > 85.0f ? 85.0f
                                                     : matEdPitch_;
+                matEdLastOrbitT_ = ImGui::GetTime();  // pauses the turntable
             }
 
             // Hover sync with the UV panel + validator highlights. The

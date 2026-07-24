@@ -3106,7 +3106,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     float zoom = d.zoom < 0.05f ? 0.05f : (d.zoom > 16.0f ? 16.0f : d.zoom);
     const float dist = baseDist / zoom;
     float pitch = d.pitchDeg;
-    if (pitch < -5.0f) pitch = -5.0f;
+    if (pitch < -30.0f) pitch = -30.0f;  // low-angle shots allowed (app clamp twin)
     if (pitch > 85.0f) pitch = 85.0f;
     const float a = d.angleDeg * kPi / 180.0f;
     const float p = pitch * kPi / 180.0f;

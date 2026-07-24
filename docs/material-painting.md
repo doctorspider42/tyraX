@@ -19,9 +19,15 @@ its **staged** values live while you drag sliders. Opening the editor from a
 model object's *Properties > Material > Edit...* (or opening a model's own
 `.mtl`, which auto-picks the sibling `.obj`) lands directly on the right mesh.
 
-Camera: **drag** orbits (left button normally, **right button while
-painting**), **mouse wheel** zooms, *Spin* keeps the turntable going (paused
-while painting).
+Camera: **drag** orbits (left button normally; the **right button always**
+orbits, painting or not), **mouse wheel** zooms, *Spin* keeps the turntable
+going (paused while painting — and it **yields to the hand**: dragging
+pauses the auto-spin for a moment, so your rotation sticks instead of
+drifting away). The camera can dip to low angles for hero shots.
+
+The **splitter between the property column and the preview is draggable** —
+grab the divider line and trade property width for preview width; the split
+persists per machine (editor.ini), like the UI scale.
 
 Next to *Spin* sit the **display mode** (Solid / Wireframe overlay /
 **UV checker** — a generated checker replaces every texture so stretch and

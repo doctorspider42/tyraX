@@ -708,6 +708,13 @@ private:
     float matEdAngle_ = 40.0f;
     float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
     float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
+    // The turntable pauses while (and briefly after) a drag, so Spin never
+    // fights the hand - before this, dragging with Spin on felt dead.
+    double matEdLastOrbitT_ = -1e9;
+    // Preview panel's share of the window width (the draggable splitter
+    // between the property column and the preview; editor.ini, machine
+    // setting like uiScale).
+    float matEdSplit_ = 0.48f;
     bool openNewMaterialPopup_ = false;
     char matEdNewName_[64] = "my-material";
     std::string matEdNewError_;
