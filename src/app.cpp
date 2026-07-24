@@ -13117,6 +13117,17 @@ bool App::matBakeBuildMeshes(const std::string& entryName) {
 // drags re-run nearly free), poll snapshots onto the preview, and finish a
 // pending "Bake & add layer".
 void App::matBakeTick(const std::string& entryName, const std::string& texRel) {
+    // The paint target must always belong to the SELECTED entry: with an
+    // untextured entry selected, a target left over from the previous one
+    // would silently receive this entry's bake previews and layers (the
+    // "legs' AO showed up on the jaw" bug).
+    if (texRel.empty()) matEdUnloadPaintTarget();
+    // A pending "Bake & add layer" is armed for one specific entry -
+    // switching entries turns it into a cross-application, so cancel.
+    if (matBakeApplyWhenDone_ && entryName != matBakeApplyEntry_) {
+        matBakeApplyWhenDone_ = false;
+        statusMessage_ = "Bake apply canceled - the entry changed";
+    }
     if (matBakeRunOnce_ && !matBakeMaps_.empty() &&
         matBakeMaps_.samplesDone >= matBakeRays_ && !matBaker_.running())
         matBakeRunOnce_ = false;  // the smart masks got their maps
@@ -13208,6 +13219,21 @@ void App::matBakeApplyLayer() {
         statusMessage_ =
             "Bake: the entry needs a texture (Texture > New paintable texture)";
         return;
+    }
+    // never apply onto another entry's texture (a stale target)
+    if (matEdSel_ >= 0 && matEdSel_ < (int)matEdMats_.size()) {
+        const MatEdEntry& e = matEdMats_[matEdSel_];
+        const std::string expect =
+            e.texture.empty()
+                ? ""
+                : (std::filesystem::path(matEdPath_).parent_path() / e.texture)
+                      .generic_string();
+        if (expect != matEdPaintTexRel_) {
+            statusMessage_ =
+                "Bake apply skipped - the loaded texture belongs to another "
+                "entry";
+            return;
+        }
     }
     const int w = matEdPaintW_, h = matEdPaintH_;
     const matbake::Maps& m = matBakeMaps_;
@@ -13429,6 +13455,7 @@ void App::matEdBakeSection(const std::string& entryName,
     ImGui::BeginDisabled(texRel.empty());
     if (ImGui::Button("Bake & add AO layer")) {
         matBakeApplyWhenDone_ = true;
+        matBakeApplyEntry_ = entryName;  // switching entries cancels it
         matBakeStartedSig_ = 0;  // force a fresh full-quality run
     }
     ImGui::EndDisabled();
@@ -13920,6 +13947,18 @@ void App::matEdUvValidateSection(const std::string& entryName) {
             matEdUvIssueSel_ = -1;
         }
     }
+}
+
+void App::matEdUnloadPaintTarget() {
+    if (matEdPaintTexRel_.empty() && matEdPaintW_ < 1) return;
+    matEdPaintTexRel_.clear();
+    matEdPaintPixels_.clear();
+    matEdLayers_.clear();
+    matEdActiveLayer_ = 0;
+    matEdPaintW_ = matEdPaintH_ = 0;
+    matEdStroke_ = false;
+    matEdHaveLastUV_ = false;
+    matEdGhostShown_ = false;
 }
 
 bool App::matEdEnsurePaintTexture() {

@@ -8488,3 +8488,24 @@ Each finished feature lands as its own commit.
   preview -> Create texture -> Presets -> worn-stone; click the pants ->
   repeat. Verified: build.ps1 clean; input-logic + file-creation paths
   ride the standing human GUI pass (known white-window machine state).
+- (88) **Fix: stale paint target leaked bake results across entries** (user
+  report: "baked AO on the jaw, switched to the legs entry, baked again -
+  the AO showed up on the jaw"). Root cause: the paint target
+  (matEdPaintTexRel_ + pixels + layers) only ever switched when the NEW
+  entry had a texture; selecting an untextured entry (fresh multi-part
+  models after material extraction) left the PREVIOUS entry's texture
+  loaded, and both the "AO on material" preview multiply and
+  matBakeApplyLayer blindly used the loaded target - the new entry's AO
+  (rasterized on ITS UV islands) landed on the old entry's texture,
+  visually smearing the previous part. Three locks, defense in depth:
+  (1) matBakeTick unloads the paint target whenever the selected entry has
+  no texture (new matEdUnloadPaintTarget - pixels, layers, stroke/ghost
+  state); (2) matBakeApplyLayer verifies the loaded target actually
+  belongs to the selected entry before writing anything ("apply skipped -
+  the loaded texture belongs to another entry"); (3) a pending "Bake & add
+  AO layer" is armed for the entry it was clicked on
+  (matBakeApplyEntry_) and switching entries cancels it with a status
+  message instead of cross-applying whenever the bake finishes. Verified:
+  build.ps1 clean; the failure needed the GUI to reproduce (entry combo +
+  bake button sequencing), so the fix rides the standing human pass - the
+  three locks are each independently sufficient for the reported path.
