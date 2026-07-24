@@ -572,13 +572,14 @@ struct ProjectSettings {
     // wedges the USB stack.
     bool keyboardMouse = true;
 
-    // Experimental (debug): force the keyboard/mouse drivers on even under a
-    // ps2link deploy, where they are normally skipped. Meant for the network-
-    // deploy dev loop: a network-booted ps2link (SMAP/dev9) has no usbd, so
-    // the engine loads its own plus ps2kbd/ps2mouse and the EE console
-    // (Output / ps2client) shows the driver-load logs live. On a USB-booted
-    // ps2link (usbd already resident) it may wedge the USB stack - boot from
-    // that USB instead. Off by default.
+    // Experimental (debug): force the keyboard driver on even under a ps2link
+    // deploy, where it is normally skipped. Meant for the network-deploy dev
+    // loop: a network-booted ps2link (SMAP/dev9) has no usbd, so the engine
+    // loads its own plus ps2kbd and the EE console (Output / ps2client) shows
+    // the load live. KEYBOARD ONLY: the SDK's PS2MouseInit spins forever on a
+    // resident-IOP ps2link, so mouse-look needs an exported ISO. On a USB-
+    // booted ps2link (usbd already resident) it may wedge the USB stack - boot
+    // from that USB instead. Off by default.
     bool keyboardMousePs2Link = false;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate

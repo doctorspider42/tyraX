@@ -73,7 +73,9 @@ void Engine::initAll(const EngineOptions& options) {
   banner.show(&renderer);
   audio.init();
   pad.init();
-  if (withKbdMouse) kbdMouse.init();
+  // Keyboard only under ps2link: PS2MouseInit spins forever on a resident IOP
+  // (see KbdMouse::init). Off ps2link (PCSX2 / exported ISO) the mouse runs.
+  if (withKbdMouse) kbdMouse.init(!IrxLoader::keepIopResident);
 }
 
 }  // namespace Tyra

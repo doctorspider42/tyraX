@@ -25,7 +25,7 @@ KbdMouse::KbdMouse() {
   prevButtons = 0;
 }
 
-void KbdMouse::init() {
+void KbdMouse::init(bool withMouse) {
   // PS2KbdInit: 1 = opened, 2 = already open, 0 = device file missing
   // (driver not loaded). The driver defaults to non-blocking reads, so a
   // frame with no key events costs one empty read.
@@ -41,14 +41,21 @@ void KbdMouse::init() {
     TYRA_LOG("KbdMouse: keyboard driver NOT ready (no device / no usbd?)");
   }
 
-  // PS2MouseInit would spin forever binding the RPC if ps2mouse.irx were
-  // absent - only reached when the IrxLoader loaded it. Default read mode
-  // is DIFF: x/y/wheel accumulate on the IOP and reset on every read.
-  mouseOk = PS2MouseInit() >= 0;
-  if (mouseOk)
-    TYRA_LOG("KbdMouse: mouse driver ready");
-  else
-    TYRA_LOG("KbdMouse: mouse driver NOT ready (no device / no usbd?)");
+  // PS2MouseInit binds the ps2mouse RPC server in a while(server==0) spin.
+  // With ps2mouse.irx loaded off ps2link that returns at once (DIFF read
+  // mode: x/y/wheel accumulate on the IOP and reset on every read). Under a
+  // resident-IOP ps2link the RPC server never comes up and the spin never
+  // ends - so withMouse=false there (keyboard only) to keep the boot alive.
+  if (withMouse) {
+    mouseOk = PS2MouseInit() >= 0;
+    if (mouseOk)
+      TYRA_LOG("KbdMouse: mouse driver ready");
+    else
+      TYRA_LOG("KbdMouse: mouse driver NOT ready (no device / no usbd?)");
+  } else {
+    mouseOk = false;
+    TYRA_LOG("KbdMouse: mouse skipped (keyboard only under ps2link)");
+  }
 }
 
 void KbdMouse::update() {

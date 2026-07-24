@@ -18211,13 +18211,14 @@ void App::drawPreferencesModal() {
     ImGui::Checkbox("Force under ps2link (experimental)",
                     &prefSettings_.keyboardMousePs2Link);
     prefHelp(
-        "Debug aid: keep the keyboard/mouse drivers on even for a Run on PS2\n"
+        "Debug aid: keep the keyboard drivers on even for a Run on PS2\n"
         "(ps2link) deploy, where they are normally skipped. For the network\n"
-        "deploy the engine loads its own usbd + ps2kbd/ps2mouse (a network-\n"
-        "booted ps2link has none), and the driver-load logs show up live in\n"
-        "Output / ps2client. On a ps2link booted from USB (usbd already\n"
-        "resident) this may wedge the USB stack - boot the game from that USB\n"
-        "instead. If it freezes at boot, turn this back off.");
+        "deploy the engine loads its own usbd + ps2kbd (a network-booted\n"
+        "ps2link has none), and the driver-load logs show up live in Output /\n"
+        "ps2client. KEYBOARD ONLY here: the SDK's mouse init spins forever on\n"
+        "a resident-IOP ps2link, so mouse-look needs an exported ISO. On a\n"
+        "ps2link booted from USB (usbd already resident) this may wedge the\n"
+        "USB stack - boot the game from that USB instead.");
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);

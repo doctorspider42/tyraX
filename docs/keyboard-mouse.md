@@ -115,22 +115,36 @@ ps2link deploy keeps the drivers and **loads its own `usbd` + `ps2kbd` /
 `usbd` of its own, so loading one is safe and is the only way to get a USB
 stack at all. On a ps2link **booted from USB** (a `usbd` is already resident) a
 second one may wedge the USB host — boot the game from that USB directly
-instead. Then boot with F6 and watch *Output* / `ps2client`:
+instead.
 
-- `IRX: Loading usb keyboard/mouse modules...` → the modules are being loaded.
-- `KbdMouse: keyboard driver ready` / `mouse driver ready` → `PS2KbdInit` /
-  `PS2MouseInit` bound the drivers.
+**Keyboard only under ps2link.** Over a resident-IOP ps2link the SDK's
+`PS2MouseInit()` spins forever binding a `ps2mouse` RPC server that never
+registers — it hangs the boot on the Tyra logo (the keyboard uses an iomanX
+device, `usbkbd:`, and is fine). So the override initialises the **keyboard
+only** and skips `PS2MouseInit`; mouse-look over the ps2link debug path is not
+available. For full keyboard **and** mouse on hardware, use an exported ISO —
+off ps2link `PS2MouseInit` returns normally.
+
+Then boot with F6 and watch *Output* / `ps2client`:
+
+- `IRX: Loading usbd...` → the engine is loading its own USB stack (new: this
+  is what was missing on a network ps2link before the "load own usbd" fix).
+- `open name usbkbd:dev ... open fd = 3` + `KbdMouse: keyboard driver ready` →
+  `PS2KbdInit` opened the keyboard device. **This is success** — test WASD /
+  `E` / `Space` / arrows / `Esc`.
+- `KbdMouse: mouse skipped (keyboard only under ps2link)` → expected; see
+  above.
 - `Unknown device 'usbkbd'` + `open fd = -19` + `KbdMouse: keyboard driver NOT
   ready` **followed by a freeze** → the *no-usbd* failure: `ps2kbd` / `ps2mouse`
-  found no `usbd`, self-unloaded, and `PS2MouseInit` then span forever on the
-  missing RPC server. It means a `usbd` was not present. The fix above (own
-  `usbd` under the override) removes this on a network ps2link; if it still
-  freezes, no `usbd` came up at all — test via an exported ISO instead.
-- the "ready" lines appear but no keys/motion arrive → the device itself is
-  not being read. `ps2kbd`/`ps2mouse` only speak the **USB HID boot protocol**;
-  many wireless dongles and gaming keyboards/mice do not expose it cleanly, so
-  they work in PCSX2 (which emulates a compliant device) but not on hardware.
-  Try a plain wired USB keyboard/mouse.
+  found no `usbd`, self-unloaded, and `PS2MouseInit` span forever on the
+  missing RPC server. The "load own usbd" + "keyboard only" fixes remove this
+  on a network ps2link; if it still freezes, no `usbd` came up at all — test
+  via an exported ISO instead.
+- the keyboard is "ready" but no keys arrive → the device itself is not being
+  read. `ps2kbd`/`ps2mouse` only speak the **USB HID boot protocol**; many
+  wireless dongles and gaming keyboards do not expose it cleanly, so they work
+  in PCSX2 (which emulates a compliant device) but not on hardware. Try a
+  plain wired USB keyboard.
 
 The engine also gives the USB stack a short settle delay after loading
 `ps2kbd`/`ps2mouse` (enumeration is asynchronous on real hardware and

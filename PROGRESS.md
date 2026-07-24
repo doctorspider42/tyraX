@@ -8661,3 +8661,21 @@ Each finished feature lands as its own commit.
   Editor recompiles clean; **engine change reaches the game through the Docker
   resync on the next build (no editor relink needed)**; real-hardware retest
   still pending on the user's PS2.
+
+- (94) **ps2link kbd/mouse: keyboard-only (the mouse init hangs the boot)**
+  (user retested (93)). Now `open name usbkbd:dev ... open fd = 3` +
+  `KbdMouse: keyboard driver ready` - **the keyboard works** (own usbd loaded,
+  ps2kbd opened its iomanX device). But the game then froze on the Tyra logo,
+  with no mouse log line after "keyboard driver ready": it hung in the very
+  next call, `PS2MouseInit()`. The keyboard rides an iomanX device (`usbkbd:`)
+  that ps2link's resident IOP serves fine; the mouse rides SIFRPC, and under a
+  resident-IOP ps2link the `ps2mouse` RPC server never registers, so
+  `PS2MouseInit`'s `while(server==0)` spin never ends (banner.show already drew
+  the logo, so it sits frozen on screen). Fix: `KbdMouse::init(bool withMouse)`
+  - engine.cpp passes `!keepIopResident`, so under ps2link the mouse is skipped
+  (keyboard only) and boot proceeds; off ps2link (PCSX2 / exported ISO) the
+  mouse runs unchanged. Logs `mouse skipped (keyboard only under ps2link)`.
+  Mouse-look over the ps2link debug path is therefore unavailable by design -
+  full keyboard+mouse on hardware is the exported-ISO path. Docs / tooltip /
+  project.hpp updated. Engine-side, reaches the game via the Docker resync;
+  hardware retest pending.
