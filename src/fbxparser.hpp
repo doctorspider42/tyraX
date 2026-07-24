@@ -52,9 +52,27 @@ int copyExternalTextures(const std::string& fbxPath,
 // change here.
 namespace animimport {
 
+// bake()/parseSkel() also apply the "<model>.uvs" replacement-UV sidecar
+// (the Material Editor's UV unwrap for animated models - .glb/.fbx sources
+// can't be rewritten, docs/material-painting.md). Because the sidecar is
+// folded in HERE, every consumer sees the same mapping: the editor
+// previews and matbake (Baked path), and the .tskl the game ships plus
+// its LODs, which are generated afterwards (Skel path). A part is matched
+// by material name + vertex count; a stale sidecar part (count mismatch
+// after a re-export) is skipped. Format v1, little-endian:
+//   "TXUV", u32 version = 1, u32 partCount,
+//   per part: char material[32] (NUL-padded), u32 vertexCount,
+//             vertexCount * 2 f32 (u, v per flat corner)
 bool bake(const std::string& path, float fps, glbparser::Baked& out,
           std::string& error);
 bool parseSkel(const std::string& path, glbparser::Skel& out,
                std::string& error);
+
+// Writes the sidecar next to the model (partUvs parallel to baked.parts,
+// each vertexCount * 2 floats; an empty inner vector skips that part).
+bool writeUvSidecar(const std::string& modelPath,
+                    const glbparser::Baked& baked,
+                    const std::vector<std::vector<float>>& partUvs,
+                    std::string& error);
 
 }  // namespace animimport

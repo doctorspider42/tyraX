@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -790,18 +792,108 @@ bool isFbx(const std::string& path) {
     return path.size() > 4 &&
            _stricmp(path.c_str() + path.size() - 4, ".fbx") == 0;
 }
+
+// --- "<model>.uvs" replacement-UV sidecar (see the header) -----------------
+
+struct UvSidecarPart {
+    std::string material;
+    std::vector<float> uvs;  // vertexCount * 2
+};
+
+bool readUvSidecar(const std::string& modelPath,
+                   std::vector<UvSidecarPart>& out) {
+    std::ifstream in(modelPath + ".uvs", std::ios::binary);
+    if (!in) return false;
+    char magic[4];
+    uint32_t version = 0, partCount = 0;
+    if (!in.read(magic, 4) || std::memcmp(magic, "TXUV", 4) != 0) return false;
+    in.read(reinterpret_cast<char*>(&version), 4);
+    in.read(reinterpret_cast<char*>(&partCount), 4);
+    if (!in || version != 1 || partCount > 256) return false;
+    for (uint32_t i = 0; i < partCount; ++i) {
+        char name[33] = {};
+        uint32_t count = 0;
+        in.read(name, 32);
+        in.read(reinterpret_cast<char*>(&count), 4);
+        if (!in || count > 1000000) return false;
+        UvSidecarPart part;
+        part.material = name;
+        part.uvs.resize((size_t)count * 2);
+        in.read(reinterpret_cast<char*>(part.uvs.data()),
+                (std::streamsize)(part.uvs.size() * 4));
+        if (!in) return false;
+        out.push_back(std::move(part));
+    }
+    return true;
+}
+
+// Applies matching sidecar parts to any part list with `material`, `uvs`
+// and a vertex count (Baked::Part and SkelPart both qualify). A part is
+// matched by material name AND corner count - a re-exported model whose
+// geometry changed just ignores the stale entry.
+template <typename PartT>
+void applyUvSidecar(const std::string& modelPath, std::vector<PartT>& parts) {
+    std::vector<UvSidecarPart> sidecar;
+    if (!readUvSidecar(modelPath, sidecar)) return;
+    for (PartT& p : parts)
+        for (const UvSidecarPart& s : sidecar)
+            if (s.material == p.material &&
+                s.uvs.size() == (size_t)p.vertexCount * 2) {
+                p.uvs = s.uvs;
+                break;
+            }
+}
 }  // namespace
 
 bool bake(const std::string& path, float fps, glbparser::Baked& out,
           std::string& error) {
-    return isFbx(path) ? fbxparser::bake(path, fps, out, error)
-                       : glbparser::bake(path, fps, out, error);
+    const bool ok = isFbx(path) ? fbxparser::bake(path, fps, out, error)
+                                : glbparser::bake(path, fps, out, error);
+    if (ok) applyUvSidecar(path, out.parts);
+    return ok;
 }
 
 bool parseSkel(const std::string& path, glbparser::Skel& out,
                std::string& error) {
-    return isFbx(path) ? fbxparser::parseSkel(path, out, error)
-                       : glbparser::parseSkel(path, out, error);
+    const bool ok = isFbx(path) ? fbxparser::parseSkel(path, out, error)
+                                : glbparser::parseSkel(path, out, error);
+    // LODs are generated AFTER this call (generateSkelLods rides the UVs
+    // along the collapse), so they inherit the replacement automatically.
+    if (ok) applyUvSidecar(path, out.parts);
+    return ok;
+}
+
+bool writeUvSidecar(const std::string& modelPath,
+                    const glbparser::Baked& baked,
+                    const std::vector<std::vector<float>>& partUvs,
+                    std::string& error) {
+    if (partUvs.size() != baked.parts.size()) {
+        error = "part count mismatch";
+        return false;
+    }
+    std::ofstream out(modelPath + ".uvs", std::ios::binary | std::ios::trunc);
+    if (!out) {
+        error = "cannot write the sidecar";
+        return false;
+    }
+    uint32_t partCount = 0;
+    for (const auto& uvs : partUvs) partCount += uvs.empty() ? 0 : 1;
+    const uint32_t version = 1;
+    out.write("TXUV", 4);
+    out.write(reinterpret_cast<const char*>(&version), 4);
+    out.write(reinterpret_cast<const char*>(&partCount), 4);
+    for (size_t i = 0; i < partUvs.size(); ++i) {
+        if (partUvs[i].empty()) continue;
+        char name[32] = {};
+        std::snprintf(name, sizeof(name), "%s",
+                      baked.parts[i].material.c_str());
+        const uint32_t count = (uint32_t)(partUvs[i].size() / 2);
+        out.write(name, 32);
+        out.write(reinterpret_cast<const char*>(&count), 4);
+        out.write(reinterpret_cast<const char*>(partUvs[i].data()),
+                  (std::streamsize)(partUvs[i].size() * 4));
+    }
+    return (bool)out;
 }
 
 }  // namespace animimport

@@ -836,6 +836,8 @@ private:
     uint64_t matBakeSeenVersion_ = 0;
     matbake::Maps matBakeMaps_;       // latest snapshot
     bool matBakeApplyWhenDone_ = false;  // "Bake & add layer" pending
+    std::string matBakeApplyEntry_;   // entry the pending apply was armed
+                                      // for - switching entries cancels it
     bool matBakeRunOnce_ = false;  // smart masks asked for maps (no preview)
     // cached mesh inputs (rebuilding objparser loads per slider tick would
     // thrash disk; keys carry the file mtimes so external edits re-bake)
@@ -854,6 +856,16 @@ private:
                           const std::string& texRel);
     // composite -> GL upload; multiplies the AO preview in at upload time
     void matEdUploadComposite();
+    // Auto-creates a paintable texture for the selected entry when it has
+    // none ("<entry>-tex.png", 256^2 white, next to the .mtl), assigns it,
+    // saves the file and loads it as the paint target. The one-click
+    // enabler for masks/presets/bakes on a fresh multi-part model. Returns
+    // true when a loaded paint target exists afterwards.
+    bool matEdEnsurePaintTexture();
+    // Drops the loaded paint target (pixels, layers, stroke/ghost state).
+    // Called when the selected entry has NO texture - a stale target from
+    // the previous entry must never receive bake previews or layers.
+    void matEdUnloadPaintTarget();
 
     // UV inspection (docs/material-painting.md): preview display mode and
     // the 2D UV-layout panel with two-way hover sync (hover a face in 3D -
@@ -880,6 +892,13 @@ private:
     std::string matEdUvIssuesKey_;  // matBakeMeshKey_ at validation time
     int matEdUvIssueSel_ = -1;
     void matEdUvValidateSection(const std::string& entryName);
+
+    // Automatic UV unwrap (uvunwrap.hpp): rewrites the preview .obj with
+    // smart-project charts. Static .obj models only; the modal warns that
+    // the previous UVs are replaced (projects are git repos - revert there).
+    bool openUnwrapPopup_ = false;
+    float unwrapAngle_ = 55.0f;  // chart-growing angle threshold
+    int unwrapMargin_ = 4;       // chart spacing, px at the bake resolution
 
     // "PS2 CLUT" display mode (matEdDisplayMode_ == 3): the composite is
     // palette-quantized through the same median-cut quantizer texbake ships

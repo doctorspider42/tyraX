@@ -175,9 +175,12 @@ public:
     // Raycast of the LAST renderMaterialPreview frame: image coords (u, v in
     // [0,1], origin top-left) -> the hit surface's texture UV. paintable is
     // true when the hit face is drawn with the staged texture (the selected
-    // entry's parts on a model; always for primitive shapes).
+    // entry's parts on a model; always for primitive shapes). outMaterial,
+    // when given, receives the hit part's material name ("" for primitive
+    // shapes) - the editor's click-a-part-to-select-its-entry hook.
     bool materialPreviewPick(float u, float v, float& outU, float& outV,
-                             bool& paintable) const;
+                             bool& paintable,
+                             std::string* outMaterial = nullptr) const;
 
     // Inverse of the pick: model-space point -> image coords of the LAST
     // renderMaterialPreview frame (u, v in [0,1], origin top-left). False

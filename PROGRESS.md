@@ -8461,3 +8461,110 @@ Each finished feature lands as its own commit.
   Spin resumes the turntable. The matEdLastOrbitT_ pause timer from (80)
   is removed; the checkbox gained a tooltip stating the behavior. Docs
   updated. Verified: build.ps1 clean (one-line interaction change).
+- (85) **UV unwrap for animated models (user request)** - .glb/.fbx sources
+  can't be rewritten (FBX has no writer at all), so the unwrap rides a
+  SIDECAR instead: uvunwrap refactored into a shared smart-project core
+  with two fronts (unwrapObjFile as before + unwrapTriangles for a flat
+  position-welded triangle soup), and the editor writes "<model>.uvs"
+  ("TXUV" v1: per part material name[32] + corner count + u,v floats; each
+  part unwraps into its OWN 0..1 square since parts carry their own
+  textures). The sidecar is folded in at the animimport chokepoints -
+  bake() for every editor preview/matbake consumer AND parseSkel() for the
+  .tskl writer, whose LODs are generated afterwards and inherit the
+  mapping (generateSkelLods rides UVs along the collapse). Parts match by
+  material name + vertex count, so a re-exported model with changed
+  geometry ignores the stale entry instead of corrupting; deleting the
+  sidecar restores the original mapping. texbake treats .uvs as
+  editor-only (the shipped .tskl already carries the applied UVs). The
+  "Unwrap UVs..." modal now enables for animated preview models with
+  sidecar-specific wording; the editor deletes any existing sidecar before
+  baking the unwrap source so re-unwraps run on the ORIGINAL geometry.
+  Verified: the obj harness still passes post-refactor (identical
+  assertions), and a new animated harness on a real .glb (wobbler, 540
+  verts -> 7 charts): Baked path carries the replacement, Skel path (the
+  shipped-.tskl source) carries it too, every part validator-clean, and
+  sidecar deletion restores the original UVs bit-for-bit. The tskl
+  writer/PS2 loader consume SkelPart::uvs verbatim (verified against the
+  code in the design pass), so the harness's Skel-path check covers what
+  ships; a visual PCSX2 pass on a textured animated model stays on the
+  human-check list with the rest of the GUI passes.
+- (86) **Unwrap: chart fold-over fix + multi-part UV visibility** (user
+  report: spider2.glb "unwrap only covered the abdomen"). Two findings.
+  REAL BUG: a planar chart spanning too much curvature can FOLD over
+  itself - two faces of spider.tee landed on the same 816 texels (the
+  validator harness caught it once pointed at the real model). Fix in
+  unwrapCore: chart growing is now a reusable subset pass, every grown
+  chart runs a 64x64 ownership-raster fold check in its own projection,
+  and folded charts RE-GROW at half the angle threshold (recursively; at
+  <=6 degrees coincident/duplicated geometry isolates into per-face charts,
+  which cannot overlap - guaranteed termination). spider2: 91 -> 92
+  charts, validator-clean on every part; the cube harness unchanged.
+  UX CONFUSION (the actual "tylko dupe objal"): the model has THREE parts
+  (spider 4 tris / spider.legs 350 / spider.tee 10) and the UV panel only
+  drew the SELECTED ENTRY's islands - the unwrap covered everything, but
+  with entry "spider" selected the panel showed 4 triangles. The panel now
+  draws the OTHER entries' islands dimmed gray for context (whole-model
+  layout visible, selected entry highlighted; switch entries in the combo
+  to edit each part). Also: the animated bake-mesh cache key now includes
+  the .uvs sidecar mtime, so external sidecar changes (delete/re-unwrap
+  outside the modal) refresh without a restart. Verified: both unwrap
+  harnesses green including the user's actual spider2.glb (Baked + Skel
+  paths carry the fix, per-part validator-clean, delete-restores).
+- (87) **Multi-entry workflow: pick-to-select + one-click textures** (user
+  request: "mud only on the clothes, quickly") - the per-entry model was
+  all there but navigating it was blind. Three additions: (1)
+  materialPreviewPick gained an outMaterial param (the sweep knows the hit
+  part) and clicking a part in the 3D preview JUMPS TO ITS ENTRY - hover
+  names the part ("spider.legs - click to edit this entry"; parts without
+  a matching entry say so), a clean click is distinguished from an orbit
+  drag by MouseDragMaxDistanceSqr, and painting keeps LMB for the brush;
+  (2) when the selected entry has no texture the Layers box shows a
+  "Create texture for this entry" button (matEdEnsurePaintTexture: a
+  256^2 white "<entry>-tex.png" next to the .mtl, unique-named, Props
+  undo, assigned + saved + loaded as the paint target) - masks, presets
+  and painting bootstrap in one click; (3) the Entry combo marks
+  untextured entries with "(no texture)". Combined with (86)'s dimmed
+  whole-model UV panel, the clothes-mud flow is: click the shirt in the
+  preview -> Create texture -> Presets -> worn-stone; click the pants ->
+  repeat. Verified: build.ps1 clean; input-logic + file-creation paths
+  ride the standing human GUI pass (known white-window machine state).
+- (88) **Fix: stale paint target leaked bake results across entries** (user
+  report: "baked AO on the jaw, switched to the legs entry, baked again -
+  the AO showed up on the jaw"). Root cause: the paint target
+  (matEdPaintTexRel_ + pixels + layers) only ever switched when the NEW
+  entry had a texture; selecting an untextured entry (fresh multi-part
+  models after material extraction) left the PREVIOUS entry's texture
+  loaded, and both the "AO on material" preview multiply and
+  matBakeApplyLayer blindly used the loaded target - the new entry's AO
+  (rasterized on ITS UV islands) landed on the old entry's texture,
+  visually smearing the previous part. Three locks, defense in depth:
+  (1) matBakeTick unloads the paint target whenever the selected entry has
+  no texture (new matEdUnloadPaintTarget - pixels, layers, stroke/ghost
+  state); (2) matBakeApplyLayer verifies the loaded target actually
+  belongs to the selected entry before writing anything ("apply skipped -
+  the loaded texture belongs to another entry"); (3) a pending "Bake & add
+  AO layer" is armed for the entry it was clicked on
+  (matBakeApplyEntry_) and switching entries cancels it with a status
+  message instead of cross-applying whenever the bake finishes. Verified:
+  build.ps1 clean; the failure needed the GUI to reproduce (entry combo +
+  bake button sequencing), so the fix rides the standing human pass - the
+  three locks are each independently sufficient for the reported path.
+- (89) **Fix: clicking an animated model's material in the asset list
+  previewed on the sphere** (user report) - openMaterialEditor's no-hint
+  auto-pick only ever tried a same-stem sibling .obj under res/models, so
+  a material extracted from an animated model (which lives at
+  res/materials/<model>.mtl per the "+ New material from this model" flow)
+  fell through to the default sphere, while an .obj's own library matched.
+  The auto-pick is now a heuristic chain: (1) a scene object of type Model
+  assigned this material as its override - the ground truth, catches any
+  naming; (2) a same-stem sibling model in the .mtl's OWN directory, all
+  three extensions (.obj/.glb/.fbx - a model's own library, now covering
+  animated siblings too); (3) the extraction naming convention
+  res/materials/<stem>.mtl -> res/models/<stem>.{obj,glb,fbx}. Hand-named
+  universal materials with no consumer still land on the sphere, as
+  before. Verified: build.ps1 clean; the pick chain is pure path logic
+  riding the standing human GUI pass.
+- (90) **UI nit: the lone "+ Add" button now says "+ Add entry"** (user
+  report) - with a single-entry .mtl the Entry combo hides and the add
+  button stood alone with no context. Label only; the tooltip already
+  explained the semantics.

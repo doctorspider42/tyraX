@@ -262,6 +262,9 @@ std::string bake(const Project& p,
             if (part.string().size() > 7 &&
                 part.string().rfind(".layers") == part.string().size() - 7)
                 return true;
+        // "<model>.uvs" replacement-UV sidecars (animated-model unwrap) are
+        // folded into the baked .tskl - the file itself never ships
+        if (lowerExt(rel) == ".uvs") return true;
         const std::string top = rel.begin()->generic_string();
         if (top == "fonts") {
             const std::string ext = lowerExt(rel);

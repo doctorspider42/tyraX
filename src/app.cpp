@@ -24,6 +24,7 @@
 #include "menubake.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
+#include "uvunwrap.hpp"
 #include "stochtile.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
@@ -12057,17 +12058,50 @@ void App::openMaterialEditor(const std::string& relPath,
         matBakeMaps_ = matbake::Maps{};
         matBakeStartedSig_ = 0;
         matBakeApplyWhenDone_ = false;
-        // a model's own library previews best on its model: pick the sibling
-        // .obj when the .mtl lives under res/models and no hint was given
-        if (modelHint.empty() &&
-            relPath.rfind("res/models/", 0) == 0) {
-            std::filesystem::path obj(relPath);
-            obj.replace_extension(".obj");
-            std::error_code ec;
-            if (std::filesystem::exists(std::filesystem::path(project_.dir) / obj,
-                                        ec)) {
+        // No hint (the file was clicked in the asset list): find the model
+        // this material belongs to, static or animated. Try, in order:
+        // a scene object assigned this material (the ground truth), a
+        // sibling model with the same stem (a model's own library), and
+        // the extraction convention res/materials/<model>.mtl ->
+        // res/models/<model>.* (the "+ New material from this model" path).
+        if (modelHint.empty()) {
+            std::string found;
+            for (const SceneData& sc : project_.scenes) {
+                for (const SceneObject& o : sc.objects)
+                    if (o.type == PrimitiveType::Model &&
+                        o.materialPath == relPath && !o.modelPath.empty()) {
+                        found = o.modelPath;
+                        break;
+                    }
+                if (!found.empty()) break;
+            }
+            if (found.empty()) {
+                std::error_code ec;
+                static const char* exts[] = {".obj", ".glb", ".fbx"};
+                const std::filesystem::path stem =
+                    std::filesystem::path(relPath).parent_path() /
+                    std::filesystem::path(relPath).stem();
+                for (const char* ext : exts) {
+                    std::filesystem::path cand = stem;
+                    cand += ext;  // sibling in the .mtl's own directory
+                    if (std::filesystem::exists(
+                            std::filesystem::path(project_.dir) / cand, ec)) {
+                        found = cand.generic_string();
+                        break;
+                    }
+                    cand = std::filesystem::path("res/models") /
+                           std::filesystem::path(relPath).stem();
+                    cand += ext;  // the extracted-material convention
+                    if (std::filesystem::exists(
+                            std::filesystem::path(project_.dir) / cand, ec)) {
+                        found = cand.generic_string();
+                        break;
+                    }
+                }
+            }
+            if (!found.empty()) {
                 matEdShape_ = 4;
-                matEdModel_ = obj.generic_string();
+                matEdModel_ = found;
             }
         }
     } else {
@@ -13051,8 +13085,10 @@ bool App::matBakeBuildMeshes(const std::string& entryName) {
             matBakeMeshError_ = "No preview model selected";
             return false;
         }
+        // the .uvs replacement-UV sidecar changes the baked mesh without
+        // touching the model file - its mtime joins the key
         key = "m|" + matEdModel_ + "|" + matEdPath_ + "|" + entryName + "|" +
-              mtimeOf(matEdModel_);
+              mtimeOf(matEdModel_) + "|" + mtimeOf(matEdModel_ + ".uvs");
     } else {
         key = "p|" + std::to_string(matEdShape_);
     }
@@ -13117,6 +13153,17 @@ bool App::matBakeBuildMeshes(const std::string& entryName) {
 // drags re-run nearly free), poll snapshots onto the preview, and finish a
 // pending "Bake & add layer".
 void App::matBakeTick(const std::string& entryName, const std::string& texRel) {
+    // The paint target must always belong to the SELECTED entry: with an
+    // untextured entry selected, a target left over from the previous one
+    // would silently receive this entry's bake previews and layers (the
+    // "legs' AO showed up on the jaw" bug).
+    if (texRel.empty()) matEdUnloadPaintTarget();
+    // A pending "Bake & add layer" is armed for one specific entry -
+    // switching entries turns it into a cross-application, so cancel.
+    if (matBakeApplyWhenDone_ && entryName != matBakeApplyEntry_) {
+        matBakeApplyWhenDone_ = false;
+        statusMessage_ = "Bake apply canceled - the entry changed";
+    }
     if (matBakeRunOnce_ && !matBakeMaps_.empty() &&
         matBakeMaps_.samplesDone >= matBakeRays_ && !matBaker_.running())
         matBakeRunOnce_ = false;  // the smart masks got their maps
@@ -13208,6 +13255,21 @@ void App::matBakeApplyLayer() {
         statusMessage_ =
             "Bake: the entry needs a texture (Texture > New paintable texture)";
         return;
+    }
+    // never apply onto another entry's texture (a stale target)
+    if (matEdSel_ >= 0 && matEdSel_ < (int)matEdMats_.size()) {
+        const MatEdEntry& e = matEdMats_[matEdSel_];
+        const std::string expect =
+            e.texture.empty()
+                ? ""
+                : (std::filesystem::path(matEdPath_).parent_path() / e.texture)
+                      .generic_string();
+        if (expect != matEdPaintTexRel_) {
+            statusMessage_ =
+                "Bake apply skipped - the loaded texture belongs to another "
+                "entry";
+            return;
+        }
     }
     const int w = matEdPaintW_, h = matEdPaintH_;
     const matbake::Maps& m = matBakeMaps_;
@@ -13429,6 +13491,7 @@ void App::matEdBakeSection(const std::string& entryName,
     ImGui::BeginDisabled(texRel.empty());
     if (ImGui::Button("Bake & add AO layer")) {
         matBakeApplyWhenDone_ = true;
+        matBakeApplyEntry_ = entryName;  // switching entries cancels it
         matBakeStartedSig_ = 0;  // force a fresh full-quality run
     }
     ImGui::EndDisabled();
@@ -13708,6 +13771,144 @@ void App::matEdUvValidateSection(const std::string& entryName) {
             "one paints the other), UVs outside 0-1, mirrored (flipped) and\n"
             "degenerate triangles, extreme texel-density outliers. Click a\n"
             "finding to highlight it in the UV panel and on the mesh.");
+
+    // --- automatic unwrap: .obj rewrites in place, animated models get a
+    // "<model>.uvs" sidecar folded in by animimport (sources can't be
+    // rewritten - FBX has no writer)
+    const bool unwrapAnimated =
+        matEdShape_ == 4 && isAnimatedModelPath(matEdModel_);
+    const bool unwrappable = matEdShape_ == 4 && !matEdModel_.empty();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!unwrappable);
+    if (ImGui::Button("Unwrap UVs...")) openUnwrapPopup_ = true;
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            unwrappable
+                ? "Automatic smart-project unwrap of the preview model:\n"
+                  "faces cluster into charts by normal, each chart projects\n"
+                  "flat, everything packs into 0..1 at uniform texel\n"
+                  "density. A static .obj is rewritten in place; an\n"
+                  "animated model gets a <model>.uvs sidecar applied at\n"
+                  "every load/bake (each part unwraps into its own square)."
+                : "Pick a model as the preview mesh first - primitives\n"
+                  "have generated UVs.");
+    if (openUnwrapPopup_) {
+        ImGui::OpenPopup("Unwrap UVs");
+        openUnwrapPopup_ = false;
+    }
+    if (ImGui::BeginPopupModal("Unwrap UVs", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextDisabled("%s", matEdModel_.c_str());
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        ImGui::SliderFloat("Chart angle", &unwrapAngle_, 15.0f, 89.0f,
+                           "%.0f deg");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Faces within this angle of a chart's seed grow into one\n"
+                "island. Low = many small flat charts (hard surface),\n"
+                "high = few big charts with more distortion (organic).");
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        ImGui::SliderInt("Margin", &unwrapMargin_, 1, 8, "%d px");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Spacing between charts, in texels at the bake\n"
+                              "resolution - keeps bilinear filtering from\n"
+                              "bleeding across islands.");
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                           unwrapAnimated
+                               ? "Writes a <model>.uvs sidecar that overrides\n"
+                                 "the model's UVs everywhere (previews, bakes,\n"
+                                 "the shipped .tskl). Delete the sidecar to\n"
+                                 "get the original mapping back."
+                               : "Replaces the model's UVs in the .obj file.\n"
+                                 "An already-painted texture will no longer line\n"
+                                 "up - unwrap BEFORE texturing (or revert with git).");
+        if (ImGui::Button("Unwrap", ImVec2(scaled(120), 0))) {
+            uvunwrap::Params up;
+            up.angleDeg = unwrapAngle_;
+            up.marginPx = unwrapMargin_;
+            up.marginRefSize = 64 << matBakeSizeIdx_;
+            uvunwrap::Stats st;
+            std::string err;
+            bool ok = false;
+            if (unwrapAnimated) {
+                // per part into its own 0..1 square (each part carries its
+                // own texture); the sidecar must hold the ORIGINAL mapping's
+                // replacement, so bake the model fresh without it
+                const std::string abs =
+                    (std::filesystem::path(project_.dir) / matEdModel_)
+                        .string();
+                std::error_code fec;
+                std::filesystem::remove(abs + ".uvs", fec);
+                glbparser::Baked baked;
+                if (animimport::bake(abs, 12.0f, baked, err)) {
+                    std::vector<std::vector<float>> partUvs(
+                        baked.parts.size());
+                    int charts = 0;
+                    ok = !baked.parts.empty();
+                    for (size_t i = 0; i < baked.parts.size() && ok; ++i) {
+                        const glbparser::Part& part = baked.parts[i];
+                        std::vector<float> corners(
+                            part.positions.begin(),
+                            part.positions.begin() +
+                                (size_t)part.vertexCount * 3);
+                        uvunwrap::Stats ps;
+                        ok = uvunwrap::unwrapTriangles(corners, partUvs[i],
+                                                       up, err, &ps);
+                        charts += ps.charts;
+                    }
+                    if (ok)
+                        ok = animimport::writeUvSidecar(abs, baked, partUvs,
+                                                        err);
+                    st.charts = charts;
+                    st.faces = baked.totalVertexCount() / 3;
+                    st.coverage = 0.0f;  // per-part squares - not comparable
+                }
+            } else {
+                ok = uvunwrap::unwrapObjFile(
+                    (std::filesystem::path(project_.dir) / matEdModel_)
+                        .string(),
+                    up, err, &st);
+            }
+            if (ok) {
+                // every consumer caches the parsed model - drop them all
+                viewport_.invalidateAssets();
+                modelInfoCache_.clear();
+                matBakeMeshKey_.clear();
+                matEdStatsKey_.clear();
+                matEdUvIssueTris_.clear();
+                matEdUvIssueSel_ = -1;
+                // validate the fresh mapping right away and show it
+                matEdUvIssues_.clear();
+                matEdUvIssuesKey_.clear();
+                if (matBakeBuildMeshes(entryName)) {
+                    matEdUvIssues_ = matbake::validateUv(
+                        matBakeMeshLow_, 64 << matBakeSizeIdx_);
+                    matEdUvIssuesKey_ = matBakeMeshKey_;
+                }
+                matEdUvView_ = true;
+                char msg[160];
+                if (unwrapAnimated)
+                    std::snprintf(msg, sizeof(msg),
+                                  "Unwrapped %s: %d charts (sidecar written)",
+                                  matEdModel_.c_str(), st.charts);
+                else
+                    std::snprintf(msg, sizeof(msg),
+                                  "Unwrapped %s: %d charts, %.0f%% coverage",
+                                  matEdModel_.c_str(), st.charts,
+                                  st.coverage * 100.0f);
+                statusMessage_ = msg;
+                ImGui::CloseCurrentPopup();
+            } else {
+                statusMessage_ = "Unwrap failed: " + err;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
     if (matEdUvIssuesKey_.empty()) return;
     if (matEdUvIssuesKey_ != matBakeMeshKey_) {
         // different mesh/entry since the run - results no longer apply
@@ -13782,6 +13983,56 @@ void App::matEdUvValidateSection(const std::string& entryName) {
             matEdUvIssueSel_ = -1;
         }
     }
+}
+
+void App::matEdUnloadPaintTarget() {
+    if (matEdPaintTexRel_.empty() && matEdPaintW_ < 1) return;
+    matEdPaintTexRel_.clear();
+    matEdPaintPixels_.clear();
+    matEdLayers_.clear();
+    matEdActiveLayer_ = 0;
+    matEdPaintW_ = matEdPaintH_ = 0;
+    matEdStroke_ = false;
+    matEdHaveLastUV_ = false;
+    matEdGhostShown_ = false;
+}
+
+bool App::matEdEnsurePaintTexture() {
+    if (matEdSel_ < 0 || matEdSel_ >= (int)matEdMats_.size()) return false;
+    MatEdEntry& e = matEdMats_[matEdSel_];
+    const std::filesystem::path mtlDirAbs =
+        (std::filesystem::path(project_.dir) / matEdPath_).parent_path();
+    if (e.texture.empty()) {
+        // fresh 256^2 white canvas named after the entry
+        const std::string base = sanitizeAssetName(e.name + "-tex");
+        std::string fileName;
+        std::error_code ec;
+        for (int n = 1;; ++n) {
+            fileName = base + (n == 1 ? "" : "-" + std::to_string(n)) + ".png";
+            if (!std::filesystem::exists(mtlDirAbs / fileName, ec)) break;
+        }
+        std::vector<unsigned char> px((size_t)256 * 256 * 4, 255);
+        if (!stbi_write_png((mtlDirAbs / fileName).string().c_str(), 256, 256,
+                            4, px.data(), 256 * 4)) {
+            statusMessage_ = "Cannot create " + fileName;
+            return false;
+        }
+        matEdPushUndo(MatEdUndoStep::Kind::Props);  // texture assignment
+        e.texture = fileName;
+        saveMaterialFile();
+        statusMessage_ = "Created " + fileName + " for entry " + e.name;
+    }
+    const std::string texRel =
+        (std::filesystem::path(matEdPath_).parent_path() / e.texture)
+            .generic_string();
+    if (matEdPaintTexRel_ != texRel) {
+        if (!matEdLoadPaintTarget(texRel)) {
+            statusMessage_ = "Cannot read " + texRel;
+            return false;
+        }
+        matEdComposite();
+    }
+    return matEdPaintW_ > 0;
 }
 
 // The 2D UV-layout panel: the paintable triangles' UV wireframe over the
@@ -13871,6 +14122,20 @@ void App::drawMatEdUvPanel(const std::string& entryName,
     const ImU32 wireCol = IM_COL32(255, 196, 96, 150);
     const ImU32 hiliteFill = IM_COL32(255, 196, 96, 90);
     const ImU32 hoverFill = IM_COL32(96, 190, 255, 90);
+    // other entries' islands draw dimmed for context - a multi-part model
+    // (spider body/legs/jaw...) shows its WHOLE layout, with the selected
+    // entry highlighted (switch entries in the combo up top to edit them)
+    if (!mesh.paintTri.empty()) {
+        const ImU32 dimCol = IM_COL32(140, 144, 158, 60);
+        for (int t = 0; t < tris; ++t) {
+            if (mesh.paintTri[t]) continue;
+            const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
+            const float* b = &mesh.verts[(size_t)(t * 3 + 1) * 8];
+            const float* c = &mesh.verts[(size_t)(t * 3 + 2) * 8];
+            dl->AddTriangle(toScreen(a[6], a[7]), toScreen(b[6], b[7]),
+                            toScreen(c[6], c[7]), dimCol);
+        }
+    }
     for (int t = 0; t < tris; ++t) {
         if (!mesh.paintTri.empty() && !mesh.paintTri[t]) continue;
         const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
@@ -14054,6 +14319,7 @@ void App::drawMaterialEditorWindow() {
                 ImGui::PushID(i);
                 std::string label = matEdMats_[i].name;
                 if (i == 0) label += "  [primitives use this]";
+                if (matEdMats_[i].texture.empty()) label += "  (no texture)";
                 if (ImGui::Selectable(label.c_str(), i == matEdSel_)) matEdSel_ = i;
                 ImGui::PopID();
             }
@@ -14061,7 +14327,7 @@ void App::drawMaterialEditorWindow() {
         }
         ImGui::SameLine();
     }
-    if (ImGui::SmallButton("+ Add")) {
+    if (ImGui::SmallButton("+ Add entry")) {
         MatEdEntry e;
         std::string base = "mat";
         for (int n = 1;; ++n) {
@@ -14942,6 +15208,18 @@ void App::drawMaterialEditorWindow() {
 
             // generator controls of the active smart-mask layer
             matEdGenControls();
+        } else if (texRel.empty() && !matEdMats_.empty()) {
+            // no texture on this entry yet: one click bootstraps the whole
+            // layers/masks/presets flow ("mud on the shirt" starts here)
+            ImGui::Spacing();
+            ImGui::TextDisabled("Layers");
+            if (ImGui::Button("Create texture for this entry"))
+                matEdEnsurePaintTexture();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Creates a blank 256x256 PNG named after the entry,\n"
+                    "assigns it and opens the layer stack - masks, presets\n"
+                    "and painting all need a texture to land on.");
         }
 
         // --- the preview image + mouse interaction ---------------------------
@@ -15014,26 +15292,48 @@ void App::drawMaterialEditorWindow() {
                                      // turntable - the framing stays put
             }
 
-            // Hover sync with the UV panel + validator highlights. The
-            // outlines project the bake mesh's triangles through the
-            // preview camera (matBakeMeshLow_ is (re)built by the panel /
-            // validator; stale indices are bounds-guarded).
-            if (matEdUvView_) {
-                matEd3dHoverValid_ = false;
-                if (hovered && !matEdStroke_ && !orbiting) {
-                    const float u = (io.MousePos.x - imgPos.x) / (float)pw;
-                    const float v = (io.MousePos.y - imgPos.y) / (float)ph;
-                    float hu = 0.0f, hv = 0.0f;
-                    bool pntbl = false;
-                    if (viewport_.materialPreviewPick(u, v, hu, hv, pntbl) &&
-                        pntbl) {
-                        matEd3dHoverValid_ = true;
-                        matEd3dHoverUV_[0] = hu;
-                        matEd3dHoverUV_[1] = hv;
+            // Hover pick: feeds the UV-panel sync AND the click-a-part
+            // entry selection. The outlines project the bake mesh's
+            // triangles through the preview camera (matBakeMeshLow_ is
+            // (re)built by the panel / validator; stale indices are
+            // bounds-guarded).
+            matEd3dHoverValid_ = false;
+            if (hovered && !matEdStroke_ && !orbiting &&
+                (matEdUvView_ || (!matEdPaint_ && matEdShape_ == 4))) {
+                const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                float hu = 0.0f, hv = 0.0f;
+                bool pntbl = false;
+                std::string hoverEntry;
+                const bool hit = viewport_.materialPreviewPick(
+                    u, v, hu, hv, pntbl, &hoverEntry);
+                if (hit && pntbl && matEdUvView_) {
+                    matEd3dHoverValid_ = true;
+                    matEd3dHoverUV_[0] = hu;
+                    matEd3dHoverUV_[1] = hv;
+                }
+                // a multi-part model: click any part to jump to its entry
+                // (models only - primitives always use the first entry;
+                // painting keeps LMB for the brush)
+                if (hit && !matEdPaint_ && matEdShape_ == 4 &&
+                    !hoverEntry.empty()) {
+                    int hitIdx = -1;
+                    for (size_t i = 0; i < matEdMats_.size(); ++i)
+                        if (matEdMats_[i].name == hoverEntry)
+                            hitIdx = (int)i;
+                    if (hitIdx >= 0 && hitIdx != matEdSel_) {
+                        ImGui::SetTooltip("%s - click to edit this entry",
+                                          hoverEntry.c_str());
+                        // a clean click, not the tail of an orbit drag
+                        if (ImGui::IsMouseReleased(0) &&
+                            io.MouseDragMaxDistanceSqr[0] < 16.0f)
+                            matEdSel_ = hitIdx;
+                    } else if (hitIdx < 0) {
+                        ImGui::SetTooltip(
+                            "part '%s' has no entry in this file",
+                            hoverEntry.c_str());
                     }
                 }
-            } else {
-                matEd3dHoverValid_ = false;
             }
             if (matEdUvHoverTri_ >= 0 || !matEdUvIssueTris_.empty()) {
                 auto outlineTri = [&](int t, ImU32 col, float th) {

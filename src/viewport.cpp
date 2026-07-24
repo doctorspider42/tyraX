@@ -3311,7 +3311,8 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
 // Nearest hit wins; the hit's texture UV comes from barycentric interpolation
 // (the same UVs the GPU sampled, so the painted texel lands under the cursor).
 bool Viewport::materialPreviewPick(float u, float v, float& outU, float& outV,
-                                   bool& paintable) const {
+                                   bool& paintable,
+                                   std::string* outMaterial) const {
     if (!matPrevPick_.valid) return false;
     const MatPrevPick& pk = matPrevPick_;
     const Vec3 eye{pk.eye[0], pk.eye[1], pk.eye[2]};
@@ -3326,7 +3327,8 @@ bool Viewport::materialPreviewPick(float u, float v, float& outU, float& outV,
     float bestT = 1e30f;
     bool found = false;
     // Moller-Trumbore over a pos3+uv2 triangle list
-    auto sweep = [&](const std::vector<float>& tris, bool canPaint) {
+    auto sweep = [&](const std::vector<float>& tris, bool canPaint,
+                     const std::string* material = nullptr) {
         for (size_t i = 0; i + 14 < tris.size(); i += 15) {
             const Vec3 v0{tris[i], tris[i + 1], tris[i + 2]};
             const Vec3 v1{tris[i + 5], tris[i + 6], tris[i + 7]};
@@ -3350,11 +3352,12 @@ bool Viewport::materialPreviewPick(float u, float v, float& outU, float& outV,
             outU = w0 * tris[i + 3] + bu * tris[i + 8] + bv * tris[i + 13];
             outV = w0 * tris[i + 4] + bu * tris[i + 9] + bv * tris[i + 14];
             paintable = canPaint;
+            if (outMaterial) *outMaterial = material ? *material : "";
         }
     };
     if (pk.shape == 4) {
         for (const MatPrevPart& part : matPrevModel_.parts)
-            sweep(part.tris, part.material == pk.entryName);
+            sweep(part.tris, part.material == pk.entryName, &part.material);
     } else if (pk.shape >= 0 && pk.shape < 4) {
         sweep(prevShapeTris_[pk.shape], true);
     }
