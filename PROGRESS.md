@@ -8634,3 +8634,10 @@ Each finished feature lands as its own commit.
   bind, does the delay fix enumeration) is a **pending hands-on test on the
   user's PS2** - the code is the debugging instrument, the console logs are
   the readout. See docs/keyboard-mouse.md ("Debugging on real hardware").
+
+- (92) **UI nit: two inline help walls moved into (?) tooltips** (user
+  report) - the *Keyboard & mouse controls* and *Reflection probe: aim along
+  the reflected ray* checkboxes still printed their whole explanation inline
+  as `TextDisabled` while every neighbour used the `prefHelp` "(?)" hover.
+  Swapped both to `prefHelp`; text unchanged. Compiles clean (app.cpp
+  recompiled; the linker only skipped overwriting a running editor exe).

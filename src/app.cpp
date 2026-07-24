@@ -18200,7 +18200,7 @@ void App::drawPreferencesModal() {
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
     ImGui::Checkbox("Keyboard && mouse controls", &prefSettings_.keyboardMouse);
-    ImGui::TextDisabled(
+    prefHelp(
         "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
         "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
         "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
@@ -18334,7 +18334,7 @@ void App::drawPreferencesModal() {
 
     ImGui::Checkbox("Reflection probe: aim along the reflected ray",
                     &prefSettings_.envProbeReflected);
-    ImGui::TextDisabled(
+    prefHelp(
         "Dynamic reflections (@sky materials): instead of the classic\n"
         "level-forward aim, a ray from the camera hits the reflective\n"
         "object under the crosshair and the probe renders from the hit\n"
