@@ -1,6 +1,7 @@
 {
   "name": "layer-streaming",
   "template": "fpp",
+  "projectId": "8932db255705074c",
   "settings": {
     "videoSystem": "auto",
     "displayMode": "interlaced",
@@ -10,10 +11,16 @@
     "showFps": false,
     "showMemory": false,
     "showProfiler": false,
+    "liveLink": true,
     "disableVsync": false,
     "clipping": "precise",
     "animLodDistance": 0,
     "meshLodDistance": 0,
+    "staticBatching": true,
+    "envProbeReflected": false,
+    "navCellSize": 1,
+    "navMaxSlope": 40,
+    "navAgentRadius": 0.4,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
@@ -29,6 +36,8 @@
     "stickCurveR": 0,
     "stickExpL": 2,
     "stickExpR": 2,
+    "multiplayer": "off",
+    "p2JoinOnStart": true,
     "orbitSpeed": 1,
     "gravity": 9.8,
     "jumpSpeed": 4.5,
@@ -37,6 +46,9 @@
     "diffuse": 0.45,
     "lightColor": [1, 1, 1],
     "brightness": 1,
+    "aoEnabled": false,
+    "aoStrength": 0.55,
+    "aoRadius": 2.5,
     "terrainMaterial": "",
     "bloom": 0,
     "grain": 0,
@@ -78,7 +90,7 @@
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [
-    { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
+    { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
   ],
   "defaultAmbience": 0,
   "loadingScreens": [],

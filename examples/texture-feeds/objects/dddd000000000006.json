@@ -1,0 +1,1 @@
+{ "id": "dddd000000000006", "name": "monitor-cam", "type": "box", "position": [3.6, 5.4, 8.6], "rotation": [0, 0, 0], "scale": [3.2, 1.9, 0.15], "color": [1, 1, 1], "physics": false, "collision": "none", "textureFeed": "camera:feed-cam" }

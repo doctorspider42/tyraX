@@ -76,6 +76,12 @@ constexpr float MESH_LOD_DISTANCE = 0.0F;
 // its batch. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
 
+// Dynamic reflection probe aim (Preferences > Rendering): false = the
+// classic GT3 level-forward aim; true = a camera ray is intersected with
+// the dynamic-reflective objects and the probe renders from the hit point
+// along the smoothed REFLECTED ray (docs/reflective-materials.md).
+constexpr bool ENV_PROBE_REFLECTED = false;
+
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
 constexpr bool DEBUG_SHOW_FPS = false;

@@ -1,0 +1,1 @@
+{ "id": "2099d94a4b58f291", "name": "pillar-723", "type": "cylinder", "position": [-170.956, 5.159, 58.951], "rotation": [0, 58, 0], "scale": [1.45, 3.12, 1.45], "color": [0.626, 0.509, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }

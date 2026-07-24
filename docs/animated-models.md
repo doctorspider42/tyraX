@@ -179,8 +179,12 @@ player is hugging; that second cast costs nothing when `Shoulder` is 0.
 
 The camera rides a **spring arm**: each frame the boom is cast from the avatar's
 head toward the desired eye, and the camera stops at the first blocker so it
-never enters walls, props or the terrain - snapping in on a hit (a late pull-in
-would show a clipped frame) and easing back out when the way is clear.
+never enters walls, props or the terrain. Two extra **whisker casts**, splayed
+~20° to either side of the boom, spot walls the camera is about to sweep behind
+and ease the boom in *ahead* of the hit, so approaching cover reads as a smooth
+dolly-in instead of a snap; a hard clamp at the straight ray's hit distance
+remains the never-clip guarantee for anything the whiskers missed, and the boom
+eases back out when the way is clear.
 *Distance* is therefore the maximum boom length, not a guarantee. Objects set to
 collision **none** are ignored by the arm (the camera passes through them),
 which doubles as the opt-out for scenery that should never shove the camera.

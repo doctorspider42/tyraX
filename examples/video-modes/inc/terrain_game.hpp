@@ -61,6 +61,14 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // Experimental textured AO: the terrain AO map blended over the base
+    // (and the layers). Shares the chunk's vertices; own extent-normalized
+    // STs, flat 128 colors (the map's alpha carries the darkening).
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    Tyra::StaPipTextureBag aoTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -76,6 +84,13 @@ class TerrainGame : public Tyra::Game {
   // Same render settings as infoBag but with GS blending on - shared by every
   // chunk's layer passes (the base pass must stay opaque).
   std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
+  // Experimental textured AO: the per-scene terrain AO map + primitive
+  // lightmap atlas (acquired in loadScene when the mode is on; nullptr
+  // otherwise). Both draw as alpha-over passes of black textures - the GS
+  // blend turns the alpha into an exact per-pixel darkening.
+  Tyra::Texture* aoMapTexture = nullptr;
+  Tyra::Texture* aoAtlasTexture = nullptr;
+  std::string aoMapTexPath, aoAtlasTexPath;  // for the release on scene swap
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -100,6 +115,15 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
+    // Experimental textured AO: the scene lightmap atlas multiplied over the
+    // base pass (alpha-over blend of a black texture = per-pixel darkening).
+    // aoSts map this part's vertices into the object's atlas regions; shares
+    // the vertices and bboxVersion like the env pass does.
+    std::vector<Tyra::Vec4> aoSts;
+    std::vector<Tyra::Color> aoCols;  // flat 128s - the texture carries it all
+    std::unique_ptr<Tyra::StaPipBag> aoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -112,6 +136,14 @@ class TerrainGame : public Tyra::Game {
     // settled body gets correct rest-pose shading back.
     Tyra::M4x4 objMat;
     bool matrixMode = false;
+    // Reflected-probe mode: the matcap ST basis must be the PROBE camera's
+    // right/up, not the main camera's - a probe looking back at the player
+    // has its left on the player's right, and sampling its map with the
+    // main basis mirrors every reflection horizontally (owner report).
+    // Written by renderObjectProbe, consumed by the env pass.
+    Tyra::Vec4 probeRight;
+    Tyra::Vec4 probeUp;
+    bool probeBasis = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -158,6 +190,9 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // baked ambient-occlusion visibility per vertex (255 = open sky), from
+    // the model's .aov sidecar; empty when the project bakes no AO
+    std::vector<unsigned char> vertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // refl: spherical environment map (nullptr = not reflective).
@@ -226,6 +261,10 @@ class TerrainGame : public Tyra::Game {
     bool reflDynamic = false;
     bool reflRounded = false;
     std::string reflTexPath;  // texture-cache ref held ("" = none)
+    // texture atlasing ("# tyra-uvrect" in the baked .mtl): primitive
+    // builders map their generated 0..1 UVs onto this sub-rectangle of the
+    // (shared page) texture. {0,0,1,1} = no atlas.
+    float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -339,6 +378,32 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
+  // Raytraced mirrors (MirrorData::raytraced, experimental VU0 PoC): the
+  // reflection is ray-traced on a VU0 MICROPROGRAM into a small texture
+  // re-uploaded every frame - sphere proxies of the target list against
+  // the sky gradient - instead of re-submitted geometry. See
+  // docs/raytraced-reflections.md.
+  struct RtMirror {
+    int object = -1;                   // the mirror's scene-table index
+    int size = 64;                     // traced image edge (MirrorData::rtSize)
+    Tyra::Texture* texture = nullptr;  // owns its RGBA32 pixel buffer
+  };
+  std::vector<RtMirror> rtMirrors;
+  Tyra::Vu0Raytracer vu0Rt;
+  void buildRtMirrors();
+  void freeRtMirrors();
+  void renderRtMirror(const MirrorData& mir);
+  // Camera texture feed (CCTV, docs/texture-feeds.md): renders the scene's
+  // feed camera view into the engine's camFeed VRAM target each frame;
+  // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
+  // traced image) as a live emissive texture.
+  void renderCameraFeed();
+  // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
+  // map for ONE reflective object - aimed by the eye->center reflection -
+  // right before that object draws. Interleaving works on a single VRAM
+  // target because the bracket's begin() drains PATH1: the previous
+  // object's draws sample THEIR map before it is overwritten.
+  void renderObjectProbe(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -365,6 +430,13 @@ class TerrainGame : public Tyra::Game {
   bool portalSwallowsPlayer(float x, float feetY, float z);
   bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
                          float y, float z);
+  // Swept variant for physics bodies: a faller at PHYS_MAX_SPEED (3 u/frame)
+  // can step clean over the 2-unit approach zone in one frame - the endpoint
+  // test misses, the terrain clamp kills the fall and the infinite-fall loop
+  // visibly hangs on the ground before it re-swallows. Tests both frame
+  // endpoints plus the segment's plane-crossing point.
+  bool portalSwallowSwept(const RuntimeObject& m, float hx, float hy,
+                          const Tyra::Vec4& a, const Tyra::Vec4& b);
   // Portal pass-through for the walkers: when the body column sits inside
   // a linked portal's opening near its plane, updatePortalPass publishes
   // that portal's plane and collidePlayer stops colliding with objects
@@ -373,8 +445,46 @@ class TerrainGame : public Tyra::Game {
   void updatePortalPass(float x, float feetY, float z);
   float portalPassPlane[4] = {0, 0, 0, 0};
   bool portalPassOn = false;
+  // Thrown objects fly through portals too. portalCarryAim finds the
+  // linked portal whose opening the motion segment a->b pierces (front
+  // face, authored rectangle + slack); -1 = none. forObj gates it through
+  // portalCanCross for that object; forObj == -1 is unconditional (the
+  // player-released flight). portalCanCross is the owner's rule: whatever
+  // a portal SHOWS can also go through it - teleportObjects, viewAll, a
+  // view-list member, or the player-released body all qualify.
+  // portalCarryCrossing maps position + full velocity through that pair
+  // (the same isometry updatePortals applies). While a flight segment
+  // aims into an opening, sweepPass* excludes obstacles fully behind that
+  // portal's plane from sweepSphere, and the physics pass applies the
+  // same exclusion to its static-solid resolution - the mounting wall
+  // must not stop a body's center r short of the crossing plane (callers
+  // pad the segment end by the body's extent for exactly that reason).
+  bool portalCanCross(const PortalData& p, int oi);
+  // True when portal pi's through-view actually DRAWS object oi (viewAll, or
+  // oi is on its explicit view list) - a carried object may only be mapped
+  // through a portal that will render it on the far side.
+  bool portalShowsObject(int pi, int oi);
+  // Map a world point through portal pi's pair (source local -> flip about
+  // local Y -> target world), the same isometry as the teleport/camera.
+  void portalMapPoint(int pi, float& x, float& y, float& z);
+  int portalCarryAim(const float* a, const float* b, int forObj);
+  bool portalCarryCrossing(const float* a, float* pos, float* vel);
+  // Arms sweepPass* when segment a->b pierces a linked opening (pad the
+  // end by the swept body's extent). Pair with sweepPassOn = false after
+  // the sweep.
+  bool armSweepPass(const float* a, const float* b);
+  float sweepPassPlane[4] = {0, 0, 0, 0};
+  bool sweepPassOn = false;
+  // The last player-released rigid body (throw OR drop): portal-free -
+  // crosses any linked portal, flag or not - until it settles to sleep.
+  // -1 = none. The non-physics thrown arc (thrownIndex) is always free.
+  int thrownFreeIndex = -1;
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Per object: frames until it may hop again (set on every hop). Damps
+  // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
+  // touching legit loops - the example's fall re-crosses every ~13 frames.
+  std::vector<unsigned char> portalHopCool;
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
   // around the destination render so renderTerrain can drop chunks in the
   // dead zone between the virtual camera and the target portal's plane.
@@ -462,9 +572,16 @@ class TerrainGame : public Tyra::Game {
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
                        bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain.
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - whisker casts ease it in ahead of a hit, a
+  // hard clamp keeps it out of geometry, and it eases back out.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
+  // The general sweep behind springArm: first blocked distance along d for a
+  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
+  // (the swept object itself). Also carries/throws pickable objects.
+  float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
+                    float maxDist, float radius, int skipIndex) const;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -522,7 +639,36 @@ class TerrainGame : public Tyra::Game {
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
+  // Pickable objects: at most one carried + one in flight. The carried object
+  // rides a fixed reach in front of the camera, swept against the world
+  // (sweepSphere) so it cannot be pushed through or parked behind geometry.
+  void updateCarriedObject();
+  // Hands a dropped/thrown object back to the physics sim (waking it), or
+  // returns false when it has no rigid body to hand off to.
+  bool releaseCarried(RuntimeObject& o, float vx, float vy, float vz);
+  float objectHalfExtent(const RuntimeObject& o) const;
+  // Blocks the walker from pressing against geometry the carried object no
+  // longer fits in front of (the spring arm's sweep, pushing the walker back
+  // instead of pulling the camera in).
+  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
+                         float feetY, float eyeHeight);
+  int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
+  bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
+                              // blocks, eases back out (the boom's policy)
+  int thrownIndex = -1;       // launched object still in flight, -1 = none
+  float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
+  Tyra::Sprite pickPromptSprite;  // "PICK UP" variant, same placement
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
   // point object or the Open Save Menu flow node; gameplay pauses while

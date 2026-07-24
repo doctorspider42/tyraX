@@ -1,0 +1,1 @@
+{ "id": "dddd000000000004", "name": "ball-blue", "type": "sphere", "position": [0.2, 2.5, 6.2], "rotation": [0, 0, 0], "scale": [1.1, 1.1, 1.1], "color": [0.25, 0.4, 0.95], "physics": false }

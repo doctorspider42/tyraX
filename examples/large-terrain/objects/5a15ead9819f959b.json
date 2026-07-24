@@ -1,0 +1,1 @@
+{ "id": "5a15ead9819f959b", "name": "rock-1040", "type": "box", "position": [-330.851, -4.431, -229.391], "rotation": [0, 15.9, 0], "scale": [1.35, 1.76, 1.18], "color": [0.526, 0.526, 0.552], "physics": false, "collision": "none", "drawDistance": 60 }

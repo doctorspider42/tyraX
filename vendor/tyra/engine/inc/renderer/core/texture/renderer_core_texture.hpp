@@ -52,13 +52,19 @@ class RendererCoreTexture {
    * re-upload lazily on their next use. */
   void evictAll();
 
+  /** Modified by TyraX: made public so per-frame dynamic textures (the
+   * VU0-raytraced mirror) can tell "re-upload into the existing
+   * allocation" (updateTextureInfo) apart from "allocate + upload"
+   * (useTexture) after an eviction flush. Returns id == 0 when the
+   * texture has no GS allocation. */
+  RendererCoreTextureBuffers getAllocatedBuffersByTextureId(const u32& id);
+
  private:
   std::vector<RendererCoreTextureBuffers> currentAllocations;
 
   void initClut();
   void registerAllocation(const RendererCoreTextureBuffers& t_buffers);
   void unregisterAllocation(const u32& textureId);
-  RendererCoreTextureBuffers getAllocatedBuffersByTextureId(const u32& id);
 
   RendererCoreGS* gs;
   RendererCoreTextureSender sender;

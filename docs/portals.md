@@ -27,12 +27,44 @@ between distant parts of the map.
    what the destination actually sees — but a big scene pays a second
    submission pass whenever that portal's view is live; watch the
    FPS/profiler before shipping, and prefer the list for release builds.
-4. Optional: **Teleport physics objects** carries physics-enabled objects
-   that cross the surface too (the player always teleports). Vertical
-   velocity maps through the pair, so a floor portal linked to a
-   downward-facing ceiling portal makes the classic **infinite fall** — see
-   `examples/portals`. (Object physics clamps falls at a 50 u/s terminal
-   velocity, so the loop stays smooth instead of accelerating forever.)
+   Static batching interplay: objects on a portal's view list are
+   **excluded from static batching** at build (like a Mirror's list — the
+   through-view re-submits them as solo bags), and in the **All objects**
+   mode a batched object gets a one-time solo bake the first time a live
+   view needs it, so batched decor shows through the portal either way.
+   (The merged batch bags themselves are never submitted into a
+   through-view: a merged bag can't drop just the members behind the
+   destination's exit plane, and the wall the target portal is mounted on
+   would fill the view with its backside.)
+4. **A thrown (or dropped) pickable flies through any linked portal**, like
+   the player does — no flag needed. The hop maps position and the full
+   velocity vector through the pair, so it exits the target with the
+   matching motion, and while the flight is aimed into an opening the wall
+   the portal is mounted on stops colliding for it (the walkers' doorway
+   rule) — wall portals swallow throws instead of bouncing them back. The
+   released body stays "portal-free" until it settles to rest.
+   **Carrying** a pickable through a portal works too: walk into the
+   opening holding it and both you and the object come out the far side.
+   As the object reaches the surface it flies on *through* — mapped to the
+   far side, where you see it just beyond the portal (drawn by the
+   through-view) — then re-anchors in front of the new camera the moment
+   you cross. (This only works through a portal whose through-view shows
+   the object — one set to **All objects in view**, or with the object on
+   its view list. Through a plain **Teleport physics objects** portal,
+   which renders no through-view, the carried object stops at the surface
+   instead.)
+   For *ambient* rigid bodies — anything that falls or rolls in on its
+   own — the rule is **whatever the portal shows can also go through it**:
+   an object on the portal's view list crosses, **All objects in view**
+   opens the crossing to every rigid body, and the **Teleport physics
+   objects** flag does the same when you want crossings without the
+   through-view cost. A floor portal linked to a downward-facing ceiling
+   portal makes the classic **infinite fall** — see `examples/portals`.
+   Falls are capped at a 30 u/s terminal velocity, so the loop stays fast
+   but readable instead of accelerating into a strobing blur; the portal's
+   swallow zone is tested against the whole frame-to-frame motion segment,
+   so a terminal-velocity faller cannot skip over it and snag on the
+   terrain.
 
 The editor viewport draws the surface as a translucent tinted quad, a
 **bright arrow out of the entry face** (the +Z front — the side that shows

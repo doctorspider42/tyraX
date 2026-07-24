@@ -183,7 +183,12 @@ struct SceneObject {
     float physBounce = 0.35f;   // restitution 0..1: 0 = thud, 1 = superball
     float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
     bool physTumble = true;     // ground contact converts slide into roll/spin
+    float physSleep = 3.0f;     // seconds of near-rest before the body sleeps
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
+    bool pickable = false;    // BTN_USE picks it up: carried in front of the
+                              // camera (swept against the world so it cannot
+                              // be pushed through walls), BTN_USE again drops
+    bool pickThrow = false;   // carried object can be thrown with BTN_THROW
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
@@ -206,6 +211,10 @@ struct SceneObject {
     // trick's second half. Each marked object costs a second (128x128,
     // wide-FOV) render per frame; mark the few props that sell the effect.
     bool reflected = false;
+    // Ambient occlusion: this object darkens nearby terrain and objects
+    // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
+    // casts nothing; it still receives shadows from others.
+    bool castShadow = true;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -320,6 +329,18 @@ struct SceneObject {
     // view in degrees. A Cutscene Director shot bound to this camera applies
     // it to the real PS2 projection for the duration of the shot.
     float cameraFov = 60.0f;
+    // Camera texture feed (CCTV): the camera renders its view - sky (+
+    // terrain) + an explicit object list, the Mirror philosophy - into the
+    // engine's 128x128 camFeed VRAM target every frame; objects with
+    // textureFeed == "camera:<name>" show it live. ONE active feed camera
+    // per scene (the first enabled one). See docs/texture-feeds.md.
+    bool camFeed = false;
+    bool camFeedTerrain = true;
+    std::vector<std::string> camFeedObjects;
+    // Live texture feed shown on THIS object's surface (any renderable
+    // primitive): "" = none, "camera:<name>" = a feed camera's view,
+    // "mirror:<name>" = a raytraced mirror's traced image. Renames remap.
+    std::string textureFeed;
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -330,9 +351,17 @@ struct SceneObject {
     // FPP players have no body to reflect). The shared `color` field tints
     // the glass quad; mirrorOpacity is its alpha (0 = invisible glass,
     // 1 = opaque - the reflection shows through low values).
+    // mirrorRaytraced (experimental PoC): instead of re-submitting reflected
+    // geometry, the game ray-traces the targets as SPHERE PROXIES on a VU0
+    // microprogram into a small texture mapped onto the glass - true
+    // per-pixel raytracing on PS2 hardware. See docs/raytraced-reflections.md.
     std::vector<std::string> mirrorObjects;
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
+    bool mirrorRaytraced = false;
+    // Traced image edge: 32/64/128/256/512. Cost scales with the square
+    // (VU0 traces every texel) - 256/512 are photo modes, not frame rates.
+    int mirrorRtSize = 64;
 
     // Portal parameters (used when type == Portal). portalTarget names the
     // destination Portal in the same scene (renames remap; empty or dangling =
@@ -407,11 +436,13 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.physMass == b.physMass &&
            a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
-           a.physTumble == b.physTumble && a.usable == b.usable &&
+           a.physTumble == b.physTumble && a.physSleep == b.physSleep &&
+           a.usable == b.usable &&
+           a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
-           a.reflected == b.reflected &&
+           a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -452,9 +483,14 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.cameraFov == b.cameraFov &&
+           a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
+           a.camFeedObjects == b.camFeedObjects &&
+           a.textureFeed == b.textureFeed &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.mirrorRaytraced == b.mirrorRaytraced &&
+           a.mirrorRtSize == b.mirrorRtSize &&
            a.portalTarget == b.portalTarget &&
            a.portalObjects == b.portalObjects &&
            a.portalShowTerrain == b.portalShowTerrain &&
@@ -485,9 +521,20 @@ struct ProjectSettings {
     // distinct pictures per second at full speed) for about half the fill
     // and VRAM cost. "progressive" outputs flicker-free 480p, "1080i" a
     // pillarboxed HD signal - both need component cables on a real console
-    // (PCSX2 shows every mode) and always run at 60 Hz.
+    // (PCSX2 shows every mode) and always run at 60 Hz. "pal576" is the
+    // full-height PAL frame (true 576i, 512 rendered lines, always 50 Hz
+    // regardless of videoSystem) - the "full PAL" of European releases;
+    // costs ~380 KB of GS VRAM over "interlaced".
     std::string displayMode =
-        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" | "1080i"
+        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" |
+                       // "1080i" | "pal576"
+
+    // PAL handling of the region-following "interlaced" mode: false = the
+    // letterboxed NTSC-size picture (stock), true = a PAL console (or a
+    // forced-PAL videoSystem) boots the full-height 576i frame instead
+    // (DisplayMode::Pal576i). Resolved in the generated main.cpp before
+    // engine init; fixed display modes ignore it.
+    bool palFullHeight = false;
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -501,6 +548,11 @@ struct ProjectSettings {
     // overrides live in Project::textureQuality. "none" = full color,
     // "8bit" = 256 colors, "4bit" = 16 colors (default - era-correct).
     std::string textureQuant = "4bit";
+    // Texture atlasing at build (docs/texture-atlasing.md): small clamp-safe
+    // map_Kd textures pack into shared 256x256 pages - one GS allocation
+    // (+~8 KB overhead) per page instead of per texture. Conservative
+    // eligibility, computed by texatlas::plan; off = classic per-file bake.
+    bool textureAtlas = false;
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
@@ -547,6 +599,17 @@ struct ProjectSettings {
     // actions) trigger a batch rebuild. Off = every object submits its own
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
+
+    // Dynamic reflection probe aim (docs/reflective-materials.md). false =
+    // the classic GT3 aim: the env camera looks level along the player
+    // forward from the eye. true = "reflected ray": each frame a ray from
+    // the camera is intersected with the dynamic-reflective objects
+    // (analytic normals - OBB faces for boxes, spheres for curved shapes,
+    // bounding spheres for models) and the probe renders from the hit
+    // point along the REFLECTED ray (smoothed), so the map shows what the
+    // surface the player looks at actually reflects. Off by default -
+    // existing projects keep their look.
+    bool envProbeReflected = false;
 
     // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
     // host at build time (navmesh.cpp) from the terrain slope + blocking
@@ -620,6 +683,15 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
+    // Baked ambient occlusion (docs/ambient-occlusion.md): terrain
+    // self-shadowing, contact darkening between static geometry and raycast
+    // self-AO for imported .obj models - all folded into the baked vertex
+    // colors, zero PS2 per-frame cost. Authored per ambience preset; these
+    // fields are the no-preset fallback like the lighting above.
+    bool aoEnabled = false;
+    float aoStrength = 0.55f;  // 0..1, how dark full occlusion gets
+    float aoRadius = 2.5f;     // world units the contact darkening reaches
+
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
     // tiled by the map's "-s" scale (repeats per world unit), otherwise the
@@ -673,7 +745,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
-           a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
+           a.displayMode == b.displayMode &&
+           a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink &&
@@ -681,6 +754,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
            a.staticBatching == b.staticBatching &&
+           a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&
@@ -699,6 +773,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
+           a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
+           a.aoRadius == b.aoRadius &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
@@ -1074,6 +1150,13 @@ struct MenuEntry {
         // on the row from the baked value strip (menubake).
         Toggle = 7,      // two options, "Off"/"On" unless customized
         Choice = 8,      // one of `options`, cycled in order
+        // Commits the display-mode selection staged by a BindDisplayMode
+        // row. While any menu in the project has such a row, the display
+        // row only cycles its save value (the player browses freely); this
+        // row fires the actual scan-mode switch (+ the keep-or-revert
+        // confirm). Without one, display rows keep the classic
+        // switch-on-change behavior.
+        ApplyVideo = 9,
     };
     int action = Close;
     std::string param;
@@ -1081,6 +1164,12 @@ struct MenuEntry {
     // Toggle/Choice option labels (value = index into this list). Toggle
     // treats an empty list as {"Off", "On"}.
     std::vector<std::string> options;
+    // BindDisplayMode rows only: the Tyra::DisplayMode each option drives
+    // (parallel to `options`, values 0..4; -1 = the project-default mode,
+    // resolved at boot on the player's console - region + the PAL-picture
+    // preference). Empty = the option index itself (the legacy positional
+    // mapping), so old projects behave unchanged.
+    std::vector<int> optionModes;
     // Ready-made "option block" binding (Menu Editor > Insert option block).
     // On a Toggle/Choice row this makes the generated game map the row's
     // option index (held in the bound save value) straight onto a built-in
@@ -1095,6 +1184,7 @@ struct MenuEntry {
         BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
         BindStickCurve = 4,   // stick response curve exponent (1..3)
         BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
+                              // / PAL 576i (see MenuEntry::optionModes)
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
         BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
     };
@@ -1104,7 +1194,7 @@ struct MenuEntry {
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
            a.amount == b.amount && a.options == b.options &&
-           a.settingBind == b.settingBind;
+           a.optionModes == b.optionModes && a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -1199,6 +1289,11 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
+    // Stable, opaque project identity (16 hex chars), persisted in the .tyra
+    // manifest. Distinguishes projects independently of name/path - the remote
+    // collaboration cache keys downloaded projects on it. Generated at create,
+    // backfilled on load for older projects (see project::ensureProjectId).
+    std::string projectId;
     std::string gameTemplate = "orbit";  // "orbit" | "fpp"
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
@@ -1378,6 +1473,85 @@ std::string newObjectId();
 // object already has a distinct id. Called on load, on create, and from the
 // editor's commitChange() so no object is ever persisted without an id.
 void ensureObjectIds(Project& p);
+
+// Assigns Project::projectId when it is empty (fresh create or a project from
+// before project ids existed). Idempotent; persisted on the next save.
+void ensureProjectId(Project& p);
+
+// --- Per-object / per-section (de)serialization ------------------------------
+// The building blocks of both the on-disk format and the collaboration wire
+// format: an object body is the exact JSON written to objects/<id>.json, a
+// section is a group of project-wide manifest keys serialized as one JSON
+// object. Both directions work purely in memory.
+
+// One scene object as a standalone JSON object string (the objects/<id>.json
+// body, without the trailing newline).
+std::string objectJson(const SceneObject& o);
+
+// Parses a standalone object body produced by objectJson. Returns false when
+// the string is not a JSON object; unknown/missing keys take their defaults
+// (same reader the project load uses).
+bool parseObject(const std::string& body, SceneObject& out);
+
+// Project-wide manifest sections (everything in the .tyra except the scene
+// table, the per-object bodies and the editor-side state). Each serializes
+// independently so the collaboration layer can diff and ship them one at a
+// time; save()/load() are recomposed from the same writers/readers.
+enum class Section {
+    Settings = 0,    // "settings" (project preferences)
+    Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
+    Audio,           // "music", "musicBuild", "sounds"
+    TexQuality,      // "textureQuality" (per-asset overrides)
+    SaveData,        // "saveValues", "saveTexts"
+    Gradings,        // "gradings", "defaultGrading"
+    Ambience,        // "ambience", "defaultAmbience"
+    LoadingScreens,  // "loadingScreens", "defaultLoadingScreen"
+    Splash,          // "splashScreens"
+    Sequences,       // "sequences"
+    Menus,           // "menus"
+};
+constexpr int kSectionCount = 11;
+
+// Stable lowercase identifier for a section (wire format / diagnostics).
+const char* sectionName(Section s);
+
+// The section as one standalone JSON object string (its manifest keys wrapped
+// in braces). Deterministic: equal project state = equal string.
+std::string sectionJson(const Project& p, Section s);
+
+// Replaces the section's fields in `p` from a sectionJson() string. Fields the
+// blob does not carry reset to their defaults (a section blob is total, not a
+// patch). Returns false when the string is not a JSON object.
+bool applySectionJson(Project& p, Section s, const std::string& body);
+
+// An in-memory image of one project-model file. relativePath uses forward
+// slashes (a wire path, not an OS path).
+struct VirtualFile {
+    std::string relativePath;
+    std::string content;
+};
+
+// Byte images of every model file exactly as save()/saveHeights() would write
+// them: the <name>.tyra manifest, one objects/<id>.json per live object and
+// one terrain-<scene>.heights per scene - WITHOUT touching disk. The
+// collaboration host ships these so a joining client sees the live (possibly
+// unsaved) model, not the last saved state.
+std::vector<VirtualFile> manifestFiles(const Project& p);
+
+// The scene table WITHOUT the per-object bodies: each scene's name, terrain
+// size, scene-visual settings/overrides, ambience/loading refs, layers, and
+// its ordered list of object ids. This is the collaboration "scene-layout"
+// message - the structural skeleton; object bodies travel separately as
+// objectJson. Deterministic (equal state = equal string).
+std::string scenesLayoutJson(const Project& p);
+
+// Rebuilds p.scenes from a scenesLayoutJson() string: scene count / names /
+// meta / ordered membership. Objects are pulled BY ID out of p's current
+// scenes into the new arrangement (so a move/reorder keeps the object's body);
+// an id with no current object gets a default placeholder (a matching
+// objectJson upsert is expected to have arrived first). Per-scene heightmaps
+// are preserved by scene index. Returns false when the string is malformed.
+bool applyScenesLayout(Project& p, const std::string& body);
 
 // The effective settings for a scene: the project defaults with each scene
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)

@@ -20,9 +20,13 @@ struct SceneObjectData {
   float physBounce;   // restitution 0..1: 0 = thud, 1 = superball
   float physFriction; // ground drag 0..1: 0 = ice, 1 = sticky
   int physTumble;     // 1 = ground contact converts slide into roll
+  float physSleep;    // seconds of near-rest before the body sleeps
   int model;    // index into MODEL_PATHS / gameModels, -1 = none
   int material; // primitives: index into MATERIAL_PATHS, -1 = plain color
   int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
+  int pickable; // 1 = BTN_USE picks it up and carries it in front of
+                // the camera; BTN_USE again drops it
+  int pickThrow; // 1 = a carried object launches with BTN_THROW
   int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain,
                   // 5 custom (physics below)
   int emitCount;  // emitters: particle pool size (density)
@@ -73,24 +77,24 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[12] = {
-    {6, {0.0F, 0.0F, 20.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {0, {0.0F, 0.6F, 12.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.95F, 0.85F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // pedestal
-    {0, {-12.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.9F, 0.15F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // hero
-    {3, {10.0F, 3.0F, -4.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 6.0F, 3.0F}, {0.95F, 0.8F, 0.35F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // obelisk
-    {0, {5.0F, 0.75F, 3.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 1.5F, 3.0F}, {0.45F, 0.5F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // block-a
-    {0, {-6.0F, 0.5F, -6.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 1.0F, 2.4F}, {0.2F, 0.65F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // block-b
-    {7, {10.0F, 6.4F, -4.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.85F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 3, 32, 0.5F, 0, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sparks
-    {14, {-14.0F, 6.0F, 16.0F}, {13.0F, 135.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.35F, 0.75F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-wide
-    {14, {7.0F, 1.0F, 9.0F}, {-4.0F, -135.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.5F, 1.0F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-low
-    {14, {-16.0F, 2.5F, -10.0F}, {8.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.6F, 0.3F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-dolly
-    {14, {5.0F, 1.5F, 7.0F}, {-22.14F, -144.45F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.5F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-hero
-    {14, {12.0F, 10.0F, 16.0F}, {11.31F, -143.13F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.4F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-crane
+    {6, {0.0F, 0.0F, 20.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {0, {0.0F, 0.6F, 12.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.95F, 0.85F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // pedestal
+    {0, {-12.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.9F, 0.15F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // hero
+    {3, {10.0F, 3.0F, -4.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 6.0F, 3.0F}, {0.95F, 0.8F, 0.35F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // obelisk
+    {0, {5.0F, 0.75F, 3.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 1.5F, 3.0F}, {0.45F, 0.5F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // block-a
+    {0, {-6.0F, 0.5F, -6.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 1.0F, 2.4F}, {0.2F, 0.65F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // block-b
+    {7, {10.0F, 6.4F, -4.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.85F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 3, 32, 0.5F, 0, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sparks
+    {14, {-14.0F, 6.0F, 16.0F}, {13.0F, 135.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.35F, 0.75F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-wide
+    {14, {7.0F, 1.0F, 9.0F}, {-4.0F, -135.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.5F, 1.0F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-low
+    {14, {-16.0F, 2.5F, -10.0F}, {8.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.6F, 0.3F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-dolly
+    {14, {5.0F, 1.5F, 7.0F}, {-22.14F, -144.45F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.5F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-hero
+    {14, {12.0F, 10.0F, 16.0F}, {11.31F, -143.13F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.4F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cam-crane
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0x781a9a05d23357f6ULL, 0xb775f04f3b6d3f54ULL, 0x9bc2b921503eca22ULL, 0x31d760ad041123e4ULL, 0xecad59dcc965f8a3ULL, 0xa4d7d908a36e01d8ULL, 0xf1859bb514c98ddaULL, 0x2f8295741166f4adULL, 0x7a9abe64d909d04eULL, 0x54c5be76b5ca972dULL, 0xf3ae1936653b8174ULL, 0xb2995a921db83921ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0xa14be10ec419a6e3ULL, 0x43862e9952e92d21ULL, 0x739368e1ec522ff0ULL, 0xb93c9c2b4f9c1862ULL, 0xdd22206f128ec2bcULL, 0xb661c1149b28a043ULL, 0x5086a5132cfe0849ULL, 0xfdcb8671341a69c1ULL, 0x759d17af0e429793ULL, 0x58d1aca80a2eabc1ULL, 0xd4703a4aaebbb804ULL, 0x5a0ae6872f01553bULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -110,12 +114,83 @@ struct MirrorData {
   int reflectPlayer;  // 1 = also reflect the third-person avatar
   int firstTarget;    // first entry in MIRROR_TARGETS
   int targetCount;
+  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)
+  int rtSize;         // traced image edge, texels (32..512)
 };
 constexpr int MIRROR_COUNT = 0;
 constexpr MirrorData MIRRORS[1] = {
-    {0, -1, 0.0F, 0, 0, 0}
+    {0, -1, 0.0F, 0, 0, 0, 0, 64}
 };
 constexpr int MIRROR_TARGETS[1] = {-1};
+
+// Raytraced-mirror model proxies: decimated triangle lists
+// in MODEL LOCAL space, 15 floats per triangle (pos + uv
+// per corner). The game transforms them by the target's
+// live transform each frame (renderRtMirror).
+struct RtProxyData {
+  int scene;       // scene index
+  int mirror;      // the mirror's index in its scene table
+  int target;      // the model object's index
+  int part;        // model part whose texture shades hits
+  int firstFloat;  // offset into RT_PROXY_VERTS
+  int triCount;
+};
+constexpr int RT_PROXY_COUNT = 0;
+constexpr RtProxyData RT_PROXIES[1] = {
+    {0, -1, -1, 0, 0, 0}
+};
+constexpr float RT_PROXY_VERTS[1] = {
+  0.0F
+};
+// Animated-model proxies: fixed VERTEX indices (3 per
+// triangle, a connected medoid-decimated coarse mesh) into
+// the part's skinned buffers - the game reads the LIVE
+// skinned vertices (and their resident STs) at these
+// indices every frame, so the reflection plays the clip
+// (renderRtMirror).
+struct RtAnimProxyData {
+  int scene;      // scene index
+  int mirror;     // the mirror's index in its scene table
+  int target;     // the animated model object's index
+  int part;       // animParts index (texture + skinned mesh)
+  int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)
+  int triCount;
+};
+constexpr int RT_ANIM_PROXY_COUNT = 0;
+constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
+    {0, -1, -1, 0, 0, 0}
+};
+constexpr int RT_ANIM_PROXY_TRIS[1] = {
+  0
+};
+
+// Camera texture feeds: one active feed camera per scene.
+struct CamFeedData {
+  int scene;        // scene index
+  int camera;       // the feed camera's scene-table index
+  float fov;        // baked - the fov does not animate
+  int showTerrain;  // 1 = sky + terrain under the view list
+  int firstView;    // first entry in CAM_FEED_VIEWS
+  int viewCount;
+};
+constexpr int CAM_FEED_COUNT = 0;
+constexpr CamFeedData CAM_FEEDS[1] = {
+    {0, -1, 60.0F, 1, 0, 0}
+};
+constexpr int CAM_FEED_VIEWS[1] = {-1};
+// Surfaces showing a live feed: kind 0 = the scene's camera
+// feed, kind 1 = a raytraced mirror's traced image (src =
+// the mirror's scene-table index).
+struct ObjectFeedData {
+  int scene;
+  int object;
+  int kind;
+  int src;
+};
+constexpr int OBJECT_FEED_COUNT = 0;
+constexpr ObjectFeedData OBJECT_FEEDS[1] = {
+    {0, -1, 0, -1}
+};
 
 // Portals (type 16): each entry links a surface to its target
 // portal. The game renders the through-view of the nearest one
@@ -194,6 +269,9 @@ constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false};
+constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
+constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
 constexpr bool CLIP_VU1S[SCENE_COUNT] = {false};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
@@ -360,6 +438,10 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Baked ambient occlusion (docs/ambient-occlusion.md)
+#define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
+#define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
+#define SCENE_AO_RADIUS SCENE_AO_RADII[g_activeScene]
 #define HM_W HM_WS[g_activeScene]
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]

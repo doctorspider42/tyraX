@@ -15,10 +15,18 @@ struct SceneObjectData {
   float rotation[3];  // degrees
   float scale[3];
   float color[3];  // 0..1
-  int physics;  // 1 = falls with gravity
+  int physics;  // 1 = rigid body: gravity, bounces, tumbles, collides
+  float physMass;     // relative mass (impulse exchange, player push)
+  float physBounce;   // restitution 0..1: 0 = thud, 1 = superball
+  float physFriction; // ground drag 0..1: 0 = ice, 1 = sticky
+  int physTumble;     // 1 = ground contact converts slide into roll
+  float physSleep;    // seconds of near-rest before the body sleeps
   int model;    // index into MODEL_PATHS / gameModels, -1 = none
   int material; // primitives: index into MATERIAL_PATHS, -1 = plain color
   int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
+  int pickable; // 1 = BTN_USE picks it up and carries it in front of
+                // the camera; BTN_USE again drops it
+  int pickThrow; // 1 = a carried object launches with BTN_THROW
   int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain,
                   // 5 custom (physics below)
   int emitCount;  // emitters: particle pool size (density)
@@ -54,6 +62,9 @@ struct SceneObjectData {
   float animLod;  // per-object animation-LOD distance override:
                   // -1 = project ANIM_LOD_DISTANCE, 0 = off, >0 = custom
   float meshLod;  // per-object mesh-LOD distance override (same coding)
+  float modelYaw; // content-forward correction (deg around model Y),
+                  // between scale and rotation - X-forward-authored models
+                  // set +-90; runtime facing (faceYaw/AI) stays pure
   int primDetail;        // segments (curved) or box subdivisions/edge
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
@@ -65,24 +76,29 @@ struct SceneObjectData {
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[11] = {
-    {6, {0.0F, 0.0F, 3.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // player-1
-    {16, {0.0F, 1.2F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.95F, 0.55F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // portal-a
-    {16, {20.0F, 1.2F, -15.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.2F, 0.75F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // portal-b
-    {0, {20.0F, 1.5F, -10.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 3.0F, 2.0F}, {0.9F, 0.15F, 0.1F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 1},  // box-red
-    {0, {2.5F, 0.75F, 0.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.15F, 0.8F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 1},  // box-green
-    {16, {4.0F, 0.3F, -6.0F}, {-90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.6F, 0.3F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // portal-floor
-    {0, {4.0F, 5.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.2F, 0.85F}, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 0},  // box-drop
-    {16, {4.0F, 8.0F, -6.0F}, {90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.3F, 0.85F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // portal-ceiling
-    {0, {0.0F, 0.5F, -0.499317F}, {0.0F, 0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 1},  // box-1
-    {0, {19.9781F, 0.5F, -15.5279F}, {0.0F, 0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 1},  // box-1-copy
-    {7, {20.0F, 0.2F, -11.5F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.0F, 1.2F}, {1.0F, 0.55F, 0.1F}, 0, -1, -1, 0, 0, 40, 0.7F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // fire-b
+constexpr SceneObjectData SCENE_0_OBJECTS[16] = {
+    {6, {0.0F, 0.0F, 3.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {16, {0.0F, 1.2F, 0.0223163F}, {0.0F, -0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.95F, 0.55F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-a
+    {16, {20.0F, 1.2F, -15.0445F}, {0.0F, -0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.2F, 0.75F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-b
+    {0, {20.0F, 1.5F, -10.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 3.0F, 2.0F}, {0.9F, 0.15F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-red
+    {0, {2.5F, 0.75F, 0.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.15F, 0.8F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // box-green
+    {16, {4.0F, 0.3F, -6.0F}, {-90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.6F, 0.3F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-floor
+    {0, {4.0F, 5.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.2F, 0.85F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // box-drop
+    {16, {4.0F, 8.0F, -6.0F}, {90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.3F, 0.85F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-ceiling
+    {0, {-0.940377F, 0.468485F, -0.0317291F}, {0.0F, -0.0F, 0.0F}, {0.383252F, 3.89395F, 0.37668F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1
+    {7, {20.0F, 0.2F, -11.5F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.0F, 1.2F}, {1.0F, 0.55F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 40, 0.7F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // fire-b
+    {1, {0.0F, 0.5F, 1.38306F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sphere-1
+    {0, {0.985511F, 0.468485F, -0.00851318F}, {0.0F, -0.0F, 0.0F}, {0.383252F, 3.89395F, 0.37668F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy2
+    {0, {0.0378132F, 2.60442F, -0.00557619F}, {0.0F, -0.0F, 90.0F}, {0.383252F, 2.49303F, 0.376657F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy2-copy
+    {0, {19.0829F, 0.468482F, -15.1036F}, {0.0F, -0.0F, 0.0F}, {0.383252F, 3.89395F, 0.37668F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy
+    {0, {20.0611F, 2.60442F, -15.0775F}, {0.0F, -0.0F, 90.0F}, {0.383252F, 2.49303F, 0.376626F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy2-copy-copy
+    {0, {21.0088F, 0.48456F, -15.0804F}, {0.0F, -0.0F, 0.0F}, {0.383252F, 3.89395F, 0.37668F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy2-copy2
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {11};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {16};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[11] = {0x1027c09ee2b6099cULL, 0x23f00b58caf86d05ULL, 0x23fa0b58cb00c18aULL, 0x23f60b58cafcd8b3ULL, 0x24020b58cb089338ULL, 0x24080b58cb0cfee6ULL, 0x24040b58cb09160fULL, 0x23d80b58cae3db24ULL, 0x25000b58cbdfa035ULL, 0x250a0b58cbe7f4baULL, 0x25060b58cbe40be3ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[16] = {0x1027c09ee2b6099cULL, 0x23f00b58caf86d05ULL, 0x23fa0b58cb00c18aULL, 0x23f60b58cafcd8b3ULL, 0x24020b58cb089338ULL, 0x24080b58cb0cfee6ULL, 0x24040b58cb09160fULL, 0x23d80b58cae3db24ULL, 0x25000b58cbdfa035ULL, 0x25060b58cbe40be3ULL, 0x2a21dd99d618317bULL, 0x347b89da5aa82b39ULL, 0xee8e6b2d8aed4947ULL, 0x5cbe556d09c25e77ULL, 0x76d911fe23a67de1ULL, 0xd17cb38c43b5d685ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -102,12 +118,83 @@ struct MirrorData {
   int reflectPlayer;  // 1 = also reflect the third-person avatar
   int firstTarget;    // first entry in MIRROR_TARGETS
   int targetCount;
+  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)
+  int rtSize;         // traced image edge, texels (32..512)
 };
 constexpr int MIRROR_COUNT = 0;
 constexpr MirrorData MIRRORS[1] = {
-    {0, -1, 0.0F, 0, 0, 0}
+    {0, -1, 0.0F, 0, 0, 0, 0, 64}
 };
 constexpr int MIRROR_TARGETS[1] = {-1};
+
+// Raytraced-mirror model proxies: decimated triangle lists
+// in MODEL LOCAL space, 15 floats per triangle (pos + uv
+// per corner). The game transforms them by the target's
+// live transform each frame (renderRtMirror).
+struct RtProxyData {
+  int scene;       // scene index
+  int mirror;      // the mirror's index in its scene table
+  int target;      // the model object's index
+  int part;        // model part whose texture shades hits
+  int firstFloat;  // offset into RT_PROXY_VERTS
+  int triCount;
+};
+constexpr int RT_PROXY_COUNT = 0;
+constexpr RtProxyData RT_PROXIES[1] = {
+    {0, -1, -1, 0, 0, 0}
+};
+constexpr float RT_PROXY_VERTS[1] = {
+  0.0F
+};
+// Animated-model proxies: fixed VERTEX indices (3 per
+// triangle, a connected medoid-decimated coarse mesh) into
+// the part's skinned buffers - the game reads the LIVE
+// skinned vertices (and their resident STs) at these
+// indices every frame, so the reflection plays the clip
+// (renderRtMirror).
+struct RtAnimProxyData {
+  int scene;      // scene index
+  int mirror;     // the mirror's index in its scene table
+  int target;     // the animated model object's index
+  int part;       // animParts index (texture + skinned mesh)
+  int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)
+  int triCount;
+};
+constexpr int RT_ANIM_PROXY_COUNT = 0;
+constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
+    {0, -1, -1, 0, 0, 0}
+};
+constexpr int RT_ANIM_PROXY_TRIS[1] = {
+  0
+};
+
+// Camera texture feeds: one active feed camera per scene.
+struct CamFeedData {
+  int scene;        // scene index
+  int camera;       // the feed camera's scene-table index
+  float fov;        // baked - the fov does not animate
+  int showTerrain;  // 1 = sky + terrain under the view list
+  int firstView;    // first entry in CAM_FEED_VIEWS
+  int viewCount;
+};
+constexpr int CAM_FEED_COUNT = 0;
+constexpr CamFeedData CAM_FEEDS[1] = {
+    {0, -1, 60.0F, 1, 0, 0}
+};
+constexpr int CAM_FEED_VIEWS[1] = {-1};
+// Surfaces showing a live feed: kind 0 = the scene's camera
+// feed, kind 1 = a raytraced mirror's traced image (src =
+// the mirror's scene-table index).
+struct ObjectFeedData {
+  int scene;
+  int object;
+  int kind;
+  int src;
+};
+constexpr int OBJECT_FEED_COUNT = 0;
+constexpr ObjectFeedData OBJECT_FEEDS[1] = {
+    {0, -1, 0, -1}
+};
 
 // Portals (type 16): each entry links a surface to its target
 // portal. The game renders the through-view of the nearest one
@@ -128,7 +215,7 @@ struct PortalData {
 constexpr int PORTAL_COUNT = 4;
 constexpr PortalData PORTALS[4] = {
     {0, 1, 2, 1, 0, 1, 0, 0},  // portal-a,
-    {0, 2, 1, 1, 0, 0, 0, 1},  // portal-b,
+    {0, 2, 1, 1, 0, 1, 0, 1},  // portal-b,
     {0, 5, 7, 1, 1, 1, 1, 0},  // portal-floor,
     {0, 7, 5, 1, 0, 1, 1, 0},  // portal-ceiling
 };
@@ -139,7 +226,7 @@ inline const char* SND_PATHS[1] = {""};
 
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.4F};
+constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.12F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
@@ -181,6 +268,9 @@ constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false};
+constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
+constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
 constexpr bool CLIP_VU1S[SCENE_COUNT] = {true};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
@@ -237,14 +327,14 @@ inline void applySceneGrading(TEngine* engine, int index) {
       GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
 }
 
-constexpr int SAVE_VALUE_COUNT = 0;
-inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
-constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+constexpr int SAVE_VALUE_COUNT = 6;
+inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {"opt_music_vol", "opt_sfx_vol", "opt_deadzone", "opt_stick_curve", "opt_display", "opt_widescreen"};
+constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {4.0F, 4.0F, 2.0F, 0.0F, 0.0F, 0.0F};
 constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 11;
+constexpr int SAVE_OBJECT_MAX = 16;
 
 }  // namespace Portals
 
@@ -275,8 +365,14 @@ inline bool flashlightTogglePressed(TEngine* engine) {
   return false;
 }
 // Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+// Uses the MEASURED frame time, not the nominal vsync rate: with vsync
+// disabled the loop free-runs way past 50 FPS and a nominal-rate count would
+// make every timer (Delay, Every N Seconds, splash holds, sound retriggers)
+// fire that much too fast - the disableVsync contract is "faster picture,
+// same gameplay speed". At vsync the measured dt snaps to nominal, so this
+// is bit-identical to the old seconds * g_frameRate there.
 inline int everyFrames(float seconds) {
-  const int f = (int)(seconds * g_frameRate);
+  const int f = (int)(seconds / (g_frameDt > 0.0001F ? g_frameDt : 0.02F));
   return f < 1 ? 1 : f;
 }
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
@@ -333,16 +429,25 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Baked ambient occlusion (docs/ambient-occlusion.md)
+#define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
+#define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
+#define SCENE_AO_RADIUS SCENE_AO_RADII[g_activeScene]
 #define HM_W HM_WS[g_activeScene]
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
+// Painted terrain layers (two-pass splatting; docs/terrain-painting.md)
+#define TERRAIN_LAYER_COUNT TERRAIN_LAYER_COUNTS[g_activeScene]
+#define TERRAIN_SPLAT_WEIGHTS TERRAIN_SPLAT_TABLES[g_activeScene]
 #define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
 #define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
 #define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
 #define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
 #define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
+#define TERRAIN_TINT_VARIATION TERRAIN_TINT_VARIATIONS[g_activeScene]
+#define TERRAIN_TINT_SCALE TERRAIN_TINT_SCALES[g_activeScene]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define CLIP_VU1 CLIP_VU1S[g_activeScene]

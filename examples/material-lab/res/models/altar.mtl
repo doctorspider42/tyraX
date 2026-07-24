@@ -1,0 +1,6 @@
+# tyra-bake 128 96 2 0 1 4 1 0 -
+
+newmtl altar
+# tyra-brightness 1
+Kd 1.0000 1.0000 1.0000
+map_Kd altar.png

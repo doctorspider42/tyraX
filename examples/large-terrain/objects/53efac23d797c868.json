@@ -1,0 +1,1 @@
+{ "id": "53efac23d797c868", "name": "pillar-172", "type": "cylinder", "position": [-280.269, -3.565, -320.028], "rotation": [0, 269, 0], "scale": [1.01, 2.75, 1.01], "color": [0.609, 0.549, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }
