@@ -12239,6 +12239,34 @@ bool App::matEdLoadPaintTarget(const std::string& texRel) {
                                         : 1.0f;
                     layer.visible =
                         l.find("visible") ? l.find("visible")->boolOr(true) : true;
+                    if (const json::Value* gv = l.find("gen");
+                        gv && gv->type == json::Value::Type::Object) {
+                        layer.genOn = true;
+                        auto num = [&](const char* key, float def) {
+                            const json::Value* v = gv->find(key);
+                            return v ? (float)v->numberOr(def) : def;
+                        };
+                        int srcIdx = (int)num("source", 0.0f);
+                        if (srcIdx < 0 ||
+                            srcIdx > (int)matbake::MaskParams::Source::Bricks)
+                            srcIdx = 0;
+                        layer.gen.source = (matbake::MaskParams::Source)srcIdx;
+                        layer.gen.rangeLo = num("lo", 0.35f);
+                        layer.gen.rangeHi = num("hi", 0.75f);
+                        layer.gen.invert = gv->find("invert") &&
+                                           gv->find("invert")->boolOr(false);
+                        layer.gen.scale = num("scale", 4.0f);
+                        layer.gen.seed = (uint32_t)num("seed", 1.0f);
+                        layer.gen.breakupAmount = num("breakup", 0.0f);
+                        layer.gen.breakupScale = num("breakupScale", 6.0f);
+                        layer.gen.mortar = num("mortar", 0.06f);
+                        if (const json::Value* c = gv->find("color");
+                            c && c->type == json::Value::Type::Array &&
+                            c->arr.size() >= 3)
+                            for (int k = 0; k < 3; ++k)
+                                layer.genColor[k] =
+                                    (float)c->arr[k].numberOr(0.2);
+                    }
                     const std::string file =
                         l.find("file") ? l.find("file")->stringOr("") : "";
                     int lw = 0, lh = 0, lc = 0;
@@ -12279,6 +12307,14 @@ bool App::matEdLoadPaintTarget(const std::string& texRel) {
         bg.pixels = matEdPaintPixels_;
         matEdLayers_.push_back(std::move(bg));
         matEdActiveLayer_ = 0;
+    }
+    // smart masks are pixel caches of their params - refresh them against
+    // the current bake right away (and ask for maps if none exist yet)
+    if (matEdAnyGenLayer()) {
+        if (!matBakeMaps_.empty())
+            matEdRegenMasks();
+        else
+            matBakeRunOnce_ = true;
     }
     return true;
 }
@@ -12450,7 +12486,22 @@ void App::matEdSaveLayers() {
         manifest << "    {\"name\": \"" << name << "\", \"blend\": " << L.blend
                  << ", \"opacity\": " << op << ", \"visible\": "
                  << (L.visible ? "true" : "false") << ", \"file\": \"" << file
-                 << "\"}" << (i + 1 < matEdLayers_.size() ? "," : "") << "\n";
+                 << "\"";
+        if (L.genOn) {
+            char gb[256];
+            std::snprintf(
+                gb, sizeof(gb),
+                ", \"gen\": {\"source\": %d, \"lo\": %.4g, \"hi\": %.4g, "
+                "\"invert\": %s, \"scale\": %.4g, \"seed\": %u, \"breakup\": "
+                "%.4g, \"breakupScale\": %.4g, \"mortar\": %.4g, \"color\": "
+                "[%.4g, %.4g, %.4g]}",
+                (int)L.gen.source, L.gen.rangeLo, L.gen.rangeHi,
+                L.gen.invert ? "true" : "false", L.gen.scale, L.gen.seed,
+                L.gen.breakupAmount, L.gen.breakupScale, L.gen.mortar,
+                L.genColor[0], L.genColor[1], L.genColor[2]);
+            manifest << gb;
+        }
+        manifest << "}" << (i + 1 < matEdLayers_.size() ? "," : "") << "\n";
     }
     manifest << "  ]\n}\n";
     std::ofstream out(dir / "layers.json", std::ios::trunc);
@@ -12747,7 +12798,11 @@ bool App::matBakeBuildMeshes(const std::string& entryName) {
 // drags re-run nearly free), poll snapshots onto the preview, and finish a
 // pending "Bake & add layer".
 void App::matBakeTick(const std::string& entryName, const std::string& texRel) {
-    const bool wantBake = matBakePreviewMode_ > 0 || matBakeApplyWhenDone_;
+    if (matBakeRunOnce_ && !matBakeMaps_.empty() &&
+        matBakeMaps_.samplesDone >= matBakeRays_ && !matBaker_.running())
+        matBakeRunOnce_ = false;  // the smart masks got their maps
+    const bool wantBake = matBakePreviewMode_ > 0 || matBakeApplyWhenDone_ ||
+                          matBakeRunOnce_;
     if (wantBake) {
         // the AO-on-material merge rides the paint target's GL upload
         if (matBakePreviewMode_ == 1 && !texRel.empty() &&
@@ -12775,6 +12830,8 @@ void App::matBakeTick(const std::string& entryName, const std::string& texRel) {
     if (matBaker_.version() != matBakeSeenVersion_) {
         matBakeSeenVersion_ = matBaker_.version();
         matBakeMaps_ = matBaker_.snapshot();
+        if (matEdAnyGenLayer() && matEdPaintW_ > 0)
+            matEdRegenMasks();  // smart masks track the refining bake live
         if (matBakePreviewMode_ == 1)
             matEdUploadComposite();
         else if (matBakePreviewMode_ == 2)
@@ -13077,6 +13134,235 @@ void App::matEdBakeSection(const std::string& entryName,
             "Writes ao/curvature/thickness/bent/normal/position PNGs next\n"
             "to the .mtl - mask sources for wear & dirt, or exports for\n"
             "external tools.");
+}
+
+// --- Smart masks (docs/material-baking.md) -----------------------------------
+// A gen layer's pixels are its color filled through a matbake::generateMask
+// alpha - "wear on edges", "dirt in cavities", world-space noise - driven by
+// the baked map set, regenerated live as the bake refines.
+
+void App::matEdRegenLayer(MatEdLayer& l) {
+    if (!l.genOn || matEdPaintW_ < 1 || matBakeMaps_.empty()) return;
+    const std::vector<uint8_t> mask = matbake::generateMask(
+        matBakeMaps_, l.gen, matEdPaintW_, matEdPaintH_);
+    if (mask.empty()) return;
+    const size_t count = (size_t)matEdPaintW_ * matEdPaintH_;
+    l.pixels.resize(count * 4);
+    const unsigned char r = (unsigned char)(l.genColor[0] * 255.0f + 0.5f);
+    const unsigned char g = (unsigned char)(l.genColor[1] * 255.0f + 0.5f);
+    const unsigned char b = (unsigned char)(l.genColor[2] * 255.0f + 0.5f);
+    for (size_t i = 0; i < count; ++i) {
+        unsigned char* px = &l.pixels[i * 4];
+        px[0] = r, px[1] = g, px[2] = b;
+        px[3] = mask[i];
+    }
+}
+
+bool App::matEdAnyGenLayer() const {
+    for (const MatEdLayer& l : matEdLayers_)
+        if (l.genOn) return true;
+    return false;
+}
+
+void App::matEdRegenMasks() {
+    bool any = false;
+    for (MatEdLayer& l : matEdLayers_) {
+        if (!l.genOn) continue;
+        matEdRegenLayer(l);
+        any = true;
+    }
+    if (any) matEdComposite();
+}
+
+// Generator controls of the active layer (shown under the layer list).
+void App::matEdGenControls() {
+    if (matEdActiveLayer_ < 0 || matEdActiveLayer_ >= (int)matEdLayers_.size())
+        return;
+    MatEdLayer& L = matEdLayers_[matEdActiveLayer_];
+    if (!L.genOn) return;
+    ImGui::SeparatorText("Smart mask");
+    bool changed = false, commit = false;
+    const char* sources[] = {"Edge wear",   "Cavity grime", "Occlusion dirt",
+                             "Thin rims",   "Height (Y)",   "Facing up",
+                             "Perlin noise", "Worley cells", "Bricks"};
+    int src = (int)L.gen.source;
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    if (ImGui::Combo("##gen_src", &src, sources, 9)) {
+        L.gen.source = (matbake::MaskParams::Source)src;
+        changed = commit = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What drives the mask. Edge wear / cavity grime come from the\n"
+            "baked curvature, dirt from AO, rims from thickness, height and\n"
+            "facing-up from position/normals; the noises sample 3D noise at\n"
+            "the baked surface position, so they continue across UV seams.");
+    ImGui::SameLine();
+    changed |= ImGui::ColorEdit3("##gen_col", L.genColor,
+                                 ImGuiColorEditFlags_NoInputs);
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mask fill color.");
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    changed |= ImGui::DragFloatRange2("Range", &L.gen.rangeLo, &L.gen.rangeHi,
+                                      0.004f, 0.0f, 1.0f, "%.2f");
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Remap window over the source signal (smoothstep):\n"
+                          "narrow = a hard-edged mask, wide = a soft ramp.");
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Invert", &L.gen.invert)) changed = commit = true;
+
+    const bool noisy = src >= (int)matbake::MaskParams::Source::Perlin;
+    if (noisy) {
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        changed |= ImGui::DragFloat("Scale", &L.gen.scale, 0.05f, 0.5f, 64.0f,
+                                    "%.1f");
+        commit |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80.0f));
+        int seed = (int)L.gen.seed;
+        if (ImGui::DragInt("Seed", &seed, 0.2f, 0, 9999)) {
+            L.gen.seed = (uint32_t)seed;
+            changed = commit = true;
+        }
+        if (src == (int)matbake::MaskParams::Source::Bricks) {
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            changed |= ImGui::DragFloat("Mortar", &L.gen.mortar, 0.002f, 0.01f,
+                                        0.3f, "%.2f");
+            commit |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+    }
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    changed |= ImGui::SliderFloat("Breakup", &L.gen.breakupAmount, 0.0f, 1.0f,
+                                  "%.2f");
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Multiplies the mask by world-space Perlin noise -\n"
+                          "organic, uneven wear instead of a uniform coat.");
+    if (L.gen.breakupAmount > 0.0f) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(90.0f));
+        changed |= ImGui::DragFloat("##gen_bscale", &L.gen.breakupScale, 0.05f,
+                                    0.5f, 64.0f, "x%.1f");
+        commit |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+
+    if (matBakeMaps_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                           "Needs baked maps to generate.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Bake maps now")) matBakeRunOnce_ = true;
+    }
+    if (changed) {
+        matEdRegenLayer(L);
+        matEdComposite();
+    }
+    if (commit) matEdSavePaintTarget();
+}
+
+// --- material presets: reusable smart-mask stacks ------------------------------
+// A preset is the gen-enabled layers' PARAMETERS (never pixels), stored as
+// <project>/material-presets/<name>.matpreset - project dir, outside res/,
+// so it never ships (the flow-nodes/ pattern). Applying regenerates the
+// masks from the current material's own bake.
+
+void App::matEdSavePreset(const std::string& name) {
+    std::vector<const MatEdLayer*> gens;
+    for (const MatEdLayer& l : matEdLayers_)
+        if (l.genOn) gens.push_back(&l);
+    if (gens.empty()) {
+        matEdPresetError_ = "No smart-mask layers to save.";
+        return;
+    }
+    const std::filesystem::path dir =
+        std::filesystem::path(project_.dir) / "material-presets";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::ofstream out(dir / (name + ".matpreset"), std::ios::trunc);
+    if (!out) {
+        matEdPresetError_ = "Cannot write the preset file.";
+        return;
+    }
+    out << "{\n  \"layers\": [\n";
+    char buf[256];
+    for (size_t i = 0; i < gens.size(); ++i) {
+        const MatEdLayer& l = *gens[i];
+        std::string nm = l.name;
+        for (char& c : nm)
+            if (c == '"' || c == '\\') c = '\'';
+        std::snprintf(
+            buf, sizeof(buf),
+            "    {\"name\": \"%s\", \"blend\": %d, \"opacity\": %.4g, "
+            "\"color\": [%.4g, %.4g, %.4g], \"source\": %d, \"lo\": %.4g, "
+            "\"hi\": %.4g, \"invert\": %s, \"scale\": %.4g, \"seed\": %u, "
+            "\"breakup\": %.4g, \"breakupScale\": %.4g, \"mortar\": %.4g}%s",
+            nm.c_str(), l.blend, l.opacity, l.genColor[0], l.genColor[1],
+            l.genColor[2], (int)l.gen.source, l.gen.rangeLo, l.gen.rangeHi,
+            l.gen.invert ? "true" : "false", l.gen.scale, l.gen.seed,
+            l.gen.breakupAmount, l.gen.breakupScale, l.gen.mortar,
+            i + 1 < gens.size() ? "," : "");
+        out << buf << "\n";
+    }
+    out << "  ]\n}\n";
+    matEdPresetError_.clear();
+    statusMessage_ = "Saved material preset " + name;
+}
+
+bool App::matEdApplyPreset(const std::string& fileName) {
+    const std::filesystem::path full = std::filesystem::path(project_.dir) /
+                                       "material-presets" / fileName;
+    std::ifstream in(full);
+    if (!in) return false;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    json::Value root;
+    if (!json::parse(ss.str(), root)) return false;
+    const json::Value* arr = root.find("layers");
+    if (!arr || arr->type != json::Value::Type::Array) return false;
+    int added = 0;
+    for (const json::Value& e : arr->arr) {
+        MatEdLayer l;
+        l.genOn = true;
+        l.name = e.find("name") ? e.find("name")->stringOr("Smart mask")
+                                : "Smart mask";
+        l.blend = e.find("blend") ? (int)e.find("blend")->numberOr(0) : 0;
+        l.opacity =
+            e.find("opacity") ? (float)e.find("opacity")->numberOr(1.0) : 1.0f;
+        if (const json::Value* c = e.find("color");
+            c && c->type == json::Value::Type::Array && c->arr.size() >= 3)
+            for (int k = 0; k < 3; ++k)
+                l.genColor[k] = (float)c->arr[k].numberOr(0.2);
+        auto num = [&](const char* key, float def) {
+            const json::Value* v = e.find(key);
+            return v ? (float)v->numberOr(def) : def;
+        };
+        int srcIdx = (int)num("source", 0.0f);
+        if (srcIdx < 0 || srcIdx > (int)matbake::MaskParams::Source::Bricks)
+            srcIdx = 0;
+        l.gen.source = (matbake::MaskParams::Source)srcIdx;
+        l.gen.rangeLo = num("lo", 0.35f);
+        l.gen.rangeHi = num("hi", 0.75f);
+        l.gen.invert = e.find("invert") && e.find("invert")->boolOr(false);
+        l.gen.scale = num("scale", 4.0f);
+        l.gen.seed = (uint32_t)num("seed", 1.0f);
+        l.gen.breakupAmount = num("breakup", 0.0f);
+        l.gen.breakupScale = num("breakupScale", 6.0f);
+        l.gen.mortar = num("mortar", 0.06f);
+        l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
+        matEdRegenLayer(l);
+        const int at = (int)matEdLayers_.size();
+        matEdLayers_.push_back(std::move(l));
+        matEdActiveLayer_ = at;
+        matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+        ++added;
+    }
+    if (!added) return false;
+    if (matBakeMaps_.empty()) matBakeRunOnce_ = true;  // masks fill once baked
+    matEdComposite();
+    matEdSavePaintTarget();
+    statusMessage_ = "Applied preset: " + std::to_string(added) + " mask layer(s)";
+    return true;
 }
 
 // UV validator: the "why does my texture look wrong" list. Runs matbake's
@@ -13827,6 +14113,42 @@ void App::drawMaterialEditorWindow() {
                 "light up its texture region; hover a triangle in the panel\n"
                 "to outline it on the mesh.");
 
+        // preview-mesh stats (import sanity: sizes, UV presence)
+        if (matBakeBuildMeshes(sel.name)) {
+            if (matEdStatsKey_ != matBakeMeshKey_) {
+                matEdStatsKey_ = matBakeMeshKey_;
+                const matbake::MeshInput& mm = matBakeMeshLow_;
+                int painted = 0;
+                for (char c : mm.paintTri) painted += c ? 1 : 0;
+                if (mm.paintTri.empty()) painted = mm.triCount();
+                bool hasUv = false;
+                for (size_t i = 0; i + 7 < mm.verts.size() && !hasUv; i += 8)
+                    hasUv = mm.verts[i + 6] != 0.0f || mm.verts[i + 7] != 0.0f;
+                int verts = 0;
+                for (int pi : mm.posIdx) verts = std::max(verts, pi + 1);
+                char sb[128];
+                if (verts > 0)
+                    std::snprintf(sb, sizeof(sb),
+                                  "%d tris (%d on this entry) - %d verts",
+                                  mm.triCount(), painted, verts);
+                else
+                    std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry)",
+                                  mm.triCount(), painted);
+                matEdStatsLine_ = sb;
+                matEdStatsWarn_ = !hasUv || painted == 0;
+                if (!hasUv)
+                    matEdStatsLine_ += " - no UVs (paint/bake need them)";
+                else if (painted == 0)
+                    matEdStatsLine_ +=
+                        " - no faces use this entry (check usemtl names)";
+            }
+            if (matEdStatsWarn_)
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
+                                   matEdStatsLine_.c_str());
+            else
+                ImGui::TextDisabled("%s", matEdStatsLine_.c_str());
+        }
+
         // Staged values of the selected entry (live during slider drags)
         float kd[3];
         for (int i = 0; i < 3; ++i) {
@@ -14127,6 +14449,89 @@ void App::drawMaterialEditorWindow() {
                 matEdSavePaintTarget();
             }
             ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+ Mask")) {
+                MatEdLayer l;
+                l.name = "Smart mask";
+                l.genOn = true;
+                l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
+                matEdRegenLayer(l);
+                const int at = matEdActiveLayer_ + 1;
+                matEdLayers_.insert(matEdLayers_.begin() + at, std::move(l));
+                matEdActiveLayer_ = at;
+                matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+                if (matBakeMaps_.empty()) matBakeRunOnce_ = true;
+                matEdComposite();
+                matEdSavePaintTarget();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Procedural mask layer driven by the baked maps: wear on\n"
+                    "edges, grime in cavities, dirt in occlusion, height\n"
+                    "streaks, world-space noise, bricks... Select it to tune\n"
+                    "the generator below; it re-generates live as the bake\n"
+                    "refines (hand strokes on it are overwritten).");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Presets")) ImGui::OpenPopup("##mat_presets");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reusable smart-mask stacks (material-presets/ in the\n"
+                    "project). Apply one to another asset and the masks\n"
+                    "regenerate from THAT model's own bake.");
+            if (ImGui::BeginPopup("##mat_presets")) {
+                const std::filesystem::path pdir =
+                    std::filesystem::path(project_.dir) / "material-presets";
+                std::error_code ec;
+                bool anyPreset = false;
+                if (std::filesystem::exists(pdir, ec))
+                    for (const auto& f :
+                         std::filesystem::directory_iterator(pdir, ec)) {
+                        if (!f.is_regular_file() ||
+                            f.path().extension() != ".matpreset")
+                            continue;
+                        anyPreset = true;
+                        const std::string stem = f.path().stem().string();
+                        if (ImGui::MenuItem(stem.c_str())) {
+                            if (!matEdApplyPreset(f.path().filename().string()))
+                                statusMessage_ =
+                                    "Cannot read preset " + stem;
+                        }
+                    }
+                if (!anyPreset) ImGui::TextDisabled("No presets yet.");
+                ImGui::Separator();
+                ImGui::BeginDisabled(!matEdAnyGenLayer());
+                if (ImGui::MenuItem("Save current masks...")) {
+                    openSavePresetPopup_ = true;
+                    matEdPresetError_.clear();
+                }
+                ImGui::EndDisabled();
+                ImGui::EndPopup();
+            }
+            if (openSavePresetPopup_) {
+                ImGui::OpenPopup("Save material preset");
+                openSavePresetPopup_ = false;
+            }
+            if (ImGui::BeginPopupModal("Save material preset", nullptr,
+                                       ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::SetNextItemWidth(scaled(220.0f));
+                ImGui::InputText("Name", matEdPresetName_,
+                                 sizeof(matEdPresetName_));
+                if (!matEdPresetError_.empty())
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                                       matEdPresetError_.c_str());
+                if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
+                    const std::string base = sanitizeAssetName(
+                        std::string(matEdPresetName_).empty()
+                            ? "preset"
+                            : matEdPresetName_);
+                    matEdSavePreset(base);
+                    if (matEdPresetError_.empty()) ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
+                    ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
 
             const char* blends[] = {"Normal", "Multiply", "Add", "Overlay"};
             for (int i = (int)matEdLayers_.size() - 1; i >= 0; --i) {
@@ -14138,9 +14543,12 @@ void App::drawMaterialEditorWindow() {
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show/hide layer");
                 ImGui::SameLine();
-                if (ImGui::Selectable(L.name.c_str(), matEdActiveLayer_ == i,
+                const std::string lname = L.genOn ? L.name + " *" : L.name;
+                if (ImGui::Selectable(lname.c_str(), matEdActiveLayer_ == i,
                                       0, ImVec2(scaled(96.0f), 0)))
                     matEdActiveLayer_ = i;
+                if (L.genOn && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Smart mask layer (generated)");
                 if (i > 0) {
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(scaled(86.0f));
@@ -14160,6 +14568,9 @@ void App::drawMaterialEditorWindow() {
                 }
                 ImGui::PopID();
             }
+
+            // generator controls of the active smart-mask layer
+            matEdGenControls();
         }
 
         // --- the preview image + mouse interaction ---------------------------

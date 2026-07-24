@@ -771,6 +771,186 @@ std::vector<UvIssue> validateUv(const MeshInput& m, int texSize) {
     return out;
 }
 
+// --- smart masks -----------------------------------------------------------------
+
+namespace {
+
+inline uint32_t nhash(int x, int y, int z, uint32_t s) {
+    uint32_t h = (uint32_t)x * 0x8da6b343u ^ (uint32_t)y * 0xd8163841u ^
+                 (uint32_t)z * 0xcb1ab31fu ^ s * 0x9e3779b1u;
+    h ^= h >> 13;
+    h *= 0x85ebca6bu;
+    h ^= h >> 16;
+    return h;
+}
+inline float h01(uint32_t h) { return (float)(h >> 8) * (1.0f / 16777216.0f); }
+
+// Classic gradient noise, hashed corners (no permutation table - the hash
+// IS the table). Returns 0..1.
+float perlin3(float x, float y, float z, uint32_t seed) {
+    const int xi = (int)std::floor(x), yi = (int)std::floor(y),
+              zi = (int)std::floor(z);
+    const float fx = x - xi, fy = y - yi, fz = z - zi;
+    auto fade = [](float t) { return t * t * t * (t * (t * 6 - 15) + 10); };
+    const float ux = fade(fx), uy = fade(fy), uz = fade(fz);
+    auto grad = [&](int cx, int cy, int cz, float dx, float dy, float dz) {
+        const uint32_t h = nhash(cx, cy, cz, seed);
+        const float gx = h01(h) * 2.0f - 1.0f;
+        const float gy = h01(h * 0x27d4eb2fu + 1u) * 2.0f - 1.0f;
+        const float gz = h01(h * 0x165667b1u + 2u) * 2.0f - 1.0f;
+        return gx * dx + gy * dy + gz * dz;
+    };
+    auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
+    const float c000 = grad(xi, yi, zi, fx, fy, fz);
+    const float c100 = grad(xi + 1, yi, zi, fx - 1, fy, fz);
+    const float c010 = grad(xi, yi + 1, zi, fx, fy - 1, fz);
+    const float c110 = grad(xi + 1, yi + 1, zi, fx - 1, fy - 1, fz);
+    const float c001 = grad(xi, yi, zi + 1, fx, fy, fz - 1);
+    const float c101 = grad(xi + 1, yi, zi + 1, fx - 1, fy, fz - 1);
+    const float c011 = grad(xi, yi + 1, zi + 1, fx, fy - 1, fz - 1);
+    const float c111 = grad(xi + 1, yi + 1, zi + 1, fx - 1, fy - 1, fz - 1);
+    const float v = lerp(lerp(lerp(c000, c100, ux), lerp(c010, c110, ux), uy),
+                         lerp(lerp(c001, c101, ux), lerp(c011, c111, ux), uy),
+                         uz);
+    const float n = 0.5f + 0.62f * v;  // gradient noise spans ~[-0.8, 0.8]
+    return n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+}
+
+// Cellular noise, F1 distance to hashed cell points. Returns 0..1.
+float worley3(float x, float y, float z, uint32_t seed) {
+    const int xi = (int)std::floor(x), yi = (int)std::floor(y),
+              zi = (int)std::floor(z);
+    float best = 1e30f;
+    for (int dz = -1; dz <= 1; ++dz)
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int cx = xi + dx, cy = yi + dy, cz = zi + dz;
+                const uint32_t h = nhash(cx, cy, cz, seed);
+                const float px = cx + h01(h);
+                const float py = cy + h01(h * 0x27d4eb2fu + 1u);
+                const float pz = cz + h01(h * 0x165667b1u + 2u);
+                const float d2 = (px - x) * (px - x) + (py - y) * (py - y) +
+                                 (pz - z) * (pz - z);
+                best = std::min(best, d2);
+            }
+    const float v = std::sqrt(best) * 1.1f;  // F1 rarely exceeds ~0.9
+    return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+}
+
+// Bilinear (wrapping) sample of one channel of a byte map, texel centers.
+float mapSample(const std::vector<uint8_t>& map, int mw, int mh, int stride,
+                int channel, float u, float v) {
+    const float fx = u * mw - 0.5f, fy = v * mh - 0.5f;
+    const int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+    const float tx = fx - x0, ty = fy - y0;
+    auto at = [&](int x, int y) {
+        x = wrapc(x, mw);
+        y = wrapc(y, mh);
+        return (float)map[((size_t)y * mw + x) * stride + channel];
+    };
+    return ((at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
+            (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty) /
+           255.0f;
+}
+
+}  // namespace
+
+std::vector<uint8_t> generateMask(const Maps& maps, const MaskParams& p,
+                                  int w, int h) {
+    std::vector<uint8_t> out;
+    if (maps.empty() || w < 1 || h < 1) return out;
+    out.resize((size_t)w * h);
+    const float lo = p.rangeLo, hi = std::max(p.rangeHi, p.rangeLo + 1e-4f);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const float u = (x + 0.5f) / w, vv = (y + 0.5f) / h;
+            // baked position (AABB-normalized cube) anchors the 3D noise -
+            // patterns continue across UV island seams
+            float px = 0.0f, py = 0.0f, pz = 0.0f;
+            if (p.source == MaskParams::Source::Perlin ||
+                p.source == MaskParams::Source::Worley ||
+                p.source == MaskParams::Source::Height ||
+                p.breakupAmount > 0.0f) {
+                px = mapSample(maps.position, maps.w, maps.h, 3, 0, u, vv);
+                py = mapSample(maps.position, maps.w, maps.h, 3, 1, u, vv);
+                pz = mapSample(maps.position, maps.w, maps.h, 3, 2, u, vv);
+            }
+            float v;
+            switch (p.source) {
+                case MaskParams::Source::Edges: {
+                    const float c =
+                        mapSample(maps.curvature, maps.w, maps.h, 1, 0, u, vv);
+                    v = std::max(0.0f, (c - 0.5f) * 2.0f);
+                    break;
+                }
+                case MaskParams::Source::Cavities: {
+                    const float c =
+                        mapSample(maps.curvature, maps.w, maps.h, 1, 0, u, vv);
+                    v = std::max(0.0f, (0.5f - c) * 2.0f);
+                    break;
+                }
+                case MaskParams::Source::Occlusion:
+                    v = 1.0f - mapSample(maps.ao, maps.w, maps.h, 1, 0, u, vv);
+                    break;
+                case MaskParams::Source::Thinness:
+                    v = 1.0f -
+                        mapSample(maps.thickness, maps.w, maps.h, 1, 0, u, vv);
+                    break;
+                case MaskParams::Source::Height:
+                    v = py;
+                    break;
+                case MaskParams::Source::FacingUp: {
+                    const float ny =
+                        mapSample(maps.normal, maps.w, maps.h, 3, 1, u, vv) *
+                            2.0f -
+                        1.0f;
+                    v = std::max(0.0f, ny);
+                    break;
+                }
+                case MaskParams::Source::Perlin:
+                    v = perlin3(px * p.scale, py * p.scale, pz * p.scale,
+                                p.seed);
+                    break;
+                case MaskParams::Source::Worley:
+                    v = worley3(px * p.scale, py * p.scale, pz * p.scale,
+                                p.seed);
+                    break;
+                case MaskParams::Source::Bricks:
+                default: {
+                    // running-bond bricks in UV space, 2:1 aspect; odd rows
+                    // shift half a brick. 1 = mortar.
+                    const float rows = std::max(1.0f, p.scale);
+                    const float fy2 = vv * rows;
+                    const int row = (int)std::floor(fy2);
+                    const float fx2 =
+                        u * rows * 0.5f + ((row & 1) ? 0.5f : 0.0f);
+                    const float bu = fx2 - std::floor(fx2);
+                    const float bv = fy2 - std::floor(fy2);
+                    const float m = std::max(0.005f, p.mortar);
+                    const float mu = m * 0.5f;  // bricks are twice as wide
+                    v = (bv < m || bv > 1.0f - m || bu < mu ||
+                         bu > 1.0f - mu)
+                            ? 1.0f
+                            : 0.0f;
+                    break;
+                }
+            }
+            float t = (v - lo) / (hi - lo);
+            t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
+            float mask = t * t * (3.0f - 2.0f * t);
+            if (p.invert) mask = 1.0f - mask;
+            if (p.breakupAmount > 0.0f) {
+                const float n =
+                    perlin3(px * p.breakupScale, py * p.breakupScale,
+                            pz * p.breakupScale, p.seed + 77u);
+                mask *= 1.0f - p.breakupAmount + p.breakupAmount * n;
+            }
+            out[(size_t)y * w + x] = (uint8_t)(mask * 255.0f + 0.5f);
+        }
+    }
+    return out;
+}
+
 // --- Baker -----------------------------------------------------------------------
 
 // Everything derived from (mesh, high, size, supersample, cage): the

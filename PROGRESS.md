@@ -8127,3 +8127,36 @@ Each finished feature lands as its own commit.
   three dither modes (16/16/16 unique colors, 16-entry palette), FS and
   ordered outputs differ from undithered, and a 4-color image passes
   through bit-identical with its 4-entry palette (lossless path).
+- (75) **Material Editor: smart masks + material presets (M4)** - procedural
+  wear/dirt driven by the baked map set. matbake::generateMask (host-only,
+  harness-tested): sources Edge wear / Cavity grime (curvature), Occlusion
+  dirt (1-AO), Thin rims (thickness), Height Y / Facing up
+  (position/normals), Perlin 3D / Worley 3D - both sample noise AT THE BAKED
+  SURFACE POSITION (AABB-normalized), so patterns flow across UV island
+  seams instead of restarting at them (the triplanar effect of M4.3 for
+  free) - and UV-space running-bond Bricks with a mortar width. Signal ->
+  smoothstep Range window -> optional Invert -> optional Breakup (multiply
+  by world-space Perlin). All hashed-corner noise, no tables, fully
+  deterministic. UI: "+ Mask" adds a generated layer (its pixels = fill
+  color through the mask alpha; marked "*" in the list), generator controls
+  appear under the layer list for the active mask layer, masks REGENERATE
+  LIVE as the progressive bake refines (matBakeTick hook) and after a paint
+  target loads; a matBakeRunOnce_ flag lets masks request maps without
+  turning the bake preview on. Params persist per layer in the layers.json
+  sidecar ("gen" object). Presets (M4.4): "Presets" popup saves the
+  gen-layers' PARAMETERS as material-presets/<name>.matpreset in the
+  project root (outside res/, the flow-nodes/ dir pattern - never ships);
+  applying regenerates the same wear recipe from the target material's own
+  bake. Hand-painting on a mask layer is overwritten by regeneration
+  (tooltip warns; paint on a normal layer above instead - a deliberate
+  simplification over per-stroke mask compositing). Verified in the
+  headless harness: occlusion-dirt mask strong under the sphere / zero in
+  the open (250 vs 0), flat plane grows no edge wear (max 0), Perlin
+  deterministic + seed-sensitive + well spread (0..255, mean 122), bricks
+  mortar fraction sane (0.18). Docs: material-baking.md "Smart masks".
+- (76) **Material Editor: preview-mesh stats line (M0.1)** - under the
+  shape/display row: "<N> tris (<M> on this entry) - <V> verts", amber with
+  a "no UVs (paint/bake need them)" or "no faces use this entry (check
+  usemtl names)" warning when applicable. Computed from the cached bake
+  MeshInput, recomputed only when the mesh key changes. Verified:
+  build.ps1 links clean (visual pass rides the same pending human check).

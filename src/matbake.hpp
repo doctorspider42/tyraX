@@ -79,6 +79,36 @@ struct UvIssue {
 // attempted - triangle order is source order).
 std::vector<UvIssue> validateUv(const MeshInput& m, int texSize);
 
+// A procedural mask driven by the baked map set: "wear on edges", "dirt in
+// cavities", altitude streaks, world-space noise... The value per texel is
+// a 0..1 source signal remapped through a smoothstep window, optionally
+// inverted and broken up by Perlin noise. Noise sources sample 3D noise at
+// the texel's baked POSITION (AABB-normalized), so patterns continue across
+// UV island seams instead of restarting at them. (generateMask below, after
+// the Maps type it consumes.)
+struct MaskParams {
+    enum class Source {
+        Edges = 0,     // convex curvature - wear/scratch highlights
+        Cavities,      // concave curvature - grime lines
+        Occlusion,     // 1 - AO: dirt where light can't reach
+        Thinness,      // 1 - thickness: rims and thin fins
+        Height,        // baked position Y, bottom 0 .. top 1
+        FacingUp,      // upward-facing normals - dust/snow catch
+        Perlin,        // 3D gradient noise at the baked position
+        Worley,        // 3D cellular noise (F1) at the baked position
+        Bricks,        // UV-space brick pattern (1 = mortar lines)
+    };
+    Source source = Source::Edges;
+    float rangeLo = 0.35f;   // smoothstep window over the source signal
+    float rangeHi = 0.75f;
+    bool invert = false;
+    float scale = 4.0f;      // noise/brick frequency (per AABB cube / per UV)
+    uint32_t seed = 1;
+    float breakupAmount = 0.0f;  // 0..1: multiply by Perlin for organic wear
+    float breakupScale = 6.0f;
+    float mortar = 0.06f;    // Bricks: mortar line width, fraction of a brick
+};
+
 struct Params {
     int size = 256;        // output width = height, clamped to pow2 32..1024
     int samples = 64;      // hemisphere rays per texel at full quality
@@ -108,6 +138,12 @@ struct Maps {
     int samplesDone = 0;             // rays per texel accumulated so far
     bool empty() const { return w == 0; }
 };
+
+// Renders a MaskParams mask at w x h from the bake's map set (position/
+// normal/curvature/ao/thickness resampled bilinearly). Returns w*h bytes,
+// 255 = full mask. Purely a function of (maps, p, w, h) - deterministic.
+std::vector<uint8_t> generateMask(const Maps& maps, const MaskParams& p,
+                                  int w, int h);
 
 // Progressive asynchronous baker. start() kicks a worker thread that
 // prepares the geometry buffer + BVH (cached across starts while the mesh

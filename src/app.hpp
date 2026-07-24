@@ -754,6 +754,15 @@ private:
         float opacity = 1.0f;
         bool visible = true;
         std::vector<unsigned char> pixels;  // RGBA, W*H*4 (straight alpha)
+        // Smart mask (docs/material-baking.md): when genOn, the pixels are
+        // GENERATED - genColor filled through a matbake::generateMask alpha
+        // driven by the baked maps. Regenerated live as the bake refines and
+        // whenever a parameter changes; hand-painting on such a layer is
+        // overwritten by the next regeneration. Params persist in the
+        // layers.json sidecar and in .matpreset files.
+        bool genOn = false;
+        matbake::MaskParams gen;
+        float genColor[3] = {0.24f, 0.16f, 0.10f};
     };
     std::vector<MatEdLayer> matEdLayers_;  // bottom-up; [0] = Background
     int matEdActiveLayer_ = 0;
@@ -817,6 +826,7 @@ private:
     uint64_t matBakeSeenVersion_ = 0;
     matbake::Maps matBakeMaps_;       // latest snapshot
     bool matBakeApplyWhenDone_ = false;  // "Bake & add layer" pending
+    bool matBakeRunOnce_ = false;  // smart masks asked for maps (no preview)
     // cached mesh inputs (rebuilding objparser loads per slider tick would
     // thrash disk; keys carry the file mtimes so external edits re-bake)
     matbake::MeshInput matBakeMeshLow_, matBakeMeshHigh_;
@@ -875,6 +885,27 @@ private:
     int matEdPs2Colors() const;
     // "128x128 4-bit = 8 KB + 64 B palette" for the budget line
     std::string matEdBudgetLine(int tw, int th) const;
+
+    // Smart masks + presets (docs/material-baking.md). Regeneration fills a
+    // gen layer's pixels from the current bake maps; regen-all runs after
+    // every bake snapshot and after a paint-target load, so the masks track
+    // the bake live.
+    void matEdRegenLayer(MatEdLayer& l);
+    void matEdRegenMasks();  // all genOn layers + composite (no disk write)
+    bool matEdAnyGenLayer() const;
+    void matEdGenControls();  // generator UI for the active layer
+    // Presets: the gen-enabled layers' parameters as a reusable JSON under
+    // <project>/material-presets/ (project dir, never ships).
+    void matEdSavePreset(const std::string& name);
+    bool matEdApplyPreset(const std::string& relName);
+    bool openSavePresetPopup_ = false;
+    char matEdPresetName_[64] = "worn-metal";
+    std::string matEdPresetError_;
+    // preview-mesh stats line ("12,345 tris - 6,789 verts - UVs ok"),
+    // recomputed only when the cached bake mesh changes
+    std::string matEdStatsLine_;
+    std::string matEdStatsKey_;
+    bool matEdStatsWarn_ = false;  // mesh has no usable UVs
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";

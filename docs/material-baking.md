@@ -35,6 +35,32 @@ The property column of the Material Editor ends in a **Bake maps** block:
   (`<file>-<entry>-ao.png`, `-curvature`, `-thickness`, `-bent`, `-normal`,
   `-position`) - mask sources for wear/dirt or exports for external tools.
 
+## Smart masks (procedural wear & dirt)
+
+With the paint tool open, **+ Mask** (next to the layer buttons) adds a
+**smart mask layer**: its pixels are a fill color drawn through a
+procedural mask driven by the baked map set. Select the layer and tune the
+generator that appears under the list:
+
+- **Sources**: *Edge wear* / *Cavity grime* (baked curvature), *Occlusion
+  dirt* (1−AO), *Thin rims* (thickness), *Height (Y)* and *Facing up*
+  (position/normals), *Perlin noise*, *Worley cells* — the noises sample 3D
+  noise **at the baked surface position**, so patterns continue across UV
+  island seams instead of restarting at them (a free triplanar effect) —
+  and *Bricks* (UV-space running bond with a mortar width).
+- **Range** remaps the source through a smoothstep window (narrow = hard
+  edge, wide = soft ramp), **Invert** flips it, **Breakup** multiplies by
+  world-space Perlin for organic, uneven wear.
+- Masks **regenerate live as the bake refines** and whenever a parameter
+  changes; hand strokes on a mask layer are overwritten by the next
+  regeneration (paint on a normal layer above instead). Parameters persist
+  in the `.layers` sidecar; a layer marked `*` in the list is generated.
+
+**Presets** saves the current mask stack's *parameters* (never pixels) as
+`material-presets/<name>.matpreset` in the project root (never ships) —
+apply one to another material and the same wear recipe regenerates from
+*that* model's own bake.
+
 ## How the bake works
 
 1. **UV rasterization.** Every paintable triangle (the parts using the
