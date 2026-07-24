@@ -306,7 +306,7 @@ budget - two are **per-project preferences**, one is **per object**:
 |---|---|---|---|
 | **Draw distance** | Properties panel of the selected object | per object | Farther than this from the camera the object is not drawn at all. Collision, sounds, scripts and animation time keep running. `0` = always drawn. Works on static objects too. |
 | **Animation LOD distance** | Project > Preferences > **Rendering** | per project | Instances farther than this refresh their pose/skinning every 2nd frame, beyond twice the distance every 4th (staggered across objects). Playback time is unaffected - the pose catches up on the next refresh. `off` (0) = every instance skins every frame. |
-| **Mesh LOD distance** | Project > Preferences > **Rendering** | per project | The build bakes ~50% and ~25%-vertex variants of every animated model into the `.tskl` (quadric-error decimation; skin weights and uvs are preserved, never blended). Instances render the 50% mesh beyond the distance and the 25% one beyond twice the distance. `off` (0) = no LODs baked or kept in RAM. |
+| **Mesh LOD distance** | Project > Preferences > **Rendering** | per project | The build bakes ~50% and ~25%-vertex variants of every model - animated ones into the `.tskl`, static ones into the `.tmdl` (quadric-error decimation; skin weights and uvs are preserved, never blended). Objects render the 50% mesh beyond the distance and the 25% one beyond twice the distance. `off` (0) = no LODs baked or kept in RAM. Static models can use hand-authored levels instead - see [model-pipeline.md](model-pipeline.md). |
 
 Both preferences live in the project file (`.tyra`), so every project tunes
 its own values. Distances are world units from the camera to the object
@@ -314,7 +314,8 @@ center, the same units as object positions.
 
 **Per-object overrides:** any animated object (and any Player avatar) can
 override either preference in its Properties - **Override animation LOD** /
-**Override mesh LOD** next to the playback fields. Unchecked (the default)
+**Override mesh LOD** next to the playback fields. A static model object
+carries the mesh-LOD row too (animation LOD means nothing to it). Unchecked (the default)
 the project preference applies; checked, the object uses its own distance,
 and dragging the value to `0` turns that LOD off for this object entirely
 (a hero character that must never decimate next to a crowd that always

@@ -90,7 +90,19 @@ it at load and `LeanMtlMaterial::uvRect` exposes it for the generated
 game's primitive builders; quietly picks up the TyraX
 `<model>.aov` baked-ambient-occlusion sidecar — "TXAO" + u32 count + one
 visibility byte per obj `v` entry, docs/ambient-occlusion.md — into
-per-vertex `vertexAo` bytes the generated game folds into its shade bake), per-bag additive blending for the
+per-vertex `vertexAo` bytes the generated game folds into its shade bake),
+**`TmdlLoader`** (`loaders/3d/tmdl_loader/`, docs/model-pipeline.md — the
+binary static-model format the generated game actually loads; the ASCII
+`LeanObjLoader` above is now only the fallback path. Reads the whole file
+sequentially and memcpys each part, because the stored layout IS
+`LeanObjMaterial::vertices` — everything else (triangulation, flat normals,
+material assignment, atlas UV rects, texture paths, LOD tiers) was resolved
+by the editor's `templates::bakeStaticModels`; the layout lives in the
+editor's `src/tmdl.hpp`, **keep the two in sync**. It returns the same
+`LeanObjMesh` so the game keeps one geometry path, with two differences the
+caller must know: texture names are already **cwd-relative** — do NOT prepend
+a directory — and `LeanObjMaterial::lods` may carry decimated tiers, which an
+`.obj` never has. Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
 reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through

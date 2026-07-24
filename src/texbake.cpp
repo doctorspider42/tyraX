@@ -272,6 +272,34 @@ std::string bake(const Project& p,
         }
         return top == "brushes";
     };
+    // A static .obj whose binary .tmdl was baked next to it never ships: the
+    // game loads the .tmdl (docs/model-pipeline.md) and the ASCII source is
+    // the bulk of a model's size on the disc. A per-object material override
+    // bakes to "<stem>__ovr<hash>.tmdl", so any .tmdl derived from this stem
+    // counts. The .mtl keeps shipping - it may also be a standalone material
+    // asset that primitives load through MATERIAL_PATHS.
+    // Custom LOD meshes are folded into their model's .tmdl as tiers, so the
+    // tier .obj itself never ships either (res-relative paths, as stored).
+    std::set<std::string> customLodFiles;
+    for (const auto& [asset, tiers] : p.modelLods)
+        for (const std::string& t : tiers) customLodFiles.insert(t);
+
+    auto supersededByTmdl = [&](const fs::path& src) {
+        if (lowerExt(src) != ".obj") return false;
+        {
+            const std::string rel =
+                fs::relative(src, fs::path(p.dir), ec).generic_string();
+            if (customLodFiles.count(rel)) return true;
+        }
+        const std::string stem = src.stem().string();
+        std::error_code sec;
+        for (const auto& s : fs::directory_iterator(src.parent_path(), sec)) {
+            if (!s.is_regular_file() || lowerExt(s.path()) != ".tmdl") continue;
+            const std::string cand = s.path().stem().string();
+            if (cand == stem || cand.rfind(stem + "__ovr", 0) == 0) return true;
+        }
+        return false;
+    };
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
     // Texture atlasing (docs/texture-atlasing.md): the shared deterministic
     // plan - members skip their individual bake (the composited pages are
@@ -291,6 +319,10 @@ std::string bake(const Project& p,
         // atlas members ship only inside their page
         if (atlasPlan.find(relRes)) {
             fs::remove(dst, ec);  // a pre-atlas bake may have mirrored it
+            continue;
+        }
+        if (supersededByTmdl(e.path())) {
+            fs::remove(dst, ec);  // an earlier bake may have mirrored the .obj
             continue;
         }
         if (lowerExt(e.path()) == ".mtl" &&

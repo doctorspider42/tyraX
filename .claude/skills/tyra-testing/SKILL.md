@@ -56,7 +56,15 @@ build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
   one-shot batch-migration tool for existing projects.
 - `--refresh-gen` runs `project::refreshGenerated` directly — the clean way to
   check codegen without Docker (supersedes the "run --build and let it fail"
-  trick below, which still works). `--dump` / `--dump-graph` / `--apply-graph`
+  trick below, which still works). It also runs the **asset bakes that live
+  inside refreshGenerated**: animated models into `res/models/*.tskl` and
+  static ones into `res/models/*.tmdl` (docs/model-pipeline.md), each printing
+  its problems as `[anim bake]` / `[model bake]` lines on stdout. So a model
+  format / LOD change is verifiable headlessly: refresh, then read the file's
+  bytes (a few lines of Python on the layout in `src/tmdl.hpp` /
+  `glbparser.cpp` tell you the tier vertex counts). Note the texture bake
+  (`.res-baked`, which decides what actually ships) runs in `--build`, not
+  here. `--dump` / `--dump-graph` / `--apply-graph`
   are machine-readable project I/O (apply validates node types + link pin
   rules and saves) — handy for scripted graph fixtures; `--ai-graph` runs the
   whole AI generation (docs/ai-tools.md). To e2e-test the AI pipeline without
@@ -183,6 +191,17 @@ Notes:
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then
   screenshot; compare against a known-good screenshot when hunting regressions.
+  **A strict pixel A/B between two RUNS usually cannot work** — an orbiting or
+  auto-spinning camera is at a different phase in each boot, and the
+  interlaced FIELD modes alternate fields, so window captures never line up
+  (a "1.7M pixels differ" result is almost always this, not your change). Two
+  ways out: freeze the camera/pose in the fixture (what the VU0-skinning
+  entry did), or better, **compare the DATA on the console**: log an FNV hash
+  (and the first few raw bit patterns) of whatever the change produces from
+  inside the game, and diff the log. For a format change you can even load
+  BOTH formats in one run and compare them against each other — one build,
+  no camera dependency, and it isolates host-vs-EE float differences from
+  real bugs (see PROGRESS 163).
 - **Performance**: PCSX2's FPS overlay, software renderer, 3+ samples. Full PAL
   frame rate is 50 FPS — the generated showcase scenes hold it. For *where* a
   frame is spent, enable the built-in **frame profiler** (debug build profile +

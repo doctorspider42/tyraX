@@ -1014,6 +1014,21 @@ static void writeTexQualitySection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// Also conditional: no custom LOD meshes = no key at all.
+static void writeModelLodsSection(std::ostream& json, const Project& p) {
+    if (p.modelLods.empty()) return;
+    json << "\"modelLods\": {";
+    bool first = true;
+    for (const auto& [asset, tiers] : p.modelLods) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": [";
+        for (size_t i = 0; i < tiers.size(); ++i)
+            json << (i ? ", " : "") << "\"" << jsonEscape(tiers[i]) << "\"";
+        json << "]";
+        first = false;
+    }
+    json << " }";
+}
+
 static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << "\"saveValues\": [";
     for (size_t i = 0; i < p.saveValues.size(); ++i)
@@ -1298,6 +1313,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Hud: writeHudSection(ss, p); break;
         case Section::Audio: writeAudioSection(ss, p); break;
         case Section::TexQuality: writeTexQualitySection(ss, p); break;
+        case Section::ModelLods: writeModelLodsSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -1316,6 +1332,7 @@ const char* sectionName(Section s) {
         case Section::Hud: return "hud";
         case Section::Audio: return "audio";
         case Section::TexQuality: return "texQuality";
+        case Section::ModelLods: return "modelLods";
         case Section::SaveData: return "saveData";
         case Section::Gradings: return "gradings";
         case Section::Ambience: return "ambience";
@@ -2641,6 +2658,22 @@ static void readTexQualitySection(const json::Value& root, Project& out) {
     }
 }
 
+static void readModelLodsSection(const json::Value& root, Project& out) {
+    out.modelLods.clear();
+    if (const auto* ml = root.find("modelLods");
+        ml && ml->type == json::Value::Type::Object) {
+        for (const auto& [asset, v] : ml->obj) {
+            if (v.type != json::Value::Type::Array) continue;
+            std::vector<std::string> tiers;
+            for (const auto& t : v.arr) {
+                const std::string path = t.stringOr("");
+                if (!path.empty()) tiers.push_back(path);
+            }
+            if (!tiers.empty()) out.modelLods[asset] = tiers;
+        }
+    }
+}
+
 static void readSaveDataSection(const json::Value& root, Project& out) {
     out.saveValues.clear();
     out.saveTexts.clear();
@@ -3112,6 +3145,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Hud: readHudSection(root, p); break;
         case Section::Audio: readAudioSection(root, p); break;
         case Section::TexQuality: readTexQualitySection(root, p); break;
+        case Section::ModelLods: readModelLodsSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -3232,6 +3266,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAudioSection(root, out);
 
     readTexQualitySection(root, out);
+    readModelLodsSection(root, out);
 
     readSaveDataSection(root, out);
 
@@ -3746,6 +3781,31 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
+    // Migration: res/.gitignore is written at project creation only (the user
+    // may have added rules), but static models now bake to res/models/*.tmdl -
+    // a few hundred KB per model, regenerated on every build. A project made
+    // before that would start tracking them, so append the rule if it is
+    // missing. Same shape as the .tskl/.tanm rules already in the file.
+    {
+        const fs::path ignore = fs::path(p.dir) / "res" / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            if (content.str().find("/models/*.tmdl") == std::string::npos) {
+                std::string text = content.str();
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked static-model output (the .obj next to it is the "
+                    "source;\n# regenerated on every build - "
+                    "docs/model-pipeline.md).\n/models/*.tmdl\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
+        }
+    }
+
     // Migration: generated script sources used to live in src/scripts/ next
     // to the user's own scripts - confusing in the Scripts panel, and now
     // that they are written to src/gen/ a leftover copy would be compiled
@@ -3770,6 +3830,20 @@ std::string refreshGenerated(const Project& p) {
         }
         for (const auto& w : warnings)
             printf("[anim bake] %s\n", w.c_str());
+    }
+
+    // Static models: re-bake every referenced .obj into its .tmdl (the binary
+    // format the PS2 loads - docs/model-pipeline.md). Same soft-fail rule as
+    // the animated bake above.
+    {
+        std::vector<std::string> warnings;
+        for (const auto& f : templates::bakeStaticModels(p, &warnings)) {
+            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+                !err.empty())
+                return err;
+        }
+        for (const auto& w : warnings)
+            printf("[model bake] %s\n", w.c_str());
     }
 
     // Built-in HUD assets shipped into every project, written only when
