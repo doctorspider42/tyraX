@@ -20,7 +20,9 @@ script under `src/scripts/`.
 ## What to do
 
 You spawn on flat terrain in first person. Walk with the **left stick**, look
-with the **right stick**. At startup the script logs `Hello from TyraX!` to the
+with the **right stick** — or use the keyboard and mouse (**WASD** walks, the
+mouse looks, **Space** is X; see `docs/keyboard-mouse.md` in the repo root).
+At startup the script logs `Hello from TyraX!` to the
 PCSX2 console (visible in the editor's *Output* window, or `bin/log.txt`).
 The script also ships a commented-out example — walk up to the **orange box**
 and press **X** to snap the sky to a warm orange — that you can uncomment to see

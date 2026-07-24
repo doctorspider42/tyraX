@@ -117,7 +117,7 @@ the trigger needs the generated model itself plus that preview path.
 **Workaround for now: close the Material Editor while adding trees.** With it
 closed the add is stable. Whether this is specific to that machine's driver is
 the open question — reproducing on another GPU is the next step (see PROGRESS
-entry 91 for the full diagnosis, including two hypotheses already ruled out).
+entry 100 for the full diagnosis, including two hypotheses already ruled out).
 
 ## Where the code lives
 
