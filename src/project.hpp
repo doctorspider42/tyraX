@@ -1597,7 +1597,7 @@ enum class Section {
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
 };
-constexpr int kSectionCount = 12;
+constexpr int kSectionCount = 13;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);
