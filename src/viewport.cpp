@@ -1162,8 +1162,12 @@ void Viewport::buildTerrainMesh() {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // Allocate empty, then fill - the same two-step upload glUploadTexRgba
+        // documents (a data-carrying glTexImage2D faults inside the AMD driver).
         glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, hmW_, hmD_, 0, GL_RED, GL_FLOAT,
-                     heights_.data());
+                     nullptr);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, hmW_, hmD_, GL_RED, GL_FLOAT,
+                        heights_.data());
         glBindTexture(GL_TEXTURE_2D, 0);
         aoHmW_ = hmW_, aoHmD_ = hmD_;
     } else {
@@ -1844,11 +1848,7 @@ uint32_t Viewport::glTexture(const std::string& relPath) {
     if (unsigned char* pixels = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glUploadTexRgba(w, h, pixels);
         stbi_image_free(pixels);
     }
     texCache_[relPath] = tex;  // 0 is cached too (missing/unreadable)
@@ -2031,17 +2031,10 @@ void Viewport::updateTexturePixels(const std::string& relPath, int w, int h,
     if (!tex) {
         GLuint t = 0;
         glGenTextures(1, &t);
-        glBindTexture(GL_TEXTURE_2D, t);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         tex = t;
-    } else {
-        glBindTexture(GL_TEXTURE_2D, tex);
     }
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 rgba);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUploadTexRgba(w, h, rgba);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
@@ -2206,12 +2199,7 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
             if (!pixels) continue;
             glGenTextures(1, &imageTex[i]);
             glBindTexture(GL_TEXTURE_2D, imageTex[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                         GL_UNSIGNED_BYTE, pixels);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glUploadTexRgba(w, h, pixels);
             stbi_image_free(pixels);
         }
         for (size_t pi = 0; pi < draw.baked.parts.size(); ++pi) {
@@ -2516,11 +2504,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     {
         int aoCount = 0;
         if (aoOn_) {
-            // Occluder bounds only need the model AABB - use the GL-free
-            // bounds path, NOT modelDraw(): uploading a full textured model
-            // (glTexImage2D) here, mid-frame in the occluder-collection phase
-            // before the shader/program is active, crashes the GS driver on
-            // some setups. The model still uploads lazily in the draw loop.
+            // Occluder bounds only need the model AABB, so read it through the
+            // GL-free bounds path rather than modelDraw(): asking for a number
+            // should not upload a whole textured model's meshes and textures to
+            // GL as a side effect. The model still uploads lazily in the draw
+            // loop, where it is actually drawn.
             std::vector<aobake::Occluder> occs = aobake::collectOccluders(
                 objects, [&](const SceneObject& o, float* mn, float* mx) {
                     return modelBounds(o.modelPath, o.materialPath, mn, mx);
@@ -3177,12 +3165,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         GLuint t = 0;
         glGenTextures(1, &t);
         glBindTexture(GL_TEXTURE_2D, t);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, S, S, 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, px.data());
+        glUploadTexRgba(S, S, px.data());
         glBindTexture(GL_TEXTURE_2D, 0);
         uvCheckerTex_ = t;
     }
@@ -3420,12 +3403,7 @@ uint32_t Viewport::renderTreePreview(int width, int height,
                 t = id;
             }
             glBindTexture(GL_TEXTURE_2D, t);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                         GL_UNSIGNED_BYTE, px);
+            glUploadTexRgba(w, h, px);
             glBindTexture(GL_TEXTURE_2D, 0);
         };
         refresh(treePrevBarkTex_, d.barkRgba, d.barkW, d.barkH);

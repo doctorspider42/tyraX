@@ -8864,11 +8864,42 @@ Each finished feature lands as its own commit.
   assets constant; what it does still show is that the faulting code is not
   treegen's (the base binary, `treegen` not even compiled, crashed 4/4 on a
   project full of generated trees). Filed as its own task and deliberately
-  NOT papered over with a "close the window on add" workaround. Next step
-  belongs on other hardware: reproduce on a second machine / another GPU
-  vendor to settle driver-vs-us before touching our upload path.
+  NOT papered over with a "close the window on add" workaround. **Fixed in
+  (101)** - the entry below has the answer.
   One real fix did come out of the hunt: the AO occluder pass called the
   full `modelDraw()` (uploading meshes AND textures to GL) purely to read a
   model's AABB - it now uses a new GL-free `Viewport::modelBounds()`
   (objparser + its own cache), so reading bounds mid-frame never triggers a
   GL upload. That is a straightforward win regardless of the crash.
+- (101) **Fix: the AMD GL driver crash on texture upload** (user report: "I
+  open the tree editor and it crashes instantly; a reboot didn't help" - and
+  it had worked during my own testing, which made it look like a regression
+  from the main merge; it wasn't). Windows' own Application Error log settled
+  it in one query: `Faulting module atio6axx.dll 31.0.21921.11005`,
+  `0xc0000005`, **fault offset 0x2152beb - byte-identical across every crash**,
+  the user's and mine, over several different builds. So: one driver bug, not
+  a regression and not several bugs; the user simply hit it earlier, because
+  merely opening the Tree Generator uploads its two preview textures, while
+  my repro needed a model added with a preview window open.
+  The fix is the *form* of the upload, not its arguments (which gdb showed
+  were always valid - 128², RGBA8, power-of-two, non-null pixels): a single
+  `glTexImage2D` carrying the pixel pointer faults, so every RGBA upload now
+  goes through **`glUploadTexRgba()`** in `gl_loader.h/.cpp` - allocate the
+  level empty, then fill it with `glTexSubImage2D` (`TexSubImage2D` added to
+  the loader's X-macro list). Applied at **all ten** upload sites, not just
+  the tree ones (viewport: disk textures, live paint, animated-model embedded
+  textures, the UV checker, the tree preview; app: HUD image cache, the
+  built-in USE sprite, HUD text, the text preview, the menu preview), plus the
+  R32F heightmap upload for the same reason - a driver bug does not care which
+  feature triggers it, and leaving nine sites armed would just relocate the
+  crash. Framebuffer attachments already allocate empty, so they were fine.
+  Verified on the three paths that used to fail: opening the Tree Generator
+  **0/4** (was crashing on every attempt for the user), Material Editor + add
+  a tree model **0/4** (was 4/4 on a clean base), Tree Generator "Add to
+  scene" **0/4** (was 3/4) - 12 clean runs where the previous binary managed
+  at most one. build.ps1 clean.
+  Also corrected in this pass: the `modelBounds()` comment still justified
+  itself with the earlier in-a-render-pass theory, which the gdb evidence had
+  already killed (the crash happened in a pre-pass too). The change stands on
+  its own merit - reading an AABB should not upload a model as a side effect -
+  and now says so instead.

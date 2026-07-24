@@ -7609,9 +7609,7 @@ const App::HudTexture* App::hudTexture(const std::string& relPath) {
         GLuint tex = 0;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glUploadTexRgba(w, h, pixels);
         stbi_image_free(pixels);
         entry = {tex, w, h};
     }
@@ -7631,10 +7629,7 @@ const App::HudTexture* App::builtinUseTexture() {
     if (!pixels) return nullptr;
     glGenTextures(1, &builtinUseTex_.tex);
     glBindTexture(GL_TEXTURE_2D, builtinUseTex_.tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 pixels);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glUploadTexRgba(w, h, pixels);
     stbi_image_free(pixels);
     builtinUseTex_.w = w;
     builtinUseTex_.h = h;
@@ -7662,10 +7657,7 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
     if (!menubake::bakeTextRGBA(t, project_, rgba, w, h)) return nullptr;
     if (!entry.tex) glGenTextures(1, &entry.tex);
     glBindTexture(GL_TEXTURE_2D, entry.tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 rgba.data());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glUploadTexRgba(w, h, rgba.data());
     entry.key = key;
     entry.hud = {entry.tex, w, h};
     return &entry.hud;
@@ -8889,12 +8881,7 @@ void App::drawUiEditorWindow() {
                 if (menubake::bakeTextRGBA(t, project_, rgba, w, h)) {
                     if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
                     glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                                 GL_UNSIGNED_BYTE, rgba.data());
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                                    GL_LINEAR);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                                    GL_LINEAR);
+                    glUploadTexRgba(w, h, rgba.data());
                     textPreviewW_ = w;
                     textPreviewH_ = h;
                 }
@@ -16505,10 +16492,7 @@ void App::drawMenusWindow() {
                 menubake::overlayValuePreview(m, project_, current, rgba, w, h);
                 if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
                 glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                             GL_UNSIGNED_BYTE, rgba.data());
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glUploadTexRgba(w, h, rgba.data());
                 menuPreviewW_ = w;
                 menuPreviewH_ = h;
                 const menubake::PanelLayout lay =

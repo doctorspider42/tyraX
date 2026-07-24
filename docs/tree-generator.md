@@ -101,23 +101,23 @@ Adding a tree whose name is taken picks the next free `-N` suffix rather than
 overwriting, so re-adding never clobbers an earlier tree that scene objects
 still reference.
 
-## Known issue: GL driver crash when previewing a generated tree
+## The AMD driver crash this shook out (fixed)
 
-On at least one AMD setup (the machine this was developed on), adding a
-generated tree to the scene **while the Material Editor is open** kills the
-editor ~50-100% of the time, the first frame its preview shows that model.
+Generated trees turned out to reliably trip a **GL driver bug** that predates
+this tool: opening the Tree Generator, or adding a tree while the Material
+Editor was open, killed the editor ~50-100% of the time — an access violation
+(`0xc0000005`) inside `atio6axx.dll`, at the same fault offset every time.
 
-It is a driver fault, not a logic bug, and the crashing code is not this
-module's: gdb puts it in `glTexImage2D` (`viewport.cpp:1810`, reached from
-`Viewport::renderMaterialPreview`) three frames inside `atio6axx.dll`, with
-every argument valid — 128², RGBA8, power-of-two, non-null pixels. The same
-upload of the same PNG on a hand-written 12-triangle cube never faults, so
-the trigger needs the generated model itself plus that preview path.
+gdb put it in `glTexImage2D` reached from `Viewport::glTexture`, with every
+argument valid (128², RGBA8, power-of-two, non-null pixels). So the arguments
+were never the problem — the single-call *form* was. Every RGBA upload now goes
+through **`glUploadTexRgba()`** (`gl_loader.h`), which allocates the level empty
+and fills it with `glTexSubImage2D`; that path does not fault. Verified 0/12
+crashes across the three paths that previously failed 4/4, 3/4 and on every
+attempt.
 
-**Workaround for now: close the Material Editor while adding trees.** With it
-closed the add is stable. Whether this is specific to that machine's driver is
-the open question — reproducing on another GPU is the next step (see PROGRESS
-entry 100 for the full diagnosis, including two hypotheses already ruled out).
+If you are adding a texture upload anywhere in the editor, use that helper
+rather than handing pixels to `glTexImage2D` — see PROGRESS entry 101.
 
 ## Where the code lives
 

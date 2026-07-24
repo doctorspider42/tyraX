@@ -355,7 +355,19 @@ silently not show that edit while claiming LIVE. The snapshot seq is seeded
 from the clock at attach — a restarted editor must never reuse a seq the
 still-running game already applied.
 
-### 4. Conventions
+### 4. Never hand pixels straight to `glTexImage2D`
+Every RGBA texture upload in the editor goes through **`glUploadTexRgba(w, h,
+pixels)`** (`gl_loader.h`), which allocates the level empty and then fills it
+with `glTexSubImage2D`. The one-call form — `glTexImage2D(..., pixels)` — takes
+an access violation **inside the AMD GL driver** (`atio6axx.dll`, `0xc0000005`,
+same fault offset every time) with entirely valid arguments; the allocate-then-
+fill path does not. This bit a user as an instant crash on opening a tool whose
+preview uploads two textures, so it is not theoretical. A new upload site that
+calls `glTexImage2D` with data re-arms that crash for whatever feature owns it
+(PROGRESS 101). Framebuffer attachments allocate with `nullptr` and are fine;
+non-RGBA formats (the R32F heightmap) do the same two steps inline.
+
+### 5. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.
 - One feature = one commit. `PROGRESS.md` is a living log — every finished
   feature gets a numbered entry there describing what was done and **how it was
