@@ -37,6 +37,10 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 build\tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 build\tyrax-editor.exe --build <projectDir> [--run]   # exit code 0 = success
 build\tyrax-editor.exe --resave <projectDir>          # load + save, no Docker
+build\tyrax-editor.exe --refresh-gen <projectDir>     # regen sources, no Docker
+build\tyrax-editor.exe --dump <projectDir>            # JSON project summary
+build\tyrax-editor.exe --dump-graph <projectDir> <object> [scene]
+build\tyrax-editor.exe --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -50,6 +54,15 @@ build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:
   strip/alter a field, `--resave`, and inspect the rewritten file. Also the
   one-shot batch-migration tool for existing projects.
+- `--refresh-gen` runs `project::refreshGenerated` directly — the clean way to
+  check codegen without Docker (supersedes the "run --build and let it fail"
+  trick below, which still works). `--dump` / `--dump-graph` / `--apply-graph`
+  are machine-readable project I/O (apply validates node types + link pin
+  rules and saves) — handy for scripted graph fixtures; `--ai-graph` runs the
+  whole AI generation (docs/ai-tools.md). To e2e-test the AI pipeline without
+  a real backend, put a stub `claude.cmd` on PATH that swallows stdin
+  (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
+  append-merge and save all exercise for real (see PROGRESS 65).
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
@@ -66,7 +79,7 @@ without building:
 - For an **existing** project, `project::refreshGenerated()` runs at the very
   start of `--build`, *before* Docker is contacted — so even with Docker
   stopped, a failed `--build` still refreshes `inc/scene_data.hpp`,
-  `src/scripts/flow_graph.gen.cpp`, etc. for inspection. There is no
+  `src/gen/flow_graph.gen.cpp`, etc. for inspection. There is no
   `--no-docker` flag; the expected outcome is "Failed to start docker
   container..." + exit code 1 with fresh generated files on disk.
 - When inspecting, remember the ownership split (see tyra-editor-dev): `.gen.*`
@@ -88,6 +101,19 @@ asserts on the emitted strings. This works because `project.cpp`,
 `templates.cpp` and `json.cpp` have no ImGui/GLFW dependency — they link into a
 tiny host harness without the GUI. Fine pattern; keep such harnesses in the
 scratchpad, not the repo.
+
+**Collaboration sessions are headless-testable the same way**: `session.cpp` +
+`wire.cpp` have no GUI dependency, so a harness can run a host `Session` and a
+client `Session` **in one process over 127.0.0.1 with real sockets** (drain
+`drainEvents()` in a sleep loop) to test join/transfer/cache/kick/refresh, and
+drive `session::diffModel`/`applyEdit` directly on two `Project` replicas for
+convergence property tests (random concurrent edits + the host relay rule →
+assert byte-identical serializations; that test caught two real divergence
+bugs). Link the same .obj set as the model harness plus `session`, `wire`, and
+`-lws2_32`. For the interactive layer, run **two editor instances on one
+machine** (the second without a project), host from A, join from B at
+`127.0.0.1` — loopback is not blocked by Windows Firewall even when the LAN
+prompt was declined.
 
 ## Layer 3 — full e2e: Docker build + PCSX2 boot
 
@@ -171,6 +197,13 @@ Notes:
   meter on the PCSX2 process (e.g. via `AudioMeterInformation`) — silence vs
   bursts at expected times proved music/sfx features before; a by-ear speaker
   check stays with the human.
+- **Two-player modes** (docs/multiplayer.md): the split/shared toggle is
+  testable with ONE keyboard: give the scene two Player objects and a pause
+  menu with the "Player count" option block, then drive pad 1 via PostMessage
+  (Start=Return opens the menu, Cross=K cycles the row) and screenshot — the
+  frame visibly flips between full-screen and the top/bottom split (or the
+  pulled-back shared camera). Pad-2 hot-join (Start on pad 2) needs a second
+  pad configured in PCSX2's Pad2 slot — that part stays a hands-on test.
 - **Flow-graph / gameplay logic**: wire the behavior to an unattended trigger
   (`On Start`, `Every N Seconds`) so it fires without a pad; note in
   PROGRESS.md when the interactive path (pad buttons, mouse feel) still needs

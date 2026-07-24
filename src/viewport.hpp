@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "glbparser.hpp"
+#include "navmesh.hpp"
 #include "project.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -51,6 +52,14 @@ public:
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
 
+    // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
+    // self-occlusion is multiplied into the terrain vertex colors (the same
+    // aobake::terrainAO grid the build ships), model self-AO into the model
+    // vertex colors, and the analytic occluder + ground contact terms run
+    // live in the fragment shader (the GL twin of the generated game's
+    // per-vertex bake). Rebuilds terrain/models when the values change.
+    void setAmbientOcclusion(bool enabled, float strength, float radius);
+
     // GS hardware distance fog preview (Preferences > Distance fog); geometry
     // blends toward rgb between the start/end view distances, sky excluded -
     // same as the generated game.
@@ -71,6 +80,29 @@ public:
     void setTerrainMaterial(const std::string& texRelPath, const float kd[3],
                             bool hasMaterial, const float tile[2]);
 
+    // Terrain splat painting preview (docs/terrain-painting.md): the same
+    // two-pass blending the PS2 does - the base terrain draws as usual, then
+    // every painted layer alpha-blends over it as a second pass of the same
+    // grid (tiled layer texture, Gouraud vertex alpha = the painted weight).
+    struct TerrainLayerDraw {
+        std::string texture;  // res-relative map_Kd ("" = flat color)
+        float kd[3] = {0.6f, 0.6f, 0.6f};
+        float tile[2] = {1.0f, 1.0f};  // repeats per world unit (incl. Size)
+    };
+    // weights: hmW*hmD*layers bytes, layer-interleaved per vertex (the
+    // project's SceneData::splat). Rebuilds the terrain meshes.
+    void setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
+                          const std::vector<uint8_t>& weights);
+    // Cheap during-a-stroke update: new weights, rebuild only the chunks under
+    // the brush (the paint twin of updateTerrainRegion).
+    void updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
+                           float worldZ, float radius);
+
+    // Macro ground variation (docs/terrain-painting.md): world-noise tint
+    // multiplied into the terrain vertex shade (base + layer passes). Rebuilds
+    // the terrain when the values change. variation 0 = off.
+    void setTerrainTint(float variation, float scaleWorld);
+
     // "Highlight usable objects" preference: marks usable objects with a wire
     // box in the highlight color (proximity is a game-runtime condition)
     void setUsableHighlight(bool enabled, const float* rgb);
@@ -84,6 +116,12 @@ public:
     // the objects vector) are skipped by render() and pick(). The app
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
+
+    // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
+    // over the walkable cells of the app-baked grid (navmesh::bake - the app
+    // owns the Project). The GL mesh is rebuilt only when `version` changes,
+    // so this can be called every frame cheaply; pass nullptr to hide.
+    void setNavOverlay(const navmesh::NavGrid* grid, uint64_t version);
 
     // Projected-decal preview meshes, computed app-side (decalproj) because the
     // app owns the Project. Keyed by object id; each value is a world-space
@@ -99,6 +137,16 @@ public:
     // is outlined brighter so it reads as the value source for the multi-editor.
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     const std::vector<int>& selection, int primary);
+
+    // Collaboration presence: other participants' selections in the ACTIVE
+    // scene, outlined in each peer's color under the local selection (local
+    // amber always reads on top). The app resolves object ids to indices per
+    // frame; empty vector = no session / nothing selected remotely.
+    struct PeerSel {
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        std::vector<int> indices;
+    };
+    void setPeerSelections(std::vector<PeerSel> sels) { peerSels_ = std::move(sels); }
 
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
@@ -119,15 +167,32 @@ public:
         float angleDeg = 40.0f;   // turntable yaw
         float pitchDeg = 30.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier (1 = default framing)
+        int displayMode = 0;      // 0 solid, 1 solid + wireframe overlay,
+                                  // 2 UV checker (replaces every texture)
     };
     uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
 
     // Raycast of the LAST renderMaterialPreview frame: image coords (u, v in
     // [0,1], origin top-left) -> the hit surface's texture UV. paintable is
     // true when the hit face is drawn with the staged texture (the selected
-    // entry's parts on a model; always for primitive shapes).
+    // entry's parts on a model; always for primitive shapes). outMaterial,
+    // when given, receives the hit part's material name ("" for primitive
+    // shapes) - the editor's click-a-part-to-select-its-entry hook.
     bool materialPreviewPick(float u, float v, float& outU, float& outV,
-                             bool& paintable) const;
+                             bool& paintable,
+                             std::string* outMaterial = nullptr) const;
+
+    // Inverse of the pick: model-space point -> image coords of the LAST
+    // renderMaterialPreview frame (u, v in [0,1], origin top-left). False
+    // when the point is behind the camera. The UV-panel hover sync draws
+    // triangle outlines over the preview image with this.
+    bool materialPreviewProject(const float world[3], float& outU,
+                                float& outV) const;
+
+    // The shared GL texture of a project-relative path (loads on first use;
+    // live paint updates included - it is the same cache updateTexturePixels
+    // writes). 0 when unreadable. The UV-layout panel underlay.
+    uint32_t sharedTexture(const std::string& relPath) { return glTexture(relPath); }
 
     // Replaces the pixels of the cached GL texture for a project-relative
     // path (creating the cache entry when absent) - live texture painting.
@@ -209,12 +274,20 @@ private:
     void buildTerrainMesh();
     void buildPrimitiveMeshes();
     Mesh uploadMesh(const std::vector<float>& interleaved);  // pos3 + color3
+    // pos3 + color4 + uv2 (the particle-shader layout) - terrain layer passes
+    Mesh uploadMesh9(const std::vector<float>& interleaved);
     void destroyMesh(Mesh& m);
 
     TerrainConfig terrain_;
     int maxCells_ = 32;
     std::vector<float> heights_;
     int hmW_ = 0, hmD_ = 0;
+
+    // Nav-mesh overlay mesh (see setNavOverlay)
+    bool navOverlayOn_ = false;
+    uint64_t navOverlayVersion_ = 0;
+    bool navOverlayHasVersion_ = false;
+    Mesh navOverlayMesh_;
 
     // Projected-decal GL meshes (see setProjectedDecals), keyed by object id;
     // rebuilt only when projectedDecalVersion_ changes.
@@ -276,6 +349,17 @@ private:
     int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
+    // Ambient occlusion preview (see setAmbientOcclusion)
+    int uAoOn_ = -1, uAoStrength_ = -1, uAoRadius_ = -1, uAoCount_ = -1;
+    int uAoSelfObj_ = -1, uAoGround_ = -1, uAoReceive_ = -1;
+    int uAoPos_ = -1, uAoAx_ = -1, uAoAy_ = -1, uAoAz_ = -1, uAoObj_ = -1;
+    int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
+    bool aoOn_ = false;
+    float aoStrength_ = 0.55f;
+    float aoRadius_ = 2.5f;
+    std::vector<uint8_t> aoGrid_;  // terrain self-AO (aobake::terrainAO)
+    uint32_t aoHmTex_ = 0;         // R32F heightmap for the ground term
+    int aoHmW_ = 0, aoHmD_ = 0;    // dimensions of the uploaded heightmap
 
     // Terrain in chunks of kTerrainChunkCells^2 cells (mesh + grid lines per
     // chunk) so sculpting rebuilds only the chunks under the brush. Grid
@@ -286,6 +370,13 @@ private:
     static constexpr int kTerrainFullGridCells = 128 * 128;
     std::vector<Mesh> terrainChunkMeshes_;  // tcChunksX_ * tcChunksZ_, row-major
     std::vector<Mesh> terrainLineMeshes_;
+    // Painted-layer passes: [layer * chunkCount + chunk]; an empty Mesh where a
+    // layer has no weight on that chunk. Drawn blended after the base chunks.
+    std::vector<Mesh> terrainLayerMeshes_;
+    std::vector<TerrainLayerDraw> terrainLayers_;
+    std::vector<uint8_t> splat_;  // hmW_*hmD_*layers, layer-interleaved
+    float tintVariation_ = 0.0f;  // macro ground variation amplitude (0 = off)
+    float tintScale_ = 24.0f;     // patch size, world units
     int tcChunksX_ = 0, tcChunksZ_ = 0;
     int tcCellsX_ = 0, tcCellsZ_ = 0;
     void buildTerrainChunkMesh(int cx, int cz);
@@ -315,6 +406,8 @@ private:
     };
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model
+        float mn[3] = {0, 0, 0};       // model-space AABB (AO occluder shape)
+        float mx[3] = {0, 0, 0};
     };
     // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
     std::map<std::string, ModelDraw> modelCache_;
@@ -334,8 +427,11 @@ private:
         };
         std::vector<Part> parts;  // parallel to baked.parts
     };
+    // keyed by "modelPath|materialOverride" (an assigned .mtl overrides the
+    // model's own materials, resolved into the bake - same as the game)
     std::map<std::string, AnimModelDraw> animModelCache_;
-    AnimModelDraw* animModelDraw(const std::string& relPath);
+    AnimModelDraw* animModelDraw(const std::string& relPath,
+                                 const std::string& materialRel);
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
     double animClock_ = 0.0;  // preview time in seconds (advanced per render)
@@ -386,6 +482,9 @@ private:
     float terrainKd_[3] = {1.0f, 1.0f, 1.0f};  // terrain material Kd tint
     bool terrainHasMaterial_ = false;  // false = checker greens fallback
     Mesh wireCube_;  // selection outline (unit cube edges)
+    std::vector<PeerSel> peerSels_;  // session peers' selections (see above)
+    Mesh segment_;   // unit +Z line segment (portal link line)
+    Mesh portalArrow_;  // +Z line arrow: the portal's entry-side marker
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};
 
@@ -397,6 +496,7 @@ private:
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
     Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
+    uint32_t uvCheckerTex_ = 0;  // generated UV-checker (displayMode 2)
 
     // Model shown in the material preview. Unlike modelCache_ the part Kd is
     // NOT baked into the vertex colors (it rides the tint uniform instead) so
@@ -425,6 +525,9 @@ private:
     MatPrevModel matPrevModel_;
     const MatPrevModel* matPrevModelDraw(const std::string& modelRel,
                                          const std::string& mtlRel);
+    // Bind-pose preview parts for an animated (.glb/.fbx) model.
+    void buildMatPrevAnimated(const std::string& modelRel,
+                              const std::string& mtlRel);
     void clearMatPrevModel();
 
     // CPU triangles of the four preview primitives (pos3 + uv2), built on

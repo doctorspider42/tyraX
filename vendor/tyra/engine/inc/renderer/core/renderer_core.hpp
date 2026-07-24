@@ -23,6 +23,7 @@
 #include "./texture/renderer_core_texture.hpp"
 #include "./postfx/renderer_core_postfx.hpp"
 #include "./envmap/renderer_core_envmap.hpp"
+#include "./splitview/renderer_core_splitview.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
 #include "./renderer_core_sync.hpp"
@@ -87,6 +88,17 @@ class RendererCore {
 
   /** Dynamic environment map for reflective materials (TyraX fork). */
   RendererCoreEnvMap envMap;
+
+  /**
+   * Camera-feed render target (TyraX fork, "texture feeds"): a second
+   * env-map-style 128x128 VRAM target the game renders an arbitrary
+   * camera view into (begin/pushEnvView/draw/popEnvView/end), then binds
+   * via getTexture() on any material slot - live CCTV monitors.
+   */
+  RendererCoreEnvMap camFeed;
+
+  /** Split-screen viewports for two-player games (TyraX fork). */
+  RendererCoreSplitView splitView;
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;
@@ -175,6 +187,16 @@ class RendererCore {
    * mask - a custom pass always draws when reached.
    */
   void applyCustomPostFx(RendererCorePostFx::CustomFxBuild build, void* user);
+
+  /**
+   * TyraX portals: bracket the in-place through-view render (see
+   * RendererCorePostFx::portalMaskBegin/End). Both drain PATH1
+   * unconditionally - this runs MID-frame (more 3D follows), so the
+   * once-per-frame post-fx drain latch must not be set.
+   */
+  void portalViewBegin(int x0, int y0, int x1, int y1);
+  void portalViewEnd(const float* xy, const u32* z, int count, u8 clearR,
+                     u8 clearG, u8 clearB);
 
   /** VSync and swap frame double buffer. */
   void endFrame();

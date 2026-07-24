@@ -22,10 +22,11 @@ script under `src/scripts/`.
 You spawn on flat terrain in first person. Walk with the **left stick**, look
 with the **right stick** — or use the keyboard and mouse (**WASD** walks, the
 mouse looks, **Space** is X; see `docs/keyboard-mouse.md` in the repo root).
-Walk up to the **orange box** and press **X**: the sky
-snaps to a warm orange, and press X again to toggle it back. Each press also
-logs `Box says hello!` to the PCSX2 console (visible in the editor's *Output*
-window, or `bin/log.txt`).
+At startup the script logs `Hello from TyraX!` to the
+PCSX2 console (visible in the editor's *Output* window, or `bin/log.txt`).
+The script also ships a commented-out example — walk up to the **orange box**
+and press **X** to snap the sky to a warm orange — that you can uncomment to see
+scripting drive the scene.
 
 ## How it is wired
 
@@ -35,9 +36,11 @@ Two small pieces, one of each scripting flavor:
   starting sky when the scene loads (author it in the *Flow Graph* tab).
 - **A global script**, [`src/scripts/example_interaction.cpp`](src/scripts/example_interaction.cpp)
   — a class deriving from `Script`, registered with `TYRA_SCRIPT(...)`. Its
-  `update()` finds the box, checks the player is within range and that **Cross**
-  was clicked this frame, then toggles `ctx.skyColor` and calls `TYRA_LOG`. It is
-  never regenerated: the file is yours to edit.
+  `init()` logs a hello line once, and `update()` carries a commented-out
+  example that finds the box, checks the player is in range and that **Cross**
+  was clicked, then toggles `ctx.skyColor`. It is left off by default so a jump
+  (X) does not recolor the sky; the file is never regenerated, so it is yours
+  to edit and uncomment.
 
 This is the pre-object-script flavor kept deliberately simple. For the modern
 component style (a class you *attach* to any object, with `self` / `onStart` /

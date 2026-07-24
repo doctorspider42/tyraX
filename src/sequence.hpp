@@ -9,7 +9,7 @@
 // time - cinematic cutscenes on the PS2. It is authored by scrubbing the
 // playhead and snapshotting object poses / the editor camera, previewed live
 // in the viewport, and compiled to a PS2 runtime player
-// (src/scripts/sequences.gen.cpp - a global Script) driven from the flow graph
+// (src/gen/sequences.gen.cpp - a global Script) driven from the flow graph
 // (Play Sequence / Stop Sequence nodes).
 //
 // Sequences are project-wide (like color grading / ambience presets) and, like

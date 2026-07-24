@@ -8,11 +8,14 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
+#include "matbake.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
+#include "session.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -136,6 +139,7 @@ private:
     void addEmpty();
     void addDecal();
     void addMirror();
+    void addPortal();
     void drawAddObjectMenu();
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
@@ -152,6 +156,14 @@ private:
     // Combo picking an .mtl for the object (primitives: surface; models:
     // override). Returns true when materialPath changed.
     bool drawMaterialCombo(SceneObject& o);
+    // Creates res/materials/<model>.mtl seeded from a model object's built-in
+    // materials (names + Kd + extracted textures, from the .glb/.fbx or .obj),
+    // assigns it to o.materialPath and opens the Material Editor on the model.
+    // Returns the new material's project-relative path, or "" on failure.
+    std::string createMaterialForModel(SceneObject& o);
+    // Per-object animation/mesh LOD override rows (animated models + player
+    // avatars). Returns true when a value changed (caller commits).
+    bool drawLodOverrides(SceneObject& o);
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
     // Project-panel section listing res/models + res/textures with the
@@ -160,6 +172,7 @@ private:
     // Files directly under res/<subdir> with the given extension (lowercase
     // compare), names only, sorted by the directory iteration order
     std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
+    std::vector<std::string> listAnimatedModelFiles();
     // "Pick..." button + popup listing res/textures; true when path changed
     bool pickProjectTexture(const char* popupId, std::string& path);
     // Cached objparser summary of a model (for the properties panel)
@@ -215,9 +228,21 @@ private:
     // the UI Editor's HUD list and the Loading Screen editor). Returns the new
     // index, or -1 on failure.
     int importHudImageInto(std::vector<HudImage>& target);
-    // Shared TTF picker (menus, HUD texts): default chain / project fonts /
-    // stock Windows fonts / import. Returns true when fontPath changed.
-    bool fontCombo(std::string& fontPath);
+    // Picks one of the project's fonts by name (menus, HUD texts, loading
+    // texts). "" = the default entry. Returns true when the reference changed.
+    bool fontCombo(std::string& fontRef);
+    // Picks the TTF behind a Font Manager entry: default chain / fonts already
+    // in the project / stock Windows fonts / import. Returns true when
+    // fontPath changed. Only the Font Manager resolves real files.
+    bool fontSourceCombo(std::string& fontPath);
+    void drawFontManagerWindow();
+    // A Font Manager entry pointing at `relPath` ("res/fonts/x.ttf"), creating
+    // one named after the file stem if none exists. Returns the entry's name -
+    // what a `font` reference stores. Used by the TTF import paths.
+    std::string ensureFontForPath(const std::string& relPath);
+    // Renames a font and follows the reference into every text, menu and
+    // Display Text node, the way HUD text renames do.
+    void renameFont(int index, const std::string& newName);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -279,6 +304,15 @@ private:
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
+    // The unified terrain tool (Tools > Terrain Editor): Sculpt and Paint as
+    // switchable modes over one shared, map-size-aware brush.
+    void drawTerrainWindow();
+    // Push the active scene's resolved terrain layers + per-vertex weights to
+    // the viewport (two-pass splatting preview). Empty layers clear the passes.
+    void rebakeSplatPreview();
+    // Generate + upload a stochastic-tiling supertile for a terrain texture to
+    // the viewport's cache; returns the synthetic texture key + tiling factor.
+    std::string uploadStochPreview(const std::string& srcRel, float& factor);
     // load + show; modelHint (a res/models .obj) switches the preview to that
     // model - passed by the Edit... button of Model objects
     void openMaterialEditor(const std::string& relPath,
@@ -313,12 +347,29 @@ private:
     // Guarded actions that would discard unsaved edits (Exit / Open / New).
     // When the project is dirty they open a confirm modal instead of running
     // immediately; the modal's Save/Discard buttons then run the pending one.
-    enum class PendingAction { None, Exit, Open, New };
+    enum class PendingAction { None, Exit, Open, New, JoinSession };
     void requestExit();
     void requestOpenProject();
     void requestNewProject();
     void performPendingAction();
     void drawDiscardModal();
+
+    // --- Collaboration session (docs/collaboration.md) ----------------------
+    // Live LAN sessions: this editor hosts its open project or joins another
+    // editor's. Session (session.hpp) runs the network side on a worker
+    // thread; sessionTick() drains its events once per frame on the UI thread
+    // and is the ONLY place session state meets project_/ImGui.
+    void sessionTick();
+    void requestJoinSession();  // dirty-guarded like Open/New
+    void startHostSession();    // reads the session* input fields
+    void closeSession();        // host: ends for everyone; client: leaves
+    // Open the freshly synced remote project from its cache directory,
+    // keeping the session alive across attachProject().
+    void openRemoteProject(const std::string& dir);
+    void drawHostSessionModal();
+    void drawJoinSessionModal();
+    void drawSessionEndedModal();
+    void drawSessionWindow();
     void copyObject();
     void pasteObject();
 
@@ -361,6 +412,13 @@ private:
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
+    // Collaboration (editor.ini): the name other session participants see
+    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    std::string globalDisplayName_;
+    std::string globalSessionCacheDir_;
+    // AI assistant backend for flow-graph generation (editor.ini; Edit >
+    // Preferences > AI assistant). Model "" = the backend's default.
+    aigen::Config globalAi_;
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -371,14 +429,52 @@ private:
     // discard-confirmation guard). Layout/docking changes do not set this -
     // they fold into the .tyra only when the user saves the project.
     bool dirty_ = false;
-    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
-    std::string titleName_;         // project name currently in the title
+    bool titleShowsDirty_ = false;   // last title state pushed to GLFW
+    bool titleShowsJoined_ = false;  // last session-client marker in the title
+    std::string titleName_;          // project name currently in the title
     // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
     // once the user resolves the modal; exitConfirmed_ lets the main loop close
     // after a confirmed Exit without re-prompting.
     PendingAction pendingAction_ = PendingAction::None;
     bool openDiscardPopup_ = false;
     bool exitConfirmed_ = false;
+
+    // Collaboration session state (see the method block above). The Session
+    // owns the worker thread; these are the UI-side latches and input buffers.
+    session::Session session_;
+    // Live model sync. modelEditSerial_ is bumped by every mutation path
+    // (commitChange / applySnapshot / setDirty-true); sessionTick diffs the
+    // model against sessionShadow_ whenever it moves past what it last
+    // scanned, and mirrors inbound edits into the same shadow (so an echo of
+    // our own edit re-diffs to nothing). Seeded when a session goes live.
+    session::ModelShadow sessionShadow_;
+    uint64_t modelEditSerial_ = 0;
+    uint64_t sessionScannedSerial_ = 0;
+    bool showSessionWindow_ = false;
+    bool openHostSessionPopup_ = false;
+    bool openJoinSessionPopup_ = false;
+    bool openSessionEndedPopup_ = false;
+    bool joinModalVisible_ = false;   // Ended errors go inline while it shows
+    bool sessionAttachKeep_ = false;  // openRemoteProject: don't close on attach
+    char sessionName_[48] = "";
+    char sessionAddr_[128] = "";
+    int sessionPort_ = 7797;
+    char sessionCode_[16] = "";
+    std::string sessionError_;      // inline error in the join modal
+    std::string sessionEndedText_;  // reason shown by the session-ended popup
+    std::vector<session::PeerView> sessionPeers_;
+    // Presence: what each OTHER participant has selected (object ids + the
+    // scene index they are editing), keyed by peer id. Rendered as per-peer
+    // outlines in the viewport and dots in the object list. Our own selection
+    // is broadcast throttled whenever it changes.
+    struct PeerPresence {
+        int scene = 0;
+        std::vector<std::string> sel;  // object ids
+    };
+    std::map<int, PeerPresence> peerPresence_;
+    std::vector<std::string> presenceSentSel_;
+    int presenceSentScene_ = -1;
+    double presenceNextSend_ = 0.0;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame
     // and EndFrame). Recipe-built layouts use recipeRebuildPending_ instead.
@@ -425,6 +521,16 @@ private:
     bool sculptFlatten_ = false;   // level toward flattenHeight_ instead of raise
     float flattenHeight_ = 0.0f;   // flatten target height (world units)
 
+    // Terrain splat painting (docs/terrain-painting.md). Paints the active layer
+    // into SceneData::splat with the same brush raycast as sculpting (mutually
+    // exclusive with it). splatPreviewDirty_ requests a live composite re-bake.
+    bool paintMode_ = false;
+    int paintLayer_ = 0;            // active additional-layer index
+    float paintStrength_ = 0.5f;    // per-stroke-step weight, 0..1
+    bool paintErase_ = false;       // subtract the active layer instead of add
+    bool paintStroke_ = false;      // an LMB paint stroke is in progress
+    bool splatPreviewDirty_ = false;
+
     History history_;
     std::vector<SceneObject> clipboard_;  // copy/paste a whole selection at once
 
@@ -438,6 +544,10 @@ private:
     // Clipboard for flow-graph copy/paste: the copied nodes plus the links that
     // connect two of them (dangling links are dropped). nextId is unused.
     FlowGraph flowClipboard_;
+    // Node-description tooltip (FlowNodeType::desc): node the mouse rests on
+    // and since when - shown after a short delay, reset on hover change.
+    int flowDescNode_ = -1;
+    double flowDescSince_ = 0.0;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)
@@ -455,9 +565,17 @@ private:
     // HUD text (4, index in selectedText_) or a custom screen effect placement
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
+    bool showFontManager_ = false;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    // Font Manager selection (index into Project::fonts).
+    int fontSel_ = 0;
+    // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
+    // recomputed only when a bake-affecting field changes (see fontAtlasKey_).
+    std::string fontAtlasKey_;
+    std::string fontAtlasInfo_;
+    bool fontAtlasClipped_ = false;
     int selectedFx_ = -1;
     // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
     // re-rasterized whenever its content changes.
@@ -570,6 +688,7 @@ private:
     // edit rewrites the file and invalidates the caches - the scene viewport
     // updates live. Not project data, so no undo history (same as imports).
     bool showMaterialEditor_ = false;
+    bool showTerrainEditor_ = false;  // the unified Sculpt + Paint terrain tool
     std::string matEdPath_;  // project-relative path of the open .mtl ("" = none)
     struct MatEdEntry {
         std::string name;
@@ -590,10 +709,15 @@ private:
     int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,
                                // 4 = the .obj in matEdModel_
     std::string matEdModel_;   // res/models .obj shown when matEdShape_ == 4
-    bool matEdSpin_ = true;    // turntable
+    bool matEdSpin_ = true;    // turntable; an orbit drag unchecks it (the
+                               // hand wins - re-tick to resume spinning)
     float matEdAngle_ = 40.0f;
     float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
     float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
+    // Preview panel's share of the window width (the draggable splitter
+    // between the property column and the preview; editor.ini, machine
+    // setting like uiScale).
+    float matEdSplit_ = 0.48f;
     bool openNewMaterialPopup_ = false;
     char matEdNewName_[64] = "my-material";
     std::string matEdNewError_;
@@ -640,6 +764,15 @@ private:
         float opacity = 1.0f;
         bool visible = true;
         std::vector<unsigned char> pixels;  // RGBA, W*H*4 (straight alpha)
+        // Smart mask (docs/material-baking.md): when genOn, the pixels are
+        // GENERATED - genColor filled through a matbake::generateMask alpha
+        // driven by the baked maps. Regenerated live as the bake refines and
+        // whenever a parameter changes; hand-painting on such a layer is
+        // overwritten by the next regeneration. Params persist in the
+        // layers.json sidecar and in .matpreset files.
+        bool genOn = false;
+        matbake::MaskParams gen;
+        float genColor[3] = {0.24f, 0.16f, 0.10f};
     };
     std::vector<MatEdLayer> matEdLayers_;  // bottom-up; [0] = Background
     int matEdActiveLayer_ = 0;
@@ -677,6 +810,140 @@ private:
     std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
     int matEdPatternW_ = 0, matEdPatternH_ = 0;
     std::string matEdPatternLoaded_;   // path matEdPatternPixels_ came from
+
+    // Map baking (docs/material-baking.md): matbake's progressive UV-space
+    // raytraced bake of the preview mesh - AO, bent normals, thickness,
+    // curvature, position, OS normals in one pass. Previewed live on the
+    // material (AO multiplied over the composite at GL-upload time only -
+    // the saved PNG never contains the preview) or as a raw map view, and
+    // applied as a "Baked AO" multiply layer on the entry's texture. Params
+    // persist per .mtl via a "# tyra-bake" hint line.
+    matbake::Baker matBaker_;
+    int matBakePreviewMode_ = 0;  // 0 off, 1 AO over material, 2 raw map view
+    int matBakeMapView_ = 0;      // map view: 0 ao 1 curvature 2 thickness
+                                  // 3 bent 4 normal 5 position
+    int matBakeSizeIdx_ = 2;      // bake resolution: 64 << idx
+    int matBakeRays_ = 64;        // rays per texel at full quality
+    float matBakeMaxDist_ = 0.0f; // occlusion reach (0 = auto: half the AABB
+                                  // diagonal)
+    int matBakeSSIdx_ = 1;        // supersample grid: 1 << idx per axis
+    bool matBakeBackface_ = true; // back-side hits occlude (thin geometry)
+    int matBakePadding_ = 4;      // dilate ring, texels
+    int matBakeSeed_ = 1;
+    std::string matBakeHigh_;     // high-poly .obj, project-relative ("" = none)
+    float matBakeCage_ = 0.0f;    // cage offset (0 = auto: 2% of the diagonal)
+    uint64_t matBakeStartedSig_ = 0;  // input signature of the running bake
+    uint64_t matBakeSeenVersion_ = 0;
+    matbake::Maps matBakeMaps_;       // latest snapshot
+    bool matBakeApplyWhenDone_ = false;  // "Bake & add layer" pending
+    std::string matBakeApplyEntry_;   // entry the pending apply was armed
+                                      // for - switching entries cancels it
+    bool matBakeRunOnce_ = false;  // smart masks asked for maps (no preview)
+    // cached mesh inputs (rebuilding objparser loads per slider tick would
+    // thrash disk; keys carry the file mtimes so external edits re-bake)
+    matbake::MeshInput matBakeMeshLow_, matBakeMeshHigh_;
+    std::string matBakeMeshKey_, matBakeHighKey_;
+    std::string matBakeMeshError_;
+    void matBakeResetParams();    // defaults (new/awaiting-hint files)
+    matbake::Params matBakeParams() const;
+    bool matBakeBuildMeshes(const std::string& entryName);
+    void matBakeTick(const std::string& entryName, const std::string& texRel);
+    void matBakeUploadSolo();     // selected raw map -> "@matbake-view"
+    void matBakeApplyLayer();     // AO -> "Baked AO" multiply layer + save
+    void matBakeSaveMaps(const std::filesystem::path& mtlDirAbs,
+                         const std::string& entryName);
+    void matEdBakeSection(const std::string& entryName,
+                          const std::string& texRel);
+    // composite -> GL upload; multiplies the AO preview in at upload time
+    void matEdUploadComposite();
+    // Auto-creates a paintable texture for the selected entry when it has
+    // none ("<entry>-tex.png", 256^2 white, next to the .mtl), assigns it,
+    // saves the file and loads it as the paint target. The one-click
+    // enabler for masks/presets/bakes on a fresh multi-part model. Returns
+    // true when a loaded paint target exists afterwards.
+    bool matEdEnsurePaintTexture();
+    // Drops the loaded paint target (pixels, layers, stroke/ghost state).
+    // Called when the selected entry has NO texture - a stale target from
+    // the previous entry must never receive bake previews or layers.
+    void matEdUnloadPaintTarget();
+
+    // UV inspection (docs/material-painting.md): preview display mode and
+    // the 2D UV-layout panel with two-way hover sync (hover a face in 3D -
+    // its texture region lights up in the panel; hover the panel - the
+    // triangle is outlined on the mesh). The panel reuses the bake's cached
+    // mesh input (matBakeMeshLow_).
+    int matEdDisplayMode_ = 0;  // 0 solid, 1 +wireframe, 2 UV checker
+    bool matEdUvView_ = false;  // UV layout panel under the 3D preview
+    float matEdUvZoom_ = 1.0f;
+    float matEdUvPan_[2] = {0.0f, 0.0f};
+    int matEdUvHoverTri_ = -1;          // panel-hovered triangle (last frame)
+    bool matEd3dHoverValid_ = false;    // 3D cursor rests on a paintable face
+    float matEd3dHoverUV_[2] = {0, 0};  // its surface UV (marked in the panel)
+    // Highlighted triangles (UV validator): outlined red in both views.
+    std::vector<int> matEdUvIssueTris_;
+    void drawMatEdUvPanel(const std::string& entryName,
+                          const std::string& texRel, const ImVec2& size);
+
+    // UV validator: overlaps, out-of-range, flipped/degenerate triangles,
+    // texel-density outliers over the preview mesh's paintable UVs. Results
+    // are pinned to the mesh key they were computed for; clicking a finding
+    // highlights its triangle(s) in the UV panel and on the mesh.
+    std::vector<matbake::UvIssue> matEdUvIssues_;
+    std::string matEdUvIssuesKey_;  // matBakeMeshKey_ at validation time
+    int matEdUvIssueSel_ = -1;
+    void matEdUvValidateSection(const std::string& entryName);
+
+    // Automatic UV unwrap (uvunwrap.hpp): rewrites the preview .obj with
+    // smart-project charts. Static .obj models only; the modal warns that
+    // the previous UVs are replaced (projects are git repos - revert there).
+    bool openUnwrapPopup_ = false;
+    float unwrapAngle_ = 55.0f;  // chart-growing angle threshold
+    int unwrapMargin_ = 4;       // chart spacing, px at the bake resolution
+
+    // "PS2 CLUT" display mode (matEdDisplayMode_ == 3): the composite is
+    // palette-quantized through the same median-cut quantizer texbake ships
+    // and uploaded in place of the texture (GL-only, like the AO preview -
+    // the PNG on disk never changes). Palette size follows the shipped
+    // policy by default; dithering is selectable for comparison. The last
+    // palette is kept for the swatch strip.
+    int matEdPs2Mode_ = 0;    // 0 follow policy, 1 = 16, 2 = 256, 3 = full
+    int matEdPs2Dither_ = 0;  // pngquant::Dither
+    std::vector<unsigned char> matEdPs2Palette_;
+    // colors the preview quantizes to (0 = full color): the explicit combo
+    // choice, or the .mtl's per-asset override / project default
+    int matEdPs2Colors() const;
+    // "128x128 4-bit = 8 KB + 64 B palette" for the budget line
+    std::string matEdBudgetLine(int tw, int th) const;
+
+    // Smart masks + presets (docs/material-baking.md). Regeneration fills a
+    // gen layer's pixels from the current bake maps; regen-all runs after
+    // every bake snapshot and after a paint-target load, so the masks track
+    // the bake live.
+    void matEdRegenLayer(MatEdLayer& l);
+    void matEdRegenMasks();  // all genOn layers + composite (no disk write)
+    bool matEdAnyGenLayer() const;
+    void matEdGenControls();  // generator UI for the active layer
+    // Presets: the gen-enabled layers' parameters as a reusable JSON under
+    // <project>/material-presets/ (project dir, never ships).
+    void matEdSavePreset(const std::string& name);
+    bool matEdApplyPreset(const std::string& relName);
+    bool openSavePresetPopup_ = false;
+    char matEdPresetName_[64] = "worn-metal";
+    std::string matEdPresetError_;
+    // preview-mesh stats line ("12,345 tris - 6,789 verts - UVs ok"),
+    // recomputed only when the cached bake mesh changes
+    std::string matEdStatsLine_;
+    std::string matEdStatsKey_;
+    bool matEdStatsWarn_ = false;  // mesh has no usable UVs
+
+    // Texture hot reload (docs/live-link.md): every saved paint target is
+    // re-baked into bin/<rel> in the format the build shipped and announced
+    // via bin/livetex.bin; the generated live_tex poller re-uploads the
+    // pixels into the running game's existing GS VRAM allocation. Paint in
+    // the editor, watch the texture change on the console.
+    std::map<std::string, uint32_t> liveTexGen_;  // game-relative -> generation
+    uint32_t liveTexSeq_ = 0;
+    void liveTexNotify(const std::string& texResRel);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";
@@ -717,6 +984,15 @@ private:
     uint64_t projectedDecalsVersion_ = 0;
     void updateProjectedDecals();
 
+    // Nav-mesh overlay (View > Nav Mesh Overlay): the active scene's baked
+    // walkable grid, recomputed only when its inputs change (same signature
+    // trick as the projected decals). Session state, not persisted.
+    bool showNavOverlay_ = false;
+    navmesh::NavGrid navGrid_;
+    uint64_t navOverlaySig_ = 0;
+    uint64_t navOverlayVersion_ = 0;
+    void updateNavOverlay();
+
     // "New project" modal state
     bool openNewProjectPopup_ = false;
     char newName_[128] = "my-game";
@@ -724,6 +1000,10 @@ private:
     int newWidth_ = 64;
     int newDepth_ = 64;
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // "Add AI support": install the assistant skill files (aisupport.hpp)
+    // into the fresh project. Also available later in Project Preferences.
+    bool newAiClaude_ = false;
+    bool newAiCopilot_ = false;
     std::string newProjectError_;
 
     // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created
@@ -792,6 +1072,28 @@ private:
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
+    char prefDisplayName_[48] = "";          // session display name (editor.ini)
+    char prefSessionCacheDir_[512] = "";     // remote-project cache root override
+    int prefAiBackend_ = 0;            // index into aigen::backendIds()
+    char prefAiModel_[128] = "";       // "" = the backend's default model
+    // Model combo shows "Custom..." + a free-text field when the staged model
+    // is not one of the backend's listed models (or the user picked Custom).
+    bool prefAiCustomModel_ = false;
+    bool prefAiThinking_ = false;
+
+    // "Generate with AI" modal (Flow Graph window). The Generator runs on its
+    // own worker thread; the modal polls it every frame, shows a spinner and a
+    // Cancel button while busy, and applies the parsed graph via commitChange
+    // on success. aiGenTargetObject_ pins the graph owner at request time so a
+    // changed selection can't retarget an in-flight reply.
+    bool openAiGeneratePopup_ = false;
+    char aiPromptBuf_[2048] = "";
+    int aiGenTargetObject_ = -1;
+    bool aiGenInFlight_ = false;    // a started request's result is unconsumed
+    aigen::Generator aiGen_;
+    std::string aiGenError_;        // backend/parse failure shown in the modal
+    std::string aiGenWarnings_;     // non-fatal parse notes (dropped links...)
+    void drawAiGenerateModal();
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the

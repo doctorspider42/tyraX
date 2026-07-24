@@ -34,6 +34,10 @@ const unsigned char* crosshairPng(size_t& size);
 // Built-in "USE" prompt sprite, shipped into every project (res/hud/use.png).
 const unsigned char* usePromptPng(size_t& size);
 
+// Built-in "PICK UP" prompt sprite (res/hud/pickup.png), shown instead of
+// the USE prompt while the looked-at object is pickable.
+const unsigned char* pickPromptPng(size_t& size);
+
 // Built-in "LOADING..." sprite (res/hud/loading.png), shown centered on
 // black during scene switches when the loading screen is enabled.
 const unsigned char* loadingPng(size_t& size);

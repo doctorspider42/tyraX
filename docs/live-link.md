@@ -55,14 +55,15 @@ Live:
 Needs a build — the chip flips to amber instead of applying something wrong:
 
 - changing a built object's **recipe**: its type, model / material assignment,
-  primitive detail, physics/collision, layer membership, emitter / sound /
-  player / animation parameters…
+  primitive detail, physics (the flag and, while it is on, the mass /
+  bounciness / friction / tumble material) / collision, layer membership,
+  emitter / sound / player / animation parameters…
 - adding an object with **no matching template** in the built scene (nothing
   of the same recipe existed at build time), or an object that can't be
   faithfully spawned at runtime: **point lights** (baked into vertex colors),
   **projecting decals** (baked host projection), **mirrors** (baked reflection
-  table), or objects carrying a **flow graph / attached scripts** (compiled
-  per authored object);
+  table), **portals** (baked PORTALS link table), or objects carrying a
+  **flow graph / attached scripts** (compiled per authored object);
 - editing an existing point light / projecting decal (their transforms are
   baked at build);
 - streaming-layer definitions, scene add/remove.
@@ -83,7 +84,7 @@ mechanism, both targets.
   the 12 live floats — and writes `bin/livelink.bin` (`TXLL` magic, version,
   sequence number, a footer echoing the sequence) atomically via a sibling
   tmp file + rename, whenever the payload changed.
-- The game side is a generated global script, `src/scripts/live_link.gen.cpp`
+- The game side is a generated global script, `src/gen/live_link.gen.cpp`
   (debug profile + Live Link preference only; otherwise an empty translation
   unit). It re-reads the file every 6 frames (every 25 under ps2link — each
   `fopen` there is a network round-trip), validates magic/size/footer so a
@@ -107,6 +108,29 @@ Cost: zero in release builds or with the preference off (the poller doesn't
 exist), an `fopen` + at most a few tens of KB read every 6/25 frames in a live
 debug build, and nothing on the GS — patched objects go through the exact same
 dirty-rebuild path the flow-graph object actions already use.
+
+## Texture hot reload
+
+Live Link's sibling channel: **repaint a texture in the Material Editor and
+watch it change on the running console** — the largest-return trick in the
+whole pipeline. Every saved paint stroke / applied bake layer:
+
+1. re-bakes the texture into `bin/<path>` in exactly the format the build
+   shipped (the palette layout is read from the existing PNG's header, so
+   the swap is format-identical), written atomically;
+2. bumps `bin/livetex.bin` — a tiny manifest of repainted textures with
+   growing generations (`TXLT` magic, seq + footer echo like the scene
+   snapshot; cumulative per session, so a game booted later catches up).
+
+The generated poller (`src/scripts/live_tex.gen.cpp`, same debug + Live Link
+gate) re-decodes the PNG and **re-uploads the pixels into the texture's
+existing GS VRAM allocation** (`RendererCoreTexture::updateTextureInfo` —
+same address, so the GS bump allocator is never disturbed; textures are
+matched by their full load path via the fork's `Texture::sourcePath`).
+Every mesh sharing the texture updates at once. A repaint that changed the
+texture's dimensions or palette format is skipped with a soft error in the
+log — that needs a real build. The Runner deletes `livetex.bin` at build
+start (the fresh build re-bakes everything).
 
 ## Limits & notes
 

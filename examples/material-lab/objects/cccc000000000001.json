@@ -1,0 +1,1 @@
+{ "id": "cccc000000000001", "name": "altar", "type": "model", "position": [0, 0, 0], "rotation": [0, 20, 0], "scale": [2, 2, 2], "color": [1, 1, 1], "physics": false, "model": "res/models/altar.obj" }

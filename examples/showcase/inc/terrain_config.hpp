@@ -41,6 +41,15 @@ constexpr float ORBIT_SPEED = 1.0F;  // multiplier
 constexpr float GRAVITY = 9.8F;          // units/s^2
 constexpr float JUMP_SPEED = 4.5F;    // units/s
 
+// Two players (Preferences > Multiplayer, docs/multiplayer.md). The mode
+// while player 2 is active: 0 = off (single player only), 1 = shared screen
+// (one camera frames both avatars), 2 = split screen (P1 top / P2 bottom).
+// Player 2 exists in scenes with a second Player object (PLAYER2_INDEXES in
+// scene_data.hpp); joins with Start on pad 2 (when enabled) or a menu
+// "Player count" option block, both mid-game.
+constexpr int MULTIPLAYER_MODE = 0;
+constexpr bool P2_JOIN_ON_START = true;
+
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;
 
@@ -57,6 +66,21 @@ constexpr float ANIM_LOD_DISTANCE = 24.0F;
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = 30.0F;
+
+// Static batching (Preferences > Rendering): merge non-moving primitive
+// objects sharing a material into combined world-space bags at scene load -
+// each StaPip submit costs ~0.7-1.5 ms of fixed EE overhead on real
+// hardware regardless of size, so many small separate objects dominate the
+// frame (twice over in split screen). Eligibility is decided at build time
+// (SceneObjectData::batchStatic); runtime edits to a batched member rebuild
+// its batch. false = every object submits its own bag.
+constexpr bool STATIC_BATCHING = true;
+
+// Dynamic reflection probe aim (Preferences > Rendering): false = the
+// classic GT3 level-forward aim; true = a camera ray is intersected with
+// the dynamic-reflective objects and the probe renders from the hit point
+// along the smoothed REFLECTED ray (docs/reflective-materials.md).
+constexpr bool ENV_PROBE_REFLECTED = false;
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.

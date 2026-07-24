@@ -15,12 +15,17 @@
 #include <set>
 #include <sstream>
 
+#include "aisupport.hpp"
 #include "decalproj.hpp"
 #include "gl_loader.h"
+#include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "pngquant.hpp"
+#include "uvunwrap.hpp"
+#include "stochtile.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
 
@@ -82,6 +87,18 @@ struct EditorConfig {
     // Parent folder proposed as the location for new projects. Empty = fall
     // back to ~/TyraProjects.
     std::string defaultProjectsDir;
+    // Collaboration sessions: the name shown to other participants (empty =
+    // the Windows user name) and where joined projects materialize (empty =
+    // %LOCALAPPDATA%\tyra-editor\remote-cache).
+    std::string displayName;
+    std::string sessionCacheDir;
+    // AI assistant backend for flow-graph generation (aigen.hpp). Machine
+    // config, not project data: which CLIs/keys exist is a property of this
+    // PC. The --ai-graph CLI reads the same keys (main.cpp).
+    aigen::Config ai;
+    // Material Editor: the preview panel's share of the window width
+    // (0.25..0.75), set by dragging the splitter between the columns.
+    float matEdSplit = 0.48f;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -121,7 +138,14 @@ static EditorConfig loadEditorConfig() {
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
+        else if (match("displayName", v)) cfg.displayName = v;
+        else if (match("sessionCacheDir", v)) cfg.sessionCacheDir = v;
+        else if (match("aiBackend", v)) cfg.ai.backend = v;
+        else if (match("aiModel", v)) cfg.ai.model = v;
+        else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
+        else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
     }
+    if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
 }
 
@@ -145,7 +169,13 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
+      << "displayName=" << cfg.displayName << "\n"
+      << "sessionCacheDir=" << cfg.sessionCacheDir << "\n"
+      << "aiBackend=" << cfg.ai.backend << "\n"
+      << "aiModel=" << cfg.ai.model << "\n"
+      << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
+      << "matEdSplit=" << cfg.matEdSplit << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -194,10 +224,11 @@ static std::string pickPath(PickKind kind) {
                 L"Open Tyra project");
         case PickKind::ObjModel:
             return pickFileLegacy(
-                L"3D model (*.obj, *.glb)\0*.obj;*.glb\0"
+                L"3D model (*.obj, *.glb, *.fbx)\0*.obj;*.glb;*.fbx\0"
                 L"Wavefront model (*.obj)\0*.obj\0"
-                L"Animated glTF binary (*.glb)\0*.glb\0All files (*.*)\0*.*\0",
-                L"Import 3D model (.glb = animated)");
+                L"Animated glTF binary (*.glb)\0*.glb\0"
+                L"Animated FBX (*.fbx)\0*.fbx\0All files (*.*)\0*.*\0",
+                L"Import 3D model (.glb/.fbx = animated)");
         case PickKind::Mtl:
             return pickFileLegacy(
                 L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
@@ -353,6 +384,10 @@ int App::run(const std::string& initialProjectDir) {
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
+        globalDisplayName_ = cfg.displayName;
+        globalSessionCacheDir_ = cfg.sessionCacheDir;
+        globalAi_ = cfg.ai;
+        matEdSplit_ = cfg.matEdSplit;
     }
     applyUiScale();
 
@@ -450,6 +485,14 @@ void App::drawUI() {
     ImGuizmo::BeginFrame();
     ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
+    // Terrain-layer edits (material/tint/Size/add/remove) rebuild the layer
+    // passes once per frame, before the viewport renders below. Brush strokes
+    // don't come through here - they rebuild only the chunks under the brush.
+    if (splatPreviewDirty_ && hasProject_) {
+        splatPreviewDirty_ = false;
+        rebakeSplatPreview();
+    }
+
     // Apply a pending layout rebuild now: the dockspace id exists, but no panel
     // window has been submitted yet this frame (DockBuilder must run before the
     // windows it docks are drawn). Saved-ini loads take the frame-boundary path
@@ -493,6 +536,10 @@ void App::drawUI() {
     // the live-patchable state changed since the last write).
     liveLinkTick();
 
+    // Drain collaboration-session events (peer joins/leaves, sync completion,
+    // session end) - the only place session state meets project_/ImGui.
+    sessionTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -506,11 +553,15 @@ void App::drawUI() {
     drawAmbienceWindow();
     drawCutsceneWindow();
     drawMaterialEditorWindow();
+    drawTerrainWindow();
     drawUiEditorWindow();
+    drawFontManagerWindow();
     drawLoadingScreenWindow();
+    drawSessionWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
+    drawAiGenerateModal();
     drawErrorModal();
     drawNavigationModal();
     drawScenePreferencesModal();
@@ -520,6 +571,9 @@ void App::drawUI() {
     drawDeleteAssetModal();
     drawDiscardModal();
     drawLayoutModals();
+    drawHostSessionModal();
+    drawJoinSessionModal();
+    drawSessionEndedModal();
 
     // Bring the freshly switched layout's headline panel to the front, now that
     // its window has been submitted this frame (docked as a background tab by
@@ -559,7 +613,11 @@ void App::drawUI() {
             runner_.buildAndRun(project_, false);
     }
     if (hasProject_) {
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveAll("Saved");
+        // Ctrl+S is host-only in a joined session (the client's disk copy is
+        // the sync cache; the host owns persistence).
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S) &&
+            session_.role() != session::Session::Role::Client)
+            saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
             prefTerrain_ = project_.active().terrain;
             prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
@@ -607,7 +665,9 @@ void App::applyUiScale() {
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      errorPopupEnabled_, globalDefaultProjectsDir_});
+                      errorPopupEnabled_, globalDefaultProjectsDir_,
+                      globalDisplayName_, globalSessionCacheDir_, globalAi_,
+                      matEdSplit_});
 }
 
 void App::setUiScale(float userScale) {
@@ -621,8 +681,15 @@ void App::drawMenuBar() {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
-            if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_))
+            const bool sessionClient =
+                session_.role() == session::Session::Role::Client;
+            if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
                 saveAll("Saved");
+            if (sessionClient && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "You joined this project as a session participant -\n"
+                    "the HOST owns saving and committing. Leave the session\n"
+                    "to keep your local copy and save it yourself.");
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) requestExit();
             ImGui::EndMenu();
@@ -651,6 +718,22 @@ void App::drawMenuBar() {
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
+                snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
+                         globalDisplayName_.c_str());
+                snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
+                         globalSessionCacheDir_.c_str());
+                prefAiBackend_ = 0;
+                {
+                    const auto ids = aigen::backendIds();
+                    for (int i = 0; i < (int)ids.size(); ++i)
+                        if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
+                }
+                snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
+                         globalAi_.model.c_str());
+                prefAiCustomModel_ = true;
+                for (const char* m : aigen::modelPresets(globalAi_.backend))
+                    if (globalAi_.model == m) prefAiCustomModel_ = false;
+                prefAiThinking_ = globalAi_.thinking;
                 openEditorPrefsPopup_ = true;
             }
             ImGui::EndMenu();
@@ -698,6 +781,14 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
                                   "Turn off to see distant geometry - does not "
                                   "affect the generated game.");
+            if (ImGui::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
+                                hasProject_))
+                showNavOverlay_ = !showNavOverlay_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Show the baked navigation grid the AI flow nodes walk on "
+                    "(green = walkable). Tune it in Project > Preferences > "
+                    "AI navigation.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -783,13 +874,33 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Session")) {
+            const bool active = session_.active();
+            if (ImGui::MenuItem("Host Session...", nullptr, false,
+                                hasProject_ && !active))
+                openHostSessionPopup_ = true;
+            if (ImGui::MenuItem("Join Session...", nullptr, false, !active))
+                requestJoinSession();
+            ImGui::Separator();
+            if (ImGui::MenuItem("Session Window", nullptr, showSessionWindow_, active))
+                showSessionWindow_ = !showSessionWindow_;
+            if (ImGui::MenuItem(session_.role() == session::Session::Role::Client
+                                    ? "Leave Session"
+                                    : "Close Session",
+                                nullptr, false, active))
+                closeSession();
+            ImGui::EndMenu();
+        }
+
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+            if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::EndMenu();
         }
@@ -902,10 +1013,13 @@ void App::drawToolbar() {
     };
 
     // Save (floppy): normal when clean, amber when there are unsaved edits.
-    // Always enabled - saving also folds in layout/docking changes.
+    // Enabled unless we joined a session as a client (the host owns saving).
+    const bool saveAllowed = session_.role() != session::Session::Role::Client;
     if (iconButton(
-            "##tb_save", gapGroup, true,
-            dirty_ ? "Save - unsaved changes (Ctrl+S)" : "Save (Ctrl+S)",
+            "##tb_save", gapGroup, saveAllowed,
+            !saveAllowed ? "The session host owns saving"
+            : dirty_     ? "Save - unsaved changes (Ctrl+S)"
+                         : "Save (Ctrl+S)",
             [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
                 const ImU32 c = dirty_ ? IM_COL32(240, 175, 70, 255) : colText;
                 const float w = b.x - a.x, hh = b.y - a.y;
@@ -1032,6 +1146,56 @@ void App::drawToolbar() {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
     }
 
+    // Collaboration session chip (same pattern as the LIVE chip): hidden when
+    // idle, green "SESSION (n)" while hosting, blue "JOINED" as a client,
+    // amber while connecting/syncing. Click opens the Session window.
+    {
+        const auto st = session_.state();
+        if (st != session::Session::State::Idle &&
+            st != session::Session::State::Error) {
+            char label[32] = "SESSION";
+            ImU32 c = IM_COL32(240, 175, 70, 255);
+            const char* tip = "Connecting...";
+            switch (st) {
+                case session::Session::State::Listening: {
+                    const int others = (int)sessionPeers_.size() - 1;
+                    std::snprintf(label, sizeof(label), "SESSION (%d)",
+                                  others < 0 ? 0 : others);
+                    c = IM_COL32(95, 200, 115, 255);
+                    tip = "Hosting a live session - click for peers / kick / "
+                          "close.";
+                    break;
+                }
+                case session::Session::State::Live:
+                    std::snprintf(label, sizeof(label), "JOINED");
+                    c = IM_COL32(80, 160, 245, 255);
+                    tip = "Joined a live session - the host owns saving. Click "
+                          "for the Session window.";
+                    break;
+                default:  // Starting / Connecting / Syncing
+                    std::snprintf(label, sizeof(label), "SYNC");
+                    tip = "Session is starting up / transferring the project.";
+                    break;
+            }
+            ImGui::SameLine(0.0f, gapGroup);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float dotR = h * 0.14f;
+            const float textW = ImGui::CalcTextSize(label).x;
+            if (ImGui::InvisibleButton("##tb_session",
+                                       ImVec2(dotR * 2.0f + 4.0f + textW, h)))
+                showSessionWindow_ = true;
+            if (ImGui::IsItemHovered())
+                dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW, p.y + h),
+                                  ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+            dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
+            dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
+                               p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                        c, label);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+        }
+    }
+
     // Dropdown menus for the two Play carets (anchored just under each caret).
     ImGui::SetNextWindowPos(emuMenuAnchor);
     if (ImGui::BeginPopup("emu_run_menu")) {
@@ -1104,6 +1268,62 @@ void App::updateProjectedDecals() {
     viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
 }
 
+// Terrain brush ranges scale with the map: a 64-unit garden and a 2000-unit
+// world need very different maximums (fixed 30/0.5 caps made the brush useless
+// on large maps). Sliders over these ranges are logarithmic, so small values
+// keep their precision on any map size.
+static float terrainDimOf(const Project& p) {
+    const TerrainConfig& t = p.active().terrain;
+    return (float)(t.width > t.depth ? t.width : t.depth);
+}
+static float brushMaxRadius(const Project& p) {
+    const float r = terrainDimOf(p) * 0.5f;  // up to half the map per stroke
+    return r > 30.0f ? r : 30.0f;
+}
+static float sculptMaxStrength(const Project& p) {
+    const float s = terrainDimOf(p) / 100.0f;  // big maps = big landforms
+    return s > 0.5f ? s : 0.5f;
+}
+
+void App::updateNavOverlay() {
+    // Nav-mesh preview (View > Nav Mesh Overlay). Signature of everything the
+    // bake depends on - blocking objects, terrain, the nav preferences - so
+    // navmesh::bake only reruns on actual edits (same trick as the projected
+    // decals). Pure host work; the game bakes its own copy at build time.
+    if (!showNavOverlay_) {
+        viewport_.setNavOverlay(nullptr, 0);
+        return;
+    }
+    const SceneData& sc = project_.active();
+    uint64_t sig = 1469598103934665603ull;  // FNV-1a seed
+    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
+    auto mixf = [&](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, sizeof(b));
+        mix(b);
+    };
+    mixf(project_.settings.navCellSize);
+    mixf(project_.settings.navMaxSlope);
+    mixf(project_.settings.navAgentRadius);
+    mix((uint64_t)sc.terrain.width);
+    mix((uint64_t)sc.terrain.depth);
+    mix(sc.objects.size());
+    for (const SceneObject& o : sc.objects) {
+        mix((uint64_t)o.type);
+        mix((uint64_t)o.collisionMode);
+        for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.scale[k]); }
+        for (char c : o.modelPath) mix((uint8_t)c);
+    }
+    for (float h : sc.heights) mixf(h);
+
+    if (sig != navOverlaySig_) {
+        navOverlaySig_ = sig;
+        navGrid_ = navmesh::bake(project_, sc);
+        ++navOverlayVersion_;
+    }
+    viewport_.setNavOverlay(&navGrid_, navOverlayVersion_);
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1147,6 +1367,7 @@ void App::drawViewportWindow() {
                 viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
                 viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
                                       a.brightness);
+                viewport_.setAmbientOcclusion(a.aoEnabled, a.aoStrength, a.aoRadius);
                 viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
                 ambiencePreviewPushed_ = true;
             } else if (ambiencePreviewPushed_) {
@@ -1204,6 +1425,7 @@ void App::drawViewportWindow() {
             viewport_.setHiddenCameras(std::move(hideCams));
         }
         updateProjectedDecals();
+        updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -1236,29 +1458,43 @@ void App::drawViewportWindow() {
                                   IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
         }
 
-        // --- Terrain sculpting brush ---
+        // --- Terrain sculpting / painting brush (shared raycast + ring) ---
+        const bool brushMode = sculptMode_ || paintMode_;
         bool brushHit = false;
         float brushX = 0.0f, brushZ = 0.0f;
-        if (sculptMode_ && imageHovered) {
+        if (brushMode && imageHovered) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             brushHit = viewport_.terrainRaycast(u, v, brushX, brushZ);
 
             if (brushHit && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                if (sculptFlatten_) {
-                    // level toward the target height; strength = lerp rate
-                    project::flattenHeightmap(project_, brushX, brushZ, brushRadius_,
-                                              flattenHeight_, brushStrength_);
-                } else {
-                    const float delta = io.KeyShift ? -brushStrength_ : brushStrength_;
-                    project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
-                                             delta);
+                if (sculptMode_) {
+                    if (sculptFlatten_) {
+                        // level toward the target height; strength = lerp rate
+                        project::flattenHeightmap(project_, brushX, brushZ, brushRadius_,
+                                                  flattenHeight_, brushStrength_);
+                    } else {
+                        const float delta =
+                            io.KeyShift ? -brushStrength_ : brushStrength_;
+                        project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
+                                                 delta);
+                    }
+                    // Live rebuild of just the chunks under the brush - a full
+                    // applyProjectToViewport would rebuild the whole map per frame.
+                    viewport_.updateTerrainRegion(project_.active().heights, brushX,
+                                                  brushZ, brushRadius_);
+                    sculptStroke_ = true;
+                } else {  // paintMode_
+                    const float delta = (io.KeyShift || paintErase_) ? -paintStrength_
+                                                                     : paintStrength_;
+                    project::paintSplat(project_, paintLayer_, brushX, brushZ,
+                                        brushRadius_, delta);
+                    // Live rebuild of just the layer passes under the brush -
+                    // the paint twin of the sculpt region update above.
+                    viewport_.updateSplatRegion(project_.active().splat, brushX,
+                                                brushZ, brushRadius_);
+                    paintStroke_ = true;
                 }
-                // Live rebuild of just the chunks under the brush - a full
-                // applyProjectToViewport would rebuild the whole map per frame.
-                viewport_.updateTerrainRegion(project_.active().heights, brushX, brushZ,
-                                              brushRadius_);
-                sculptStroke_ = true;
             }
         }
         if (sculptStroke_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -1266,9 +1502,14 @@ void App::drawViewportWindow() {
             commitChange();  // one undo step per finished brush stroke
             statusMessage_ = "Terrain sculpted";
         }
+        if (paintStroke_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            paintStroke_ = false;
+            commitChange();  // one undo step per finished paint stroke
+            statusMessage_ = "Terrain painted";
+        }
 
         // brush ring projected onto the terrain
-        if (sculptMode_ && brushHit) {
+        if (brushMode && brushHit) {
             auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
                 const float* V = viewport_.viewMatrix();
                 const float* P = viewport_.projMatrix();
@@ -1294,7 +1535,11 @@ void App::drawViewportWindow() {
                 const bool ok =
                     worldToImage(px, viewport_.terrainHeight(px, pz) + 0.1f, pz, pt);
                 if (ok && prevOk)
-                    dl->AddLine(prev, pt, IM_COL32(255, 200, 40, 220), 2.0f);
+                    dl->AddLine(prev, pt,
+                                paintMode_ ? (paintErase_ ? IM_COL32(255, 90, 90, 220)
+                                                          : IM_COL32(80, 220, 120, 220))
+                                           : IM_COL32(255, 200, 40, 220),
+                                2.0f);
                 prev = pt;
                 prevOk = ok;
             }
@@ -1302,7 +1547,7 @@ void App::drawViewportWindow() {
 
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
-        bool objectSelected = !sculptMode_ && selectedObject_ >= 0 &&
+        bool objectSelected = !sculptMode_ && !paintMode_ && selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
@@ -1512,7 +1757,7 @@ void App::drawViewportWindow() {
             // button is not driving the camera in this scheme (only Maya's
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
-            if (!sculptMode_ && !lmbCamera &&
+            if (!sculptMode_ && !paintMode_ && !lmbCamera &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
@@ -1542,7 +1787,7 @@ void App::drawViewportWindow() {
 
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
-        if (imageHovered && !gizmoBusy && !sculptMode_ &&
+        if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -1701,13 +1946,32 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
-        // Terrain sculpting toggle stays with the tools (shortcut 4).
+        // Terrain brushes stay with the tools (shortcuts 4/6). Grabbing either
+        // one opens the Terrain Editor window - the tool's options live there.
         ImGui::SameLine(0.0f, 24.0f);
         if (sculptMode_)
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
+        if (ImGui::SmallButton("Sculpt (4)")) {
+            sculptMode_ = !sculptMode_;
+            if (sculptMode_) {
+                paintMode_ = false;  // one terrain brush at a time
+                showTerrainEditor_ = true;
+            }
+        }
         if (sculptMode_) ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if (paintMode_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Paint (6)")) {
+            paintMode_ = !paintMode_;
+            if (paintMode_) {
+                sculptMode_ = false;
+                showTerrainEditor_ = true;  // add layers there if none exist yet
+            }
+        }
+        if (paintMode_) ImGui::PopStyleColor();
 
         // Geometry for the bottom-corner overlays. SmallButton keeps
         // FramePadding.x, so its width is the label plus twice that padding.
@@ -1795,25 +2059,51 @@ void App::drawViewportWindow() {
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
         }
 
-        if (sculptMode_) {
+        // Quick brush controls for both terrain modes - the same variables the
+        // Terrain Editor window edits, so they never disagree. Ranges scale
+        // with the map (see brushMaxRadius/sculptMaxStrength); logarithmic so
+        // small maps keep fine control. [ and ] resize the brush from the keys.
+        if (sculptMode_ || paintMode_) {
             ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
-            ImGui::SetNextItemWidth(140.0f);
-            ImGui::SliderFloat("Radius", &brushRadius_, 1.0f, 30.0f, "%.1f");
+            ImGui::SetNextItemWidth(scaled(140));
+            ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
+                               brushMaxRadius(project_), "%.1f",
+                               ImGuiSliderFlags_Logarithmic);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Brush radius ([ / ] to resize)");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(140.0f);
-            ImGui::SliderFloat("Strength", &brushStrength_, 0.01f, 0.5f, "%.2f");
-            ImGui::SameLine();
-            ImGui::Checkbox("Flatten", &sculptFlatten_);
-            if (sculptFlatten_) {
+            ImGui::SetNextItemWidth(scaled(140));
+            if (sculptMode_) {
+                ImGui::SliderFloat("Strength", &brushStrength_, 0.01f,
+                                   sculptMaxStrength(project_), "%.2f",
+                                   ImGuiSliderFlags_Logarithmic);
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(90.0f);
-                ImGui::DragFloat("Level", &flattenHeight_, 0.1f, -100.0f, 100.0f,
-                                 "%.1f");
-                ImGui::SameLine();
-                ImGui::TextDisabled("LMB level to height, RMB orbit");
+                ImGui::Checkbox("Flatten", &sculptFlatten_);
+                const float lvl = terrainDimOf(project_);
+                if (sculptFlatten_) {
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(90));
+                    ImGui::DragFloat("Level", &flattenHeight_, 0.1f, -lvl, lvl,
+                                     "%.1f");
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("LMB level to height, RMB orbit");
+                } else {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
+                }
             } else {
+                ImGui::SliderFloat("Strength", &paintStrength_, 0.05f, 1.0f,
+                                   "%.2f");
                 ImGui::SameLine();
-                ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
+                ImGui::Checkbox("Erase", &paintErase_);
+                ImGui::SameLine();
+                const SceneData& psc = project_.active();
+                const bool okLayer = paintLayer_ >= 0 &&
+                                     paintLayer_ < (int)psc.terrainLayers.size();
+                ImGui::TextDisabled(
+                    okLayer ? "painting '%s' - LMB paint, Shift erase, RMB orbit"
+                            : "no layer - add one in the Terrain Editor",
+                    okLayer ? psc.terrainLayers[paintLayer_].name.c_str() : "");
             }
         }
 
@@ -1822,8 +2112,29 @@ void App::drawViewportWindow() {
             if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmoOp_ = 0;
             if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmoOp_ = 1;
             if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmoOp_ = 2;
-            if (ImGui::IsKeyPressed(ImGuiKey_4)) sculptMode_ = !sculptMode_;
+            if (ImGui::IsKeyPressed(ImGuiKey_4)) {
+                sculptMode_ = !sculptMode_;
+                if (sculptMode_) {
+                    paintMode_ = false;
+                    showTerrainEditor_ = true;
+                }
+            }
             if (ImGui::IsKeyPressed(ImGuiKey_5)) gizmoSpace_ = 1 - gizmoSpace_;
+            if (ImGui::IsKeyPressed(ImGuiKey_6)) {
+                paintMode_ = !paintMode_;
+                if (paintMode_) {
+                    sculptMode_ = false;
+                    showTerrainEditor_ = true;
+                }
+            }
+            // Resize the brush without leaving the stroke ([ / ], 15% steps).
+            if (sculptMode_ || paintMode_) {
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
+                    brushRadius_ = std::max(1.0f, brushRadius_ / 1.15f);
+                if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))
+                    brushRadius_ =
+                        std::min(brushMaxRadius(project_), brushRadius_ * 1.15f);
+            }
 
             // Fly the camera over the terrain. WASD or the arrow keys per the
             // navigation preference (tools live on 1-5, so WASD stays free).
@@ -1947,6 +2258,10 @@ void App::saveProject() {
     // kept in memory (and in undo snapshots) during editing.
     if (auto err = project::saveHeights(project_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
+    // Terrain splatmaps (paint weights) live in <scene>.splat sidecars, same
+    // deal as the heightmaps.
+    if (auto err = project::saveSplat(project_); !err.empty())
+        MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
 }
 
 void App::saveAll(const char* status) {
@@ -1965,7 +2280,9 @@ void App::saveAll(const char* status) {
 bool* App::showFlagForKey(const std::string& key) {
     if (key == "cutscene") return &showCutsceneEditor_;
     if (key == "material") return &showMaterialEditor_;
+    if (key == "terrain") return &showTerrainEditor_;
     if (key == "ui") return &showUiEditor_;
+    if (key == "fonts") return &showFontManager_;
     if (key == "menus") return &showMenusEditor_;
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
@@ -1978,7 +2295,8 @@ bool* App::showFlagForKey(const std::string& key) {
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
 static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "ui", "menus", "grading", "ambience", "loading", "disc"};
+    "cutscene", "material", "terrain", "ui",      "fonts",
+    "menus",    "grading",  "ambience", "loading", "disc"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -2245,10 +2563,15 @@ void App::commitChange() {
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
+    ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     if (history_.push({project_.scenes})) setDirty(true);
 }
 
 void App::setDirty(bool dirty) {
+    // Any dirtying edit advances the session serial - some model edits mark
+    // dirty without going through commitChange (UI Editor, layouts). Done
+    // BEFORE the no-op early-out below, which gates only the title refresh.
+    if (dirty) ++modelEditSerial_;
     if (dirty_ == dirty) return;
     dirty_ = dirty;
     updateWindowTitle();
@@ -2256,12 +2579,18 @@ void App::setDirty(bool dirty) {
 
 void App::updateWindowTitle() {
     if (!window_) return;
+    const bool joined = session_.role() == session::Session::Role::Client;
     // Skip redundant GLFW calls: only push when the shown state changed.
-    if (titleShowsDirty_ == dirty_ && titleName_ == project_.name) return;
+    if (titleShowsDirty_ == dirty_ && titleName_ == project_.name &&
+        titleShowsJoined_ == joined)
+        return;
     titleShowsDirty_ = dirty_;
+    titleShowsJoined_ = joined;
     titleName_ = project_.name;
     std::string title = "TyraX";
-    if (hasProject_) title += " - " + project_.name + (dirty_ ? " *" : "");
+    if (hasProject_)
+        title += " - " + project_.name + (joined ? " [joined]" : "") +
+                 (dirty_ ? " *" : "");
     glfwSetWindowTitle(window_, title.c_str());
 }
 
@@ -2310,6 +2639,9 @@ void App::performPendingAction() {
         case PendingAction::New:
             openNewProjectPopup_ = true;
             break;
+        case PendingAction::JoinSession:
+            openJoinSessionPopup_ = true;
+            break;
         case PendingAction::None:
             break;
     }
@@ -2350,6 +2682,505 @@ void App::drawDiscardModal() {
         }
         ImGui::EndPopup();
     }
+}
+
+// --- Collaboration session -------------------------------------------------
+// The Session (session.hpp) runs the network side on a worker thread; this
+// block is the UI half: per-frame event drain, the Host/Join modals, the
+// Session window and the project handoff when a join finishes syncing.
+
+// Peer colors, indexed by PeerView::colorIdx (host = 0). Used by the Session
+// window rows and (later) the viewport presence highlights.
+static const ImU32 kPeerColors[session::kMaxPeers] = {
+    IM_COL32(95, 200, 115, 255),   // 0 host - green
+    IM_COL32(80, 160, 245, 255),   // blue
+    IM_COL32(240, 175, 70, 255),   // amber
+    IM_COL32(225, 100, 210, 255),  // magenta
+    IM_COL32(90, 210, 205, 255),   // teal
+    IM_COL32(245, 130, 100, 255),  // coral
+    IM_COL32(180, 150, 250, 255),  // violet
+    IM_COL32(215, 205, 95, 255),   // olive
+};
+
+void App::sessionTick() {
+    const auto role = session_.role();
+    const bool host = role == session::Session::Role::Host;
+    bool appliedInbound = false;
+
+    // Cheap when idle: one mutex-guarded empty drain + a small vector copy.
+    for (auto& e : session_.drainEvents()) {
+        switch (e.type) {
+            case session::AppEvent::Type::PeerJoined:
+                statusMessage_ = e.peer.name + " joined the session";
+                break;
+            case session::AppEvent::Type::PeerLeft:
+                statusMessage_ = e.peer.name + (e.text == "kicked"  ? " was kicked"
+                                                : e.text == "timeout"
+                                                    ? " timed out"
+                                                    : " left the session");
+                peerPresence_.erase(e.peer.id);
+                break;
+            case session::AppEvent::Type::SyncDone:
+                openRemoteProject(e.text);
+                break;
+            case session::AppEvent::Type::Refreshed:
+                // Mid-session file refresh finished: assets on disk may have
+                // changed under us - drop every disk-derived cache and rescan.
+                viewport_.invalidateAssets();
+                wavIssueCache_.clear();
+                modelInfoCache_.clear();
+                rescanAssets(false);
+                applyProjectToViewport();
+                statusMessage_ = "Project files refreshed from the host";
+                break;
+            case session::AppEvent::Type::Ended:
+                // The worker is already winding down; join it and reset.
+                session_.close();
+                peerPresence_.clear();
+                viewport_.setPeerSelections({});
+                updateWindowTitle();  // drop the [joined] marker
+                if (joinModalVisible_) {
+                    sessionError_ = e.text;  // shown inline in the join modal
+                } else {
+                    sessionEndedText_ = e.text;
+                    openSessionEndedPopup_ = true;
+                }
+                break;
+            case session::AppEvent::Type::Frame:
+                // An edit from a peer. Fold it into project_ AND the shadow
+                // (so our own diff never re-emits it), then - on the host,
+                // which is the total-order hub - rebroadcast to EVERY peer
+                // including the origin so concurrent last-write-wins edits
+                // converge (TCP preserves the host's order per client).
+                if (session::applyEdit(project_, sessionShadow_, e.frame)) {
+                    appliedInbound = true;
+                    if (host) session_.broadcastFrame(e.frame, -1);
+                    break;
+                }
+                // Not an edit: presence (selection sync). Update the sender's
+                // entry; the host relays it to everyone else verbatim.
+                {
+                    json::Value msg;
+                    if (!json::parse(e.frame.json, msg)) break;
+                    const json::Value* t = msg.find("t");
+                    if (!t || t->stringOr("") != "presence") break;
+                    const json::Value* peerF = msg.find("peer");
+                    const int peerId =
+                        peerF ? (int)peerF->numberOr(-1) : e.peer.id;
+                    if (peerId < 0 || peerId == session_.selfId()) break;
+                    PeerPresence pp;
+                    if (const auto* v = msg.find("scene"))
+                        pp.scene = (int)v->numberOr(0);
+                    if (const auto* sel = msg.find("sel");
+                        sel && sel->type == json::Value::Type::Array)
+                        for (const auto& id : sel->arr)
+                            if (id.type == json::Value::Type::String)
+                                pp.sel.push_back(id.str);
+                    peerPresence_[peerId] = std::move(pp);
+                    if (host) session_.broadcastFrame(e.frame, e.peer.id);
+                }
+                break;
+        }
+    }
+
+    if (appliedInbound) {
+        // Remote edits bypass commitChange; refresh the derived state its
+        // callers rely on, and push one undo anchor per applied batch (so
+        // local undo rewinds remote edits batch-by-batch instead of a
+        // whole-session teleport; push() dedupes a no-op echo batch).
+        pruneSelection();
+        flowPositionsApplied_ = false;
+        layerRamCache_.clear();
+        applyProjectToViewport();
+        history_.push({project_.scenes});
+        if (host) {
+            setDirty(true);  // the host owns saving; mark unsaved
+            session_.setModelFiles(project::manifestFiles(project_));
+        }
+        // The inbound apply already advanced the shadow, so re-sync our
+        // scan cursor: this batch must not diff back out as a local edit.
+        sessionScannedSerial_ = modelEditSerial_;
+    }
+
+    // Outbound: diff our live model against the shadow whenever an edit moved
+    // it past the last scan, and ship the delta (host -> all peers, client ->
+    // host). Runs only while the session can carry edits.
+    const auto st = session_.state();
+    const bool canSend = (host && st == session::Session::State::Listening) ||
+                         (!host && st == session::Session::State::Live);
+    if (canSend && modelEditSerial_ != sessionScannedSerial_) {
+        project::ensureObjectIds(project_);
+        session::diffModel(project_, sessionShadow_, [&](wire::Frame f) {
+            if (host) session_.broadcastFrame(f, -1);
+            else session_.sendFrameToHost(f);
+        });
+        sessionScannedSerial_ = modelEditSerial_;
+        // Keep the joiner snapshot current so a late peer gets these edits.
+        if (host) session_.setModelFiles(project::manifestFiles(project_));
+    }
+
+    // Presence out: broadcast our selection (as stable object ids) whenever it
+    // changed, throttled so a marquee drag doesn't spam frames.
+    const double now = ImGui::GetTime();
+    if (canSend && now >= presenceNextSend_) {
+        std::vector<std::string> sel;
+        for (int i : selection_)
+            if (i >= 0 && i < (int)project_.objects().size())
+                sel.push_back(project_.objects()[i].id);
+        if (sel != presenceSentSel_ || project_.activeScene != presenceSentScene_) {
+            std::string j = "{\"t\":\"presence\",\"peer\":" +
+                            std::to_string(session_.selfId()) +
+                            ",\"scene\":" + std::to_string(project_.activeScene) +
+                            ",\"sel\":[";
+            for (size_t i = 0; i < sel.size(); ++i)
+                j += (i ? ",\"" : "\"") + sel[i] + "\"";
+            j += "]}";
+            wire::Frame f;
+            f.json = std::move(j);
+            if (host) session_.broadcastFrame(f, -1);
+            else session_.sendFrameToHost(f);
+            presenceSentSel_ = std::move(sel);
+            presenceSentScene_ = project_.activeScene;
+            presenceNextSend_ = now + 0.2;
+        }
+    }
+
+    // Presence in -> viewport: resolve each peer's ids to indices in OUR
+    // active scene (ids are the stable cross-editor key; indices shift).
+    if (session_.active()) {
+        std::vector<Viewport::PeerSel> sels;
+        if (!peerPresence_.empty()) {
+            std::map<std::string, int> idToIdx;
+            for (int i = 0; i < (int)project_.objects().size(); ++i)
+                idToIdx[project_.objects()[i].id] = i;
+            for (const auto& [peerId, pp] : peerPresence_) {
+                if (pp.scene != project_.activeScene || pp.sel.empty()) continue;
+                int colorIdx = 0;
+                for (const auto& pv : sessionPeers_)
+                    if (pv.id == peerId) colorIdx = pv.colorIdx;
+                const ImU32 c = kPeerColors[colorIdx % session::kMaxPeers];
+                Viewport::PeerSel ps;
+                ps.color[0] = ((c >> IM_COL32_R_SHIFT) & 0xFF) / 255.0f;
+                ps.color[1] = ((c >> IM_COL32_G_SHIFT) & 0xFF) / 255.0f;
+                ps.color[2] = ((c >> IM_COL32_B_SHIFT) & 0xFF) / 255.0f;
+                for (const auto& id : pp.sel) {
+                    auto it = idToIdx.find(id);
+                    if (it != idToIdx.end()) ps.indices.push_back(it->second);
+                }
+                if (!ps.indices.empty()) sels.push_back(std::move(ps));
+            }
+        }
+        viewport_.setPeerSelections(std::move(sels));
+    }
+
+    sessionPeers_ = session_.peers();
+}
+
+void App::requestJoinSession() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::JoinSession;
+        openDiscardPopup_ = true;
+    } else {
+        openJoinSessionPopup_ = true;
+    }
+}
+
+void App::startHostSession() {
+    // Pre-projectId projects get their id now (persists on the next save);
+    // fresh pastes get object ids so the model snapshot is complete.
+    project::ensureProjectId(project_);
+    project::ensureObjectIds(project_);
+    session::HostConfig cfg;
+    cfg.port = (uint16_t)sessionPort_;
+    cfg.joinCode = sessionCode_;
+    cfg.displayName = sessionName_;
+    cfg.projectDir = project_.dir;
+    cfg.projectId = project_.projectId;
+    cfg.projectName = project_.name;
+    cfg.modelFiles = project::manifestFiles(project_);
+    // Remember the typed name for future sessions (editor.ini).
+    if (globalDisplayName_ != sessionName_) {
+        globalDisplayName_ = sessionName_;
+        saveGlobalConfig();
+    }
+    session_.host(std::move(cfg));
+    // Baseline the diff against the exact model we're serving, so nothing
+    // re-emits as a "change" until the user actually edits.
+    sessionShadow_ = session::makeShadow(project_);
+    sessionScannedSerial_ = modelEditSerial_;
+    presenceSentSel_.clear();
+    presenceSentScene_ = -1;  // resend presence into the fresh session
+    showSessionWindow_ = true;
+    statusMessage_ = "Hosting session";
+}
+
+void App::closeSession() {
+    const bool wasClient = session_.role() == session::Session::Role::Client;
+    session_.close();
+    showSessionWindow_ = false;
+    peerPresence_.clear();
+    viewport_.setPeerSelections({});
+    updateWindowTitle();  // drop the [joined] marker
+    // A client keeps the synced project open as a local snapshot.
+    statusMessage_ = wasClient ? "Left the session" : "Session closed";
+}
+
+void App::openRemoteProject(const std::string& dir) {
+    Project p;
+    const std::string err = project::load(p, dir);
+    if (!err.empty()) {
+        session_.close();
+        sessionEndedText_ = "Failed to open the synced project: " + err;
+        openSessionEndedPopup_ = true;
+        return;
+    }
+    project_ = p;
+    hasProject_ = true;
+    applyProjectToViewport();
+    sessionAttachKeep_ = true;  // attachProject must not close the session
+    attachProject();
+    sessionAttachKeep_ = false;
+    // Baseline the live-sync shadow against the just-synced model.
+    sessionShadow_ = session::makeShadow(project_);
+    sessionScannedSerial_ = modelEditSerial_;
+    presenceSentSel_.clear();
+    presenceSentScene_ = -1;  // resend presence into the fresh session
+    showSessionWindow_ = true;
+    statusMessage_ = "Joined session: " + project_.name;
+}
+
+// Seed the display-name field once per modal open: the configured name
+// (Edit > Preferences), else USERNAME - both beat an empty box.
+static void seedSessionName(char* buf, size_t n, const std::string& configured) {
+    if (buf[0]) return;
+    if (!configured.empty()) {
+        std::snprintf(buf, n, "%s", configured.c_str());
+        return;
+    }
+    const char* u = getenv("USERNAME");
+    std::snprintf(buf, n, "%s", (u && *u) ? u : "user");
+}
+
+void App::drawHostSessionModal() {
+    if (openHostSessionPopup_) {
+        ImGui::OpenPopup("Host Session");
+        openHostSessionPopup_ = false;
+        seedSessionName(sessionName_, sizeof(sessionName_), globalDisplayName_);
+        if (!sessionCode_[0])
+            std::snprintf(sessionCode_, sizeof(sessionCode_), "%s",
+                          session::newJoinCode().c_str());
+    }
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Host Session", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(
+            ("Host \"" + project_.name + "\" as a live session.").c_str());
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::InputText("Your name", sessionName_, sizeof(sessionName_));
+        ImGui::SetNextItemWidth(scaled(110));
+        ImGui::InputInt("Port", &sessionPort_, 0, 0);
+        sessionPort_ = ImClamp(sessionPort_, 1024, 65535);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Join code: %s", sessionCode_);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("New code"))
+            std::snprintf(sessionCode_, sizeof(sessionCode_), "%s",
+                          session::newJoinCode().c_str());
+        ImGui::Spacing();
+        const auto ips = wire::localIPv4();
+        if (!ips.empty()) {
+            ImGui::TextDisabled("Peers connect to:");
+            for (const auto& ip : ips)
+                ImGui::TextDisabled("  %s:%d", ip.c_str(), sessionPort_);
+        }
+        ImGui::TextDisabled(
+            "Windows Firewall may ask for permission on the first start.");
+        ImGui::Spacing();
+        if (ImGui::Button("Start hosting", ImVec2(scaled(120), 0))) {
+            startHostSession();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+}
+
+void App::drawJoinSessionModal() {
+    if (openJoinSessionPopup_) {
+        ImGui::OpenPopup("Join Session");
+        openJoinSessionPopup_ = false;
+        seedSessionName(sessionName_, sizeof(sessionName_), globalDisplayName_);
+        sessionError_.clear();
+    }
+    joinModalVisible_ = false;
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Join Session", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        joinModalVisible_ = true;
+        const auto st = session_.state();
+        const bool busy = st == session::Session::State::Connecting ||
+                          st == session::Session::State::Syncing ||
+                          st == session::Session::State::Starting;
+        if (busy) {
+            const auto prog = session_.syncProgress();
+            if (st == session::Session::State::Syncing && prog.filesTotal > 0) {
+                ImGui::Text("Transferring project: %d / %d files", prog.filesDone,
+                            prog.filesTotal);
+                const float frac =
+                    prog.bytesTotal
+                        ? (float)((double)prog.bytesDone / (double)prog.bytesTotal)
+                        : 1.0f;
+                char overlay[64];
+                std::snprintf(overlay, sizeof(overlay), "%.1f / %.1f MB",
+                              prog.bytesDone / 1048576.0, prog.bytesTotal / 1048576.0);
+                ImGui::ProgressBar(frac, ImVec2(scaled(320), 0), overlay);
+                if (!prog.currentFile.empty())
+                    ImGui::TextDisabled("%s", prog.currentFile.c_str());
+            } else {
+                ImGui::TextUnformatted(st == session::Session::State::Connecting
+                                           ? "Connecting..."
+                                           : "Preparing transfer...");
+            }
+            ImGui::Spacing();
+            if (ImGui::Button("Cancel")) {
+                session_.close();
+                ImGui::CloseCurrentPopup();
+            }
+        } else if (st == session::Session::State::Live) {
+            // Sync finished; sessionTick opened the project - close quietly.
+            ImGui::CloseCurrentPopup();
+        } else {
+            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::InputText("Host address", sessionAddr_, sizeof(sessionAddr_));
+            ImGui::SetNextItemWidth(scaled(110));
+            ImGui::InputInt("Port", &sessionPort_, 0, 0);
+            sessionPort_ = ImClamp(sessionPort_, 1024, 65535);
+            ImGui::SetNextItemWidth(scaled(110));
+            ImGui::InputText("Join code", sessionCode_, sizeof(sessionCode_));
+            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::InputText("Your name", sessionName_, sizeof(sessionName_));
+            if (!sessionError_.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
+                                   sessionError_.c_str());
+            ImGui::Spacing();
+            if (ImGui::Button("Join", ImVec2(scaled(120), 0))) {
+                sessionError_.clear();
+                session::JoinConfig cfg;
+                cfg.address = sessionAddr_;
+                cfg.port = (uint16_t)sessionPort_;
+                cfg.joinCode = sessionCode_;
+                cfg.displayName = sessionName_;
+                cfg.cacheRoot = globalSessionCacheDir_;
+                // Remember the typed name for future sessions (editor.ini).
+                if (globalDisplayName_ != sessionName_) {
+                    globalDisplayName_ = sessionName_;
+                    saveGlobalConfig();
+                }
+                session_.join(std::move(cfg));
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void App::drawSessionEndedModal() {
+    if (openSessionEndedPopup_) {
+        ImGui::OpenPopup("Session");
+        openSessionEndedPopup_ = false;
+    }
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Session", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(sessionEndedText_.c_str());
+        if (session_.role() == session::Session::Role::None && hasProject_)
+            ImGui::TextDisabled(
+                "The project stays open as a local copy on this machine.");
+        ImGui::Spacing();
+        if (ImGui::Button("OK", ImVec2(scaled(90), 0)) ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+}
+
+void App::drawSessionWindow() {
+    if (!showSessionWindow_) return;
+    if (!session_.active()) {
+        showSessionWindow_ = false;
+        return;
+    }
+    ImGui::SetNextWindowSize(ImVec2(scaled(340), scaled(260)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Session", &showSessionWindow_)) {
+        ImGui::End();
+        return;
+    }
+    const bool hosting = session_.role() == session::Session::Role::Host;
+    if (hosting) {
+        ImGui::Text("Hosting \"%s\"", project_.name.c_str());
+        ImGui::Text("Port %d - join code %s", sessionPort_, sessionCode_);
+        for (const auto& ip : wire::localIPv4())
+            ImGui::TextDisabled("  %s:%d", ip.c_str(), sessionPort_);
+    } else {
+        ImGui::Text("Joined \"%s\" @ %s", project_.name.c_str(), sessionAddr_);
+        ImGui::TextDisabled("The host owns saving and committing.");
+        if (ImGui::SmallButton("Refresh project files")) session_.requestRefresh();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Re-syncs assets/sources from the host (fetches files the "
+                "host\nimported since you joined; unchanged files are "
+                "skipped).\nScene edits stream live and never need this.");
+        const auto prog = session_.syncProgress();
+        if (prog.filesTotal > prog.filesDone)
+            ImGui::TextDisabled("  fetching %d / %d files...", prog.filesDone,
+                                prog.filesTotal);
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Participants");
+    for (const auto& peer : sessionPeers_) {
+        ImGui::PushID(peer.id);
+        const ImU32 c = kPeerColors[peer.colorIdx % session::kMaxPeers];
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float r = ImGui::GetTextLineHeight() * 0.32f;
+        dl->AddCircleFilled(ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.55f),
+                            r, c);
+        ImGui::Dummy(ImVec2(r * 2.0f + 4.0f, 0));
+        ImGui::SameLine();
+        ImGui::TextUnformatted(peer.name.c_str());
+        if (peer.id == 0) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(host)");
+        }
+        // What they're editing (from presence): the scene name.
+        if (auto it = peerPresence_.find(peer.id); it != peerPresence_.end() &&
+                                                   it->second.scene >= 0 &&
+                                                   it->second.scene <
+                                                       (int)project_.scenes.size()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("- %s", project_.scenes[it->second.scene].name.c_str());
+        }
+        if (hosting && peer.id != 0) {
+            if (!peer.address.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", peer.address.c_str());
+            }
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - scaled(30));
+            if (ImGui::SmallButton("Kick")) session_.kickPeer(peer.id);
+        }
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (ImGui::Button(hosting ? "Close session" : "Leave session")) closeSession();
+    ImGui::End();
 }
 
 void App::applySnapshot(const SceneSnapshot& s) {
@@ -2522,6 +3353,15 @@ void App::pasteObject() {
 }
 
 void App::attachProject() {
+    // A project switch ends any live session - the session is bound to the
+    // project it was started on. The join flow is the one exception: it
+    // attaches the freshly synced remote project with the session kept alive
+    // (openRemoteProject sets sessionAttachKeep_ around this call).
+    if (!sessionAttachKeep_ && session_.active()) {
+        session_.close();
+        statusMessage_ = "Session closed";
+    }
+
     // Emulator path and PS2 IP are machine-global editor settings (editor.ini),
     // not project data. Migrate any value carried by an older .tyra file into
     // the global config the first time such a project is opened, then feed the
@@ -2680,6 +3520,16 @@ void App::addMirror() {
     o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
     saveAll("Saved");
 }
+void App::addPortal() {
+    addObject(PrimitiveType::Portal);
+    SceneObject& o = project_.objects().back();
+    // a door-sized upright frame at standing height, warm energy tint
+    o.position[1] = 1.2f;
+    o.scale[0] = 1.6f, o.scale[1] = 2.4f, o.scale[2] = 1.0f;
+    o.color[0] = 0.95f, o.color[1] = 0.55f, o.color[2] = 0.2f;
+    o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -2733,9 +3583,10 @@ std::string App::importModelAsset() {
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
 
-    // Animated models (.glb) are self-contained (geometry, clips, textures in
-    // one file): plain copy, then a validation bake for early feedback. The
-    // .tanm the game loads is baked from it on every build.
+    // Animated models (.glb/.fbx): copy, then a validation bake for early
+    // feedback. The .tskl the game loads is serialized from the copy on
+    // every build. A .glb is self-contained; an .fbx may reference textures
+    // as separate files, so those are copied next to it.
     if (isAnimatedModelPath(fileName)) {
         std::filesystem::copy_file(srcPath, destDir / fileName,
                                    std::filesystem::copy_options::overwrite_existing, ec);
@@ -2743,9 +3594,11 @@ std::string App::importModelAsset() {
             statusMessage_ = "Model import failed: " + ec.message();
             return "";
         }
+        if (fileName.size() > 4 && fileName.compare(fileName.size() - 4, 4, ".fbx") == 0)
+            fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
         glbparser::Baked baked;
         std::string error;
-        if (!glbparser::bake((destDir / fileName).string(), 12.0f, baked, error)) {
+        if (!animimport::bake((destDir / fileName).string(), 12.0f, baked, error)) {
             statusMessage_ = "Imported " + fileName + " - UNUSABLE: " + error;
             return "res/models/" + fileName;
         }
@@ -2758,8 +3611,8 @@ std::string App::importModelAsset() {
         // frames - parseSkel knows the actual footprint.
         glbparser::Skel skel;
         std::string skelError;
-        const size_t bytes = glbparser::parseSkel((destDir / fileName).string(),
-                                                  skel, skelError)
+        const size_t bytes = animimport::parseSkel((destDir / fileName).string(),
+                                                   skel, skelError)
                                  ? skel.ps2Bytes()
                                  : 0;
         if (bytes > 8u * 1024 * 1024)
@@ -2975,6 +3828,16 @@ std::string App::importMaterialAsset() {
     return "res/materials/" + fileName;
 }
 
+// Every animated-model asset regardless of container (.glb + .fbx), sorted -
+// the combos that offer "animated" models all go through this.
+std::vector<std::string> App::listAnimatedModelFiles() {
+    std::vector<std::string> files = listAssetFiles("models", ".glb");
+    const std::vector<std::string> fbx = listAssetFiles("models", ".fbx");
+    files.insert(files.end(), fbx.begin(), fbx.end());
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
 std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext) {
     std::vector<std::string> files;
     std::error_code ec;
@@ -3068,7 +3931,7 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     GlbInfo info;
     glbparser::Baked baked;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    if (glbparser::bake(full.string(), 12.0f, baked, info.error)) {
+    if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
         info.ok = true;
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();
@@ -3148,7 +4011,66 @@ bool App::drawMaterialCombo(SceneObject& o) {
                 changed = true;
             }
         }
+        // Models: seed a new editable .mtl from the model's own built-in
+        // materials (the only way to give an animated .glb/.fbx a material it
+        // can preview/paint on - it has no sibling .mtl to assign).
+        if (isModel && !o.modelPath.empty()) {
+            ImGui::Separator();
+            if (ImGui::Selectable("+ New material from this model...")) {
+                if (!createMaterialForModel(o).empty()) changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Extracts the model's built-in materials (names, colors,\n"
+                    "textures) into a new res/materials/*.mtl, assigns it as the\n"
+                    "override and opens it in the Material Editor - previewed on\n"
+                    "this model.");
+        }
         ImGui::EndCombo();
+    }
+
+    // Live texture feed: override the surface with a feed camera's view
+    // (CCTV) or a raytraced mirror's traced image (docs/texture-feeds.md).
+    // Mirrors/portals have dedicated surfaces - no feed on those.
+    if (o.type != PrimitiveType::Mirror && o.type != PrimitiveType::Portal) {
+        std::string cur = "<none>";
+        if (o.textureFeed.rfind("camera:", 0) == 0)
+            cur = "camera: " + o.textureFeed.substr(7);
+        else if (o.textureFeed.rfind("mirror:", 0) == 0)
+            cur = "mirror: " + o.textureFeed.substr(7);
+        if (ImGui::BeginCombo("Texture feed", cur.c_str())) {
+            if (ImGui::Selectable("<none>", o.textureFeed.empty()) &&
+                !o.textureFeed.empty()) {
+                o.textureFeed.clear();
+                changed = true;
+            }
+            for (const SceneObject& t : project_.objects()) {
+                if (t.type == PrimitiveType::Camera && t.camFeed) {
+                    const std::string ref = "camera:" + t.name;
+                    if (ImGui::Selectable(("camera: " + t.name).c_str(),
+                                          o.textureFeed == ref) &&
+                        o.textureFeed != ref) {
+                        o.textureFeed = ref;
+                        changed = true;
+                    }
+                }
+                if (t.type == PrimitiveType::Mirror && t.mirrorRaytraced) {
+                    const std::string ref = "mirror:" + t.name;
+                    if (ImGui::Selectable(("mirror: " + t.name).c_str(),
+                                          o.textureFeed == ref) &&
+                        o.textureFeed != ref) {
+                        o.textureFeed = ref;
+                        changed = true;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (!o.textureFeed.empty() && ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Live 128x128 feed drawn flat (emissive) over this object's\n"
+                "UVs, tinted by the object color. PS2-only - the editor\n"
+                "viewport shows the base material.");
     }
     return changed;
 }
@@ -3214,8 +4136,8 @@ void App::drawAssetsSection() {
     if (ImGui::SmallButton("Import model...")) importModelAsset();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
-                          ".glb = animated model (Blender glTF Binary export;\n"
-                          "clips are baked to PS2 morph frames at build)");
+                          ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
+                          "clips play on the PS2 skeletal runtime)");
     const std::vector<std::string> models = listAssetFiles("models", ".obj");
     for (const std::string& m : models) {
         ImGui::Bullet();
@@ -3244,7 +4166,7 @@ void App::drawAssetsSection() {
             }
         }
     }
-    const std::vector<std::string> animModels = listAssetFiles("models", ".glb");
+    const std::vector<std::string> animModels = listAnimatedModelFiles();
     for (const std::string& m : animModels) {
         ImGui::Bullet();
         ImGui::SameLine();
@@ -3277,7 +4199,7 @@ void App::drawAssetsSection() {
         }
     }
     if (models.empty() && animModels.empty())
-        ImGui::TextDisabled("  none - Import or drop .obj/.glb files there.");
+        ImGui::TextDisabled("  none - Import or drop .obj/.glb/.fbx files there.");
 
     ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
@@ -3377,7 +4299,7 @@ void App::drawAddObjectMenu() {
             const std::vector<std::string> models = listAssetFiles("models", ".obj");
             for (const std::string& m : models)
                 if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
-            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            const std::vector<std::string> anim = listAnimatedModelFiles();
             for (const std::string& m : anim)
                 if (ImGui::MenuItem((m + " (animated)").c_str()))
                     addModelObject("res/models/" + m);
@@ -3395,6 +4317,9 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        // Linked pair of surfaces: a live view through to the target portal
+        // plus a walk-through teleport that carries speed and view angle.
+        if (ImGui::MenuItem("Portal")) addPortal();
         if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
         if (ImGui::MenuItem("Save point")) addSavePoint();
         // Cutscene Director shot marker (bind camera-track keys to it)
@@ -3467,6 +4392,25 @@ void App::drawSceneSection() {
                 else selectOnly(i);
             }
             if (hidden) ImGui::PopStyleColor();
+            // Session presence: a colored dot per participant who has this
+            // object selected (their peer color), right-aligned on the row.
+            if (!peerPresence_.empty()) {
+                float dotX = ImGui::GetItemRectMax().x - scaled(10.0f);
+                const float dotY =
+                    (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
+                for (const auto& [peerId, pp] : peerPresence_) {
+                    if (pp.scene != project_.activeScene) continue;
+                    if (std::find(pp.sel.begin(), pp.sel.end(), o.id) == pp.sel.end())
+                        continue;
+                    int colorIdx = 0;
+                    for (const auto& pv : sessionPeers_)
+                        if (pv.id == peerId) colorIdx = pv.colorIdx;
+                    ImGui::GetWindowDrawList()->AddCircleFilled(
+                        ImVec2(dotX, dotY), scaled(3.5f),
+                        kPeerColors[colorIdx % session::kMaxPeers]);
+                    dotX -= scaled(9.0f);
+                }
+            }
             if (grouped && ImGui::BeginDragDropSource()) {
                 ImGui::SetDragDropPayload("SCENE_OBJECT", &i, sizeof(int));
                 const int n =
@@ -3851,6 +4795,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Empty: return "Empty";
         case PrimitiveType::Camera: return "Camera";
         case PrimitiveType::Mirror: return "Mirror";
+        case PrimitiveType::Portal: return "Portal";
     }
     return "Object";
 }
@@ -3918,6 +4863,24 @@ void App::drawPropertiesWindow() {
                 if (m.type == PrimitiveType::Mirror)
                     for (std::string& t : m.mirrorObjects)
                         if (t == from) t = o.name;
+            // Camera feed view lists + per-object texture-feed refs
+            // ("camera:<name>" / "mirror:<name>").
+            for (SceneObject& m : project_.objects()) {
+                if (m.type == PrimitiveType::Camera)
+                    for (std::string& t : m.camFeedObjects)
+                        if (t == from) t = o.name;
+                if (m.textureFeed == "camera:" + from)
+                    m.textureFeed = "camera:" + o.name;
+                else if (m.textureFeed == "mirror:" + from)
+                    m.textureFeed = "mirror:" + o.name;
+            }
+            // Portal links + view lists likewise.
+            for (SceneObject& m : project_.objects())
+                if (m.type == PrimitiveType::Portal) {
+                    if (m.portalTarget == from) m.portalTarget = o.name;
+                    for (std::string& t : m.portalObjects)
+                        if (t == from) t = o.name;
+                }
         }
     }
 
@@ -3995,7 +4958,7 @@ void App::drawPropertiesWindow() {
                     committed = true;
                 }
             }
-            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            const std::vector<std::string> anim = listAnimatedModelFiles();
             for (const std::string& m : anim) {
                 const std::string rel = "res/models/" + m;
                 if (ImGui::Selectable((m + " (animated)").c_str(),
@@ -4019,29 +4982,9 @@ void App::drawPropertiesWindow() {
                 for (const std::string& w : info.warnings)
                     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                                        w.c_str());
-                // Baked materials (from the .glb): the colors the game renders
-                // the mesh with. Authored in the modelling tool (Blender:
-                // material Base Color) and baked into the .tskl at build.
-                if (!info.materials.empty()) {
-                    ImGui::SeparatorText("Materials");
-                    for (const GlbInfo::Material& mat : info.materials) {
-                        ImGui::ColorButton(
-                            ("##animmat" + mat.name).c_str(),
-                            ImVec4(mat.color[0], mat.color[1], mat.color[2],
-                                   1.0f),
-                            ImGuiColorEditFlags_NoTooltip |
-                                ImGuiColorEditFlags_NoDragDrop,
-                            ImVec2(14, 14));
-                        ImGui::SameLine();
-                        if (mat.textured)
-                            ImGui::Text("%s (textured)", mat.name.c_str());
-                        else
-                            ImGui::TextUnformatted(mat.name.c_str());
-                    }
-                    ImGui::TextDisabled(
-                        "Colors come from the model; edit them in the\n"
-                        "modelling tool and re-export the .glb.");
-                }
+                // (The model's built-in materials aren't listed here: they're
+                // authored in the modelling tool and the Material picker below
+                // is how you override/edit them - see drawMaterialCombo.)
                 ImGui::SeparatorText("Animation");
                 const std::string clipLabel =
                     o.animClip.empty()
@@ -4067,12 +5010,13 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: Play Animation, Stop Animation,\n"
                     "On Animation Finished.");
             } else if (!o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Unusable .glb: %s", info.error.c_str());
+                                   "Unusable model: %s", info.error.c_str());
             }
         } else {
         // materials come from the .obj's MTL file (or the assigned override)
@@ -4108,16 +5052,19 @@ void App::drawPropertiesWindow() {
     // Mirror: transform places the glass rectangle (+Z = the reflective
     // face), color tints it; the mirror-specific block sits further down.
     const bool isMirror = o.type == PrimitiveType::Mirror;
+    // Portal: transform places the surface (+Z = the visible/entry face),
+    // color tints an inactive surface; the portal block sits further down.
+    const bool isPortal = o.type == PrimitiveType::Portal;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || isMirror ||
+    if (isSolid || isEmpty || isDecal || isMirror || isPortal ||
         o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4125,8 +5072,9 @@ void App::drawPropertiesWindow() {
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
     // texture tint for decals, marker/frustum tint for camera entities, glass
-    // tint for mirrors. The remaining markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
+    // tint for mirrors, inactive-surface tint for portals. The remaining
+    // markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4139,12 +5087,17 @@ void App::drawPropertiesWindow() {
     if (isSolid || isDecal) {
         // Material (.mtl asset): primitives take the file's first material
         // (Kd + map_Kd on their UVs, modulated by the object color), models
-        // use it as an override replacing their own libraries. Animated .glb
-        // models carry their own materials - no override.
-        if (!animatedModel && drawMaterialCombo(o)) committed = true;
-        if (!animatedModel && !o.materialPath.empty()) {
+        // (static .obj AND animated .glb/.fbx) use it as an OVERRIDE replacing
+        // their own libraries - usemtl/material names resolve against it. Empty
+        // = the model's own (built-in) materials, so it is an extra option, not
+        // a replacement. An animated override is resolved into the .tskl at
+        // build time (docs/animated-models.md).
+        if (drawMaterialCombo(o)) committed = true;
+        if (!o.materialPath.empty()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Edit..."))
+                // preview the material on the object's own mesh (static .obj
+                // AND animated .glb/.fbx); primitives leave the hint off
                 openMaterialEditor(o.materialPath,
                                    o.type == PrimitiveType::Model ? o.modelPath
                                                                   : "");
@@ -4177,11 +5130,51 @@ void App::drawPropertiesWindow() {
         }
     }
     if (isSolid) {
-        if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
+        if (ImGui::Checkbox("Physics (rigid body)", &o.physics)) committed = true;
+        if (o.physics) {
+            ImGui::Indent();
+            ImGui::DragFloat("Mass", &o.physMass, 0.05f, 0.05f, 100.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Bounciness", &o.physBounce, 0.01f, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Friction", &o.physFriction, 0.01f, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Checkbox("Tumble (impacts add spin)", &o.physTumble))
+                committed = true;
+            ImGui::DragFloat("Sleep after (s)", &o.physSleep, 0.1f, 0.1f, 60.0f,
+                             "%.1f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Falls, bounces off slopes and objects, slides with friction\n"
+                "and can be shoved by the player / Apply Impulse nodes.\n"
+                "Mass is relative - it matters only against other bodies.\n"
+                "Sleep after: seconds of near-rest before the body freezes\n"
+                "(a sleeping body costs nothing until something wakes it).");
+            ImGui::Unindent();
+        }
         if (o.type == PrimitiveType::SavePoint) {
             ImGui::TextDisabled("Always usable - USE opens the save menu.");
         } else if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable)) {
             committed = true;
+        }
+        if (o.type != PrimitiveType::SavePoint) {
+            if (ImGui::Checkbox("Pickable (USE picks it up)", &o.pickable))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The player carries it a short reach in front of the face,\n"
+                    "swept against the world - it cannot be pushed through or\n"
+                    "left behind other geometry. USE again drops it.");
+            if (o.pickable) {
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Can throw", &o.pickThrow)) committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("BTN_THROW (Circle, see controls.hpp) launches\n"
+                                      "the carried object. Experimental.");
+                if (!o.physics)
+                    ImGui::TextDisabled(
+                        "Tip: enable Physics so it falls when dropped.");
+            }
         }
     }
     // Show/Hide Object nodes toggle emitters/sounds too - their on/off state
@@ -4243,6 +5236,17 @@ void App::drawPropertiesWindow() {
                 "Mark the few props that sell the effect - each one costs a\n"
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
+
+        // Baked ambient occlusion: whether this object darkens nearby
+        // terrain/objects (docs/ambient-occlusion.md; global strength in
+        // the Ambience Editor).
+        if (ImGui::Checkbox("Cast shadow", &o.castShadow)) committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Bakes a soft contact shadow onto nearby terrain and objects\n"
+                "(ambient occlusion - needs it enabled in the scene's\n"
+                "ambience preset). Off = this object casts nothing; it still\n"
+                "receives shadows from others. Rebuild to see it in-game.");
     }
 
     if (isMirror) {
@@ -4258,6 +5262,31 @@ void App::drawPropertiesWindow() {
             ImGui::TextDisabled(
                 "Reflects the third-person avatar. An FPP player has no\n"
                 "body to reflect (vampire rules).");
+        if (ImGui::Checkbox("Raytraced (VU0, experimental)", &o.mirrorRaytraced))
+            committed = true;
+        if (o.mirrorRaytraced) {
+            ImGui::TextDisabled(
+                "Real per-pixel ray tracing on a VU0 microprogram: listed\n"
+                "static models reflect as decimated TEXTURED triangle meshes\n"
+                "(up to 2, 36 tris shared), boxes/planes/decals as\n"
+                "axis-aligned slabs, everything else as spheres - against\n"
+                "the sky gradient, traced into a texture on the glass.");
+            // Cost scales with the square of the edge (VU0 traces every
+            // texel) - 256/512 are photo modes, not frame rates.
+            const char* rtSizes[] = {"32 x 32 (cheap)", "64 x 64",
+                                     "128 x 128 (~4x cost)",
+                                     "256 x 256 (slideshow)",
+                                     "512 x 512 (photo mode, 1MB VRAM)"};
+            const int rtVals[] = {32, 64, 128, 256, 512};
+            int rtIdx = 1;
+            for (int i = 0; i < 5; ++i)
+                if (o.mirrorRtSize == rtVals[i]) { rtIdx = i; break; }
+            ImGui::SetNextItemWidth(scaled(210));
+            if (ImGui::Combo("Reflection resolution", &rtIdx, rtSizes, 5)) {
+                o.mirrorRtSize = rtVals[rtIdx];
+                committed = true;
+            }
+        }
         bool solid = o.collisionMode != 2;
         if (ImGui::Checkbox("Collision (blocks the player)", &solid)) {
             o.collisionMode = solid ? 0 : 2;
@@ -4307,6 +5336,117 @@ void App::drawPropertiesWindow() {
         }
         if (o.mirrorObjects.empty() && !o.mirrorReflectPlayer)
             ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
+    }
+
+    if (isPortal) {
+        ImGui::SeparatorText("Portal");
+        // Destination link: another Portal in this scene. One-way by design -
+        // point both portals at each other for a two-way door.
+        const std::string current =
+            o.portalTarget.empty() ? "<none>" : o.portalTarget;
+        bool targetExists = false;
+        for (const SceneObject& t : project_.objects())
+            if (t.type == PrimitiveType::Portal && t.name == o.portalTarget)
+                targetExists = true;
+        if (ImGui::BeginCombo("Target portal", current.c_str())) {
+            if (ImGui::Selectable("<none>", o.portalTarget.empty()) &&
+                !o.portalTarget.empty()) {
+                o.portalTarget.clear();
+                committed = true;
+            }
+            for (const SceneObject& t : project_.objects()) {
+                if (t.type != PrimitiveType::Portal || t.name == o.name) continue;
+                if (ImGui::Selectable(t.name.c_str(), t.name == o.portalTarget) &&
+                    o.portalTarget != t.name) {
+                    o.portalTarget = t.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (o.portalTarget.empty())
+            ImGui::TextDisabled(
+                "No target - the surface just shows the tint color.");
+        else if (!targetExists)
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                               "Target portal missing - surface inactive.");
+        else {
+            // convenience: make the pair two-way with one click
+            SceneObject* tgt = nullptr;
+            for (SceneObject& t : project_.objects())
+                if (t.type == PrimitiveType::Portal && t.name == o.portalTarget)
+                    tgt = &t;
+            if (tgt && tgt->portalTarget != o.name) {
+                if (ImGui::SmallButton("Link back (make two-way)")) {
+                    tgt->portalTarget = o.name;
+                    committed = true;
+                }
+            } else {
+                ImGui::TextDisabled("Two-way pair (target links back).");
+            }
+        }
+        if (ImGui::Checkbox("Terrain + sky in view", &o.portalShowTerrain))
+            committed = true;
+        if (ImGui::Checkbox("Teleport physics objects", &o.portalTeleportObjects))
+            committed = true;
+        if (ImGui::Checkbox("All objects in view (experimental)",
+                            &o.portalViewAll))
+            committed = true;
+        if (o.portalViewAll) {
+            ImGui::TextDisabled(
+                "Every scene object renders in the through-view (the list\n"
+                "below is ignored). The virtual camera's frustum culling and\n"
+                "draw distances trim the cost, but big scenes pay a second\n"
+                "submission pass - watch the FPS/profiler before shipping.");
+        } else {
+        ImGui::TextUnformatted("Objects visible through:");
+        int removePortalAt = -1;
+        for (size_t i = 0; i < o.portalObjects.size(); ++i) {
+            ImGui::PushID(1000 + (int)i);
+            if (ImGui::SmallButton("x")) removePortalAt = (int)i;
+            ImGui::SameLine();
+            bool exists = false;
+            for (const SceneObject& t : project_.objects())
+                if (t.name == o.portalObjects[i]) { exists = true; break; }
+            if (exists)
+                ImGui::TextUnformatted(o.portalObjects[i].c_str());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "%s (missing)", o.portalObjects[i].c_str());
+            ImGui::PopID();
+        }
+        if (removePortalAt >= 0) {
+            o.portalObjects.erase(o.portalObjects.begin() + removePortalAt);
+            committed = true;
+        }
+        if (ImGui::BeginCombo("##portalAdd", "+ Add object...")) {
+            for (const SceneObject& t : project_.objects()) {
+                // same set the mirror can reflect: types the game draws as
+                // static geometry (animated models re-pose in the main view
+                // only; through a portal they would show a stale pose)
+                const bool viewable =
+                    t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                    t.type == PrimitiveType::Cylinder ||
+                    t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                    t.type == PrimitiveType::SavePoint ||
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                if (!viewable || t.name == o.name) continue;
+                bool listed = false;
+                for (const std::string& n : o.portalObjects)
+                    if (n == t.name) { listed = true; break; }
+                if (listed) continue;
+                if (ImGui::Selectable(t.name.c_str())) {
+                    o.portalObjects.push_back(t.name);
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled(
+            "The view renders listed objects (+ terrain/sky above) from the\n"
+            "target's side every frame - keep the list short. One portal\n"
+            "view renders per frame; the other surfaces show the tint.");
+        }  // !portalViewAll
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -4453,6 +5593,57 @@ void App::drawPropertiesWindow() {
                             "Cutscene Director) and the shot films from here,\n"
                             "looking down the +Z wedge, with this FOV. Animate\n"
                             "this object in the same sequence for dolly shots.");
+        if (ImGui::Checkbox("Render to texture (CCTV feed)", &o.camFeed))
+            committed = true;
+        if (o.camFeed) {
+            ImGui::TextDisabled(
+                "Renders this camera's view (sky + the list below) into a\n"
+                "128x128 live texture every frame. Put it on any object via\n"
+                "Properties > Texture feed. ONE active feed camera per scene\n"
+                "(the first enabled one wins).");
+            if (ImGui::Checkbox("Show terrain in feed", &o.camFeedTerrain))
+                committed = true;
+            ImGui::TextUnformatted("Objects in feed:");
+            int removeAt = -1;
+            for (size_t i = 0; i < o.camFeedObjects.size(); ++i) {
+                ImGui::PushID((int)(i + 700));
+                if (ImGui::SmallButton("x")) removeAt = (int)i;
+                ImGui::SameLine();
+                bool exists = false;
+                for (const SceneObject& t : project_.objects())
+                    if (t.name == o.camFeedObjects[i]) { exists = true; break; }
+                if (exists)
+                    ImGui::TextUnformatted(o.camFeedObjects[i].c_str());
+                else
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "%s (missing)", o.camFeedObjects[i].c_str());
+                ImGui::PopID();
+            }
+            if (removeAt >= 0) {
+                o.camFeedObjects.erase(o.camFeedObjects.begin() + removeAt);
+                committed = true;
+            }
+            if (ImGui::BeginCombo("##feedAdd", "+ Add object...")) {
+                for (const SceneObject& t : project_.objects()) {
+                    const bool feedable =
+                        t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                        t.type == PrimitiveType::Cylinder ||
+                        t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                        t.type == PrimitiveType::SavePoint ||
+                        t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                    if (!feedable || t.name == o.name) continue;
+                    bool listed = false;
+                    for (const std::string& n : o.camFeedObjects)
+                        if (n == t.name) { listed = true; break; }
+                    if (listed) continue;
+                    if (ImGui::Selectable(t.name.c_str())) {
+                        o.camFeedObjects.push_back(t.name);
+                        committed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
     }
 
     if (isEmpty) {
@@ -4478,7 +5669,29 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Jump speed", &o.playerJumpSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        ImGui::TextDisabled("First player in the scene drives the camera in the game.");
+        {
+            // Which player slot this object fills: scene order decides - the
+            // first Player object is P1, the second is P2 (two-player modes,
+            // Preferences > Multiplayer). Any further ones are ignored.
+            int slot = 0, seen = 0;
+            for (const auto& other : project_.objects()) {
+                if (other.type != PrimitiveType::Player) continue;
+                ++seen;
+                if (&other == &o) slot = seen;
+            }
+            if (slot == 1)
+                ImGui::TextDisabled(
+                    "Player 1 (first in the scene) - drives the camera.");
+            else if (slot == 2)
+                ImGui::TextDisabled(
+                    project_.settings.multiplayer != "off"
+                        ? "Player 2 - joins in the two-player modes."
+                        : "Player 2 - inactive until Preferences > Multiplayer "
+                          "is enabled.");
+            else if (slot > 2)
+                ImGui::TextDisabled(
+                    "Extra Player object - the game uses only the first two.");
+        }
         if (o.playerMode == 2)
             ImGui::TextDisabled("Third person: X jumps. The avatar faces where it walks.");
         else
@@ -4496,7 +5709,7 @@ void App::drawPropertiesWindow() {
                     ? "<none>"
                     : std::filesystem::path(o.modelPath).filename().string();
             if (ImGui::BeginCombo("Model", current.c_str())) {
-                const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+                const std::vector<std::string> anim = listAnimatedModelFiles();
                 for (const std::string& m : anim) {
                     const std::string rel = "res/models/" + m;
                     if (ImGui::Selectable((m + " (animated)").c_str(),
@@ -4512,21 +5725,21 @@ void App::drawPropertiesWindow() {
                 }
                 if (anim.empty())
                     ImGui::TextDisabled(
-                        "No animated .glb models - Import one in Project > Assets.");
+                        "No animated models (.glb/.fbx) - Import one in Project > Assets.");
                 ImGui::EndCombo();
             }
             if (o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                   "Pick an animated .glb - the avatar is invisible\n"
+                                   "Pick an animated .glb/.fbx - the avatar is invisible\n"
                                    "without one (only the camera moves).");
             } else if (!isAnimatedModelPath(o.modelPath)) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Third-person bodies must be an animated .glb.");
+                                   "Third-person bodies must be an animated model (.glb/.fbx).");
             } else {
                 const GlbInfo& info = glbInfo(o.modelPath);
                 if (!info.ok) {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                       "Unusable .glb: %s", info.error.c_str());
+                                       "Unusable model: %s", info.error.c_str());
                 } else {
                     ImGui::TextDisabled("%d verts, %d clip(s)", info.vertexCount,
                                         (int)info.clips.size());
@@ -4568,10 +5781,56 @@ void App::drawPropertiesWindow() {
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
                         "\"Play Animation\" one-shot plays to the end first.");
+                    // Each Player object carries its own LOD overrides - in a
+                    // two-player scene that gives P1 and P2 independent
+                    // avatar LOD settings.
+                    committed |= drawLodOverrides(o);
                 }
             }
 
             ImGui::SeparatorText("Third-person camera");
+            // Style: Orbit is the classic free-look rig; Top-down / Isometric
+            // are Fixed-angle presets (picking them seeds pitch/yaw, which
+            // stay editable), for camera-locked games. The left stick always
+            // moves the avatar relative to the camera heading.
+            const char* camStyles[] = {"Orbit (behind)", "Top-down", "Isometric",
+                                       "Fixed angle"};
+            if (ImGui::Combo("Style", &o.playerCamStyle, camStyles, 4)) {
+                if (o.playerCamStyle == 1) {  // top-down preset
+                    o.playerCamPitch = 80.0f;
+                    o.playerCamYaw = 0.0f;
+                } else if (o.playerCamStyle == 2) {  // isometric preset
+                    o.playerCamPitch = 35.0f;
+                    o.playerCamYaw = 45.0f;
+                }
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Orbit: free look - the right stick orbits the camera\n"
+                    "behind the avatar. Top-down / Isometric / Fixed angle\n"
+                    "pin the camera to a set angle (top-down and isometric\n"
+                    "just seed it - tune Angle/Direction freely after).");
+            if (o.playerCamStyle != 0) {
+                ImGui::DragFloat("Angle (deg)", &o.playerCamPitch, 0.5f, 10.0f,
+                                 85.0f, "%.1f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Camera elevation above the horizon:\n"
+                                      "85 = nearly straight down (top-down),\n"
+                                      "~35 = the classic isometric slant.");
+                ImGui::DragFloat("Direction (deg)", &o.playerCamYaw, 1.0f,
+                                 -180.0f, 180.0f, "%.0f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("World heading the camera looks along\n"
+                                      "(which way is \"up\" on screen).");
+                committed |=
+                    ImGui::Checkbox("Right stick rotates", &o.playerCamYawRotate);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Let the player orbit the view with the\n"
+                                      "right stick (the pitch stays pinned).");
+            }
             // Distance / Height / Shoulder are the rig offset in the camera's
             // own frame: back, up, sideways.
             ImGui::DragFloat("Distance", &o.playerCamDist, 0.1f, 1.0f, 40.0f, "%.1f");
@@ -4752,7 +6011,8 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
-        const bool mirror = o.type == PrimitiveType::Mirror;
+        const bool mirror =
+            o.type == PrimitiveType::Mirror || o.type == PrimitiveType::Portal;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -4915,9 +6175,12 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
-        multiCheck("Physics (falls with gravity)", &SceneObject::physics);
-        if (!anySavePoint)
+        multiCheck("Cast shadow", &SceneObject::castShadow);
+        multiCheck("Physics (rigid body)", &SceneObject::physics);
+        if (!anySavePoint) {
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
+            multiCheck("Pickable (USE picks it up)", &SceneObject::pickable);
+        }
         if (allModel) {
             const char* modes[] = {"Box (mesh AABB)", "Mesh (walkable triangles)", "None"};
             multiCombo("Collision", &SceneObject::collisionMode, modes, 3);
@@ -4971,6 +6234,55 @@ void App::drawMultiProperties() {
     if (committed) commitChange();
 }
 
+// Per-object LOD override rows (animated models + player avatars). Each
+// checkbox flips between "use the project preference" (-1, the default) and
+// an explicit per-object distance; dragging the value to 0 turns that LOD
+// off for this object entirely.
+bool App::drawLodOverrides(SceneObject& o) {
+    bool committed = false;
+    auto row = [&](const char* label, float& v, float projectDefault) {
+        bool ov = v >= 0.0f;
+        const std::string cb = std::string("Override ") + label;
+        if (ImGui::Checkbox(cb.c_str(), &ov)) {
+            v = ov ? (projectDefault > 0.0f ? projectDefault : 30.0f) : -1.0f;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Unchecked = the project preference applies\n"
+                              "(Preferences > Rendering). Checked = this\n"
+                              "object uses its own distance; 0 disables the\n"
+                              "LOD for it.");
+        if (ov) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(110));
+            float shown = v;
+            if (ImGui::DragFloat((std::string("##ovr") + label).c_str(), &shown,
+                                 0.5f, 0.0f, 2000.0f,
+                                 shown <= 0.0f ? "off" : "%.0f units")) {
+                v = shown < 0.0f ? 0.0f : shown;
+            }
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+    };
+    row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
+    row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+
+    // Content-forward correction: a model authored facing +-X (instead of
+    // the +Z the avatar drive / AI turn-to-face expect) renders turned by
+    // this many degrees while every logic yaw stays pure. Applied between
+    // scale and rotation, mirrored in the viewport preview.
+    ImGui::SetNextItemWidth(scaled(110));
+    ImGui::DragFloat("Model yaw offset", &o.modelYawOffset, 1.0f, -180.0f,
+                     180.0f, "%.0f deg");
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Model faces sideways in game? The content was authored\n"
+            "X-forward (common Blender habit: facing the red axis).\n"
+            "Set +90 or -90 - the mesh turns, facing logic stays intact.");
+    return committed;
+}
+
 // Class names registered with TYRA_OBJECT_SCRIPT(...) across src/scripts,
 // sorted and deduplicated. The directory is walked on every call (the
 // Scripts panel already pays that price per frame); file contents are
@@ -4981,7 +6293,10 @@ std::vector<std::string> App::objectScriptNames() {
         std::filesystem::path(project_.dir) / "src" / "scripts";
     std::error_code ec;
     if (!std::filesystem::exists(dir, ec)) return names;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+    for (std::filesystem::recursive_directory_iterator walk(dir, ec), end;
+         walk != end && !ec; walk.increment(ec)) {
+        const auto& entry = *walk;
+        if (!entry.is_regular_file(ec)) continue;
         if (entry.path().extension() != ".cpp") continue;
         const std::string key = entry.path().string();
         const auto mtime = std::filesystem::last_write_time(entry.path(), ec);
@@ -5129,6 +6444,17 @@ void App::drawFlowGraphWindow() {
                 "Install the Tyra extension (.flownode/.screenfx highlighting)\n"
                 "into VS Code. Reload the VS Code window afterwards.");
         ImGui::EndPopup();
+    }
+
+    // AI generation: describe the logic, get a graph (aigen.hpp). The modal
+    // pins the target object now - selection changes must not retarget an
+    // in-flight request.
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Generate with AI...")) {
+        aiGenTargetObject_ = flowGraphObject_;
+        aiGenError_.clear();
+        aiGenWarnings_.clear();
+        openAiGeneratePopup_ = true;
     }
 
     SceneObject& owner = project_.objects()[flowGraphObject_];
@@ -5340,7 +6666,7 @@ void App::drawFlowGraphWindow() {
                 }
                 ImGui::EndCombo();
             }
-        } else if (n.type == "PlayAnimation") {
+        } else if (n.type == "Animation") {
             // Clip picker when the resolved target is an animated .glb model
             // (explicit object wired/named, or self); free text otherwise.
             const int target = uiResolveTarget(n);
@@ -5375,10 +6701,22 @@ void App::drawFlowGraphWindow() {
                 ImGui::TextDisabled("Target is not an animated\n.glb - type the clip name.");
             }
         } else if (t->strKind == FlowParamKind::Text) {
+            // Patrol Waypoints repurposes the text param as the waypoint
+            // name prefix (the target NPC comes from the object link / self).
+            const bool patrol = n.type == "PatrolWaypoints";
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
-            if (ImGui::InputText("Text", buf, sizeof(buf))) n.str = buf;
+            if (ImGui::InputText(patrol ? "Prefix" : "Text", buf, sizeof(buf)))
+                n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (patrol) {
+                int count = 0;
+                if (!n.str.empty())
+                    for (const SceneObject& o : project_.objects())
+                        if (o.name.rfind(n.str, 0) == 0) ++count;
+                ImGui::TextDisabled("Route: %s1, %s2, ...\n%d found in this scene",
+                                    n.str.c_str(), n.str.c_str(), count);
+            }
         } else if (t->strKind == FlowParamKind::MusicTrack) {
             const std::string current =
                 n.str.empty() ? "<none>"
@@ -5542,6 +6880,32 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add texts in\nTools > UI Editor (Texts).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::FontName) {
+            // Empty = the project's first font (project::defaultFontName), so a
+            // fresh Display Text node draws without picking anything.
+            const std::string cur =
+                n.str.empty() ? project_.defaultFontName() : n.str;
+            if (ImGui::BeginCombo("Font", cur.c_str())) {
+                for (const GameFont& gf : project_.fonts) {
+                    if (ImGui::Selectable(gf.name.c_str(), gf.name == cur)) {
+                        n.str = gf.name;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Fonts are managed in Tools > Font Manager.\nColor and drop "
+                    "shadow come from the font entry.");
+            // str2 = a static prefix in front of the wired text ("Score: " +
+            // a Get Save Value), the way Log Message reads.
+            char pbuf[64];
+            std::snprintf(pbuf, sizeof(pbuf), "%s", n.str2.c_str());
+            if (ImGui::InputText("Prefix", pbuf, sizeof(pbuf))) n.str2 = pbuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else if (t->strKind == FlowParamKind::VarName) {
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
@@ -5614,11 +6978,14 @@ void App::drawFlowGraphWindow() {
                     "(Tools > UI Editor > Depth of field).");
             }
         } else if (n.type == "SetDisplayMode") {
+            // Order = Tyra::DisplayMode enum values (serialized in num[0]).
             const char* modes[] = {"Interlaced (480i/576i)",
-                                   "Progressive (480p)", "1080i"};
+                                   "Progressive (480p)", "1080i",
+                                   "Field rendering (480i/576i)",
+                                   "PAL 576i (full-height)"};
             int mode = (int)n.num[0];
-            mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
-            if (ImGui::Combo("Mode", &mode, modes, 3)) {
+            mode = mode < 0 ? 0 : mode > 4 ? 4 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 5)) {
                 n.num[0] = (float)mode;
                 changed = true;
             }
@@ -5647,12 +7014,38 @@ void App::drawFlowGraphWindow() {
                 ImGui::DragFloat("Exponent", &n.num[2], 0.05f, 1.0f, 6.0f, "%.2f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
             }
+        } else if (n.type == "VibratePad") {
+            ImGui::SliderFloat("Big", &n.num[0], 0.0f, 1.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            bool small = n.num[1] != 0.0f;
+            if (ImGui::Checkbox("Small", &small)) {
+                n.num[1] = small ? 1.0f : 0.0f;
+                changed = true;
+            }
+            ImGui::DragFloat("Seconds", &n.num[2], 0.05f, 0.0f, 60.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Seconds 0 = until the next Vibrate Pad.\n"
+                "Big 0 + Small off stops the vibration.");
+        } else if (n.type == "DisplayText") {
+            // X/Y are a normalized screen position (center anchor), so they need
+            // a much finer step than the generic 0.1 drag.
+            ImGui::DragFloat2("Pos##dyntext", n.num, 0.005f, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Size", &n.num[2], 0.2f, 8.0f, 48.0f, "%.0f px");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Seconds", &n.num[3], 0.05f, 0.0f, 60.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = stays until the hide pin fires.");
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
             for (int a = firstNum; a < t->numCount; ++a) {
-                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0;
+                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
+                                    std::strcmp(t->numLabels[a], "Once") == 0 ||
+                                    std::strcmp(t->numLabels[a], "LOS") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
                 if (isChannel) {
@@ -5663,7 +7056,7 @@ void App::drawFlowGraphWindow() {
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 } else if (isLoop) {
                     bool loop = n.num[a] != 0.0f;
-                    if (ImGui::Checkbox("Loop", &loop)) {
+                    if (ImGui::Checkbox(t->numLabels[a], &loop)) {
                         n.num[a] = loop ? 1.0f : 0.0f;
                         changed = true;
                     }
@@ -5681,6 +7074,15 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
         if (n.type == "Raycast")
             ImGui::TextDisabled("Casts from the player's eye along\nthe view direction on exec.");
+        if (n.type == "ChasePlayer" || n.type == "FleePlayer" ||
+            n.type == "PatrolWaypoints")
+            ImGui::TextDisabled(
+                "Walks the baked nav grid.\nOne AI state per object -\na new "
+                "command replaces it.");
+        if (n.type == "OnPlayerSeen")
+            ImGui::TextDisabled(
+                "Vision cone from the NPC's\nfacing; LOS: hills block\nsight. "
+                "Bool = seen now.");
         ImGui::PopItemWidth();
         ImGui::PopID();
 
@@ -5727,9 +7129,14 @@ void App::drawFlowGraphWindow() {
                 rightLabel("then", false);
                 ImNodes::EndOutputAttribute();
             } else {
-                ImNodes::BeginInputAttribute(flowInPin(n.id));
-                ImGui::TextUnformatted("> do");
-                ImNodes::EndInputAttribute();
+                // One pin per exec input: a plain action draws the lone
+                // "> do", a merged one a labeled pin per branch (show/hide).
+                const int execIns = t->execInCount < 1 ? 1 : t->execInCount;
+                for (int e = 0; e < execIns; ++e) {
+                    ImNodes::BeginInputAttribute(flowExecInPin(n.id, e));
+                    ImGui::Text("> %s", flowExecInLabel(*t, e));
+                    ImNodes::EndInputAttribute();
+                }
                 if (t->execThrough) {
                     // action that fires its own exec pulse later (Delay)
                     ImNodes::BeginOutputAttribute(flowOutPin(n.id));
@@ -5793,13 +7200,41 @@ void App::drawFlowGraphWindow() {
             ImNodes::Link(l.id, flowTextOutPin(l.fromNode), flowTextInPin(l.toNode));
             ImNodes::PopColorStyle();
         } else {
-            ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
+            ImNodes::Link(l.id, flowOutPin(l.fromNode),
+                          flowExecInPin(l.toNode, l.toPin));
         }
     }
 
     ImNodes::MiniMap(0.15f, ImNodesMiniMapLocation_BottomRight);
     const bool editorHovered = ImNodes::IsEditorHovered();
     ImNodes::EndNodeEditor();
+
+    // Rest the mouse on a node to get its description (FlowNodeType::desc -
+    // the same text the add-menu tooltips and the AI catalog use). Delayed so
+    // it never flickers while wiring/dragging; any mouse button suppresses it.
+    {
+        int hovered = -1;
+        if (ImNodes::IsNodeHovered(&hovered) && !ImGui::IsAnyMouseDown()) {
+            if (hovered != flowDescNode_) {
+                flowDescNode_ = hovered;
+                flowDescSince_ = ImGui::GetTime();
+            } else if (ImGui::GetTime() - flowDescSince_ > 0.6) {
+                const FlowNodeType* ht = nullptr;
+                for (const FlowNode& n : fg.nodes)
+                    if (n.id == hovered) ht = flowNodeType(n.type);
+                if (ht && ht->desc && *ht->desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(ht->title);
+                    ImGui::TextDisabled("%s", ht->desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
+            }
+        } else {
+            flowDescNode_ = -1;
+        }
+    }
 
     nstyle = savedStyle;
     ImGui::PopStyleVar(3);
@@ -5836,15 +7271,18 @@ void App::drawFlowGraphWindow() {
     // New link dragged between pins. Pin kinds by id (pin % 16): 0 = object
     // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
     // 5 = position out, 6 = bool in, 7 = bool out, 8 = text in,
-    // 9 = text out; node = pin / 16.
+    // 9 = text out, 10..15 = the node's 2nd..7th exec in; node = pin / 16.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
         const int a = startPin % 16, b = endPin % 16;
         int outPin = -1, inPin = -1;
         int kind = FlowLinkExec;
-        if ((a == 1 && b == 2) || (a == 2 && b == 1)) {
+        int toPin = 0;  // which exec input of the target the link fires
+        const int aExec = flowExecInIndex(a), bExec = flowExecInIndex(b);
+        if ((a == 1 && bExec >= 0) || (aExec >= 0 && b == 1)) {
             outPin = a == 1 ? startPin : endPin;
-            inPin = a == 2 ? startPin : endPin;
+            inPin = a == 1 ? endPin : startPin;
+            toPin = a == 1 ? bExec : aExec;
         } else if ((a == 3 && b == 0) || (a == 0 && b == 3)) {
             outPin = a == 3 ? startPin : endPin;
             inPin = a == 0 ? startPin : endPin;
@@ -5867,6 +7305,7 @@ void App::drawFlowGraphWindow() {
             l.fromNode = outPin / 16;
             l.toNode = inPin / 16;
             l.kind = kind;
+            l.toPin = toPin;
             if (kind == FlowLinkObject || kind == FlowLinkPos) {
                 // a node takes its object/position from at most one link
                 // (bool-in and text-in pins fold over several links - keep them)
@@ -5874,10 +7313,12 @@ void App::drawFlowGraphWindow() {
                     if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);
             }
+            // toPin is part of the identity: the same trigger may drive two
+            // different branches of one merged node.
             bool duplicate = false;
             for (const FlowLink& e : fg.links)
                 duplicate |= (e.kind == l.kind && e.fromNode == l.fromNode &&
-                              e.toNode == l.toNode);
+                              e.toNode == l.toNode && e.toPin == l.toPin);
             if (!duplicate) {
                 l.id = fg.nextId++;
                 fg.links.push_back(l);
@@ -6003,7 +7444,12 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
                     if (std::string(t.key) == "Delay") n.num[0] = 1.0f;  // seconds
                     if (std::string(t.key) == "MoveObjectTo") n.num[3] = 2.0f;  // speed
-                    if (std::string(t.key) == "PlayAnimation") n.num[1] = 1.0f;  // speed
+                    if (std::string(t.key) == "Animation") n.num[1] = 1.0f;  // speed
+                    if (std::string(t.key) == "DisplayText") {
+                        n.num[0] = 0.5f;   // centered
+                        n.num[1] = 0.85f;  // near the bottom, like a subtitle
+                        n.num[2] = 16.0f;  // size in px
+                    }
                     if (std::string(t.key) == "PlayMusic") {
                         n.num[0] = 80.0f;  // volume
                         n.num[1] = 1.0f;   // loop
@@ -6022,6 +7468,10 @@ void App::drawFlowGraphWindow() {
                         n.num[2] = 1.0f;   // amount (num[3] mode: 0 = set)
                     }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
+                    if (std::string(t.key) == "VibratePad") {
+                        n.num[0] = 1.0f;  // big motor at full
+                        n.num[2] = 0.5f;  // a short kick by default
+                    }
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto
@@ -6030,6 +7480,17 @@ void App::drawFlowGraphWindow() {
                     fg.nodes.push_back(n);
                     ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
                     changed = true;
+                }
+                // The node's registry description doubles as its add-menu
+                // tooltip (FlowNodeType::desc - custom nodes fill it from
+                // their `desc =` header key).
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
+                    t.desc && *t.desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(t.desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
                 }
             }
             ImGui::EndMenu();
@@ -6176,7 +7637,12 @@ const App::HudTexture* App::builtinUseTexture() {
 // A HUD text as a GL texture for the viewport overlay, re-baked when its
 // content changes (keyed by name; a handful of small textures at most).
 const App::HudTexture* App::hudTextTexture(const HudText& t) {
-    const std::string key = t.text + "\x1f" + t.fontPath + "\x1f" +
+    // The font reference alone is not enough: re-pointing that entry at another
+    // TTF changes the bake without touching the text, so the source path is
+    // part of the key too.
+    const GameFont* gf = project_.findFont(t.font);
+    const std::string key = t.text + "\x1f" + t.font + "\x1f" +
+                            (gf ? gf->fontPath : std::string()) + "\x1f" +
                             std::to_string(t.size) + "\x1f" +
                             std::to_string(t.shadow) + "\x1f" +
                             std::to_string(t.color[0]) + "," +
@@ -6186,7 +7652,7 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
     if (entry.tex && entry.key == key) return &entry.hud;
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    if (!menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) return nullptr;
+    if (!menubake::bakeTextRGBA(t, project_, rgba, w, h)) return nullptr;
     if (!entry.tex) glGenTextures(1, &entry.tex);
     glBindTexture(GL_TEXTURE_2D, entry.tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -6201,13 +7667,13 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
 // Shared TTF picker combo (menus, HUD texts): default chain / fonts imported
 // into the project (res/fonts) / a curated set of stock Windows fonts
 // (existence-checked) / import a new TTF. Returns true when fontPath changed.
-bool App::fontCombo(std::string& fontPath) {
+bool App::fontSourceCombo(std::string& fontPath) {
     bool changed = false;
     std::string current = "Default (Consolas Bold)";
     if (!fontPath.empty())
         current = std::filesystem::path(fontPath).filename().string();
-    ImGui::SetNextItemWidth(200.0f);
-    if (ImGui::BeginCombo("Font", current.c_str())) {
+    ImGui::SetNextItemWidth(scaled(200.0f));
+    if (ImGui::BeginCombo("Source", current.c_str())) {
         if (ImGui::Selectable("Default (Consolas Bold)", fontPath.empty())) {
             fontPath.clear();
             changed = true;
@@ -6281,10 +7747,266 @@ bool App::fontCombo(std::string& fontPath) {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Rasterized at build time - any TTF works, nothing\n"
-                          "ships to the PS2 but pixels. Project fonts\n"
-                          "(res/fonts) travel with the project; Windows fonts\n"
-                          "depend on this machine.");
+        ImGui::SetTooltip("Fonts imported into the project (res/fonts) travel\n"
+                          "with it; Windows fonts depend on this machine.\n"
+                          "Only the rasterized pixels ever reach the PS2 -\n"
+                          "the TTF itself never ships.");
+    return changed;
+}
+
+std::string App::ensureFontForPath(const std::string& relPath) {
+    for (const GameFont& f : project_.fonts)
+        if (f.fontPath == relPath) return f.name;
+    std::string base = std::filesystem::path(relPath).stem().string();
+    if (base.empty()) base = "font";
+    std::string name = base;
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const GameFont& f : project_.fonts) taken |= (f.name == name);
+        if (!taken) break;
+        name = base + "-" + std::to_string(n);
+    }
+    GameFont f;
+    f.name = name;
+    f.fontPath = relPath;
+    project_.fonts.push_back(f);
+    return name;
+}
+
+void App::renameFont(int index, const std::string& newName) {
+    if (index < 0 || index >= (int)project_.fonts.size()) return;
+    const std::string oldName = project_.fonts[index].name;
+    if (newName == oldName) return;
+    project_.fonts[index].name = newName;
+
+    // References store the name, so follow it everywhere. An empty reference
+    // means "the default entry" and must stay empty - rewriting it would pin
+    // the text to a name and break that fallback.
+    auto follow = [&](std::string& ref) {
+        if (ref == oldName) ref = newName;
+    };
+    for (HudText& t : project_.hudTexts) follow(t.font);
+    for (LoadingScreenDef& ls : project_.loadingScreens)
+        for (HudText& t : ls.texts) follow(t.font);
+    for (GameMenu& m : project_.menus) follow(m.font);
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (ft && ft->strKind == FlowParamKind::FontName) follow(fn.str);
+            }
+}
+
+// Tools > Font Manager: the project's typefaces. Every text (HUD texts, menus,
+// loading screens, Display Text nodes) names one of these, so restyling a
+// project is an edit here rather than a hunt through every text.
+//
+// fonts[0] is the fallback for unset references, which is why the last entry
+// can never be deleted.
+void App::drawFontManagerWindow() {
+    if (!showFontManager_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(600.0f), scaled(440.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Font Manager", &showFontManager_)) {
+        ImGui::End();
+        return;
+    }
+    if (project_.fonts.empty()) project_.fonts.push_back(GameFont{});
+    if (fontSel_ < 0 || fontSel_ >= (int)project_.fonts.size()) fontSel_ = 0;
+
+    bool changed = false;
+
+    ImGui::BeginChild("fontlist", ImVec2(scaled(170.0f), 0), true);
+    for (size_t i = 0; i < project_.fonts.size(); ++i) {
+        ImGui::PushID((int)i);
+        std::string label = project_.fonts[i].name;
+        if (i == 0) label += "  [default]";
+        if (ImGui::Selectable(label.c_str(), fontSel_ == (int)i))
+            fontSel_ = (int)i;
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    GameFont& f = project_.fonts[fontSel_];
+    {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        if (ImGui::InputText("Name", buf, sizeof(buf))) {
+            std::string want = buf;
+            // Names are the reference key, so they must stay unique and
+            // non-empty; a clash would silently redirect other texts here.
+            bool clash = want.empty();
+            for (size_t i = 0; i < project_.fonts.size(); ++i)
+                if ((int)i != fontSel_ && project_.fonts[i].name == want)
+                    clash = true;
+            if (!clash) renameFont(fontSel_, want);
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    changed |= fontSourceCombo(f.fontPath);
+    if (ImGui::ColorEdit3("Color##font", f.color, ImGuiColorEditFlags_NoInputs))
+        changed = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Display Text only)");
+    if (ImGui::Checkbox("Drop shadow##font", &f.shadow)) changed = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Display Text only)");
+
+    // Everything below only matters to a font a Display Text node draws with -
+    // static text never touches the atlas.
+    const std::vector<int> atlasFonts = project_.atlasFontIndices();
+    const bool usedDynamically =
+        std::find(atlasFonts.begin(), atlasFonts.end(), fontSel_) !=
+        atlasFonts.end();
+
+    ImGui::SeparatorText("Glyph atlas");
+    if (!usedDynamically) {
+        ImGui::TextDisabled(
+            "No Display Text node uses this font, so no atlas is\n"
+            "baked and nothing ships to the PS2. Static texts\n"
+            "rasterize straight from the TTF at build.");
+    }
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    if (ImGui::DragInt("Atlas size", &f.atlasSize, 0.2f, 8, 48, "%d px"))
+        f.atlasSize = f.atlasSize < 8 ? 8 : f.atlasSize > 48 ? 48 : f.atlasSize;
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Height the glyphs are rasterized at. Display Text\n"
+                          "scales from this, so it trades sharpness against\n"
+                          "VRAM - not the on-screen size.");
+    {
+        const char* kQuant[] = {"4bit", "8bit", "none"};
+        int qi = f.quant == "8bit" ? 1 : f.quant == "none" ? 2 : 0;
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::Combo("Atlas colors", &qi, kQuant, 3)) {
+            f.quant = kQuant[qi];
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Palette depth of the baked atlas. Glyphs bake white and\n"
+                "are tinted at runtime, so 16 colors is normally plenty -\n"
+                "and roughly 8x cheaper in VRAM than full color.");
+    }
+
+    // Atlas footprint: the PS2 has ~1.33 MB of texture VRAM once the frame and
+    // z buffers are placed, and a resident atlas never leaves it, so show the
+    // real cost rather than let it surprise someone on hardware.
+    //
+    // Cached on the bake-affecting fields: atlasLayout measures all 95 glyphs
+    // (stbtt box per codepoint), which is not something to redo every frame
+    // just to print one line.
+    {
+        const std::string key = f.fontPath + "\x1f" + std::to_string(f.atlasSize) +
+                                "\x1f" + f.quant;
+        if (key != fontAtlasKey_) {
+            fontAtlasKey_ = key;
+            fontAtlasInfo_.clear();
+            menubake::AtlasLayout lay;
+            if (menubake::atlasLayout(f, project_, lay)) {
+                const int bpp = f.quant == "none" ? 32 : f.quant == "8bit" ? 8 : 4;
+                // +8 KB per allocation (the engine's alignment tax), +CLUT for
+                // the palettized modes.
+                const int kb = (lay.texW * lay.texH * bpp / 8 + 8192 +
+                                (bpp == 32 ? 0 : 8192)) /
+                               1024;
+                char buf[128];
+                std::snprintf(buf, sizeof(buf),
+                              "Atlas: %dx%d, ~%d KB VRAM while shown", lay.texW,
+                              lay.texH, kb);
+                fontAtlasInfo_ = buf;
+                fontAtlasClipped_ = lay.clipped;
+            } else {
+                fontAtlasClipped_ = false;
+            }
+        }
+        if (fontAtlasInfo_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                               "No usable TTF found for this font.");
+        } else {
+            ImGui::TextUnformatted(fontAtlasInfo_.c_str());
+            if (fontAtlasClipped_)
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "Glyphs past the 512px cap were dropped -\n"
+                                   "lower the atlas size.");
+        }
+    }
+    // Live preview: the exact rasterizer the build uses, so what is on screen
+    // here is what the game gets.
+    {
+        HudText sample;
+        sample.name = "##fontpreview";
+        sample.text = "Sample 0123 gjpq";
+        sample.font = f.name;
+        sample.size = f.atlasSize;
+        sample.shadow = f.shadow;
+        for (int i = 0; i < 3; ++i) sample.color[i] = f.color[i];
+        if (const HudTexture* tex = hudTextTexture(sample))
+            ImGui::Image((ImTextureID)(intptr_t)tex->tex,
+                         ImVec2(scaled((float)tex->w), scaled((float)tex->h)));
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("+ Add font")) {
+        GameFont nf;
+        std::string base = "font";
+        std::string name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const GameFont& e : project_.fonts) taken |= (e.name == name);
+            if (!taken) break;
+            name = base + "-" + std::to_string(n);
+        }
+        nf.name = name;
+        project_.fonts.push_back(nf);
+        fontSel_ = (int)project_.fonts.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(project_.fonts.size() <= 1);
+    if (ImGui::Button("Delete font")) {
+        // Texts naming it fall back to the default entry (Project::findFont),
+        // so deleting never breaks a bake.
+        project_.fonts.erase(project_.fonts.begin() + fontSel_);
+        if (fontSel_ >= (int)project_.fonts.size())
+            fontSel_ = (int)project_.fonts.size() - 1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    if (project_.fonts.size() <= 1 && ImGui::IsItemHovered())
+        ImGui::SetTooltip("The default font cannot be deleted - it is what\n"
+                          "every unset font reference resolves to.");
+    ImGui::EndGroup();
+
+    if (changed) commitChange();
+    ImGui::End();
+}
+
+// Picks one of the project's Font Manager entries by name. An empty reference
+// means the default entry, so this shows fonts[0] rather than a blank.
+bool App::fontCombo(std::string& fontRef) {
+    bool changed = false;
+    const std::string current =
+        fontRef.empty() ? project_.defaultFontName() : fontRef;
+    ImGui::SetNextItemWidth(scaled(200.0f));
+    if (ImGui::BeginCombo("Font", current.c_str())) {
+        for (const GameFont& gf : project_.fonts) {
+            if (ImGui::Selectable(gf.name.c_str(), gf.name == current)) {
+                fontRef = gf.name;
+                changed = true;
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Manage fonts...")) showFontManager_ = true;
+        ImGui::EndCombo();
+    }
     return changed;
 }
 
@@ -6774,7 +8496,8 @@ void App::drawUiEditorWindow() {
         ImGui::TextWrapped(
             "Shown while the player looks at a usable object up close. "
             "Always draws above the HUD stack (and under menus); cannot be "
-            "deleted.");
+            "deleted. Pickable objects show a \"PICK UP\" variant at the "
+            "same placement (replace res/hud/pickup.png to customize it).");
         ImGui::Spacing();
         ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -6872,7 +8595,7 @@ void App::drawUiEditorWindow() {
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        changed |= fontCombo(t.fontPath);
+        changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(120.0f);
         if (ImGui::DragInt("Font size", &t.size, 0.2f, 8, 48, "%d px"))
             t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
@@ -6886,12 +8609,14 @@ void App::drawUiEditorWindow() {
         if (ImGui::Checkbox("Visible at game start", &t.visibleAtStart))
             changed = true;
         ImGui::TextDisabled(
-            "Show/hide from the flow graph: HUD > Show Text (with an\n"
-            "optional auto-hide after N seconds) and Hide Text.");
+            "Show/hide from the flow graph: HUD > Set Text Visible\n"
+            "(the show pin takes an optional auto-hide after N\n"
+            "seconds). This string is baked at build - for one that\n"
+            "changes while the game runs, use a Display Text node.");
 
         // Live preview: the exact sprite the build will bake.
         {
-            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.fontPath +
+            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.font +
                               "\x1f" + std::to_string(t.size) + "\x1f" +
                               std::to_string(t.shadow) + "\x1f" +
                               std::to_string(t.color[0]) + "," +
@@ -6900,7 +8625,7 @@ void App::drawUiEditorWindow() {
             if (key != textPreviewKey_) {
                 std::vector<unsigned char> rgba;
                 int w = 0, h = 0;
-                if (menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) {
+                if (menubake::bakeTextRGBA(t, project_, rgba, w, h)) {
                     if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
                     glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
@@ -7496,7 +9221,7 @@ void App::drawLoadingScreenWindow() {
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        changed |= fontCombo(t.fontPath);
+        changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(scaled(120));
         if (ImGui::DragInt("Font size##lstext", &t.size, 0.2f, 8, 48, "%d px"))
             t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
@@ -8115,10 +9840,8 @@ void App::handleFileDrop(int count, const char** paths) {
         }
         if (isFont) {
             ++fonts;
-            if (menuTarget) {
-                project_.menus[selectedMenu_].fontPath =
-                    "res/fonts/" + fileName;
-            }
+            const std::string ref = ensureFontForPath("res/fonts/" + fileName);
+            if (menuTarget) project_.menus[selectedMenu_].font = ref;
             continue;
         }
         ++copied;
@@ -8630,6 +10353,35 @@ void App::drawAmbienceWindow() {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::SeparatorText("Ambient occlusion");
+    ImGui::Checkbox("Bake ambient occlusion", &a.aoEnabled);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Soft contact shadows where geometry meets: terrain\n"
+            "self-shadowing (ravines, foot of hills) and darkening where\n"
+            "objects touch the ground and each other - baked into per-pixel\n"
+            "AO textures at build (a terrain map + a primitive lightmap\n"
+            "atlas), drawn as extra blended passes. Which objects cast is\n"
+            "per object: Properties > Cast shadow. Imported and animated\n"
+            "models cast but don't receive.");
+    if (a.aoEnabled) {
+        ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How dark full occlusion gets (0 = invisible).");
+        ImGui::DragFloat("AO radius", &a.aoRadius, 0.05f, 0.1f, 50.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "World units the contact darkening reaches from an\n"
+                "occluder. Terrain self-shadowing scans 3x this.");
+        if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
+        ImGui::TextDisabled("Static bake: moved objects re-shade themselves at "
+                            "runtime, but\nthe shadow they cast stays where the "
+                            "scene was built.");
+    }
 
     ImGui::SeparatorText("Distance fog");
     ImGui::Checkbox("Fog enabled", &a.fogEnabled);
@@ -10085,6 +11837,7 @@ void App::drawCutsceneWindow() {
 bool App::loadMaterialFile(const std::string& relPath) {
     matEdMats_.clear();
     matEdSel_ = 0;
+    matBakeResetParams();  // files without a hint get the defaults
     std::ifstream in(std::filesystem::path(project_.dir) / relPath);
     if (!in) return false;
 
@@ -10095,6 +11848,35 @@ bool App::loadMaterialFile(const std::string& relPath) {
         std::istringstream ss(line);
         std::string tag;
         ss >> tag;
+        if (tag == "#") {
+            // "# tyra-bake" = the file's bake parameters (file scope, may sit
+            // above the first newmtl - see saveMaterialFile for the format)
+            std::istringstream hs(line);
+            std::string hash, what;
+            hs >> hash >> what;
+            if (what == "tyra-bake") {
+                int size = 256, rays = 64, ss2 = 2, bf = 1, pad = 4, seed = 1;
+                float maxDist = 0.0f, cage = 0.0f;
+                std::string high;
+                hs >> size >> rays >> ss2 >> maxDist >> bf >> pad >> seed >>
+                    cage >> high;
+                matBakeSizeIdx_ = size >= 512 ? 3 : size >= 256 ? 2
+                                  : size >= 128 ? 1 : 0;
+                matBakeRays_ = std::max(4, std::min(rays, 1024));
+                matBakeSSIdx_ = ss2 >= 4 ? 2 : ss2 >= 2 ? 1 : 0;
+                matBakeMaxDist_ = maxDist < 0.0f ? 0.0f : maxDist;
+                matBakeBackface_ = bf != 0;
+                matBakePadding_ = std::max(0, std::min(pad, 16));
+                matBakeSeed_ = seed;
+                matBakeCage_ = cage < 0.0f ? 0.0f : cage;
+                if (high == "-") high.clear();
+                for (size_t i = 0;
+                     (i = high.find("%20", i)) != std::string::npos;)
+                    high.replace(i, 3, " "), ++i;
+                matBakeHigh_ = high;
+                continue;
+            }
+        }
         if (tag == "newmtl") {
             MatEdEntry e;
             ss >> e.name;
@@ -10190,6 +11972,23 @@ void App::saveMaterialFile() {
         return;
     }
     char buf[128];
+    // bake parameters (file scope) - written only when they left the
+    // defaults, so untouched files stay clean. Spaces in the high-poly path
+    // ride as %20 (the line is whitespace-tokenized on load).
+    const bool bakeDefault =
+        matBakeSizeIdx_ == 2 && matBakeRays_ == 64 && matBakeMaxDist_ == 0.0f &&
+        matBakeSSIdx_ == 1 && matBakeBackface_ && matBakePadding_ == 4 &&
+        matBakeSeed_ == 1 && matBakeHigh_.empty() && matBakeCage_ == 0.0f;
+    if (!bakeDefault) {
+        std::string high = matBakeHigh_.empty() ? "-" : matBakeHigh_;
+        for (size_t i = 0; (i = high.find(' ', i)) != std::string::npos;)
+            high.replace(i, 1, "%20"), i += 3;
+        std::snprintf(buf, sizeof(buf), "# tyra-bake %d %d %d %.6g %d %d %d %.6g ",
+                      64 << matBakeSizeIdx_, matBakeRays_, 1 << matBakeSSIdx_,
+                      matBakeMaxDist_, matBakeBackface_ ? 1 : 0, matBakePadding_,
+                      matBakeSeed_, matBakeCage_);
+        out << buf << high << "\n\n";
+    }
     for (const MatEdEntry& e : matEdMats_) {
         out << "newmtl " << e.name << "\n";
         std::snprintf(buf, sizeof(buf), "# tyra-brightness %.4g", e.brightness);
@@ -10238,9 +12037,9 @@ void App::saveMaterialFile() {
 void App::openMaterialEditor(const std::string& relPath,
                              const std::string& modelHint) {
     showMaterialEditor_ = true;
-    // preview straight on the mesh the material is used by (.obj only - .glb
-    // materials are embedded and never take an .mtl override)
-    if (!modelHint.empty() && !isAnimatedModelPath(modelHint)) {
+    // preview straight on the mesh the material is used by - static .obj or
+    // animated .glb/.fbx (both take the assigned .mtl as an override)
+    if (!modelHint.empty()) {
         matEdShape_ = 4;
         matEdModel_ = modelHint;
     }
@@ -10254,23 +12053,198 @@ void App::openMaterialEditor(const std::string& relPath,
         matEdPaintTexRel_.clear();
         matEdLayers_.clear();
         matEdUndo_.clear();
-        // a model's own library previews best on its model: pick the sibling
-        // .obj when the .mtl lives under res/models and no hint was given
-        if (modelHint.empty() &&
-            relPath.rfind("res/models/", 0) == 0) {
-            std::filesystem::path obj(relPath);
-            obj.replace_extension(".obj");
-            std::error_code ec;
-            if (std::filesystem::exists(std::filesystem::path(project_.dir) / obj,
-                                        ec)) {
+        // bake results belong to the previous file (params reloaded above)
+        matBaker_.cancel();
+        matBakeMaps_ = matbake::Maps{};
+        matBakeStartedSig_ = 0;
+        matBakeApplyWhenDone_ = false;
+        // No hint (the file was clicked in the asset list): find the model
+        // this material belongs to, static or animated. Try, in order:
+        // a scene object assigned this material (the ground truth), a
+        // sibling model with the same stem (a model's own library), and
+        // the extraction convention res/materials/<model>.mtl ->
+        // res/models/<model>.* (the "+ New material from this model" path).
+        if (modelHint.empty()) {
+            std::string found;
+            for (const SceneData& sc : project_.scenes) {
+                for (const SceneObject& o : sc.objects)
+                    if (o.type == PrimitiveType::Model &&
+                        o.materialPath == relPath && !o.modelPath.empty()) {
+                        found = o.modelPath;
+                        break;
+                    }
+                if (!found.empty()) break;
+            }
+            if (found.empty()) {
+                std::error_code ec;
+                static const char* exts[] = {".obj", ".glb", ".fbx"};
+                const std::filesystem::path stem =
+                    std::filesystem::path(relPath).parent_path() /
+                    std::filesystem::path(relPath).stem();
+                for (const char* ext : exts) {
+                    std::filesystem::path cand = stem;
+                    cand += ext;  // sibling in the .mtl's own directory
+                    if (std::filesystem::exists(
+                            std::filesystem::path(project_.dir) / cand, ec)) {
+                        found = cand.generic_string();
+                        break;
+                    }
+                    cand = std::filesystem::path("res/models") /
+                           std::filesystem::path(relPath).stem();
+                    cand += ext;  // the extracted-material convention
+                    if (std::filesystem::exists(
+                            std::filesystem::path(project_.dir) / cand, ec)) {
+                        found = cand.generic_string();
+                        break;
+                    }
+                }
+            }
+            if (!found.empty()) {
                 matEdShape_ = 4;
-                matEdModel_ = obj.generic_string();
+                matEdModel_ = found;
             }
         }
     } else {
         matEdPath_.clear();
         statusMessage_ = "Cannot read " + relPath;
     }
+}
+
+// Creates res/materials/<model>.mtl seeded from a model's OWN built-in
+// materials, so an animated .glb/.fbx (or a static .obj) becomes editable in
+// the Material Editor without hand-authoring an override. Each part becomes a
+// newmtl entry keyed by the part's material NAME (the key the override matches
+// on), with its base color as Kd and its texture extracted next to the .mtl
+// (embedded PNG bytes for .glb/.fbx, the referenced file for .obj). Assigns
+// the new file to the object and opens the editor previewing on the model.
+std::string App::createMaterialForModel(SceneObject& o) {
+    namespace fs = std::filesystem;
+    if (o.modelPath.empty()) return "";
+
+    // (name, Kd, optional texture bytes) collected from the model's built-ins.
+    struct Ent {
+        std::string name;
+        float kd[3] = {1.0f, 1.0f, 1.0f};
+        std::vector<unsigned char> tex;
+        std::string ext;  // ".png" for embedded; source ext for .obj
+    };
+    std::vector<Ent> ents;
+    std::set<std::string> seen;
+    bool skippedUnnamed = false;  // parts the override can't name-match
+
+    if (isAnimatedModelPath(o.modelPath)) {
+        glbparser::Baked baked;
+        std::string err;
+        if (!animimport::bake((fs::path(project_.dir) / o.modelPath).string(),
+                              12.0f, baked, err)) {
+            statusMessage_ = "Cannot read " + o.modelPath;
+            return "";
+        }
+        for (const glbparser::Part& p : baked.parts) {
+            // an empty material name can't be written as newmtl (nor matched by
+            // the override), so it stays on the model's built-in look
+            if (p.material.empty()) { skippedUnnamed = true; continue; }
+            if (!seen.insert(p.material).second) continue;
+            Ent e;
+            e.name = p.material;
+            e.kd[0] = p.baseColor[0], e.kd[1] = p.baseColor[1], e.kd[2] = p.baseColor[2];
+            if (p.image >= 0 && p.image < (int)baked.images.size()) {
+                e.tex = baked.images[p.image].png;
+                e.ext = ".png";
+            }
+            ents.push_back(std::move(e));
+        }
+    } else {
+        objparser::Model m;
+        if (!objparser::load((fs::path(project_.dir) / o.modelPath).string(), m)) {
+            statusMessage_ = "Cannot read " + o.modelPath;
+            return "";
+        }
+        const fs::path modelDir = fs::path(o.modelPath).parent_path();
+        for (const objparser::Submesh& s : m.submeshes) {
+            // like the animated branch: an unnamed submesh can't be matched by
+            // a name-keyed override, so skip it (report it instead)
+            if (s.material.empty()) { skippedUnnamed = true; continue; }
+            if (!seen.insert(s.material).second) continue;
+            Ent e;
+            e.name = s.material;
+            e.kd[0] = s.kd[0], e.kd[1] = s.kd[1], e.kd[2] = s.kd[2];
+            if (!s.texture.empty()) {
+                std::ifstream f(
+                    (fs::path(project_.dir) / modelDir / s.texture).string(),
+                    std::ios::binary);
+                if (f) {
+                    e.tex.assign(std::istreambuf_iterator<char>(f),
+                                 std::istreambuf_iterator<char>());
+                    e.ext = fs::path(s.texture).extension().string();
+                    if (e.ext.empty()) e.ext = ".png";
+                }
+            }
+            ents.push_back(std::move(e));
+        }
+    }
+    if (ents.empty()) {
+        statusMessage_ =
+            skippedUnnamed
+                ? "Model's material(s) have no name - a material override "
+                  "matches by name, so name them in your modelling tool first"
+                : "Model has no materials to import";
+        return "";
+    }
+
+    const fs::path matDirAbs = fs::path(project_.dir) / "res" / "materials";
+    std::error_code ec;
+    fs::create_directories(matDirAbs, ec);
+    const std::string stem = fs::path(o.modelPath).stem().string();
+    std::string base;
+    for (int n = 1;; ++n) {
+        base = stem + (n == 1 ? "" : "-" + std::to_string(n));
+        if (!fs::exists(matDirAbs / (base + ".mtl"), ec)) break;
+    }
+    const std::string rel = "res/materials/" + base + ".mtl";
+
+    // filesystem-safe token for a texture filename (the newmtl name is written
+    // raw so the override still matches the model's material name)
+    auto sane = [](std::string s) {
+        for (char& c : s)
+            if (!(std::isalnum((unsigned char)c) || c == '-' || c == '_')) c = '_';
+        return s.empty() ? std::string("tex") : s;
+    };
+
+    std::string mtl = "# Generated by TyraX from " +
+                      fs::path(o.modelPath).filename().string() +
+                      " built-in materials. Edit in the Material Editor.\n";
+    std::set<std::string> usedTex;
+    for (const Ent& e : ents) {
+        mtl += "\nnewmtl " + e.name + "\n";
+        char kd[64];
+        std::snprintf(kd, sizeof kd, "Kd %.4f %.4f %.4f\n", e.kd[0], e.kd[1],
+                      e.kd[2]);
+        mtl += kd;
+        if (!e.tex.empty()) {
+            std::string texName = base + "-" + sane(e.name) + e.ext;
+            for (int n = 1; usedTex.count(texName); ++n)
+                texName = base + "-" + sane(e.name) + std::to_string(n) + e.ext;
+            usedTex.insert(texName);
+            std::ofstream tf((matDirAbs / texName).string(), std::ios::binary);
+            tf.write((const char*)e.tex.data(), (std::streamsize)e.tex.size());
+            mtl += "map_Kd " + texName + "\n";
+        }
+    }
+    std::ofstream mf((matDirAbs / (base + ".mtl")).string(), std::ios::binary);
+    if (!mf) {
+        statusMessage_ = "Cannot write " + rel;
+        return "";
+    }
+    mf << mtl;
+    mf.close();
+
+    o.materialPath = rel;
+    modelInfoCache_.clear();  // the summary caches this .mtl by path
+    openMaterialEditor(rel, o.modelPath);
+    statusMessage_ = "Created " + rel + " from " +
+                     std::to_string((int)ents.size()) + " built-in material(s)";
+    return rel;
 }
 
 // Duplicate the OPEN .mtl under a fresh "-copy" name. Referenced textures are
@@ -10488,6 +12462,34 @@ bool App::matEdLoadPaintTarget(const std::string& texRel) {
                                         : 1.0f;
                     layer.visible =
                         l.find("visible") ? l.find("visible")->boolOr(true) : true;
+                    if (const json::Value* gv = l.find("gen");
+                        gv && gv->type == json::Value::Type::Object) {
+                        layer.genOn = true;
+                        auto num = [&](const char* key, float def) {
+                            const json::Value* v = gv->find(key);
+                            return v ? (float)v->numberOr(def) : def;
+                        };
+                        int srcIdx = (int)num("source", 0.0f);
+                        if (srcIdx < 0 ||
+                            srcIdx > (int)matbake::MaskParams::Source::Bricks)
+                            srcIdx = 0;
+                        layer.gen.source = (matbake::MaskParams::Source)srcIdx;
+                        layer.gen.rangeLo = num("lo", 0.35f);
+                        layer.gen.rangeHi = num("hi", 0.75f);
+                        layer.gen.invert = gv->find("invert") &&
+                                           gv->find("invert")->boolOr(false);
+                        layer.gen.scale = num("scale", 4.0f);
+                        layer.gen.seed = (uint32_t)num("seed", 1.0f);
+                        layer.gen.breakupAmount = num("breakup", 0.0f);
+                        layer.gen.breakupScale = num("breakupScale", 6.0f);
+                        layer.gen.mortar = num("mortar", 0.06f);
+                        if (const json::Value* c = gv->find("color");
+                            c && c->type == json::Value::Type::Array &&
+                            c->arr.size() >= 3)
+                            for (int k = 0; k < 3; ++k)
+                                layer.genColor[k] =
+                                    (float)c->arr[k].numberOr(0.2);
+                    }
                     const std::string file =
                         l.find("file") ? l.find("file")->stringOr("") : "";
                     int lw = 0, lh = 0, lc = 0;
@@ -10529,6 +12531,14 @@ bool App::matEdLoadPaintTarget(const std::string& texRel) {
         matEdLayers_.push_back(std::move(bg));
         matEdActiveLayer_ = 0;
     }
+    // smart masks are pixel caches of their params - refresh them against
+    // the current bake right away (and ask for maps if none exist yet)
+    if (matEdAnyGenLayer()) {
+        if (!matBakeMaps_.empty())
+            matEdRegenMasks();
+        else
+            matBakeRunOnce_ = true;
+    }
     return true;
 }
 
@@ -10568,8 +12578,110 @@ void App::matEdComposite() {
             dst[3] = (unsigned char)(dst[3] + (255.0f - dst[3]) * sa + 0.5f);
         }
     }
-    viewport_.updateTexturePixels(matEdPaintTexRel_, w, h,
-                                  matEdPaintPixels_.data());
+    matEdUploadComposite();
+}
+
+// Composite -> the shared GL texture. The bake's "AO on material" preview
+// multiplies the baked AO in HERE, and the "PS2 CLUT" display mode palette-
+// quantizes HERE - both at upload time only. matEdPaintPixels_ (what the
+// PNG saves) never contains a preview, so a stroke saved while previewing
+// ships clean.
+void App::matEdUploadComposite() {
+    const int w = matEdPaintW_, h = matEdPaintH_;
+    if (w < 1 || h < 1 || matEdPaintTexRel_.empty()) return;
+    const unsigned char* src = matEdPaintPixels_.data();
+    std::vector<unsigned char> tmp;
+    if (matBakePreviewMode_ == 1 && !matBakeMaps_.empty()) {
+        const matbake::Maps& m = matBakeMaps_;
+        tmp = matEdPaintPixels_;
+        auto at = [&](int xx, int yy) {
+            xx = ((xx % m.w) + m.w) % m.w;
+            yy = ((yy % m.h) + m.h) % m.h;
+            return (float)m.ao[(size_t)yy * m.w + xx];
+        };
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                // bilinear AO at the texel center (map and texture sizes
+                // may differ; both wrap)
+                const float fx = (x + 0.5f) / w * m.w - 0.5f;
+                const float fy = (y + 0.5f) / h * m.h - 0.5f;
+                const int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+                const float tx = fx - x0, ty = fy - y0;
+                const float ao =
+                    (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
+                    (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+                unsigned char* px = &tmp[((size_t)y * w + x) * 4];
+                for (int c = 0; c < 3; ++c)
+                    px[c] = (unsigned char)(px[c] * ao * (1.0f / 255.0f) + 0.5f);
+            }
+        src = tmp.data();
+    }
+    if (matEdDisplayMode_ == 3) {
+        const int cols = matEdPs2Colors();
+        if (cols > 0) {
+            // quantize whatever the mesh would show (AO preview included) -
+            // the closest thing to the shipped .res-baked texture
+            const std::vector<unsigned char> q = pngquant::quantizePreviewRGBA(
+                src, w, h, cols, (pngquant::Dither)matEdPs2Dither_,
+                &matEdPs2Palette_);
+            if (!q.empty()) {
+                viewport_.updateTexturePixels(matEdPaintTexRel_, w, h, q.data());
+                return;
+            }
+        } else {
+            matEdPs2Palette_.clear();
+        }
+    }
+    viewport_.updateTexturePixels(matEdPaintTexRel_, w, h, src);
+}
+
+// Palette size of the "PS2 CLUT" preview (0 = full color): the explicit
+// combo choice, else the shipped policy - the .mtl's per-asset override or
+// the project default. (texbake lets the HIGHEST quality claimed by any
+// asset sharing a texture win; this line resolves only this .mtl's claim,
+// which matches unless another asset pins the same PNG higher.)
+int App::matEdPs2Colors() const {
+    switch (matEdPs2Mode_) {
+        case 1: return 16;
+        case 2: return 256;
+        case 3: return 0;
+        default: break;
+    }
+    std::string q;
+    auto it = project_.textureQuality.find(matEdPath_);
+    if (it != project_.textureQuality.end()) q = it->second;
+    if (q.empty()) q = project_.settings.textureQuant;
+    return q == "8bit" ? 256 : q == "none" ? 0 : 16;
+}
+
+// The live memory-budget line: what this texture costs on the PS2 after
+// texbake, at the quality the CLUT preview resolves to.
+std::string App::matEdBudgetLine(int tw, int th) const {
+    const int cols = matEdPs2Colors();
+    const long px = (long)tw * th;
+    long bytes;
+    const char* what;
+    long palette = 0;
+    if (cols == 16) {
+        bytes = px / 2;
+        palette = 16 * 4;
+        what = "4-bit";
+    } else if (cols == 256) {
+        bytes = px;
+        palette = 256 * 4;
+        what = "8-bit";
+    } else {
+        bytes = px * 4;
+        what = "32-bit";
+    }
+    char buf[128];
+    if (palette)
+        std::snprintf(buf, sizeof(buf), "%dx%d %s = %.1f KB + %ld B palette",
+                      tw, th, what, bytes / 1024.0, palette);
+    else
+        std::snprintf(buf, sizeof(buf), "%dx%d %s = %.1f KB (no palette)", tw,
+                      th, what, bytes / 1024.0);
+    return buf;
 }
 
 void App::matEdSaveLayers() {
@@ -10597,7 +12709,22 @@ void App::matEdSaveLayers() {
         manifest << "    {\"name\": \"" << name << "\", \"blend\": " << L.blend
                  << ", \"opacity\": " << op << ", \"visible\": "
                  << (L.visible ? "true" : "false") << ", \"file\": \"" << file
-                 << "\"}" << (i + 1 < matEdLayers_.size() ? "," : "") << "\n";
+                 << "\"";
+        if (L.genOn) {
+            char gb[256];
+            std::snprintf(
+                gb, sizeof(gb),
+                ", \"gen\": {\"source\": %d, \"lo\": %.4g, \"hi\": %.4g, "
+                "\"invert\": %s, \"scale\": %.4g, \"seed\": %u, \"breakup\": "
+                "%.4g, \"breakupScale\": %.4g, \"mortar\": %.4g, \"color\": "
+                "[%.4g, %.4g, %.4g]}",
+                (int)L.gen.source, L.gen.rangeLo, L.gen.rangeHi,
+                L.gen.invert ? "true" : "false", L.gen.scale, L.gen.seed,
+                L.gen.breakupAmount, L.gen.breakupScale, L.gen.mortar,
+                L.genColor[0], L.genColor[1], L.genColor[2]);
+            manifest << gb;
+        }
+        manifest << "}" << (i + 1 < matEdLayers_.size() ? "," : "") << "\n";
     }
     manifest << "  ]\n}\n";
     std::ofstream out(dir / "layers.json", std::ios::trunc);
@@ -10616,11 +12743,103 @@ void App::matEdSavePaintTarget() {
     const std::string full =
         (std::filesystem::path(project_.dir) / matEdPaintTexRel_).string();
     if (stbi_write_png(full.c_str(), matEdPaintW_, matEdPaintH_, 4,
-                       matEdPaintPixels_.data(), matEdPaintW_ * 4))
+                       matEdPaintPixels_.data(), matEdPaintW_ * 4)) {
         statusMessage_ = "Painted " + matEdPaintTexRel_;
-    else
+        liveTexNotify(matEdPaintTexRel_);  // hot-reload the running game
+    } else {
         statusMessage_ = "Cannot write " + matEdPaintTexRel_;
+    }
     matEdSaveLayers();
+}
+
+// Texture hot reload (docs/live-link.md): after a paint/bake save, re-bake
+// the texture the way the build shipped it - the palette format is detected
+// from the existing bin/ PNG's IHDR, so the swap is format-identical - drop
+// it next to the ELF (tmp + rename, the game never sees a half file) and
+// bump bin/livetex.bin. The generated live_tex poller re-decodes the file
+// and re-sends the pixels to the texture's existing GS VRAM address.
+void App::liveTexNotify(const std::string& texResRel) {
+    if (!hasProject_) return;
+    if (project_.settings.buildProfile != "debug" ||
+        !project_.settings.liveLink)
+        return;  // mirrors the poller's existence in the build
+    if (texResRel.rfind("res/", 0) != 0) return;
+    if (matEdPaintW_ < 1 || matEdPaintPixels_.empty()) return;
+    const std::string gameRel = texResRel.substr(4);
+    if (gameRel.size() >= 96) return;  // record path field is 96 bytes
+    namespace fs = std::filesystem;
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    const fs::path dst = binDir / gameRel;
+    std::error_code ec;
+    if (!fs::exists(dst, ec)) return;  // never shipped - nothing to reload
+
+    // shipped format from the PNG header: color type 3 = paletted, bit
+    // depth picks the palette size; anything else = full color
+    int cols = 0;
+    {
+        std::ifstream in(dst, std::ios::binary);
+        unsigned char hdr[26] = {};
+        in.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
+        if (in.gcount() >= 26 && hdr[25] == 3)
+            cols = hdr[24] == 4 ? 16 : 256;
+    }
+    const fs::path tmp = binDir / (gameRel + ".txtmp");
+    fs::create_directories(tmp.parent_path(), ec);
+    std::string err;
+    const bool ok =
+        cols > 0 ? pngquant::quantizeRGBA(tmp.string(),
+                                          matEdPaintPixels_.data(),
+                                          matEdPaintW_, matEdPaintH_, cols, err)
+                 : pngquant::writePngRGBA(tmp.string(),
+                                          matEdPaintPixels_.data(),
+                                          matEdPaintW_, matEdPaintH_, err);
+    if (!ok) {
+        fs::remove(tmp, ec);
+        return;
+    }
+    fs::rename(tmp, dst, ec);
+    if (ec) {  // the game holds the file open right now - drop this update
+        fs::remove(tmp, ec);
+        return;
+    }
+
+    // announce: livetex.bin lists every repainted texture with a growing
+    // generation; the poller applies the ones it hasn't seen. The list is
+    // cumulative for the session so a game booted later catches up.
+    ++liveTexGen_[gameRel];
+    if (liveTexGen_.size() > 64) {  // record cap; keep the current one
+        const uint32_t keep = liveTexGen_[gameRel];
+        liveTexGen_.clear();
+        liveTexGen_[gameRel] = keep;
+    }
+    const uint32_t seq = ++liveTexSeq_;
+    std::vector<unsigned char> file;
+    auto app32 = [&](uint32_t v) {
+        const unsigned char* b = reinterpret_cast<const unsigned char*>(&v);
+        file.insert(file.end(), b, b + 4);
+    };
+    app32(0x544C5854u);  // "TXLT"
+    app32(1u);
+    app32(seq);
+    app32((uint32_t)liveTexGen_.size());
+    for (const auto& [rel, gen] : liveTexGen_) {
+        char rec[104] = {};
+        std::snprintf(rec, 96, "%s", rel.c_str());
+        std::memcpy(rec + 96, &gen, 4);
+        file.insert(file.end(), rec, rec + 104);
+    }
+    app32(seq ^ 0x5A5A5A5Au);
+    const fs::path mtmp = binDir / "livetex.tmp";
+    const fs::path mdst = binDir / "livetex.bin";
+    {
+        std::ofstream out(mtmp, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(reinterpret_cast<const char*>(file.data()),
+                  (std::streamsize)file.size());
+        if (!out) return;
+    }
+    fs::rename(mtmp, mdst, ec);
+    if (ec) fs::remove(mtmp, ec);
 }
 
 // One stamp at a surface UV (image space, v down), onto the ACTIVE layer
@@ -10765,9 +12984,1203 @@ void App::matEdPaintTo(float u, float v) {
     matEdLastUV_[1] = v;
 }
 
+// --- Map baking (docs/material-baking.md) ------------------------------------
+// The Material Editor front of matbake: parameters live per .mtl (the
+// "# tyra-bake" hint), the bake runs progressively on matbake's worker
+// thread, snapshots land on the preview mesh within a round (~ms), and the
+// finished AO becomes a "Baked AO" multiply layer of the entry's texture.
+
+namespace {
+uint64_t bakeFnv(const std::string& s, uint64_t h = 1469598103934665603ull) {
+    for (unsigned char c : s) {
+        h ^= c;
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+// Bilinear (wrapping) resample of a single-channel map at the center of
+// texel (x, y) of a w x h target.
+float bakeSampleGray(const std::vector<uint8_t>& map, int mw, int mh, int x,
+                     int y, int w, int h) {
+    const float fx = (x + 0.5f) / w * mw - 0.5f;
+    const float fy = (y + 0.5f) / h * mh - 0.5f;
+    const int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+    const float tx = fx - x0, ty = fy - y0;
+    auto at = [&](int xx, int yy) {
+        xx = ((xx % mw) + mw) % mw;
+        yy = ((yy % mh) + mh) % mh;
+        return (float)map[(size_t)yy * mw + xx];
+    };
+    return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
+           (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+}
+}  // namespace
+
+void App::matBakeResetParams() {
+    matBakeSizeIdx_ = 2;
+    matBakeRays_ = 64;
+    matBakeMaxDist_ = 0.0f;
+    matBakeSSIdx_ = 1;
+    matBakeBackface_ = true;
+    matBakePadding_ = 4;
+    matBakeSeed_ = 1;
+    matBakeHigh_.clear();
+    matBakeCage_ = 0.0f;
+}
+
+matbake::Params App::matBakeParams() const {
+    matbake::Params p;
+    p.size = 64 << matBakeSizeIdx_;
+    p.samples = matBakeRays_;
+    p.maxDist = matBakeMaxDist_;
+    p.supersample = 1 << matBakeSSIdx_;
+    p.backface = matBakeBackface_;
+    p.padding = matBakePadding_;
+    p.seed = (uint32_t)matBakeSeed_;
+    p.cageOffset = matBakeCage_;
+    return p;
+}
+
+// Triangle soup (matbake::MeshInput) from an animated model's BIND-POSE
+// geometry (frame 0). Parts whose material name matches entryName are
+// paintable (empty = all). The .mtl override only affects color/texture, not
+// geometry or UVs, so the bake needs the raw mesh - no override applied here.
+static matbake::MeshInput meshInputFromBaked(const glbparser::Baked& baked,
+                                             const std::string& entryName) {
+    matbake::MeshInput mi;
+    for (const glbparser::Part& p : baked.parts) {
+        const bool paint = entryName.empty() || p.material == entryName;
+        const bool hasUv = p.uvs.size() >= (size_t)p.vertexCount * 2;
+        for (int v = 0; v + 2 < p.vertexCount; v += 3) {
+            for (int c = 0; c < 3; ++c) {
+                const int idx = v + c;
+                mi.verts.insert(
+                    mi.verts.end(),
+                    {p.positions[idx * 3], p.positions[idx * 3 + 1],
+                     p.positions[idx * 3 + 2], p.normals[idx * 3],
+                     p.normals[idx * 3 + 1], p.normals[idx * 3 + 2],
+                     hasUv ? p.uvs[idx * 2] : 0.0f,
+                     hasUv ? p.uvs[idx * 2 + 1] : 0.0f});
+            }
+            mi.paintTri.push_back(paint ? 1 : 0);
+        }
+    }
+    return mi;
+}
+
+// (Re)build the cached matbake inputs. Keys carry the source file mtimes so
+// an external re-export re-bakes; unchanged keys cost two stat calls.
+bool App::matBakeBuildMeshes(const std::string& entryName) {
+    auto mtimeOf = [&](const std::string& rel) {
+        std::error_code ec;
+        const auto t = std::filesystem::last_write_time(
+            std::filesystem::path(project_.dir) / rel, ec);
+        return ec ? std::string("?")
+                  : std::to_string(t.time_since_epoch().count());
+    };
+    std::string key;
+    if (matEdShape_ == 4) {
+        if (matEdModel_.empty()) {
+            matBakeMeshError_ = "No preview model selected";
+            return false;
+        }
+        // the .uvs replacement-UV sidecar changes the baked mesh without
+        // touching the model file - its mtime joins the key
+        key = "m|" + matEdModel_ + "|" + matEdPath_ + "|" + entryName + "|" +
+              mtimeOf(matEdModel_) + "|" + mtimeOf(matEdModel_ + ".uvs");
+    } else {
+        key = "p|" + std::to_string(matEdShape_);
+    }
+    if (key != matBakeMeshKey_) {
+        matBakeMeshKey_ = key;
+        matBakeMeshError_.clear();
+        if (matEdShape_ == 4 && isAnimatedModelPath(matEdModel_)) {
+            glbparser::Baked baked;
+            std::string err;
+            if (animimport::bake(
+                    (std::filesystem::path(project_.dir) / matEdModel_).string(),
+                    12.0f, baked, err))
+                matBakeMeshLow_ = meshInputFromBaked(baked, entryName);
+            else {
+                matBakeMeshLow_ = matbake::MeshInput{};
+                matBakeMeshError_ = "Cannot read " + matEdModel_;
+            }
+        } else if (matEdShape_ == 4) {
+            objparser::Model m;
+            if (objparser::load(
+                    (std::filesystem::path(project_.dir) / matEdModel_).string(),
+                    m,
+                    (std::filesystem::path(project_.dir) / matEdPath_).string()))
+                matBakeMeshLow_ = matbake::fromModel(m, entryName);
+            else {
+                matBakeMeshLow_ = matbake::MeshInput{};
+                matBakeMeshError_ = "Cannot read " + matEdModel_;
+            }
+        } else {
+            matBakeMeshLow_ = matbake::fromPrimitive(
+                matEdShape_,
+                matEdShape_ == 0 ? kDefaultBoxDetail : kDefaultPrimDetail);
+        }
+        matBakeMeshLow_.signature = bakeFnv(key);
+    }
+    const std::string hkey =
+        matBakeHigh_.empty() ? ""
+                             : "h|" + matBakeHigh_ + "|" + mtimeOf(matBakeHigh_);
+    if (hkey != matBakeHighKey_) {
+        matBakeHighKey_ = hkey;
+        matBakeMeshHigh_ = matbake::MeshInput{};
+        if (!matBakeHigh_.empty()) {
+            objparser::Model m;
+            if (objparser::load(
+                    (std::filesystem::path(project_.dir) / matBakeHigh_).string(),
+                    m))
+                matBakeMeshHigh_ = matbake::fromModel(m, "");
+            else
+                matBakeMeshError_ = "Cannot read " + matBakeHigh_;
+            matBakeMeshHigh_.signature = bakeFnv(hkey);
+        }
+    }
+    if (matBakeMeshLow_.empty()) {
+        if (matBakeMeshError_.empty()) matBakeMeshError_ = "No mesh to bake";
+        return false;
+    }
+    return true;
+}
+
+// Once per frame while the editor shows a file: restart the bake when any
+// input changed (the Baker caches its gbuffer+BVH, so sampling-only slider
+// drags re-run nearly free), poll snapshots onto the preview, and finish a
+// pending "Bake & add layer".
+void App::matBakeTick(const std::string& entryName, const std::string& texRel) {
+    // The paint target must always belong to the SELECTED entry: with an
+    // untextured entry selected, a target left over from the previous one
+    // would silently receive this entry's bake previews and layers (the
+    // "legs' AO showed up on the jaw" bug).
+    if (texRel.empty()) matEdUnloadPaintTarget();
+    // A pending "Bake & add layer" is armed for one specific entry -
+    // switching entries turns it into a cross-application, so cancel.
+    if (matBakeApplyWhenDone_ && entryName != matBakeApplyEntry_) {
+        matBakeApplyWhenDone_ = false;
+        statusMessage_ = "Bake apply canceled - the entry changed";
+    }
+    if (matBakeRunOnce_ && !matBakeMaps_.empty() &&
+        matBakeMaps_.samplesDone >= matBakeRays_ && !matBaker_.running())
+        matBakeRunOnce_ = false;  // the smart masks got their maps
+    const bool wantBake = matBakePreviewMode_ > 0 || matBakeApplyWhenDone_ ||
+                          matBakeRunOnce_;
+    if (wantBake) {
+        // the AO-on-material merge rides the paint target's GL upload
+        if (matBakePreviewMode_ == 1 && !texRel.empty() &&
+            matEdPaintTexRel_ != texRel) {
+            if (matEdLoadPaintTarget(texRel)) matEdComposite();
+        }
+        if (matBakeBuildMeshes(entryName)) {
+            char pb[128];
+            std::snprintf(pb, sizeof(pb), "|%d|%d|%.6g|%d|%d|%d|%d|%.6g",
+                          matBakeSizeIdx_, matBakeRays_, matBakeMaxDist_,
+                          matBakeSSIdx_, (int)matBakeBackface_, matBakePadding_,
+                          matBakeSeed_, matBakeCage_);
+            const uint64_t sig =
+                bakeFnv(pb, bakeFnv(matBakeMeshKey_ + "|" + matBakeHighKey_));
+            if (sig != matBakeStartedSig_) {
+                matBakeStartedSig_ = sig;
+                matBaker_.start(matBakeMeshLow_, matBakeMeshHigh_,
+                                matBakeParams());
+            }
+        } else if (matBakeApplyWhenDone_) {
+            matBakeApplyWhenDone_ = false;
+            statusMessage_ = "Bake: " + matBakeMeshError_;
+        }
+    }
+    if (matBaker_.version() != matBakeSeenVersion_) {
+        matBakeSeenVersion_ = matBaker_.version();
+        matBakeMaps_ = matBaker_.snapshot();
+        if (matEdAnyGenLayer() && matEdPaintW_ > 0)
+            matEdRegenMasks();  // smart masks track the refining bake live
+        if (matBakePreviewMode_ == 1)
+            matEdUploadComposite();
+        else if (matBakePreviewMode_ == 2)
+            matBakeUploadSolo();
+    }
+    if (matBakeApplyWhenDone_ && !matBaker_.running()) {
+        // the final round may land between the poll above and here
+        matBakeMaps_ = matBaker_.snapshot();
+        const std::string err = matBaker_.error();
+        if (!matBakeMaps_.empty() && matBakeMaps_.samplesDone >= matBakeRays_) {
+            matBakeApplyWhenDone_ = false;
+            matBakeApplyLayer();
+        } else if (!err.empty()) {
+            matBakeApplyWhenDone_ = false;
+            statusMessage_ = "Bake failed: " + err;
+        }
+    }
+}
+
+// Raw-map view: the selected map replaces the material texture on the
+// preview mesh via a pseudo-path texture (never touches disk).
+void App::matBakeUploadSolo() {
+    if (matBakeMaps_.empty()) return;
+    const matbake::Maps& m = matBakeMaps_;
+    const std::vector<uint8_t>* gray = matBakeMapView_ == 0   ? &m.ao
+                                       : matBakeMapView_ == 1 ? &m.curvature
+                                       : matBakeMapView_ == 2 ? &m.thickness
+                                                              : nullptr;
+    const std::vector<uint8_t>* rgb = matBakeMapView_ == 3   ? &m.bent
+                                      : matBakeMapView_ == 4 ? &m.normal
+                                      : matBakeMapView_ == 5 ? &m.position
+                                                             : nullptr;
+    std::vector<unsigned char> rgba((size_t)m.w * m.h * 4);
+    for (size_t i = 0; i < (size_t)m.w * m.h; ++i) {
+        unsigned char* px = &rgba[i * 4];
+        if (gray)
+            px[0] = px[1] = px[2] = (*gray)[i];
+        else
+            for (int c = 0; c < 3; ++c) px[c] = (*rgb)[i * 3 + c];
+        px[3] = 255;
+    }
+    viewport_.updateTexturePixels("@matbake-view", m.w, m.h, rgba.data());
+}
+
+// The auto-hookup: the baked AO lands as a "Baked AO" multiply layer of the
+// entry's texture (re-bakes overwrite it in place instead of stacking
+// duplicates), and the .mtl saves so the bake parameters ship next to the
+// result. One click, the model just looks better.
+void App::matBakeApplyLayer() {
+    if (matBakeMaps_.empty()) {
+        statusMessage_ = "Nothing baked yet";
+        return;
+    }
+    if (matEdPaintW_ < 1 || matEdPaintTexRel_.empty()) {
+        statusMessage_ =
+            "Bake: the entry needs a texture (Texture > New paintable texture)";
+        return;
+    }
+    // never apply onto another entry's texture (a stale target)
+    if (matEdSel_ >= 0 && matEdSel_ < (int)matEdMats_.size()) {
+        const MatEdEntry& e = matEdMats_[matEdSel_];
+        const std::string expect =
+            e.texture.empty()
+                ? ""
+                : (std::filesystem::path(matEdPath_).parent_path() / e.texture)
+                      .generic_string();
+        if (expect != matEdPaintTexRel_) {
+            statusMessage_ =
+                "Bake apply skipped - the loaded texture belongs to another "
+                "entry";
+            return;
+        }
+    }
+    const int w = matEdPaintW_, h = matEdPaintH_;
+    const matbake::Maps& m = matBakeMaps_;
+    std::vector<unsigned char> pixels((size_t)w * h * 4);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const float ao = bakeSampleGray(m.ao, m.w, m.h, x, y, w, h);
+            unsigned char* px = &pixels[((size_t)y * w + x) * 4];
+            px[0] = px[1] = px[2] = (unsigned char)(ao + 0.5f);
+            px[3] = 255;
+        }
+    int at = -1;
+    for (size_t i = 0; i < matEdLayers_.size(); ++i)
+        if (matEdLayers_[i].name == "Baked AO") at = (int)i;
+    if (at >= 0) {
+        matEdPushUndo(MatEdUndoStep::Kind::Paint, at);
+        matEdLayers_[at].pixels = std::move(pixels);
+        matEdLayers_[at].blend = 1;
+        matEdLayers_[at].visible = true;
+    } else {
+        MatEdLayer l;
+        l.name = "Baked AO";
+        l.blend = 1;  // multiply
+        l.pixels = std::move(pixels);
+        at = (int)matEdLayers_.size();
+        matEdLayers_.push_back(std::move(l));
+        matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+    }
+    matEdComposite();
+    matEdSavePaintTarget();
+    saveMaterialFile();  // persists the # tyra-bake parameters
+    statusMessage_ = "Baked AO applied as a multiply layer (" +
+                     std::to_string(m.samplesDone) + " rays/texel)";
+}
+
+// Writes the whole map set as PNGs next to the .mtl - mask sources for
+// hand-painted wear, exports for external tools. They are ordinary res/
+// PNGs afterwards (assignable as textures; delete what the game won't use).
+void App::matBakeSaveMaps(const std::filesystem::path& mtlDirAbs,
+                          const std::string& entryName) {
+    if (matBakeMaps_.empty()) {
+        statusMessage_ = "Nothing baked yet";
+        return;
+    }
+    const matbake::Maps& m = matBakeMaps_;
+    const std::string base = sanitizeAssetName(
+        std::filesystem::path(matEdPath_).stem().string() +
+        (entryName.empty() ? "" : "-" + entryName));
+    struct Out {
+        const char* suffix;
+        const std::vector<uint8_t>* gray;
+        const std::vector<uint8_t>* rgb;
+    };
+    const Out outs[] = {
+        {"-ao.png", &m.ao, nullptr},
+        {"-curvature.png", &m.curvature, nullptr},
+        {"-thickness.png", &m.thickness, nullptr},
+        {"-bent.png", nullptr, &m.bent},
+        {"-normal.png", nullptr, &m.normal},
+        {"-position.png", nullptr, &m.position},
+    };
+    int written = 0;
+    std::vector<unsigned char> rgb((size_t)m.w * m.h * 3);
+    for (const Out& o : outs) {
+        for (size_t i = 0; i < (size_t)m.w * m.h; ++i)
+            for (int c = 0; c < 3; ++c)
+                rgb[i * 3 + c] = o.gray ? (*o.gray)[i] : (*o.rgb)[i * 3 + c];
+        written += stbi_write_png((mtlDirAbs / (base + o.suffix)).string().c_str(),
+                                  m.w, m.h, 3, rgb.data(), m.w * 3)
+                       ? 1
+                       : 0;
+    }
+    saveMaterialFile();  // persists the # tyra-bake parameters
+    statusMessage_ = "Saved " + std::to_string(written) +
+                     " baked maps next to " + matEdPath_;
+}
+
+// The "Bake maps" block of the property column.
+void App::matEdBakeSection(const std::string& entryName,
+                           const std::string& texRel) {
+    ImGui::SeparatorText("Bake maps");
+    const char* prevModes[] = {"Off", "AO on material", "Map view"};
+    ImGui::SetNextItemWidth(scaled(150.0f));
+    if (ImGui::Combo("Preview", &matBakePreviewMode_, prevModes, 3)) {
+        if (matBakePreviewMode_ != 1) matEdUploadComposite();
+        if (matBakePreviewMode_ == 2)
+            matBakeUploadSolo();
+        else if (matBakePreviewMode_ == 0) {
+            matBaker_.cancel();
+            matBakeStartedSig_ = 0;
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Live progressive bake on the preview mesh. \"AO on material\"\n"
+            "multiplies the baked occlusion over the textured material\n"
+            "(preview only - nothing is saved); \"Map view\" shows the raw\n"
+            "baked map. Parameter changes re-bake immediately.");
+    if (matBakePreviewMode_ == 2) {
+        ImGui::SameLine();
+        const char* maps[] = {"AO",        "Curvature", "Thickness",
+                              "Bent normal", "OS normal", "Position"};
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::Combo("##bake_map", &matBakeMapView_, maps, 6))
+            matBakeUploadSolo();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "One bake produces them all: occlusion, geometric edge/cavity\n"
+                "curvature, thickness (white = solid depth below the surface),\n"
+                "average unoccluded direction, object-space normals and\n"
+                "AABB-normalized positions.");
+    }
+
+    // high-poly: bake the detail of a dense mesh into this (low) one
+    {
+        const char* noneLabel = "<none - bake this mesh>";
+        ImGui::SetNextItemWidth(scaled(240.0f));
+        if (ImGui::BeginCombo("High-poly",
+                              matBakeHigh_.empty()
+                                  ? noneLabel
+                                  : std::filesystem::path(matBakeHigh_)
+                                        .filename()
+                                        .string()
+                                        .c_str())) {
+            if (ImGui::Selectable(noneLabel, matBakeHigh_.empty()))
+                matBakeHigh_.clear();
+            for (const std::string& mo : listAssetFiles("models", ".obj")) {
+                const std::string rel = "res/models/" + mo;
+                if (ImGui::Selectable(mo.c_str(), rel == matBakeHigh_))
+                    matBakeHigh_ = rel;
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "A dense version of the preview mesh: every texel is first\n"
+                "projected onto it (cage projection along the smoothed\n"
+                "normals), so the baked maps carry the high mesh's detail -\n"
+                "the low-poly model looks like it has geometry it doesn't.");
+        if (!matBakeHigh_.empty()) {
+            ImGui::SetNextItemWidth(scaled(140.0f));
+            ImGui::DragFloat("Cage", &matBakeCage_, 0.005f, 0.0f, 10.0f,
+                             matBakeCage_ <= 0.0f ? "auto" : "%.3f");
+            if (matBakeCage_ < 0.0f) matBakeCage_ = 0.0f;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How far above the low surface the projection rays start\n"
+                    "(world units; auto = 2%% of the model size). Raise it if\n"
+                    "tall high-poly detail gets clipped, lower it if opposite\n"
+                    "surfaces bleed into each other.");
+        }
+    }
+
+    const char* sizes[] = {"64", "128", "256", "512"};
+    ImGui::SetNextItemWidth(scaled(90.0f));
+    ImGui::Combo("Resolution", &matBakeSizeIdx_, sizes, 4);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Baked map size. Match the entry's texture for the\n"
+                          "layer bake; bigger only helps saved maps.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::SliderInt("Rays", &matBakeRays_, 8, 512, "%d",
+                     ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hemisphere rays per texel at full quality. 64 is\n"
+                          "clean for most props; the preview refines toward\n"
+                          "this progressively.");
+
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::DragFloat("Max distance", &matBakeMaxDist_, 0.02f, 0.0f, 1000.0f,
+                     matBakeMaxDist_ <= 0.0f ? "auto" : "%.2f");
+    if (matBakeMaxDist_ < 0.0f) matBakeMaxDist_ = 0.0f;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Occlusion reach in world units (auto = half the model size).\n"
+            "THE artistic knob: small = tight contact shadows in crevices,\n"
+            "large = broad soft shading. Interiors need a limit or they\n"
+            "bake pitch black.");
+
+    const char* ssLevels[] = {"1x", "2x", "4x"};
+    ImGui::SetNextItemWidth(scaled(90.0f));
+    ImGui::Combo("Anti-alias", &matBakeSSIdx_, ssLevels, 3);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Surface samples per texel axis (supersampling in\n"
+                          "UV space) - smooths island edges.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Backface hits", &matBakeBackface_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rays hitting triangle back sides count as\n"
+                          "occluders. Keep on for thin/unwelded geometry;\n"
+                          "turn off if closed meshes bake too dark inside\n"
+                          "overlaps.");
+
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::SliderInt("Padding", &matBakePadding_, 0, 16, "%d px");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Dilate ring around the UV islands - bilinear\n"
+                          "filtering and mipmaps need it or seams go dark.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(80.0f));
+    ImGui::InputInt("Seed", &matBakeSeed_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Sampling seed. Same seed + same settings = the\n"
+                          "same bake, bit for bit.");
+
+    if (!matBakeMeshError_.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                           matBakeMeshError_.c_str());
+    const std::string bakeErr = matBaker_.error();
+    if (!bakeErr.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                           bakeErr.c_str());
+    if (matBaker_.running()) {
+        ImGui::ProgressBar(matBaker_.progress(), ImVec2(-FLT_MIN, 0));
+    } else if (!matBakeMaps_.empty() && matBakePreviewMode_ > 0) {
+        ImGui::TextDisabled("%d rays/texel baked", matBakeMaps_.samplesDone);
+    }
+
+    ImGui::BeginDisabled(texRel.empty());
+    if (ImGui::Button("Bake & add AO layer")) {
+        matBakeApplyWhenDone_ = true;
+        matBakeApplyEntry_ = entryName;  // switching entries cancels it
+        matBakeStartedSig_ = 0;  // force a fresh full-quality run
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            texRel.empty()
+                ? "The entry needs a texture first\n"
+                  "(Texture > New paintable texture...)."
+                : "Bakes at full quality, then drops the AO onto the\n"
+                  "entry's texture as a \"Baked AO\" multiply layer\n"
+                  "(re-bakes update it in place). Undo with Ctrl+Z.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(matBakeMaps_.empty() || matBaker_.running());
+    if (ImGui::Button("Save all maps")) {
+        matBakeSaveMaps(
+            (std::filesystem::path(project_.dir) / matEdPath_).parent_path(),
+            entryName);
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Writes ao/curvature/thickness/bent/normal/position PNGs next\n"
+            "to the .mtl - mask sources for wear & dirt, or exports for\n"
+            "external tools.");
+}
+
+// --- Smart masks (docs/material-baking.md) -----------------------------------
+// A gen layer's pixels are its color filled through a matbake::generateMask
+// alpha - "wear on edges", "dirt in cavities", world-space noise - driven by
+// the baked map set, regenerated live as the bake refines.
+
+void App::matEdRegenLayer(MatEdLayer& l) {
+    if (!l.genOn || matEdPaintW_ < 1 || matBakeMaps_.empty()) return;
+    const std::vector<uint8_t> mask = matbake::generateMask(
+        matBakeMaps_, l.gen, matEdPaintW_, matEdPaintH_);
+    if (mask.empty()) return;
+    const size_t count = (size_t)matEdPaintW_ * matEdPaintH_;
+    l.pixels.resize(count * 4);
+    const unsigned char r = (unsigned char)(l.genColor[0] * 255.0f + 0.5f);
+    const unsigned char g = (unsigned char)(l.genColor[1] * 255.0f + 0.5f);
+    const unsigned char b = (unsigned char)(l.genColor[2] * 255.0f + 0.5f);
+    for (size_t i = 0; i < count; ++i) {
+        unsigned char* px = &l.pixels[i * 4];
+        px[0] = r, px[1] = g, px[2] = b;
+        px[3] = mask[i];
+    }
+}
+
+bool App::matEdAnyGenLayer() const {
+    for (const MatEdLayer& l : matEdLayers_)
+        if (l.genOn) return true;
+    return false;
+}
+
+void App::matEdRegenMasks() {
+    bool any = false;
+    for (MatEdLayer& l : matEdLayers_) {
+        if (!l.genOn) continue;
+        matEdRegenLayer(l);
+        any = true;
+    }
+    if (any) matEdComposite();
+}
+
+// Generator controls of the active layer (shown under the layer list).
+void App::matEdGenControls() {
+    if (matEdActiveLayer_ < 0 || matEdActiveLayer_ >= (int)matEdLayers_.size())
+        return;
+    MatEdLayer& L = matEdLayers_[matEdActiveLayer_];
+    if (!L.genOn) return;
+    ImGui::SeparatorText("Smart mask");
+    bool changed = false, commit = false;
+    const char* sources[] = {"Edge wear",   "Cavity grime", "Occlusion dirt",
+                             "Thin rims",   "Height (Y)",   "Facing up",
+                             "Perlin noise", "Worley cells", "Bricks"};
+    int src = (int)L.gen.source;
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    if (ImGui::Combo("##gen_src", &src, sources, 9)) {
+        L.gen.source = (matbake::MaskParams::Source)src;
+        changed = commit = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What drives the mask. Edge wear / cavity grime come from the\n"
+            "baked curvature, dirt from AO, rims from thickness, height and\n"
+            "facing-up from position/normals; the noises sample 3D noise at\n"
+            "the baked surface position, so they continue across UV seams.");
+    ImGui::SameLine();
+    changed |= ImGui::ColorEdit3("##gen_col", L.genColor,
+                                 ImGuiColorEditFlags_NoInputs);
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mask fill color.");
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    changed |= ImGui::DragFloatRange2("Range", &L.gen.rangeLo, &L.gen.rangeHi,
+                                      0.004f, 0.0f, 1.0f, "%.2f");
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Remap window over the source signal (smoothstep):\n"
+                          "narrow = a hard-edged mask, wide = a soft ramp.");
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Invert", &L.gen.invert)) changed = commit = true;
+
+    const bool noisy = src >= (int)matbake::MaskParams::Source::Perlin;
+    if (noisy) {
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        changed |= ImGui::DragFloat("Scale", &L.gen.scale, 0.05f, 0.5f, 64.0f,
+                                    "%.1f");
+        commit |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80.0f));
+        int seed = (int)L.gen.seed;
+        if (ImGui::DragInt("Seed", &seed, 0.2f, 0, 9999)) {
+            L.gen.seed = (uint32_t)seed;
+            changed = commit = true;
+        }
+        if (src == (int)matbake::MaskParams::Source::Bricks) {
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            changed |= ImGui::DragFloat("Mortar", &L.gen.mortar, 0.002f, 0.01f,
+                                        0.3f, "%.2f");
+            commit |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+    }
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    changed |= ImGui::SliderFloat("Breakup", &L.gen.breakupAmount, 0.0f, 1.0f,
+                                  "%.2f");
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Multiplies the mask by world-space Perlin noise -\n"
+                          "organic, uneven wear instead of a uniform coat.");
+    if (L.gen.breakupAmount > 0.0f) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(90.0f));
+        changed |= ImGui::DragFloat("##gen_bscale", &L.gen.breakupScale, 0.05f,
+                                    0.5f, 64.0f, "x%.1f");
+        commit |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+
+    if (matBakeMaps_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                           "Needs baked maps to generate.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Bake maps now")) matBakeRunOnce_ = true;
+    }
+    if (changed) {
+        matEdRegenLayer(L);
+        matEdComposite();
+    }
+    if (commit) matEdSavePaintTarget();
+}
+
+// --- material presets: reusable smart-mask stacks ------------------------------
+// A preset is the gen-enabled layers' PARAMETERS (never pixels), stored as
+// <project>/material-presets/<name>.matpreset - project dir, outside res/,
+// so it never ships (the flow-nodes/ pattern). Applying regenerates the
+// masks from the current material's own bake.
+
+void App::matEdSavePreset(const std::string& name) {
+    std::vector<const MatEdLayer*> gens;
+    for (const MatEdLayer& l : matEdLayers_)
+        if (l.genOn) gens.push_back(&l);
+    if (gens.empty()) {
+        matEdPresetError_ = "No smart-mask layers to save.";
+        return;
+    }
+    const std::filesystem::path dir =
+        std::filesystem::path(project_.dir) / "material-presets";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::ofstream out(dir / (name + ".matpreset"), std::ios::trunc);
+    if (!out) {
+        matEdPresetError_ = "Cannot write the preset file.";
+        return;
+    }
+    out << "{\n  \"layers\": [\n";
+    char buf[256];
+    for (size_t i = 0; i < gens.size(); ++i) {
+        const MatEdLayer& l = *gens[i];
+        std::string nm = l.name;
+        for (char& c : nm)
+            if (c == '"' || c == '\\') c = '\'';
+        std::snprintf(
+            buf, sizeof(buf),
+            "    {\"name\": \"%s\", \"blend\": %d, \"opacity\": %.4g, "
+            "\"color\": [%.4g, %.4g, %.4g], \"source\": %d, \"lo\": %.4g, "
+            "\"hi\": %.4g, \"invert\": %s, \"scale\": %.4g, \"seed\": %u, "
+            "\"breakup\": %.4g, \"breakupScale\": %.4g, \"mortar\": %.4g}%s",
+            nm.c_str(), l.blend, l.opacity, l.genColor[0], l.genColor[1],
+            l.genColor[2], (int)l.gen.source, l.gen.rangeLo, l.gen.rangeHi,
+            l.gen.invert ? "true" : "false", l.gen.scale, l.gen.seed,
+            l.gen.breakupAmount, l.gen.breakupScale, l.gen.mortar,
+            i + 1 < gens.size() ? "," : "");
+        out << buf << "\n";
+    }
+    out << "  ]\n}\n";
+    matEdPresetError_.clear();
+    statusMessage_ = "Saved material preset " + name;
+}
+
+bool App::matEdApplyPreset(const std::string& fileName) {
+    const std::filesystem::path full = std::filesystem::path(project_.dir) /
+                                       "material-presets" / fileName;
+    std::ifstream in(full);
+    if (!in) return false;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    json::Value root;
+    if (!json::parse(ss.str(), root)) return false;
+    const json::Value* arr = root.find("layers");
+    if (!arr || arr->type != json::Value::Type::Array) return false;
+    int added = 0;
+    for (const json::Value& e : arr->arr) {
+        MatEdLayer l;
+        l.genOn = true;
+        l.name = e.find("name") ? e.find("name")->stringOr("Smart mask")
+                                : "Smart mask";
+        l.blend = e.find("blend") ? (int)e.find("blend")->numberOr(0) : 0;
+        l.opacity =
+            e.find("opacity") ? (float)e.find("opacity")->numberOr(1.0) : 1.0f;
+        if (const json::Value* c = e.find("color");
+            c && c->type == json::Value::Type::Array && c->arr.size() >= 3)
+            for (int k = 0; k < 3; ++k)
+                l.genColor[k] = (float)c->arr[k].numberOr(0.2);
+        auto num = [&](const char* key, float def) {
+            const json::Value* v = e.find(key);
+            return v ? (float)v->numberOr(def) : def;
+        };
+        int srcIdx = (int)num("source", 0.0f);
+        if (srcIdx < 0 || srcIdx > (int)matbake::MaskParams::Source::Bricks)
+            srcIdx = 0;
+        l.gen.source = (matbake::MaskParams::Source)srcIdx;
+        l.gen.rangeLo = num("lo", 0.35f);
+        l.gen.rangeHi = num("hi", 0.75f);
+        l.gen.invert = e.find("invert") && e.find("invert")->boolOr(false);
+        l.gen.scale = num("scale", 4.0f);
+        l.gen.seed = (uint32_t)num("seed", 1.0f);
+        l.gen.breakupAmount = num("breakup", 0.0f);
+        l.gen.breakupScale = num("breakupScale", 6.0f);
+        l.gen.mortar = num("mortar", 0.06f);
+        l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
+        matEdRegenLayer(l);
+        const int at = (int)matEdLayers_.size();
+        matEdLayers_.push_back(std::move(l));
+        matEdActiveLayer_ = at;
+        matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+        ++added;
+    }
+    if (!added) return false;
+    if (matBakeMaps_.empty()) matBakeRunOnce_ = true;  // masks fill once baked
+    matEdComposite();
+    matEdSavePaintTarget();
+    statusMessage_ = "Applied preset: " + std::to_string(added) + " mask layer(s)";
+    return true;
+}
+
+// UV validator: the "why does my texture look wrong" list. Runs matbake's
+// validateUv over the preview mesh on demand; findings are clickable and
+// highlight the offending triangle(s) red in the UV panel and on the mesh.
+void App::matEdUvValidateSection(const std::string& entryName) {
+    ImGui::SeparatorText("UV check");
+    if (ImGui::Button("Validate UVs")) {
+        matEdUvIssues_.clear();
+        matEdUvIssueTris_.clear();
+        matEdUvIssueSel_ = -1;
+        if (matBakeBuildMeshes(entryName)) {
+            matEdUvIssues_ =
+                matbake::validateUv(matBakeMeshLow_, 64 << matBakeSizeIdx_);
+            matEdUvIssuesKey_ = matBakeMeshKey_;
+            if (!matEdUvIssues_.empty()) matEdUvView_ = true;
+        } else {
+            matEdUvIssuesKey_.clear();
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Checks the preview mesh's UVs: overlapping islands (painting\n"
+            "one paints the other), UVs outside 0-1, mirrored (flipped) and\n"
+            "degenerate triangles, extreme texel-density outliers. Click a\n"
+            "finding to highlight it in the UV panel and on the mesh.");
+
+    // --- automatic unwrap: .obj rewrites in place, animated models get a
+    // "<model>.uvs" sidecar folded in by animimport (sources can't be
+    // rewritten - FBX has no writer)
+    const bool unwrapAnimated =
+        matEdShape_ == 4 && isAnimatedModelPath(matEdModel_);
+    const bool unwrappable = matEdShape_ == 4 && !matEdModel_.empty();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!unwrappable);
+    if (ImGui::Button("Unwrap UVs...")) openUnwrapPopup_ = true;
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            unwrappable
+                ? "Automatic smart-project unwrap of the preview model:\n"
+                  "faces cluster into charts by normal, each chart projects\n"
+                  "flat, everything packs into 0..1 at uniform texel\n"
+                  "density. A static .obj is rewritten in place; an\n"
+                  "animated model gets a <model>.uvs sidecar applied at\n"
+                  "every load/bake (each part unwraps into its own square)."
+                : "Pick a model as the preview mesh first - primitives\n"
+                  "have generated UVs.");
+    if (openUnwrapPopup_) {
+        ImGui::OpenPopup("Unwrap UVs");
+        openUnwrapPopup_ = false;
+    }
+    if (ImGui::BeginPopupModal("Unwrap UVs", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextDisabled("%s", matEdModel_.c_str());
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        ImGui::SliderFloat("Chart angle", &unwrapAngle_, 15.0f, 89.0f,
+                           "%.0f deg");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Faces within this angle of a chart's seed grow into one\n"
+                "island. Low = many small flat charts (hard surface),\n"
+                "high = few big charts with more distortion (organic).");
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        ImGui::SliderInt("Margin", &unwrapMargin_, 1, 8, "%d px");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Spacing between charts, in texels at the bake\n"
+                              "resolution - keeps bilinear filtering from\n"
+                              "bleeding across islands.");
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                           unwrapAnimated
+                               ? "Writes a <model>.uvs sidecar that overrides\n"
+                                 "the model's UVs everywhere (previews, bakes,\n"
+                                 "the shipped .tskl). Delete the sidecar to\n"
+                                 "get the original mapping back."
+                               : "Replaces the model's UVs in the .obj file.\n"
+                                 "An already-painted texture will no longer line\n"
+                                 "up - unwrap BEFORE texturing (or revert with git).");
+        if (ImGui::Button("Unwrap", ImVec2(scaled(120), 0))) {
+            uvunwrap::Params up;
+            up.angleDeg = unwrapAngle_;
+            up.marginPx = unwrapMargin_;
+            up.marginRefSize = 64 << matBakeSizeIdx_;
+            uvunwrap::Stats st;
+            std::string err;
+            bool ok = false;
+            if (unwrapAnimated) {
+                // per part into its own 0..1 square (each part carries its
+                // own texture); the sidecar must hold the ORIGINAL mapping's
+                // replacement, so bake the model fresh without it
+                const std::string abs =
+                    (std::filesystem::path(project_.dir) / matEdModel_)
+                        .string();
+                std::error_code fec;
+                std::filesystem::remove(abs + ".uvs", fec);
+                glbparser::Baked baked;
+                if (animimport::bake(abs, 12.0f, baked, err)) {
+                    std::vector<std::vector<float>> partUvs(
+                        baked.parts.size());
+                    int charts = 0;
+                    ok = !baked.parts.empty();
+                    for (size_t i = 0; i < baked.parts.size() && ok; ++i) {
+                        const glbparser::Part& part = baked.parts[i];
+                        std::vector<float> corners(
+                            part.positions.begin(),
+                            part.positions.begin() +
+                                (size_t)part.vertexCount * 3);
+                        uvunwrap::Stats ps;
+                        ok = uvunwrap::unwrapTriangles(corners, partUvs[i],
+                                                       up, err, &ps);
+                        charts += ps.charts;
+                    }
+                    if (ok)
+                        ok = animimport::writeUvSidecar(abs, baked, partUvs,
+                                                        err);
+                    st.charts = charts;
+                    st.faces = baked.totalVertexCount() / 3;
+                    st.coverage = 0.0f;  // per-part squares - not comparable
+                }
+            } else {
+                ok = uvunwrap::unwrapObjFile(
+                    (std::filesystem::path(project_.dir) / matEdModel_)
+                        .string(),
+                    up, err, &st);
+            }
+            if (ok) {
+                // every consumer caches the parsed model - drop them all
+                viewport_.invalidateAssets();
+                modelInfoCache_.clear();
+                matBakeMeshKey_.clear();
+                matEdStatsKey_.clear();
+                matEdUvIssueTris_.clear();
+                matEdUvIssueSel_ = -1;
+                // validate the fresh mapping right away and show it
+                matEdUvIssues_.clear();
+                matEdUvIssuesKey_.clear();
+                if (matBakeBuildMeshes(entryName)) {
+                    matEdUvIssues_ = matbake::validateUv(
+                        matBakeMeshLow_, 64 << matBakeSizeIdx_);
+                    matEdUvIssuesKey_ = matBakeMeshKey_;
+                }
+                matEdUvView_ = true;
+                char msg[160];
+                if (unwrapAnimated)
+                    std::snprintf(msg, sizeof(msg),
+                                  "Unwrapped %s: %d charts (sidecar written)",
+                                  matEdModel_.c_str(), st.charts);
+                else
+                    std::snprintf(msg, sizeof(msg),
+                                  "Unwrapped %s: %d charts, %.0f%% coverage",
+                                  matEdModel_.c_str(), st.charts,
+                                  st.coverage * 100.0f);
+                statusMessage_ = msg;
+                ImGui::CloseCurrentPopup();
+            } else {
+                statusMessage_ = "Unwrap failed: " + err;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (matEdUvIssuesKey_.empty()) return;
+    if (matEdUvIssuesKey_ != matBakeMeshKey_) {
+        // different mesh/entry since the run - results no longer apply
+        matEdUvIssues_.clear();
+        matEdUvIssueTris_.clear();
+        matEdUvIssuesKey_.clear();
+        matEdUvIssueSel_ = -1;
+        return;
+    }
+    if (matEdUvIssues_.empty()) {
+        ImGui::TextDisabled("No UV issues found.");
+        return;
+    }
+    int counts[6] = {0, 0, 0, 0, 0, 0};
+    for (const matbake::UvIssue& i : matEdUvIssues_) counts[(int)i.kind]++;
+    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                       "%d finding(s): %d overlap, %d out-of-range, %d "
+                       "flipped, %d degenerate, %d density",
+                       (int)matEdUvIssues_.size(), counts[0], counts[1],
+                       counts[2], counts[3], counts[4] + counts[5]);
+    const float listH =
+        std::min(scaled(150.0f), (matEdUvIssues_.size() + 1) *
+                                     ImGui::GetTextLineHeightWithSpacing());
+    ImGui::BeginChild("##uv_issues", ImVec2(-FLT_MIN, listH),
+                      ImGuiChildFlags_Borders);
+    char label[128];
+    for (int n = 0; n < (int)matEdUvIssues_.size(); ++n) {
+        const matbake::UvIssue& i = matEdUvIssues_[n];
+        switch (i.kind) {
+            case matbake::UvIssue::Kind::Overlap:
+                std::snprintf(label, sizeof(label),
+                              "Overlap: tri %d and tri %d share %d texel(s)",
+                              i.tri, i.otherTri, (int)i.value);
+                break;
+            case matbake::UvIssue::Kind::OutOfRange:
+                std::snprintf(label, sizeof(label),
+                              "Out of 0-1: tri %d (wraps on the PS2)", i.tri);
+                break;
+            case matbake::UvIssue::Kind::Flipped:
+                std::snprintf(label, sizeof(label),
+                              "Flipped: tri %d is mirrored in UV", i.tri);
+                break;
+            case matbake::UvIssue::Kind::Degenerate:
+                std::snprintf(label, sizeof(label),
+                              "Degenerate: tri %d has no UV area", i.tri);
+                break;
+            case matbake::UvIssue::Kind::DensityLow:
+                std::snprintf(label, sizeof(label),
+                              "Low density: tri %d at %.2fx of average",
+                              i.tri, i.value);
+                break;
+            default:
+                std::snprintf(label, sizeof(label),
+                              "High density: tri %d at %.1fx of average",
+                              i.tri, i.value);
+                break;
+        }
+        ImGui::PushID(n);
+        if (ImGui::Selectable(label, matEdUvIssueSel_ == n)) {
+            matEdUvIssueSel_ = n;
+            matEdUvIssueTris_.clear();
+            matEdUvIssueTris_.push_back(i.tri);
+            if (i.otherTri >= 0) matEdUvIssueTris_.push_back(i.otherTri);
+            matEdUvView_ = true;  // the highlight lives there
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    if (!matEdUvIssueTris_.empty()) {
+        if (ImGui::SmallButton("Clear highlight")) {
+            matEdUvIssueTris_.clear();
+            matEdUvIssueSel_ = -1;
+        }
+    }
+}
+
+void App::matEdUnloadPaintTarget() {
+    if (matEdPaintTexRel_.empty() && matEdPaintW_ < 1) return;
+    matEdPaintTexRel_.clear();
+    matEdPaintPixels_.clear();
+    matEdLayers_.clear();
+    matEdActiveLayer_ = 0;
+    matEdPaintW_ = matEdPaintH_ = 0;
+    matEdStroke_ = false;
+    matEdHaveLastUV_ = false;
+    matEdGhostShown_ = false;
+}
+
+bool App::matEdEnsurePaintTexture() {
+    if (matEdSel_ < 0 || matEdSel_ >= (int)matEdMats_.size()) return false;
+    MatEdEntry& e = matEdMats_[matEdSel_];
+    const std::filesystem::path mtlDirAbs =
+        (std::filesystem::path(project_.dir) / matEdPath_).parent_path();
+    if (e.texture.empty()) {
+        // fresh 256^2 white canvas named after the entry
+        const std::string base = sanitizeAssetName(e.name + "-tex");
+        std::string fileName;
+        std::error_code ec;
+        for (int n = 1;; ++n) {
+            fileName = base + (n == 1 ? "" : "-" + std::to_string(n)) + ".png";
+            if (!std::filesystem::exists(mtlDirAbs / fileName, ec)) break;
+        }
+        std::vector<unsigned char> px((size_t)256 * 256 * 4, 255);
+        if (!stbi_write_png((mtlDirAbs / fileName).string().c_str(), 256, 256,
+                            4, px.data(), 256 * 4)) {
+            statusMessage_ = "Cannot create " + fileName;
+            return false;
+        }
+        matEdPushUndo(MatEdUndoStep::Kind::Props);  // texture assignment
+        e.texture = fileName;
+        saveMaterialFile();
+        statusMessage_ = "Created " + fileName + " for entry " + e.name;
+    }
+    const std::string texRel =
+        (std::filesystem::path(matEdPath_).parent_path() / e.texture)
+            .generic_string();
+    if (matEdPaintTexRel_ != texRel) {
+        if (!matEdLoadPaintTarget(texRel)) {
+            statusMessage_ = "Cannot read " + texRel;
+            return false;
+        }
+        matEdComposite();
+    }
+    return matEdPaintW_ > 0;
+}
+
+// The 2D UV-layout panel: the paintable triangles' UV wireframe over the
+// entry's live texture, zoom/pan, and the hover sync - a face hovered in 3D
+// lights up here, a triangle hovered here is outlined on the mesh (and all
+// its UV-overlap twins with it). Validator issues outline red.
+void App::drawMatEdUvPanel(const std::string& entryName,
+                           const std::string& texRel, const ImVec2& size) {
+    ImGui::BeginChild("##mat_uv", size, ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_NoScrollbar |
+                          ImGuiWindowFlags_NoScrollWithMouse);
+    if (!matBakeBuildMeshes(entryName)) {
+        ImGui::TextDisabled("%s", matBakeMeshError_.c_str());
+        matEdUvHoverTri_ = -1;
+        ImGui::EndChild();
+        return;
+    }
+    const matbake::MeshInput& mesh = matBakeMeshLow_;
+    ImGuiIO& io = ImGui::GetIO();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (avail.x < 8.0f || avail.y < 8.0f) {
+        ImGui::EndChild();
+        return;
+    }
+    ImGui::InvisibleButton("##uv_in", avail,
+                           ImGuiButtonFlags_MouseButtonLeft |
+                               ImGuiButtonFlags_MouseButtonRight);
+    const bool hovered = ImGui::IsItemHovered();
+
+    // uv (0..1) -> screen: a centered square scaled by zoom, plus the pan
+    const float base = (avail.x < avail.y ? avail.x : avail.y) * 0.92f;
+    float s = base * matEdUvZoom_;
+    auto origin = [&]() {
+        return ImVec2(p0.x + (avail.x - s) * 0.5f + matEdUvPan_[0],
+                      p0.y + (avail.y - s) * 0.5f + matEdUvPan_[1]);
+    };
+    if (hovered && io.MouseWheel != 0.0f) {
+        // zoom around the cursor: the uv under it stays put
+        const ImVec2 o = origin();
+        const float cu = (io.MousePos.x - o.x) / s;
+        const float cv = (io.MousePos.y - o.y) / s;
+        matEdUvZoom_ *= std::pow(1.15f, io.MouseWheel);
+        matEdUvZoom_ = matEdUvZoom_ < 0.25f ? 0.25f
+                       : matEdUvZoom_ > 64.0f ? 64.0f
+                                              : matEdUvZoom_;
+        s = base * matEdUvZoom_;
+        matEdUvPan_[0] = io.MousePos.x - p0.x - (avail.x - s) * 0.5f - cu * s;
+        matEdUvPan_[1] = io.MousePos.y - p0.y - (avail.y - s) * 0.5f - cv * s;
+    }
+    if (ImGui::IsItemActive() &&
+        (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+        matEdUvPan_[0] += io.MouseDelta.x;
+        matEdUvPan_[1] += io.MouseDelta.y;
+    }
+    const ImVec2 o = origin();
+    auto toScreen = [&](float u, float v) {
+        return ImVec2(o.x + u * s, o.y + v * s);
+    };
+
+    dl->PushClipRect(p0, ImVec2(p0.x + avail.x, p0.y + avail.y), true);
+    dl->AddRectFilled(toScreen(0, 0), toScreen(1, 1), IM_COL32(24, 25, 30, 255));
+    if (!texRel.empty()) {
+        if (const uint32_t tex = viewport_.sharedTexture(texRel))
+            dl->AddImage((ImTextureID)(intptr_t)tex, toScreen(0, 0),
+                         toScreen(1, 1), ImVec2(0, 0), ImVec2(1, 1),
+                         IM_COL32(255, 255, 255, 150));
+    }
+    dl->AddRect(toScreen(0, 0), toScreen(1, 1), IM_COL32(126, 130, 146, 255));
+
+    // hover uv of the panel cursor
+    const float mu = (io.MousePos.x - o.x) / s;
+    const float mv = (io.MousePos.y - o.y) / s;
+    auto contains = [](float ax, float ay, float bx, float by, float cx,
+                       float cy, float px, float py) {
+        const float d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+        const float d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+        const float d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+        const bool neg = d1 < 0 || d2 < 0 || d3 < 0;
+        const bool pos = d1 > 0 || d2 > 0 || d3 > 0;
+        return !(neg && pos);
+    };
+
+    const int tris = mesh.triCount();
+    int hoverTri = -1;
+    const ImU32 wireCol = IM_COL32(255, 196, 96, 150);
+    const ImU32 hiliteFill = IM_COL32(255, 196, 96, 90);
+    const ImU32 hoverFill = IM_COL32(96, 190, 255, 90);
+    // other entries' islands draw dimmed for context - a multi-part model
+    // (spider body/legs/jaw...) shows its WHOLE layout, with the selected
+    // entry highlighted (switch entries in the combo up top to edit them)
+    if (!mesh.paintTri.empty()) {
+        const ImU32 dimCol = IM_COL32(140, 144, 158, 60);
+        for (int t = 0; t < tris; ++t) {
+            if (mesh.paintTri[t]) continue;
+            const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
+            const float* b = &mesh.verts[(size_t)(t * 3 + 1) * 8];
+            const float* c = &mesh.verts[(size_t)(t * 3 + 2) * 8];
+            dl->AddTriangle(toScreen(a[6], a[7]), toScreen(b[6], b[7]),
+                            toScreen(c[6], c[7]), dimCol);
+        }
+    }
+    for (int t = 0; t < tris; ++t) {
+        if (!mesh.paintTri.empty() && !mesh.paintTri[t]) continue;
+        const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
+        const float* b = &mesh.verts[(size_t)(t * 3 + 1) * 8];
+        const float* c = &mesh.verts[(size_t)(t * 3 + 2) * 8];
+        const ImVec2 pa = toScreen(a[6], a[7]);
+        const ImVec2 pb = toScreen(b[6], b[7]);
+        const ImVec2 pc = toScreen(c[6], c[7]);
+        // the surface point hovered in 3D lights its UV home(s) up
+        if (matEd3dHoverValid_ &&
+            contains(a[6], a[7], b[6], b[7], c[6], c[7], matEd3dHoverUV_[0],
+                     matEd3dHoverUV_[1]))
+            dl->AddTriangleFilled(pa, pb, pc, hiliteFill);
+        if (hovered && hoverTri < 0 &&
+            contains(a[6], a[7], b[6], b[7], c[6], c[7], mu, mv)) {
+            hoverTri = t;
+            dl->AddTriangleFilled(pa, pb, pc, hoverFill);
+        }
+        dl->AddTriangle(pa, pb, pc, wireCol);
+    }
+    // validator issues on top, red
+    for (int t : matEdUvIssueTris_) {
+        if (t < 0 || t >= tris) continue;
+        const float* a = &mesh.verts[(size_t)(t * 3 + 0) * 8];
+        const float* b = &mesh.verts[(size_t)(t * 3 + 1) * 8];
+        const float* c = &mesh.verts[(size_t)(t * 3 + 2) * 8];
+        dl->AddTriangle(toScreen(a[6], a[7]), toScreen(b[6], b[7]),
+                        toScreen(c[6], c[7]), IM_COL32(255, 80, 70, 230),
+                        2.0f);
+    }
+    // the 3D cursor's exact texel
+    if (matEd3dHoverValid_) {
+        const ImVec2 m = toScreen(matEd3dHoverUV_[0], matEd3dHoverUV_[1]);
+        dl->AddCircle(m, 4.0f, IM_COL32(255, 235, 170, 255), 0, 1.5f);
+    }
+    dl->PopClipRect();
+    matEdUvHoverTri_ = hovered ? hoverTri : -1;
+    ImGui::EndChild();
+}
+
 void App::drawMaterialEditorWindow() {
     if (!showMaterialEditor_ || !hasProject_) {
         matEdFocused_ = false;
+        if (matBaker_.running()) matBaker_.cancel();
+        matBakeApplyWhenDone_ = false;
         return;
     }
 
@@ -10859,12 +14272,20 @@ void App::drawMaterialEditorWindow() {
     bool committed = false;
 
     // --- middle: the selected entry's properties ------------------------------
-    // The preview is the working surface (paint lives there): give it the
-    // larger share of the window, the property column keeps a workable floor.
-    float previewW = ImGui::GetContentRegionAvail().x * 0.48f;
-    if (previewW < scaled(260.0f)) previewW = scaled(260.0f);
+    // The split between the property column and the preview is a draggable
+    // splitter (matEdSplit_ = the preview's share, persisted in editor.ini);
+    // both sides keep a workable floor.
+    const float totalW = ImGui::GetContentRegionAvail().x;
+    if (matEdSplit_ < 0.25f) matEdSplit_ = 0.25f;
+    if (matEdSplit_ > 0.75f) matEdSplit_ = 0.75f;
+    float previewW = totalW * matEdSplit_;
+    const float minPreview = scaled(240.0f);
+    const float minProps = scaled(260.0f);
+    if (previewW < minPreview) previewW = minPreview;
+    if (totalW - previewW < minProps) previewW = totalW - minProps;
+    if (previewW < scaled(80.0f)) previewW = scaled(80.0f);  // tiny window
     ImGui::BeginChild("##mat_edit",
-                      ImVec2(ImGui::GetContentRegionAvail().x - previewW - scaled(8.0f), 0));
+                      ImVec2(totalW - previewW - scaled(9.0f), 0));
     ImGui::TextDisabled("%s", matEdPath_.c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Duplicate")) duplicateMaterialAsset();
@@ -10898,6 +14319,7 @@ void App::drawMaterialEditorWindow() {
                 ImGui::PushID(i);
                 std::string label = matEdMats_[i].name;
                 if (i == 0) label += "  [primitives use this]";
+                if (matEdMats_[i].texture.empty()) label += "  (no texture)";
                 if (ImGui::Selectable(label.c_str(), i == matEdSel_)) matEdSel_ = i;
                 ImGui::PopID();
             }
@@ -10905,7 +14327,7 @@ void App::drawMaterialEditorWindow() {
         }
         ImGui::SameLine();
     }
-    if (ImGui::SmallButton("+ Add")) {
+    if (ImGui::SmallButton("+ Add entry")) {
         MatEdEntry e;
         std::string base = "mat";
         for (int n = 1;; ++n) {
@@ -11092,7 +14514,14 @@ void App::drawMaterialEditorWindow() {
                         "%dx%d - not power-of-two; the PS2 GS needs\n"
                         "pow2 texture sizes (e.g. 128x128, 256x256).", tw, th);
                 else
-                    ImGui::TextDisabled("%dx%d", tw, th);
+                    ImGui::TextDisabled("%s", matEdBudgetLine(tw, th).c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "What this texture costs after the build's texture\n"
+                        "bake, at the quality this material resolves to\n"
+                        "(per-asset override, else the project preference).\n"
+                        "The GS adds ~8 KB of allocation overhead per\n"
+                        "resident texture on top.");
             }
         }
 
@@ -11201,12 +14630,47 @@ void App::drawMaterialEditorWindow() {
         }
     }
 
+    // --- Bake maps (docs/material-baking.md) ---------------------------------
+    matEdBakeSection(e.name,
+                     e.texture.empty()
+                         ? ""
+                         : (std::filesystem::path(matEdPath_).parent_path() /
+                            e.texture)
+                               .generic_string());
+
+    // --- UV validator ---------------------------------------------------------
+    matEdUvValidateSection(e.name);
+
     ImGui::Spacing();
     ImGui::TextDisabled("Saved to the file on every change. The object's own\n"
                         "Color multiplies on top per object.");
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    // --- splitter: drag to trade property-column width for preview width -----
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::InvisibleButton("##mat_split", ImVec2(scaled(9.0f), -1.0f));
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    if (ImGui::IsItemActive() && totalW > minPreview + minProps) {
+        previewW -= ImGui::GetIO().MouseDelta.x;
+        if (previewW < minPreview) previewW = minPreview;
+        if (previewW > totalW - minProps) previewW = totalW - minProps;
+        matEdSplit_ = previewW / totalW;
+        if (matEdSplit_ < 0.25f) matEdSplit_ = 0.25f;
+        if (matEdSplit_ > 0.75f) matEdSplit_ = 0.75f;
+    }
+    if (ImGui::IsItemDeactivated()) saveGlobalConfig();  // persist the split
+    {
+        const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+        const float cx = (mn.x + mx.x) * 0.5f;
+        ImGui::GetWindowDrawList()->AddLine(
+            ImVec2(cx, mn.y + scaled(4.0f)), ImVec2(cx, mx.y - scaled(4.0f)),
+            ImGui::GetColorU32(ImGui::IsItemActive()   ? ImGuiCol_SeparatorActive
+                               : ImGui::IsItemHovered() ? ImGuiCol_SeparatorHovered
+                                                        : ImGuiCol_Separator),
+            scaled(2.0f));
+    }
+    ImGui::SameLine(0.0f, 0.0f);
 
     // --- right: live preview + paint tool ---------------------------------------
     ImGui::BeginChild("##mat_preview", ImVec2(previewW, 0));  // previewW already scaled
@@ -11225,7 +14689,8 @@ void App::drawMaterialEditorWindow() {
             for (int i = 0; i < 4; ++i)
                 if (ImGui::Selectable(shapes[i], matEdShape_ == i)) matEdShape_ = i;
             const std::vector<std::string> models = listAssetFiles("models", ".obj");
-            if (!models.empty()) ImGui::Separator();
+            const std::vector<std::string> anim = listAnimatedModelFiles();
+            if (!models.empty() || !anim.empty()) ImGui::Separator();
             for (const std::string& m : models) {
                 const std::string rel = "res/models/" + m;
                 if (ImGui::Selectable(m.c_str(),
@@ -11234,16 +14699,84 @@ void App::drawMaterialEditorWindow() {
                     matEdModel_ = rel;
                 }
             }
+            for (const std::string& m : anim) {
+                const std::string rel = "res/models/" + m;
+                if (ImGui::Selectable((m + " (animated)").c_str(),
+                                      matEdShape_ == 4 && matEdModel_ == rel)) {
+                    matEdShape_ = 4;
+                    matEdModel_ = rel;
+                }
+            }
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Preview mesh. Pick one of your models to see the\n"
-                              "material (and paint) on the real thing - this file\n"
-                              "acts as the model's material override, entries are\n"
-                              "matched to the model's usemtl names.");
+            ImGui::SetTooltip("Preview mesh. Pick one of your models (static or\n"
+                              "animated) to see the material (and paint) on the real\n"
+                              "thing - this file acts as the model's material\n"
+                              "override, entries matched to the model's material names.");
         ImGui::SameLine();
         ImGui::Checkbox("Spin", &matEdSpin_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Turntable. Grabbing the preview unchecks it -\n"
+                              "your framing stays put; re-tick to resume.");
         if (matEdSpin_ && !matEdPaint_) matEdAngle_ += io.DeltaTime * 24.0f;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(100.0f));
+        if (ImGui::Combo("##mat_display", &matEdDisplayMode_,
+                         "Solid\0Wireframe\0UV checker\0PS2 CLUT\0"))
+            matEdUploadComposite();  // apply / drop the CLUT quantization
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Preview shading: the material as-is, a dark wireframe\n"
+                "overlay, a generated UV checker in place of every texture\n"
+                "(stretch and texel density read at a glance), or the PS2\n"
+                "CLUT look - the texture palette-quantized exactly like the\n"
+                "shipped bake, with a dithering choice and the live memory\n"
+                "budget.");
+        ImGui::SameLine();
+        ImGui::Checkbox("UV", &matEdUvView_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "UV layout panel under the preview: the entry's faces over\n"
+                "its texture. Wheel zooms, drag pans. Hover a face in 3D to\n"
+                "light up its texture region; hover a triangle in the panel\n"
+                "to outline it on the mesh.");
+
+        // preview-mesh stats (import sanity: sizes, UV presence)
+        if (matBakeBuildMeshes(sel.name)) {
+            if (matEdStatsKey_ != matBakeMeshKey_) {
+                matEdStatsKey_ = matBakeMeshKey_;
+                const matbake::MeshInput& mm = matBakeMeshLow_;
+                int painted = 0;
+                for (char c : mm.paintTri) painted += c ? 1 : 0;
+                if (mm.paintTri.empty()) painted = mm.triCount();
+                bool hasUv = false;
+                for (size_t i = 0; i + 7 < mm.verts.size() && !hasUv; i += 8)
+                    hasUv = mm.verts[i + 6] != 0.0f || mm.verts[i + 7] != 0.0f;
+                int verts = 0;
+                for (int pi : mm.posIdx) verts = std::max(verts, pi + 1);
+                char sb[128];
+                if (verts > 0)
+                    std::snprintf(sb, sizeof(sb),
+                                  "%d tris (%d on this entry) - %d verts",
+                                  mm.triCount(), painted, verts);
+                else
+                    std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry)",
+                                  mm.triCount(), painted);
+                matEdStatsLine_ = sb;
+                matEdStatsWarn_ = !hasUv || painted == 0;
+                if (!hasUv)
+                    matEdStatsLine_ += " - no UVs (paint/bake need them)";
+                else if (painted == 0)
+                    matEdStatsLine_ +=
+                        " - no faces use this entry (check usemtl names)";
+            }
+            if (matEdStatsWarn_)
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
+                                   matEdStatsLine_.c_str());
+            else
+                ImGui::TextDisabled("%s", matEdStatsLine_.c_str());
+        }
 
         // Staged values of the selected entry (live during slider drags)
         float kd[3];
@@ -11263,14 +14796,78 @@ void App::drawMaterialEditorWindow() {
                 : (std::filesystem::path(matEdPath_).parent_path() / sel.refl)
                       .generic_string();
 
+        // progressive map bake: restart on changed inputs, poll snapshots,
+        // finish a pending "Bake & add layer"
+        matBakeTick(sel.name, texRel);
+
+        // --- "PS2 CLUT" display mode -----------------------------------------
+        if (matEdDisplayMode_ == 3) {
+            if (!texRel.empty() && matEdPaintTexRel_ != texRel) {
+                // the quantization rides the paint target's GL upload
+                if (matEdLoadPaintTarget(texRel)) matEdComposite();
+            }
+            if (texRel.empty()) {
+                ImGui::TextDisabled("PS2 CLUT: plain colors have no texture\n"
+                                    "to quantize - assign one to see it.");
+            } else {
+                const char* palModes[] = {"Project policy", "16 colors",
+                                          "256 colors", "Full color"};
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                bool changed = ImGui::Combo("##ps2_pal", &matEdPs2Mode_,
+                                            palModes, 4);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Palette budget. \"Project policy\" resolves what\n"
+                        "texbake will actually ship for this material\n"
+                        "(its per-asset override, else the project's\n"
+                        "texture quantization preference).");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(130.0f));
+                changed |= ImGui::Combo("##ps2_dither", &matEdPs2Dither_,
+                                        "Floyd-Steinberg\0Ordered (Bayer)\0"
+                                        "No dithering\0");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Floyd-Steinberg is what the shipped bake uses;\n"
+                        "Ordered trades noise for a stable pattern; None\n"
+                        "shows the raw banding.");
+                if (changed) matEdUploadComposite();
+                if (matEdPaintW_ > 0)
+                    ImGui::TextDisabled(
+                        "%s", matEdBudgetLine(matEdPaintW_, matEdPaintH_).c_str());
+                // palette swatch strip (what survived the median cut)
+                if (!matEdPs2Palette_.empty()) {
+                    const int n = (int)(matEdPs2Palette_.size() / 4);
+                    const float cell = scaled(n > 64 ? 7.0f : 12.0f);
+                    const int perRow = n > 64 ? 32 : 16;
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    for (int i = 0; i < n; ++i) {
+                        const unsigned char* p = &matEdPs2Palette_[(size_t)i * 4];
+                        const ImVec2 a(at.x + (i % perRow) * cell,
+                                       at.y + (i / perRow) * cell);
+                        dl->AddRectFilled(
+                            a, ImVec2(a.x + cell - 1.0f, a.y + cell - 1.0f),
+                            IM_COL32(p[0], p[1], p[2], 255));
+                    }
+                    ImGui::Dummy(ImVec2(perRow * cell,
+                                        ((n + perRow - 1) / perRow) * cell));
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The %d-entry palette the median cut\n"
+                                          "settled on.", n);
+                }
+            }
+        }
+
         // --- paint tool ------------------------------------------------------
         if (ImGui::Checkbox("Paint", &matEdPaint_) && matEdPaint_)
-            matEdPaintTexRel_.clear();  // (re)load the target below
+            matEdPaintTexRel_.clear();  // force the target check below
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Paint on the preview mesh, straight into this\n"
                               "entry's texture (through the UVs). The PNG is\n"
                               "saved on every stroke - what you paint is what\n"
-                              "the PS2 loads.");
+                              "the PS2 loads. The layer stack below is always\n"
+                              "visible; Paint only arms the brush.");
         if (matEdPaint_) {
             ImGui::SameLine();
             ImGui::Checkbox("Live dab", &matEdGhostOn_);
@@ -11279,22 +14876,30 @@ void App::drawMaterialEditorWindow() {
                                   "clicking - one uncommitted dab drawn on the\n"
                                   "preview each frame.");
         }
-        bool canPaint = false;
+        // The layer stack lives on the entry's texture and is shown whenever
+        // one is loaded - Paint only gates the brush (the "babranie").
+        bool haveTarget = false;
+        if (!texRel.empty()) {
+            if (matEdPaintTexRel_ != texRel && !matEdLoadPaintTarget(texRel))
+                statusMessage_ = "Cannot read " + texRel;
+            haveTarget = matEdPaintW_ > 0;
+        }
+        bool canPaint = matEdPaint_ && haveTarget;
         if (matEdPaint_) {
-            if (texRel.empty()) {
+            if (texRel.empty())
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                    "No texture on this entry.\n"
                                    "Texture > New paintable texture...");
-            } else {
-                if (matEdPaintTexRel_ != texRel && !matEdLoadPaintTarget(texRel))
-                    statusMessage_ = "Cannot read " + texRel;
-                canPaint = matEdPaintW_ > 0;
-                if (!canPaint)
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                       "Texture file unreadable.");
+            else if (!haveTarget)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Texture file unreadable.");
+            if (canPaint && (matBakePreviewMode_ == 2 || matEdDisplayMode_ == 2)) {
+                ImGui::TextDisabled("Painting paused - the preview is not\n"
+                                    "showing the texture (map view/checker).");
+                canPaint = false;
             }
         }
-        if (matEdPaint_ && canPaint) {
+        if (canPaint) {
 
             ImGui::SetNextItemWidth(scaled(90.0f));
             ImGui::Combo("##brush_mode", &matEdBrushMode_,
@@ -11421,9 +15026,13 @@ void App::drawMaterialEditorWindow() {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
                                        "Brush unreadable.");
             }
+        }
 
-            // --- layers: painted strokes land on the active (selected) layer;
-            // the composite of the stack is the PNG that ships. Top-most first.
+        // --- layers: painted strokes land on the active (selected) layer;
+        // the composite of the stack is the PNG that ships. Top-most first.
+        // Shown whenever the entry's texture is loaded - stack edits, smart
+        // masks and presets work with the brush disarmed.
+        if (haveTarget) {
             ImGui::Spacing();
             ImGui::TextDisabled("Layers");
             ImGui::SameLine();
@@ -11477,6 +15086,89 @@ void App::drawMaterialEditorWindow() {
                 matEdSavePaintTarget();
             }
             ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+ Mask")) {
+                MatEdLayer l;
+                l.name = "Smart mask";
+                l.genOn = true;
+                l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
+                matEdRegenLayer(l);
+                const int at = matEdActiveLayer_ + 1;
+                matEdLayers_.insert(matEdLayers_.begin() + at, std::move(l));
+                matEdActiveLayer_ = at;
+                matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+                if (matBakeMaps_.empty()) matBakeRunOnce_ = true;
+                matEdComposite();
+                matEdSavePaintTarget();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Procedural mask layer driven by the baked maps: wear on\n"
+                    "edges, grime in cavities, dirt in occlusion, height\n"
+                    "streaks, world-space noise, bricks... Select it to tune\n"
+                    "the generator below; it re-generates live as the bake\n"
+                    "refines (hand strokes on it are overwritten).");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Presets")) ImGui::OpenPopup("##mat_presets");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reusable smart-mask stacks (material-presets/ in the\n"
+                    "project). Apply one to another asset and the masks\n"
+                    "regenerate from THAT model's own bake.");
+            if (ImGui::BeginPopup("##mat_presets")) {
+                const std::filesystem::path pdir =
+                    std::filesystem::path(project_.dir) / "material-presets";
+                std::error_code ec;
+                bool anyPreset = false;
+                if (std::filesystem::exists(pdir, ec))
+                    for (const auto& f :
+                         std::filesystem::directory_iterator(pdir, ec)) {
+                        if (!f.is_regular_file() ||
+                            f.path().extension() != ".matpreset")
+                            continue;
+                        anyPreset = true;
+                        const std::string stem = f.path().stem().string();
+                        if (ImGui::MenuItem(stem.c_str())) {
+                            if (!matEdApplyPreset(f.path().filename().string()))
+                                statusMessage_ =
+                                    "Cannot read preset " + stem;
+                        }
+                    }
+                if (!anyPreset) ImGui::TextDisabled("No presets yet.");
+                ImGui::Separator();
+                ImGui::BeginDisabled(!matEdAnyGenLayer());
+                if (ImGui::MenuItem("Save current masks...")) {
+                    openSavePresetPopup_ = true;
+                    matEdPresetError_.clear();
+                }
+                ImGui::EndDisabled();
+                ImGui::EndPopup();
+            }
+            if (openSavePresetPopup_) {
+                ImGui::OpenPopup("Save material preset");
+                openSavePresetPopup_ = false;
+            }
+            if (ImGui::BeginPopupModal("Save material preset", nullptr,
+                                       ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::SetNextItemWidth(scaled(220.0f));
+                ImGui::InputText("Name", matEdPresetName_,
+                                 sizeof(matEdPresetName_));
+                if (!matEdPresetError_.empty())
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                                       matEdPresetError_.c_str());
+                if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
+                    const std::string base = sanitizeAssetName(
+                        std::string(matEdPresetName_).empty()
+                            ? "preset"
+                            : matEdPresetName_);
+                    matEdSavePreset(base);
+                    if (matEdPresetError_.empty()) ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
+                    ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
 
             const char* blends[] = {"Normal", "Multiply", "Add", "Overlay"};
             for (int i = (int)matEdLayers_.size() - 1; i >= 0; --i) {
@@ -11488,9 +15180,12 @@ void App::drawMaterialEditorWindow() {
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show/hide layer");
                 ImGui::SameLine();
-                if (ImGui::Selectable(L.name.c_str(), matEdActiveLayer_ == i,
+                const std::string lname = L.genOn ? L.name + " *" : L.name;
+                if (ImGui::Selectable(lname.c_str(), matEdActiveLayer_ == i,
                                       0, ImVec2(scaled(96.0f), 0)))
                     matEdActiveLayer_ = i;
+                if (L.genOn && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Smart mask layer (generated)");
                 if (i > 0) {
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(scaled(86.0f));
@@ -11510,6 +15205,21 @@ void App::drawMaterialEditorWindow() {
                 }
                 ImGui::PopID();
             }
+
+            // generator controls of the active smart-mask layer
+            matEdGenControls();
+        } else if (texRel.empty() && !matEdMats_.empty()) {
+            // no texture on this entry yet: one click bootstraps the whole
+            // layers/masks/presets flow ("mud on the shirt" starts here)
+            ImGui::Spacing();
+            ImGui::TextDisabled("Layers");
+            if (ImGui::Button("Create texture for this entry"))
+                matEdEnsurePaintTexture();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Creates a blank 256x256 PNG named after the entry,\n"
+                    "assigns it and opens the layer stack - masks, presets\n"
+                    "and painting all need a texture to land on.");
         }
 
         // --- the preview image + mouse interaction ---------------------------
@@ -11527,10 +15237,28 @@ void App::drawMaterialEditorWindow() {
         desc.angleDeg = matEdAngle_;
         desc.pitchDeg = matEdPitch_;
         desc.zoom = matEdZoom_;
+        desc.displayMode = matEdDisplayMode_;
+        if (matBakePreviewMode_ == 2 && !matBakeMaps_.empty()) {
+            // raw-map view: the baked map replaces the material's look
+            desc.texRel = "@matbake-view";
+            desc.kd[0] = desc.kd[1] = desc.kd[2] = 1.0f;
+            desc.reflRel.clear();
+            desc.reflStrength = 0.0f;
+            desc.reflSky = false;
+        }
 
         const ImVec2 avail = ImGui::GetContentRegionAvail();
+        // UV view splits the space: 3D on top, the layout panel below
+        float uvH = 0.0f;
+        if (matEdUvView_) {
+            uvH = avail.y * 0.42f;
+            const float floor = scaled(140.0f);
+            if (uvH < floor) uvH = floor;
+            if (uvH > avail.y - scaled(80.0f)) uvH = avail.y - scaled(80.0f);
+            if (uvH < 0.0f) uvH = 0.0f;
+        }
         const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
-        const int ph = (int)avail.y < 1 ? 1 : (int)avail.y;
+        const int ph = (int)(avail.y - uvH) < 1 ? 1 : (int)(avail.y - uvH);
         const uint32_t tex = viewport_.renderMaterialPreview(pw, ph, desc);
         if (tex) {
             const ImVec2 imgPos = ImGui::GetCursorScreenPos();
@@ -11549,16 +15277,85 @@ void App::drawMaterialEditorWindow() {
                              : matEdZoom_ > 12.0f ? 12.0f
                                                   : matEdZoom_;
             }
-            // orbit: LMB (RMB while painting - LMB is the brush then)
+            // orbit: LMB when not painting (the brush owns LMB then), RMB
+            // always
             const bool orbiting =
-                active && ((matEdPaint_ && ImGui::IsMouseDown(1)) ||
+                active && (ImGui::IsMouseDown(1) ||
                            (!matEdPaint_ && ImGui::IsMouseDown(0)));
             if (orbiting) {
                 matEdAngle_ += io.MouseDelta.x * 0.5f;
                 matEdPitch_ += io.MouseDelta.y * 0.4f;
-                matEdPitch_ = matEdPitch_ < -5.0f ? -5.0f
+                matEdPitch_ = matEdPitch_ < -30.0f ? -30.0f
                               : matEdPitch_ > 85.0f ? 85.0f
                                                     : matEdPitch_;
+                matEdSpin_ = false;  // taking the camera unchecks the
+                                     // turntable - the framing stays put
+            }
+
+            // Hover pick: feeds the UV-panel sync AND the click-a-part
+            // entry selection. The outlines project the bake mesh's
+            // triangles through the preview camera (matBakeMeshLow_ is
+            // (re)built by the panel / validator; stale indices are
+            // bounds-guarded).
+            matEd3dHoverValid_ = false;
+            if (hovered && !matEdStroke_ && !orbiting &&
+                (matEdUvView_ || (!matEdPaint_ && matEdShape_ == 4))) {
+                const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                float hu = 0.0f, hv = 0.0f;
+                bool pntbl = false;
+                std::string hoverEntry;
+                const bool hit = viewport_.materialPreviewPick(
+                    u, v, hu, hv, pntbl, &hoverEntry);
+                if (hit && pntbl && matEdUvView_) {
+                    matEd3dHoverValid_ = true;
+                    matEd3dHoverUV_[0] = hu;
+                    matEd3dHoverUV_[1] = hv;
+                }
+                // a multi-part model: click any part to jump to its entry
+                // (models only - primitives always use the first entry;
+                // painting keeps LMB for the brush)
+                if (hit && !matEdPaint_ && matEdShape_ == 4 &&
+                    !hoverEntry.empty()) {
+                    int hitIdx = -1;
+                    for (size_t i = 0; i < matEdMats_.size(); ++i)
+                        if (matEdMats_[i].name == hoverEntry)
+                            hitIdx = (int)i;
+                    if (hitIdx >= 0 && hitIdx != matEdSel_) {
+                        ImGui::SetTooltip("%s - click to edit this entry",
+                                          hoverEntry.c_str());
+                        // a clean click, not the tail of an orbit drag
+                        if (ImGui::IsMouseReleased(0) &&
+                            io.MouseDragMaxDistanceSqr[0] < 16.0f)
+                            matEdSel_ = hitIdx;
+                    } else if (hitIdx < 0) {
+                        ImGui::SetTooltip(
+                            "part '%s' has no entry in this file",
+                            hoverEntry.c_str());
+                    }
+                }
+            }
+            if (matEdUvHoverTri_ >= 0 || !matEdUvIssueTris_.empty()) {
+                auto outlineTri = [&](int t, ImU32 col, float th) {
+                    const matbake::MeshInput& mesh = matBakeMeshLow_;
+                    if (t < 0 || t >= mesh.triCount()) return;
+                    ImVec2 p[3];
+                    for (int k = 0; k < 3; ++k) {
+                        const float* vtx =
+                            &mesh.verts[(size_t)(t * 3 + k) * 8];
+                        float su = 0.0f, sv = 0.0f;
+                        if (!viewport_.materialPreviewProject(vtx, su, sv))
+                            return;
+                        p[k] = ImVec2(imgPos.x + su * pw, imgPos.y + sv * ph);
+                    }
+                    ImGui::GetWindowDrawList()->AddTriangle(p[0], p[1], p[2],
+                                                            col, th);
+                };
+                for (int t : matEdUvIssueTris_)
+                    outlineTri(t, IM_COL32(255, 80, 70, 255), 2.0f);
+                if (matEdUvView_)
+                    outlineTri(matEdUvHoverTri_, IM_COL32(96, 190, 255, 255),
+                               2.0f);
             }
 
             if (matEdPaint_ && canPaint) {
@@ -11624,6 +15421,8 @@ void App::drawMaterialEditorWindow() {
                 }
             }
         }
+        if (matEdUvView_ && uvH > 8.0f)
+            drawMatEdUvPanel(sel.name, texRel, ImVec2(avail.x, uvH));
     }
     ImGui::EndChild();
 
@@ -11650,6 +15449,9 @@ struct OptionBlockSpec {
     float defaultIndex;        // initial option index (save value default)
     int bind;                  // MenuEntry::Setting
     std::vector<const char*> options;
+    // BindDisplayMode only: the engine mode per option (-1 = the project-
+    // default boot mode). Empty on the other binds (positional mapping).
+    std::vector<int> optionModes;
 };
 // Index order == the Insert-option-block menu order below.
 const OptionBlockSpec kOptionBlocks[] = {
@@ -11662,9 +15464,14 @@ const OptionBlockSpec kOptionBlocks[] = {
     {"AIM CURVE", MenuEntry::Choice, "opt_stick_curve", 0.0f, MenuEntry::BindStickCurve,
      {"Linear", "Smooth", "Precise"}},
     {"DISPLAY", MenuEntry::Choice, "opt_display", 0.0f, MenuEntry::BindDisplayMode,
-     {"480i", "480p", "1080i"}},
+     // DEFAULT = the project's boot mode on the player's console (region +
+     // the PAL-picture preference); the rest are explicit overrides.
+     {"DEFAULT", "480p", "1080i"},
+     {-1, 1, 2}},
     {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
      {"4:3", "16:9"}},
+    {"PLAYERS", MenuEntry::Choice, "opt_players", 0.0f, MenuEntry::BindPlayerCount,
+     {"1 Player", "2 Players"}},
 };
 constexpr int kOptionBlockCount = (int)(sizeof(kOptionBlocks) / sizeof(kOptionBlocks[0]));
 
@@ -11690,7 +15497,23 @@ void addOptionBlock(Project& p, GameMenu& m, int kind) {
     en.param = s.valueName;
     en.settingBind = s.bind;
     for (const char* opt : s.options) en.options.push_back(opt);
+    // Display rows map options to engine modes explicitly (the preset
+    // carries the table); the other binds map by position.
+    if (s.bind == MenuEntry::BindDisplayMode) {
+        en.optionModes = s.optionModes;
+        for (size_t o = en.optionModes.size(); o < en.options.size(); ++o)
+            en.optionModes.push_back((int)(o < 4 ? o : 4));
+    }
     m.entries.push_back(std::move(en));
+}
+
+// The plain "APPLY" action row that commits a display-mode row's staged
+// selection (MenuEntry::ApplyVideo) - inserted next to the DISPLAY block.
+MenuEntry makeApplyVideoEntry() {
+    MenuEntry en;
+    en.label = "APPLY";
+    en.action = MenuEntry::ApplyVideo;
+    return en;
 }
 
 // Scaffold a full paged options menu: a root OPTIONS menu whose rows open one
@@ -11711,18 +15534,22 @@ int addOptionsMenuPages(Project& p) {
     // Submenus rely on Triangle to return to the root (the baked panel already
     // shows the "^ BACK" hint); a Close-action "back" row would instead dismiss
     // the whole menu tree, so submenus carry only their option blocks.
-    auto makeSub = [&](const char* base, const char* title, int b0, int b1) {
+    auto makeSub = [&](const char* base, const char* title, int b0, int b1,
+                       bool applyVideo = false) {
         GameMenu sub;
         sub.name = uniqueName(base);
         sub.title = title;
         addOptionBlock(p, sub, b0);
         addOptionBlock(p, sub, b1);
+        // The APPLY row makes the display-mode row stage-then-commit: the
+        // player browses the modes freely, the switch fires on APPLY.
+        if (applyVideo) sub.entries.push_back(makeApplyVideoEntry());
         p.menus.push_back(std::move(sub));
         return p.menus.back().name;
     };
     const std::string audio = makeSub("options-audio", "AUDIO", 0, 1);
     const std::string controls = makeSub("options-controls", "CONTROLS", 2, 3);
-    const std::string display = makeSub("options-display", "DISPLAY", 4, 5);
+    const std::string display = makeSub("options-display", "DISPLAY", 4, 5, true);
     GameMenu root;
     root.name = uniqueName("options");
     root.title = "OPTIONS";
@@ -11778,7 +15605,8 @@ void App::drawMenusWindow() {
             "Scaffold a paged options menu: an OPTIONS root that opens\n"
             "AUDIO / CONTROLS / DISPLAY submenus, each pre-filled with\n"
             "ready-made setting rows (volume, deadzone, aim curve,\n"
-            "display mode, aspect). Style and edit them like any menu.");
+            "display mode + an APPLY row that commits it, aspect).\n"
+            "Style and edit them like any menu.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);
@@ -11940,7 +15768,7 @@ void App::drawMenusWindow() {
 
     // Font: default chain / fonts imported into the project / a curated set
     // of stock Windows fonts (existence-checked) / import a new TTF.
-    changed |= fontCombo(m.fontPath);
+    changed |= fontCombo(m.font);
     {
         int sizes[2] = {m.titleSize, m.entrySize};
         ImGui::SetNextItemWidth(scaled(140.0f));
@@ -12047,7 +15875,7 @@ void App::drawMenusWindow() {
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
         "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice"};
+        "Choice",         "Apply video mode"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -12077,8 +15905,9 @@ void App::drawMenusWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames, 9)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames, 10)) {
             en.param.clear();
+            en.optionModes.clear();
             // Stateful rows start with a sensible option set; everything
             // else drops the list so it does not linger in the file.
             if (en.action == MenuEntry::Toggle)
@@ -12141,6 +15970,17 @@ void App::drawMenusWindow() {
                     "Save value holding the state (the option index).\n"
                     "Its default is the initial state; flow graphs react\n"
                     "via Value At Least -> On Condition.");
+        } else if (en.action == MenuEntry::ApplyVideo) {
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Commits the display-mode row's staged selection (any\n"
+                    "menu's). While a menu has this row, the display-mode\n"
+                    "row only cycles its value - the screen switches when\n"
+                    "the player picks APPLY (with the keep-or-revert\n"
+                    "prompt). Without one, the display row switches on\n"
+                    "every change, closing the menu each time.");
+            ImGui::SameLine();
         }
 
         if (ImGui::SmallButton("x##delete")) {
@@ -12154,7 +15994,92 @@ void App::drawMenusWindow() {
         // reorderable-by-editing list). Cross / dpad cycle these in-game.
         if (en.action == MenuEntry::Toggle || en.action == MenuEntry::Choice) {
             ImGui::Indent(scaled(46.0f));
-            if (en.action == MenuEntry::Toggle) {
+            if (en.settingBind == MenuEntry::BindDisplayMode) {
+                // Display-mode rows: each option picks an engine scan mode
+                // from a dropdown, with a free-text label next to it (rename
+                // "480i" to "576i" for a PAL release). The mode drives the
+                // generated game (MenuEntryData::optModes); the label is
+                // only what the row draws. Index 0 is the -1 sentinel: the
+                // project-default mode, resolved at boot on the player's
+                // console (region + the PAL-picture preference).
+                static const char* kDispModeNames[] = {"DEFAULT", "480i",
+                                                       "480p",    "1080i",
+                                                       "480i FIELD", "576i"};
+                static const char* kDispModeDescs[] = {
+                    "Default (project) - the mode the game boots in",
+                    "480i - interlaced (stock, letterboxed 576i on PAL)",
+                    "480p - progressive (component, 60 Hz)",
+                    "1080i - HD (component, 60 Hz)",
+                    "480i FIELD - field rendering (half VRAM)",
+                    "576i - full-height PAL (always 50 Hz)"};
+                if (en.options.empty()) {
+                    en.options = {"DEFAULT", "480p"};
+                    en.optionModes = {-1, 1};
+                }
+                if (en.optionModes.size() != en.options.size()) {
+                    en.optionModes.resize(en.options.size());
+                    for (size_t o = 0; o < en.optionModes.size(); ++o)
+                        en.optionModes[o] = (int)(o < 4 ? o : 4);
+                }
+                for (int o = 0; o < (int)en.options.size(); ++o) {
+                    ImGui::PushID(o);
+                    int mode = en.optionModes[o];  // dropdown index = mode + 1
+                    if (mode < -1) mode = -1;
+                    if (mode > 4) mode = 4;
+                    ImGui::SetNextItemWidth(scaled(230.0f));
+                    if (ImGui::BeginCombo("##optmode",
+                                          kDispModeDescs[mode + 1])) {
+                        for (int mo = -1; mo < 5; ++mo)
+                            if (ImGui::Selectable(kDispModeDescs[mo + 1],
+                                                  mo == mode)) {
+                                en.optionModes[o] = mo;
+                                en.options[o] = kDispModeNames[mo + 1];
+                                changed = true;
+                            }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::SameLine();
+                    char optBuf[32];
+                    std::snprintf(optBuf, sizeof(optBuf), "%s",
+                                  en.options[o].c_str());
+                    ImGui::SetNextItemWidth(scaled(110.0f));
+                    if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
+                        en.options[o] = optBuf;
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Label drawn on the row (free text) - the\n"
+                            "dropdown decides the actual mode.");
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled((int)en.options.size() <= 1);
+                    if (ImGui::SmallButton("x##optdel")) {
+                        en.options.erase(en.options.begin() + o);
+                        en.optionModes.erase(en.optionModes.begin() + o);
+                        changed = true;
+                        ImGui::EndDisabled();
+                        ImGui::PopID();
+                        break;
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::PopID();
+                }
+                if ((int)en.options.size() < menubake::kMaxOptions) {
+                    if (ImGui::SmallButton("+##optadd")) {
+                        int mode = 0;  // first mode this row doesn't offer yet
+                        for (int mo = -1; mo < 5; ++mo) {
+                            bool used = false;
+                            for (int v : en.optionModes) used |= (v == mo);
+                            if (!used) {
+                                mode = mo;
+                                break;
+                            }
+                        }
+                        en.options.push_back(kDispModeNames[mode + 1]);
+                        en.optionModes.push_back(mode);
+                        changed = true;
+                    }
+                }
+            } else if (en.action == MenuEntry::Toggle) {
                 if (en.options.size() < 2) en.options = {"Off", "On"};
                 char offBuf[32], onBuf[32];
                 std::snprintf(offBuf, sizeof(offBuf), "%s", en.options[0].c_str());
@@ -12206,16 +16131,32 @@ void App::drawMenusWindow() {
             ImGui::SetNextItemWidth(scaled(150.0f));
             if (ImGui::Combo("Bind##optbind", &en.settingBind,
                              "None\0Music volume\0Sound volume\0Deadzone\0"
-                             "Stick curve\0Display mode\0Widescreen\0"))
+                             "Stick curve\0Display mode\0Widescreen\0"
+                             "Player count\0")) {
+                // Display rows carry an explicit option->mode table (edited
+                // above); every other bind maps by option position.
+                if (en.settingBind == MenuEntry::BindDisplayMode) {
+                    en.optionModes.resize(en.options.size());
+                    for (size_t o = 0; o < en.optionModes.size(); ++o)
+                        en.optionModes[o] = (int)(o < 4 ? o : 4);
+                } else {
+                    en.optionModes.clear();
+                }
                 changed = true;
+            }
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
-                    "0-0.4, aim curve 1-3, display 480i/480p/1080i, aspect\n"
-                    "4:3/16:9. None = a plain save-value row (flow graphs react).");
+                    "0-0.4, aim curve 1-3, display DEFAULT (the project boot\n"
+                    "mode)/480i/480p/1080i/480i FIELD/576i (each option picks\n"
+                    "its mode from a dropdown;\n"
+                    "add an Apply video mode row so switching waits for APPLY),\n"
+                    "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
+                    "mode + a second Player object). None = a plain save-value\n"
+                    "row (flow graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
@@ -12231,16 +16172,29 @@ void App::drawMenusWindow() {
             ImGui::SetTooltip(
                 "Insert a ready-made setting row (backed by a save value):\n"
                 "volume, controller deadzone / aim curve, display mode,\n"
-                "aspect ratio. Restyle and relabel it like any other entry.");
+                "aspect ratio, player count (1P/2P, two-player modes).\n"
+                "Restyle and relabel it like any other entry.");
         if (ImGui::BeginPopup("##optblock")) {
             static const char* kBlockMenu[] = {
                 "Music volume", "Sound volume", "Controller deadzone",
-                "Aim response curve", "Display mode", "Widescreen (aspect)"};
+                "Aim response curve", "Display mode", "Widescreen (aspect)",
+                "Player count (1P/2P)"};
             for (int b = 0; b < kOptionBlockCount; ++b)
                 if (ImGui::Selectable(kBlockMenu[b])) {
                     addOptionBlock(project_, m, b);
                     changed = true;
                 }
+            ImGui::Separator();
+            if (ImGui::Selectable("Apply video mode (row)")) {
+                m.entries.push_back(makeApplyVideoEntry());
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Commits the Display mode row's selection. With this row\n"
+                    "anywhere in the project, cycling the display option only\n"
+                    "stages it - the screen switches when the player picks\n"
+                    "APPLY (keep-or-revert prompt included).");
             ImGui::EndPopup();
         }
     } else {
@@ -12257,7 +16211,7 @@ void App::drawMenusWindow() {
     {
         std::string key = m.name + "\x1f" + m.title + "\x1f" +
                           std::to_string(m.panelW) + "\x1f" +
-                          std::to_string(m.showTitle) + "\x1f" + m.fontPath +
+                          std::to_string(m.showTitle) + "\x1f" + m.font +
                           "\x1f" + std::to_string(m.titleSize) + "|" +
                           std::to_string(m.entrySize) + "\x1f" +
                           std::to_string(m.accent[0]) + "," +
@@ -12279,7 +16233,7 @@ void App::drawMenusWindow() {
         if (key != menuPreviewKey_) {
             std::vector<unsigned char> rgba;
             int w = 0, h = 0;
-            if (menubake::bakePanelRGBA(m, project_.dir, rgba, w, h)) {
+            if (menubake::bakePanelRGBA(m, project_, rgba, w, h)) {
                 // Composite each Toggle/Choice row's initial option label
                 // where the game draws the value strip cell.
                 std::vector<int> current(m.entries.size(), 0);
@@ -12287,7 +16241,7 @@ void App::drawMenusWindow() {
                     for (const SaveValue& sv : project_.saveValues)
                         if (sv.name == m.entries[e].param)
                             current[e] = (int)sv.value;
-                menubake::overlayValuePreview(m, project_.dir, current, rgba, w, h);
+                menubake::overlayValuePreview(m, project_, current, rgba, w, h);
                 if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
                 glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
@@ -12297,7 +16251,7 @@ void App::drawMenusWindow() {
                 menuPreviewW_ = w;
                 menuPreviewH_ = h;
                 const menubake::PanelLayout lay =
-                    menubake::panelLayout(m, project_.dir);
+                    menubake::panelLayout(m, project_);
                 menuPreviewContentH_ = lay.contentH;
                 menuPreviewClipped_ = lay.clipped;
             }
@@ -12380,32 +16334,85 @@ void App::drawScriptsSection() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Open in VS Code")) openInVSCode();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Object scripts (TYRA_OBJECT_SCRIPT) run when attached to objects:\n"
+            "Properties > Scripts. Plain TYRA_SCRIPT classes run globally every\n"
+            "frame. Subfolders are compiled too; generated code lives in src\\gen.");
 
-    // List src/scripts/*.cpp (user scripts live there and are compiled
-    // automatically by the project Makefile). Click one to open it in VS Code
-    // in the project context.
+    // List user scripts as a folder tree: every .cpp under src/scripts,
+    // subfolders included - that directory is exclusively the user's. Engine-
+    // generated sources live in src/gen and never show here (any stray
+    // *.gen.cpp left by an old editor version is filtered out for good
+    // measure). Click a file to open it in VS Code in the project context.
     const std::filesystem::path dir = std::filesystem::path(project_.dir) / "src" / "scripts";
     std::error_code ec;
+
+    struct ScriptNode {
+        std::map<std::string, ScriptNode> folders;  // sorted subfolders
+        std::vector<std::string> files;             // leaf filenames
+    };
+    ScriptNode root;
     bool any = false;
     if (std::filesystem::exists(dir, ec)) {
-        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (entry.path().extension() != ".cpp") continue;
-            const std::string fname = entry.path().filename().string();
-            ImGui::Bullet();
-            ImGui::SameLine();
-            if (ImGui::Selectable(fname.c_str())) openInVSCode("src\\scripts\\" + fname);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Open in VS Code");
+        for (std::filesystem::recursive_directory_iterator it(dir, ec), end;
+             it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            if (it->path().extension() != ".cpp") continue;
+            const std::string fname = it->path().filename().string();
+            if (fname.size() > 8 &&
+                fname.compare(fname.size() - 8, 8, ".gen.cpp") == 0)
+                continue;
+            // Slot the relative path into the tree: walk/create a folder node
+            // per path segment, drop the filename in the final node's files.
+            const std::string rel =
+                std::filesystem::relative(it->path(), dir, ec).string();
+            ScriptNode* node = &root;
+            for (size_t start = 0;;) {
+                size_t sep = rel.find_first_of("/\\", start);
+                if (sep == std::string::npos) {
+                    node->files.push_back(rel.substr(start));
+                    break;
+                }
+                node = &node->folders[rel.substr(start, sep - start)];
+                start = sep + 1;
+            }
             any = true;
         }
     }
+
     if (!any) {
         ImGui::TextDisabled("No scripts yet.");
-    } else {
-        ImGui::TextDisabled("Object scripts (TYRA_OBJECT_SCRIPT) run when attached\n"
-                            "to objects: Properties > Scripts. Plain TYRA_SCRIPT\n"
-                            "classes run globally every frame.");
+        return;
     }
+
+    // Render folders first (open by default), then files. TreeNodeEx pushes an
+    // ID scope per folder, so same-named files in different folders don't
+    // collide. prefix carries the src\scripts-relative path for opening.
+    std::function<void(const ScriptNode&, const std::string&)> drawNode =
+        [&](const ScriptNode& n, const std::string& prefix) {
+            for (const auto& [name, child] : n.folders) {
+                if (ImGui::TreeNodeEx(name.c_str(),
+                                      ImGuiTreeNodeFlags_DefaultOpen |
+                                          ImGuiTreeNodeFlags_SpanAvailWidth)) {
+                    drawNode(child, prefix + name + "\\");
+                    ImGui::TreePop();
+                }
+            }
+            std::vector<std::string> files = n.files;
+            std::sort(files.begin(), files.end());
+            for (const std::string& f : files) {
+                ImGui::Bullet();
+                ImGui::SameLine();
+                if (ImGui::Selectable(f.c_str()))
+                    openInVSCode("src\\scripts\\" + prefix + f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open in VS Code");
+            }
+        };
+    drawNode(root, "");
 }
 
 void App::drawNewScriptModal() {
@@ -12421,7 +16428,8 @@ void App::drawNewScriptModal() {
         return;
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-    ImGui::TextDisabled("Creates src\\scripts\\%s.cpp", newScriptName_);
+    ImGui::TextDisabled("Creates src\\scripts\\%s.cpp (subfolders allowed: ai/guard)",
+                        newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
                             project_.objects()[newScriptAttachTo_].name.c_str());
@@ -12432,16 +16440,28 @@ void App::drawNewScriptModal() {
     ImGui::Separator();
     if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
         std::string name = newScriptName_;
-        bool valid = !name.empty();
+        for (char& c : name)
+            if (c == '\\') c = '/';  // one separator form for path + display
+        // Segments of letters/digits/_/- split by '/': "ai/guard" makes the
+        // subfolder. Empty segments (leading//trailing slash) are invalid;
+        // ".." is impossible since '.' is rejected.
+        bool valid = !name.empty() && name.front() != '/' && name.back() != '/';
         for (char c : name)
-            if (!isalnum((unsigned char)c) && c != '_' && c != '-') valid = false;
+            if (!isalnum((unsigned char)c) && c != '_' && c != '-' && c != '/')
+                valid = false;
+        if (name.find("//") != std::string::npos) valid = false;
 
         if (!valid) {
-            newScriptError_ = "Name may contain only letters, digits, '_' and '-'";
+            newScriptError_ =
+                "Name may contain only letters, digits, '_', '-' and '/'";
         } else {
-            // File name -> C++ class name (my-script -> My_script)
+            // File name -> C++ class name (ai/my-script -> My_script)
+            std::string base = name;
+            if (const size_t slash = base.find_last_of('/');
+                slash != std::string::npos)
+                base = base.substr(slash + 1);
             std::string className;
-            for (char c : name) className += (isalnum((unsigned char)c) ? c : '_');
+            for (char c : base) className += (isalnum((unsigned char)c) ? c : '_');
             if (isdigit((unsigned char)className[0])) className = "Script" + className;
             className[0] = (char)toupper((unsigned char)className[0]);
 
@@ -13663,6 +17683,17 @@ void App::drawNewProjectModal() {
             "FPP (a single player entity)"};
         ImGui::Combo("Preset", &newTemplate_, presetNames, 2);
 
+        ImGui::SeparatorText("AI support");
+        ImGui::Checkbox("Claude Code", &newAiClaude_);
+        ImGui::SameLine();
+        ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
+        ImGui::TextDisabled(
+            "Copies assistant guides into the project (.claude/skills/ +\n"
+            "CLAUDE.md, .github/copilot-instructions.md): how the project is\n"
+            "structured, flow graphs, custom scripts and the editor's CLI -\n"
+            "so an AI assistant opened in the project knows what it is doing.\n"
+            "Can also be added later in Project > Preferences.");
+
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
         ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
                             newDepth_,
@@ -13678,6 +17709,9 @@ void App::drawNewProjectModal() {
             const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
             std::string err = project::create(p, newName_, newLocation_, t, preset);
             if (err.empty()) {
+                if (newAiClaude_ || newAiCopilot_)
+                    statusMessage_ =
+                        aisupport::install(p.dir, newAiClaude_, newAiCopilot_);
                 project_ = p;
                 hasProject_ = true;
                 applyProjectToViewport();
@@ -13695,18 +17729,36 @@ void App::drawNewProjectModal() {
 
 void App::applyProjectToViewport() {
     project::ensureHeightmap(project_);
+    project::ensureSplatmap(project_);  // weights track the same render grid
     const SceneData& sc = project_.active();
     // Scene-visual settings resolve project defaults + this scene's overrides.
     const ProjectSettings rs = project::resolvedSettings(project_, sc);
     viewport_.setProjectDir(project_.dir);
     const project::TerrainMaterial tm =
         project::resolveTerrainMaterial(project_, rs.terrainMaterial);
-    viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
+    // Stochastic base: preview the baked supertile (same pixels the build
+    // bakes), tiled at 1/factor so the source keeps its world size.
+    if (sc.terrainBaseStochastic && !tm.texture.empty()) {
+        float sf = 1.0f;
+        const std::string key = uploadStochPreview(tm.texture, sf);
+        const float tile[2] = {tm.tile[0] / sf, tm.tile[1] / sf};
+        viewport_.setTerrainMaterial(key.empty() ? tm.texture : key, tm.kd,
+                                     tm.present, tile);
+    } else {
+        viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
+    }
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
+    // Macro ground variation rides the vertex shade - set it before the layer
+    // meshes build so one rebuild covers both.
+    viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+    // Painted terrain layers: push the resolved layer set + weights (empty
+    // layers = the plain single-material terrain above).
+    rebakeSplatPreview();
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
+    viewport_.setAmbientOcclusion(rs.aoEnabled, rs.aoStrength, rs.aoRadius);
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's
     // (its Enabled flag is the initial state - the toggle button / flow graph
@@ -13723,6 +17775,339 @@ void App::applyProjectToViewport() {
                                 player->flashlightAngle);
     else
         viewport_.setFlashlight(false, offColor, 30.0f, 20.0f);
+}
+
+void App::drawTerrainWindow() {
+    if (!showTerrainEditor_) return;
+    if (!hasProject_) {
+        showTerrainEditor_ = false;
+        return;
+    }
+    ImGui::SetNextWindowSize(ImVec2(scaled(380), scaled(540)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Terrain Editor", &showTerrainEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    SceneData& sc = project_.active();
+    const bool canPaint = !sc.terrainLayers.empty();
+    if (!canPaint) paintMode_ = false;
+
+    // --- Tool row: Sculpt / Paint, one brush in hand at a time. The same
+    // toggles as the viewport toolbar (4 / 6) - shared state, never disagree.
+    {
+        const float bw =
+            (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) *
+            0.5f;
+        auto toolButton = [&](const char* label, bool& mode, bool& other,
+                              bool enabled) {
+            ImGui::BeginDisabled(!enabled);
+            if (mode)
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::Button(label, ImVec2(bw, scaled(28)))) {
+                mode = !mode;
+                if (mode) other = false;
+            }
+            if (mode) ImGui::PopStyleColor();
+            ImGui::EndDisabled();
+        };
+        toolButton("Sculpt (4)", sculptMode_, paintMode_, true);
+        ImGui::SameLine();
+        toolButton("Paint (6)", paintMode_, sculptMode_, canPaint);
+        if (!canPaint && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Add a terrain layer below first");
+
+        if (sculptMode_)
+            ImGui::TextDisabled(
+                "Drag on the terrain: LMB raise, Shift+LMB lower. [ ] resize.");
+        else if (paintMode_)
+            ImGui::TextDisabled(
+                "Drag on the terrain: LMB paint, Shift+LMB erase. [ ] resize.");
+        else
+            ImGui::TextDisabled(
+                "Pick a tool - or manage the layers and bake below.");
+    }
+
+    // --- Brush (the active tool's settings; radius is shared) ---
+    ImGui::SeparatorText("Brush");
+    if (sculptMode_ || paintMode_) {
+        ImGui::SetNextItemWidth(scaled(200));
+        ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
+                           brushMaxRadius(project_), "%.1f",
+                           ImGuiSliderFlags_Logarithmic);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Brush radius in world units, up to half the map."
+                              "\n[ and ] resize it over the viewport.");
+        if (sculptMode_) {
+            ImGui::SetNextItemWidth(scaled(200));
+            ImGui::SliderFloat("Strength", &brushStrength_, 0.01f,
+                               sculptMaxStrength(project_), "%.2f",
+                               ImGuiSliderFlags_Logarithmic);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Units raised per frame at the brush center - the range\n"
+                    "grows with the map, so large worlds sculpt fast too.\n"
+                    "Flatten mode: level rate (values above 1 act as 1).");
+            ImGui::Checkbox("Flatten to level", &sculptFlatten_);
+            if (sculptFlatten_) {
+                ImGui::SameLine();
+                const float lvl = terrainDimOf(project_);
+                ImGui::SetNextItemWidth(scaled(90));
+                ImGui::DragFloat("##level", &flattenHeight_, 0.1f, -lvl, lvl,
+                                 "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Target height (world units)");
+            }
+        } else {
+            ImGui::SetNextItemWidth(scaled(200));
+            ImGui::SliderFloat("Strength", &paintStrength_, 0.05f, 1.0f, "%.2f");
+            ImGui::Checkbox("Erase (reveal layers below)", &paintErase_);
+        }
+    } else {
+        ImGui::TextDisabled("Grab Sculpt or Paint to brush the terrain.");
+    }
+
+    // --- Layers ---
+    // Shown as a Photoshop-style stack: the TOP row draws over everything
+    // below it, new layers land on top, and the base sits at the bottom.
+    // Storage order is unchanged (higher index = drawn later = higher in the
+    // stack); only the presentation is reversed.
+    ImGui::SeparatorText("Layers");
+
+    int removeIdx = -1, moveIdx = -1, moveDir = 0;
+    bool layersChanged = false;
+
+    if (ImGui::SmallButton("+ Add layer")) {
+        project::addTerrainLayer(project_, "Layer", "");
+        paintLayer_ = (int)sc.terrainLayers.size() - 1;  // new = top of the stack
+        // Adding a layer means you're about to paint it - put the brush in
+        // hand (unless the sculpt tool is deliberately held).
+        if (!sculptMode_) paintMode_ = true;
+        layersChanged = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("top layer paints over the ones below");
+
+    for (int i = (int)sc.terrainLayers.size() - 1; i >= 0; --i) {
+        ImGui::PushID(i);
+        TerrainLayer& L = sc.terrainLayers[i];
+
+        if (ImGui::RadioButton("##active", paintLayer_ == i)) paintLayer_ = i;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Paint this layer");
+        ImGui::SameLine();
+
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", L.name.c_str());
+        ImGui::SetNextItemWidth(scaled(90));
+        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf)))
+            L.name = nameBuf;
+        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(120));
+        if (drawTerrainMaterialCombo("##mat", L.material)) layersChanged = true;
+
+        // Up = raise in the stack = drawn later = HIGHER storage index.
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i == (int)sc.terrainLayers.size() - 1);
+        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
+            moveIdx = i;
+            moveDir = 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine(0.0f, scaled(2));
+        ImGui::BeginDisabled(i == 0);
+        if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
+            moveIdx = i;
+            moveDir = -1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine(0.0f, scaled(6));
+        if (ImGui::SmallButton("X")) removeIdx = i;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove layer");
+
+        // Texture size: how large this layer's pattern appears on the ground
+        // (bigger = fewer repeats). Only meaningful for a textured layer.
+        ImGui::Indent(scaled(22));
+        ImGui::SetNextItemWidth(scaled(110));
+        if (ImGui::DragFloat("Size", &L.scale, 0.02f, 0.1f, 20.0f, "%.2fx"))
+            splatPreviewDirty_ = true;  // live preview follows the drag
+        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How large this layer's texture looks on the ground\n"
+                "(bigger = larger pattern). No effect on a flat layer.");
+        ImGui::SameLine(0.0f, scaled(12));
+        const bool layerHasTex =
+            !project::resolveTerrainMaterial(project_, L.material).texture.empty();
+        ImGui::BeginDisabled(!layerHasTex);
+        if (ImGui::Checkbox("Stochastic", &L.stochastic)) layersChanged = true;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                layerHasTex
+                    ? "Break the tiled-grid repetition by baking a larger\n"
+                      "non-repeating supertile at build (zero runtime cost).\n"
+                      "Best on organic textures; leave off for bricks/tiles."
+                    : "Pick a material with a texture first -\nstochastic tiling "
+                      "scrambles the texture, so a\nflat color has nothing to work "
+                      "on.");
+        ImGui::Unindent(scaled(22));
+
+        ImGui::PopID();
+    }
+
+    // The base is the bottom of the stack - everything above blends over it.
+    // Edit its material right here: the scene's own when it overrides the
+    // project default, otherwise the project default (so a single-scene
+    // project just sets its terrain material without leaving this window).
+    {
+        std::string& baseMat = sc.overrides.terrainMat
+                                   ? sc.settings.terrainMaterial
+                                   : project_.settings.terrainMaterial;
+        ImGui::BulletText("Base");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(150));
+        if (drawTerrainMaterialCombo("##basemat", baseMat)) {
+            commitChange();
+            applyProjectToViewport();
+        }
+        const bool baseHasTex =
+            !project::resolveTerrainMaterial(project_, baseMat).texture.empty();
+        ImGui::Indent(scaled(22));
+        ImGui::BeginDisabled(!baseHasTex);
+        if (ImGui::Checkbox("Stochastic tiling##base", &sc.terrainBaseStochastic)) {
+            commitChange();
+            applyProjectToViewport();  // base texture path lives on setTerrainMaterial
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                baseHasTex
+                    ? "Break the tiled-grid repetition of the base texture by "
+                      "baking\na larger non-repeating supertile at build (zero "
+                      "runtime cost).\nBest on organic textures; leave off for "
+                      "bricks/tiles."
+                    : "Assign a base material with a texture first -\nstochastic "
+                      "tiling scrambles the texture, so a flat\ncolor has nothing "
+                      "to work on.");
+        ImGui::Unindent(scaled(22));
+    }
+
+    // Apply deferred structural edits (one at a time), then commit + refresh.
+    if (removeIdx >= 0) {
+        project::removeTerrainLayer(project_, removeIdx);
+        if (paintLayer_ >= (int)sc.terrainLayers.size())
+            paintLayer_ = (int)sc.terrainLayers.size() - 1;
+        if (paintLayer_ < 0) paintLayer_ = 0;
+        layersChanged = true;
+    } else if (moveIdx >= 0) {
+        project::moveTerrainLayer(project_, moveIdx, moveDir);
+        if (paintLayer_ == moveIdx) paintLayer_ = moveIdx + moveDir;
+        else if (paintLayer_ == moveIdx + moveDir) paintLayer_ = moveIdx;
+        layersChanged = true;
+    }
+
+    // --- Macro ground variation ---
+    ImGui::SeparatorText("Variation");
+    {
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Amount", &sc.terrainTintVariation, 0.0f, 1.0f,
+                               "%.2f"))
+            viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Large soft patches of lighter/darker ground - breaks the\n"
+                "uniform 'carpet' look at zero runtime cost. Tints the base\n"
+                "and the painted layers together, like real ground lighting.");
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Patch size", &sc.terrainTintScale, 4.0f, 200.0f,
+                               "%.0f units", ImGuiSliderFlags_Logarithmic))
+            viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+    }
+
+    // --- How it ships ---
+    ImGui::SeparatorText("Quality");
+    {
+        int vw = 0, vd = 0;
+        project::terrainGridDims(project_, vw, vd);
+        ImGui::TextWrapped(
+            "Layer textures stay tiled at full resolution; the blend follows "
+            "the terrain grid (%dx%d vertices - raise Terrain detail in "
+            "Preferences for finer blend edges). Painted chunks draw one extra "
+            "pass per layer on the PS2.",
+            vw, vd);
+    }
+
+    if (layersChanged) {
+        commitChange();
+        if (sc.terrainLayers.empty())
+            applyProjectToViewport();  // revert the preview to the terrain material
+        else
+            splatPreviewDirty_ = true;
+    }
+
+    ImGui::End();
+}
+
+// Generates a stochastic supertile for a terrain texture and uploads it into
+// the viewport's texture cache under a synthetic key, returning that key (and
+// the tiling factor). Same pixels the build bakes (stochtile is the shared
+// source of truth), so the preview matches the game. "" on failure.
+std::string App::uploadStochPreview(const std::string& srcRel, float& factor) {
+    factor = 1.0f;
+    if (srcRel.empty()) return "";
+    const std::string full =
+        (std::filesystem::path(project_.dir) / srcRel).string();
+    int w = 0, h = 0, f = 1;
+    std::vector<uint8_t> px = stochtile::generate(full, srcRel, w, h, f);
+    if (px.empty()) return "";
+    factor = (float)f;
+    const std::string key = "@stoch:" + srcRel;
+    viewport_.updateTexturePixels(key, w, h, px.data());
+    return key;
+}
+
+void App::rebakeSplatPreview() {
+    // Two-pass splatting preview: hand the viewport each layer resolved to
+    // what it draws (texture / tint / tiling incl. the layer Size and any
+    // stochastic supertile) plus the per-vertex weights - the same inputs the
+    // PS2 runtime gets from codegen.
+    const SceneData& sc = project_.active();
+    std::vector<Viewport::TerrainLayerDraw> draws;
+    draws.reserve(sc.terrainLayers.size());
+    for (const TerrainLayer& tl : sc.terrainLayers) {
+        Viewport::TerrainLayerDraw d;
+        const project::TerrainMaterial m =
+            project::resolveTerrainMaterial(project_, tl.material);
+        const float s = tl.scale > 0.0f ? tl.scale : 1.0f;
+        if (m.present) {
+            for (int i = 0; i < 3; ++i) d.kd[i] = m.kd[i];
+            float sf = 1.0f;
+            std::string key;
+            if (tl.stochastic && !m.texture.empty())
+                key = uploadStochPreview(m.texture, sf);
+            d.texture = key.empty() ? m.texture : key;
+            d.tile[0] = m.tile[0] / (s * sf);
+            d.tile[1] = m.tile[1] / (s * sf);
+        }  // else: the neutral-gray defaults (codegen emits the same)
+        draws.push_back(std::move(d));
+    }
+    viewport_.setTerrainLayers(draws, sc.splat);
+}
+
+// Compact help marker: a dimmed "(?)" on the same line as the preceding widget
+// that reveals its explanation on hover, instead of unrolling a multi-paragraph
+// description inline. Keeps the dense Preferences dialogs from running several
+// screens tall - the same idiom the Layers list already uses.
+static void prefHelp(const char* tip) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
 }
 
 void App::drawPreferencesModal() {
@@ -13742,7 +18127,7 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("Game");
     const char* templateNames[] = {"Terrain orbit", "FPP walkthrough"};
     ImGui::Combo("Template", &prefTemplate_, templateNames, 2);
-    ImGui::TextDisabled("Applies to generated sources (files with the editor marker).");
+    prefHelp("Applies to generated sources (files with the editor marker).");
 
     ImGui::SeparatorText("Build");
     int videoSys = prefSettings_.videoSystem == "pal"    ? 2
@@ -13752,28 +18137,60 @@ void App::drawPreferencesModal() {
                                    "PAL (50 Hz)"};
     if (ImGui::Combo("Target system", &videoSys, videoSysNames, 3))
         prefSettings_.videoSystem = videoSys == 2 ? "pal" : videoSys == 1 ? "ntsc" : "auto";
-    ImGui::TextDisabled(
+    prefHelp(
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
-    int dispMode = prefSettings_.displayMode == "1080i"         ? 2
-                   : prefSettings_.displayMode == "progressive" ? 1
-                                                                : 0;
+    int dispMode = prefSettings_.displayMode == "pal576"             ? 4
+                   : prefSettings_.displayMode == "1080i"            ? 3
+                   : prefSettings_.displayMode == "progressive"      ? 2
+                   : prefSettings_.displayMode == "interlaced-field" ? 1
+                                                                     : 0;
     const char* dispModeNames[] = {"Interlaced (480i/576i)",
-                                   "Progressive scan (480p)", "1080i (HD)"};
-    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 3))
-        prefSettings_.displayMode =
-            dispMode == 2 ? "1080i" : dispMode == 1 ? "progressive" : "interlaced";
-    ImGui::TextDisabled(
+                                   "Interlaced, field rendering (480i/576i)",
+                                   "Progressive scan (480p)", "1080i (HD)",
+                                   "PAL 576i (full-height, 50 Hz)"};
+    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 5))
+        prefSettings_.displayMode = dispMode == 4   ? "pal576"
+                                    : dispMode == 3 ? "1080i"
+                                    : dispMode == 2 ? "progressive"
+                                    : dispMode == 1 ? "interlaced-field"
+                                                    : "interlaced";
+    prefHelp(
         "Scan mode of the built game. Interlaced is the stock TV signal and\n"
-        "follows Target system. Progressive (flicker-free 480p) and 1080i\n"
-        "always run at 60 Hz and need component (YPbPr) cables on a real\n"
-        "console - PCSX2 displays every mode. 1080i renders a 448x540 frame\n"
-        "(sharper vertically) and leaves less VRAM for textures. Both can\n"
-        "also be switched at runtime with the Set Display Mode flow node,\n"
-        "which shows a keep-or-revert prompt with an automatic rollback.");
+        "follows Target system; it renders full 512x448 frames and each TV\n"
+        "field shows half the lines of the newest one. Field rendering\n"
+        "sends the same 480i/576i signal but renders a fresh half-height\n"
+        "(512x224) image for EVERY field - 50/60 distinct pictures per\n"
+        "second at full speed, for about half the fill and VRAM cost\n"
+        "(slightly softer static picture). Progressive (flicker-free 480p)\n"
+        "and 1080i always run at 60 Hz and need component (YPbPr) cables on\n"
+        "a real console - PCSX2 displays every mode. 1080i renders a\n"
+        "448x540 frame (sharper vertically) and leaves less VRAM for\n"
+        "textures. PAL 576i is the full-height PAL frame (true 576i: a\n"
+        "512x512 render, 14% more lines than the NTSC-sized picture) -\n"
+        "always a 50 Hz PAL signal regardless of Target system, and it\n"
+        "also leaves less VRAM for textures. All can also be switched at\n"
+        "runtime with the Set Display Mode flow node, which shows a\n"
+        "keep-or-revert prompt with an automatic rollback.");
+    if (prefSettings_.displayMode == "interlaced") {
+        int palPic = prefSettings_.palFullHeight ? 1 : 0;
+        const char* palPicNames[] = {"Letterbox (NTSC-size picture)",
+                                     "Full-height 576i"};
+        if (ImGui::Combo("PAL picture", &palPic, palPicNames, 2))
+            prefSettings_.palFullHeight = palPic == 1;
+        prefHelp(
+            "How the region-following interlaced mode looks on a PAL\n"
+            "console (or with Target system forced to PAL): Letterbox\n"
+            "keeps the NTSC-size 448-line picture in the 576i raster (the\n"
+            "classic port look), Full-height boots the true 512-line PAL\n"
+            "frame (PAL 576i - costs ~380 KB of GS VRAM). NTSC consoles\n"
+            "always get 480i. A menu display row's DEFAULT option maps to\n"
+            "whatever this resolves to on the player's console. (Field\n"
+            "rendering has no full-height variant yet.)");
+    }
     ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
-    ImGui::TextDisabled(
+    prefHelp(
         "Widens the projection so proportions are correct on a 16:9 TV\n"
         "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
         "the picture also fills more of the screen. HUD sprites stretch\n"
@@ -13790,7 +18207,7 @@ void App::drawPreferencesModal() {
         "editor sets its emulated USB devices automatically) and with real\n"
         "USB devices on a console. Skipped on ps2link deploys.");
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
-    ImGui::TextDisabled(
+    prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
         "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
         "of screen tearing. Gameplay speed is unaffected either way.");
@@ -13799,7 +18216,7 @@ void App::drawPreferencesModal() {
     ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
     ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
     ImGui::EndDisabled();
-    ImGui::TextDisabled(
+    prefHelp(
         "Debug-profile overlays drawn in the top-left corner of the game:\n"
         "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
@@ -13807,7 +18224,7 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();
-    ImGui::TextDisabled(
+    prefHelp(
         "Debug builds poll livelink.bin next to the ELF so the editor can\n"
         "stream scene edits into the running game (docs/live-link.md). Turn\n"
         "off if you don't want your game patched from outside; release\n"
@@ -13822,8 +18239,8 @@ void App::drawPreferencesModal() {
     prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
                                                                                 : prefTerrain_.depth;
     ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
-    ImGui::TextDisabled("More cells = smaller triangles = fewer clipping artifacts,");
-    ImGui::TextDisabled("but more geometry for the PS2 to push.");
+    prefHelp("More cells = smaller triangles = fewer clipping artifacts,\n"
+             "but more geometry for the PS2 to push.");
 
     ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
                      2000.0f,
@@ -13831,7 +18248,7 @@ void App::drawPreferencesModal() {
                                                               : "off (whole map)");
     if (prefSettings_.terrainViewDistance < 0.0f)
         prefSettings_.terrainViewDistance = 0.0f;
-    ImGui::TextDisabled(
+    prefHelp(
         "The game keeps only the terrain chunks within this range of the\n"
         "camera in memory; the rest streams in as the player moves. Pair it\n"
         "with fog (view distance ~ fog end) to hide the pop-in. 0 keeps the\n"
@@ -13886,7 +18303,7 @@ void App::drawPreferencesModal() {
                      0.5f, 0.0f, 2000.0f,
                      prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
     if (prefSettings_.animLodDistance < 0.0f) prefSettings_.animLodDistance = 0.0f;
-    ImGui::TextDisabled(
+    prefHelp(
         "Animated models farther than this refresh their pose every 2nd frame\n"
         "(every 4th beyond twice the distance). Playback time is unaffected.\n"
         "Cuts the per-instance EE cost of distant animated crowds.");
@@ -13895,10 +18312,28 @@ void App::drawPreferencesModal() {
                      0.5f, 0.0f, 2000.0f,
                      prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
     if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
-    ImGui::TextDisabled(
-        "The build bakes ~50%% and ~25%%-vertex variants of animated models;\n"
+    prefHelp(
+        "The build bakes ~50% and ~25%-vertex variants of animated models;\n"
         "instances farther than this render the reduced meshes. Costs RAM\n"
         "and .tskl size; the editor viewport always shows the full mesh.");
+
+    ImGui::Checkbox("Reflection probe: aim along the reflected ray",
+                    &prefSettings_.envProbeReflected);
+    ImGui::TextDisabled(
+        "Dynamic reflections (@sky materials): instead of the classic\n"
+        "level-forward aim, a ray from the camera hits the reflective\n"
+        "object under the crosshair and the probe renders from the hit\n"
+        "point along the REFLECTED ray (smoothed) - what that surface\n"
+        "actually mirrors. Best on large curved chrome at mid distance;\n"
+        "the single shared probe still approximates every other surface.");
+
+    ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
+    prefHelp(
+        "Merges non-moving primitives sharing a material into combined\n"
+        "draw bags at scene load - each separate object costs ~1 ms of\n"
+        "fixed submit overhead per frame on real hardware, batches pay it\n"
+        "once. Objects with physics, scripts, flow-graph references,\n"
+        "save-state or a streaming layer always stay individual.");
 
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
@@ -13913,32 +18348,57 @@ void App::drawPreferencesModal() {
     if (ImGui::Combo("Textures", &quantMode, quantNames, 3))
         prefSettings_.textureQuant =
             quantMode == 0 ? "none" : quantMode == 1 ? "8bit" : "4bit";
-    ImGui::TextDisabled(
+    prefHelp(
         "Quantized at build (sources in res/ stay untouched). Override per\n"
         "model/material in the Assets section - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
-    drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
-    ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
-                        "if any, tiles across it - set the tiling on the material's\n"
-                        "texture in the Material Editor. Import .mtl in the Assets section.");
+    ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
+    prefHelp(
+        "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
+        "pages at build: one GS VRAM allocation (+~8 KB overhead) per page\n"
+        "instead of per texture, fewer texture switches. Conservative - tiled\n"
+        "terrain textures, emitters, decals, sphere maps and textures whose\n"
+        "model UVs leave 0..1 keep their own files. Palettized projects share\n"
+        "one 256-color palette per page (the era-authentic trade). The boot\n"
+        "log prints what was packed.");
 
-    ImGui::SeparatorText("Post effects");
-    ImGui::TextDisabled(
-        "Bloom and film grain moved to Tools > UI Editor, where their\n"
-        "on-screen layer is also set (e.g. bloom under the HUD, so it\n"
-        "does not blur the crosshair or text).");
+    drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
+    prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
+             "if any, tiles across it - set the tiling on the material's\n"
+             "texture in the Material Editor. Import .mtl in the Assets section.");
+
+    ImGui::SeparatorText("AI navigation");
+    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
+                     16.0f, "%.2f units");
+    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
+    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
+                     1.0f, 89.0f, "%.0f deg");
+    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
+                                : prefSettings_.navMaxSlope > 89.0f
+                                    ? 89.0f
+                                    : prefSettings_.navMaxSlope;
+    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
+                     4.0f, "%.2f units");
+    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
+    prefHelp(
+        "The NPC nav grid, baked at build time from the terrain slope and\n"
+        "blocking objects (grid capped at 128x128 cells - big maps get\n"
+        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
+        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
+        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
+        "graphs use no AI nodes carry no nav data at all.");
 
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
-    ImGui::TextDisabled(
+    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
+    prefHelp(
         "Sky gradient, baked lighting and distance fog now live in presets.\n"
         "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
         "Scene > Preferences (or uses the default).");
-    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
-    ImGui::TextDisabled(
+    prefHelp(
         "Master switch: shows a loading screen while a scene loads (also at\n"
         "boot). Design them in Tools > Loading Screens - each scene picks one\n"
         "(Scene > Preferences), or a project default is used; with none, a\n"
@@ -13950,6 +18410,9 @@ void App::drawPreferencesModal() {
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
+    prefHelp(
+        "In-game outline around objects marked 'Usable' while the player is\n"
+        "within the proximity distance. The viewport marks them with a wire box.");
     if (prefSettings_.highlightUsable) {
         ImGui::DragFloat("Proximity (units)", &prefSettings_.highlightDistance, 0.1f,
                          0.5f, 1000.0f, "%.1f");
@@ -13961,15 +18424,12 @@ void App::drawPreferencesModal() {
                            "%.2f");
         ImGui::Checkbox("Draw over object (experimental)",
                         &prefSettings_.highlightOverlay);
-        ImGui::TextDisabled(
+        prefHelp(
             "Width = total rim size; steps = shells in the fade (1 = sharp edge).\n"
             "Opacity = transparency of the strongest shell (the rest fade from it).\n"
             "Draw over object = a colored glow ON the surface fading outward,\n"
             "instead of only a rim behind the silhouette.");
     }
-    ImGui::TextDisabled(
-        "In-game outline around objects marked 'Usable' while the player is\n"
-        "within the proximity distance. The viewport marks them with a wire box.");
 
     if (prefTemplate_ == 1) {
         ImGui::SeparatorText("FPP camera");
@@ -13981,12 +18441,34 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
     }
 
+    ImGui::SeparatorText("Multiplayer");
+    {
+        int mpMode = prefSettings_.multiplayer == "shared"  ? 1
+                     : prefSettings_.multiplayer == "split" ? 2
+                                                            : 0;
+        const char* mpNames[] = {"Off (single player)", "Shared screen",
+                                 "Split screen (top / bottom)"};
+        if (ImGui::Combo("Two players", &mpMode, mpNames, 3))
+            prefSettings_.multiplayer =
+                mpMode == 1 ? "shared" : mpMode == 2 ? "split" : "off";
+        if (mpMode != 0) {
+            ImGui::Checkbox("Player 2 joins with Start on pad 2",
+                            &prefSettings_.p2JoinOnStart);
+            prefHelp(
+                "Player 2 exists in scenes that contain a SECOND Player object\n"
+                "(the first is P1, the second P2). Shared screen frames both\n"
+                "with one camera; split screen renders each player's own view.\n"
+                "A menu Toggle bound to 'Player count' can also switch 1P/2P\n"
+                "mid-game (Menu Editor > + Option block).");
+        }
+    }
+
     ImGui::SeparatorText("Input");
     ImGui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
                        "%.2f");
     ImGui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,
                        "%.2f");
-    ImGui::TextDisabled(
+    prefHelp(
         "Analog stick offsets below this fraction read as zero. Raise it when\n"
         "a worn pad drifts (left = movement, right = camera); motion above the\n"
         "deadzone ramps smoothly, so higher values only cost range, not control.");
@@ -14022,7 +18504,7 @@ void App::drawPreferencesModal() {
     };
     stickCurveUi("Left stick curve", prefSettings_.stickCurveL, prefSettings_.stickExpL);
     stickCurveUi("Right stick curve", prefSettings_.stickCurveR, prefSettings_.stickExpR);
-    ImGui::TextDisabled(
+    prefHelp(
         "Exponential is gentle near center and snappy at the edge (aiming);\n"
         "S-Curve eases in and out. Higher exponent = more pronounced.");
 
@@ -14032,7 +18514,30 @@ void App::drawPreferencesModal() {
     if (prefTemplate_ == 1)
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
-    ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
+    prefHelp("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
+
+    ImGui::SeparatorText("AI support");
+    {
+        const bool haveClaude = aisupport::installed(project_.dir, "claude");
+        const bool haveCopilot = aisupport::installed(project_.dir, "copilot");
+        if (ImGui::Button(haveClaude ? "Refresh Claude Code files"
+                                     : "Add Claude Code support"))
+            statusMessage_ = aisupport::install(project_.dir, true, false);
+        ImGui::SameLine();
+        if (ImGui::Button(haveCopilot ? "Refresh Copilot files"
+                                      : "Add Copilot support"))
+            statusMessage_ = aisupport::install(project_.dir, false, true);
+        prefHelp(
+            "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
+            "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
+            "project structure, flow-graph format, custom scripting and the\n"
+            "editor's headless CLI. Installing again refreshes the files unless\n"
+            "you took ownership (deleted their marker line). Applied immediately\n"
+            "- these are files on disk, not project settings.");
+        if (haveClaude || haveCopilot)
+            ImGui::TextDisabled("Installed:%s%s", haveClaude ? " Claude Code" : "",
+                                haveCopilot ? " Copilot" : "");
+    }
 
     ImGui::Separator();
     ImGui::TextDisabled(
@@ -14115,11 +18620,86 @@ void App::drawEditorPreferencesModal() {
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
+    ImGui::SeparatorText("Collaboration sessions");
+    ImGui::InputText("Display name", prefDisplayName_, sizeof(prefDisplayName_));
+    ImGui::TextDisabled(
+        "The name other participants see in a live session. Leave empty to\n"
+        "use your Windows user name.");
+    ImGui::InputText("Joined-project cache", prefSessionCacheDir_,
+                     sizeof(prefSessionCacheDir_));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Browse...##sesscache")) {
+        const std::string dir = pickFolder();
+        if (!dir.empty())
+            snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
+                     dir.c_str());
+    }
+    ImGui::TextDisabled(
+        "Where projects you JOIN materialize (re-joins reuse it, so unchanged\n"
+        "files never transfer twice). Leave empty for\n"
+        "%%LOCALAPPDATA%%\\tyra-editor\\remote-cache.");
+
+    ImGui::SeparatorText("AI assistant");
+    {
+        const auto ids = aigen::backendIds();
+        if (prefAiBackend_ < 0 || prefAiBackend_ >= (int)ids.size())
+            prefAiBackend_ = 0;
+        if (ImGui::BeginCombo("Backend", aigen::backendLabel(ids[prefAiBackend_]))) {
+            for (int i = 0; i < (int)ids.size(); ++i)
+                if (ImGui::Selectable(aigen::backendLabel(ids[i]),
+                                      prefAiBackend_ == i))
+                    prefAiBackend_ = i;
+            ImGui::EndCombo();
+        }
+        // Model: a dropdown of the backend's known models plus "Custom..." -
+        // picking Custom opens a free-text field, so brand-new models work
+        // the day they ship. "" = the backend's default model.
+        const auto models = aigen::modelPresets(ids[prefAiBackend_]);
+        auto modelLabel = [](const char* m) {
+            return *m ? m : "Backend default";
+        };
+        // A staged model the list doesn't know (hand-typed earlier, or the
+        // backend just changed) can only be shown as Custom.
+        bool listed = false;
+        for (const char* m : models) listed |= (prefAiModel_ == std::string(m));
+        if (!listed) prefAiCustomModel_ = true;
+        if (ImGui::BeginCombo("Model", prefAiCustomModel_
+                                           ? "Custom..."
+                                           : modelLabel(prefAiModel_))) {
+            for (const char* m : models) {
+                const bool sel =
+                    !prefAiCustomModel_ && prefAiModel_ == std::string(m);
+                if (ImGui::Selectable(modelLabel(m), sel)) {
+                    snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", m);
+                    prefAiCustomModel_ = false;
+                }
+            }
+            if (ImGui::Selectable("Custom...", prefAiCustomModel_))
+                prefAiCustomModel_ = true;
+            ImGui::EndCombo();
+        }
+        if (prefAiCustomModel_)
+            ImGui::InputTextWithHint("Model id", "as the backend expects it",
+                                     prefAiModel_, sizeof(prefAiModel_));
+        ImGui::Checkbox("Thinking", &prefAiThinking_);
+        ImGui::TextDisabled(
+            "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"
+            "CLI). Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot';\n"
+            "the OpenAI API needs the OPENAI_API_KEY environment variable and\n"
+            "uses curl. Thinking = extended reasoning where the backend\n"
+            "supports it (slower, better on tricky logic).");
+    }
+
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
+        globalDisplayName_ = prefDisplayName_;
+        globalSessionCacheDir_ = prefSessionCacheDir_;
+        globalAi_.backend = aigen::backendIds()[prefAiBackend_];
+        globalAi_.model = prefAiModel_;
+        globalAi_.thinking = prefAiThinking_;
         saveGlobalConfig();
         // Feed the new values into the open project (the Runner's transport).
         if (hasProject_) {
@@ -14130,6 +18710,134 @@ void App::drawEditorPreferencesModal() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+// "Generate with AI" (Flow Graph window). The Generator runs the backend on a
+// worker thread; this modal polls it each frame - spinner + Cancel while busy,
+// then the parsed graph is applied through commitChange (one undo step, so a
+// bad generation is a Ctrl+Z away).
+void App::drawAiGenerateModal() {
+    if (openAiGeneratePopup_) {
+        ImGui::OpenPopup("Generate Flow Graph with AI");
+        openAiGeneratePopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(scaled(620), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Generate Flow Graph with AI", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    // The target can vanish mid-request (undo, scene switch, delete).
+    const bool targetOk = hasProject_ && aiGenTargetObject_ >= 0 &&
+                          aiGenTargetObject_ < (int)project_.objects().size();
+    if (!targetOk) {
+        if (aiGen_.busy()) aiGen_.cancel();
+        aiGenInFlight_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    SceneObject& owner = project_.objects()[aiGenTargetObject_];
+
+    // Consume a finished request exactly once.
+    if (aiGenInFlight_ && !aiGen_.busy()) {
+        aiGenInFlight_ = false;
+        if (aiGen_.state() == aigen::Generator::State::Success) {
+            FlowGraph fg;
+            aiGenWarnings_.clear();
+            const std::string err =
+                aigen::parseGraph(aiGen_.reply(), fg, &aiGenWarnings_);
+            if (!err.empty()) {
+                aiGenError_ = err;
+            } else {
+                // The reply is always the complete resulting graph - with an
+                // existing graph the model saw it in the prompt and returned
+                // the updated whole (edits, additions and fresh starts all
+                // land the same way).
+                owner.flowGraph = fg;
+                commitChange();
+                // Show the result: focus this object's graph and push the new
+                // node positions into imnodes.
+                flowGraphObject_ = aiGenTargetObject_;
+                flowPositionsApplied_ = false;
+                statusMessage_ = "AI graph: " + std::to_string(fg.nodes.size()) +
+                                 " nodes, " + std::to_string(fg.links.size()) +
+                                 " links -> " + owner.name +
+                                 (aiGenWarnings_.empty()
+                                      ? ""
+                                      : "  [" + aiGenWarnings_ + "]");
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+                return;
+            }
+        } else {
+            aiGenError_ = aiGen_.error();
+        }
+    }
+
+    const bool busy = aiGen_.busy();
+    const bool hasGraph = !owner.flowGraph.empty();
+    ImGui::Text("Graph of: %s", owner.name.c_str());
+    ImGui::TextDisabled(
+        "%s%s%s%s - change in Edit > Preferences > AI assistant.",
+        aigen::backendLabel(globalAi_.backend),
+        globalAi_.model.empty() ? "" : ", model ",
+        globalAi_.model.c_str(), globalAi_.thinking ? ", thinking" : "");
+
+    ImGui::BeginDisabled(busy);
+    ImGui::TextUnformatted(hasGraph ? "Describe new logic or a change:"
+                                    : "Describe the logic you want:");
+    ImGui::InputTextMultiline("##aiprompt", aiPromptBuf_, sizeof(aiPromptBuf_),
+                              ImVec2(-FLT_MIN, scaled(110)));
+    if (hasGraph)
+        ImGui::TextDisabled(
+            "The AI sees the current graph and decides from your request\n"
+            "whether to change it, extend it, or rebuild it.");
+    ImGui::EndDisabled();
+
+    if (!aiGenError_.empty() && !busy) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + scaled(590));
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                           aiGenError_.c_str());
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Separator();
+    if (busy) {
+        // Spinner: an arc revolving with time, next to the status text.
+        const float r = scaled(8.0f), thick = scaled(3.0f);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float t = (float)ImGui::GetTime() * 6.0f;
+        dl->PathArcTo(ImVec2(pos.x + r + thick, pos.y + r + thick), r, t,
+                      t + 4.4f, 24);
+        dl->PathStroke(ImGui::GetColorU32(ImGuiCol_ButtonHovered), 0, thick);
+        ImGui::Dummy(ImVec2((r + thick) * 2.0f, (r + thick) * 2.0f));
+        ImGui::SameLine();
+        ImGui::Text("Generating...");
+        ImGui::SameLine(0.0f, scaled(20.0f));
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) aiGen_.cancel();
+    } else {
+        const bool emptyPrompt = aiPromptBuf_[0] == '\0';
+        ImGui::BeginDisabled(emptyPrompt);
+        if (ImGui::Button("Generate", ImVec2(scaled(120), 0))) {
+            aiGenError_.clear();
+            aiGenWarnings_.clear();
+            aiGen_.start(globalAi_,
+                         aigen::systemPrompt(project_, aiGenTargetObject_,
+                                             hasGraph ? &owner.flowGraph
+                                                      : nullptr),
+                         aiPromptBuf_);
+            aiGenInFlight_ = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(scaled(120), 0)))
+            ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 
@@ -14243,7 +18951,7 @@ void App::drawScenePreferencesModal() {
     ProjectSettings& s = scenePrefSettings_;
     SceneOverrides& ov = scenePrefOverrides_;
     ImGui::Text("Scene: %s", project_.scenes[scenePrefScene_].name.c_str());
-    ImGui::TextDisabled(
+    prefHelp(
         "Each category inherits Project > Preferences until you tick\n"
         "\"Override project settings\" for it.");
 

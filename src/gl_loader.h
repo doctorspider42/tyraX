@@ -67,10 +67,14 @@ typedef ptrdiff_t GLintptr;
 #define GL_LINE 0x1B01
 #define GL_FILL 0x1B02
 #define GL_REPEAT 0x2901
+#define GL_CLAMP_TO_EDGE 0x812F
 #define GL_TEXTURE_WRAP_S 0x2802
 #define GL_TEXTURE_WRAP_T 0x2803
 #define GL_TEXTURE0 0x84C0
 #define GL_TEXTURE1 0x84C1
+#define GL_TEXTURE2 0x84C2
+#define GL_RED 0x1903
+#define GL_R32F 0x822E
 
 #define TYRA_GL_FUNCS(X) \
     X(void, Clear, GLbitfield) \
@@ -112,6 +116,7 @@ typedef ptrdiff_t GLintptr;
     X(void, Uniform3f, GLint, GLfloat, GLfloat, GLfloat) \
     X(void, Uniform1f, GLint, GLfloat) \
     X(void, Uniform1i, GLint, GLint) \
+    X(void, Uniform1iv, GLint, GLsizei, const GLint*) \
     X(void, GenVertexArrays, GLsizei, GLuint*) \
     X(void, DeleteVertexArrays, GLsizei, const GLuint*) \
     X(void, BindVertexArray, GLuint) \

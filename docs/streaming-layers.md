@@ -24,7 +24,7 @@ the scene has layers):
   editor only — the viewport skips them for rendering *and* clicking, the
   object list dims them with a `[hidden]` tag. This never affects the game.
 - **start** — the layer is resident (in memory) when the scene starts. Off
-  = the layer waits for a *Load Layer* flow node.
+  = the layer waits for a *Set Layer Loaded* flow node (its **load** pin).
 - The number on the right is how many objects the layer currently holds.
 - **x** deletes the layer. Its objects stay in the scene and just become
   unassigned (always resident).
@@ -41,12 +41,12 @@ Layers are per scene. Every scene in the project has its own layer list.
 
 Three flow-graph nodes (category *Scene*):
 
-- **Load Layer** — starts streaming the layer in. Missing assets (models,
+- **Set Layer Loaded**, **load** pin — starts streaming the layer in. Missing assets (models,
   materials, their textures) are loaded **one per frame**, then the layer's
   objects activate a few per frame. Nothing stalls: the cost is spread over
   the walk toward the area. Request it early (a corridor, an elevator, a
   bend in the road) and the pop-in stays out of sight.
-- **Unload Layer** — the layer's objects drop out of the game the same
+- **Set Layer Loaded**, **unload** pin — the layer's objects drop out of the game the same
   frame (rendering, player collision, USE prompts, sound emitters, object
   physics and particles all stop), and every asset that no other resident
   layer uses is freed — including its share of texture memory. Assets
@@ -85,7 +85,7 @@ Details worth knowing:
   loaded save resets layers to those defaults.
 - **Point lights** are baked into static vertex colors at build/rebuild
   time, so a light inside an unloaded layer keeps tinting neighbouring
-  geometry — the same behavior as hiding a light with *Hide Object*.
+  geometry — the same behavior as hiding a light with *Set Object Visible*.
 - **Flow nodes targeting objects in an unloaded layer** are safe:
   Show/Hide/Move write to the object's dormant state, which is discarded on
   the next activation.
@@ -108,10 +108,10 @@ Details worth knowing:
 ## Troubleshooting
 
 - **The layer never shows up** — check its *start* flag or make sure some
-  trigger actually fires *Load Layer*; watch `Is Layer Loaded` with a *Log*
+  trigger actually fires the *load* pin; watch `Is Layer Loaded` with a *Log*
   node. Unknown layer names in flow nodes compile to a comment (check
-  `src/scripts/flow_graph.gen.cpp` if in doubt).
-- **Objects pop in too close** — move the *Load Layer* trigger earlier
+  `src/gen/flow_graph.gen.cpp` if in doubt).
+- **Objects pop in too close** — move the *load* trigger earlier
   along the approach; the stream needs roughly one frame per asset plus a
   few frames of activation.
 - **The player falls through where a building used to be** — that is what

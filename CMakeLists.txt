@@ -35,15 +35,37 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_link_libraries(imgui PUBLIC glfw)
 
+# --- Embedded AI-support skills (ai-support/ -> generated header) ---
+# The markdown under ai-support/ is the source of truth for the assistant
+# guidance the editor installs into projects ("Add AI support"); it is baked
+# into the exe so nothing has to ship next to it. CONFIGURE_DEPENDS re-globs
+# on build, so adding a skill file only needs a rebuild, not a reconfigure.
+file(GLOB_RECURSE AI_SUPPORT_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/ai-support/*)
+set(AI_SUPPORT_GEN ${CMAKE_BINARY_DIR}/generated/ai_support_gen.hpp)
+add_custom_command(
+    OUTPUT ${AI_SUPPORT_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_DIR=${CMAKE_SOURCE_DIR}/ai-support
+            -DOUT_FILE=${AI_SUPPORT_GEN}
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
+    DEPENDS ${AI_SUPPORT_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
+    COMMENT "Embedding ai-support/ skills")
+
 # --- Editor ---
 add_executable(tyrax-editor
+    ${AI_SUPPORT_GEN}
     src/main.cpp
+    src/aigen.cpp
+    src/aisupport.cpp
+    src/aobake.cpp
     src/app.cpp
     src/camtake.cpp
     src/flownode.cpp
+    src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
+    src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
@@ -52,21 +74,30 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/primmesh.cpp
     src/decalproj.cpp
+    src/navmesh.cpp
     src/project.cpp
     src/screenfx.cpp
+    src/session.cpp
+    src/stochtile.cpp
+    src/texatlas.cpp
     src/texbake.cpp
+    src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp
     src/wavconvert.cpp
+    src/wire.cpp
     src/runner.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
+    vendor/ufbx/ufbx.c
+
     ${TYRAX_EDITOR_RC}
 )
-target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb ${CMAKE_BINARY_DIR}/generated)
+target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
-target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid)
+# ws2_32: the collaboration transport (src/wire.cpp) uses Winsock2 sockets.
+target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid ws2_32)
 
 if(MINGW)
     # Self-contained exe: don't depend on libstdc++/libgcc/libwinpthread DLLs

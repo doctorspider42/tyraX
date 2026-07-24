@@ -5,7 +5,7 @@
 
 namespace Object_spawning {
 namespace sequences {
-// Cutscene Director runtime (see src/scripts/sequences.gen.cpp),
+// Cutscene Director runtime (see src/gen/sequences.gen.cpp),
 // driven by the Play Sequence / Stop Sequence flow nodes.
 void play(int index);  // start Project::sequences[index] at t=0
 void stop();           // stop the active sequence, free the camera
