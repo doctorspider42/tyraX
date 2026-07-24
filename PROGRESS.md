@@ -8717,3 +8717,20 @@ Each finished feature lands as its own commit.
   embedded). The elf and its `build/` tree are gitignored (binary sent to the
   user directly). Real-hardware test - flash it, tick both ps2link checkboxes,
   F6, expect `keyboard driver ready` AND `mouse driver ready` - pending.
+
+- (97) **Mouse read: zero-init the buffer + force DIFF mode (real-hardware
+  fix)**. With the custom ps2link (96) both drivers finally came up on hardware
+  (`keyboard driver ready` AND `mouse driver ready`, game booted) - but the
+  camera orbited the avatar on its own, mouse unusable. Cause: `KbdMouse::update`
+  read into an **uninitialised** `PS2MouseData data;`. A real USB mouse only
+  sends packets on activity, so on a still frame `PS2MouseRead` returns success
+  without writing the struct - we then fed stack garbage (a near-constant value)
+  into `mouse.dx`, and the walkers add dx straight to yaw => perpetual spin.
+  PCSX2 never showed it: its emulated mouse delivers a packet every frame, so
+  the struct was always freshly written. Fix: `PS2MouseData data = {};` (a
+  no-data frame now yields 0 deltas). Also set `PS2MouseSetReadMode(PS2MOUSE_
+  READMODE_DIFF)` explicitly at init instead of trusting the driver default -
+  ABS mode would return absolute position read as a huge constant delta (same
+  spin). Pure engine change (kbd_mouse.cpp), reaches the game via the Docker
+  resync - no editor rebuild. Fixes mouse-look on ALL real-hardware paths (ISO
+  too), not just ps2link. Hardware retest pending.

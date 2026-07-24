@@ -48,10 +48,17 @@ void KbdMouse::init(bool withMouse) {
   // ends - so withMouse=false there (keyboard only) to keep the boot alive.
   if (withMouse) {
     mouseOk = PS2MouseInit() >= 0;
-    if (mouseOk)
+    if (mouseOk) {
+      // Force relative deltas. We treat every read as a per-frame delta (the
+      // walkers add dx/dy straight to yaw/pitch); in ABS mode PS2MouseRead
+      // returns the accumulated absolute position instead, which reads as a
+      // large constant delta and spins the camera forever. Don't trust the
+      // driver default - set it explicitly.
+      PS2MouseSetReadMode(PS2MOUSE_READMODE_DIFF);
       TYRA_LOG("KbdMouse: mouse driver ready");
-    else
+    } else {
       TYRA_LOG("KbdMouse: mouse driver NOT ready (no device / no usbd?)");
+    }
   } else {
     mouseOk = false;
     TYRA_LOG("KbdMouse: mouse skipped (keyboard only under ps2link)");
@@ -80,7 +87,12 @@ void KbdMouse::update() {
   }
 
   if (mouseOk) {
-    PS2MouseData data;
+    // Zero-init: a real USB mouse only sends packets on activity, so on a
+    // still frame PS2MouseRead can report success without writing the struct.
+    // Left uninitialised that was stack garbage read as a constant delta -
+    // the camera orbited on its own on hardware (PCSX2's emulated mouse
+    // delivers a packet every frame, so it never showed there).
+    PS2MouseData data = {};
     if (PS2MouseRead(&data) >= 0) {
       mouse.dx = data.x;
       mouse.dy = data.y;
