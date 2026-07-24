@@ -881,6 +881,13 @@ private:
     int matEdUvIssueSel_ = -1;
     void matEdUvValidateSection(const std::string& entryName);
 
+    // Automatic UV unwrap (uvunwrap.hpp): rewrites the preview .obj with
+    // smart-project charts. Static .obj models only; the modal warns that
+    // the previous UVs are replaced (projects are git repos - revert there).
+    bool openUnwrapPopup_ = false;
+    float unwrapAngle_ = 55.0f;  // chart-growing angle threshold
+    int unwrapMargin_ = 4;       // chart spacing, px at the bake resolution
+
     // "PS2 CLUT" display mode (matEdDisplayMode_ == 3): the composite is
     // palette-quantized through the same median-cut quantizer texbake ships
     // and uploaded in place of the texture (GL-only, like the AO preview -

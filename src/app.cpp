@@ -24,6 +24,7 @@
 #include "menubake.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
+#include "uvunwrap.hpp"
 #include "stochtile.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
@@ -13705,6 +13706,94 @@ void App::matEdUvValidateSection(const std::string& entryName) {
             "one paints the other), UVs outside 0-1, mirrored (flipped) and\n"
             "degenerate triangles, extreme texel-density outliers. Click a\n"
             "finding to highlight it in the UV panel and on the mesh.");
+
+    // --- automatic unwrap: static .obj preview models only --------------------
+    const bool unwrappable = matEdShape_ == 4 && !matEdModel_.empty() &&
+                             !isAnimatedModelPath(matEdModel_);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!unwrappable);
+    if (ImGui::Button("Unwrap UVs...")) openUnwrapPopup_ = true;
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            unwrappable
+                ? "Automatic smart-project unwrap of the preview model:\n"
+                  "faces cluster into charts by normal, each chart projects\n"
+                  "flat, everything packs into 0..1 at uniform texel\n"
+                  "density. Rewrites the .obj (positions/materials survive\n"
+                  "byte-for-byte, only the UVs are replaced)."
+                : "Pick a static .obj as the preview mesh first - primitives\n"
+                  "have generated UVs and animated models carry their own\n"
+                  "glTF/FBX mapping.");
+    if (openUnwrapPopup_) {
+        ImGui::OpenPopup("Unwrap UVs");
+        openUnwrapPopup_ = false;
+    }
+    if (ImGui::BeginPopupModal("Unwrap UVs", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextDisabled("%s", matEdModel_.c_str());
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        ImGui::SliderFloat("Chart angle", &unwrapAngle_, 15.0f, 89.0f,
+                           "%.0f deg");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Faces within this angle of a chart's seed grow into one\n"
+                "island. Low = many small flat charts (hard surface),\n"
+                "high = few big charts with more distortion (organic).");
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        ImGui::SliderInt("Margin", &unwrapMargin_, 1, 8, "%d px");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Spacing between charts, in texels at the bake\n"
+                              "resolution - keeps bilinear filtering from\n"
+                              "bleeding across islands.");
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                           "Replaces the model's UVs in the .obj file.\n"
+                           "An already-painted texture will no longer line\n"
+                           "up - unwrap BEFORE texturing (or revert with git).");
+        if (ImGui::Button("Unwrap", ImVec2(scaled(120), 0))) {
+            uvunwrap::Params up;
+            up.angleDeg = unwrapAngle_;
+            up.marginPx = unwrapMargin_;
+            up.marginRefSize = 64 << matBakeSizeIdx_;
+            uvunwrap::Stats st;
+            std::string err;
+            if (uvunwrap::unwrapObjFile(
+                    (std::filesystem::path(project_.dir) / matEdModel_)
+                        .string(),
+                    up, err, &st)) {
+                // every consumer caches the parsed model - drop them all
+                viewport_.invalidateAssets();
+                modelInfoCache_.clear();
+                matBakeMeshKey_.clear();
+                matEdStatsKey_.clear();
+                matEdUvIssueTris_.clear();
+                matEdUvIssueSel_ = -1;
+                // validate the fresh mapping right away and show it
+                matEdUvIssues_.clear();
+                matEdUvIssuesKey_.clear();
+                if (matBakeBuildMeshes(entryName)) {
+                    matEdUvIssues_ = matbake::validateUv(
+                        matBakeMeshLow_, 64 << matBakeSizeIdx_);
+                    matEdUvIssuesKey_ = matBakeMeshKey_;
+                }
+                matEdUvView_ = true;
+                char msg[160];
+                std::snprintf(msg, sizeof(msg),
+                              "Unwrapped %s: %d charts, %.0f%% coverage",
+                              matEdModel_.c_str(), st.charts,
+                              st.coverage * 100.0f);
+                statusMessage_ = msg;
+                ImGui::CloseCurrentPopup();
+            } else {
+                statusMessage_ = "Unwrap failed: " + err;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
     if (matEdUvIssuesKey_.empty()) return;
     if (matEdUvIssuesKey_ != matBakeMeshKey_) {
         // different mesh/entry since the run - results no longer apply

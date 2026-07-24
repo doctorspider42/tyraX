@@ -79,6 +79,20 @@ Click a finding and the offending triangle(s) outline red in the UV panel
 and on the mesh. Note the box primitive intentionally maps all six faces
 onto the same square — its overlap findings are by design.
 
+Next to it, **Unwrap UVs...** generates a mapping from scratch for a static
+`.obj` preview model — the classic smart-project recipe: faces cluster into
+**charts** by normal similarity (the *Chart angle* knob: low = many flat
+islands for hard surfaces, high = fewer, more distorted charts for organic
+shapes), each chart projects onto its plane and rotates to its tightest
+box, and everything packs into 0..1 at **uniform texel density** with a
+bleed *Margin*. The `.obj` is rewritten in place — positions, normals,
+materials and comments survive byte-for-byte, only the UVs change (unwrap
+**before** texturing; an already-painted texture will no longer line up —
+projects are git repositories, revert from there). After the unwrap the
+validator re-runs automatically and the UV panel opens on the fresh
+layout. Deterministic: the same mesh and settings always produce the same
+mapping.
+
 The property column ends in a **Bake maps** block: a progressive raytraced
 bake of the preview mesh (ambient occlusion, curvature, thickness and more)
 that can land as a *"Baked AO" multiply layer* on the entry's texture — see
