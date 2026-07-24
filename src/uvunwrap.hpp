@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 // uvunwrap: automatic UV unwrapping for static .obj models (the Material
 // Editor's "Unwrap UVs..." button, docs/material-painting.md). Host-only.
@@ -39,5 +40,14 @@ struct Stats {
 // the whole unwrap succeeded.
 bool unwrapObjFile(const std::string& path, const Params& p,
                    std::string& error, Stats* stats = nullptr);
+
+// Unwraps a flat triangle soup (xyz per corner, 3 corners per triangle -
+// the animated-model path, applied through the "<model>.uvs" sidecar).
+// Corners sharing a quantized position weld, so charts stay continuous
+// across the soup's duplicated vertices. outUv receives 2 floats per
+// corner, in corner order.
+bool unwrapTriangles(const std::vector<float>& corners,
+                     std::vector<float>& outUv, const Params& p,
+                     std::string& error, Stats* stats = nullptr);
 
 }  // namespace uvunwrap

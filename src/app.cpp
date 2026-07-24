@@ -13707,9 +13707,12 @@ void App::matEdUvValidateSection(const std::string& entryName) {
             "degenerate triangles, extreme texel-density outliers. Click a\n"
             "finding to highlight it in the UV panel and on the mesh.");
 
-    // --- automatic unwrap: static .obj preview models only --------------------
-    const bool unwrappable = matEdShape_ == 4 && !matEdModel_.empty() &&
-                             !isAnimatedModelPath(matEdModel_);
+    // --- automatic unwrap: .obj rewrites in place, animated models get a
+    // "<model>.uvs" sidecar folded in by animimport (sources can't be
+    // rewritten - FBX has no writer)
+    const bool unwrapAnimated =
+        matEdShape_ == 4 && isAnimatedModelPath(matEdModel_);
+    const bool unwrappable = matEdShape_ == 4 && !matEdModel_.empty();
     ImGui::SameLine();
     ImGui::BeginDisabled(!unwrappable);
     if (ImGui::Button("Unwrap UVs...")) openUnwrapPopup_ = true;
@@ -13720,11 +13723,11 @@ void App::matEdUvValidateSection(const std::string& entryName) {
                 ? "Automatic smart-project unwrap of the preview model:\n"
                   "faces cluster into charts by normal, each chart projects\n"
                   "flat, everything packs into 0..1 at uniform texel\n"
-                  "density. Rewrites the .obj (positions/materials survive\n"
-                  "byte-for-byte, only the UVs are replaced)."
-                : "Pick a static .obj as the preview mesh first - primitives\n"
-                  "have generated UVs and animated models carry their own\n"
-                  "glTF/FBX mapping.");
+                  "density. A static .obj is rewritten in place; an\n"
+                  "animated model gets a <model>.uvs sidecar applied at\n"
+                  "every load/bake (each part unwraps into its own square)."
+                : "Pick a model as the preview mesh first - primitives\n"
+                  "have generated UVs.");
     if (openUnwrapPopup_) {
         ImGui::OpenPopup("Unwrap UVs");
         openUnwrapPopup_ = false;
@@ -13747,9 +13750,14 @@ void App::matEdUvValidateSection(const std::string& entryName) {
                               "resolution - keeps bilinear filtering from\n"
                               "bleeding across islands.");
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                           "Replaces the model's UVs in the .obj file.\n"
-                           "An already-painted texture will no longer line\n"
-                           "up - unwrap BEFORE texturing (or revert with git).");
+                           unwrapAnimated
+                               ? "Writes a <model>.uvs sidecar that overrides\n"
+                                 "the model's UVs everywhere (previews, bakes,\n"
+                                 "the shipped .tskl). Delete the sidecar to\n"
+                                 "get the original mapping back."
+                               : "Replaces the model's UVs in the .obj file.\n"
+                                 "An already-painted texture will no longer line\n"
+                                 "up - unwrap BEFORE texturing (or revert with git).");
         if (ImGui::Button("Unwrap", ImVec2(scaled(120), 0))) {
             uvunwrap::Params up;
             up.angleDeg = unwrapAngle_;
@@ -13757,10 +13765,47 @@ void App::matEdUvValidateSection(const std::string& entryName) {
             up.marginRefSize = 64 << matBakeSizeIdx_;
             uvunwrap::Stats st;
             std::string err;
-            if (uvunwrap::unwrapObjFile(
+            bool ok = false;
+            if (unwrapAnimated) {
+                // per part into its own 0..1 square (each part carries its
+                // own texture); the sidecar must hold the ORIGINAL mapping's
+                // replacement, so bake the model fresh without it
+                const std::string abs =
+                    (std::filesystem::path(project_.dir) / matEdModel_)
+                        .string();
+                std::error_code fec;
+                std::filesystem::remove(abs + ".uvs", fec);
+                glbparser::Baked baked;
+                if (animimport::bake(abs, 12.0f, baked, err)) {
+                    std::vector<std::vector<float>> partUvs(
+                        baked.parts.size());
+                    int charts = 0;
+                    ok = !baked.parts.empty();
+                    for (size_t i = 0; i < baked.parts.size() && ok; ++i) {
+                        const glbparser::Part& part = baked.parts[i];
+                        std::vector<float> corners(
+                            part.positions.begin(),
+                            part.positions.begin() +
+                                (size_t)part.vertexCount * 3);
+                        uvunwrap::Stats ps;
+                        ok = uvunwrap::unwrapTriangles(corners, partUvs[i],
+                                                       up, err, &ps);
+                        charts += ps.charts;
+                    }
+                    if (ok)
+                        ok = animimport::writeUvSidecar(abs, baked, partUvs,
+                                                        err);
+                    st.charts = charts;
+                    st.faces = baked.totalVertexCount() / 3;
+                    st.coverage = 0.0f;  // per-part squares - not comparable
+                }
+            } else {
+                ok = uvunwrap::unwrapObjFile(
                     (std::filesystem::path(project_.dir) / matEdModel_)
                         .string(),
-                    up, err, &st)) {
+                    up, err, &st);
+            }
+            if (ok) {
                 // every consumer caches the parsed model - drop them all
                 viewport_.invalidateAssets();
                 modelInfoCache_.clear();
@@ -13778,10 +13823,15 @@ void App::matEdUvValidateSection(const std::string& entryName) {
                 }
                 matEdUvView_ = true;
                 char msg[160];
-                std::snprintf(msg, sizeof(msg),
-                              "Unwrapped %s: %d charts, %.0f%% coverage",
-                              matEdModel_.c_str(), st.charts,
-                              st.coverage * 100.0f);
+                if (unwrapAnimated)
+                    std::snprintf(msg, sizeof(msg),
+                                  "Unwrapped %s: %d charts (sidecar written)",
+                                  matEdModel_.c_str(), st.charts);
+                else
+                    std::snprintf(msg, sizeof(msg),
+                                  "Unwrapped %s: %d charts, %.0f%% coverage",
+                                  matEdModel_.c_str(), st.charts,
+                                  st.coverage * 100.0f);
                 statusMessage_ = msg;
                 ImGui::CloseCurrentPopup();
             } else {
