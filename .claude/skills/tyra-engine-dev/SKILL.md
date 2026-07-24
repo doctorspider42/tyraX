@@ -148,6 +148,13 @@ masks (`clamp(x*1e38,0,1)` — VU floats saturate, no inf/nan). Runs
 synchronously: macro-mode COP2 (Vec4/M4x4) shares VU0's register file, so
 the tracer never overlaps engine math, and clobbering VF01+ between kicks
 is safe because every macro op reloads its operands,
+`Texture::sourcePath` (the full load path, set by
+`TextureRepository::add` - `name` keeps only the basename; the generated
+texture hot-reload poller `live_tex.gen.cpp` matches repainted files against
+it and re-uploads via `RendererCoreTexture::updateTextureInfo` to the SAME
+VRAM address - see docs/live-link.md; NOTE the engine always constructs the
+clut `TextureData`, a non-paletted texture just has `clut->data == nullptr` -
+test data presence, not the object pointer),
 `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
