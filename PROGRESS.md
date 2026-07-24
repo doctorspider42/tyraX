@@ -7997,3 +7997,323 @@ Each finished feature lands as its own commit.
   Project Preferences modal now fits without scrolling and the same wording is
   one hover away. Verified: `build.ps1` links clean; the tooltip idiom is
   byte-identical to the existing working markers (fontCombo, layers, scenes).
+- (70) **matbake: UV-space raytraced map baker (Material Editor core)** - the
+  foundation of the Material Editor expansion: a new host-only module
+  (src/matbake.cpp/.hpp, the decalproj pattern - no GL) that rasterizes a
+  mesh's paintable triangles in UV space (conservative: corner-grazed texels
+  get a nearest-interior-point sample, so island borders never gap),
+  interpolates 3D position/normal per texel through the barycentrics, and
+  fires cosine-weighted hemisphere rays through a flat binned-SAH BVH. One
+  pass produces the whole map set: AO (linear distance falloff, epsilon
+  origin offset - no acne), bent normals, thickness (same spiral mirrored
+  below the surface), curvature (discrete mean curvature from edge normal
+  deltas, p90-normalized - no rays), position and object-space normal maps.
+  High-poly support: with a second mesh the texel points are cage-projected
+  along the smoothed low-poly normals onto the dense mesh first, and rays
+  occlude against it. Deviations from the backlog, on purpose: golden-angle
+  spiral + per-texel seeded hash rotation instead of Hammersley (the proven
+  aobake recipe; any prefix is well distributed, which makes progressive
+  rounds honest), and all bonus maps ride the same rays instead of separate
+  bakes. Progressive matbake::Baker (worker thread, growing rounds
+  8/16/32..., full snapshot after each; gbuffer+BVH cached across start()
+  calls keyed by mesh signature + raster params, so sampling-only slider
+  drags restart nearly free). Deterministic by construction: fixed spiral,
+  seeded hash, threads own fixed texel ranges - same inputs = bit-identical
+  maps at any core count. All maps flood-dilated N texels (ring averages
+  filled neighbors, UV-wrapping) against bilinear/mip seam bleed. Docs:
+  docs/material-baking.md. Verified with a scratch harness linking the
+  build .obj files (memory recipe): sphere-over-plane contact shadow
+  gradient (center 113 / penumbra 223 / open 255, no acne - open-plane
+  min=max=255), two fresh bakes bit-identical, high-poly projection changes
+  the normal map, 256^2 x 64 rays against a 100,352-tri occluder in 773 ms
+  including BVH build (~11M rays/s).
+- (71) **Material Editor: Bake maps UI (progressive preview + auto layer)** -
+  the matbake front end. The property column gained a "Bake maps" block:
+  Preview combo ("AO on material" multiplies the baked occlusion over the
+  textured preview mesh; "Map view" swaps the material for the raw
+  AO/curvature/thickness/bent/OS-normal/position map via a "@matbake-view"
+  pseudo-texture), a High-poly slot (cage projection, auto/manual Cage
+  offset), and the parameters (Resolution 64-512, Rays, Max distance = THE
+  artistic knob, Anti-alias supersampling, Backface hits, Padding, Seed).
+  Parameter changes restart the worker-thread bake immediately - the Baker's
+  gbuffer+BVH cache makes sampling-only drags feel instant, and the first
+  progressive round lands on the mesh in milliseconds. "Bake & add AO layer"
+  = the magic auto-hookup: full-quality bake drops onto the entry's texture
+  as a "Baked AO" MULTIPLY layer (re-bakes overwrite it in place instead of
+  stacking; layer-undo covers it); "Save all maps" writes the six-map set as
+  PNGs next to the .mtl for smart-mask material work. Key safety decision:
+  the AO-on-material preview multiplies into the GL upload ONLY
+  (matEdUploadComposite) - matEdPaintPixels_/the PNG on disk never contain
+  the preview, so saving a paint stroke mid-preview ships clean. Bake
+  params persist per .mtl as a "# tyra-bake" hint line (written only when
+  non-default; %20-escaped high-poly path), so with the fixed seed a
+  re-open reproduces the bake bit for bit. Mesh inputs are cached keyed by
+  path+mtime (external re-exports re-bake automatically); closing the
+  window or switching files cancels the worker. Docs:
+  docs/material-baking.md (Using it), docs/material-painting.md pointer.
+  Verified: build.ps1 links clean; the matbake core underneath has the
+  harness coverage of (70). GUI visual verification is BLOCKED by the known
+  machine state (PROGRESS 2026-07-21 note: editor GL window presents
+  white/black on this AMD driver; reproduced with the pre-change baseline
+  binary at D:\tyra-editor\build - not a regression of this change). A
+  human pass over the new panel is pending: scratch project recipe in
+  the entry-(70) harness notes (steps.obj demo model generator in the
+  session scratchpad).
+- (72) **Material Editor: UV layout panel + display modes + hover sync** -
+  the M0 "see your UVs" block. The preview toolbar gained a display-mode
+  combo (Solid / Wireframe overlay / UV checker) and a "UV" toggle. The
+  wireframe overlay is a second glPolygonMode(GL_LINE) pass with the fill
+  pushed back by glPolygonOffset(1,1) (no z-stitching); the UV checker is a
+  generated 256^2 8-cell texture (two grays, texel grid, red-toward-u /
+  green-toward-v hue wash) that replaces every texture on the preview mesh
+  - painting pauses in checker/map-view modes since strokes would be
+  invisible. The UV toggle splits the preview 58/42: 3D on top, a 2D UV
+  layout panel below - the entry's paintable triangles drawn with ImDrawList
+  over the LIVE texture (viewport_.sharedTexture = the same GL cache the
+  painter uploads into, so paint strokes appear in the panel in real time),
+  wheel-zoom around the cursor, drag pan, 0..1 border. Hover sync both
+  ways: 3D hover -> materialPreviewPick UV -> every triangle whose UV
+  region contains it fills amber in the panel (UV overlaps thereby expose
+  themselves) + a dot marks the exact texel; panel hover -> the triangle is
+  outlined blue on the mesh via the new Viewport::materialPreviewProject
+  (exact inverse of the pick raycast: model-space point -> preview image
+  coords through the same stored camera basis). The panel reuses the bake's
+  cached MeshInput (matBakeMeshLow_), so UV data costs nothing extra; a
+  matEdUvIssueTris_ highlight list is already wired into both views for the
+  upcoming UV validator (red outlines). Docs: material-painting.md.
+  Verified: build.ps1 links clean; visual pass pending the same known
+  white-window machine state as (71).
+- (73) **Material Editor: UV validator** - matbake::validateUv (host-only,
+  harness-testable) inspects the preview mesh's paintable UVs: overlapping
+  islands via a texel-center ownership raster (wrapping modulo 1 like the
+  GS samples, >= 2 shared texels to ignore exactly-on-edge centers - shared
+  island edges never false-positive because a texel center lies strictly
+  inside one triangle), UVs outside 0-1 (eps 1e-3), flipped triangles
+  (minority UV winding - the majority orientation is the mesh's convention,
+  so a fully mirrored map doesn't drown the list), degenerate UV area over
+  real surface, and texel-density outliers (>4x / <0.25x of the
+  area-weighted mesh average). Findings cap at 400. UI: "UV check" section
+  under Bake maps - a Validate button, a per-kind summary line and a
+  clickable list; selecting a finding highlights the triangle(s) red in the
+  UV panel AND on the 3D mesh (the matEdUvIssueTris_ hook from (72)),
+  auto-opening the UV view. Results pin to the mesh key they ran against
+  and clear when the shape/model/entry changes. Verified in the headless
+  harness: a crafted 5-triangle mesh yields exactly the expected
+  overlap/out-of-range/flipped/low-density findings (tri indices checked),
+  a clean two-triangle quad reports zero; the whole matbake suite still
+  passes (contact shadow, determinism, high-poly, 100k-tri perf).
+- (74) **Material Editor: PS2 CLUT preview + memory budget** - the "how will
+  it actually look on the console" mode today's editor lacked. New
+  pngquant::quantizePreviewRGBA: an in-memory twin of the shipped
+  quantizeRGBA path (same weighted median cut, same nearest-with-2x-alpha
+  metric) that returns the palettized image expanded back to RGBA plus the
+  palette, with three dither flavors - Floyd-Steinberg (identical loop to
+  the shipped bake), 4x4 ordered Bayer (amplitude scaled to palette
+  coarseness: 40 at 16 colors, 18 at 256) and none. The Material Editor
+  display combo gained "PS2 CLUT": the composite is quantized at GL-upload
+  time in matEdUploadComposite (stacked AFTER the AO-on-material multiply,
+  so the preview quantizes what would really ship; disk PNG untouched,
+  painting keeps working and strokes appear pre-quantized), palette size
+  follows the resolved policy (per-asset textureQuality override of the
+  .mtl, else ProjectSettings::textureQuant) or an explicit 16/256/full
+  override, a swatch strip shows the surviving palette, and a live budget
+  line prices the texture ("128x128 4-bit = 8.0 KB + 64 B palette") - the
+  same line now also replaces the bare dims readout under Texture, with the
+  GS +8 KB allocation-overhead caveat in its tooltip. Known approximation:
+  texbake lets the highest quality claimed by ANY asset sharing a PNG win;
+  the editor resolves only the open .mtl's claim (noted in the code).
+  Verified headlessly (scratch harness linking pngquant.cpp + stb impls):
+  a 256-wide RGB gradient quantized to 16 colors holds the budget in all
+  three dither modes (16/16/16 unique colors, 16-entry palette), FS and
+  ordered outputs differ from undithered, and a 4-color image passes
+  through bit-identical with its 4-entry palette (lossless path).
+- (75) **Material Editor: smart masks + material presets (M4)** - procedural
+  wear/dirt driven by the baked map set. matbake::generateMask (host-only,
+  harness-tested): sources Edge wear / Cavity grime (curvature), Occlusion
+  dirt (1-AO), Thin rims (thickness), Height Y / Facing up
+  (position/normals), Perlin 3D / Worley 3D - both sample noise AT THE BAKED
+  SURFACE POSITION (AABB-normalized), so patterns flow across UV island
+  seams instead of restarting at them (the triplanar effect of M4.3 for
+  free) - and UV-space running-bond Bricks with a mortar width. Signal ->
+  smoothstep Range window -> optional Invert -> optional Breakup (multiply
+  by world-space Perlin). All hashed-corner noise, no tables, fully
+  deterministic. UI: "+ Mask" adds a generated layer (its pixels = fill
+  color through the mask alpha; marked "*" in the list), generator controls
+  appear under the layer list for the active mask layer, masks REGENERATE
+  LIVE as the progressive bake refines (matBakeTick hook) and after a paint
+  target loads; a matBakeRunOnce_ flag lets masks request maps without
+  turning the bake preview on. Params persist per layer in the layers.json
+  sidecar ("gen" object). Presets (M4.4): "Presets" popup saves the
+  gen-layers' PARAMETERS as material-presets/<name>.matpreset in the
+  project root (outside res/, the flow-nodes/ dir pattern - never ships);
+  applying regenerates the same wear recipe from the target material's own
+  bake. Hand-painting on a mask layer is overwritten by regeneration
+  (tooltip warns; paint on a normal layer above instead - a deliberate
+  simplification over per-stroke mask compositing). Verified in the
+  headless harness: occlusion-dirt mask strong under the sphere / zero in
+  the open (250 vs 0), flat plane grows no edge wear (max 0), Perlin
+  deterministic + seed-sensitive + well spread (0..255, mean 122), bricks
+  mortar fraction sane (0.18). Docs: material-baking.md "Smart masks".
+- (76) **Material Editor: preview-mesh stats line (M0.1)** - under the
+  shape/display row: "<N> tris (<M> on this entry) - <V> verts", amber with
+  a "no UVs (paint/bake need them)" or "no faces use this entry (check
+  usemtl names)" warning when applicable. Computed from the cached bake
+  MeshInput, recomputed only when the mesh key changes. Verified:
+  build.ps1 links clean (visual pass rides the same pending human check).
+- (77) **Texture hot reload over Live Link (M5.3)** - the biggest-ROI item of
+  the pipeline backlog: repaint a texture in the Material Editor and the
+  RUNNING game re-uploads it within a fraction of a second - no rebuild, no
+  reboot. Editor side (App::liveTexNotify, hooked into every
+  matEdSavePaintTarget): re-bakes the composite into bin/<path> in exactly
+  the format the build shipped (palette layout read from the existing PNG's
+  IHDR - color type 3 + bit depth -> 16/256 colors through the same pngquant
+  the bake uses), written tmp+rename, then bumps bin/livetex.bin ("TXLT" v1:
+  seq + cumulative path->generation records + footer echo, the livelink.bin
+  idiom; capped 64 paths, cleared by the Runner at build start alongside
+  livelink.bin). Game side: a generated sibling poller
+  (src/scripts/live_tex.gen.cpp, same debug+liveLink gate, registered like
+  LiveLink, whitelisted in refreshGenerated) re-reads the file every 6/25
+  frames, matches repository textures by the fork's NEW Texture::sourcePath
+  (set in TextureRepository::add - `name` keeps only the basename, ambiguous
+  across dirs), re-decodes through PngLoader (CLUT rotation matches the
+  original load), memcpy's the pixel + CLUT data into the existing
+  TextureData buffers and re-sends them to the SAME GS VRAM address via
+  RendererCoreTexture::updateTextureInfo - the bump allocator is never
+  touched. Dimension/format drift is rejected with a TYRA_SOFT_ERROR
+  ("rebuild to apply"); torn files fail the size/footer check or come back
+  as the 8x8 placeholder and fail the dimension check. Engine mods (marked
+  Modified by TyraX): Texture::sourcePath + its assignment in
+  TextureRepository::add - two lines, everything else rides existing fork
+  API. Gotcha found live: the engine ALWAYS constructs the clut TextureData
+  (null data for 32-bit textures), so clut presence must be tested via
+  t->clut->data, not the object pointer - the first e2e attempt tripped the
+  guard on a 32-bit texture and proved the soft-error path for real.
+  Verified e2e in PCSX2 (scratch project, steps.obj model): full-color
+  32bpp swap tan -> red/white checker ON SCREEN in the running game
+  (before/after F8 screenshots), then the palettized path - project
+  rebuilt at 4bit, shipped PNG colorType 3/depth 4, replacement quantized
+  through the editor's own pngquant - swapped to a blue/yellow checker
+  with correct CLUT colors; bin/log.txt clean in both runs. The editor-side
+  liveTexNotify path is code-identical to the harness scripts used in the
+  e2e (same format detection, same file writes) but was not driven through
+  the GUI (the known white-window machine state); a human paint-stroke
+  pass remains. Docs: docs/live-link.md "Texture hot reload", README.
+- (78) **Texture atlasing with GS page control (M5.4)** - the last big item
+  of the pipeline backlog. Preferences > Build > "Texture atlasing" (default
+  off, ProjectSettings::textureAtlas): small clamp-safe map_Kd textures pack
+  into shared 256x256 pages at build - one GS VRAM allocation (+~8 KB
+  overhead) per page instead of per texture, fewer texture switches. New
+  host module src/texatlas.cpp computes the DETERMINISTIC plan (the aobake
+  single-source pattern): eligibility scan (models' textured submesh UVs
+  checked against the real mesh via objparser, <=128 baked size via the
+  texbake dim rule, same-directory map_Kd tokens only - pages group by the
+  .mtl's directory so the rewritten reference never needs ".." over PS2
+  host fs; terrain/emitters/decals/mirrors/portals/refl-maps/
+  textureQuality-pinned assets excluded with reasons), then dir-grouped
+  shelf packing with 2-texel gutters. texbake consumes the plan: composites
+  members into .res-baked/<dir>/tyra-atlas-N.png (edge-dilated gutters,
+  page quantized AS ONE IMAGE - shared 256-color CLUT when the project is
+  palettized, the era trade), skips the members' individual bakes, rewrites
+  baked .mtls (map_Kd -> page + "# tyra-uvrect u0 v0 du dv" hint;
+  stale-rewrite purge when the plan stops covering a file; sweep exemption
+  for the sourceless pages). Engine (Modified by TyraX): LeanObjLoader
+  parses the hint - model vertex UVs multiply through the rect at load,
+  LeanMtlMaterial::uvRect exposes it. Codegen: GameMaterial::uvRect (both
+  template copies!) <- loadMaterialAsset, staged as g_primUvRect and
+  multiplied in pushVert's staged-material path only (model parts pass
+  kdArg and are already remapped - no double-apply); TEXTURE_ATLAS_INFO
+  constant in model_data.gen.hpp logged at scene boot; live_tex hot reload
+  naturally no-ops for atlased members (missing individual bin PNG).
+  Verified: headless harness (temp project fixture): membership exactly as
+  designed (2 primitive textures + 1 model texture in, oversized/emitter/
+  out-of-bounds-UV textures out), same-dir grouping, non-overlapping
+  gutter-respecting placements, bit-deterministic plan, off => empty. E2E
+  in PCSX2: scene with a patterned model + striped box + ringed sphere
+  built with atlas OFF then ON - screenshots visually identical (all three
+  patterns correct, no seam bleed), bake log + game boot log both report
+  "Texture atlas: 3 textures in 2 page(s)", .res-baked member PNGs gone,
+  baked .mtl carries the page + rect. 4bit project policy => shared
+  256-color pages exercised. Docs: docs/texture-atlasing.md, README,
+  both skills.
+- (79) **examples/material-lab: the material pipeline showcase** - a small
+  diorama exercising the whole epic in one project: a generated stone altar
+  .obj (three stacked boxes, 6x3 UV atlas) whose committed texture is a
+  REAL layer stack - base stone mottle, "Baked AO" multiply layer (matbake,
+  96 rays/texel, params persisted as "# tyra-bake" in the .mtl), "Cavity
+  grime" (Occlusion source, multiply) and "Edge wear" (Edges source,
+  noise-broken) smart-mask layers with full generator params in the
+  .png.layers sidecar, so opening Tools > Material Editor lands on a live,
+  regenerable stack; brick pillars + tiled orbs whose 64^2 textures join
+  the texture atlas with the altar's 128^2 ("Texture atlas: 3 textures in
+  2 page(s)" at boot, 4bit project = shared per-page CLUT); and a
+  material-presets/worn-stone.matpreset applying the wear recipe to any
+  other material. Assets are generated deterministically by a scratchpad
+  tool linking the editor's own matbake/pngquant objects - the committed
+  composite is exactly what the editor's own compositing math produces.
+  res/.gitignore replaced with the showcase-style one (the --new scaffold
+  trap from the memory notes - verified with git ls-files). Verified:
+  Docker build exit 0 with the atlas line in the bake log, PCSX2 boot
+  ("is executing", clean bin/log.txt with the atlas boot line) and an F8
+  screenshot showing the altar's baked contact darkening/grime/wear, the
+  brick pillars and orbs - all sampling shared atlas pages. Editor-side
+  panel walkthrough is described in the example README (the visual GUI
+  pass rides the same pending human check as the rest of the epic).
+- (80) **Material Editor: draggable panel splitter + preview-rotation UX**
+  (user request) - the property/preview split was a fixed 48%/260px-floor
+  formula and the preview often came out cramped; it is now a real
+  splitter: an InvisibleButton strip between the columns with a drawn
+  separator line (hover/active tinted, ResizeEW cursor), dragging trades
+  property width for preview width within 25..75% (both sides keep a
+  scaled floor), and the ratio persists per machine as editor.ini
+  matEdSplit through the standard EditorConfig chain (field + load/save +
+  saveGlobalConfig aggregate + startup seeding - the skill recipe), saved
+  on drag release. Rotation with Paint off: the reported "can't rotate the
+  model" was Spin fighting the hand - the turntable kept adding yaw DURING
+  a drag, so drags never stuck. The turntable now yields: any orbit drag
+  records matEdLastOrbitT_ and the auto-spin pauses while dragging and for
+  1.5 s after. Also: RMB-drag now orbits ALWAYS (previously only while
+  painting - one muscle memory for both modes), and the pitch floor
+  loosened from -5 to -30 degrees (low-angle shots; clamp changed in BOTH
+  twins - the app input clamp and renderMaterialPreview's). Verified:
+  build.ps1 clean; the splitter/orbit math is input-driven UI logic riding
+  the same pending human visual pass as the rest of the epic (known
+  white-window machine state).
+- (81) **examples/material-lab: live-loop out of the box** (user request) -
+  the showcase now demonstrates the whole epic without any setup: build
+  profile switched to DEBUG (Live Link + texture hot reload compiled in),
+  every window layout requests the Material Editor ("open": ["material"]
+  in the manifest), and a new 6x3.2 "paint-canvas" wall stands behind the
+  altar with a 256x256 plaster+target texture - 256 is deliberately over
+  the atlas's 128 eligibility cap, so the canvas stays an individual
+  hot-reloadable file while the altar/pillars/orbs keep demonstrating the
+  atlas ("Texture atlas: 3 textures in 2 page(s)" unchanged). The asset
+  generator gained the canvas (deterministic - regen left every existing
+  asset byte-identical, only canvas.* appeared). README rewritten around
+  the F5-paint-watch loop and the intentional atlased-vs-hot-reloadable
+  split. Verified e2e in PCSX2: booted the rebuilt example, F8 before
+  shot, then simulated a paint save exactly the way liveTexNotify writes
+  it (16-color quantized PNG matching the shipped IHDR + livetex.bin
+  bump) - the wall repainted to rainbow stripes IN THE RUNNING GAME
+  within the poll interval; clean log with the atlas boot line intact.
+- (82) **Material Editor: layers always visible, Paint only arms the brush**
+  (user request) - the whole layer stack UI (list, blend/opacity/visibility,
+  "+ Mask" smart masks, Presets, generator controls) previously lived
+  inside the Paint gate, so inspecting or tuning a stack forced paint mode
+  on. Split: the paint target now loads whenever the selected entry has a
+  texture (same matEdPaintTexRel_ guard the bake/CLUT previews already
+  used), the layers section renders whenever a target is loaded, and Paint
+  gates only the brush controls + stroke/ghost input. Side benefit:
+  opening a material with smart-mask layers refreshes the masks (and
+  requests bake maps) immediately, without touching Paint - material-lab's
+  altar stack shows up the moment the file opens. Docs: material-painting
+  "Layers" section + the example README. Verified: build.ps1 clean; brace
+  restructure only - stroke/ghost gating unchanged (canPaint semantics
+  preserved), rides the same pending human visual pass.
+- (83) **Material Editor: an orbit drag unchecks Spin** (user request,
+  refining (80)) - the 1.5 s turntable pause turned out to be the wrong
+  model: the user wants the hand to WIN permanently. Any orbit drag now
+  sets matEdSpin_ = false (the checkbox visibly unchecks - the state is
+  discoverable, not a hidden timer), framing stays put, and re-ticking
+  Spin resumes the turntable. The matEdLastOrbitT_ pause timer from (80)
+  is removed; the checkbox gained a tooltip stating the behavior. Docs
+  updated. Verified: build.ps1 clean (one-line interaction change).

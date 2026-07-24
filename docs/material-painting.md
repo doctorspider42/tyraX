@@ -19,9 +19,57 @@ its **staged** values live while you drag sliders. Opening the editor from a
 model object's *Properties > Material > Edit...* (or opening a model's own
 `.mtl`, which auto-picks the sibling `.obj`) lands directly on the right mesh.
 
-Camera: **drag** orbits (left button normally, **right button while
-painting**), **mouse wheel** zooms, *Spin* keeps the turntable going (paused
-while painting).
+Camera: **drag** orbits (left button normally; the **right button always**
+orbits, painting or not), **mouse wheel** zooms, *Spin* keeps the turntable
+going (paused while painting). **Grabbing the preview unchecks Spin** — the
+moment you rotate by hand, the turntable stops fighting you and your
+framing stays put; re-tick it to resume. The camera can dip to low angles
+for hero shots.
+
+The **splitter between the property column and the preview is draggable** —
+grab the divider line and trade property width for preview width; the split
+persists per machine (editor.ini), like the UI scale.
+
+Next to *Spin* sit the **display mode** (Solid / Wireframe overlay /
+**UV checker** — a generated checker replaces every texture so stretch and
+texel density read at a glance / **PS2 CLUT** — see below) and the **UV**
+toggle, which splits the preview: the 3D mesh on top, the **UV layout panel** below — the entry's
+triangles drawn over its live texture (wheel zooms around the cursor, drag
+pans). The two views hover-sync both ways: rest the mouse on a face in 3D
+and its texture region lights up in the panel (with a dot on the exact
+texel); hover a triangle in the panel and it is outlined on the mesh.
+Overlapping UVs show themselves naturally — one 3D face lights up every
+triangle sharing its region.
+
+## The PS2 CLUT preview and the memory budget
+
+The **PS2 CLUT** display mode shows the texture as the console will
+actually sample it: palette-quantized through the *same median-cut
+quantizer the build's texture bake ships* (16 or 256 colors — "Project
+policy" resolves this material's per-asset override or the project's
+texture-quantization preference), with a **dithering comparison** combo:
+Floyd–Steinberg (what the bake uses), Ordered/Bayer (stable pattern) or
+none (raw banding). Painting keeps working — strokes show up already
+quantized, which is exactly how they will ship. The quantization happens
+at GL-upload time only; the PNG on disk stays full color (texbake
+quantizes at build, as always). A swatch strip shows the palette the
+median cut settled on, and a live **budget line** (also under the texture
+size in the property column) prices the texture in PS2 memory:
+`128x128 4-bit = 8.0 KB + 64 B palette`.
+
+Under the bake block sits **UV check** — *Validate UVs* inspects the
+preview mesh's mapping: **overlapping islands** (painting one paints the
+other — texel-exact, computed modulo the 0–1 wrap like the GS samples),
+UVs **outside 0–1**, **flipped** (mirrored) and **degenerate** triangles,
+and extreme **texel-density outliers** (4× above/below the mesh average).
+Click a finding and the offending triangle(s) outline red in the UV panel
+and on the mesh. Note the box primitive intentionally maps all six faces
+onto the same square — its overlap findings are by design.
+
+The property column ends in a **Bake maps** block: a progressive raytraced
+bake of the preview mesh (ambient occlusion, curvature, thickness and more)
+that can land as a *"Baked AO" multiply layer* on the entry's texture — see
+`docs/material-baking.md`.
 
 ## Duplicating and deleting a material
 
@@ -83,7 +131,10 @@ quantizes it like any other PNG).
 
 ## Layers
 
-Painting happens on a **layer stack** (the *Layers* box in the paint pane):
+The **layer stack is always visible while the entry has a texture** — the
+*Paint* checkbox only arms the brush. Stack edits (reorder, blend, opacity,
+visibility), **smart masks** and **presets** all work with the brush
+disarmed; painting happens on the stack's active layer:
 the Background plus any number of transparent layers above it, each with a
 **blend mode** (Normal / Multiply / Add / Overlay), an **opacity** slider
 and a visibility toggle. Strokes land on the *active* (selected) layer;
