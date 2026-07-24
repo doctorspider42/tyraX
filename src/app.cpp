@@ -4010,6 +4010,21 @@ bool App::drawMaterialCombo(SceneObject& o) {
                 changed = true;
             }
         }
+        // Models: seed a new editable .mtl from the model's own built-in
+        // materials (the only way to give an animated .glb/.fbx a material it
+        // can preview/paint on - it has no sibling .mtl to assign).
+        if (isModel && !o.modelPath.empty()) {
+            ImGui::Separator();
+            if (ImGui::Selectable("+ New material from this model...")) {
+                if (!createMaterialForModel(o).empty()) changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Extracts the model's built-in materials (names, colors,\n"
+                    "textures) into a new res/materials/*.mtl, assigns it as the\n"
+                    "override and opens it in the Material Editor - previewed on\n"
+                    "this model.");
+        }
         ImGui::EndCombo();
     }
 
@@ -4966,30 +4981,9 @@ void App::drawPropertiesWindow() {
                 for (const std::string& w : info.warnings)
                     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                                        w.c_str());
-                // Baked materials (from the .glb): the colors the game renders
-                // the mesh with. Authored in the modelling tool (Blender:
-                // material Base Color) and baked into the .tskl at build.
-                if (!info.materials.empty()) {
-                    ImGui::SeparatorText("Materials");
-                    for (const GlbInfo::Material& mat : info.materials) {
-                        ImGui::ColorButton(
-                            ("##animmat" + mat.name).c_str(),
-                            ImVec4(mat.color[0], mat.color[1], mat.color[2],
-                                   1.0f),
-                            ImGuiColorEditFlags_NoTooltip |
-                                ImGuiColorEditFlags_NoDragDrop,
-                            ImVec2(14, 14));
-                        ImGui::SameLine();
-                        if (mat.textured)
-                            ImGui::Text("%s (textured)", mat.name.c_str());
-                        else
-                            ImGui::TextUnformatted(mat.name.c_str());
-                    }
-                    ImGui::TextDisabled(
-                        "Colors come from the model; edit them in the\n"
-                        "modelling tool, or assign a Material (below) to\n"
-                        "override these by matching name.");
-                }
+                // (The model's built-in materials aren't listed here: they're
+                // authored in the modelling tool and the Material picker below
+                // is how you override/edit them - see drawMaterialCombo.)
                 ImGui::SeparatorText("Animation");
                 const std::string clipLabel =
                     o.animClip.empty()
@@ -5101,13 +5095,11 @@ void App::drawPropertiesWindow() {
         if (!o.materialPath.empty()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Edit..."))
-                // the Material Editor previews on a primitive/.obj; a .glb has
-                // no .obj preview mesh, so leave the model hint off for it
+                // preview the material on the object's own mesh (static .obj
+                // AND animated .glb/.fbx); primitives leave the hint off
                 openMaterialEditor(o.materialPath,
-                                   (o.type == PrimitiveType::Model &&
-                                    !animatedModel)
-                                       ? o.modelPath
-                                       : "");
+                                   o.type == PrimitiveType::Model ? o.modelPath
+                                                                  : "");
         }
         if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
             const ModelInfo& mat = materialInfo(o.materialPath);
@@ -12041,9 +12033,9 @@ void App::saveMaterialFile() {
 void App::openMaterialEditor(const std::string& relPath,
                              const std::string& modelHint) {
     showMaterialEditor_ = true;
-    // preview straight on the mesh the material is used by (.obj only - .glb
-    // materials are embedded and never take an .mtl override)
-    if (!modelHint.empty() && !isAnimatedModelPath(modelHint)) {
+    // preview straight on the mesh the material is used by - static .obj or
+    // animated .glb/.fbx (both take the assigned .mtl as an override)
+    if (!modelHint.empty()) {
         matEdShape_ = 4;
         matEdModel_ = modelHint;
     }
@@ -12079,6 +12071,143 @@ void App::openMaterialEditor(const std::string& relPath,
         matEdPath_.clear();
         statusMessage_ = "Cannot read " + relPath;
     }
+}
+
+// Creates res/materials/<model>.mtl seeded from a model's OWN built-in
+// materials, so an animated .glb/.fbx (or a static .obj) becomes editable in
+// the Material Editor without hand-authoring an override. Each part becomes a
+// newmtl entry keyed by the part's material NAME (the key the override matches
+// on), with its base color as Kd and its texture extracted next to the .mtl
+// (embedded PNG bytes for .glb/.fbx, the referenced file for .obj). Assigns
+// the new file to the object and opens the editor previewing on the model.
+std::string App::createMaterialForModel(SceneObject& o) {
+    namespace fs = std::filesystem;
+    if (o.modelPath.empty()) return "";
+
+    // (name, Kd, optional texture bytes) collected from the model's built-ins.
+    struct Ent {
+        std::string name;
+        float kd[3] = {1.0f, 1.0f, 1.0f};
+        std::vector<unsigned char> tex;
+        std::string ext;  // ".png" for embedded; source ext for .obj
+    };
+    std::vector<Ent> ents;
+    std::set<std::string> seen;
+    bool skippedUnnamed = false;  // parts the override can't name-match
+
+    if (isAnimatedModelPath(o.modelPath)) {
+        glbparser::Baked baked;
+        std::string err;
+        if (!animimport::bake((fs::path(project_.dir) / o.modelPath).string(),
+                              12.0f, baked, err)) {
+            statusMessage_ = "Cannot read " + o.modelPath;
+            return "";
+        }
+        for (const glbparser::Part& p : baked.parts) {
+            // an empty material name can't be written as newmtl (nor matched by
+            // the override), so it stays on the model's built-in look
+            if (p.material.empty()) { skippedUnnamed = true; continue; }
+            if (!seen.insert(p.material).second) continue;
+            Ent e;
+            e.name = p.material;
+            e.kd[0] = p.baseColor[0], e.kd[1] = p.baseColor[1], e.kd[2] = p.baseColor[2];
+            if (p.image >= 0 && p.image < (int)baked.images.size()) {
+                e.tex = baked.images[p.image].png;
+                e.ext = ".png";
+            }
+            ents.push_back(std::move(e));
+        }
+    } else {
+        objparser::Model m;
+        if (!objparser::load((fs::path(project_.dir) / o.modelPath).string(), m)) {
+            statusMessage_ = "Cannot read " + o.modelPath;
+            return "";
+        }
+        const fs::path modelDir = fs::path(o.modelPath).parent_path();
+        for (const objparser::Submesh& s : m.submeshes) {
+            // like the animated branch: an unnamed submesh can't be matched by
+            // a name-keyed override, so skip it (report it instead)
+            if (s.material.empty()) { skippedUnnamed = true; continue; }
+            if (!seen.insert(s.material).second) continue;
+            Ent e;
+            e.name = s.material;
+            e.kd[0] = s.kd[0], e.kd[1] = s.kd[1], e.kd[2] = s.kd[2];
+            if (!s.texture.empty()) {
+                std::ifstream f(
+                    (fs::path(project_.dir) / modelDir / s.texture).string(),
+                    std::ios::binary);
+                if (f) {
+                    e.tex.assign(std::istreambuf_iterator<char>(f),
+                                 std::istreambuf_iterator<char>());
+                    e.ext = fs::path(s.texture).extension().string();
+                    if (e.ext.empty()) e.ext = ".png";
+                }
+            }
+            ents.push_back(std::move(e));
+        }
+    }
+    if (ents.empty()) {
+        statusMessage_ =
+            skippedUnnamed
+                ? "Model's material(s) have no name - a material override "
+                  "matches by name, so name them in your modelling tool first"
+                : "Model has no materials to import";
+        return "";
+    }
+
+    const fs::path matDirAbs = fs::path(project_.dir) / "res" / "materials";
+    std::error_code ec;
+    fs::create_directories(matDirAbs, ec);
+    const std::string stem = fs::path(o.modelPath).stem().string();
+    std::string base;
+    for (int n = 1;; ++n) {
+        base = stem + (n == 1 ? "" : "-" + std::to_string(n));
+        if (!fs::exists(matDirAbs / (base + ".mtl"), ec)) break;
+    }
+    const std::string rel = "res/materials/" + base + ".mtl";
+
+    // filesystem-safe token for a texture filename (the newmtl name is written
+    // raw so the override still matches the model's material name)
+    auto sane = [](std::string s) {
+        for (char& c : s)
+            if (!(std::isalnum((unsigned char)c) || c == '-' || c == '_')) c = '_';
+        return s.empty() ? std::string("tex") : s;
+    };
+
+    std::string mtl = "# Generated by TyraX from " +
+                      fs::path(o.modelPath).filename().string() +
+                      " built-in materials. Edit in the Material Editor.\n";
+    std::set<std::string> usedTex;
+    for (const Ent& e : ents) {
+        mtl += "\nnewmtl " + e.name + "\n";
+        char kd[64];
+        std::snprintf(kd, sizeof kd, "Kd %.4f %.4f %.4f\n", e.kd[0], e.kd[1],
+                      e.kd[2]);
+        mtl += kd;
+        if (!e.tex.empty()) {
+            std::string texName = base + "-" + sane(e.name) + e.ext;
+            for (int n = 1; usedTex.count(texName); ++n)
+                texName = base + "-" + sane(e.name) + std::to_string(n) + e.ext;
+            usedTex.insert(texName);
+            std::ofstream tf((matDirAbs / texName).string(), std::ios::binary);
+            tf.write((const char*)e.tex.data(), (std::streamsize)e.tex.size());
+            mtl += "map_Kd " + texName + "\n";
+        }
+    }
+    std::ofstream mf((matDirAbs / (base + ".mtl")).string(), std::ios::binary);
+    if (!mf) {
+        statusMessage_ = "Cannot write " + rel;
+        return "";
+    }
+    mf << mtl;
+    mf.close();
+
+    o.materialPath = rel;
+    modelInfoCache_.clear();  // the summary caches this .mtl by path
+    openMaterialEditor(rel, o.modelPath);
+    statusMessage_ = "Created " + rel + " from " +
+                     std::to_string((int)ents.size()) + " built-in material(s)";
+    return rel;
 }
 
 // Duplicate the OPEN .mtl under a fresh "-copy" name. Referenced textures are
@@ -12876,6 +13005,33 @@ matbake::Params App::matBakeParams() const {
     return p;
 }
 
+// Triangle soup (matbake::MeshInput) from an animated model's BIND-POSE
+// geometry (frame 0). Parts whose material name matches entryName are
+// paintable (empty = all). The .mtl override only affects color/texture, not
+// geometry or UVs, so the bake needs the raw mesh - no override applied here.
+static matbake::MeshInput meshInputFromBaked(const glbparser::Baked& baked,
+                                             const std::string& entryName) {
+    matbake::MeshInput mi;
+    for (const glbparser::Part& p : baked.parts) {
+        const bool paint = entryName.empty() || p.material == entryName;
+        const bool hasUv = p.uvs.size() >= (size_t)p.vertexCount * 2;
+        for (int v = 0; v + 2 < p.vertexCount; v += 3) {
+            for (int c = 0; c < 3; ++c) {
+                const int idx = v + c;
+                mi.verts.insert(
+                    mi.verts.end(),
+                    {p.positions[idx * 3], p.positions[idx * 3 + 1],
+                     p.positions[idx * 3 + 2], p.normals[idx * 3],
+                     p.normals[idx * 3 + 1], p.normals[idx * 3 + 2],
+                     hasUv ? p.uvs[idx * 2] : 0.0f,
+                     hasUv ? p.uvs[idx * 2 + 1] : 0.0f});
+            }
+            mi.paintTri.push_back(paint ? 1 : 0);
+        }
+    }
+    return mi;
+}
+
 // (Re)build the cached matbake inputs. Keys carry the source file mtimes so
 // an external re-export re-bakes; unchanged keys cost two stat calls.
 bool App::matBakeBuildMeshes(const std::string& entryName) {
@@ -12900,7 +13056,18 @@ bool App::matBakeBuildMeshes(const std::string& entryName) {
     if (key != matBakeMeshKey_) {
         matBakeMeshKey_ = key;
         matBakeMeshError_.clear();
-        if (matEdShape_ == 4) {
+        if (matEdShape_ == 4 && isAnimatedModelPath(matEdModel_)) {
+            glbparser::Baked baked;
+            std::string err;
+            if (animimport::bake(
+                    (std::filesystem::path(project_.dir) / matEdModel_).string(),
+                    12.0f, baked, err))
+                matBakeMeshLow_ = meshInputFromBaked(baked, entryName);
+            else {
+                matBakeMeshLow_ = matbake::MeshInput{};
+                matBakeMeshError_ = "Cannot read " + matEdModel_;
+            }
+        } else if (matEdShape_ == 4) {
             objparser::Model m;
             if (objparser::load(
                     (std::filesystem::path(project_.dir) / matEdModel_).string(),
@@ -14253,7 +14420,8 @@ void App::drawMaterialEditorWindow() {
             for (int i = 0; i < 4; ++i)
                 if (ImGui::Selectable(shapes[i], matEdShape_ == i)) matEdShape_ = i;
             const std::vector<std::string> models = listAssetFiles("models", ".obj");
-            if (!models.empty()) ImGui::Separator();
+            const std::vector<std::string> anim = listAnimatedModelFiles();
+            if (!models.empty() || !anim.empty()) ImGui::Separator();
             for (const std::string& m : models) {
                 const std::string rel = "res/models/" + m;
                 if (ImGui::Selectable(m.c_str(),
@@ -14262,13 +14430,21 @@ void App::drawMaterialEditorWindow() {
                     matEdModel_ = rel;
                 }
             }
+            for (const std::string& m : anim) {
+                const std::string rel = "res/models/" + m;
+                if (ImGui::Selectable((m + " (animated)").c_str(),
+                                      matEdShape_ == 4 && matEdModel_ == rel)) {
+                    matEdShape_ = 4;
+                    matEdModel_ = rel;
+                }
+            }
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Preview mesh. Pick one of your models to see the\n"
-                              "material (and paint) on the real thing - this file\n"
-                              "acts as the model's material override, entries are\n"
-                              "matched to the model's usemtl names.");
+            ImGui::SetTooltip("Preview mesh. Pick one of your models (static or\n"
+                              "animated) to see the material (and paint) on the real\n"
+                              "thing - this file acts as the model's material\n"
+                              "override, entries matched to the model's material names.");
         ImGui::SameLine();
         ImGui::Checkbox("Spin", &matEdSpin_);
         if (ImGui::IsItemHovered())

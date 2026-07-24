@@ -117,18 +117,27 @@ what ships.
 ### Material override (.mtl)
 
 By default an animated model draws with the materials baked into the `.glb`/
-`.fbx` (base color + texture per part, listed read-only under **Materials**).
-Assigning a **Material** (`.mtl` asset) overrides them — exactly like a static
-`.obj` model, and it is an option *besides* the built-in materials, not a
-replacement of the workflow: leave it `(model's own)` and nothing changes.
+`.fbx` (base color + texture per part). Assigning a **Material** (`.mtl` asset)
+overrides them — exactly like a static `.obj` model, and it is an option
+*besides* the built-in materials, not a replacement of the workflow: leave it
+`(model's own)` and nothing changes.
 
-The override resolves by **name**: each of the model's parts (the entries in
-the read-only Materials list) is matched against a `newmtl` of the same name in
-the assigned file. A match takes that material's color (`Kd`) and texture
-(`map_Kd`); a part the override does **not** name falls back to plain white and
-untextured — a full replace, the same rule the `.obj` override uses. So name
-your `.mtl` entries to match the part names shown in the panel (e.g. a model
-whose part is `WobblerBody` needs a `newmtl WobblerBody`).
+The override resolves by **name**: each of the model's parts is matched against
+a `newmtl` of the same name in the assigned file. A match takes that material's
+color (`Kd`) and texture (`map_Kd`); a part the override does **not** name falls
+back to plain white and untextured — a full replace, the same rule the `.obj`
+override uses. So name your `.mtl` entries to match the model's part names
+(e.g. a model whose part is `WobblerBody` needs a `newmtl WobblerBody`).
+
+Because an animated model has no sibling `.mtl` to assign, the **Material**
+picker has a **+ New material from this model...** entry: it extracts the
+model's built-in materials — part names, base colors, embedded textures — into
+a new `res/materials/<model>.mtl`, assigns it and opens the **Material Editor**
+previewed **on the model itself** (bind pose). That is the one-click way to
+start editing an animated model's look: its own materials become an editable
+override you recolor/repaint, and what the editor shows matches what the console
+bakes. (A part whose material is **unnamed** can't be name-matched — name it in
+the modelling tool first.)
 
 The override is resolved into the `.tskl` **at build time** (the part colors and
 textures are baked in), so it costs the game nothing at runtime. Two objects

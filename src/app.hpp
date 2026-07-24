@@ -156,6 +156,11 @@ private:
     // Combo picking an .mtl for the object (primitives: surface; models:
     // override). Returns true when materialPath changed.
     bool drawMaterialCombo(SceneObject& o);
+    // Creates res/materials/<model>.mtl seeded from a model object's built-in
+    // materials (names + Kd + extracted textures, from the .glb/.fbx or .obj),
+    // assigns it to o.materialPath and opens the Material Editor on the model.
+    // Returns the new material's project-relative path, or "" on failure.
+    std::string createMaterialForModel(SceneObject& o);
     // Per-object animation/mesh LOD override rows (animated models + player
     // avatars). Returns true when a value changed (caller commits).
     bool drawLodOverrides(SceneObject& o);

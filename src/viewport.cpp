@@ -1841,6 +1841,75 @@ void Viewport::clearMatPrevModel() {
 // The material preview's model slot (single entry - the editor shows one
 // model at a time). Kd stays out of the vertex colors on purpose, see the
 // struct comment.
+// Fills matPrevModel_ from an animated model's BIND-POSE geometry (frame 0),
+// resolving the assigned .mtl exactly as the console bakes it into the .tskl:
+// each glTF part's material NAME is matched against the override library (full
+// replace - a miss renders plain white, refl has no skeletal slot), so what
+// the preview shows is what the game draws. Textures come off disk from the
+// override .mtl (the same file the paint pipeline writes), so live painting
+// updates the preview through the shared texCache_ just like the .obj path.
+void Viewport::buildMatPrevAnimated(const std::string& modelRel,
+                                    const std::string& mtlRel) {
+    glbparser::Baked baked;
+    std::string error;
+    if (!animimport::bake(
+            (std::filesystem::path(projectDir_) / modelRel).string(), 12.0f,
+            baked, error))
+        return;  // !ok - caller falls back to the sphere
+
+    std::vector<objparser::MtlMaterial> lib;
+    const std::filesystem::path mtlDir =
+        mtlRel.empty() ? std::filesystem::path()
+                       : std::filesystem::path(mtlRel).parent_path();
+    if (!mtlRel.empty())
+        objparser::loadMtl((std::filesystem::path(projectDir_) / mtlRel).string(),
+                           lib);
+
+    for (const glbparser::Part& src : baked.parts) {
+        MatPrevPart part;
+        part.material = src.material;  // raw name - matched like the console
+        // override lookup: hit replaces Kd + texture, miss -> plain white
+        const objparser::MtlMaterial* hit = nullptr;
+        for (const objparser::MtlMaterial& m : lib)
+            if (m.name == src.material) {
+                hit = &m;
+                break;
+            }
+        if (hit) {
+            part.kd[0] = hit->kd[0], part.kd[1] = hit->kd[1], part.kd[2] = hit->kd[2];
+            if (!hit->texture.empty())
+                part.texRel = (mtlDir / hit->texture).generic_string();
+        }
+        // frame-0 bind pose: interleave pos + baked shade + uv (Kd rides the
+        // tint uniform, staged live). tris (pos3+uv2) feed the paint raycast.
+        std::vector<float> interleaved;
+        interleaved.reserve((size_t)src.vertexCount * 8);
+        part.tris.reserve((size_t)src.vertexCount * 5);
+        for (int v = 0; v < src.vertexCount; ++v) {
+            const float x = src.positions[v * 3], y = src.positions[v * 3 + 1],
+                        z = src.positions[v * 3 + 2];
+            const Vec3 s = shadeOf({src.normals[v * 3], src.normals[v * 3 + 1],
+                                    src.normals[v * 3 + 2]});
+            const bool hasUv = src.uvs.size() >= (size_t)(v + 1) * 2;
+            const float u = hasUv ? src.uvs[v * 2] : 0.0f;
+            const float w = hasUv ? src.uvs[v * 2 + 1] : 0.0f;
+            interleaved.insert(interleaved.end(), {x, y, z, s.x, s.y, s.z, u, w});
+            part.tris.insert(part.tris.end(), {x, y, z, u, w});
+        }
+        part.mesh = uploadMesh(interleaved);
+        matPrevModel_.parts.push_back(std::move(part));
+    }
+    matPrevModel_.ok = !matPrevModel_.parts.empty();
+    for (int i = 0; i < 3; ++i)
+        matPrevModel_.center[i] = (baked.min[i] + baked.max[i]) * 0.5f;
+    matPrevModel_.minY = baked.min[1];
+    const float dx = baked.max[0] - baked.min[0];
+    const float dy = baked.max[1] - baked.min[1];
+    const float dz = baked.max[2] - baked.min[2];
+    matPrevModel_.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (matPrevModel_.radius < 0.01f) matPrevModel_.radius = 0.01f;
+}
+
 const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
     const std::string& modelRel, const std::string& mtlRel) {
     const std::string key = modelRel + "|" + mtlRel;
@@ -1848,6 +1917,11 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
 
     clearMatPrevModel();
     matPrevModel_.key = key;
+
+    if (isAnimatedModelPath(modelRel)) {
+        buildMatPrevAnimated(modelRel, mtlRel);
+        return &matPrevModel_;
+    }
 
     objparser::Model model;
     if (!objparser::load(

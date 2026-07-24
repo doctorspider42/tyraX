@@ -522,6 +522,9 @@ private:
     MatPrevModel matPrevModel_;
     const MatPrevModel* matPrevModelDraw(const std::string& modelRel,
                                          const std::string& mtlRel);
+    // Bind-pose preview parts for an animated (.glb/.fbx) model.
+    void buildMatPrevAnimated(const std::string& modelRel,
+                              const std::string& mtlRel);
     void clearMatPrevModel();
 
     // CPU triangles of the four preview primitives (pos3 + uv2), built on
