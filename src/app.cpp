@@ -12055,17 +12055,50 @@ void App::openMaterialEditor(const std::string& relPath,
         matBakeMaps_ = matbake::Maps{};
         matBakeStartedSig_ = 0;
         matBakeApplyWhenDone_ = false;
-        // a model's own library previews best on its model: pick the sibling
-        // .obj when the .mtl lives under res/models and no hint was given
-        if (modelHint.empty() &&
-            relPath.rfind("res/models/", 0) == 0) {
-            std::filesystem::path obj(relPath);
-            obj.replace_extension(".obj");
-            std::error_code ec;
-            if (std::filesystem::exists(std::filesystem::path(project_.dir) / obj,
-                                        ec)) {
+        // No hint (the file was clicked in the asset list): find the model
+        // this material belongs to, static or animated. Try, in order:
+        // a scene object assigned this material (the ground truth), a
+        // sibling model with the same stem (a model's own library), and
+        // the extraction convention res/materials/<model>.mtl ->
+        // res/models/<model>.* (the "+ New material from this model" path).
+        if (modelHint.empty()) {
+            std::string found;
+            for (const SceneData& sc : project_.scenes) {
+                for (const SceneObject& o : sc.objects)
+                    if (o.type == PrimitiveType::Model &&
+                        o.materialPath == relPath && !o.modelPath.empty()) {
+                        found = o.modelPath;
+                        break;
+                    }
+                if (!found.empty()) break;
+            }
+            if (found.empty()) {
+                std::error_code ec;
+                static const char* exts[] = {".obj", ".glb", ".fbx"};
+                const std::filesystem::path stem =
+                    std::filesystem::path(relPath).parent_path() /
+                    std::filesystem::path(relPath).stem();
+                for (const char* ext : exts) {
+                    std::filesystem::path cand = stem;
+                    cand += ext;  // sibling in the .mtl's own directory
+                    if (std::filesystem::exists(
+                            std::filesystem::path(project_.dir) / cand, ec)) {
+                        found = cand.generic_string();
+                        break;
+                    }
+                    cand = std::filesystem::path("res/models") /
+                           std::filesystem::path(relPath).stem();
+                    cand += ext;  // the extracted-material convention
+                    if (std::filesystem::exists(
+                            std::filesystem::path(project_.dir) / cand, ec)) {
+                        found = cand.generic_string();
+                        break;
+                    }
+                }
+            }
+            if (!found.empty()) {
                 matEdShape_ = 4;
-                matEdModel_ = obj.generic_string();
+                matEdModel_ = found;
             }
         }
     } else {

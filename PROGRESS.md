@@ -8509,3 +8509,18 @@ Each finished feature lands as its own commit.
   build.ps1 clean; the failure needed the GUI to reproduce (entry combo +
   bake button sequencing), so the fix rides the standing human pass - the
   three locks are each independently sufficient for the reported path.
+- (89) **Fix: clicking an animated model's material in the asset list
+  previewed on the sphere** (user report) - openMaterialEditor's no-hint
+  auto-pick only ever tried a same-stem sibling .obj under res/models, so
+  a material extracted from an animated model (which lives at
+  res/materials/<model>.mtl per the "+ New material from this model" flow)
+  fell through to the default sphere, while an .obj's own library matched.
+  The auto-pick is now a heuristic chain: (1) a scene object of type Model
+  assigned this material as its override - the ground truth, catches any
+  naming; (2) a same-stem sibling model in the .mtl's OWN directory, all
+  three extensions (.obj/.glb/.fbx - a model's own library, now covering
+  animated siblings too); (3) the extraction naming convention
+  res/materials/<stem>.mtl -> res/models/<stem>.{obj,glb,fbx}. Hand-named
+  universal materials with no consumer still land on the sphere, as
+  before. Verified: build.ps1 clean; the pick chain is pure path logic
+  riding the standing human GUI pass.
