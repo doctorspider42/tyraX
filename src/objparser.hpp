@@ -69,6 +69,22 @@ bool load(const std::string& path, Model& out,
 // order. Returns false when the file cannot be read or defines no materials.
 bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out);
 
+// Applies a material library as an OVERRIDE to an already-parsed model (a
+// glbparser Baked or Skel - both expose .parts[i].{material,baseColor,image}
+// and .images), mirroring load()'s overrideMtl rule for static .obj models:
+// each part's material NAME is matched against the library; a hit replaces the
+// part's baseColor (from Kd) and texture, a miss falls back to plain white and
+// untextured (a full replace, not a merge - the built-in materials are dropped
+// wholesale). Reflection (refl) has no skeletal-runtime slot and is ignored.
+// The override's textures are read from the .mtl's directory and injected as
+// PNG bytes into model.images (the same channel the file's own textures use),
+// so both the .tskl bake (writes them next to the .tskl) and the viewport
+// preview (decodes them to a GL texture) need no special case. Returns false
+// (leaving the model untouched) when the library cannot be read or is empty.
+template <class Model>
+bool applyMaterialOverride(Model& model, const std::string& overrideMtlPath,
+                          std::vector<std::string>* warnings = nullptr);
+
 // Legacy flat loader: all submeshes concatenated (8 floats per vertex).
 bool load(const std::string& path, std::vector<float>& outPosNormalUv);
 

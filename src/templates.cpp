@@ -28,6 +28,7 @@
 #include "project.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
+#include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
 
@@ -98,28 +99,54 @@ static bool hasAnimBody(const SceneObject& o) {
     return false;
 }
 
-// Unique .glb paths referenced by animated model objects, first-use order.
-// The index == SceneObjectData::animModel == the ANIM_MODEL_PATHS slot of
-// the baked .tanm. Identity is the path alone (no .mtl overrides for .glb -
-// materials come from the file itself).
-static std::vector<std::string> collectAnimModelPaths(const Project& p) {
-    std::vector<std::string> paths;
+// Unique (modelPath, material override) pairs referenced by animated model
+// objects, first-use order. The index == SceneObjectData::animModel == the
+// ANIM_MODEL_PATHS slot. Like a static .obj, an assigned .mtl OVERRIDES the
+// model's own materials (usemtl names resolve against it - docs/animated-
+// models.md), so the PAIR is the identity: the same .glb with two different
+// overrides bakes to two distinct .tskl files (see animBakedTsklRel). Empty
+// override = the model's own (built-in) materials.
+static std::vector<std::pair<std::string, std::string>> collectAnimModelKeys(
+    const Project& p) {
+    std::vector<std::pair<std::string, std::string>> keys;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) {
             if (!hasAnimBody(o)) continue;
+            const std::pair<std::string, std::string> key{o.modelPath,
+                                                          o.materialPath};
             bool seen = false;
-            for (const auto& e : paths) seen |= (e == o.modelPath);
-            if (!seen) paths.push_back(o.modelPath);
+            for (const auto& e : keys) seen |= (e == key);
+            if (!seen) keys.push_back(key);
         }
-    return paths;
+    return keys;
 }
 
 static int animModelIndexOf(const Project& p, const SceneObject& o) {
     if (!hasAnimBody(o)) return -1;
-    const auto paths = collectAnimModelPaths(p);
-    for (size_t i = 0; i < paths.size(); ++i)
-        if (paths[i] == o.modelPath) return (int)i;
+    const auto keys = collectAnimModelKeys(p);
+    for (size_t i = 0; i < keys.size(); ++i)
+        if (keys[i].first == o.modelPath && keys[i].second == o.materialPath)
+            return (int)i;
     return -1;
+}
+
+// The .tskl an animated-model identity bakes to (res-relative). A material
+// override bakes its OWN .tskl (the override is resolved into the part colors
+// and textures at bake time), so a {model, override} pair maps to a distinct
+// file whose textures also get a distinct prefix. Both the emit
+// (modelDataHeader) and the bake (bakeAnimAssets) must derive the same name.
+static std::string animBakedTsklRel(const std::string& modelPath,
+                                    const std::string& materialPath) {
+    std::string base = modelPath;
+    if (const size_t dot = base.rfind('.'); dot != std::string::npos)
+        base = base.substr(0, dot);
+    if (materialPath.empty()) return base + ".tskl";
+    // stable, deterministic short suffix from the override path so two
+    // overrides of one model never collide and the name survives rebuilds
+    const uint64_t h = wire::fnv1a64(materialPath.data(), materialPath.size());
+    char suf[16];
+    std::snprintf(suf, sizeof(suf), "__ovr%04x", (unsigned)(h & 0xffffu));
+    return base + suf + ".tskl";
 }
 
 // C string literal escaping for clip names baked into scene_data.hpp.
@@ -17432,19 +17459,19 @@ static std::string modelDataHeader(const Project& p) {
 
     // Animated models: .glb sources serialized to .tskl (skeleton, bind
     // mesh, keyframe tracks) at build time; loaded by the engine's
-    // TsklLoader and skinned on the EE at runtime.
-    const auto animPaths = collectAnimModelPaths(p);
-    out << "constexpr int ANIM_MODEL_COUNT = " << animPaths.size() << ";\n"
+    // TsklLoader and skinned on the EE at runtime. A per-object .mtl override
+    // is resolved into the .tskl at bake time (animBakedTsklRel), so it needs
+    // no runtime array - the loaded model already carries the right materials.
+    const auto animKeys = collectAnimModelKeys(p);
+    out << "constexpr int ANIM_MODEL_COUNT = " << animKeys.size() << ";\n"
         << "inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? "
            "ANIM_MODEL_COUNT : 1] = {\n";
-    if (animPaths.empty()) {
+    if (animKeys.empty()) {
         out << "    \"\",\n";
     } else {
-        for (std::string path : animPaths) {
-            if (const size_t dot = path.rfind('.'); dot != std::string::npos)
-                path = path.substr(0, dot) + ".tskl";
-            out << "    \"" << binPathOf(path) << "\",\n";
-        }
+        for (const auto& key : animKeys)
+            out << "    \"" << binPathOf(animBakedTsklRel(key.first, key.second))
+                << "\",\n";
     }
     out << "};\n\n"
         << "// .mtl libraries assigned to primitives (first material = surface)\n"
@@ -19375,14 +19402,20 @@ std::vector<File> bakeAnimAssets(const Project& p,
     auto warn = [&](const std::string& msg) {
         if (warnings) warnings->push_back(msg);
     };
-    for (const std::string& relPath : collectAnimModelPaths(p)) {
+    for (const auto& key : collectAnimModelKeys(p)) {
+        const std::string& relPath = key.first;       // the .glb/.fbx source
+        const std::string& materialPath = key.second;  // "" or override .mtl
         const std::string full = p.dir + "\\" + replaceAll(relPath, "/", "\\");
-        // "res/models/sub/x.glb" -> dir "res/models/sub/", stem "x"
-        std::string dir = relPath, stem = relPath;
-        if (const size_t slash = relPath.find_last_of('/');
+        // Output path/stem come from the .tskl (which folds in the override),
+        // so an override variant's extracted textures get a unique prefix and
+        // never collide with the base model's. Base (no override) stem is
+        // unchanged. "res/models/sub/x.tskl" -> dir "res/models/sub/", stem "x"
+        const std::string tsklRel = animBakedTsklRel(relPath, materialPath);
+        std::string dir = tsklRel, stem = tsklRel;
+        if (const size_t slash = tsklRel.find_last_of('/');
             slash != std::string::npos) {
-            dir = relPath.substr(0, slash + 1);
-            stem = relPath.substr(slash + 1);
+            dir = tsklRel.substr(0, slash + 1);
+            stem = tsklRel.substr(slash + 1);
         } else {
             dir = "";
         }
@@ -19399,6 +19432,15 @@ std::vector<File> bakeAnimAssets(const Project& p,
             continue;
         }
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
+        // Material override (docs/animated-models.md): resolve the assigned
+        // .mtl into the part colors/textures now, so the .tskl (and every
+        // downstream consumer) carries the override with no runtime cost -
+        // the same usemtl-name resolution a static .obj override uses.
+        if (!materialPath.empty()) {
+            const std::string matFull =
+                p.dir + "\\" + replaceAll(materialPath, "/", "\\");
+            objparser::applyMaterialOverride(skel, matFull, warnings);
+        }
         // Distance LODs ride in the .tskl only when something uses them -
         // the engine keeps every loaded LOD (plus per-instance skinning
         // buffers) in the PS2's 32 MB, so an unused chain is pure waste.

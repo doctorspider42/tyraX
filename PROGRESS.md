@@ -10,6 +10,74 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (151) **Edit an animated model's materials: create an override from its
+  built-ins, and preview/paint it on the model in the Material Editor.** (150)
+  let an animated `.glb`/`.fbx` take a Material (.mtl) override, but you still
+  had to hand-author that .mtl blind - the Material Editor could only preview a
+  material on a primitive or a static `.obj` (a `.glb` has no sibling `.obj`),
+  and Properties showed a read-only, confusing "Materials" list of the built-in
+  colors with no way to act on them. Three changes close the loop:
+  (a) **the Material Editor previews on animated models too** - the preview/bake
+  mesh path (`Viewport::buildMatPrevAnimated`, `meshInputFromBaked` in app.cpp)
+  now builds from a `.glb`/`.fbx` **bind pose** (frame 0) with the assigned .mtl
+  resolved exactly as the console bakes it into the `.tskl` (name-matched full
+  replace, textures off disk so live painting updates through the shared
+  texCache_), the shape picker lists animated models, and *Properties > Material
+  > Edit...* now hands the animated model to the editor instead of suppressing
+  it; (b) **a "+ New material from this model..." entry** in the Properties
+  material combo (`App::createMaterialForModel`) extracts the model's built-in
+  materials - part names as `newmtl`, base colors as `Kd`, embedded/referenced
+  textures written next to the .mtl - into a fresh `res/materials/<model>.mtl`,
+  assigns it and opens it previewed on the model (the answer to "can I import
+  the built-in material?" - yes, that IS the seed); (c) the read-only built-in
+  **Materials list in Properties is gone** (it only confused - the picker is how
+  you act on materials now). An unnamed material can't be name-matched by an
+  override, so seeding reports that instead of writing a dead file. Verified
+  headlessly: a harness reusing the real `glbparser`+`objparser` seeded a valid
+  .mtl from `wobbler.glb` (1 part `WobblerBody`) and `spider2.glb` (3 parts
+  `spider`/`spider.legs`/`spider.tee`) and round-tripped each through
+  `applyMaterialOverride` (all matched); `cat.glb`'s unnamed material was
+  correctly refused. Assigning a seeded .mtl to a wobbler in a scratch showcase
+  copy, `--refresh-gen` emitted a distinct `wobbler__ovr3a65.tskl` variant
+  alongside the base `wobbler.tskl`; editing that .mtl's `Kd` to magenta re-baked
+  the variant `.tskl` to carry `(1,0,1)` (teal gone). Editor builds clean. The
+  in-editor GL preview + paint-on-the-animated-mesh and the combo button are a
+  GUI path (no synthetic-input automation here) - they need a hands-on look.
+- (150) **Animated models honor a Material (.mtl) override, as an extra option
+  on top of the built-in materials.** Until now an animated `.glb`/`.fbx` model
+  drew only with the materials baked into the file (the docs said so explicitly);
+  a static `.obj` model could already take an assigned `.mtl` as an override that
+  replaces its own libraries by `usemtl` name, but the animated path dropped the
+  override on the floor (`collectAnimModelPaths` keyed the model identity on the
+  path alone, the properties UI suppressed the Material combo with an
+  `!animatedModel` guard, and nothing consumed `materialPath` at bake). Now the
+  same `SceneObject::materialPath` field drives both: the Material combo shows
+  for animated models too (the built-in materials still list read-only above it,
+  so it is an *option besides*, not instead - empty = the model's own), and the
+  override is resolved into the `.tskl` **at bake time** - no engine/runtime
+  change. Mechanically: the animated-model identity became the pair
+  `{modelPath, materialPath}` (`collectAnimModelKeys`, mirroring the static
+  `collectModelKeys`), so the same `.glb` with two different overrides bakes to
+  two distinct `.tskl` files (`animBakedTsklRel` derives a stable
+  `__ovr<fnv16>` suffix, shared verbatim by the emit in `modelDataHeader` and
+  the bake in `bakeAnimAssets`); the override textures extract next to that
+  variant `.tskl` with a variant-unique prefix so they never clobber the base
+  model's. The remap itself is a new shared `objparser::applyMaterialOverride`
+  template (instantiated for both `glbparser::Baked` and `Skel`): it matches each
+  part's material NAME against the library, a hit replacing the part's baseColor
+  (Kd) + texture, a miss falling back to plain white/untextured - **identical**
+  to how `objparser::load`'s `overrideMtl` resolves a static `.obj` (a full
+  replace, not a merge; `refl` has no skeletal slot and is ignored). The viewport
+  preview calls the very same helper on its baked model (cache re-keyed by
+  `path|mtl`), so what you see matches what the console bakes. Verified headlessly
+  on a copy of `examples/showcase`: gave one of six `wobbler.glb` objects an
+  override `.mtl` named `WobblerBody` (magenta Kd + a `map_Kd`), `--refresh-gen`
+  then emitted `ANIM_MODEL_COUNT = 2` with `wobbler.tskl` (base, untextured - the
+  other five) **and** `wobbler__ovre8c2.tskl`; the override `.tskl` contains the
+  magenta baseColor (absent from the base) and references
+  `models/wobbler__ovre8c2_ground.png`, and `scene_data.hpp` maps the overridden
+  object to `animModel` index 1 while the five untouched ones stay 0. Editor
+  builds clean.
 - (128) **Third-person camera styles — top-down and isometric games.** The
   third-person Player grows a **Style** picker (Properties > Third-person
   camera): **Orbit (behind)** is the unchanged free-look rig; **Top-down**,

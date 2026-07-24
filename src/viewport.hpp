@@ -424,8 +424,11 @@ private:
         };
         std::vector<Part> parts;  // parallel to baked.parts
     };
+    // keyed by "modelPath|materialOverride" (an assigned .mtl overrides the
+    // model's own materials, resolved into the bake - same as the game)
     std::map<std::string, AnimModelDraw> animModelCache_;
-    AnimModelDraw* animModelDraw(const std::string& relPath);
+    AnimModelDraw* animModelDraw(const std::string& relPath,
+                                 const std::string& materialRel);
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
     double animClock_ = 0.0;  // preview time in seconds (advanced per render)
@@ -519,6 +522,9 @@ private:
     MatPrevModel matPrevModel_;
     const MatPrevModel* matPrevModelDraw(const std::string& modelRel,
                                          const std::string& mtlRel);
+    // Bind-pose preview parts for an animated (.glb/.fbx) model.
+    void buildMatPrevAnimated(const std::string& modelRel,
+                              const std::string& mtlRel);
     void clearMatPrevModel();
 
     // CPU triangles of the four preview primitives (pos3 + uv2), built on

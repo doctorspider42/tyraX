@@ -5,19 +5,32 @@ materials — plain Wavefront `.mtl` files under `res/materials/` (universal
 libraries you assign to any object) and `res/models/` (a model's own library).
 Every entry is a color (`Kd`), a brightness multiplier and an optional PNG
 texture (`map_Kd`); primitives use a file's **first** entry, models resolve
-their `usemtl` names against the assigned file, emitters take the first
-entry's texture for their particles. Edits save to the file on every change —
+their `usemtl` (or, for animated `.glb`/`.fbx`, their part) names against the
+assigned file, emitters take the first entry's texture for their particles.
+The override applies to animated models too — it is baked into the model at
+build time (see [docs/animated-models.md](animated-models.md#material-override-mtl)). Edits save to the file on every change —
 the scene viewport updates live, and the PS2 game parses the very same file.
 
 ## Previewing on your actual model
 
 The preview pane's shape picker offers the four unit primitives **and every
-`.obj` under `res/models/`**. Pick a model and the open `.mtl` acts exactly as
-it does in the game: it overrides the model's own libraries, entries are
-matched to the model's `usemtl` names, and the entry you are editing shows
+model under `res/models/`** — static `.obj` and animated `.glb`/`.fbx` alike
+(the animated ones are shown in bind pose). Pick a model and the open `.mtl`
+acts exactly as it does in the game: it overrides the model's own libraries,
+entries are matched to the model's material names (a `usemtl` for `.obj`, a
+glTF/FBX part name for animated models), and the entry you are editing shows
 its **staged** values live while you drag sliders. Opening the editor from a
-model object's *Properties > Material > Edit...* (or opening a model's own
-`.mtl`, which auto-picks the sibling `.obj`) lands directly on the right mesh.
+model object's *Properties > Material > Edit...* lands directly on the right
+mesh (for a static model's own `.mtl`, the sibling `.obj` is auto-picked).
+
+An animated model has no sibling `.mtl` to assign, so the material picker in
+*Properties* has a **+ New material from this model...** entry: it extracts the
+model's built-in materials (part names, base colors, embedded textures) into a
+fresh `res/materials/<model>.mtl`, assigns it as the override and opens it here
+previewed on the model. Editing that file is then how you recolor/retexture the
+model on the PS2 — its built-in materials are the starting point, not a wall.
+(A material is matched to a part by name; a model whose material is **unnamed**
+can't take a name-keyed override — name it in your modelling tool first.)
 
 Camera: **drag** orbits (left button normally; the **right button always**
 orbits, painting or not), **mouse wheel** zooms, *Spin* keeps the turntable

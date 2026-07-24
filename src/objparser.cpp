@@ -4,8 +4,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <set>
 #include <sstream>
+
+#include "glbparser.hpp"  // Baked / Skel, the two override targets
 
 namespace objparser {
 
@@ -307,5 +311,82 @@ bool load(const std::string& path, std::vector<float>& out) {
         out.insert(out.end(), s.verts.begin(), s.verts.end());
     return !out.empty();
 }
+
+template <class Model>
+bool applyMaterialOverride(Model& model, const std::string& overrideMtlPath,
+                           std::vector<std::string>* warnings) {
+    std::vector<MtlMaterial> lib;
+    if (!loadMtl(overrideMtlPath, lib)) {
+        if (warnings)
+            warnings->push_back(overrideMtlPath +
+                                ": material override not found or empty");
+        return false;
+    }
+    const std::filesystem::path matDir =
+        std::filesystem::path(overrideMtlPath).parent_path();
+
+    // A full replace supersedes every built-in texture, so start from an empty
+    // image list and re-add only what the override actually references.
+    model.images.clear();
+    std::map<std::string, int> texToImage;  // .mtl-relative path -> image index
+    std::set<std::string> usedNames;
+    auto imageFor = [&](const std::string& tex) -> int {
+        if (tex.empty()) return -1;
+        if (auto it = texToImage.find(tex); it != texToImage.end())
+            return it->second;
+        std::ifstream f((matDir / tex).string(), std::ios::binary);
+        if (!f) {
+            if (warnings)
+                warnings->push_back(overrideMtlPath + ": texture missing - " +
+                                    tex);
+            texToImage[tex] = -1;
+            return -1;
+        }
+        model.images.push_back({});
+        auto& img = model.images.back();
+        img.png.assign(std::istreambuf_iterator<char>(f),
+                       std::istreambuf_iterator<char>());
+        // basename; disambiguate the rare same-name-different-dir collision so
+        // the extracted files never clobber each other next to the .tskl
+        std::string base = std::filesystem::path(tex).filename().string();
+        std::string name = base;
+        for (int n = 1; usedNames.count(name); ++n)
+            name = std::to_string(n) + "_" + base;
+        usedNames.insert(name);
+        img.name = name;
+        const int idx = (int)model.images.size() - 1;
+        texToImage[tex] = idx;
+        return idx;
+    };
+
+    for (auto& part : model.parts) {
+        const MtlMaterial* hit = nullptr;
+        for (const MtlMaterial& m : lib)
+            if (m.name == part.material) {
+                hit = &m;
+                break;
+            }
+        if (hit) {
+            part.baseColor[0] = hit->kd[0];
+            part.baseColor[1] = hit->kd[1];
+            part.baseColor[2] = hit->kd[2];
+            part.baseColor[3] = 1.0f;
+            part.image = imageFor(hit->texture);
+        } else {
+            // usemtl name the override does not define -> plain white,
+            // untextured (identical to a static .obj resolving an override)
+            part.baseColor[0] = part.baseColor[1] = part.baseColor[2] = 1.0f;
+            part.baseColor[3] = 1.0f;
+            part.image = -1;
+        }
+    }
+    return true;
+}
+
+// The two model representations that carry glTF-style parts + embedded images.
+template bool applyMaterialOverride<glbparser::Baked>(
+    glbparser::Baked&, const std::string&, std::vector<std::string>*);
+template bool applyMaterialOverride<glbparser::Skel>(
+    glbparser::Skel&, const std::string&, std::vector<std::string>*);
 
 }  // namespace objparser
