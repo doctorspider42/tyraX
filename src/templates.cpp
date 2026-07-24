@@ -19705,6 +19705,56 @@ std::vector<File> bakeStaticModels(const Project& p,
             continue;
         }
 
+        // Artist-authored LOD meshes (Assets > the model's LOD... button):
+        // each tier is its own .obj that must keep the model's material set
+        // and be smaller than the tier before it. A tier that fails either
+        // check drops the whole custom chain back to auto-decimation, so a
+        // half-broken hand-authored chain never ships silently.
+        std::vector<objparser::Model> customTiers;
+        if (lodWanted) {
+            const auto it = p.modelLods.find(relPath);
+            if (it != p.modelLods.end() && !it->second.empty()) {
+                size_t prevCorners = (size_t)model.vertexCount();
+                for (const std::string& tierRel : it->second) {
+                    objparser::Model tier;
+                    const std::string tierFull =
+                        p.dir + "\\" + replaceAll(tierRel, "/", "\\");
+                    if (!objparser::load(tierFull, tier, mtlFull)) {
+                        warn(relPath + ": custom LOD " + tierRel +
+                             " cannot be parsed - decimating instead");
+                        customTiers.clear();
+                        break;
+                    }
+                    bool sameMaterials =
+                        tier.submeshes.size() == model.submeshes.size();
+                    for (size_t s = 0; sameMaterials && s < tier.submeshes.size();
+                         ++s)
+                        sameMaterials =
+                            tier.submeshes[s].material == model.submeshes[s].material;
+                    if (!sameMaterials) {
+                        warn(relPath + ": custom LOD " + tierRel +
+                             " has a different material set than the model "
+                             "(same usemtl names in the same order are "
+                             "required) - decimating instead");
+                        customTiers.clear();
+                        break;
+                    }
+                    const size_t corners = (size_t)tier.vertexCount();
+                    if (corners == 0 || corners >= prevCorners) {
+                        warn(relPath + ": custom LOD " + tierRel + " is not " +
+                             "smaller than the previous level (" +
+                             std::to_string(corners) + " vs " +
+                             std::to_string(prevCorners) +
+                             " vertices) - decimating instead");
+                        customTiers.clear();
+                        break;
+                    }
+                    prevCorners = corners;
+                    customTiers.push_back(std::move(tier));
+                }
+            }
+        }
+
         // Texture tokens resolve against the file that defined them: the
         // override .mtl when assigned, the model otherwise (LeanObjLoader's
         // runtime rule).
@@ -19730,7 +19780,20 @@ std::vector<File> bakeStaticModels(const Project& p,
             out.min[i] = model.min[i];
             out.max[i] = model.max[i];
         }
-        for (const objparser::Submesh& s : model.submeshes) {
+        // Atlased materials map their 0..1 UVs onto a sub-rectangle of the
+        // shared page. The runtime .obj path did this per vertex from the
+        // "# tyra-uvrect" hint; baking it in retires that hint for models.
+        auto foldUv = [](std::vector<float>& verts, float u0, float v0, float du,
+                         float dv) {
+            if (u0 == 0.0f && v0 == 0.0f && du == 1.0f && dv == 1.0f) return;
+            for (size_t v = 6; v + 1 < verts.size(); v += 8) {
+                verts[v] = u0 + verts[v] * du;
+                verts[v + 1] = v0 + verts[v + 1] * dv;
+            }
+        };
+
+        for (size_t si = 0; si < model.submeshes.size(); ++si) {
+            const objparser::Submesh& s = model.submeshes[si];
             tmdl::Part part;
             part.name = s.material;
             for (int i = 0; i < 3; ++i) part.kd[i] = s.kd[i];
@@ -19757,20 +19820,23 @@ std::vector<File> bakeStaticModels(const Project& p,
                         ? s.refl
                         : resToBin(resolveTexRel(definingRel, s.refl));
 
-            // Atlased materials map their 0..1 UVs onto a sub-rectangle of the
-            // shared page. The runtime .obj path did this per vertex from the
-            // "# tyra-uvrect" hint; baking it in retires that hint for models.
-            if (u0 != 0.0f || v0 != 0.0f || du != 1.0f || dv != 1.0f)
-                for (size_t v = 6; v + 1 < part.verts.size(); v += 8) {
-                    part.verts[v] = u0 + part.verts[v] * du;
-                    part.verts[v + 1] = v0 + part.verts[v + 1] * dv;
-                }
+            foldUv(part.verts, u0, v0, du, dv);
 
-            // Distance tiers are decimated AFTER the UV fold, so a tier's
-            // surviving corners keep the atlas rect they were baked with.
-            if (lodWanted)
+            // Distance tiers: the artist's own meshes when the model has them,
+            // otherwise decimated here. Either way the UV fold is applied to
+            // every tier, so all of them sample the same atlas page rect.
+            if (!customTiers.empty()) {
+                for (const objparser::Model& tier : customTiers) {
+                    std::vector<float> verts = tier.submeshes[si].verts;
+                    foldUv(verts, u0, v0, du, dv);
+                    part.lods.push_back({std::move(verts), {}});
+                }
+            } else if (lodWanted) {
+                // Decimated AFTER the fold, so a tier's surviving corners keep
+                // the atlas rect they were baked with.
                 for (std::vector<float>& tier : meshlod::generateTiers(part.verts))
                     part.lods.push_back({std::move(tier), {}});
+            }
 
             out.parts.push_back(std::move(part));
         }

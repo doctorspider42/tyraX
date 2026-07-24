@@ -278,8 +278,19 @@ std::string bake(const Project& p,
     // bakes to "<stem>__ovr<hash>.tmdl", so any .tmdl derived from this stem
     // counts. The .mtl keeps shipping - it may also be a standalone material
     // asset that primitives load through MATERIAL_PATHS.
+    // Custom LOD meshes are folded into their model's .tmdl as tiers, so the
+    // tier .obj itself never ships either (res-relative paths, as stored).
+    std::set<std::string> customLodFiles;
+    for (const auto& [asset, tiers] : p.modelLods)
+        for (const std::string& t : tiers) customLodFiles.insert(t);
+
     auto supersededByTmdl = [&](const fs::path& src) {
         if (lowerExt(src) != ".obj") return false;
+        {
+            const std::string rel =
+                fs::relative(src, fs::path(p.dir), ec).generic_string();
+            if (customLodFiles.count(rel)) return true;
+        }
         const std::string stem = src.stem().string();
         std::error_code sec;
         for (const auto& s : fs::directory_iterator(src.parent_path(), sec)) {
