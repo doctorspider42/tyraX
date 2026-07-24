@@ -18199,6 +18199,27 @@ void App::drawPreferencesModal() {
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    ImGui::Checkbox("Keyboard && mouse controls", &prefSettings_.keyboardMouse);
+    prefHelp(
+        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
+        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
+        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
+        "editor sets its emulated USB devices automatically) and with real\n"
+        "USB devices on a console. Skipped on ps2link deploys.");
+    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
+    ImGui::Indent(scaled(16));
+    ImGui::Checkbox("Also over ps2link - needs the TyraX ps2link",
+                    &prefSettings_.keyboardMousePs2Link);
+    prefHelp(
+        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy, where\n"
+        "they are normally skipped. Requires the custom TyraX ps2link built by\n"
+        "tools/ps2link-usbhid (its boot screen says \"TyraX ps2link\"): stock\n"
+        "ps2link loads no USB drivers at all, and they cannot be added safely\n"
+        "afterwards - with it the engine just reuses the resident stack. The\n"
+        "driver logs show up live in Output / ps2client. On a stock ps2link\n"
+        "the drivers simply report \"not ready\". See docs/keyboard-mouse.md.");
+    ImGui::Unindent(scaled(16));
+    ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
@@ -18312,7 +18333,7 @@ void App::drawPreferencesModal() {
 
     ImGui::Checkbox("Reflection probe: aim along the reflected ray",
                     &prefSettings_.envProbeReflected);
-    ImGui::TextDisabled(
+    prefHelp(
         "Dynamic reflections (@sky materials): instead of the classic\n"
         "level-forward aim, a ray from the camera hits the reflective\n"
         "object under the crosshair and the probe renders from the hit\n"

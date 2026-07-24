@@ -7968,6 +7968,45 @@ Each finished feature lands as its own commit.
   regen also pulled in accumulated codegen drift these samples had missed
   (VU1-clipping toggle, data-driven USE prompt, menu value strips).
 
+- (65) **Keyboard & mouse controls (USB)** - generated games are playable
+  with a USB keyboard/mouse: WASD walks, the mouse looks, E uses, Space
+  jumps, Esc pauses, arrows + Enter drive menus. Engine fork grew a
+  `KbdMouse` device (`pad/kbd_mouse.*`: libkbd raw-mode 256-bit key bitmap +
+  libmouse DIFF-mode deltas/buttons, polled in `realLoop`), `ps2kbd`/
+  `ps2mouse` IRX embeds, `IrxLoader` split (usbd / mass storage / HID) and
+  `Pad::injectVirtual` - a virtual-pad overlay that ORs held buttons into
+  the freshly polled pad, derives click edges, and offsets the sticks. The
+  generated `controls.hpp` (user-ownable) holds the whole mapping - HID key
+  codes -> pad buttons, WASD -> full left-stick deflection (deadzone/curve
+  apply as usual), mouse buttons -> pad buttons, `MOUSE_SENSITIVITY` - plus
+  `applyKeyboardMouseInput`, called first thing in both loop() templates, so
+  menus / save menu / flow *On Button* / scripts react with zero knowledge
+  of the keyboard. Mouse look bypasses the sticks: both walkers add the
+  per-frame deltas to yaw/pitch directly (no g_frameScale - deltas are
+  already per-frame; no deadzone eating slow swipes). Guarded by
+  `TYRAX_KBD_MOUSE` so an older user-owned controls.hpp keeps compiling.
+  New `ProjectSettings::keyboardMouse` (default on, in `==`, saved/loaded,
+  Preferences > Build checkbox) -> `options.loadUsbKbdMouse` in main.cpp;
+  under ps2link the engine skips the drivers (a second usbd on an IOP that
+  may already run one - ps2link booted from a USB stick - wedges the USB
+  stack, and PS2MouseInit would spin forever without its IRX). The Runner
+  now also configures PCSX2's emulated USB ports before launch
+  (`pcsx2::ensureUsbKbdMouse`, same force-policy as HostFs: USB1=hidkbd
+  bound to the host keyboard, USB2=hidmouse bound to Pointer-0). Verified
+  e2e in PCSX2 on an FPP scratch project: both drivers enumerate
+  (`KbdMouse: ... ready` in bin/log.txt), synthetic-focused W-hold walked
+  the player z 0->31 with the virtual stick visible in a debug log
+  (`ljv=0`), Space fired the example script's Cross interaction twice
+  (click edges work), and mouse capture behaves like a real FPS (PCSX2
+  hides + recenters the cursor; signs verified: cursor above center =
+  look up, right = turn right; controlled wiggle gave symmetric yaw with
+  no drift). Docker build clean incl. the engine rebuild (-lkbd -lmouse).
+  Caveat: mouse BUTTONS never registered under synthetic input
+  (SendInput/PostMessage with verified focus; motion worked throughout) -
+  they may require real hardware events in PCSX2, so LMB/RMB/MMB need a
+  hands-on click test; keyboard covers every mapped action meanwhile.
+  Editor GUI checkbox is compile-verified only (stock ImGui pattern).
+
 ## Backlog (rough order)
 
 - **Session internet exposure** — today sessions are LAN (or any mesh VPN:
@@ -8568,3 +8607,178 @@ Each finished feature lands as its own commit.
   report) - with a single-entry .mtl the Entry combo hides and the add
   button stood alone with no context. Label only; the tooltip already
   explained the semantics.
+
+- (91) **Keyboard/mouse on real hardware: ps2link debug override + USB
+  settle delay** (user report: kbd/mouse works in PCSX2 but does nothing on
+  a physical PS2 over F6 "Run on PS2"). Diagnosis first: not a bug - the
+  engine computes `withKbdMouse = loadUsbKbdMouse && !keepIopResident`, and a
+  ps2link deploy sets `keepIopResident`, so the drivers never load (pad still
+  does, hence "pad works, kbd/mouse dead"). The guard exists because a second
+  `usbd` on ps2link's IOP wedges the resident one. Two things added: (a) an
+  experimental `ProjectSettings::keyboardMousePs2Link` preference (*Build >
+  Keyboard & mouse > Force under ps2link*) → `EngineOptions::
+  loadUsbKbdMouseUnderPs2Link` → the engine keeps the drivers under ps2link
+  but the IrxLoader **reuses ps2link's resident usbd instead of loading its
+  own** (only loads `ps2kbd`/`ps2mouse` on top), so the driver-load logs reach
+  the EE console live via ps2client - a real debug loop on hardware; (b) a
+  fixed `delay(5)` settle after loading `ps2kbd`/`ps2mouse` in
+  `loadKbdMouseModules`, because USB HID enumeration is async on real hardware
+  (instant in PCSX2) and `PS2KbdInit`/`PS2MouseInit` were running before any
+  device attached. `KbdMouse::init` now also logs the failure cases (driver
+  NOT ready) so the console shows *why*. Full chain wired (project.hpp +
+  `operator==`, save/load, Preferences UI, `{{KBD_MOUSE_PS2LINK}}` codegen).
+  Verified: editor builds clean; scratch project round-trips the flag through
+  `--resave` and emits `options.loadUsbKbdMouseUnderPs2Link = true/false` in
+  the generated `main.cpp`; all 17 examples regenerated. Engine change
+  compiles only in Docker and the actual hardware behavior (does the override
+  bind, does the delay fix enumeration) is a **pending hands-on test on the
+  user's PS2** - the code is the debugging instrument, the console logs are
+  the readout. See docs/keyboard-mouse.md ("Debugging on real hardware").
+
+- (92) **UI nit: two inline help walls moved into (?) tooltips** (user
+  report) - the *Keyboard & mouse controls* and *Reflection probe: aim along
+  the reflected ray* checkboxes still printed their whole explanation inline
+  as `TextDisabled` while every neighbour used the `prefHelp` "(?)" hover.
+  Swapped both to `prefHelp`; text unchanged. Compiles clean (app.cpp
+  recompiled; the linker only skipped overwriting a running editor exe).
+
+- (93) **ps2link kbd/mouse override: load our OWN usbd (real-hardware fix)**
+  (user tested (91) on a physical PS2 over F6). The console logged `Unknown
+  device 'usbkbd'` / `open fd = -19` / `KbdMouse: keyboard driver NOT ready`
+  then **froze**. Diagnosis from the device list (`tty:(TTY via SMAP UDP)` +
+  `dev9x:`, no USB): this ps2link is **network-booted**, so there is **no
+  usbd resident** on the IOP. (91)'s "reuse ps2link's resident usbd" therefore
+  had nothing to reuse - `ps2kbd`/`ps2mouse` self-unloaded, and the following
+  `PS2MouseInit()` span forever binding the now-gone RPC server (the exact
+  hang the original guard warned about). Fix: under the override the IrxLoader
+  now **loads its own usbd** (reverted the `&& !keepIopResident` gate on
+  `loadUsbd` to the original `withUsb || withKbdMouse`), which is safe on a
+  network ps2link (nothing to conflict with) and keeps `ps2mouse` resident so
+  `PS2MouseInit` binds instead of spinning - removing the freeze as a side
+  effect. Caveat now documented everywhere (engine.hpp/.cpp, project.hpp,
+  Preferences tooltip, generated main.cpp, docs): on a **USB-booted** ps2link a
+  second usbd may wedge the resident one - boot the game from that USB instead.
+  Editor recompiles clean; **engine change reaches the game through the Docker
+  resync on the next build (no editor relink needed)**; real-hardware retest
+  still pending on the user's PS2.
+
+- (94) **ps2link kbd/mouse: keyboard-only (the mouse init hangs the boot)**
+  (user retested (93)). Now `open name usbkbd:dev ... open fd = 3` +
+  `KbdMouse: keyboard driver ready` - **the keyboard works** (own usbd loaded,
+  ps2kbd opened its iomanX device). But the game then froze on the Tyra logo,
+  with no mouse log line after "keyboard driver ready": it hung in the very
+  next call, `PS2MouseInit()`. The keyboard rides an iomanX device (`usbkbd:`)
+  that ps2link's resident IOP serves fine; the mouse rides SIFRPC, and under a
+  resident-IOP ps2link the `ps2mouse` RPC server never registers, so
+  `PS2MouseInit`'s `while(server==0)` spin never ends (banner.show already drew
+  the logo, so it sits frozen on screen). Fix: `KbdMouse::init(bool withMouse)`
+  - engine.cpp passes `!keepIopResident`, so under ps2link the mouse is skipped
+  (keyboard only) and boot proceeds; off ps2link (PCSX2 / exported ISO) the
+  mouse runs unchanged. Logs `mouse skipped (keyboard only under ps2link)`.
+  Mouse-look over the ps2link debug path is therefore unavailable by design -
+  full keyboard+mouse on hardware is the exported-ISO path. Docs / tooltip /
+  project.hpp updated. Engine-side, reaches the game via the Docker resync;
+  hardware retest pending.
+
+- (95) **ps2link kbd/mouse: reuse-resident mode (for a custom ps2link)** -
+  part A of getting full keyboard+mouse over the network dev loop. The mouse
+  can't init when we load ps2mouse post-hoc onto a running ps2link (its RPC
+  server never registers). The plan: boot a CUSTOM ps2link with
+  usbd+ps2kbd+ps2mouse baked in, so those register at ps2link's own clean
+  boot; the game then reuses the resident stack. New nested preference
+  `keyboardMousePs2LinkResident` (Build > Keyboard & mouse > Force under
+  ps2link > "ps2link already has USB drivers (reuse + mouse)") ->
+  `EngineOptions::ps2LinkHasUsbHid`. When set (with the ps2link override, under
+  ps2link) the engine loads NONE of its own USB modules (a second usbd would
+  wedge the resident one) and enables the mouse - `PS2MouseInit` binds the
+  already-registered server instead of spinning. Stock ps2link (flag off) keeps
+  the (94) load-our-own keyboard-only path. Full chain wired (project.hpp +
+  `operator==`, save/load, nested Preferences checkbox, `{{KBD_MOUSE_PS2LINK_
+  RESIDENT}}` codegen, engine.hpp/.cpp). Editor compiles clean. Part B (the
+  custom ps2link.elf build recipe) and the hardware test are separate/pending.
+
+- (96) **Custom ps2link with USB HID baked in** (part B - the console side of
+  (95)). New `tools/ps2link-usbhid/`: a three-file patch to ps2dev/ps2link
+  (`ee/Makefile` embeds usbd+ps2kbd+ps2mouse IRX, `ee/irx_variables.h` externs
+  them, `ee/ps2link.c` `loadModules()` execs them after ps2link_irx - **usbd
+  first**, since ps2kbd/ps2mouse import its symbols) plus a `build.ps1` that
+  clones a pinned ps2link, applies the patch and builds `ps2link.elf` in the
+  official `ps2dev/ps2dev` toolchain image, and a README. A research subagent
+  (web, cited) mapped ps2link's `loadModules` and corrected the root cause:
+  ps2mouse's RPC registration is NOT gated on clean-vs-busy IOP timing (my
+  earlier hypothesis) - it hard-depends on **usbd being resident** at load, and
+  loading usbd ourselves onto ps2link's running IOP doesn't bring it up
+  cleanly; baking it into ps2link's own reset-then-load boot does. Built with
+  the current ps2dev toolchain, NOT the older `h4570/tyra` game image (ps2link
+  master needs newer ps2sdk headers - `startup.h`, `PS2_DISABLE_AUTOSTART_
+  PTHREAD`; ps2link is standalone so the toolchain need not match the game's).
+  Verified: `build.ps1 -Clean` reproduces end-to-end (patch applies clean, elf
+  = 283188 bytes, `strings` confirms "PS2 USB keyboard driver" / ps2mouse
+  embedded). The elf and its `build/` tree are gitignored (binary sent to the
+  user directly). Real-hardware test - flash it, tick both ps2link checkboxes,
+  F6, expect `keyboard driver ready` AND `mouse driver ready` - pending.
+
+- (97) **Mouse read: zero-init the buffer + force DIFF mode (real-hardware
+  fix)**. With the custom ps2link (96) both drivers finally came up on hardware
+  (`keyboard driver ready` AND `mouse driver ready`, game booted) - but the
+  camera orbited the avatar on its own, mouse unusable. Cause: `KbdMouse::update`
+  read into an **uninitialised** `PS2MouseData data;`. A real USB mouse only
+  sends packets on activity, so on a still frame `PS2MouseRead` returns success
+  without writing the struct - we then fed stack garbage (a near-constant value)
+  into `mouse.dx`, and the walkers add dx straight to yaw => perpetual spin.
+  PCSX2 never showed it: its emulated mouse delivers a packet every frame, so
+  the struct was always freshly written. Fix: `PS2MouseData data = {};` (a
+  no-data frame now yields 0 deltas). Also set `PS2MouseSetReadMode(PS2MOUSE_
+  READMODE_DIFF)` explicitly at init instead of trusting the driver default -
+  ABS mode would return absolute position read as a huge constant delta (same
+  spin). Pure engine change (kbd_mouse.cpp), reaches the game via the Docker
+  resync - no editor rebuild. Fixes mouse-look on ALL real-hardware paths (ISO
+  too), not just ps2link. Hardware retest pending.
+
+- (98) **Keyboard/mouse: one ps2link option + TyraX-branded ps2link; hardware
+  verification parked**. The hardware hunt ended inconclusively: with the custom
+  ps2link both drivers report ready and the game boots, but no input arrives -
+  and the user's keyboard/mouse turn out not to be recognised by the console at
+  ALL (uLaunchELF doesn't see them either), i.e. they don't speak the USB HID
+  **boot protocol** `ps2kbd`/`ps2mouse` require. Nothing left to fix on our
+  side without hardware that works, so the path is documented as **verified in
+  PCSX2, unconfirmed on hardware** (docs + tools README carry a Status note;
+  the uLaunchELF cross-check is written down as the way to tell a device
+  problem from a TyraX problem). Cleanups the user asked for:
+  (a) **two nested checkboxes collapsed into one** - *Also over ps2link - needs
+  the TyraX ps2link* (`keyboardMousePs2Link`). It now always means the custom
+  ps2link, so `keyboardMousePs2LinkResident` / `EngineOptions::ps2LinkHasUsbHid`
+  and the whole "stock ps2link, load our own, keyboard-only" branch are gone;
+  the engine under ps2link simply reuses the resident stack. Load tolerates the
+  retired key (verified by round-tripping a .tyra that still has it).
+  (b) A **safety guard replaces the removed branch**: `KbdMouse::init` only runs
+  `PS2MouseInit` if the keyboard device opened (proof the stack is resident), so
+  ticking the box on a stock ps2link logs "mouse skipped" instead of freezing
+  the boot on the Tyra logo.
+  (c) **ps2link boot screen branded** "Welcome to TyraX ps2link (USB keyboard +
+  mouse)" so the custom build is identifiable on the console; patch regenerated
+  and the elf rebuilt (`strings` confirms branding + HID drivers).
+  Also fixed a silent `build.ps1 -Clean` failure (read-only git objects made the
+  removal fail, then it built a stale tree while printing "reusing existing
+  clone"). Editor builds and links clean; all 17 examples regenerated.
+
+- (99) **Fix: empty scenes didn't compile (placeholder row lost `physSleep`)** -
+  found by the pre-push Docker build required before touching a PR. A project
+  whose scene has NO objects emits a hardcoded one-row placeholder in
+  `scene_data.hpp` (C++ forbids a zero-sized array), and that row had drifted
+  one field behind `SceneObjectData`: `physSleep` (added with the per-object
+  sleep delay) was never inserted, so every later column shifted one field left
+  and the PS2 build died far from the cause with `narrowing conversion of
+  '0.0f' from 'float' to 'int'` (emitSize landing in `int emitCount`).
+  **Pre-existing on origin/main**, not from this branch - `git show
+  origin/main:src/templates.cpp` carries the identical broken row; it arrived
+  with the physics-sleep commit and nothing built an empty scene since.
+  Inserted the missing `3.0F` and extended the row's comment to name the exact
+  failure mode, since the mismatch is silent by construction. Verified: struct
+  fields vs row values counted programmatically (51 vs 51) and a full Docker
+  game build of an empty-scene project returns exit 0 (`Build OK`,
+  `bin/kmtest.elf` linked) - which also compiled every engine change on this
+  branch (kbd_mouse/engine/irx_loader) for the first time, since vendor/tyra
+  only compiles inside the container. Examples unaffected (none has an empty
+  scene). Note: the editor exe in `build/` was locked by a running editor, so
+  this was built and verified from a throwaway `build-verify/` tree.

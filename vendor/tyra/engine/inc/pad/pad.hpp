@@ -7,6 +7,7 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Wellington Carvalho <wellcoj@gmail.com>
+# Modified by TyraX: injectVirtual - overlay keyboard/mouse input on the pad
 # Modified by TyraX: optional second pad (port parametric, non-blocking,
 # hot-join) for two-player games.
 */
@@ -60,6 +61,15 @@ class Pad {
   inline const PadJoy& getLeftJoyPad() const { return leftJoyPad; }
   inline const PadJoy& getRightJoyPad() const { return rightJoyPad; }
 
+  /** TyraX: overlay virtual input (e.g. USB keyboard mapped to buttons)
+   * on top of the physical pad. Call once per frame, after update() -
+   * update() rebuilds the state from hardware, so a skipped frame simply
+   * drops the overlay. held = buttons currently down; the joy args are
+   * -127..127 offsets added to the stick axes (0 = leave alone). Click
+   * edges are derived from the previous overlay internally. */
+  void injectVirtual(const PadButtons& held, s16 leftJoyH, s16 leftJoyV,
+                     s16 rightJoyH, s16 rightJoyV);
+
  private:
   char padBuf[256] alignas(sizeof(char) * 256);
   char actAlign[6];
@@ -67,6 +77,7 @@ class Pad {
   padButtonStatus buttons;
   u32 padData, oldPad, newPad;
   PadButtons pressed, clicked;
+  PadButtons virtPrev;  // TyraX: last frame's injectVirtual held set
   PadJoy leftJoyPad, rightJoyPad;
   bool optional, opened, ready, connected;
 

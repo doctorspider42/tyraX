@@ -140,7 +140,21 @@ Notes:
   (`logs\emulog.txt`, `snaps\`).
 - Missing `HostFs` = "Failed to load ...png" assert on the first fopen. The
   editor enforces it, but PCSX2 rewrites its ini on exit — if a game asserts on
-  asset loading, check HostFs first.
+  asset loading, check HostFs first. (The launcher also configures PCSX2's
+  emulated USB ports — USB1 = HID keyboard, USB2 = HID mouse — whenever the
+  project's *Keyboard & mouse controls* preference is on; `bin/log.txt` prints
+  `KbdMouse: keyboard driver ready` / `mouse driver ready` when the game saw
+  the devices. See `docs/keyboard-mouse.md`.)
+- **Synthetic input into PCSX2** (scripted keyboard/mouse tests): plain
+  `SetForegroundWindow` from a background shell silently fails — use the
+  ALT-tap + `AttachThreadInput` trick and VERIFY `GetForegroundWindow`
+  afterwards, or inputs go nowhere. `PostMessage` WM_KEYDOWN to the main
+  window works for keys; mouse MOTION only registers via real cursor moves
+  (`SetCursorPos` walks — PCSX2 recenters the captured cursor every frame, so
+  park-and-hold offsets read as constant velocity), and mouse BUTTONS were
+  never seen from synthetic events at all — test buttons by hand. Posting
+  synthetic WM_RBUTTONDOWN to the render child can wedge PCSX2's mouse input
+  until relaunch.
 - For ISO/cdrom0: testing use `Project > Export PS2 ISO`, then boot the ISO in
   PCSX2 (covers the path-conversion code that host: boots skip).
 

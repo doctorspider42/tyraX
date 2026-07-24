@@ -83,4 +83,86 @@ HostFsResult ensureHostFs(const fs::path& ini) {
     return out ? HostFsResult::Enabled : HostFsResult::WriteFailed;
 }
 
+HostFsResult ensureUsbKbdMouse(const fs::path& ini) {
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(ini);
+        if (!in) return HostFsResult::WriteFailed;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(line);
+        }
+    }
+
+    // Desired state per port. Key names follow PCSX2's USB config scheme:
+    // "Type" picks the device, bindings are "<type>_<BindName>". "Keyboard"
+    // and "Pointer-0" are PCSX2's whole-device input sources.
+    struct Want {
+        const char* section;
+        std::vector<std::pair<std::string, std::string>> keys;
+    };
+    const Want wants[] = {
+        {"[USB1]", {{"Type", "hidkbd"}, {"hidkbd_Keyboard", "Keyboard"}}},
+        {"[USB2]",
+         {{"Type", "hidmouse"},
+          {"hidmouse_Pointer", "Pointer-0"},
+          {"hidmouse_LeftButton", "Pointer-0/LeftButton"},
+          {"hidmouse_RightButton", "Pointer-0/RightButton"},
+          {"hidmouse_MiddleButton", "Pointer-0/MiddleButton"}}},
+    };
+
+    bool changed = false;
+    for (const Want& want : wants) {
+        // Section bounds (sectionEnd = one past the last line of the section)
+        long sectionLine = -1;
+        size_t sectionEnd = lines.size();
+        std::string section;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            std::string t = trim(lines[i]);
+            if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
+                if (section == want.section) {
+                    sectionEnd = i;
+                    break;
+                }
+                section = t;
+                if (section == want.section) sectionLine = (long)i;
+            }
+        }
+        if (sectionLine < 0) {
+            lines.push_back(want.section);
+            for (const auto& [key, value] : want.keys)
+                lines.push_back(key + " = " + value);
+            changed = true;
+            continue;
+        }
+        for (const auto& [key, value] : want.keys) {
+            bool found = false;
+            for (size_t i = (size_t)sectionLine + 1; i < sectionEnd; ++i) {
+                std::string t = trim(lines[i]);
+                if (t.rfind(key, 0) != 0) continue;
+                std::string rest = trim(t.substr(key.size()));
+                if (rest.empty() || rest.front() != '=') continue;
+                found = true;
+                if (trim(rest.substr(1)) != value) {
+                    lines[i] = key + " = " + value;
+                    changed = true;
+                }
+                break;
+            }
+            if (!found) {
+                lines.insert(lines.begin() + sectionLine + 1, key + " = " + value);
+                ++sectionEnd;
+                changed = true;
+            }
+        }
+    }
+    if (!changed) return HostFsResult::AlreadyEnabled;
+
+    std::ofstream out(ini, std::ios::trunc);
+    if (!out) return HostFsResult::WriteFailed;
+    for (const auto& l : lines) out << l << '\n';
+    return out ? HostFsResult::Enabled : HostFsResult::WriteFailed;
+}
+
 }  // namespace pcsx2
