@@ -25,6 +25,7 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
+#include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include <math.h>
@@ -306,12 +307,127 @@ V3 pointLightAt(const V3& wp, const V3& n) {
   return add;
 }
 
+/** Ambient occlusion (docs/ambient-occlusion.md): analytic occluders - the
+ * SCENE_AO_OCC table the editor bakes from the solid authored objects
+ * (oriented boxes / spheres) - plus terrain contact darkening, evaluated per
+ * vertex while geometry bakes. Multiplies the directional shade BEFORE point
+ * lights add on top, so light pools stay bright. The editor viewport runs the
+ * same formula per fragment (viewport.cpp fragment shader) - keep in sync. */
+std::vector<const AoOccData*> g_aoLocal;  // pruned per object/terrain chunk
+
+// Experimental textured AO: while g_aoAtlas is staged, pushVert emits atlas
+// STs (the primitive's face UVs mapped into its SCENE_AO_ATLAS_RECTS region)
+// into g_aoSts instead of multiplying the occlusion into the vertex colors -
+// the lightmap pass samples it per pixel. The builders bump g_aoRegion in
+// their emission order (box 6 faces, sphere 1, cylinder 3, cone 2, plane 2 -
+// mirrored by aobake::bakeSceneAoAtlas on the host; keep in sync).
+bool g_aoAtlas = false;
+const AoAtlasRect* g_aoAtlasRects = nullptr;
+int g_aoRegion = 0;
+std::vector<Vec4>* g_aoSts = nullptr;
+// Imported models: AO receive/self fully off for now (see the staging in
+// rebuildObjectGeometry) - per-vertex occlusion looks triangulated there.
+bool g_aoOff = false;
+
+/** Occlusion contribution of one occluder at a surface point (0..1). */
+float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
+  const V3 rel = {wp.x - oc.pos[0], wp.y - oc.pos[1], wp.z - oc.pos[2]};
+  float dist;
+  V3 toOcc;  // direction from the point toward the occluder surface
+  if (oc.sphere) {
+    const float d = sqrtf(rel.x * rel.x + rel.y * rel.y + rel.z * rel.z);
+    dist = d - oc.half[0];
+    if (d > 0.0001F)
+      toOcc = {-rel.x / d, -rel.y / d, -rel.z / d};
+    else
+      toOcc = {0.0F, 1.0F, 0.0F};
+  } else {
+    // into the box frame, clamp onto the box, back out to world
+    const float lx = rel.x * oc.ax[0] + rel.y * oc.ax[1] + rel.z * oc.ax[2];
+    const float ly = rel.x * oc.ay[0] + rel.y * oc.ay[1] + rel.z * oc.ay[2];
+    const float lz = rel.x * oc.az[0] + rel.y * oc.az[1] + rel.z * oc.az[2];
+    const float qx = lx < -oc.half[0] ? -oc.half[0] : (lx > oc.half[0] ? oc.half[0] : lx);
+    const float qy = ly < -oc.half[1] ? -oc.half[1] : (ly > oc.half[1] ? oc.half[1] : ly);
+    const float qz = lz < -oc.half[2] ? -oc.half[2] : (lz > oc.half[2] ? oc.half[2] : lz);
+    const float dvx = lx - qx, dvy = ly - qy, dvz = lz - qz;
+    dist = sqrtf(dvx * dvx + dvy * dvy + dvz * dvz);
+    if (dist > 0.0001F) {
+      const float wx = dvx * oc.ax[0] + dvy * oc.ay[0] + dvz * oc.az[0];
+      const float wy = dvx * oc.ax[1] + dvy * oc.ay[1] + dvz * oc.az[1];
+      const float wz = dvx * oc.ax[2] + dvy * oc.ay[2] + dvz * oc.az[2];
+      toOcc = {-wx / dist, -wy / dist, -wz / dist};
+    } else {
+      toOcc = {0.0F, 1.0F, 0.0F};
+    }
+  }
+  if (dist <= 0.0F) return 1.0F;  // touching / inside
+  float fade = 1.0F - dist / SCENE_AO_RADIUS;
+  if (fade <= 0.0F) return 0.0F;
+  fade *= fade;
+  // Facing weight: full occlusion facing the occluder, ~0.35 side-on (a wall
+  // still darkens the floor at its base), zero facing away.
+  float w = 0.35F + 0.65F * (n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z);
+  if (w <= 0.0F) return 0.0F;
+  if (w > 1.0F) w = 1.0F;
+  return fade * w;
+}
+
+/** Occlusion sum over the pruned local list (+ the terrain contact term for
+ * object geometry) -> shade multiplier. groundTerm is off for the terrain
+ * itself - the ground doesn't sit next to itself. */
+float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
+  if (!SCENE_AO_ENABLED) return 1.0F;
+  float occ = 0.0F;
+  for (const AoOccData* oc : g_aoLocal) occ += aoOccluderAt(*oc, wp, n);
+  if (groundTerm) {
+    float dy = wp.y - terrainHeightAt(wp.x, wp.z);
+    if (dy < 0.0F) dy = 0.0F;
+    if (dy < SCENE_AO_RADIUS) {
+      float fade = 1.0F - dy / SCENE_AO_RADIUS;
+      fade *= fade;
+      // up-facing: open sky above; the 0.7 keeps wall bases from muddying
+      // (the ground is lit and bounces - full half-hemisphere reads too dark)
+      float horiz = 0.5F - 0.5F * n.y;
+      if (horiz < 0.0F) horiz = 0.0F;
+      occ += 0.7F * fade * horiz;
+    }
+  }
+  if (occ > 1.0F) occ = 1.0F;
+  return 1.0F - SCENE_AO_STRENGTH * occ;
+}
+
+/** Prunes the scene occluder table around a world-space bounding sphere.
+ * The point-light dcache lesson applies: never scan the whole table per
+ * vertex - collect the handful in range once per object/chunk. */
+void aoCollectLocal(float cx, float cy, float cz, float radius, int selfIndex) {
+  g_aoLocal.clear();
+  if (!SCENE_AO_ENABLED) return;
+  const AoOccData* tbl = SCENE_AO_OCC;
+  for (int i = 0; i < SCENE_AO_OCC_COUNT; ++i) {
+    const AoOccData& oc = tbl[i];
+    if (oc.objIndex == selfIndex) continue;
+    const float dx = oc.pos[0] - cx;
+    const float dy = oc.pos[1] - cy;
+    const float dz = oc.pos[2] - cz;
+    const float reach =
+        radius + SCENE_AO_RADIUS +
+        sqrtf(oc.half[0] * oc.half[0] + oc.half[1] * oc.half[1] +
+              oc.half[2] * oc.half[2]);
+    if (dx * dx + dy * dy + dz * dz <= reach * reach) g_aoLocal.push_back(&oc);
+  }
+}
+
 // Material context for the primitive builders: addBox & co call pushVert
 // without material args, so rebuildObjectGeometry stages the object's
 // assigned material here before dispatching. Model parts pass theirs
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+// Texture atlasing: the staged material's UV rect ("# tyra-uvrect" in the
+// baked .mtl), applied to the primitive builders' generated 0..1 UVs.
+// nullptr = identity. Model parts never use it - LeanObjLoader already
+// remapped their UVs at load.
+const float* g_primUvRect = nullptr;
 // Physics fast path: push LOCAL-space positions (scale baked, rotation and
 // translation left to ObjectGeometry::objMat). Shading still bakes from the
 // full wake pose, so the switch itself never pops a color.
@@ -362,7 +478,7 @@ void despawnObjectThunk(int objectIndex) {
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
               float u, float v, const float* kdArg = nullptr,
-              bool texturedArg = false) {
+              bool texturedArg = false, unsigned char selfAo = 255) {
   const float* kd = kdArg ? kdArg : g_primKd;
   const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
@@ -371,6 +487,24 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
   V3 shade = shadeOf(n);
+  // Ambient occlusion multiplies the directional shade BEFORE the point
+  // lights add on top (light pools stay bright inside dark corners). selfAo
+  // is the model's baked raycast self-occlusion (255 = open). With the
+  // textured mode staged, the occlusion arrives per pixel through the atlas
+  // pass instead - only the ST for it is emitted here.
+  if (SCENE_AO_ENABLED && !g_aoOff) {
+    if (g_aoAtlas) {
+      if (g_aoSts) {
+        const AoAtlasRect& rc = g_aoAtlasRects[g_aoRegion];
+        g_aoSts->push_back(Vec4(rc.u0 + u * rc.du, rc.v0 + v * rc.dv, 1.0F, 0.0F));
+      }
+    } else {
+      float aoM = aoShadeMul(wp, n, true);
+      if (selfAo != 255)
+        aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
+      shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
+    }
+  }
   const V3 pl = pointLightAt(wp, n);
   shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
   if (shade.x > 1.0F) shade.x = 1.0F;
@@ -387,7 +521,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   cols.push_back(Color(c255(o.color[0] * scale * shade.x),
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
-  sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  // staged-material path only (kdArg = a model part whose UVs the loader
+  // already remapped)
+  if (!kdArg && g_primUvRect)
+    sts.push_back(Vec4(g_primUvRect[0] + u * g_primUvRect[2],
+                       g_primUvRect[1] + v * g_primUvRect[3], 1.0F, 0.0F));
+  else
+    sts.push_back(Vec4(u, v, 1.0F, 0.0F));
   if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
@@ -408,7 +548,9 @@ void addBox(std::vector<Vec4>& verts, std::vector<Color>& cols,
   // n x n grid, UVs span 0..1 per face. Mirror of the editor's unitBox.
   const int n = o.primDetail < 1 ? 1 : (o.primDetail > 16 ? 16 : o.primDetail);
   const float h = 0.5F, H = 1.0F;
+  int aoFace = 0;  // atlas region per face (+X,-X,+Y,-Y,+Z,-Z)
   auto face = [&](V3 c0, V3 du, V3 dv, V3 nrm) {
+    g_aoRegion = aoFace++;
     for (int i = 0; i < n; ++i)
       for (int j = 0; j < n; ++j) {
         const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
@@ -441,6 +583,7 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
   int stacks = slices * 5 / 7;
   if (stacks < 2) stacks = 2;
   const float r = 0.5F;
+  g_aoRegion = 0;  // the whole sphere is one atlas region (unique UVs)
   for (int st = 0; st < stacks; ++st) {
     const float t0 = PI * st / stacks, t1 = PI * (st + 1) / stacks;
     const float tv0 = (float)st / stacks, tv1 = (float)(st + 1) / stacks;
@@ -476,17 +619,20 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
     const float x0 = r * cosf(a0), z0 = r * sinf(a0);
     const float x1 = r * cosf(a1), z1 = r * sinf(a1);
     const V3 n0 = {cosf(a0), 0, sinf(a0)}, n1 = {cosf(a1), 0, sinf(a1)};
-    // side (smooth)
+    // side (smooth) - atlas region 0
+    g_aoRegion = 0;
     pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
     pushVert(verts, cols, sts, o, {x0, h, z0}, n0, u0, 0);
     pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
     pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, n1, u1, 1);
-    // caps (planar mapping)
+    // caps (planar mapping) - atlas regions 1 (+Y) and 2 (-Y)
+    g_aoRegion = 1;
     pushVert(verts, cols, sts, o, {0, h, 0}, {0, 1, 0}, 0.5F, 0.5F);
     pushVert(verts, cols, sts, o, {x1, h, z1}, {0, 1, 0}, x1 + 0.5F, z1 + 0.5F);
     pushVert(verts, cols, sts, o, {x0, h, z0}, {0, 1, 0}, x0 + 0.5F, z0 + 0.5F);
+    g_aoRegion = 2;
     pushVert(verts, cols, sts, o, {0, -h, 0}, {0, -1, 0}, 0.5F, 0.5F);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5F, z0 + 0.5F);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5F, z1 + 0.5F);
@@ -497,7 +643,9 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
+  g_aoRegion = 0;  // top face - atlas region 0
   pushQuad(verts, cols, sts, o, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
+  g_aoRegion = 1;  // bottom face - atlas region 1
   pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
 }
 
@@ -531,12 +679,14 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
     const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
     const float x0 = r * cosf(a0), z0 = r * sinf(a0);
     const float x1 = r * cosf(a1), z1 = r * sinf(a1);
-    // side
+    // side - atlas region 0
+    g_aoRegion = 0;
     pushVert(verts, cols, sts, o, {0, h, 0}, {nl * cosf(am), ny, nl * sinf(am)},
              (u0 + u1) * 0.5F, 0);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, {nl * cosf(a1), ny, nl * sinf(a1)}, u1, 1);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, {nl * cosf(a0), ny, nl * sinf(a0)}, u0, 1);
-    // base (planar mapping)
+    // base (planar mapping) - atlas region 1
+    g_aoRegion = 1;
     pushVert(verts, cols, sts, o, {0, -h, 0}, {0, -1, 0}, 0.5F, 0.5F);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5F, z0 + 0.5F);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5F, z1 + 0.5F);
@@ -1747,6 +1897,7 @@ void TerrainGame::loadModelAsset(int i) {
   for (auto& mat : mesh->materials) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
+    part.vertexAo.swap(mat.vertexAo);  // baked AO sidecar (empty = none)
     part.kd[0] = mat.kd[0];
     part.kd[1] = mat.kd[1];
     part.kd[2] = mat.kd[2];
@@ -1811,6 +1962,7 @@ void TerrainGame::loadMaterialAsset(int i) {
   if (!mat.textureName.empty()) {
     gmat.texPath = dir + mat.textureName;
     gmat.texture = acquireTexture(gmat.texPath);
+    for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
   }
   if (mat.reflTextureName == "@sky") {
     // Dynamic env map (see loadModelAsset).
@@ -2597,11 +2749,23 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       };
 
       // walls: push a chest-height sphere out of steep triangles (the radius
-      // is approximated by the average XZ scale - exact for uniform scales)
+      // is approximated by the average XZ scale - exact for uniform scales).
+      // "Steep" is judged in WORLD space: a tumbled physics model lying on
+      // its side has world-walls whose LOCAL normal reads as a walkable
+      // floor - so world-up rides into mesh space with the query.
       const V3 c = toLocal(*nextX, feetY + eyeHeight * 0.5F, *nextZ);
       Vec4 center(c.x, c.y, c.z, 1.0F);
       const float sAvg = (sx + sz) * 0.5F;
-      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F)) {
+      const V3 upL = invRotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      // prev rides along so the push is side-aware: a step longer than the
+      // radius that lands past a wall's plane is ejected BACK to the side
+      // the player came from - the plain two-sided push pointed inward
+      // there and sucked fast walkers inside the mesh.
+      const V3 pc = toLocal(prevX, feetY + eyeHeight * 0.5F, prevZ);
+      const Vec4 prevLocal(pc.x, pc.y, pc.z, 1.0F);
+      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
+                                     Vec4(upL.x, upL.y, upL.z, 0.0F),
+                                     &prevLocal)) {
         const V3 w = toWorld({center.x, center.y, center.z});
         *nextX = w.x;
         *nextZ = w.z;
@@ -2651,28 +2815,67 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (o.data.type == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
-    float cx = o.data.position[0], cy = o.data.position[1],
-          cz = o.data.position[2];
     float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
           ez = 0.5F * o.data.scale[2];
+    V3 localCenter = {0.0F, 0.0F, 0.0F};  // box center in the object's own frame
     const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
     const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
     if (mn && mx) {
-      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
-      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
-      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
       ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
       ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
       ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
     }
+    // World box center: the model-AABB offset lives in the object's own frame,
+    // so it rotates with the object (a primitive's offset is 0, so this is
+    // just its position).
+    const V3 cWorld = rotated(localCenter, o.data.rotation);
+    const float cx = o.data.position[0] + cWorld.x;
+    const float cy = o.data.position[1] + cWorld.y;
+    const float cz = o.data.position[2] + cWorld.z;
     const float hx = ex + playerRadius;
     const float hz = ez + playerRadius;
     const float top = cy + ey;
     const float bottom = cy - ey;
 
-    const bool nextInside = *nextX > cx - hx && *nextX < cx + hx &&
-                            *nextZ > cz - hz && *nextZ < cz + hz;
+    // Footprint test in the box's OWN horizontal frame, so a yaw-rotated box
+    // blocks along its real (rotated) faces instead of an axis-aligned bound
+    // that juts into empty space at the corners. Vertical (top/bottom) stays
+    // world-space: a yaw does not tilt the box, and box mode does not model a
+    // tilted top - a pitched/rolled box still collides upright, as before
+    // (mesh collision is the escape hatch for those). Reduces exactly to the
+    // old AABB test when the object is unrotated.
+    //
+    // The frame is YAW ONLY, never the full 3D rotation: physics bodies
+    // tumble (spin writes pitch/roll into rotation), and projecting a pitched
+    // frame onto XZ is not an isometry - part of the horizontal offset
+    // escapes into local Y and gets dropped, so far-away points read as
+    // "inside" and the back-projection contracts the committed position
+    // toward the box center (the player teleported into thrown objects and
+    // stuck inside them).
+    const float yaw = o.data.rotation[1] * PI / 180.0F;
+    const float yawC = cosf(yaw), yawS = sinf(yaw);
+    auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
+      const float dx = wx - cx, dz = wz - cz;
+      lx = dx * yawC - dz * yawS;
+      lz = dx * yawS + dz * yawC;
+    };
+    float lnx, lnz, lpx, lpz;
+    toLocalXZ(*nextX, *nextZ, lnx, lnz);
+    toLocalXZ(prevX, prevZ, lpx, lpz);
+
+    const bool nextInside = lnx > -hx && lnx < hx && lnz > -hz && lnz < hz;
     if (!nextInside) continue;
+
+    const bool wasInsideX = lpx > -hx && lpx < hx;
+    const bool wasInsideZ = lpz > -hz && lpz < hz;
+    // Re-projects a (possibly axis-cancelled) local target back to world.
+    auto commitLocal = [&](float lx, float lz) {
+      *nextX = cx + lx * yawC + lz * yawS;
+      *nextZ = cz - lx * yawS + lz * yawC;
+    };
 
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
@@ -2683,26 +2886,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       if (bottom < feetY + eyeHeight + EYE_CLEARANCE) {
         // walking under would leave the eye closer than the clip plane -
         // block, unless the player is already under it (let them walk out)
-        const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
-        const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
-        if (!wasInsideX || !wasInsideZ) {
-          if (!wasInsideX) *nextX = prevX;
-          if (!wasInsideZ) *nextZ = prevZ;
-        }
+        if (!wasInsideX || !wasInsideZ)
+          commitLocal(wasInsideX ? lnx : lpx, wasInsideZ ? lnz : lpz);
       }
     } else if (feetY < top) {
       // vertical overlap: also the lowest surface overhead when the box sank
       // onto the player (moving platforms) - lets the clamp push them out
       if (bottom >= feetY && bottom < *ceiling) *ceiling = bottom;
-      // blocked - cancel the axes that entered the box this frame
-      const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
-      const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
-      if (!wasInsideX) *nextX = prevX;
-      if (!wasInsideZ) *nextZ = prevZ;
-      if (wasInsideX && wasInsideZ) {
-        *nextX = prevX;
-        *nextZ = prevZ;
-      }
+      // blocked - cancel the local axes that entered the box this frame, so
+      // the residual slide runs along the (rotated) wall. Already inside on
+      // both axes = a full stop.
+      if (wasInsideX && wasInsideZ)
+        commitLocal(lpx, lpz);
+      else
+        commitLocal(wasInsideX ? lnx : lpx, wasInsideZ ? lnz : lpz);
     }
   }
 }
@@ -2732,6 +2929,25 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
+
+  // Experimental textured AO: swap the per-scene lightmap textures. Must
+  // happen before any chunk/object bake - the bag wiring reads the pointers.
+  if (!aoMapTexPath.empty()) releaseTexture(aoMapTexPath);
+  if (!aoAtlasTexPath.empty()) releaseTexture(aoAtlasTexPath);
+  aoMapTexPath.clear();
+  aoAtlasTexPath.clear();
+  aoMapTexture = nullptr;
+  aoAtlasTexture = nullptr;
+  if (SCENE_AO_ENABLED) {
+    if (SCENE_AO_MAP_PATH[0]) {
+      aoMapTexPath = SCENE_AO_MAP_PATH;
+      aoMapTexture = acquireTexture(aoMapTexPath);
+    }
+    if (SCENE_AO_ATLAS_PATH[0]) {
+      aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
+      aoAtlasTexture = acquireTexture(aoAtlasTexPath);
+    }
+  }
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -2884,6 +3100,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // the batches themselves bake lazily on the first renderScene.
   buildStaticBatchList();
 
+  // Raytraced mirrors (VU0 PoC): create this scene's reflection textures
+  // before the lazy geometry rebuild binds them to the glass quads.
+  buildRtMirrors();
+
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.scene = currentScene;
@@ -2923,6 +3143,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
     runtimeObjects[P.objIndex].visible =
         PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0) {
+      // Fixed-angle style: the camera starts on its authored heading and
+      // elevation instead of behind the avatar (the avatar itself still
+      // starts facing its authored yaw - P.faceYaw keeps that above).
+      P.yaw = PP_CAM_YAW(pi);
+      P.pitch = -PP_CAM_PITCH(pi);
+    }
     if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
@@ -3740,7 +3967,7 @@ void TerrainGame::updateCarriedObject() {
 
 // Hands a released object back to whatever moves it. A rigid body (Physics
 // on) simply takes the velocity and WAKES: the sim sleeps settled bodies
-// (restFrames >= PHYS_SLEEP_FRAMES) and skips them entirely, and an object
+// (physAsleep, per-object physSleep countdown) and skips them entirely, and an object
 // picked up off the ground is asleep by definition - without this it would
 // hang in mid-air where it was dropped, and a throw would ignore bounce,
 // friction and tumble. Returns false for a non-physics object, which has no
@@ -4324,8 +4551,11 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
       if (sd < -re + 0.1F) continue;
     }
 
-    // World AABB, sized exactly like box-mode player collision (the real mesh
-    // or baked anim AABB when the object has one, else the unit scale box).
+    // Oriented box, sized exactly like box-mode player collision (the real
+    // mesh or baked anim AABB when the object has one, else the unit scale
+    // box) - and cast in the box's OWN frame, so a yaw-rotated block stops the
+    // boom at its real faces instead of leaking through the corners of an
+    // axis-aligned stand-in.
     const GameModel* gm = nullptr;
     if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
       gm = &gameModels[o.data.model];
@@ -4333,28 +4563,43 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     if (ty == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
-    float cx = o.data.position[0], cy = o.data.position[1],
-          cz = o.data.position[2];
     float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
           ez = 0.5F * o.data.scale[2];
+    V3 localCenter = {0.0F, 0.0F, 0.0F};
     const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
     const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
     if (mn && mx) {
-      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
-      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
-      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
       ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
       ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
       ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
     }
-    const float bminX = cx - ex - r, bmaxX = cx + ex + r;
-    const float bminY = cy - ey - r, bmaxY = cy + ey + r;
-    const float bminZ = cz - ez - r, bmaxZ = cz + ez + r;
-    if (bmaxX < sminX || bminX > smaxX || bmaxY < sminY || bminY > smaxY ||
-        bmaxZ < sminZ || bminZ > smaxZ)
+    const V3 cW = rotated(localCenter, o.data.rotation);
+    const float cx = o.data.position[0] + cW.x;
+    const float cy = o.data.position[1] + cW.y;
+    const float cz = o.data.position[2] + cW.z;
+
+    // Broad phase: the OBB's own world AABB (rotated half-extent vectors summed
+    // per axis), inflated by r, vs the boom segment AABB. Conservative - it
+    // never rejects an object the local slab test could still hit (the old
+    // scale-box AABB was too small for a rotated block and leaked candidates).
+    const V3 hxv = rotated({ex, 0.0F, 0.0F}, o.data.rotation);
+    const V3 hyv = rotated({0.0F, ey, 0.0F}, o.data.rotation);
+    const V3 hzv = rotated({0.0F, 0.0F, ez}, o.data.rotation);
+    const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+    const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+    const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
+    if (cx + wex + r < sminX || cx - wex - r > smaxX ||
+        cy + wey + r < sminY || cy - wey - r > smaxY ||
+        cz + wez + r < sminZ || cz - wez - r > smaxZ)
       continue;  // broad phase: nowhere near the boom
 
-    // Slab test against the expanded box.
+    // Narrow phase: slab test in the box's local frame. invRotated is
+    // orthonormal, so the hit parameter t is still a world-space distance.
+    const V3 lo = invRotated({px - cx, py - cy, pz - cz}, o.data.rotation);
+    const V3 ld = invRotated({dx, dy, dz}, o.data.rotation);
     float t0 = 0.0F, t1 = best;
     bool miss = false;
     auto slab = [&](float o1, float d1, float lo1, float hi1) {
@@ -4373,9 +4618,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
         miss = true;  // parallel and outside the slab
       }
     };
-    slab(px, dx, bminX, bmaxX);
-    slab(py, dy, bminY, bmaxY);
-    slab(pz, dz, bminZ, bmaxZ);
+    slab(lo.x, ld.x, -ex - r, ex + r);
+    slab(lo.y, ld.y, -ey - r, ey + r);
+    slab(lo.z, ld.z, -ez - r, ez + r);
     if (miss || t0 > t1) continue;
     // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
     // player brushing a wall. Ignore it rather than collapse the camera onto
@@ -4453,13 +4698,23 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
 
   // Right stick: look around (stick right = turn right). A shared-screen P2
   // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
-  // only players that own a view read the right stick.
+  // only players that own a view read the right stick. A fixed-angle
+  // third-person style (top-down / isometric / fixed) additionally pins the
+  // pitch every frame - and the yaw too unless the style allows stick
+  // rotation - so the camera holds its authored angle while the left stick
+  // drives the avatar.
   const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  const bool fixedCam = PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0;
   if (ownCamera) {
-    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
-    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
-    if (P.pitch > 1.35F) P.pitch = 1.35F;
-    if (P.pitch < -1.35F) P.pitch = -1.35F;
+    if (!fixedCam || PP_CAM_YAW_ROTATE(pi))
+      P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (fixedCam) {
+      P.pitch = -PP_CAM_PITCH(pi);  // elevation in radians; down = negative
+    } else {
+      P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+      if (P.pitch > 1.35F) P.pitch = 1.35F;
+      if (P.pitch < -1.35F) P.pitch = -1.35F;
+    }
   }
 
   const float fx = sinf(P.yaw);
@@ -4575,13 +4830,35 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     float want =
         springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PP_CAM_DIST(pi));
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
-    if (want < P.boom) {
-      P.boom = want;  // blocked: snap in, never clip
-    } else {
-      float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
-      if (k > 1.0F) k = 1.0F;
-      P.boom += (want - P.boom) * k;
+
+    // Whisker anticipation: two extra casts splayed ~20 deg to either side of
+    // the boom spot walls the camera is about to sweep behind and start easing
+    // the boom in before the straight ray is blocked. A whisker hit is
+    // off-axis - a hint, not the true obstruction - so it only pulls the
+    // target partway toward its own distance. The want-clamp below remains the
+    // never-clip guarantee; whiskers just mean it usually fires from a boom
+    // that is already most of the way in, so the residual jump is small.
+    float target = want;
+    const float wcos = 0.94F, wsin = 0.342F;
+    for (int s = -1; s <= 1; s += 2) {
+      const float wx = -boomX * wcos + (-boomZ) * (wsin * s);
+      const float wz = boomX * (wsin * s) - boomZ * wcos;
+      const float d =
+          springArm(pivotX, headY, pivotZ, wx, -boomY, wz, PP_CAM_DIST(pi));
+      const float soft = d + (want - d) * 0.4F;
+      if (soft < target) target = soft;
     }
+    if (target < CAM_MIN_DIST) target = CAM_MIN_DIST;
+
+    // Ease toward the anticipated length: briskly in (a few frames), gently
+    // back out (~2 s for a full boom), and never past the straight-ray hit -
+    // blocked mid-ease still clamps so the camera cannot enter geometry.
+    const float rate = target < P.boom ? 0.30F : 0.06F;
+    float k = rate * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    P.boom += (target - P.boom) * k;
+    if (P.boom > want) P.boom = want;
+    if (P.boom < CAM_MIN_DIST) P.boom = CAM_MIN_DIST;
     float eyeX = pivotX - boomX * P.boom;
     float eyeY = headY - boomY * P.boom;
     float eyeZ = pivotZ - boomZ * P.boom;
@@ -4859,23 +5136,68 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       o.data.material < (int)gameMaterials.size())
     gmat = &gameMaterials[o.data.material];
 
+  // Ambient occlusion: prune the scene occluder table around this object
+  // once (pushVert then only loops the handful in range). Authored objects
+  // exclude their own occluder; spawned clones (index past the authored
+  // count) exclude nothing.
+  {
+    float aoRad;
+    const float sx = o.data.scale[0], sy = o.data.scale[1], sz = o.data.scale[2];
+    if (o.data.type == 5 && gm) {
+      const float ex =
+          (fabsf(gm->mn[0]) > fabsf(gm->mx[0]) ? fabsf(gm->mn[0]) : fabsf(gm->mx[0])) * fabsf(sx);
+      const float ey =
+          (fabsf(gm->mn[1]) > fabsf(gm->mx[1]) ? fabsf(gm->mn[1]) : fabsf(gm->mx[1])) * fabsf(sy);
+      const float ez =
+          (fabsf(gm->mn[2]) > fabsf(gm->mx[2]) ? fabsf(gm->mn[2]) : fabsf(gm->mx[2])) * fabsf(sz);
+      aoRad = sqrtf(ex * ex + ey * ey + ez * ez);
+    } else {
+      aoRad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);  // unit primitives
+    }
+    aoCollectLocal(o.data.position[0], o.data.position[1], o.data.position[2],
+                   aoRad, index < SCENE_OBJECT_COUNT ? index : -1);
+  }
+
+  // Authored primitives with an atlas region sample the scene lightmap per
+  // pixel; spawned clones and physics bodies (FIRST is -1 / index past the
+  // authored count) keep the per-vertex bake. Imported models get NO
+  // receive/self AO for now (g_aoOff): per-vertex occlusion on authored
+  // meshes reads as triangulated shading (owner call, 2026-07) - a proper
+  // fix needs a per-model lightmap unwrap. The .aov sidecar plumbing
+  // (aobake::modelAO + LeanObjLoader) stays for that future path.
+  g_aoAtlas = false;
+  g_aoSts = nullptr;
+  g_aoOff = o.data.type == 5;
+  if (partCount > 0) g.parts[0].aoSts.clear();
+  if (SCENE_AO_ENABLED && o.data.type != 5 && index < SCENE_OBJECT_COUNT &&
+      SCENE_AO_ATLAS_FIRST && SCENE_AO_ATLAS_RECTS &&
+      SCENE_AO_ATLAS_FIRST[index] >= 0) {
+    g_aoAtlas = true;
+    g_aoAtlasRects = &SCENE_AO_ATLAS_RECTS[SCENE_AO_ATLAS_FIRST[index]];
+    g_aoSts = &g.parts[0].aoSts;
+  }
+
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
       const GameModelPart& src = gm->parts[pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
+      // parallel to the vertex array, one byte per vertex.
+      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
                  {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured);
+                 textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255);
       }
     }
     g_envNormals = nullptr;
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_primUvRect = g_primTextured ? gmat->uvRect : nullptr;
     g_envNormals =
         (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
@@ -4927,12 +5249,21 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         // GS alpha-blends it over the copies drawn just before it.
         addDecal(p0.vertices, p0.colors, p0.sts, o.data);
         float opacity = 0.35F;
+        bool rt = false;
         for (int mi = 0; mi < MIRROR_COUNT; ++mi)
           if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
             opacity = MIRRORS[mi].opacity;
+            rt = MIRRORS[mi].raytraced != 0;
             break;
           }
-        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        if (rt) {
+          // VU0-raytraced glass: the traced image IS the reflection - draw
+          // the quad opaque, full-bright white so the texture (bound in the
+          // tail below) shows unmodulated.
+          for (Color& c : p0.colors) c.r = c.g = c.b = c.a = 128.0F;
+        } else {
+          for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        }
         break;
       }
       case 16: {
@@ -4951,6 +5282,9 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     g_envNormals = nullptr;
   }
   g_bakeLocal = false;
+  g_aoAtlas = false;
+  g_aoSts = nullptr;
+  g_aoOff = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -4987,6 +5321,45 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
         o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+    // Raytraced mirror: the glass samples the VU0-traced reflection image
+    // (created by buildRtMirrors before this rebuild ever runs).
+    if (o.data.type == 15)
+      for (RtMirror& r : rtMirrors)
+        if (r.object == index) { tex = r.texture; break; }
+    // Live texture feed: the camera feed target or a raytraced mirror's
+    // traced image replaces the surface texture; colors flatten to the
+    // object tint at texture scale (128 = 1.0) so the feed reads like an
+    // emissive screen instead of inheriting baked shading.
+    for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi) {
+      const ObjectFeedData& fd = OBJECT_FEEDS[fi];
+      if (fd.scene != currentScene || fd.object != index) continue;
+      Texture* ftex = nullptr;
+      if (fd.kind == 0)
+        ftex = engine->renderer.core.camFeed.getTexture();
+      else
+        for (RtMirror& r : rtMirrors)
+          if (r.object == fd.src) { ftex = r.texture; break; }
+      if (ftex) {
+        tex = ftex;
+        auto c128 = [](float v) {
+          return v * 128.0F > 255.0F ? 255.0F : v * 128.0F;
+        };
+        for (Color& c : part.colors) {
+          c.r = c128(o.data.color[0]);
+          c.g = c128(o.data.color[1]);
+          c.b = c128(o.data.color[2]);
+          c.a = 128.0F;
+        }
+        // The camera feed is a raster render target: GS rows run top-down
+        // while texture V grows downward from row 0, so the image samples
+        // upside down through plain surface UVs - flip V here (fresh sts
+        // every rebuild, so the flip never double-applies). The mirror
+        // feed is a RAM texture with its own consistent mapping.
+        if (fd.kind == 0)
+          for (Vec4& st : part.sts) st.y = 1.0F - st.y;
+      }
+      break;
+    }
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
@@ -5074,6 +5447,33 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     } else {
       part.envBag.reset();
     }
+
+    // Experimental textured AO: the lightmap-atlas pass. Reuses the shared
+    // blending info bag of the terrain layer passes (identity model - only
+    // world-space static primitives ever get atlas regions) and this part's
+    // vertices/bboxVersion, like the env pass above.
+    if (!part.aoSts.empty() && part.aoSts.size() == part.vertices.size() &&
+        aoAtlasTexture && layerInfoBag) {
+      part.aoCols.assign(part.vertices.size(),
+                         Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.aoBag) {
+        part.aoColorBag = std::make_unique<StaPipColorBag>();
+        part.aoTexBag = std::make_unique<StaPipTextureBag>();
+        part.aoBag = std::make_unique<StaPipBag>();
+        part.aoBag->info = layerInfoBag.get();
+        part.aoBag->color = part.aoColorBag.get();
+        part.aoBag->texture = part.aoTexBag.get();
+        part.aoBag->lighting = nullptr;
+      }
+      part.aoColorBag->many = part.aoCols.data();
+      part.aoTexBag->texture = aoAtlasTexture;
+      part.aoTexBag->coordinates = part.aoSts.data();
+      part.aoBag->vertices = part.vertices.data();
+      part.aoBag->count = static_cast<u32>(part.vertices.size());
+      part.aoBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.aoBag.reset();
+    }
   }
 }
 
@@ -5088,6 +5488,15 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // cross and normalize are VU0 macro-mode assembly.
 constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not moving"
 constexpr float PHYS_REST_SPIN = 0.75F;       // deg/frame = "not spinning"
+// A mover this fast treats a SLEEPING body as a body, not a wall: pass 1
+// skips the static resolution so the impulse pass sees the overlap, wakes
+// the sleeper and trades momentum (~2.5 u/s at 50 fps; rest is ~0.8 u/s).
+constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
+constexpr float PHYS_FLATTEN_STEP = 3.0F;     // settle-flatten, deg/frame
+// Settle-flatten engages while the tumble is still dying (well above the
+// rest-spin gate) so the lay-down continues the motion instead of starting
+// after a visible dead stop.
+constexpr float PHYS_FLATTEN_SPIN = 2.5F;     // deg/frame
 constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 constexpr float PHYS_PUSH = 0.55F;            // player shove gain (scaled 1/mass)
 
@@ -5227,6 +5636,7 @@ void TerrainGame::buildStaticBatchList() {
     if (objectBatchOf[i] >= 0) ++batched;
   TYRA_LOG("Static batching: ", batched, " objects in ",
            (int)staticBatches.size(), " batches");
+  if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 
 // One batch's bake: re-run the primitive builders for every shown member
@@ -5354,7 +5764,7 @@ void TerrainGame::updateObjectPhysics() {
     // Carried/thrown objects are driven by updateCarriedObject this frame.
     if (i == carryIndex || i == thrownIndex) continue;
     if (!o.active || !o.data.physics) continue;
-    if (o.restFrames >= PHYS_SLEEP_FRAMES) continue;  // asleep
+    if (physAsleep(o)) continue;  // asleep
 
     const GameModel* gm = nullptr;
     const SkelModel* anim = nullptr;
@@ -5367,6 +5777,27 @@ void TerrainGame::updateObjectPhysics() {
     }
     float cOff[3], ext[3];
     physExtents(o.data, gm, anim, cOff, ext);
+    // Tumbled bodies contact the world through their ROTATED bound: the
+    // support extent of the OBB along each world axis (sum of |basis
+    // column| * half extent) and the rotated center offset. The plain
+    // axis-aligned ext let a rolled box sink corner-deep into the terrain
+    // as if it were a sphere of its half-height. Spheres skip this - they
+    // are rotation-invariant and their box corners would overestimate the
+    // radius. (Yaw-only rotation leaves the vertical extent unchanged, so
+    // authored yaw blocks rest exactly as before.)
+    if (o.data.type != 1 &&
+        (o.data.rotation[0] != 0.0F || o.data.rotation[1] != 0.0F ||
+         o.data.rotation[2] != 0.0F)) {
+      const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const V3 rc = rotated({cOff[0], cOff[1], cOff[2]}, o.data.rotation);
+      const float lx = ext[0], ly = ext[1], lz = ext[2];
+      ext[0] = fabsf(bx.x) * lx + fabsf(by.x) * ly + fabsf(bz.x) * lz;
+      ext[1] = fabsf(bx.y) * lx + fabsf(by.y) * ly + fabsf(bz.y) * lz;
+      ext[2] = fabsf(bx.z) * lx + fabsf(by.z) * ly + fabsf(bz.z) * lz;
+      cOff[0] = rc.x, cOff[1] = rc.y, cOff[2] = rc.z;
+    }
     const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
     const float bounce = o.data.physBounce;
 
@@ -5500,9 +5931,16 @@ void TerrainGame::updateObjectPhysics() {
       if (j == i) continue;
       RuntimeObject& s = runtimeObjects[j];
       if (!s.active || !physObstacle(s.data)) continue;
-      const bool sSleeping =
-          s.data.physics && s.restFrames >= PHYS_SLEEP_FRAMES;
+      const bool sSleeping = s.data.physics && physAsleep(s);
       if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
+      // A meaningful hit treats a sleeping body as a body, not a wall: this
+      // static resolution would separate the pair, and the impulse pass -
+      // the one that wakes the sleeper and trades momentum - would never
+      // see the overlap (a thrown crate bounced off a sleeping one without
+      // waking it). Skip it and let pass 2 handle the hit; near-rest
+      // contacts (resting stacks) keep the wall treatment, so settled
+      // stacks stay cheap and stable.
+      if (sSleeping && vel.innerProduct(vel) > PHYS_WAKE_SPEED2) continue;
       if (aimOn) {
         const V3 pax = rotated({1.0F, 0.0F, 0.0F}, s.data.rotation);
         const V3 pay = rotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
@@ -5593,7 +6031,9 @@ void TerrainGame::updateObjectPhysics() {
     // Tumble: rolling without slipping (w = v / r) about the horizontal axis
     // perpendicular to the slide direction; friction bleeds it off with the
     // slide itself. Euler-added per axis - visually right, era-appropriate.
-    if (o.data.physTumble) {
+    // A latched settle-flatten owns the rotation: re-deriving spin from the
+    // residual slide here would fight the ease (overshoot-and-return).
+    if (o.data.physTumble && o.flatTgt[0] > 720.0F) {
       if (grounded) {
         const float ts2 = slideTan.innerProduct(slideTan);
         if (ts2 > 1e-8F) {
@@ -5616,14 +6056,88 @@ void TerrainGame::updateObjectPhysics() {
     const float speed2 = vel.innerProduct(vel);
     const float spinMag =
         fabsf(o.spin[0]) + fabsf(o.spin[1]) + fabsf(o.spin[2]);
-    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN) {
-      if (o.restFrames < PHYS_SLEEP_FRAMES) ++o.restFrames;
-      if (o.restFrames >= PHYS_SLEEP_FRAMES) {
+
+    // Settle-flatten: a near-rest tumbled body eases onto a flat face
+    // instead of sleeping on an edge or corner - pitch/roll walk to a 90deg
+    // step (the crate visibly tips onto its face; the rotated support
+    // extent above lowers it with the tilt). It engages while the tumble is
+    // still dying (spin under PHYS_FLATTEN_SPIN, well above the rest gate)
+    // and picks each target ONCE with a momentum lookahead - a crate still
+    // tipping forward finishes its fall onto the NEXT face instead of being
+    // yanked back to the nearest one - then takes the residual spin over so
+    // the two drivers never fight. The latched targets keep the choice
+    // stable while the spin decays. Euler-order trap: rotated() composes
+    // Rz*Ry*Rx, and with the roll on an ODD step the pose is only flat when
+    // the yaw sits on a step too - so the yaw joins the easing exactly then
+    // (a settling crate twisting slightly reads as natural). Spheres skip
+    // it: their orientation is invisible and easing would visibly roll the
+    // baked shading for nothing. Sleep waits for the easing to finish
+    // (flattening resets the countdown).
+    bool flattening = false, flatMoved = false;
+    if (o.data.physTumble && o.data.type != 1 && grounded &&
+        speed2 < PHYS_REST_SPEED2 * 4.0F && spinMag < PHYS_FLATTEN_SPIN) {
+      if (o.flatTgt[0] > 720.0F) {  // unlatched - pick the faces once
+        auto pick = [&](int axis) {
+          // ~20 frames of the dying spin decide whether the tip carries
+          // over the balance point onto the next face
+          return roundf((o.data.rotation[axis] + o.spin[axis] * 20.0F) /
+                        90.0F) *
+                 90.0F;
+        };
+        o.flatTgt[0] = pick(0);
+        o.flatTgt[2] = pick(2);
+        // roll on an ODD 90 step: the yaw must land on a step too
+        o.flatTgt[1] = fabsf(fmodf(o.flatTgt[2], 180.0F)) > 45.0F
+                           ? roundf(o.data.rotation[1] / 90.0F) * 90.0F
+                           : 1e9F;
+        o.spin[0] = o.spin[2] = 0.0F;  // the ease drives from here
+      }
+      auto ease = [&](int axis) {
+        const float target = o.flatTgt[axis];
+        if (target > 720.0F) return;  // yaw not eased this settle
+        float d = target - o.data.rotation[axis];
+        if (fabsf(d) < 0.001F) return;
+        if (d > PHYS_FLATTEN_STEP) {
+          d = PHYS_FLATTEN_STEP;
+          flattening = true;
+        } else if (d < -PHYS_FLATTEN_STEP) {
+          d = -PHYS_FLATTEN_STEP;
+          flattening = true;
+        }
+        o.data.rotation[axis] += d;
+        flatMoved = true;
+      };
+      ease(0);
+      ease(2);
+      ease(1);
+    } else {
+      o.flatTgt[0] = o.flatTgt[1] = o.flatTgt[2] = 1e9F;  // re-pick next settle
+    }
+
+    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN &&
+        !flattening) {
+      // Countdown length is per-object (Properties > Physics > Sleep after,
+      // seconds); everyFrames tracks the measured frame time so the wait is
+      // wall-clock true with vsync off too. On completion the counter pins
+      // to PHYS_ASLEEP - the asleep test never re-derives the threshold.
+      const int sleepAt = everyFrames(o.data.physSleep);
+      if (o.restFrames < sleepAt) ++o.restFrames;
+      if (o.restFrames >= sleepAt) {
+        o.restFrames = PHYS_ASLEEP;
         vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
         o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
-        // settle: one world-space rebuild restores rest-pose shading and
-        // hands the vertex arrays back to the world-space consumers
-        if (objectGeometry[i].matrixMode) o.dirty = true;
+        // Fast-path bodies stay on objMat while asleep - NO settle rebuild.
+        // The old world re-bake refreshed the shading for the rest pose, and
+        // that discrete jump from the wake-pose shading that rode the tumble
+        // read as "the rotation snapped back" the instant a thrown body
+        // froze (on a sphere the shade gradient is the only orientation
+        // cue). Nothing needs the world-space arrays at rest: every
+        // fast-path consumer (mirrors, env pass, split band, use targeting,
+        // collision) reads objMat or o.data, and the two vertex-array
+        // consumers (usable highlight, matcap normals) are excluded from
+        // the fast path by physFastPathEligible. Trade-off: a resting body
+        // keeps the shading baked at wake - the same shading it showed all
+        // flight. A retint / Live Link edit still re-bakes via dirty.
       }
     } else {
       o.restFrames = 0;
@@ -5646,7 +6160,7 @@ void TerrainGame::updateObjectPhysics() {
         if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
       }
     }
-    if (dPos > 1e-5F || spinMag > 0.001F) {
+    if (dPos > 1e-5F || spinMag > 0.001F || flatMoved) {
       // Moving: eligible bodies get ONE local-space bake and ride objMat
       // from then on (refreshed in renderScene - no EE re-bake per frame);
       // the rest fall back to the legacy world-space rebuild.
@@ -5669,9 +6183,7 @@ void TerrainGame::updateObjectPhysics() {
       RuntimeObject& b = runtimeObjects[j];
       if (j == carryIndex || j == thrownIndex) continue;
       if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;
-      if (a.restFrames >= PHYS_SLEEP_FRAMES &&
-          b.restFrames >= PHYS_SLEEP_FRAMES)
-        continue;
+      if (physAsleep(a) && physAsleep(b)) continue;
 
       float aOff[3], aExt[3], bOff[3], bExt[3];
       const GameModel* gm = nullptr;
@@ -5865,12 +6377,12 @@ void TerrainGame::renderScene() {
   // Not inside a split half: the env bracket's end() restores a full-screen
   // raster, which would undo the half's scissor/offset. Reflections keep the
   // last rendered map while split-screen is active.
-  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
+  // Reflected-probe mode renders a probe PER OBJECT, interleaved with the
+  // object draws (renderObjectProbe) - this shared pass covers only the
+  // classic level-forward aim.
+  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
+      envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
-    skyMat.identity();
-    skyMat.data[12] = cameraPosition.x;
-    skyMat.data[13] = cameraPosition.y;
-    skyMat.data[14] = cameraPosition.z;
     // Level forward: keeps the sphere map's horizon on its center line.
     V3 lvl = {envFwd.x, 0.0F, envFwd.z};
     const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
@@ -5878,11 +6390,18 @@ void TerrainGame::renderScene() {
       lvl.x /= ll, lvl.z /= ll;
     else
       lvl = {1.0F, 0.0F, 0.0F};
-    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
-                 cameraPosition.z + lvl.z, 1.0F);
+    const Vec4 probeEye = cameraPosition;
+    const V3 probeDir = lvl;
+
+    skyMat.identity();
+    skyMat.data[12] = probeEye.x;
+    skyMat.data[13] = probeEye.y;
+    skyMat.data[14] = probeEye.z;
+    Vec4 envLook(probeEye.x + probeDir.x, probeEye.y + probeDir.y,
+                 probeEye.z + probeDir.z, 1.0F);
     core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
                             scriptCtx.skyColor.b, 128.0F));
-    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+    core.renderer3D.pushEnvView(probeEye, envLook, 110.0F,
                                 (float)Tyra::RendererCoreEnvMap::size);
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
@@ -5894,19 +6413,21 @@ void TerrainGame::renderScene() {
     for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
-      // Skip the object the camera is standing at: it would swamp the whole
+      // Skip the object the PROBE stands at: it would swamp the whole
       // map - typically the very reflective surface being inspected, whose
-      // own dark self-reflection reads as ugly patches up close. (Bounding
-      // radius approximated from the scale; unit primitives fit a 1x1x1
-      // cube, so half-diagonal = 0.87 * max scale.)
+      // own dark self-reflection reads as ugly patches up close. In
+      // reflected-aim mode the probe eye sits ON the hit surface, so this
+      // same check self-skips the mirror-er. (Bounding radius approximated
+      // from the scale; unit primitives fit a 1x1x1 cube, so
+      // half-diagonal = 0.87 * max scale.)
       {
         float half = ro.data.scale[0];
         if (ro.data.scale[1] > half) half = ro.data.scale[1];
         if (ro.data.scale[2] > half) half = ro.data.scale[2];
         const float skipR = 0.87F * half * 1.9F;
-        const float sdx = ro.data.position[0] - cameraPosition.x;
-        const float sdy = ro.data.position[1] - cameraPosition.y;
-        const float sdz = ro.data.position[2] - cameraPosition.z;
+        const float sdx = ro.data.position[0] - probeEye.x;
+        const float sdy = ro.data.position[1] - probeEye.y;
+        const float sdz = ro.data.position[2] - probeEye.z;
         if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
       }
       if (ro.dirty) rebuildObjectGeometry(ri);
@@ -5917,6 +6438,13 @@ void TerrainGame::renderScene() {
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
     core.envMap.end();
   }
+
+  // Camera texture feed: its own VRAM target, so order only matters
+  // relative to the surfaces that sample it - before everything.
+  renderCameraFeed();
+
+  // Per-object probe rendering happens inline in the object draw loop
+  // below (renderObjectProbe) when ENV_PROBE_REFLECTED is on.
 
   // Portal through-view: rendered IN-PLACE into the real framebuffer at
   // full resolution, every frame (the view must stay in lockstep with the
@@ -5960,12 +6488,19 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
-  auto renderEnvPass = [&](GeoPart& part) {
+  auto renderEnvPass = [&](ObjectGeometry& og, GeoPart& part) {
     if (!part.envBag) return;
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
-    // per-mesh camera basis here.
-    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
-    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    // per-mesh camera basis here. Reflected-probe objects sample with THEIR
+    // probe camera's basis (see renderObjectProbe), everything else with
+    // the main camera's.
+    if (ENV_PROBE_REFLECTED && og.probeBasis) {
+      part.envTexBag->envRight = og.probeRight;
+      part.envTexBag->envUp = og.probeUp;
+    } else {
+      part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+      part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    }
     stapip.core.render(part.envBag.get());
   };
   int hlList[8];
@@ -6003,10 +6538,26 @@ void TerrainGame::renderScene() {
       hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
+    // Reflected-probe mode: re-render the shared env map for THIS object
+    // right before it draws (begin() drains PATH1 first, so the previous
+    // object already sampled its own map). Not inside split halves - the
+    // bracket restores a full-screen raster. A highlight-deferred body
+    // redrawn later this frame samples the last probe's map instead of
+    // its own - an accepted approximation.
+    if (ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && !splitPassActive) {
+      Texture* envTex = engine->renderer.core.envMap.getTexture();
+      for (GeoPart& part : objectGeometry[i].parts)
+        if (part.envTexBag && part.envTexBag->texture == envTex) {
+          renderObjectProbe(i);
+          break;
+        }
+    }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
-        renderEnvPass(part);
+        // textured-AO lightmap multiplies before the additive env pass
+        if (part.aoBag) stapip.core.render(part.aoBag.get());
+        renderEnvPass(objectGeometry[i], part);
       }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
@@ -6046,7 +6597,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.bag) {
           stapip.core.render(part.bag.get());
-          renderEnvPass(part);
+          renderEnvPass(objectGeometry[i], part);
         }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
@@ -6102,6 +6653,13 @@ void TerrainGame::renderMirrors() {
     RuntimeObject& m = runtimeObjects[mir.object];
     if (!m.active || !m.visible) continue;
     if (beyondDrawDistance(m.data, cameraPosition)) continue;
+
+    // VU0-raytraced PoC path: no geometry re-submit, the reflection is a
+    // texture ray-traced on VU0 this frame (see renderRtMirror).
+    if (mir.raytraced) {
+      renderRtMirror(mir);
+      continue;
+    }
 
     // Householder reflection about the glass plane (normal = the mirror's
     // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
@@ -6175,6 +6733,500 @@ void TerrainGame::renderMirroredObject(int index) {
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
+}
+
+// Raytraced mirrors (VU0 PoC): one rtSize^2 RGBA32 texture per flagged
+// mirror (MirrorData::rtSize - the authored 32/64/128 resolution),
+// ray-traced and re-uploaded every frame (renderRtMirror). The Texture
+// owns its pixel buffer (TextureData frees it on delete); the GS
+// allocation is released before delete so scene switches don't leak
+// VRAM. Rebuilt by loadScene BEFORE the lazy geometry rebuild, which binds
+// the texture to the glass quad (rebuildObjectGeometry case 15).
+void TerrainGame::freeRtMirrors() {
+  for (RtMirror& r : rtMirrors) {
+    if (!r.texture) continue;
+    engine->renderer.core.texture.freeTextureBuffers(r.texture->id);
+    delete r.texture;
+  }
+  rtMirrors.clear();
+}
+
+void TerrainGame::buildRtMirrors() {
+  freeRtMirrors();
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || !mir.raytraced || mir.object < 0)
+      continue;
+    RtMirror rm;
+    rm.object = mir.object;
+    rm.size = mir.rtSize;
+    TextureBuilderData data;
+    data.name = "rt-mirror";
+    data.width = rm.size;
+    data.height = rm.size;
+    data.data = new unsigned char[rm.size * rm.size * 4];
+    memset(data.data, 0x40, rm.size * rm.size * 4);
+    data.bpp = bpp32;
+    data.gsComponents = TEXTURE_COMPONENTS_RGB;
+    data.clut = nullptr;
+    rm.texture = new Texture(&data);
+    // Clamp: the default Repeat bilinear-wraps the last row into row 0 at
+    // the glass edges - a visible seam line across the top of the mirror.
+    rm.texture->setWrapSettings(TextureWrap::Clamp, TextureWrap::Clamp);
+    rtMirrors.push_back(rm);
+    vu0Rt.init();  // upload the microprogram once, on first use
+  }
+}
+
+// Raytraced mirror (experimental PoC): true per-pixel ray tracing on a VU0
+// MICROPROGRAM. Every listed target reflects as a bounding-sphere proxy
+// (color = the object's tint) against the scene's sky gradient - authors
+// place real floor/wall objects in the target list instead of a synthetic
+// ground (the engine kernel's optional checker plane stays off). The EE
+// mirrors the camera across the glass plane (the point-wise Householder of
+// the matrix renderMirrors builds), the VU0 kernel traces
+// normalize(P - mirroredEye) per texel, and the traced image re-uploads
+// over PATH3 into the glass quad's texture. Loose with the shapes, honest
+// with the rays.
+void TerrainGame::renderRtMirror(const MirrorData& mir) {
+  RtMirror* rm = nullptr;
+  for (RtMirror& r : rtMirrors)
+    if (r.object == mir.object) { rm = &r; break; }
+  if (!rm || !rm->texture) return;
+  RuntimeObject& m = runtimeObjects[mir.object];
+
+  // Glass plane basis from the live transform (the addDecal quad: local XY
+  // face, +Z normal; its ST mapping runs texel u along -X, v along +Y).
+  V3 ax = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  V3 ay = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+  if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+  const float px = m.data.position[0], py = m.data.position[1],
+              pz = m.data.position[2];
+
+  // Mirror the camera across the plane: E' = E - 2*((E.n) - d)*n
+  const float d = n.x * px + n.y * py + n.z * pz;
+  const float side = cameraPosition.x * n.x + cameraPosition.y * n.y +
+                     cameraPosition.z * n.z - d;
+  vu0Rt.setEye(Vec4(cameraPosition.x - 2.0F * side * n.x,
+                    cameraPosition.y - 2.0F * side * n.y,
+                    cameraPosition.z - 2.0F * side * n.z, 1.0F));
+
+  // Proxies from the live targets (+ the player). Flat shapes - boxes,
+  // planes, decals - trace as axis-aligned slabs (a floor as a bounding
+  // SPHERE would engulf the glass and never show; rotation is ignored,
+  // the PoC trade). Everything else is a sphere: radius = half the
+  // largest scale axis, good enough for a reflection blob that moves and
+  // shades correctly.
+  Vu0RtSphere spheres[Vu0Raytracer::MaxSpheres];
+  Vu0RtBox slabs[Vu0Raytracer::MaxBoxes];
+  int sc = 0, bc = 0;
+  // Model targets with a baked proxy trace as REAL TRIANGLES (up to two
+  // groups; docs/raytraced-reflections.md) - collected here, fed to the
+  // tracer after the loop (group 0 must be set before group 1). Static
+  // models use baked local-space geometry; ANIMATED models use baked
+  // triangle indices into the live skinned mesh (proxyAnim).
+  int proxySel[2] = {-1, -1}, proxyObj[2] = {-1, -1};
+  bool proxyAnim[2] = {false, false};
+  int gc = 0;
+  for (int t = 0; t < mir.targetCount; ++t) {
+    const int index = MIRROR_TARGETS[mir.firstTarget + t];
+    if (index < 0 || index >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& o = runtimeObjects[index];
+    if (!o.active || !o.visible || o.data.type == 15) continue;
+    const Color tint(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
+                     o.data.color[2] * 255.0F, 128.0F);
+    if (o.data.type == 5 && gc < 2) {
+      int prox = -1;
+      for (int pi2 = 0; pi2 < RT_PROXY_COUNT; ++pi2)
+        if (RT_PROXIES[pi2].scene == currentScene &&
+            RT_PROXIES[pi2].mirror == mir.object &&
+            RT_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        proxyAnim[gc] = false;
+        ++gc;
+        continue;  // traced as triangles, not a sphere
+      }
+      for (int pi2 = 0; pi2 < RT_ANIM_PROXY_COUNT; ++pi2)
+        if (RT_ANIM_PROXIES[pi2].scene == currentScene &&
+            RT_ANIM_PROXIES[pi2].mirror == mir.object &&
+            RT_ANIM_PROXIES[pi2].target == index) {
+          prox = pi2;
+          break;
+        }
+      if (prox >= 0) {
+        proxySel[gc] = prox;
+        proxyObj[gc] = index;
+        proxyAnim[gc] = true;
+        ++gc;
+        continue;  // traced as live skinned triangles
+      }
+    }
+    if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12 ||
+        o.data.type == 13) {
+      if (bc >= Vu0Raytracer::MaxBoxes) continue;
+      Vu0RtBox& b = slabs[bc++];
+      const float hx = fabsf(o.data.scale[0]) * 0.5F;
+      // planes and decals are flat quads - give the slab a hair of
+      // thickness so grazing rays still register an entry face
+      const float hy = (o.data.type == 12 || o.data.type == 13)
+                           ? 0.02F
+                           : fabsf(o.data.scale[1]) * 0.5F;
+      const float hz = fabsf(o.data.scale[2]) * 0.5F;
+      b.min = Vec4(o.data.position[0] - hx, o.data.position[1] - hy,
+                   o.data.position[2] - hz, 1.0F);
+      b.max = Vec4(o.data.position[0] + hx, o.data.position[1] + hy,
+                   o.data.position[2] + hz, 1.0F);
+      b.color = tint;
+    } else {
+      if (sc >= Vu0Raytracer::MaxSpheres) continue;
+      Vu0RtSphere& s = spheres[sc++];
+      s.center = Vec4(o.data.position[0], o.data.position[1],
+                      o.data.position[2], 1.0F);
+      float r = fabsf(o.data.scale[0]);
+      if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+      if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+      s.radius = r * 0.5F;
+      s.color = tint;
+    }
+  }
+  if (mir.reflectPlayer && players[0].objIndex >= 0 &&
+      sc < Vu0Raytracer::MaxSpheres) {
+    Vu0RtSphere& s = spheres[sc++];
+    s.center = Vec4(players[0].x, players[0].y + 0.9F, players[0].z, 1.0F);
+    s.radius = 0.9F;
+    s.color = Color(210.0F, 170.0F, 140.0F, 128.0F);
+  }
+  vu0Rt.setSpheres(spheres, sc);
+  vu0Rt.setBoxes(slabs, bc);
+
+  // Triangle groups: transform the baked model-local proxies by the live
+  // object transform (scale -> rotate -> translate, pushVert's order) and
+  // hand them to the tracer with the part's texture; a not-yet-streamed
+  // texture falls back to the part's kd as a flat color. Unused groups
+  // are cleared - stale triangles must not survive a target going hidden.
+  for (int g = 0; g < 2; ++g) {
+    if (g >= gc) {
+      vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                         Color(160.0F, 160.0F, 160.0F, 128.0F));
+      continue;
+    }
+    Vu0RtTriangle tbuf[Vu0Raytracer::MaxTriangles];
+    if (proxyAnim[g]) {
+      // Animated model: read the LIVE skinned vertices at the baked
+      // triangle indices. Skinning ran earlier this frame
+      // (updateAndRenderAnimObjects - renderMirrors comes after), so the
+      // reflection plays the current pose; an off-screen model that
+      // skipped skinning reflects its held pose, exactly like the classic
+      // mirror's re-submitted copies. Vertices are model-space - animMat
+      // (the same matrix the model renders with) lifts them to world.
+      const RtAnimProxyData& pr = RT_ANIM_PROXIES[proxySel[g]];
+      ObjectGeometry& ag = objectGeometry[proxyObj[g]];
+      if (pr.part >= (int)ag.animParts.size() || !ag.animParts[pr.part].bag ||
+          !ag.animParts[pr.part].bag->vertices) {
+        vu0Rt.setTriangles(g, nullptr, 0, nullptr,
+                           Color(160.0F, 160.0F, 160.0F, 128.0F));
+        continue;
+      }
+      ObjectGeometry::AnimPart& ap = ag.animParts[pr.part];
+      const Vec4* verts = ap.bag->vertices;
+      const Vec4* sts = ap.texBag ? ap.texBag->coordinates : nullptr;
+      int n = 0;
+      for (int i = 0; i < pr.triCount && n < Vu0Raytracer::MaxTriangles;
+           ++i) {
+        const int* vi3 = &RT_ANIM_PROXY_TRIS[pr.firstIdx + i * 3];
+        if ((u32)vi3[0] >= ap.bag->count || (u32)vi3[1] >= ap.bag->count ||
+            (u32)vi3[2] >= ap.bag->count)
+          continue;
+        Vu0RtTriangle& tb = tbuf[n++];
+        tb.a = ag.animMat * verts[vi3[0]];
+        tb.b = ag.animMat * verts[vi3[1]];
+        tb.c = ag.animMat * verts[vi3[2]];
+        if (sts) {
+          tb.ua = sts[vi3[0]].x, tb.va = sts[vi3[0]].y;
+          tb.ub = sts[vi3[1]].x, tb.vb = sts[vi3[1]].y;
+          tb.uc = sts[vi3[2]].x, tb.vc = sts[vi3[2]].y;
+        }
+      }
+      // Untextured parts fall back to the material's base color; the
+      // kernel's lambert supplies the lighting.
+      Color akd(170.0F, 170.0F, 170.0F, 128.0F);
+      const int am = runtimeObjects[proxyObj[g]].data.animModel;
+      if (am >= 0 && am < (int)gameAnimModels.size() &&
+          gameAnimModels[am].src &&
+          pr.part < (int)gameAnimModels[am].src->parts.size()) {
+        const float* bc = gameAnimModels[am].src->parts[pr.part].color;
+        auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+        akd = Color(c255(bc[0]), c255(bc[1]), c255(bc[2]), 128.0F);
+      }
+      vu0Rt.setTriangles(g, tbuf, n,
+                         ap.texBag ? ap.texBag->texture : nullptr, akd);
+      continue;
+    }
+    const RtProxyData& pr = RT_PROXIES[proxySel[g]];
+    RuntimeObject& mo = runtimeObjects[proxyObj[g]];
+    const int n = pr.triCount;
+    for (int i = 0; i < n; ++i) {
+      const float* f = &RT_PROXY_VERTS[pr.firstFloat + i * 15];
+      Vec4* corners[3] = {&tbuf[i].a, &tbuf[i].b, &tbuf[i].c};
+      float* uvs[3][2] = {{&tbuf[i].ua, &tbuf[i].va},
+                          {&tbuf[i].ub, &tbuf[i].vb},
+                          {&tbuf[i].uc, &tbuf[i].vc}};
+      for (int c = 0; c < 3; ++c) {
+        V3 lp = {f[c * 5] * mo.data.scale[0], f[c * 5 + 1] * mo.data.scale[1],
+                 f[c * 5 + 2] * mo.data.scale[2]};
+        lp = rotated(lp, mo.data.rotation);
+        corners[c]->set(lp.x + mo.data.position[0],
+                        lp.y + mo.data.position[1],
+                        lp.z + mo.data.position[2], 1.0F);
+        *uvs[c][0] = f[c * 5 + 3];
+        *uvs[c][1] = f[c * 5 + 4];
+      }
+    }
+    const Texture* tex = nullptr;
+    Color kdCol(160.0F, 160.0F, 160.0F, 128.0F);
+    const int mi2 = mo.data.model;
+    if (mi2 >= 0 && mi2 < (int)gameModels.size() &&
+        pr.part < (int)gameModels[mi2].parts.size()) {
+      const GameModelPart& gp = gameModels[mi2].parts[pr.part];
+      tex = gp.texture;
+      auto c255 = [](float x) { return x > 1.0F ? 255.0F : x * 255.0F; };
+      kdCol = Color(c255(gp.kd[0]), c255(gp.kd[1]), c255(gp.kd[2]), 128.0F);
+    }
+    vu0Rt.setTriangles(g, tbuf, n, tex, kdCol);
+  }
+
+  vu0Rt.setSky(Color(SKY_TOP_R, SKY_TOP_G, SKY_TOP_B),
+               Color(skyHorizonR, skyHorizonG, skyHorizonB));
+  vu0Rt.setLight(Vec4(0.302F, 0.905F, 0.302F, 0.0F));
+
+  // Texel->world mapping matches the quad's STs exactly (see addDecal):
+  // s = 0.5 - xLocal, t = yLocal + 0.5, texel centers at (i + 0.5)/N.
+  const int N = rm->size;
+  const float sx = m.data.scale[0], sy = m.data.scale[1];
+  const float u0 = (0.5F - 0.5F / N) * sx, v0 = (0.5F / N - 0.5F) * sy;
+  const Vec4 origin(px + ax.x * u0 + ay.x * v0, py + ax.y * u0 + ay.y * v0,
+                    pz + ax.z * u0 + ay.z * v0, 1.0F);
+  const Vec4 du(-ax.x * sx / N, -ax.y * sx / N, -ax.z * sx / N, 0.0F);
+  const Vec4 dv(ay.x * sy / N, ay.y * sy / N, ay.z * sy / N, 0.0F);
+  vu0Rt.trace(origin, du, dv,
+              reinterpret_cast<u32*>(rm->texture->core->data), N);
+
+  // Fresh pixels -> GS: re-upload into the existing VRAM allocation, or
+  // allocate on the first frame (and after any eviction flush).
+  auto& coreTex = engine->renderer.core.texture;
+  if (coreTex.getAllocatedBuffersByTextureId(rm->texture->id).id != 0)
+    coreTex.updateTextureInfo(rm->texture);
+  else
+    coreTex.useTexture(rm->texture);
+
+  // The glass quad, textured with the traced reflection (drawn opaque
+  // full-bright white - see rebuildObjectGeometry case 15).
+  for (GeoPart& part : objectGeometry[mir.object].parts)
+    if (part.bag) stapip.core.render(part.bag.get());
+}
+
+// Camera texture feed (CCTV): render the scene's feed camera view into the
+// engine's camFeed VRAM target - the envMap bracket with the camera's own
+// pose and baked FOV. Runs before any main-frame 3D (the raster redirect
+// is global GS state) and never inside a split half (end() restores a
+// full-screen raster). Content = sky dome (+ terrain) + the explicit view
+// list, the Mirror philosophy: the second-render cost stays visible to the
+// author. Animated targets show their LAST skinned pose (skinning runs
+// later in the frame), exactly like mirrors and portals.
+void TerrainGame::renderCameraFeed() {
+  if (splitPassActive) return;
+  int fi = -1;
+  for (int i = 0; i < CAM_FEED_COUNT; ++i)
+    if (CAM_FEEDS[i].scene == currentScene) { fi = i; break; }
+  if (fi < 0) return;
+  const CamFeedData& fd = CAM_FEEDS[fi];
+  if (fd.camera < 0 || fd.camera >= (int)runtimeObjects.size()) return;
+  RuntimeObject& cam = runtimeObjects[fd.camera];
+  if (!cam.active) return;
+
+  auto& core = engine->renderer.core;
+  const Vec4 eye(cam.data.position[0], cam.data.position[1],
+                 cam.data.position[2], 1.0F);
+  // +Z lens, rotated Z*Y*X - the Cutscene Director camera convention
+  // (seqCameraForward); a flow graph rotating the camera pans the feed.
+  const V3 fwd = rotated({0.0F, 0.0F, 1.0F}, cam.data.rotation);
+  const Vec4 look(eye.x + fwd.x, eye.y + fwd.y, eye.z + fwd.z, 1.0F);
+
+  core.camFeed.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                           scriptCtx.skyColor.b, 128.0F));
+  core.renderer3D.pushEnvView(eye, look, fd.fov,
+                              (float)Tyra::RendererCoreEnvMap::size);
+  if (fd.showTerrain) {
+    if (skyDome.bag) {
+      skyMat.identity();  // dome parked on the feed eye; main pass re-centers
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+      stapip.core.render(skyDome.bag.get());
+      skyDome.infoBag->zTestType = prevZTest;
+    }
+    renderTerrain();  // resident chunks - the ring follows the MAIN camera
+  }
+  for (int t = 0; t < fd.viewCount; ++t) {
+    const int vi2 = CAM_FEED_VIEWS[fd.firstView + t];
+    if (vi2 < 0 || vi2 >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& ro = runtimeObjects[vi2];
+    // no mirrors/portals in a feed: their surfaces are main-pass tricks
+    if (!ro.active || !ro.visible || ro.data.type == 15 ||
+        ro.data.type == 16)
+      continue;
+    if (ro.dirty) rebuildObjectGeometry(vi2);
+    ObjectGeometry& og = objectGeometry[vi2];
+    if (og.matrixMode) updateObjMat(vi2);
+    for (GeoPart& part : og.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (og.animInfoBag && !og.animParts.empty())
+      for (ObjectGeometry::AnimPart& ap : og.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.camFeed.end();
+}
+
+// Reflected-probe mode (ENV_PROBE_REFLECTED): one probe render PER
+// reflective object, right before it draws. The aim is anchored to the
+// OBJECT, not the crosshair: the eye->center ray is reflected at the
+// surface (analytic normal - OBB face for boxes/planes with live
+// rotation, else the sphere normal, which for the exact eye->center ray
+// simply looks back at the player). That pose depends only on positions,
+// never on where the camera POINTS - reflections stay put when the player
+// looks around (the crosshair-anchored first cut decayed to the classic
+// aim whenever the object left the screen center), and it is continuous
+// per object, so NO smoothing is needed at all. Every object gets its own
+// fresh map every frame; cost is one full probe render (PATH1 drain +
+// 128^2 sky + reflected list) PER OBJECT PER FRAME - author responsibly.
+void TerrainGame::renderObjectProbe(int index) {
+  auto& core = engine->renderer.core;
+  RuntimeObject& o = runtimeObjects[index];
+  V3 toC = {o.data.position[0] - cameraPosition.x,
+            o.data.position[1] - cameraPosition.y,
+            o.data.position[2] - cameraPosition.z};
+  const float dist = sqrtf(toC.x * toC.x + toC.y * toC.y + toC.z * toC.z);
+  if (dist < 0.2F) return;  // eye inside the object: keep the last map
+  const V3 dirC = {toC.x / dist, toC.y / dist, toC.z / dist};
+
+  float t = -1.0F;
+  V3 n = {0.0F, 1.0F, 0.0F};
+  if (o.data.type == 0 || o.data.type == 10 || o.data.type == 12) {
+    // OBB entry face along eye->center (the ray passes through the center,
+    // so it always hits; rotation honored)
+    const V3 rel = {-toC.x, -toC.y, -toC.z};
+    const V3 lo = invRotated(rel, o.data.rotation);
+    const V3 ld = invRotated(dirC, o.data.rotation);
+    const float he[3] = {0.5F * o.data.scale[0],
+                         o.data.type == 12 ? 0.02F : 0.5F * o.data.scale[1],
+                         0.5F * o.data.scale[2]};
+    const float lop[3] = {lo.x, lo.y, lo.z};
+    const float ldp[3] = {ld.x, ld.y, ld.z};
+    float tn = -1e30F;
+    int axis = 0;
+    for (int a = 0; a < 3; ++a) {
+      if (fabsf(ldp[a]) < 1e-6F) continue;
+      float t1 = (-he[a] - lop[a]) / ldp[a];
+      float t2 = (he[a] - lop[a]) / ldp[a];
+      if (t1 > t2) t1 = t2;
+      if (t1 > tn) { tn = t1, axis = a; }
+    }
+    if (tn > 0.05F) {
+      t = tn;
+      V3 ln = {0.0F, 0.0F, 0.0F};
+      const float lhit = lop[axis] + ldp[axis] * tn;
+      (axis == 0 ? ln.x : axis == 1 ? ln.y : ln.z) =
+          lhit > 0.0F ? 1.0F : -1.0F;
+      n = rotated(ln, o.data.rotation);
+    }
+  } else {
+    // curved shapes (and models by bounding sphere): the eye->center hit
+    // has the normal facing the eye
+    float r = fabsf(o.data.scale[0]);
+    if (fabsf(o.data.scale[1]) > r) r = fabsf(o.data.scale[1]);
+    if (fabsf(o.data.scale[2]) > r) r = fabsf(o.data.scale[2]);
+    r *= o.data.type == 5 ? 0.87F : 0.5F;
+    if (dist - r > 0.05F) {
+      t = dist - r;
+      n = {-dirC.x, -dirC.y, -dirC.z};
+    }
+  }
+  if (t < 0.0F) return;  // too close: keep the last map
+
+  const float dn = 2.0F * (dirC.x * n.x + dirC.y * n.y + dirC.z * n.z);
+  V3 rd = {dirC.x - dn * n.x, dirC.y - dn * n.y, dirC.z - dn * n.z};
+  const Vec4 probeEye(cameraPosition.x + dirC.x * t + n.x * 0.05F,
+                      cameraPosition.y + dirC.y * t + n.y * 0.05F,
+                      cameraPosition.z + dirC.z * t + n.z * 0.05F, 1.0F);
+  const Vec4 probeLook(probeEye.x + rd.x, probeEye.y + rd.y,
+                       probeEye.z + rd.z, 1.0F);
+
+  // The matcap ST basis for THIS object must be the probe camera's
+  // right/up (same construction as the classic pass's envRight/envUp,
+  // built from the probe forward) - sampling the probe's map with the
+  // MAIN camera basis mirrors the reflection horizontally whenever the
+  // probe looks back at the player.
+  {
+    V3 pr = {-rd.z, 0.0F, rd.x};  // cross(fwd, worldUp), level
+    const float prl = sqrtf(pr.x * pr.x + pr.z * pr.z);
+    if (prl > 0.0001F)
+      pr.x /= prl, pr.z /= prl;
+    else
+      pr = {1.0F, 0.0F, 0.0F};  // reflecting straight up/down
+    const V3 pu = {pr.y * rd.z - pr.z * rd.y, pr.z * rd.x - pr.x * rd.z,
+                   pr.x * rd.y - pr.y * rd.x};
+    ObjectGeometry& og = objectGeometry[index];
+    og.probeRight.set(pr.x, pr.y, pr.z, 0.0F);
+    og.probeUp.set(pu.x, pu.y, pu.z, 0.0F);
+    og.probeBasis = true;
+  }
+
+  core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                          scriptCtx.skyColor.b, 128.0F));
+  core.renderer3D.pushEnvView(probeEye, probeLook, 110.0F,
+                              (float)Tyra::RendererCoreEnvMap::size);
+  if (skyDome.bag) {
+    skyMat.identity();  // dome parked on the probe; main pass re-centers
+    skyMat.data[12] = probeEye.x;
+    skyMat.data[13] = probeEye.y;
+    skyMat.data[14] = probeEye.z;
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+  }
+  for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+    RuntimeObject& ro = runtimeObjects[ri];
+    if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+    if (ri == index) continue;  // never the mirror-er itself
+    // proximity self-skip against the probe eye (see the classic pass)
+    {
+      float half = ro.data.scale[0];
+      if (ro.data.scale[1] > half) half = ro.data.scale[1];
+      if (ro.data.scale[2] > half) half = ro.data.scale[2];
+      const float skipR = 0.87F * half * 1.9F;
+      const float sdx = ro.data.position[0] - probeEye.x;
+      const float sdy = ro.data.position[1] - probeEye.y;
+      const float sdz = ro.data.position[2] - probeEye.z;
+      if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+    }
+    if (ro.dirty) rebuildObjectGeometry(ri);
+    if (objectGeometry[ri].matrixMode) updateObjMat(ri);
+    for (GeoPart& part : objectGeometry[ri].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.envMap.end();
 }
 
 // Portal objects (type 16): a PS2-honest take on the seamless portal. The
@@ -6943,7 +7995,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   // A released body stays portal-free only until it settles to sleep.
   if (thrownFreeIndex >= 0 &&
       (thrownFreeIndex >= (int)runtimeObjects.size() ||
-       runtimeObjects[thrownFreeIndex].restFrames >= PHYS_SLEEP_FRAMES))
+       physAsleep(runtimeObjects[thrownFreeIndex])))
     thrownFreeIndex = -1;
   bool playerTeleported = false;
   const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
@@ -7542,6 +8594,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
     V3 s = shadeOf(n);
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
+    // Terrain ambient occlusion arrives per pixel through the AO map pass
+    // (ao_data.gen.hpp) - nothing to fold into the vertex shade here.
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
     // Macro ground variation: base and layer passes both shade through here,
@@ -7701,6 +8755,18 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     }
   }
 
+  // Textured-AO map pass STs: the chunk's world XZ normalized over the
+  // terrain extent - one map covers the whole terrain, sampled per pixel.
+  ch.aoSts.clear();
+  if (SCENE_AO_ENABLED && aoMapTexture) {
+    ch.aoSts.reserve(ch.vertices.size());
+    ch.aoCols.assign(ch.vertices.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
+    const float invW = 1.0F / TERRAIN_WIDTH, invD = 1.0F / TERRAIN_DEPTH;
+    for (const Vec4& v : ch.vertices)
+      ch.aoSts.push_back(
+          Vec4((v.x - startX) * invW, (v.z - startZ) * invD, 1.0F, 0.0F));
+  }
+
   if (!ch.bag) {
     ch.colorBag = std::make_unique<StaPipColorBag>();
     ch.bag = std::make_unique<StaPipBag>();
@@ -7745,6 +8811,27 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       lp.bag->texture = nullptr;
     }
     lp.bag->bboxVersion = ++g_bboxStamp;
+  }
+
+  // Textured-AO map pass bag: the AO map alpha-blended over base + layers
+  // (black texture + alpha-over = per-pixel darkening).
+  if (!ch.aoSts.empty() && aoMapTexture && layerInfoBag) {
+    if (!ch.aoBag) {
+      ch.aoColorBag = std::make_unique<StaPipColorBag>();
+      ch.aoBag = std::make_unique<StaPipBag>();
+      ch.aoBag->lighting = nullptr;
+    }
+    ch.aoBag->info = layerInfoBag.get();
+    ch.aoColorBag->many = ch.aoCols.data();
+    ch.aoBag->color = ch.aoColorBag.get();
+    ch.aoBag->vertices = ch.vertices.data();
+    ch.aoBag->count = static_cast<u32>(ch.vertices.size());
+    ch.aoTexBag.texture = aoMapTexture;
+    ch.aoTexBag.coordinates = ch.aoSts.data();
+    ch.aoBag->texture = &ch.aoTexBag;
+    ch.aoBag->bboxVersion = ++g_bboxStamp;
+  } else {
+    ch.aoBag.reset();
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.
@@ -8032,6 +9119,8 @@ void TerrainGame::renderTerrain() {
     // adjacent also keeps the texture cache warm per chunk).
     for (TerrainChunk::LayerPass& lp : ch.layerPasses)
       if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
+    // Textured AO: the map pass darkens base + layers per pixel, last.
+    if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
   }
 }
 

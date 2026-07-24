@@ -20,6 +20,7 @@ struct SceneObjectData {
   float physBounce;   // restitution 0..1: 0 = thud, 1 = superball
   float physFriction; // ground drag 0..1: 0 = ice, 1 = sticky
   int physTumble;     // 1 = ground contact converts slide into roll
+  float physSleep;    // seconds of near-rest before the body sleeps
   int model;    // index into MODEL_PATHS / gameModels, -1 = none
   int material; // primitives: index into MATERIAL_PATHS, -1 = plain color
   int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
@@ -76,10 +77,10 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[4] = {
-    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {0, {-2.0F, 0.5F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.25F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // crate-1
-    {0, {0.0F, 0.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.7F, 0.3F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate-2
-    {0, {2.0F, 0.5F, 12.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.25F, 0.4F, 0.85F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // crate-3
+    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {0, {-2.0F, 0.5F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.25F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // crate-1
+    {0, {0.0F, 0.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.7F, 0.3F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate-2
+    {0, {2.0F, 0.5F, 12.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.25F, 0.4F, 0.85F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // crate-3
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {4};
@@ -105,12 +106,83 @@ struct MirrorData {
   int reflectPlayer;  // 1 = also reflect the third-person avatar
   int firstTarget;    // first entry in MIRROR_TARGETS
   int targetCount;
+  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)
+  int rtSize;         // traced image edge, texels (32..512)
 };
 constexpr int MIRROR_COUNT = 0;
 constexpr MirrorData MIRRORS[1] = {
-    {0, -1, 0.0F, 0, 0, 0}
+    {0, -1, 0.0F, 0, 0, 0, 0, 64}
 };
 constexpr int MIRROR_TARGETS[1] = {-1};
+
+// Raytraced-mirror model proxies: decimated triangle lists
+// in MODEL LOCAL space, 15 floats per triangle (pos + uv
+// per corner). The game transforms them by the target's
+// live transform each frame (renderRtMirror).
+struct RtProxyData {
+  int scene;       // scene index
+  int mirror;      // the mirror's index in its scene table
+  int target;      // the model object's index
+  int part;        // model part whose texture shades hits
+  int firstFloat;  // offset into RT_PROXY_VERTS
+  int triCount;
+};
+constexpr int RT_PROXY_COUNT = 0;
+constexpr RtProxyData RT_PROXIES[1] = {
+    {0, -1, -1, 0, 0, 0}
+};
+constexpr float RT_PROXY_VERTS[1] = {
+  0.0F
+};
+// Animated-model proxies: fixed VERTEX indices (3 per
+// triangle, a connected medoid-decimated coarse mesh) into
+// the part's skinned buffers - the game reads the LIVE
+// skinned vertices (and their resident STs) at these
+// indices every frame, so the reflection plays the clip
+// (renderRtMirror).
+struct RtAnimProxyData {
+  int scene;      // scene index
+  int mirror;     // the mirror's index in its scene table
+  int target;     // the animated model object's index
+  int part;       // animParts index (texture + skinned mesh)
+  int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)
+  int triCount;
+};
+constexpr int RT_ANIM_PROXY_COUNT = 0;
+constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
+    {0, -1, -1, 0, 0, 0}
+};
+constexpr int RT_ANIM_PROXY_TRIS[1] = {
+  0
+};
+
+// Camera texture feeds: one active feed camera per scene.
+struct CamFeedData {
+  int scene;        // scene index
+  int camera;       // the feed camera's scene-table index
+  float fov;        // baked - the fov does not animate
+  int showTerrain;  // 1 = sky + terrain under the view list
+  int firstView;    // first entry in CAM_FEED_VIEWS
+  int viewCount;
+};
+constexpr int CAM_FEED_COUNT = 0;
+constexpr CamFeedData CAM_FEEDS[1] = {
+    {0, -1, 60.0F, 1, 0, 0}
+};
+constexpr int CAM_FEED_VIEWS[1] = {-1};
+// Surfaces showing a live feed: kind 0 = the scene's camera
+// feed, kind 1 = a raytraced mirror's traced image (src =
+// the mirror's scene-table index).
+struct ObjectFeedData {
+  int scene;
+  int object;
+  int kind;
+  int src;
+};
+constexpr int OBJECT_FEED_COUNT = 0;
+constexpr ObjectFeedData OBJECT_FEEDS[1] = {
+    {0, -1, 0, -1}
+};
 
 // Portals (type 16): each entry links a surface to its target
 // portal. The game renders the through-view of the nearest one
@@ -149,6 +221,10 @@ constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
 constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
 constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
+constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
@@ -165,6 +241,10 @@ constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
 constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
 constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0};
+constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
@@ -181,6 +261,9 @@ constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false};
+constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
+constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
 constexpr bool CLIP_VU1S[SCENE_COUNT] = {false};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
@@ -304,6 +387,10 @@ inline int everyFrames(float seconds) {
 #define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
 #define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
 #define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_CAM_STYLE PLAYER_CAM_STYLES[g_activeScene]
+#define PLAYER_CAM_PITCH PLAYER_CAM_PITCHES[g_activeScene]
+#define PLAYER_CAM_YAW PLAYER_CAM_YAWS[g_activeScene]
+#define PLAYER_CAM_YAW_ROTATE PLAYER_CAM_YAW_ROTATES[g_activeScene]
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
@@ -324,6 +411,10 @@ inline int everyFrames(float seconds) {
 #define PP_CAM_HEIGHT(pi) PP_TBL(pi, CAM_HEIGHTS)
 #define PP_CAM_SHOULDER(pi) PP_TBL(pi, CAM_SHOULDERS)
 #define PP_TURN_RATE(pi) PP_TBL(pi, TURN_RATES)
+#define PP_CAM_STYLE(pi) PP_TBL(pi, CAM_STYLES)
+#define PP_CAM_PITCH(pi) PP_TBL(pi, CAM_PITCHES)
+#define PP_CAM_YAW(pi) PP_TBL(pi, CAM_YAWS)
+#define PP_CAM_YAW_ROTATE(pi) PP_TBL(pi, CAM_YAW_ROTATES)
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
@@ -339,6 +430,10 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Baked ambient occlusion (docs/ambient-occlusion.md)
+#define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
+#define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
+#define SCENE_AO_RADIUS SCENE_AO_RADII[g_activeScene]
 #define HM_W HM_WS[g_activeScene]
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]

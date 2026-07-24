@@ -293,7 +293,8 @@ std::string objectJson(const SceneObject& o) {
         (o.physics ? ", \"physMass\": " + fmtFloat(o.physMass) +
                          ", \"physBounce\": " + fmtFloat(o.physBounce) +
                          ", \"physFriction\": " + fmtFloat(o.physFriction) +
-                         ", \"physTumble\": " + (o.physTumble ? "true" : "false")
+                         ", \"physTumble\": " + (o.physTumble ? "true" : "false") +
+                         ", \"physSleep\": " + fmtFloat(o.physSleep)
                    : "") +
         (o.usable ? ", \"usable\": true" : "") +
         (o.pickable ? ", \"pickable\": true" : "") +
@@ -316,6 +317,7 @@ std::string objectJson(const SceneObject& o) {
              : "") +
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
+        (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
@@ -340,7 +342,19 @@ std::string objectJson(const SceneObject& o) {
                 ", \"camDist\": " + fmtFloat(o.playerCamDist) +
                 ", \"camHeight\": " + fmtFloat(o.playerCamHeight) +
                 ", \"camShoulder\": " + fmtFloat(o.playerCamShoulder) +
-                ", \"turnRate\": " + fmtFloat(o.playerTurnRate) + " }" +
+                ", \"turnRate\": " + fmtFloat(o.playerTurnRate) +
+                // Camera style: orbit is the classic rig; the fixed styles
+                // (topdown/isometric/fixed) pin the pitch (+ yaw unless
+                // camRotate) for top-down / isometric games.
+                ", \"camStyle\": \"" +
+                std::string(o.playerCamStyle == 1   ? "topdown"
+                            : o.playerCamStyle == 2 ? "isometric"
+                            : o.playerCamStyle == 3 ? "fixed"
+                                                    : "orbit") +
+                "\", \"camPitch\": " + fmtFloat(o.playerCamPitch) +
+                ", \"camYaw\": " + fmtFloat(o.playerCamYaw) +
+                ", \"camRotate\": " + (o.playerCamYawRotate ? "true" : "false") +
+                " }" +
                 ", \"flashlight\": { \"enabled\": " +
                 (o.flashlightEnabled ? "true" : "false") + ", \"color\": " +
                 fmtVec3(o.flashlightColor) + ", \"range\": " +
@@ -381,12 +395,23 @@ std::string objectJson(const SceneObject& o) {
                 ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
-        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
+        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) +
+                ", \"feed\": " + (o.camFeed ? "true" : "false") +
+                ", \"feedTerrain\": " + (o.camFeedTerrain ? "true" : "false") +
+                ", \"feedObjects\": [";
+        for (size_t i = 0; i < o.camFeedObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + jsonEscape(o.camFeedObjects[i]) + "\"";
+        json += "] }";
     }
+    if (!o.textureFeed.empty())
+        json += ", \"textureFeed\": \"" + jsonEscape(o.textureFeed) + "\"";
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
                 ", \"reflectPlayer\": " +
-                (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
+                (o.mirrorReflectPlayer ? "true" : "false") +
+                ", \"raytraced\": " + (o.mirrorRaytraced ? "true" : "false") +
+                ", \"rtSize\": " + std::to_string(o.mirrorRtSize) +
+                ", \"objects\": [";
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + jsonEscape(o.mirrorObjects[i]) + "\"";
         json += "] }";
@@ -702,6 +727,9 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.ambient = a.ambient;
         r.diffuse = a.diffuse;
         r.brightness = a.brightness;
+        r.aoEnabled = a.aoEnabled;
+        r.aoStrength = a.aoStrength;
+        r.aoRadius = a.aoRadius;
         r.fogEnabled = a.fogEnabled;
         r.fogStart = a.fogStart;
         r.fogEnd = a.fogEnd;
@@ -764,6 +792,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
+         << "    \"textureAtlas\": " << (p.settings.textureAtlas ? "true" : "false")
+         << ",\n"
          << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
          << "    \"showMemory\": " << (p.settings.showMemory ? "true" : "false")
          << ",\n"
@@ -780,6 +810,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         << "    \"envProbeReflected\": "
+         << (p.settings.envProbeReflected ? "true" : "false") << ",\n"
          << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
@@ -810,6 +842,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << ",\n"
          << "    \"lightColor\": " << fmtVec3(p.settings.lightColor) << ",\n"
          << "    \"brightness\": " << fmtFloat(p.settings.brightness) << ",\n"
+         << "    \"aoEnabled\": " << (p.settings.aoEnabled ? "true" : "false")
+         << ",\n"
+         << "    \"aoStrength\": " << fmtFloat(p.settings.aoStrength) << ",\n"
+         << "    \"aoRadius\": " << fmtFloat(p.settings.aoRadius) << ",\n"
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
@@ -1017,6 +1053,9 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
              << ", \"diffuse\": " << fmtFloat(a.diffuse)
              << ", \"lightColor\": " << fmtVec3(a.lightColor)
              << ", \"brightness\": " << fmtFloat(a.brightness)
+             << ", \"aoEnabled\": " << (a.aoEnabled ? "true" : "false")
+             << ", \"aoStrength\": " << fmtFloat(a.aoStrength)
+             << ", \"aoRadius\": " << fmtFloat(a.aoRadius)
              << ", \"fogEnabled\": " << (a.fogEnabled ? "true" : "false")
              << ", \"fogColor\": " << fmtVec3(a.fogColor)
              << ", \"fogStart\": " << fmtFloat(a.fogStart)
@@ -1395,8 +1434,11 @@ std::string create(Project& out, const std::string& name, const std::string& par
 
     // Start with one ambience preset (its defaults match the project's default
     // sky/lighting/fog) so the sky renders and the Ambience Editor isn't empty.
+    // New projects get baked ambient occlusion out of the box; loaded pre-AO
+    // projects keep their look (the field defaults to off on read).
     AmbiencePreset amb;
     amb.name = "Default";
+    amb.aoEnabled = true;
     out.ambiencePresets.push_back(amb);
     out.defaultAmbience = 0;
 
@@ -1918,6 +1960,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (o.physFriction > 1.0f) o.physFriction = 1.0f;
         if (const auto* v = jo.find("physTumble"))
             o.physTumble = !(v->type == json::Value::Type::Bool && !v->boolean);
+        if (const auto* v = jo.find("physSleep"))
+            o.physSleep = (float)v->numberOr(3.0);
+        if (o.physSleep < 0.1f) o.physSleep = 0.1f;
+        if (o.physSleep > 60.0f) o.physSleep = 60.0f;
         if (const auto* v = jo.find("usable"))
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("pickable")) o.pickable = v->boolOr(false);
@@ -1939,6 +1985,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
+        if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(true);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -1963,6 +2010,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.playerCamShoulder = (float)v->numberOr(0.0);
                 if (const auto* v = tp->find("turnRate"))
                     o.playerTurnRate = (float)v->numberOr(0.25);
+                if (const auto* v = tp->find("camStyle")) {
+                    const std::string s = v->stringOr("orbit");
+                    o.playerCamStyle = s == "topdown"     ? 1
+                                       : s == "isometric" ? 2
+                                       : s == "fixed"     ? 3
+                                                          : 0;
+                }
+                if (const auto* v = tp->find("camPitch"))
+                    o.playerCamPitch = (float)v->numberOr(55.0);
+                if (const auto* v = tp->find("camYaw"))
+                    o.playerCamYaw = (float)v->numberOr(45.0);
+                if (const auto* v = tp->find("camRotate"))
+                    o.playerCamYawRotate = v->boolOr(false);
             }
             if (const auto* v = pl->find("walkSpeed"))
                 o.playerWalkSpeed = (float)v->numberOr(0.4);
@@ -2045,7 +2105,17 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
             if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
             if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+            if (const auto* v = cm->find("feed")) o.camFeed = v->boolOr(false);
+            if (const auto* v = cm->find("feedTerrain"))
+                o.camFeedTerrain = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = cm->find("feedObjects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.camFeedObjects.push_back(s.str);
+            }
         }
+        if (const auto* v = jo.find("textureFeed")) o.textureFeed = v->stringOr("");
         if (const auto* mr = jo.find("mirror")) {
             if (const auto* v = mr->find("opacity")) {
                 o.mirrorOpacity = (float)v->numberOr(0.35);
@@ -2054,6 +2124,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             }
             if (const auto* v = mr->find("reflectPlayer"))
                 o.mirrorReflectPlayer = v->boolOr(false);
+            if (const auto* v = mr->find("raytraced"))
+                o.mirrorRaytraced = v->boolOr(false);
+            if (const auto* v = mr->find("rtSize")) {
+                const int s = (int)v->numberOr(64);
+                o.mirrorRtSize =
+                    (s == 32 || s == 128 || s == 256 || s == 512) ? s : 64;
+            }
             if (const auto* v = mr->find("objects");
                 v && v->type == json::Value::Type::Array) {
                 for (const auto& s : v->arr)
@@ -2187,6 +2264,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             const std::string q = v->stringOr("none");
             st.textureQuant = (q == "8bit" || q == "4bit") ? q : "none";
         }
+        if (const auto* v = s->find("textureAtlas"))
+            st.textureAtlas = v->boolOr(false);
         if (const auto* v = s->find("showFps")) st.showFps = v->boolOr(false);
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("showProfiler"))
@@ -2214,6 +2293,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("envProbeReflected"))
+            st.envProbeReflected = v->boolOr(false);
         if (const auto* v = s->find("navCellSize")) {
             st.navCellSize = (float)v->numberOr(1.0);
             if (st.navCellSize < 0.25f) st.navCellSize = 0.25f;
@@ -2278,6 +2359,13 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (st.brightness > 2.0f) st.brightness = 2.0f;
         if (const auto* v = s->find("terrainMaterial")) st.terrainMaterial = v->stringOr("");
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+        if (const auto* v = s->find("aoEnabled")) st.aoEnabled = v->boolOr(false);
+        if (const auto* v = s->find("aoStrength"))
+            st.aoStrength = clamp01((float)v->numberOr(0.55));
+        if (const auto* v = s->find("aoRadius"))
+            st.aoRadius = (float)v->numberOr(2.5);
+        if (st.aoRadius < 0.1f) st.aoRadius = 0.1f;
+        if (st.aoRadius > 50.0f) st.aoRadius = 50.0f;
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("dofAmount"))
@@ -2577,6 +2665,15 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
             readVec3(ja.find("lightColor"), a.lightColor);
             if (const auto* v = ja.find("brightness"))
                 a.brightness = (float)v->numberOr(1.0);
+            if (const auto* v = ja.find("aoEnabled")) a.aoEnabled = v->boolOr(false);
+            if (const auto* v = ja.find("aoStrength"))
+                a.aoStrength = (float)v->numberOr(0.55);
+            if (a.aoStrength < 0.0f) a.aoStrength = 0.0f;
+            if (a.aoStrength > 1.0f) a.aoStrength = 1.0f;
+            if (const auto* v = ja.find("aoRadius"))
+                a.aoRadius = (float)v->numberOr(2.5);
+            if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
+            if (a.aoRadius > 50.0f) a.aoRadius = 50.0f;
             if (const auto* v = ja.find("fogEnabled")) a.fogEnabled = v->boolOr(false);
             readVec3(ja.find("fogColor"), a.fogColor);
             if (const auto* v = ja.find("fogStart")) a.fogStart = (float)v->numberOr(15.0);
@@ -3097,6 +3194,8 @@ std::string load(Project& out, const std::string& projectDir) {
             a.skyDome = s.skyDome;
             a.zenithSize = s.zenithSize;
             a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
+            a.aoEnabled = s.aoEnabled, a.aoStrength = s.aoStrength;
+            a.aoRadius = s.aoRadius;
             a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
             return a;
         };
@@ -3351,6 +3450,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
     fnvMixF(h, o.drawDistance);
+    // Cast shadow feeds the build-time AO bake (occluder tables + textures);
+    // a live edit of it cannot show without a rebuild.
+    fnvMix(h, o.castShadow ? 1 : 0);
     // Physics material: baked into SCENE_OBJECTS, never live-patched (the
     // snapshot record carries only transform + color), and copied wholesale
     // by a spawned clone. Only meaningful while `physics` is on - the runtime
@@ -3360,6 +3462,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMixF(h, o.physMass), fnvMixF(h, o.physBounce);
         fnvMixF(h, o.physFriction);
         fnvMix(h, o.physTumble ? 1 : 0);
+        fnvMixF(h, o.physSleep);
     }
     fnvMixS(h, o.modelPath);
     fnvMixS(h, o.materialPath);
@@ -3373,6 +3476,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.playerRunThreshold);
     fnvMixF(h, o.playerCamDist), fnvMixF(h, o.playerCamHeight);
     fnvMixF(h, o.playerCamShoulder), fnvMixF(h, o.playerTurnRate);
+    fnvMix(h, (uint64_t)o.playerCamStyle);
+    fnvMixF(h, o.playerCamPitch), fnvMixF(h, o.playerCamYaw);
+    fnvMix(h, o.playerCamYawRotate ? 1 : 0);
     fnvMix(h, o.flashlightEnabled ? 1 : 0);
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
@@ -3390,6 +3496,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0));
     fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
     fnvMixF(h, o.cameraFov);
+    // Texture feeds bake into side tables (CAM_FEEDS / OBJECT_FEEDS).
+    fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
+    for (const auto& n : o.camFeedObjects) fnvMixS(h, n);
+    fnvMixS(h, o.textureFeed);
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
@@ -3397,7 +3507,8 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.modelYawOffset);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
-    fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
+    fnvMix(h, (o.mirrorReflectPlayer ? 1 : 0) | (o.mirrorRaytraced ? 2 : 0));
+    fnvMix(h, (uint64_t)o.mirrorRtSize);
     fnvMixF(h, o.mirrorOpacity);
     // Portal parameters live in a baked side table (PORTALS/PORTAL_VIEW_OBJECTS).
     fnvMixS(h, o.portalTarget);
@@ -3489,6 +3600,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\scripts\\live_link.gen.cpp" ||
+            f.relativePath == "src\\scripts\\live_tex.gen.cpp" ||
             f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\scripts\\screen_fx.gen.cpp" ||
             f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||
@@ -3504,6 +3616,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\scripts\\navigation.gen.cpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
+            f.relativePath == "inc\\ao_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp") {

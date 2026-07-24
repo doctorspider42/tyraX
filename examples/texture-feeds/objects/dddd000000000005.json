@@ -1,0 +1,1 @@
+{ "id": "dddd000000000005", "name": "feed-cam", "type": "camera", "position": [-5, 3, 6.5], "rotation": [20, 101, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "camera": { "fov": 60, "feed": true, "feedTerrain": true, "feedObjects": ["crate", "ball-red", "ball-green", "ball-blue"] } }

@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
+#include "matbake.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
@@ -703,10 +704,15 @@ private:
     int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,
                                // 4 = the .obj in matEdModel_
     std::string matEdModel_;   // res/models .obj shown when matEdShape_ == 4
-    bool matEdSpin_ = true;    // turntable
+    bool matEdSpin_ = true;    // turntable; an orbit drag unchecks it (the
+                               // hand wins - re-tick to resume spinning)
     float matEdAngle_ = 40.0f;
     float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
     float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
+    // Preview panel's share of the window width (the draggable splitter
+    // between the property column and the preview; editor.ini, machine
+    // setting like uiScale).
+    float matEdSplit_ = 0.48f;
     bool openNewMaterialPopup_ = false;
     char matEdNewName_[64] = "my-material";
     std::string matEdNewError_;
@@ -753,6 +759,15 @@ private:
         float opacity = 1.0f;
         bool visible = true;
         std::vector<unsigned char> pixels;  // RGBA, W*H*4 (straight alpha)
+        // Smart mask (docs/material-baking.md): when genOn, the pixels are
+        // GENERATED - genColor filled through a matbake::generateMask alpha
+        // driven by the baked maps. Regenerated live as the bake refines and
+        // whenever a parameter changes; hand-painting on such a layer is
+        // overwritten by the next regeneration. Params persist in the
+        // layers.json sidecar and in .matpreset files.
+        bool genOn = false;
+        matbake::MaskParams gen;
+        float genColor[3] = {0.24f, 0.16f, 0.10f};
     };
     std::vector<MatEdLayer> matEdLayers_;  // bottom-up; [0] = Background
     int matEdActiveLayer_ = 0;
@@ -790,6 +805,121 @@ private:
     std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
     int matEdPatternW_ = 0, matEdPatternH_ = 0;
     std::string matEdPatternLoaded_;   // path matEdPatternPixels_ came from
+
+    // Map baking (docs/material-baking.md): matbake's progressive UV-space
+    // raytraced bake of the preview mesh - AO, bent normals, thickness,
+    // curvature, position, OS normals in one pass. Previewed live on the
+    // material (AO multiplied over the composite at GL-upload time only -
+    // the saved PNG never contains the preview) or as a raw map view, and
+    // applied as a "Baked AO" multiply layer on the entry's texture. Params
+    // persist per .mtl via a "# tyra-bake" hint line.
+    matbake::Baker matBaker_;
+    int matBakePreviewMode_ = 0;  // 0 off, 1 AO over material, 2 raw map view
+    int matBakeMapView_ = 0;      // map view: 0 ao 1 curvature 2 thickness
+                                  // 3 bent 4 normal 5 position
+    int matBakeSizeIdx_ = 2;      // bake resolution: 64 << idx
+    int matBakeRays_ = 64;        // rays per texel at full quality
+    float matBakeMaxDist_ = 0.0f; // occlusion reach (0 = auto: half the AABB
+                                  // diagonal)
+    int matBakeSSIdx_ = 1;        // supersample grid: 1 << idx per axis
+    bool matBakeBackface_ = true; // back-side hits occlude (thin geometry)
+    int matBakePadding_ = 4;      // dilate ring, texels
+    int matBakeSeed_ = 1;
+    std::string matBakeHigh_;     // high-poly .obj, project-relative ("" = none)
+    float matBakeCage_ = 0.0f;    // cage offset (0 = auto: 2% of the diagonal)
+    uint64_t matBakeStartedSig_ = 0;  // input signature of the running bake
+    uint64_t matBakeSeenVersion_ = 0;
+    matbake::Maps matBakeMaps_;       // latest snapshot
+    bool matBakeApplyWhenDone_ = false;  // "Bake & add layer" pending
+    bool matBakeRunOnce_ = false;  // smart masks asked for maps (no preview)
+    // cached mesh inputs (rebuilding objparser loads per slider tick would
+    // thrash disk; keys carry the file mtimes so external edits re-bake)
+    matbake::MeshInput matBakeMeshLow_, matBakeMeshHigh_;
+    std::string matBakeMeshKey_, matBakeHighKey_;
+    std::string matBakeMeshError_;
+    void matBakeResetParams();    // defaults (new/awaiting-hint files)
+    matbake::Params matBakeParams() const;
+    bool matBakeBuildMeshes(const std::string& entryName);
+    void matBakeTick(const std::string& entryName, const std::string& texRel);
+    void matBakeUploadSolo();     // selected raw map -> "@matbake-view"
+    void matBakeApplyLayer();     // AO -> "Baked AO" multiply layer + save
+    void matBakeSaveMaps(const std::filesystem::path& mtlDirAbs,
+                         const std::string& entryName);
+    void matEdBakeSection(const std::string& entryName,
+                          const std::string& texRel);
+    // composite -> GL upload; multiplies the AO preview in at upload time
+    void matEdUploadComposite();
+
+    // UV inspection (docs/material-painting.md): preview display mode and
+    // the 2D UV-layout panel with two-way hover sync (hover a face in 3D -
+    // its texture region lights up in the panel; hover the panel - the
+    // triangle is outlined on the mesh). The panel reuses the bake's cached
+    // mesh input (matBakeMeshLow_).
+    int matEdDisplayMode_ = 0;  // 0 solid, 1 +wireframe, 2 UV checker
+    bool matEdUvView_ = false;  // UV layout panel under the 3D preview
+    float matEdUvZoom_ = 1.0f;
+    float matEdUvPan_[2] = {0.0f, 0.0f};
+    int matEdUvHoverTri_ = -1;          // panel-hovered triangle (last frame)
+    bool matEd3dHoverValid_ = false;    // 3D cursor rests on a paintable face
+    float matEd3dHoverUV_[2] = {0, 0};  // its surface UV (marked in the panel)
+    // Highlighted triangles (UV validator): outlined red in both views.
+    std::vector<int> matEdUvIssueTris_;
+    void drawMatEdUvPanel(const std::string& entryName,
+                          const std::string& texRel, const ImVec2& size);
+
+    // UV validator: overlaps, out-of-range, flipped/degenerate triangles,
+    // texel-density outliers over the preview mesh's paintable UVs. Results
+    // are pinned to the mesh key they were computed for; clicking a finding
+    // highlights its triangle(s) in the UV panel and on the mesh.
+    std::vector<matbake::UvIssue> matEdUvIssues_;
+    std::string matEdUvIssuesKey_;  // matBakeMeshKey_ at validation time
+    int matEdUvIssueSel_ = -1;
+    void matEdUvValidateSection(const std::string& entryName);
+
+    // "PS2 CLUT" display mode (matEdDisplayMode_ == 3): the composite is
+    // palette-quantized through the same median-cut quantizer texbake ships
+    // and uploaded in place of the texture (GL-only, like the AO preview -
+    // the PNG on disk never changes). Palette size follows the shipped
+    // policy by default; dithering is selectable for comparison. The last
+    // palette is kept for the swatch strip.
+    int matEdPs2Mode_ = 0;    // 0 follow policy, 1 = 16, 2 = 256, 3 = full
+    int matEdPs2Dither_ = 0;  // pngquant::Dither
+    std::vector<unsigned char> matEdPs2Palette_;
+    // colors the preview quantizes to (0 = full color): the explicit combo
+    // choice, or the .mtl's per-asset override / project default
+    int matEdPs2Colors() const;
+    // "128x128 4-bit = 8 KB + 64 B palette" for the budget line
+    std::string matEdBudgetLine(int tw, int th) const;
+
+    // Smart masks + presets (docs/material-baking.md). Regeneration fills a
+    // gen layer's pixels from the current bake maps; regen-all runs after
+    // every bake snapshot and after a paint-target load, so the masks track
+    // the bake live.
+    void matEdRegenLayer(MatEdLayer& l);
+    void matEdRegenMasks();  // all genOn layers + composite (no disk write)
+    bool matEdAnyGenLayer() const;
+    void matEdGenControls();  // generator UI for the active layer
+    // Presets: the gen-enabled layers' parameters as a reusable JSON under
+    // <project>/material-presets/ (project dir, never ships).
+    void matEdSavePreset(const std::string& name);
+    bool matEdApplyPreset(const std::string& relName);
+    bool openSavePresetPopup_ = false;
+    char matEdPresetName_[64] = "worn-metal";
+    std::string matEdPresetError_;
+    // preview-mesh stats line ("12,345 tris - 6,789 verts - UVs ok"),
+    // recomputed only when the cached bake mesh changes
+    std::string matEdStatsLine_;
+    std::string matEdStatsKey_;
+    bool matEdStatsWarn_ = false;  // mesh has no usable UVs
+
+    // Texture hot reload (docs/live-link.md): every saved paint target is
+    // re-baked into bin/<rel> in the format the build shipped and announced
+    // via bin/livetex.bin; the generated live_tex poller re-uploads the
+    // pixels into the running game's existing GS VRAM allocation. Paint in
+    // the editor, watch the texture change on the console.
+    std::map<std::string, uint32_t> liveTexGen_;  // game-relative -> generation
+    uint32_t liveTexSeq_ = 0;
+    void liveTexNotify(const std::string& texResRel);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
     char matEdNewTexName_[64] = "";

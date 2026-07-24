@@ -173,7 +173,7 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
         return (int)out.submeshes.size() - 1;
     };
 
-    auto vertexAt = [&](int objIndex, float* xyz) {
+    auto vertexAt = [&](int objIndex, float* xyz, int& resolved) {
         // obj indices are 1-based; negative = relative to the end
         const int count = (int)positions.size() / 3;
         int i = objIndex > 0 ? objIndex - 1 : count + objIndex;
@@ -181,6 +181,7 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
         xyz[0] = positions[i * 3];
         xyz[1] = positions[i * 3 + 1];
         xyz[2] = positions[i * 3 + 2];
+        resolved = i;
         return true;
     };
     auto uvAt = [&](int objIndex, float* uv) {
@@ -251,11 +252,13 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
 
             if (current < 0) current = submeshFor("");
             std::vector<float>& outVerts = out.submeshes[current].verts;
+            std::vector<int>& outPosIdx = out.submeshes[current].posIdx;
 
             for (size_t k = 2; k < vIdx.size(); ++k) {
                 float a[3], b[3], c[3];
-                if (!vertexAt(vIdx[0], a) || !vertexAt(vIdx[k - 1], b) ||
-                    !vertexAt(vIdx[k], c))
+                int ia, ib, ic;
+                if (!vertexAt(vIdx[0], a, ia) || !vertexAt(vIdx[k - 1], b, ib) ||
+                    !vertexAt(vIdx[k], c, ic))
                     continue;
                 float uva[2], uvb[2], uvc[2];
                 uvAt(tIdx[0], uva);
@@ -274,6 +277,7 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
 
                 const float* pts[3] = {a, b, c};
                 const float* uvs[3] = {uva, uvb, uvc};
+                const int ids[3] = {ia, ib, ic};
                 for (int i = 0; i < 3; ++i) {
                     grow(pts[i]);
                     outVerts.push_back(pts[i][0]);
@@ -284,6 +288,7 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
                     outVerts.push_back(nz);
                     outVerts.push_back(uvs[i][0]);
                     outVerts.push_back(uvs[i][1]);
+                    outPosIdx.push_back(ids[i]);
                 }
             }
         }
@@ -294,6 +299,7 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
         if (out.submeshes[i].verts.empty())
             out.submeshes.erase(out.submeshes.begin() + i);
 
+    out.positionCount = (int)positions.size() / 3;
     return !out.submeshes.empty();
 }
 

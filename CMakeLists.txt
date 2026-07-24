@@ -57,6 +57,7 @@ add_executable(tyrax-editor
     src/main.cpp
     src/aigen.cpp
     src/aisupport.cpp
+    src/aobake.cpp
     src/app.cpp
     src/camtake.cpp
     src/flownode.cpp
@@ -64,6 +65,7 @@ add_executable(tyrax-editor
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
+    src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
@@ -77,6 +79,7 @@ add_executable(tyrax-editor
     src/screenfx.cpp
     src/session.cpp
     src/stochtile.cpp
+    src/texatlas.cpp
     src/texbake.cpp
     src/save_assets.cpp
     src/templates.cpp

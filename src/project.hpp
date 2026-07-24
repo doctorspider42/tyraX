@@ -183,6 +183,7 @@ struct SceneObject {
     float physBounce = 0.35f;   // restitution 0..1: 0 = thud, 1 = superball
     float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
     bool physTumble = true;     // ground contact converts slide into roll/spin
+    float physSleep = 3.0f;     // seconds of near-rest before the body sleeps
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool pickable = false;    // BTN_USE picks it up: carried in front of the
                               // camera (swept against the world so it cannot
@@ -210,6 +211,10 @@ struct SceneObject {
     // trick's second half. Each marked object costs a second (128x128,
     // wide-FOV) render per frame; mark the few props that sell the effect.
     bool reflected = false;
+    // Ambient occlusion: this object darkens nearby terrain and objects
+    // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
+    // casts nothing; it still receives shadows from others.
+    bool castShadow = true;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -258,6 +263,16 @@ struct SceneObject {
     float playerCamHeight = 1.6f;     // camera/look-at height above the feet
     float playerCamShoulder = 0.0f;   // lateral rig offset; + = right shoulder
     float playerTurnRate = 0.25f;     // avatar turn-to-face lerp per 60fps frame
+    // Camera style. 0 = Orbit (free look behind the avatar - the classic rig).
+    // The fixed styles pin the camera angle for top-down / isometric games:
+    // 1 = Top-down and 2 = Isometric are presets of 3 = Fixed angle (the UI
+    // seeds their pitch/yaw on selection; the angles stay editable in all
+    // three). The left stick keeps moving the avatar relative to the camera
+    // heading, and the spring arm still keeps the boom out of geometry.
+    int playerCamStyle = 0;           // 0 orbit, 1 top-down, 2 isometric, 3 fixed
+    float playerCamPitch = 55.0f;     // fixed styles: elevation above horizon, deg (10..85)
+    float playerCamYaw = 45.0f;       // fixed styles: world heading the camera looks along, deg
+    bool playerCamYawRotate = false;  // fixed styles: right stick still orbits the yaw
 
     // Camera-attached spot light carried by the player (used when type ==
     // Player). Additive cone + distance falloff computed per vertex on VU1, on
@@ -314,6 +329,18 @@ struct SceneObject {
     // view in degrees. A Cutscene Director shot bound to this camera applies
     // it to the real PS2 projection for the duration of the shot.
     float cameraFov = 60.0f;
+    // Camera texture feed (CCTV): the camera renders its view - sky (+
+    // terrain) + an explicit object list, the Mirror philosophy - into the
+    // engine's 128x128 camFeed VRAM target every frame; objects with
+    // textureFeed == "camera:<name>" show it live. ONE active feed camera
+    // per scene (the first enabled one). See docs/texture-feeds.md.
+    bool camFeed = false;
+    bool camFeedTerrain = true;
+    std::vector<std::string> camFeedObjects;
+    // Live texture feed shown on THIS object's surface (any renderable
+    // primitive): "" = none, "camera:<name>" = a feed camera's view,
+    // "mirror:<name>" = a raytraced mirror's traced image. Renames remap.
+    std::string textureFeed;
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -324,9 +351,17 @@ struct SceneObject {
     // FPP players have no body to reflect). The shared `color` field tints
     // the glass quad; mirrorOpacity is its alpha (0 = invisible glass,
     // 1 = opaque - the reflection shows through low values).
+    // mirrorRaytraced (experimental PoC): instead of re-submitting reflected
+    // geometry, the game ray-traces the targets as SPHERE PROXIES on a VU0
+    // microprogram into a small texture mapped onto the glass - true
+    // per-pixel raytracing on PS2 hardware. See docs/raytraced-reflections.md.
     std::vector<std::string> mirrorObjects;
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
+    bool mirrorRaytraced = false;
+    // Traced image edge: 32/64/128/256/512. Cost scales with the square
+    // (VU0 traces every texel) - 256/512 are photo modes, not frame rates.
+    int mirrorRtSize = 64;
 
     // Portal parameters (used when type == Portal). portalTarget names the
     // destination Portal in the same scene (renames remap; empty or dangling =
@@ -401,12 +436,13 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.physMass == b.physMass &&
            a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
-           a.physTumble == b.physTumble && a.usable == b.usable &&
+           a.physTumble == b.physTumble && a.physSleep == b.physSleep &&
+           a.usable == b.usable &&
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
-           a.reflected == b.reflected &&
+           a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -424,6 +460,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerCamHeight == b.playerCamHeight &&
            a.playerCamShoulder == b.playerCamShoulder &&
            a.playerTurnRate == b.playerTurnRate &&
+           a.playerCamStyle == b.playerCamStyle &&
+           a.playerCamPitch == b.playerCamPitch &&
+           a.playerCamYaw == b.playerCamYaw &&
+           a.playerCamYawRotate == b.playerCamYawRotate &&
            a.flashlightEnabled == b.flashlightEnabled &&
            eq3(a.flashlightColor, b.flashlightColor) &&
            a.flashlightRange == b.flashlightRange &&
@@ -443,9 +483,14 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.cameraFov == b.cameraFov &&
+           a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
+           a.camFeedObjects == b.camFeedObjects &&
+           a.textureFeed == b.textureFeed &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.mirrorRaytraced == b.mirrorRaytraced &&
+           a.mirrorRtSize == b.mirrorRtSize &&
            a.portalTarget == b.portalTarget &&
            a.portalObjects == b.portalObjects &&
            a.portalShowTerrain == b.portalShowTerrain &&
@@ -503,6 +548,11 @@ struct ProjectSettings {
     // overrides live in Project::textureQuality. "none" = full color,
     // "8bit" = 256 colors, "4bit" = 16 colors (default - era-correct).
     std::string textureQuant = "4bit";
+    // Texture atlasing at build (docs/texture-atlasing.md): small clamp-safe
+    // map_Kd textures pack into shared 256x256 pages - one GS allocation
+    // (+~8 KB overhead) per page instead of per texture. Conservative
+    // eligibility, computed by texatlas::plan; off = classic per-file bake.
+    bool textureAtlas = false;
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
@@ -549,6 +599,17 @@ struct ProjectSettings {
     // actions) trigger a batch rebuild. Off = every object submits its own
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
+
+    // Dynamic reflection probe aim (docs/reflective-materials.md). false =
+    // the classic GT3 aim: the env camera looks level along the player
+    // forward from the eye. true = "reflected ray": each frame a ray from
+    // the camera is intersected with the dynamic-reflective objects
+    // (analytic normals - OBB faces for boxes, spheres for curved shapes,
+    // bounding spheres for models) and the probe renders from the hit
+    // point along the REFLECTED ray (smoothed), so the map shows what the
+    // surface the player looks at actually reflects. Off by default -
+    // existing projects keep their look.
+    bool envProbeReflected = false;
 
     // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
     // host at build time (navmesh.cpp) from the terrain slope + blocking
@@ -622,6 +683,15 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
+    // Baked ambient occlusion (docs/ambient-occlusion.md): terrain
+    // self-shadowing, contact darkening between static geometry and raycast
+    // self-AO for imported .obj models - all folded into the baked vertex
+    // colors, zero PS2 per-frame cost. Authored per ambience preset; these
+    // fields are the no-preset fallback like the lighting above.
+    bool aoEnabled = false;
+    float aoStrength = 0.55f;  // 0..1, how dark full occlusion gets
+    float aoRadius = 2.5f;     // world units the contact darkening reaches
+
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
     // tiled by the map's "-s" scale (repeats per world unit), otherwise the
@@ -684,6 +754,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
            a.staticBatching == b.staticBatching &&
+           a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&
@@ -702,6 +773,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
+           a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
+           a.aoRadius == b.aoRadius &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&

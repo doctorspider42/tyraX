@@ -1,0 +1,1 @@
+{ "id": "cccc000000000020", "name": "orb-west", "type": "sphere", "position": [-7.5, 0.8, 0], "rotation": [0, 0, 0], "scale": [1.6, 1.6, 1.6], "color": [1, 1, 1], "physics": false, "material": "res/materials/trim.mtl" }
