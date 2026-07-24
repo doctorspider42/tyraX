@@ -13524,11 +13524,15 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         if (objs.empty()) {
             // Placeholder row so the array is never zero-sized. Field order
             // must track SceneObjectData 1:1 (physics params physMass/Bounce/
-            // Friction/Tumble after the `physics` flag, pickable/pickThrow
-            // after `usable`, `reflected` before the anim block) - an empty
-            // scene must still compile.
+            // Friction/Tumble/Sleep after the `physics` flag, pickable/
+            // pickThrow after `usable`, `reflected` before the anim block) -
+            // an empty scene must still compile. A missing value here does not
+            // fail loudly: every later column shifts one field left and the
+            // build dies far away with "narrowing conversion of '0.0f' to
+            // 'int'" in scene_data.hpp. Count the values against the struct
+            // above whenever either side gains a field.
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, "
-                   "1.0F, 0.35F, 0.5F, 1, -1, -1, 0, "
+                   "1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, "
                    "0, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "

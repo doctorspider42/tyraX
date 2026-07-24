@@ -8761,3 +8761,24 @@ Each finished feature lands as its own commit.
   Also fixed a silent `build.ps1 -Clean` failure (read-only git objects made the
   removal fail, then it built a stale tree while printing "reusing existing
   clone"). Editor builds and links clean; all 17 examples regenerated.
+
+- (99) **Fix: empty scenes didn't compile (placeholder row lost `physSleep`)** -
+  found by the pre-push Docker build required before touching a PR. A project
+  whose scene has NO objects emits a hardcoded one-row placeholder in
+  `scene_data.hpp` (C++ forbids a zero-sized array), and that row had drifted
+  one field behind `SceneObjectData`: `physSleep` (added with the per-object
+  sleep delay) was never inserted, so every later column shifted one field left
+  and the PS2 build died far from the cause with `narrowing conversion of
+  '0.0f' from 'float' to 'int'` (emitSize landing in `int emitCount`).
+  **Pre-existing on origin/main**, not from this branch - `git show
+  origin/main:src/templates.cpp` carries the identical broken row; it arrived
+  with the physics-sleep commit and nothing built an empty scene since.
+  Inserted the missing `3.0F` and extended the row's comment to name the exact
+  failure mode, since the mismatch is silent by construction. Verified: struct
+  fields vs row values counted programmatically (51 vs 51) and a full Docker
+  game build of an empty-scene project returns exit 0 (`Build OK`,
+  `bin/kmtest.elf` linked) - which also compiled every engine change on this
+  branch (kbd_mouse/engine/irx_loader) for the first time, since vendor/tyra
+  only compiles inside the container. Examples unaffected (none has an empty
+  scene). Note: the editor exe in `build/` was locked by a running editor, so
+  this was built and verified from a throwaway `build-verify/` tree.
