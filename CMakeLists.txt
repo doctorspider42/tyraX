@@ -57,6 +57,7 @@ add_executable(tyrax-editor
     src/main.cpp
     src/aigen.cpp
     src/aisupport.cpp
+    src/animedit.cpp
     src/aobake.cpp
     src/app.cpp
     src/camtake.cpp

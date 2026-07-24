@@ -50,6 +50,81 @@ Each finished feature lands as its own commit.
   the file in VS Code (the tree accumulates the `src\scripts\`-relative
   prefix for the path). Verified: editor builds clean. Pure editor UI, no
   codegen or generated-project change.
+- (163) **Animation editor: non-destructive clip retiming/trim/rename +
+  a project-wide animation fps.** Reported as "animations exported from
+  Blender play too slow in game". Not an NTSC/PAL or a wall-clock bug:
+  glTF and FBX store keyframe times in **seconds and no frame rate at
+  all**, so a clip animated for 30 fps but exported from a 24 fps Blender
+  scene simply *is* 25% too long in the file, and there is nothing for the
+  importer to detect it by. Two layers of fix, both baked at build time so
+  the console pays nothing and the source assets are never rewritten:
+  (a) **`ProjectSettings::animSourceFps` / `animPlayFps`** (Preferences >
+  Rendering, "exported -> should play at") give one project-wide speed
+  ratio; equal values (the 24/24 default) are an exact no-op, so existing
+  projects are untouched.
+  (b) **`Project::animClipEdits`** - one `AnimClipEdit` per touched
+  (model, SOURCE clip): rename, time scale, trim window, default loop.
+  New `animedit.cpp` folds both into the parsed `glbparser::Skel` right
+  before `writeTskl` in `bakeAnimAssets` - trim (interpolated boundary
+  keys, rebased to 0) -> scale times -> rename. New manifest section
+  (`Section::AnimEdits`, `kSectionCount` 11 -> 12) so it also travels the
+  collaboration wire; the section is conditional, so an untouched project
+  emits nothing.
+  **Tools > Animation Editor** drives it: model picker, clip list, live
+  animated preview (`Viewport::renderAnimPreview` + the new
+  `uploadAnimPose` worker shared with the scene preview) with its own
+  playhead, and the four fields. The scene viewport applies the same
+  numbers via `Viewport::setAnimEdits` (pushed per frame by the app, the
+  nav-overlay/decal pattern), so a placed object previews what will ship.
+  Clip *references* (`SceneObject::animClip`, the Player locomotion
+  clips, the Animation node's Clip param) store the EFFECTIVE name, so
+  `App::effectiveClips` feeds every picker and `renameAnimClipRefs`
+  retargets on rename - a node driving another object through an object
+  link can't be resolved from there and is called out in the tooltip.
+  Clip edits are build-time, so they also join `liveLinkContextHash`: the
+  LIVE chip flips to amber (rebuild) instead of pretending a retimed clip
+  reached the running game.
+  Verified: exact numbers out of the baked binary. A scratch project with
+  `wobbler.glb` (2 clips, 2.000 s each) baked, then fps 24->30 plus
+  `Wiggle` timeScale 2, trim 0.5-1.5 s, rename "WiggleFast": a `.tskl`
+  reader shows `WiggleFast` at **0.4000 s** (1.0 s trimmed / 2.5x, 68 -> 36
+  keys) and `Twist` at **1.6000 s** (2.0 / 1.25, keys untouched) - both
+  exactly the predicted values. `.tyra` round-trip through `--resave` is
+  byte-identical; `--refresh-gen` on `examples/object-spawning` (an
+  animated model, no edits) rewrites the `.tskl` byte-identically, i.e.
+  the default ratio really is a no-op. Full Docker build of the scratch
+  project = `Build OK`, boots in PCSX2 at a steady 50 FPS with the model
+  rendering and no assert in `bin/log.txt`. The panel itself was eyeballed
+  from a screenshot with the project's values loaded (list, preview,
+  transport, "authored 2.000 s -> ships as 0.400 s (2.50x)"). All 17
+  example projects resaved for the two new settings keys (which also
+  picked up pre-existing drift: `textureAtlas`, `keyboardMouse*`,
+  `camStyle`/`camPitch`/`camYaw`/`camRotate`). `examples/endless-scroller`
+  could not be resaved - it has no `.tyra` at all on main, only committed
+  build leftovers; left alone, flagged separately.
+- (164) **Fix: animated models were tinted and point-lit in the editor
+  only.** Found while investigating (163) - the user's third-person avatar
+  had a blue face in the editor and looked right in game. The viewport
+  multiplied `SceneObject::color` into every animated part and let the
+  scene point lights add on top; the console does neither (a `SkelInstance`
+  folds only the `.tskl` part color into its `litColors`, and point lights
+  are baked into static vertex colors - which `docs/animated-models.md`
+  already promised under "Point lights don't light the model"). The fpp
+  project template gives its Player a cyan marker color `(0.15, 0.9, 0.9)`,
+  so switching that Player to third person previewed the whole avatar cyan.
+  All three animated draw sites (scene pass, mirror reflection, mirror
+  player avatar) now go through one `drawAnimParts()` helper drawing with
+  the neutral shade tint and suppressing the point-light uniform for the
+  duration. The properties table's **Color** row claimed the opposite of
+  what the runtime does - corrected. Verified: editor builds clean, and the
+  divergence was confirmed by reading both sides (`viewport.cpp` uTint /
+  `uLightCount` vs `templates.cpp` `setupAnimObject`, where `o.data.color`
+  appears nowhere in the animated path while the static path at
+  `pushVert` does fold it in). Flashlight and fog on animated parts are
+  the same class of editor-only extra but were left alone - unlike the
+  tint and point lights, whether the StaPip animated bags get them on the
+  console is not settled, and guessing would trade one divergence for
+  another.
 - (151) **Edit an animated model's materials: create an override from its
   built-ins, and preview/paint it on the model in the Material Editor.** (150)
   let an animated `.glb`/`.fbx` take a Material (.mtl) override, but you still
