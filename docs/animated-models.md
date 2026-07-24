@@ -156,8 +156,19 @@ in *Properties*:
 | **Run clip** | Optional (`<none>` = walk covers all speeds). |
 | **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
 | **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
+| **Style** | The camera rig: **Orbit (behind)** = free look (right stick orbits), **Top-down** / **Isometric** / **Fixed angle** = the camera is pinned to a set angle for camera-locked games. Top-down and Isometric are presets of Fixed angle — picking them seeds the angles below, which stay editable. |
+| **Angle / Direction** | Fixed styles only: elevation above the horizon (85 = nearly straight down, ~35 = the classic isometric slant) and the world heading the camera looks along (which way is "up" on screen). |
+| **Right stick rotates** | Fixed styles only: let the player orbit the pinned view with the right stick (the elevation stays locked). |
 | **Distance / Height / Shoulder** | The camera rig offset in the camera's own frame: back, up, sideways. `Shoulder` 0 = centered behind, ~0.6 = over-the-shoulder, negative = the left shoulder. |
 | **Turn rate** | How fast the avatar turns to face its movement direction. |
+
+**Camera styles:** the fixed styles pin `entPitch` every frame (and the yaw
+unless *Right stick rotates* is on), so the camera holds its authored angle
+while the left stick moves the avatar **relative to the camera heading** —
+exactly the control scheme a top-down or isometric game wants. Everything else
+is unchanged: the spring arm still shortens the boom against terrain and
+geometry, *Distance* sets how far out the camera rides, and locomotion clips
+keep auto-selecting from speed.
 
 **Over-the-shoulder:** `Shoulder` slides the *whole* rig — the eye and the
 look-at alike — along the camera's right vector, so the avatar sits off-center

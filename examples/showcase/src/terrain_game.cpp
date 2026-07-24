@@ -423,6 +423,11 @@ void aoCollectLocal(float cx, float cy, float cz, float radius, int selfIndex) {
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+// Texture atlasing: the staged material's UV rect ("# tyra-uvrect" in the
+// baked .mtl), applied to the primitive builders' generated 0..1 UVs.
+// nullptr = identity. Model parts never use it - LeanObjLoader already
+// remapped their UVs at load.
+const float* g_primUvRect = nullptr;
 // Physics fast path: push LOCAL-space positions (scale baked, rotation and
 // translation left to ObjectGeometry::objMat). Shading still bakes from the
 // full wake pose, so the switch itself never pops a color.
@@ -516,7 +521,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   cols.push_back(Color(c255(o.color[0] * scale * shade.x),
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
-  sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  // staged-material path only (kdArg = a model part whose UVs the loader
+  // already remapped)
+  if (!kdArg && g_primUvRect)
+    sts.push_back(Vec4(g_primUvRect[0] + u * g_primUvRect[2],
+                       g_primUvRect[1] + v * g_primUvRect[3], 1.0F, 0.0F));
+  else
+    sts.push_back(Vec4(u, v, 1.0F, 0.0F));
   if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
@@ -1951,6 +1962,7 @@ void TerrainGame::loadMaterialAsset(int i) {
   if (!mat.textureName.empty()) {
     gmat.texPath = dir + mat.textureName;
     gmat.texture = acquireTexture(gmat.texPath);
+    for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
   }
   if (mat.reflTextureName == "@sky") {
     // Dynamic env map (see loadModelAsset).
@@ -3131,6 +3143,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
     runtimeObjects[P.objIndex].visible =
         PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0) {
+      // Fixed-angle style: the camera starts on its authored heading and
+      // elevation instead of behind the avatar (the avatar itself still
+      // starts facing its authored yaw - P.faceYaw keeps that above).
+      P.yaw = PP_CAM_YAW(pi);
+      P.pitch = -PP_CAM_PITCH(pi);
+    }
     if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
@@ -4679,13 +4698,23 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
 
   // Right stick: look around (stick right = turn right). A shared-screen P2
   // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
-  // only players that own a view read the right stick.
+  // only players that own a view read the right stick. A fixed-angle
+  // third-person style (top-down / isometric / fixed) additionally pins the
+  // pitch every frame - and the yaw too unless the style allows stick
+  // rotation - so the camera holds its authored angle while the left stick
+  // drives the avatar.
   const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  const bool fixedCam = PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0;
   if (ownCamera) {
-    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
-    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
-    if (P.pitch > 1.35F) P.pitch = 1.35F;
-    if (P.pitch < -1.35F) P.pitch = -1.35F;
+    if (!fixedCam || PP_CAM_YAW_ROTATE(pi))
+      P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (fixedCam) {
+      P.pitch = -PP_CAM_PITCH(pi);  // elevation in radians; down = negative
+    } else {
+      P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+      if (P.pitch > 1.35F) P.pitch = 1.35F;
+      if (P.pitch < -1.35F) P.pitch = -1.35F;
+    }
   }
 
   const float fx = sinf(P.yaw);
@@ -5168,6 +5197,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_primUvRect = g_primTextured ? gmat->uvRect : nullptr;
     g_envNormals =
         (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
@@ -5606,6 +5636,7 @@ void TerrainGame::buildStaticBatchList() {
     if (objectBatchOf[i] >= 0) ++batched;
   TYRA_LOG("Static batching: ", batched, " objects in ",
            (int)staticBatches.size(), " batches");
+  if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 
 // One batch's bake: re-run the primitive builders for every shown member

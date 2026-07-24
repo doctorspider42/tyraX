@@ -342,7 +342,19 @@ std::string objectJson(const SceneObject& o) {
                 ", \"camDist\": " + fmtFloat(o.playerCamDist) +
                 ", \"camHeight\": " + fmtFloat(o.playerCamHeight) +
                 ", \"camShoulder\": " + fmtFloat(o.playerCamShoulder) +
-                ", \"turnRate\": " + fmtFloat(o.playerTurnRate) + " }" +
+                ", \"turnRate\": " + fmtFloat(o.playerTurnRate) +
+                // Camera style: orbit is the classic rig; the fixed styles
+                // (topdown/isometric/fixed) pin the pitch (+ yaw unless
+                // camRotate) for top-down / isometric games.
+                ", \"camStyle\": \"" +
+                std::string(o.playerCamStyle == 1   ? "topdown"
+                            : o.playerCamStyle == 2 ? "isometric"
+                            : o.playerCamStyle == 3 ? "fixed"
+                                                    : "orbit") +
+                "\", \"camPitch\": " + fmtFloat(o.playerCamPitch) +
+                ", \"camYaw\": " + fmtFloat(o.playerCamYaw) +
+                ", \"camRotate\": " + (o.playerCamYawRotate ? "true" : "false") +
+                " }" +
                 ", \"flashlight\": { \"enabled\": " +
                 (o.flashlightEnabled ? "true" : "false") + ", \"color\": " +
                 fmtVec3(o.flashlightColor) + ", \"range\": " +
@@ -1998,6 +2010,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.playerCamShoulder = (float)v->numberOr(0.0);
                 if (const auto* v = tp->find("turnRate"))
                     o.playerTurnRate = (float)v->numberOr(0.25);
+                if (const auto* v = tp->find("camStyle")) {
+                    const std::string s = v->stringOr("orbit");
+                    o.playerCamStyle = s == "topdown"     ? 1
+                                       : s == "isometric" ? 2
+                                       : s == "fixed"     ? 3
+                                                          : 0;
+                }
+                if (const auto* v = tp->find("camPitch"))
+                    o.playerCamPitch = (float)v->numberOr(55.0);
+                if (const auto* v = tp->find("camYaw"))
+                    o.playerCamYaw = (float)v->numberOr(45.0);
+                if (const auto* v = tp->find("camRotate"))
+                    o.playerCamYawRotate = v->boolOr(false);
             }
             if (const auto* v = pl->find("walkSpeed"))
                 o.playerWalkSpeed = (float)v->numberOr(0.4);
@@ -3451,6 +3476,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.playerRunThreshold);
     fnvMixF(h, o.playerCamDist), fnvMixF(h, o.playerCamHeight);
     fnvMixF(h, o.playerCamShoulder), fnvMixF(h, o.playerTurnRate);
+    fnvMix(h, (uint64_t)o.playerCamStyle);
+    fnvMixF(h, o.playerCamPitch), fnvMixF(h, o.playerCamYaw);
+    fnvMix(h, o.playerCamYawRotate ? 1 : 0);
     fnvMix(h, o.flashlightEnabled ? 1 : 0);
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);

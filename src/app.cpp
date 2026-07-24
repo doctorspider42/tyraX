@@ -5788,6 +5788,48 @@ void App::drawPropertiesWindow() {
             }
 
             ImGui::SeparatorText("Third-person camera");
+            // Style: Orbit is the classic free-look rig; Top-down / Isometric
+            // are Fixed-angle presets (picking them seeds pitch/yaw, which
+            // stay editable), for camera-locked games. The left stick always
+            // moves the avatar relative to the camera heading.
+            const char* camStyles[] = {"Orbit (behind)", "Top-down", "Isometric",
+                                       "Fixed angle"};
+            if (ImGui::Combo("Style", &o.playerCamStyle, camStyles, 4)) {
+                if (o.playerCamStyle == 1) {  // top-down preset
+                    o.playerCamPitch = 80.0f;
+                    o.playerCamYaw = 0.0f;
+                } else if (o.playerCamStyle == 2) {  // isometric preset
+                    o.playerCamPitch = 35.0f;
+                    o.playerCamYaw = 45.0f;
+                }
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Orbit: free look - the right stick orbits the camera\n"
+                    "behind the avatar. Top-down / Isometric / Fixed angle\n"
+                    "pin the camera to a set angle (top-down and isometric\n"
+                    "just seed it - tune Angle/Direction freely after).");
+            if (o.playerCamStyle != 0) {
+                ImGui::DragFloat("Angle (deg)", &o.playerCamPitch, 0.5f, 10.0f,
+                                 85.0f, "%.1f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Camera elevation above the horizon:\n"
+                                      "85 = nearly straight down (top-down),\n"
+                                      "~35 = the classic isometric slant.");
+                ImGui::DragFloat("Direction (deg)", &o.playerCamYaw, 1.0f,
+                                 -180.0f, 180.0f, "%.0f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("World heading the camera looks along\n"
+                                      "(which way is \"up\" on screen).");
+                committed |=
+                    ImGui::Checkbox("Right stick rotates", &o.playerCamYawRotate);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Let the player orbit the view with the\n"
+                                      "right stick (the pitch stays pinned).");
+            }
             // Distance / Height / Shoulder are the rig offset in the camera's
             // own frame: back, up, sideways.
             ImGui::DragFloat("Distance", &o.playerCamDist, 0.1f, 1.0f, 40.0f, "%.1f");

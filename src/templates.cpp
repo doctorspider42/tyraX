@@ -5017,6 +5017,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
     runtimeObjects[P.objIndex].visible =
         PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0) {
+      // Fixed-angle style: the camera starts on its authored heading and
+      // elevation instead of behind the avatar (the avatar itself still
+      // starts facing its authored yaw - P.faceYaw keeps that above).
+      P.yaw = PP_CAM_YAW(pi);
+      P.pitch = -PP_CAM_PITCH(pi);
+    }
     if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
@@ -6565,13 +6572,23 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
 
   // Right stick: look around (stick right = turn right). A shared-screen P2
   // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
-  // only players that own a view read the right stick.
+  // only players that own a view read the right stick. A fixed-angle
+  // third-person style (top-down / isometric / fixed) additionally pins the
+  // pitch every frame - and the yaw too unless the style allows stick
+  // rotation - so the camera holds its authored angle while the left stick
+  // drives the avatar.
   const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  const bool fixedCam = PP_MODE(pi) == 2 && PP_CAM_STYLE(pi) != 0;
   if (ownCamera) {
-    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
-    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
-    if (P.pitch > 1.35F) P.pitch = 1.35F;
-    if (P.pitch < -1.35F) P.pitch = -1.35F;
+    if (!fixedCam || PP_CAM_YAW_ROTATE(pi))
+      P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (fixedCam) {
+      P.pitch = -PP_CAM_PITCH(pi);  // elevation in radians; down = negative
+    } else {
+      P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+      if (P.pitch > 1.35F) P.pitch = 1.35F;
+      if (P.pitch < -1.35F) P.pitch = -1.35F;
+    }
   }
 
   const float fx = sinf(P.yaw);
@@ -14190,6 +14207,26 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         playerFloat("CAM_HEIGHTS", [](const SceneObject& o) { return o.playerCamHeight; }, 1.6f);
         playerFloat("CAM_SHOULDERS", [](const SceneObject& o) { return o.playerCamShoulder; }, 0.0f);
         playerFloat("TURN_RATES", [](const SceneObject& o) { return o.playerTurnRate; }, 0.25f);
+        // Camera style (0 = orbit, else fixed-angle: top-down / isometric /
+        // custom). Pitch/yaw are baked in RADIANS - pitch as elevation above
+        // the horizon, negated into P.pitch at runtime (looking down =
+        // negative).
+        out << "constexpr int " << pre << "CAM_STYLES[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << (ps[si] ? ps[si]->playerCamStyle : 0);
+        out << "};\n";
+        constexpr float kDegToRad = 3.14159265f / 180.0f;
+        playerFloat("CAM_PITCHES",
+                    [](const SceneObject& o) { return o.playerCamPitch * kDegToRad; },
+                    55.0f * kDegToRad);
+        playerFloat("CAM_YAWS",
+                    [](const SceneObject& o) { return o.playerCamYaw * kDegToRad; },
+                    45.0f * kDegToRad);
+        out << "constexpr bool " << pre << "CAM_YAW_ROTATES[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "")
+                << (ps[si] && ps[si]->playerCamYawRotate ? "true" : "false");
+        out << "};\n";
         auto playerClip = [&](const char* name, auto get) {
             out << "constexpr const char* " << pre << name << "[SCENE_COUNT] = {";
             for (int si = 0; si < sceneCount; ++si)
@@ -14508,6 +14545,10 @@ inline int everyFrames(float seconds) {
 #define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
 #define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
 #define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_CAM_STYLE PLAYER_CAM_STYLES[g_activeScene]
+#define PLAYER_CAM_PITCH PLAYER_CAM_PITCHES[g_activeScene]
+#define PLAYER_CAM_YAW PLAYER_CAM_YAWS[g_activeScene]
+#define PLAYER_CAM_YAW_ROTATE PLAYER_CAM_YAW_ROTATES[g_activeScene]
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
@@ -14528,6 +14569,10 @@ inline int everyFrames(float seconds) {
 #define PP_CAM_HEIGHT(pi) PP_TBL(pi, CAM_HEIGHTS)
 #define PP_CAM_SHOULDER(pi) PP_TBL(pi, CAM_SHOULDERS)
 #define PP_TURN_RATE(pi) PP_TBL(pi, TURN_RATES)
+#define PP_CAM_STYLE(pi) PP_TBL(pi, CAM_STYLES)
+#define PP_CAM_PITCH(pi) PP_TBL(pi, CAM_PITCHES)
+#define PP_CAM_YAW(pi) PP_TBL(pi, CAM_YAWS)
+#define PP_CAM_YAW_ROTATE(pi) PP_TBL(pi, CAM_YAW_ROTATES)
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)

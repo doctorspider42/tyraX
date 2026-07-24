@@ -222,6 +222,10 @@ constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
 constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
 constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
+constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
@@ -238,6 +242,10 @@ constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
 constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
 constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0};
+constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
@@ -380,6 +388,10 @@ inline int everyFrames(float seconds) {
 #define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
 #define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
 #define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_CAM_STYLE PLAYER_CAM_STYLES[g_activeScene]
+#define PLAYER_CAM_PITCH PLAYER_CAM_PITCHES[g_activeScene]
+#define PLAYER_CAM_YAW PLAYER_CAM_YAWS[g_activeScene]
+#define PLAYER_CAM_YAW_ROTATE PLAYER_CAM_YAW_ROTATES[g_activeScene]
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
@@ -400,6 +412,10 @@ inline int everyFrames(float seconds) {
 #define PP_CAM_HEIGHT(pi) PP_TBL(pi, CAM_HEIGHTS)
 #define PP_CAM_SHOULDER(pi) PP_TBL(pi, CAM_SHOULDERS)
 #define PP_TURN_RATE(pi) PP_TBL(pi, TURN_RATES)
+#define PP_CAM_STYLE(pi) PP_TBL(pi, CAM_STYLES)
+#define PP_CAM_PITCH(pi) PP_TBL(pi, CAM_PITCHES)
+#define PP_CAM_YAW(pi) PP_TBL(pi, CAM_YAWS)
+#define PP_CAM_YAW_ROTATE(pi) PP_TBL(pi, CAM_YAW_ROTATES)
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)

@@ -10,6 +10,42 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (128) **Third-person camera styles — top-down and isometric games.** The
+  third-person Player grows a **Style** picker (Properties > Third-person
+  camera): **Orbit (behind)** is the unchanged free-look rig; **Top-down**,
+  **Isometric** and **Fixed angle** pin the camera to an authored **Angle**
+  (elevation above the horizon, 10–85°) and **Direction** (world heading =
+  which way is "up" on screen), with an optional **Right stick rotates**
+  switch that lets the player orbit the yaw while the pitch stays pinned.
+  Top-down (80°/0°) and Isometric (35°/45°) are just presets of Fixed angle —
+  picking them seeds the angles, which stay editable. Runtime cost is a
+  couple of compares in the shared player walker: the fixed styles write
+  `P.pitch = -PP_CAM_PITCH(pi)` every frame and skip the right-stick reads
+  (scene load also starts the player's yaw on the authored heading instead of
+  behind the avatar); everything else — camera-relative left-stick movement,
+  the spring arm, locomotion clips, Distance/Height/Shoulder — is the existing
+  third-person machinery, which is exactly why a fixed steep angle "just
+  works". Full chain: `playerCamStyle/Pitch/Yaw/YawRotate` on `SceneObject`
+  (+ `==`, live-link recipe hash), `camStyle/camPitch/camYaw/camRotate` in
+  the `player.thirdPerson` JSON block, per-player `PLAYER_/PLAYER2_ CAM_STYLES/
+  _PITCHES/_YAWS/_YAW_ROTATES` scene_data tables (angles baked in radians) +
+  `PP_CAM_*` accessor macros, the gated stick block in the game template, the
+  Style combo + Angle/Direction/rotate controls in Properties, README +
+  docs/animated-models.md. (Rebased onto the two-player refactor: the camera
+  style is per Player object, so P1 and P2 can each carry their own style.)
+  **Verified:** editor builds clean; scratch fpp project flipped to
+  `thirdperson`+`topdown` round-trips the new keys through `--resave`;
+  generated `scene_data.hpp` carries `PLAYER_CAM_STYLES = {1}` /
+  `PLAYER_CAM_PITCHES = {1.309F}` (75°) and the game compiles in Docker;
+  **PCSX2 boot (emulog "is executing", no TYRA banner in `bin/log.txt`) with
+  F8 snaps of the SAME scene in two styles**: top-down 75° (avatar dead
+  center seen from above, landmark boxes flat on the checkerboard) and
+  isometric 35°/45° (horizon visible, avatar centered, boxes framing the
+  diagonal) — the camera holds the authored angle instead of orbiting.
+  Editor GUI screenshot shows the new Properties section loading those
+  values (Style=Isometric, 35/45, rotate on). Stick *feel* (right-stick
+  rotation in fixed styles, camera-relative walking) still wants a hands-on
+  pad test — keyboard pad bindings cover buttons, not analog sticks.
 - (161) **AO reshaped: per-object "Cast shadow", textures only, model AO
   parked** - owner feedback on (159/160): the shadows only look right in the
   textured version, control belongs on the object, and per-vertex model AO
