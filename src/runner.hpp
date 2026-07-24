@@ -37,6 +37,9 @@ public:
     void stopEmulator();
     // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
     void exportIso(const Project& p);
+    // Builds <project>/<name>-esr.iso: the same disc made ESR-compatible for a
+    // modded PS2 (UDF bridge + ESR patch, see esrudf.hpp / isoexport::buildEsr).
+    void exportEsrIso(const Project& p);
     // VS-style Clean: wipes the build products - obj/ and bin/ in the
     // container's game volume plus the host bin/ mirror. The next build
     // recompiles the game from scratch (the shared engine volume stays).

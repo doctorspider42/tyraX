@@ -141,6 +141,19 @@ void Runner::exportIso(const Project& p) {
     });
 }
 
+void Runner::exportEsrIso(const Project& p) {
+    if (busy()) return;
+    join();
+    state_ = State::Running;
+    thread_ = std::thread([this, p] {
+        appendLine("[editor] === ESR ISO export: " + p.name + " ===");
+        const std::string err =
+            isoexport::buildEsr(p, [this](const std::string& l) { appendLine(l); });
+        if (!err.empty()) appendLine("[editor] ESR ISO export failed: " + err);
+        state_ = err.empty() ? State::Success : State::Failed;
+    });
+}
+
 void Runner::cancel() {
     if (!busy()) return;
     cancelRequested_ = true;

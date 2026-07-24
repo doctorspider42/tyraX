@@ -821,6 +821,13 @@ void App::drawMenuBar() {
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
                 runner_.exportIso(project_);
+            if (ImGui::MenuItem("Export ESR ISO (for modded PS2)", nullptr, false, !busy))
+                runner_.exportEsrIso(project_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Writes <name>-esr.iso: the same disc plus a UDF bridge ESR-patched\n"
+                    "to a fake DVD-Video partition, so a modded PS2 running the ESR loader\n"
+                    "boots the DVD-R backup. Based on esrtool (ali-raheem, MIT).");
             if (ImGui::MenuItem("Disc Layout...")) {
                 showDiscLayout_ = true;
                 discPlanDirty_ = true;

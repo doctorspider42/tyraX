@@ -10,6 +10,42 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (163) **ESR ISO export for modded PS2s** (user request, based on
+  [esrtool](https://github.com/ali-raheem/esrtool) by ali-raheem, MIT). New
+  *Project > Export ESR ISO (for modded PS2)* (+ `--export-esr <projectDir>`,
+  and a symmetrical `--export-iso` for the plain export that previously had no
+  CLI). It writes `<name>-esr.iso`: the same ISO9660 disc plus a minimal UDF
+  1.02 bridge whose partition is ESR-patched to a fake DVD-Video structure, so
+  a modded PS2 running the ESR loader recognises the DVD-R backup as
+  DVD-Video, hands off to ESR, and boots the game the normal way over
+  ISO9660 (`cdrom0:`). Implementation: (1) `iso9660::write` gained an
+  `Options{firstDataLba, tailReserveSectors}` — defaults reproduce the plain
+  image byte-for-byte; the ESR path sets `firstDataLba = 257` so all ISO9660
+  metadata/data sits above the reserved UDF area (VRS at 18-20, main/reserve
+  VDS at 32-63 with the partition descriptor landing on the exact LBA 34/50
+  esrtool keys off, LVID at 64, fake partition at 128-139, anchors at 256 and
+  the last sector). (2) New `src/esrudf.cpp` builds the UDF bridge
+  (PVD/IUVD/PD/LVD/USD/TD + AVDP + LVID, correct ECMA-167 descriptor tags with
+  the UDF CRC-16) then applies the ESR patch — a faithful port of esrtool's
+  `lib.rs` (copy the two partition descriptors to scratch sectors 14/15,
+  repoint them at LBA 128, recompute the tag CRC + checksum, drop in the
+  24 KiB fake DVD-Video partition). The CRC table + fake partition are ported
+  verbatim from esrtool `defines.rs` into `src/esrudf_data.inc`. The ISO9660
+  file system is untouched, so the image still boots as a plain disc in PCSX2.
+  Credited in the README Credits list. **Verified:** editor builds clean;
+  `--export-esr` on a scratch project with a fabricated `bin/` produces a
+  726-sector image where a byte-level validator confirms — every UDF
+  descriptor tag (12 VDS descriptors + 2 anchors + LVID + terminators) has a
+  correct tag checksum *and* CRC; esrtool's own `check_udf` (NSR present) and
+  `check_patched` (sector 14 = `+NSR`) both pass; both partition descriptors
+  point at LBA 128 with contents `+NSR02`; the fake partition blob is
+  byte-identical to esrtool's; the LVD's File Set Descriptor reference resolves
+  to partition block 0 (= LBA 128 post-patch); and the ISO9660 PVD + root
+  directory still resolve (SYSTEM.CNF / ELF / dirs present at the shifted
+  LBAs). The plain `--export-iso` output is unchanged (root dir still at LBA
+  20). **Not verified here:** an actual boot on real ESR hardware — PCSX2 does
+  not emulate ESR / the DVD-Video path, and no modded PS2 was available; left
+  to the owner's hardware test.
 - (120) **Scripts panel cleanup: `src/scripts/` is exclusively the user's;
   generated sources moved to `src/gen/`; subfolders supported.** The Scripts
   list used to show the six engine-generated `*.gen.cpp` files (flow_graph,

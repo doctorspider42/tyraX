@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "app.hpp"
+#include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 
@@ -86,6 +87,28 @@ static int buildFromCli(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
     flushLog();
+    return 0;
+}
+
+// Headless helper: tyrax-editor.exe --export-iso|--export-esr <projectDir>
+// Builds the disc image from an already-built bin/ (run --build first). With
+// esr = true it emits the ESR-compatible <name>-esr.iso for a modded PS2.
+static int exportIsoFromCli(int argc, char** argv, bool esr) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor %s <projectDir>\n", argv[1]);
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    auto log = [](const std::string& l) { std::printf("%s\n", l.c_str()); };
+    std::string err = esr ? isoexport::buildEsr(p, log) : isoexport::build(p, log);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
     return 0;
 }
 
@@ -480,6 +503,10 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--export-iso") == 0)
+        return exportIsoFromCli(argc, argv, false);
+    if (argc > 1 && std::strcmp(argv[1], "--export-esr") == 0)
+        return exportIsoFromCli(argc, argv, true);
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
         return listNodesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
@@ -500,6 +527,8 @@ int main(int argc, char** argv) {
             "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
             "  --resave <projectDir>\n"
             "  --refresh-gen <projectDir>\n"
+            "  --export-iso <projectDir>            write <name>.iso from bin/\n"
+            "  --export-esr <projectDir>            write ESR-patched <name>-esr.iso\n"
             "AI-agent tools (docs/ai-tools.md):\n"
             "  --dump <projectDir>\n"
             "  --list-nodes <projectDir>\n"

@@ -66,6 +66,8 @@ tyrax-editor.exe lives.)
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp]` | Create a fresh project |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
+| `--export-iso <projectDir>` | Write a bootable `<name>.iso` from an already-built `bin/` |
+| `--export-esr <projectDir>` | Write `<name>-esr.iso` (ESR-patched, for a modded PS2) |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
 Typical inspection flow: `--dump` to see the world, `--dump-graph` to read

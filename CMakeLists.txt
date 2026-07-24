@@ -69,6 +69,7 @@ add_executable(tyrax-editor
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
+    src/esrudf.cpp
     src/menubake.cpp
     src/pcsx2_config.cpp
     src/pngquant.cpp

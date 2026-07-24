@@ -141,8 +141,17 @@ Notes:
 - Missing `HostFs` = "Failed to load ...png" assert on the first fopen. The
   editor enforces it, but PCSX2 rewrites its ini on exit — if a game asserts on
   asset loading, check HostFs first.
-- For ISO/cdrom0: testing use `Project > Export PS2 ISO`, then boot the ISO in
+- For ISO/cdrom0: testing use `Project > Export PS2 ISO` (or headless
+  `--export-iso <projectDir>` on an already-built `bin/`), then boot the ISO in
   PCSX2 (covers the path-conversion code that host: boots skip).
+- **ESR ISO** (`Project > Export ESR ISO`, headless `--export-esr`): produces
+  `<name>-esr.iso` for a modded PS2's ESR loader. PCSX2 boots it as a plain
+  disc (ESR/DVD-Video is not emulated), so PCSX2 only verifies the ISO9660 side
+  still boots — real ESR boot needs hardware. Verify the UDF/ESR bytes
+  structurally instead: every UDF descriptor tag has a valid checksum+CRC, the
+  partition descriptors at LBA 34/50 read back `+NSR02` and point at LBA 128,
+  and the fake partition at 128 matches esrtool's blob (a Python validator over
+  the image is enough — see PROGRESS (163)).
 
 ### Reading the results
 
