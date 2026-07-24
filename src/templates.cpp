@@ -28,6 +28,7 @@
 #include "project.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
+#include "tmdl.hpp"
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -147,6 +148,40 @@ static std::string animBakedTsklRel(const std::string& modelPath,
     char suf[16];
     std::snprintf(suf, sizeof(suf), "__ovr%04x", (unsigned)(h & 0xffffu));
     return base + suf + ".tskl";
+}
+
+// The .tmdl a static-model identity bakes to (res-relative), mirroring
+// animBakedTsklRel: the material override is resolved into the file at bake
+// time, so a {model, override} pair maps to its own artifact. Both the emit
+// (modelDataHeader) and the bake (bakeStaticModels) must derive the same name.
+static std::string staticBakedTmdlRel(const std::string& modelPath,
+                                      const std::string& materialPath) {
+    std::string base = modelPath;
+    if (const size_t dot = base.rfind('.'); dot != std::string::npos)
+        base = base.substr(0, dot);
+    if (materialPath.empty()) return base + ".tmdl";
+    const uint64_t h = wire::fnv1a64(materialPath.data(), materialPath.size());
+    char suf[16];
+    std::snprintf(suf, sizeof(suf), "__ovr%04x", (unsigned)(h & 0xffffu));
+    return base + suf + ".tmdl";
+}
+
+// "res/models/x.png" -> "models/x.png": the game's cwd is bin/, where the
+// Makefile copies the contents of res/.
+static std::string resToBin(std::string path) {
+    if (path.rfind("res/", 0) == 0) path = path.substr(4);
+    return path;
+}
+
+// res-relative path of a material texture token, resolved against the
+// res-relative file whose directory the token is relative to. map_Kd names
+// resolve against the .obj's directory (or the override .mtl's) - the rule
+// LeanObjLoader applies at runtime, mirrored here so the baked path matches.
+static std::string resolveTexRel(const std::string& definingRel,
+                                 const std::string& tex) {
+    const std::filesystem::path base =
+        std::filesystem::path(definingRel).parent_path();
+    return (base / tex).lexically_normal().generic_string();
 }
 
 // C string literal escaping for clip names baked into scene_data.hpp.
@@ -3775,26 +3810,37 @@ void TerrainGame::releaseTexture(const std::string& path) {
   texCache.erase(it);
 }
 
-// Loads one custom .obj through the engine's LeanObjLoader: geometry split
-// per MTL material, map_Kd textures through the texture cache, the real
-// mesh AABB for box collision and a CollisionMesh where some scene object
-// collides in mesh mode. Called on demand by the layer streaming.
+// Loads one static model: the baked binary .tmdl (TmdlLoader - materials,
+// atlas UV rects, flat normals and texture paths all resolved at build time,
+// so this is a read plus a memcpy) or, for a path that is not a .tmdl, an
+// ASCII .obj through LeanObjLoader. Geometry is split per material, map_Kd
+// textures go through the texture cache, plus the real mesh AABB for box
+// collision and a CollisionMesh where some scene object collides in mesh
+// mode. Called on demand by the layer streaming.
 void TerrainGame::loadModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || modelLoaded[i]) return;
   modelLoaded[i] = 1;  // missing/unparseable stays empty but counts as tried
-  const std::string overrideMtl = MODEL_MTLS[i];
-  auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
+  const std::string modelPath = MODEL_PATHS[i];
+  const bool binary = modelPath.size() > 5 &&
+                      modelPath.compare(modelPath.size() - 5, 5, ".tmdl") == 0;
+  const std::string overrideMtl = binary ? std::string() : MODEL_MTLS[i];
+  auto mesh = binary ? TmdlLoader::load(modelPath)
+                     : LeanObjLoader::load(modelPath, overrideMtl);
   if (!mesh) return;  // stays empty - objects using it render nothing
   GameModel& gm = gameModels[i];
   for (int k = 0; k < 3; ++k) {
     gm.mn[k] = mesh->min[k];
     gm.mx[k] = mesh->max[k];
   }
-  // map_Kd texture names resolve relative to the file that defined them:
-  // the override .mtl when one is assigned, the model otherwise
-  std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
-  const size_t slash = dir.find_last_of('/');
-  dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  // A .tmdl stores cwd-relative texture paths; an .obj's map_Kd names resolve
+  // relative to the file that defined them (the override .mtl when one is
+  // assigned, the model otherwise).
+  std::string dir;
+  if (!binary) {
+    dir = overrideMtl.empty() ? modelPath : overrideMtl;
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  }
   for (auto& mat : mesh->materials) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
@@ -17400,10 +17446,13 @@ static std::string liveTexScript(const Project& p) {
     return out.str();
 }
 
-// inc/model_data.gen.hpp - .obj model paths (+ optional per-object .mtl
+// inc/model_data.gen.hpp - static model paths (+ optional per-object .mtl
 // overrides) and the primitive material libraries. Nothing is baked into the
-// ELF: the game loads everything at startup through the engine's
-// LeanObjLoader, from bin/ (the Makefile copies res/ next to the ELF).
+// ELF: the game loads everything at startup from bin/ (the Makefile copies
+// res/ next to the ELF). Static models load as .tmdl - the binary format the
+// build bakes from the .obj (docs/model-pipeline.md), read by the engine's
+// TmdlLoader; the ASCII .obj path (LeanObjLoader) remains as the fallback for
+// a path that is not a .tmdl.
 static std::string modelDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     const auto keys = collectModelKeys(p);
@@ -17435,10 +17484,15 @@ static std::string modelDataHeader(const Project& p) {
     if (keys.empty()) {
         out << "    \"\",\n";
     } else {
-        for (const auto& key : keys) out << "    \"" << binPathOf(key.first) << "\",\n";
+        // the baked .tmdl (materials, atlas UV rects and bin-relative texture
+        // paths already resolved) - see bakeStaticModels
+        for (const auto& key : keys)
+            out << "    \"" << binPathOf(staticBakedTmdlRel(key.first, key.second))
+                << "\",\n";
     }
     out << "};\n"
-           "// per-model .mtl override (\"\" = the model's own material libraries)\n"
+           "// per-model .mtl override, for the .obj fallback path only (a\n"
+           "// .tmdl already carries the resolved override) - \"\" = none\n"
            "inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {\n";
     if (keys.empty()) {
         out << "    \"\",\n";
@@ -19394,6 +19448,115 @@ static std::string vscodeExtensionsJson() {
            "    \"tyrax.tyrax-flownode\"\n"
            "  ]\n"
            "}\n";
+}
+
+std::string bakedModelPath(const std::string& modelPath,
+                           const std::string& materialPath) {
+    if (modelPath.empty()) return modelPath;
+    if (isAnimatedModelPath(modelPath))
+        return animBakedTsklRel(modelPath, materialPath);
+    if (modelPath.size() > 4 && modelPath.compare(modelPath.size() - 4, 4,
+                                                  ".obj") == 0)
+        return staticBakedTmdlRel(modelPath, materialPath);
+    return modelPath;
+}
+
+std::vector<File> bakeStaticModels(const Project& p,
+                                   std::vector<std::string>* warnings) {
+    std::vector<File> files;
+    auto warn = [&](const std::string& msg) {
+        if (warnings) warnings->push_back(msg);
+    };
+    // The atlas plan is a pure function of the project + res/, and is the
+    // single source of truth shared with texbake and the boot-log line - so
+    // the UV rects folded in here are exactly the pages that shipped.
+    const texatlas::Plan atlas = texatlas::plan(p);
+
+    for (const auto& key : collectModelKeys(p)) {
+        const std::string& relPath = key.first;        // the .obj source
+        const std::string& materialPath = key.second;  // "" or override .mtl
+        const std::string full = p.dir + "\\" + replaceAll(relPath, "/", "\\");
+        const std::string mtlFull =
+            materialPath.empty()
+                ? std::string()
+                : p.dir + "\\" + replaceAll(materialPath, "/", "\\");
+
+        objparser::Model model;
+        if (!objparser::load(full, model, mtlFull)) {
+            warn(relPath + ": cannot parse the model (nothing baked - the "
+                           "game will render nothing for it)");
+            continue;
+        }
+
+        // Texture tokens resolve against the file that defined them: the
+        // override .mtl when assigned, the model otherwise (LeanObjLoader's
+        // runtime rule).
+        const std::string definingRel =
+            materialPath.empty() ? relPath : materialPath;
+        // A token is looked up in the atlas plan under the directory that
+        // defines it; a library pulled in by mtllib from a subdirectory keys
+        // its members under ITS own directory (texbake), so those are tried
+        // too - a miss would ship a path whose PNG the atlas bake replaced.
+        auto findAtlas = [&](const std::string& tex) -> const texatlas::Entry* {
+            if (const texatlas::Entry* e =
+                    atlas.find(resolveTexRel(definingRel, tex)))
+                return e;
+            for (const std::string& lib : model.mtlLibs)
+                if (const texatlas::Entry* e =
+                        atlas.find(resolveTexRel(lib, tex)))
+                    return e;
+            return nullptr;
+        };
+
+        tmdl::Model out;
+        for (int i = 0; i < 3; ++i) {
+            out.min[i] = model.min[i];
+            out.max[i] = model.max[i];
+        }
+        for (const objparser::Submesh& s : model.submeshes) {
+            tmdl::Part part;
+            part.name = s.material;
+            for (int i = 0; i < 3; ++i) part.kd[i] = s.kd[i];
+            part.reflStrength = s.reflStrength;
+            part.reflRounded = s.reflRounded;
+            part.verts = s.verts;
+
+            float u0 = 0.0f, v0 = 0.0f, du = 1.0f, dv = 1.0f;
+            if (!s.texture.empty()) {
+                if (const texatlas::Entry* en = findAtlas(s.texture)) {
+                    part.texture = resToBin(en->pageRel);
+                    u0 = en->u0;
+                    v0 = en->v0;
+                    du = en->du;
+                    dv = en->dv;
+                } else {
+                    part.texture = resToBin(resolveTexRel(definingRel, s.texture));
+                }
+            }
+            // "@sky" is the engine's dynamic env map, not a file
+            if (!s.refl.empty())
+                part.reflTexture =
+                    s.refl == "@sky"
+                        ? s.refl
+                        : resToBin(resolveTexRel(definingRel, s.refl));
+
+            // Atlased materials map their 0..1 UVs onto a sub-rectangle of the
+            // shared page. The runtime .obj path did this per vertex from the
+            // "# tyra-uvrect" hint; baking it in retires that hint for models.
+            if (u0 != 0.0f || v0 != 0.0f || du != 1.0f || dv != 1.0f)
+                for (size_t v = 6; v + 1 < part.verts.size(); v += 8) {
+                    part.verts[v] = u0 + part.verts[v] * du;
+                    part.verts[v + 1] = v0 + part.verts[v + 1] * dv;
+                }
+
+            out.parts.push_back(std::move(part));
+        }
+
+        files.push_back(
+            {replaceAll(staticBakedTmdlRel(relPath, materialPath), "/", "\\"),
+             tmdl::write(out)});
+    }
+    return files;
 }
 
 std::vector<File> bakeAnimAssets(const Project& p,

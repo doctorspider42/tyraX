@@ -81,6 +81,7 @@ add_executable(tyrax-editor
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
+    src/tmdl.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp

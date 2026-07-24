@@ -789,6 +789,35 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
             }
         }
 
+        if (ok) {
+            // Static models ship as .tmdl (docs/model-pipeline.md), so texbake
+            // stops mirroring their .obj - but bin/ is additive (no --delete on
+            // the copy-back), and a project built before this would keep an
+            // orphaned ASCII copy that still lands in an exported ISO. Drop
+            // any bin/ .obj whose .tmdl sits next to it.
+            std::error_code ec;
+            const fs::path models = fs::path(p.dir) / "bin" / "models";
+            for (fs::recursive_directory_iterator it(models, ec), end; it != end;
+                 it.increment(ec)) {
+                if (!it->is_regular_file(ec) || it->path().extension() != ".obj")
+                    continue;
+                const fs::path stem = it->path().parent_path() /
+                                      it->path().stem();
+                bool superseded = fs::exists(fs::path(stem).concat(".tmdl"), ec);
+                if (!superseded) {  // "<stem>__ovr<hash>.tmdl" (material override)
+                    const std::string pre = it->path().stem().string() + "__ovr";
+                    std::error_code sec;
+                    for (const auto& s :
+                         fs::directory_iterator(it->path().parent_path(), sec)) {
+                        if (s.path().extension() != ".tmdl") continue;
+                        if (s.path().stem().string().rfind(pre, 0) == 0)
+                            superseded = true;
+                    }
+                }
+                if (superseded) fs::remove(it->path(), ec);
+            }
+        }
+
         appendLine(ok ? "[editor] === Build OK ==="
                    : cancelRequested_ ? "[editor] === Build CANCELLED ==="
                                       : "[editor] === Build FAILED ===");

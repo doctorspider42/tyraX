@@ -18,8 +18,22 @@
 namespace Tyra {
 
 /**
+ * One decimated variant of a part's mesh (same layout, fewer triangles),
+ * rendered instead of the full mesh beyond a distance. Only the binary .tmdl
+ * format carries these (TmdlLoader); an .obj never has any.
+ */
+struct LeanObjLod {
+  std::vector<float> vertices;  // flat triangle list, 8 floats per vertex
+  std::vector<u8> vertexAo;     // empty, or one byte per vertex
+};
+
+/**
  * One draw batch of a model: all triangles that share a material.
  * Vertices are a flat triangle list, 8 floats each (x, y, z, nx, ny, nz, u, v).
+ *
+ * Shared by both static-model loaders: LeanObjLoader (ASCII .obj) and
+ * TmdlLoader (the baked binary .tmdl), so the game builds its parts through
+ * one code path regardless of which format shipped.
  */
 struct LeanObjMaterial {
   std::string name;         // usemtl name ("" = no material)
@@ -41,6 +55,10 @@ struct LeanObjMaterial {
   // "<model>.aov" sidecar exists next to the model (TyraX bakes one when
   // the project enables ambient occlusion); empty otherwise.
   std::vector<u8> vertexAo;
+  // Distance LOD tiers, coarsest last (empty = none). Filled only by
+  // TmdlLoader - the build bakes them into the .tmdl when the project's mesh
+  // LOD distance is on.
+  std::vector<LeanObjLod> lods;
 };
 
 struct LeanObjMesh {

@@ -3682,6 +3682,20 @@ std::string refreshGenerated(const Project& p) {
             printf("[anim bake] %s\n", w.c_str());
     }
 
+    // Static models: re-bake every referenced .obj into its .tmdl (the binary
+    // format the PS2 loads - docs/model-pipeline.md). Same soft-fail rule as
+    // the animated bake above.
+    {
+        std::vector<std::string> warnings;
+        for (const auto& f : templates::bakeStaticModels(p, &warnings)) {
+            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+                !err.empty())
+                return err;
+        }
+        for (const auto& w : warnings)
+            printf("[model bake] %s\n", w.c_str());
+    }
+
     // Built-in HUD assets shipped into every project, written only when
     // missing - replace the file to customize the prompt.
     {
