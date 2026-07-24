@@ -79,7 +79,56 @@ enumerated the devices.
 ## Real hardware & ps2link
 
 On a real console the same build reads real USB HID devices — nothing to
-configure. Exception: **network deploys under ps2link skip the feature**
-(the engine refuses to load a second `usbd` — ps2link is commonly booted
-from a USB stick, and a second USB stack wedges the one already serving it).
-PCSX2 launches and exported ISOs are unaffected.
+configure — **as long as the game boots from a disc, USB or the memory card,
+not from a ps2link network deploy**. Exception: **network deploys under
+ps2link skip the feature by default** (the engine refuses to load a second
+`usbd` — ps2link is commonly booted from a USB stick, and a second USB stack
+wedges the one already serving it). PCSX2 launches and exported ISOs are
+unaffected.
+
+So the supported way to run keyboard/mouse on hardware is `Project > Export
+PS2 ISO` (burn it, or boot the ISO/ELF from USB via a loader) — *not* the F6
+"Run on PS2" network deploy.
+
+### Why it does nothing over F6 / "Run on PS2"
+
+The generated `main.cpp` detects the ps2link deploy and sets
+`IrxLoader::keepIopResident = true`; the engine then computes
+`withKbdMouse = loadUsbKbdMouse && !keepIopResident`, which is false, so the
+drivers never load, `KbdMouse::init()` never runs and `applyKeyboardMouseInput`
+is a no-op. The pad loads separately, so **pad works but keyboard/mouse gives
+zero reaction** — that is the guard doing its job, not a bug.
+
+### Debugging on real hardware (experimental override)
+
+Reading logs is the hard part on hardware: a burned ISO has no `host:`
+filesystem, so there is no `bin/log.txt`. A ps2link deploy is the opposite —
+it forwards the EE console over the network (the editor's *Output* panel /
+`ps2client` show `TYRA_LOG` live) — but it is exactly where the feature is
+disabled. To bridge that gap there is an experimental switch:
+
+*Project > Preferences > Build > Keyboard & mouse controls > **Force under
+ps2link (experimental)*** (stored as `"keyboardMousePs2Link"`). With it on, a
+ps2link deploy keeps the drivers, but instead of loading its own `usbd` the
+engine **reuses ps2link's resident one** and only adds `ps2kbd`/`ps2mouse` on
+top — so it only works if that IOP actually carries a `usbd` (i.e. ps2link was
+booted from USB). Then boot with F6 and watch *Output* / `ps2client`:
+
+- `IRX: Loading usb keyboard/mouse modules...` → the modules are being loaded.
+- `KbdMouse: keyboard driver ready` / `mouse driver ready` → `PS2KbdInit` /
+  `PS2MouseInit` bound the drivers.
+- `KbdMouse: keyboard driver NOT ready (no device / no usbd?)` → the driver
+  loaded but no device is attached — usually no resident `usbd` (a
+  network-booted ps2link) or the device did not enumerate.
+- a freeze with no further lines → the resident USB stack conflicts on this
+  rig; turn the switch back off and test via an exported ISO instead.
+- the "ready" lines appear but no keys/motion arrive → the device itself is
+  not being read. `ps2kbd`/`ps2mouse` only speak the **USB HID boot protocol**;
+  many wireless dongles and gaming keyboards/mice do not expose it cleanly, so
+  they work in PCSX2 (which emulates a compliant device) but not on hardware.
+  Try a plain wired USB keyboard/mouse.
+
+The engine also gives the USB stack a short settle delay after loading
+`ps2kbd`/`ps2mouse` (enumeration is asynchronous on real hardware and
+instantaneous in PCSX2), so `PS2KbdInit`/`PS2MouseInit` don't run before a
+device has attached. This helps the ISO/USB boot path too, not just ps2link.

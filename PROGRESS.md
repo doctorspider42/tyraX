@@ -8607,3 +8607,30 @@ Each finished feature lands as its own commit.
   report) - with a single-entry .mtl the Entry combo hides and the add
   button stood alone with no context. Label only; the tooltip already
   explained the semantics.
+
+- (91) **Keyboard/mouse on real hardware: ps2link debug override + USB
+  settle delay** (user report: kbd/mouse works in PCSX2 but does nothing on
+  a physical PS2 over F6 "Run on PS2"). Diagnosis first: not a bug - the
+  engine computes `withKbdMouse = loadUsbKbdMouse && !keepIopResident`, and a
+  ps2link deploy sets `keepIopResident`, so the drivers never load (pad still
+  does, hence "pad works, kbd/mouse dead"). The guard exists because a second
+  `usbd` on ps2link's IOP wedges the resident one. Two things added: (a) an
+  experimental `ProjectSettings::keyboardMousePs2Link` preference (*Build >
+  Keyboard & mouse > Force under ps2link*) → `EngineOptions::
+  loadUsbKbdMouseUnderPs2Link` → the engine keeps the drivers under ps2link
+  but the IrxLoader **reuses ps2link's resident usbd instead of loading its
+  own** (only loads `ps2kbd`/`ps2mouse` on top), so the driver-load logs reach
+  the EE console live via ps2client - a real debug loop on hardware; (b) a
+  fixed `delay(5)` settle after loading `ps2kbd`/`ps2mouse` in
+  `loadKbdMouseModules`, because USB HID enumeration is async on real hardware
+  (instant in PCSX2) and `PS2KbdInit`/`PS2MouseInit` were running before any
+  device attached. `KbdMouse::init` now also logs the failure cases (driver
+  NOT ready) so the console shows *why*. Full chain wired (project.hpp +
+  `operator==`, save/load, Preferences UI, `{{KBD_MOUSE_PS2LINK}}` codegen).
+  Verified: editor builds clean; scratch project round-trips the flag through
+  `--resave` and emits `options.loadUsbKbdMouseUnderPs2Link = true/false` in
+  the generated `main.cpp`; all 17 examples regenerated. Engine change
+  compiles only in Docker and the actual hardware behavior (does the override
+  bind, does the delay fix enumeration) is a **pending hands-on test on the
+  user's PS2** - the code is the debugging instrument, the console logs are
+  the readout. See docs/keyboard-mouse.md ("Debugging on real hardware").

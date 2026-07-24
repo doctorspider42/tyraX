@@ -33,13 +33,22 @@ void KbdMouse::init() {
   if (kbdOk) {
     PS2KbdSetReadmode(PS2KBD_READMODE_RAW);
     TYRA_LOG("KbdMouse: keyboard driver ready");
+  } else {
+    // Driver file missing / RPC never bound. On real hardware this usually
+    // means no usbd is serving the port (e.g. a network-booted ps2link) or
+    // the keyboard did not enumerate - not a code bug. Logged so the cause
+    // is visible over the EE console / bin/log.txt.
+    TYRA_LOG("KbdMouse: keyboard driver NOT ready (no device / no usbd?)");
   }
 
   // PS2MouseInit would spin forever binding the RPC if ps2mouse.irx were
   // absent - only reached when the IrxLoader loaded it. Default read mode
   // is DIFF: x/y/wheel accumulate on the IOP and reset on every read.
   mouseOk = PS2MouseInit() >= 0;
-  if (mouseOk) TYRA_LOG("KbdMouse: mouse driver ready");
+  if (mouseOk)
+    TYRA_LOG("KbdMouse: mouse driver ready");
+  else
+    TYRA_LOG("KbdMouse: mouse driver NOT ready (no device / no usbd?)");
 }
 
 void KbdMouse::update() {

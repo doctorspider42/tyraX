@@ -364,6 +364,12 @@ int main(int argc, char** argv) {
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
   // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
   options.loadUsbKbdMouse = {{KBD_MOUSE}};
+  // Experimental (Preferences > Build > Keyboard & mouse > Force under
+  // ps2link): normally the drivers are skipped under ps2link because a second
+  // usbd wedges the resident one. With this on the engine keeps them, reuses
+  // ps2link's usbd instead of loading its own, and logs the load over the EE
+  // console. See docs/keyboard-mouse.md (Debugging on real hardware).
+  options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -14952,6 +14958,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
+    s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
+                   st.keyboardMousePs2Link ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");

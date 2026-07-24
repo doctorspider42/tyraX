@@ -64,6 +64,12 @@ int main(int argc, char** argv) {
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
   // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
   options.loadUsbKbdMouse = true;
+  // Experimental (Preferences > Build > Keyboard & mouse > Force under
+  // ps2link): normally the drivers are skipped under ps2link because a second
+  // usbd wedges the resident one. With this on the engine keeps them, reuses
+  // ps2link's usbd instead of loading its own, and logs the load over the EE
+  // console. See docs/keyboard-mouse.md (Debugging on real hardware).
+  options.loadUsbKbdMouseUnderPs2Link = false;
   Tyra::Engine engine(options);
   Video_modes::TerrainGame game(&engine);
   engine.run(&game);

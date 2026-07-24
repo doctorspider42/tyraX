@@ -35,6 +35,14 @@ struct EngineOptions {
    * (Pad::injectVirtual) / camera themselves. */
   bool loadUsbKbdMouse = false;
 
+  /** Experimental (TyraX fork): keep the keyboard/mouse drivers on even under
+   * a ps2link deploy, where loadUsbKbdMouse is otherwise ignored. The engine
+   * then does NOT load its own usbd (a second one wedges ps2link's resident
+   * stack); it reuses the resident usbd and only adds ps2kbd/ps2mouse - so it
+   * only works if that IOP actually carries a usbd (ps2link booted from USB).
+   * A debug aid: the driver-load logs reach the EE console live. */
+  bool loadUsbKbdMouseUnderPs2Link = false;
+
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
 

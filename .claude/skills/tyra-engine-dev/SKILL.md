@@ -172,7 +172,12 @@ pad — held buttons OR into the polled state, click edges derived from the
 previous overlay, stick offsets clamped — which is how generated games map
 keys onto the pad; **skipped under ps2link**: a second usbd on an IOP that
 may already run one wedges the USB stack, and PS2MouseInit would spin
-forever binding an RPC whose server never loaded), **two-player support**
+forever binding an RPC whose server never loaded — the experimental
+`loadUsbKbdMouseUnderPs2Link` override forces it on anyway and reuses
+ps2link's resident usbd instead of loading a second one, a debug aid so the
+driver-load logs reach the EE console; the IrxLoader gives HID a fixed
+settle delay after load since USB enumeration is async on real hardware but
+instant in PCSX2), **two-player support**
 (docs/multiplayer.md): `Pad::initOptional(port, slot)` (padInit is now
 once-global; an optional pad never blocks or asserts on a missing controller —
 upstream `update()` busy-waited forever on DISCONN — and keeps polling for a

@@ -82,7 +82,11 @@ void IrxLoader::loadAll(const bool& withUsb, const bool& withKbdMouse,
   loadPadman(!isLoggingToFile);
   loadLibsd(!isLoggingToFile);
 
-  if (withUsb || withKbdMouse) loadUsbd(!isLoggingToFile);
+  // ps2link's IOP already has usbd resident (it is usually booted from a USB
+  // stick), and loading a second one wedges the USB host controller. So under
+  // ps2link we never load our own usbd - the USB paths below (mass storage,
+  // keyboard/mouse) ride the resident stack. Off ps2link we load it ourselves.
+  if ((withUsb || withKbdMouse) && !keepIopResident) loadUsbd(!isLoggingToFile);
   if (withUsb) loadUsbMassModules(!isLoggingToFile);
   if (withKbdMouse) loadKbdMouseModules(!isLoggingToFile);
 
@@ -192,6 +196,16 @@ void IrxLoader::loadKbdMouseModules(const bool& verbose) {
 
   SifExecModuleBuffer(&ps2mouse_irx, size_ps2mouse_irx, 0, nullptr, &ret);
   TYRA_ASSERT(ret >= 0, "Failed to load module: ps2mouse_irx");
+
+  // USB HID enumeration is asynchronous and takes real time on hardware: usbd
+  // has to reset the port, read descriptors and hand the device to ps2kbd /
+  // ps2mouse before the first PS2KbdInit/PS2MouseInit (in KbdMouse::init) can
+  // see it. PCSX2 presents the emulated devices instantly, so this only
+  // matters on a real console - without it the drivers come up with no device
+  // attached and every read returns empty. (Mass storage has its own poll
+  // loop in waitUntilUsbDeviceIsReady; HID exposes no mass:-style device node
+  // to stat, so settle on a fixed delay.)
+  delay(5);
 
   if (verbose) TYRA_LOG("IRX: Usb keyboard/mouse modules loaded!");
 }

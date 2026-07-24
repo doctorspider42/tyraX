@@ -18206,6 +18206,21 @@ void App::drawPreferencesModal() {
         "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
         "editor sets its emulated USB devices automatically) and with real\n"
         "USB devices on a console. Skipped on ps2link deploys.");
+    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
+    ImGui::Indent(scaled(16));
+    ImGui::Checkbox("Force under ps2link (experimental)",
+                    &prefSettings_.keyboardMousePs2Link);
+    prefHelp(
+        "Debug aid: keep the keyboard/mouse drivers on even for a Run on PS2\n"
+        "(ps2link) deploy, where they are normally skipped. The engine reuses\n"
+        "ps2link's resident usbd instead of loading its own (so it only works\n"
+        "if ps2link was booted from USB), then adds ps2kbd/ps2mouse on top.\n"
+        "Use it to test real USB devices over the network deploy: the driver-\n"
+        "load logs (usbd / ps2kbd ready / mouse ready) show up live in Output\n"
+        "/ ps2client. May hang the USB stack on a rig where a second HID stack\n"
+        "conflicts - if the game freezes at boot, turn this back off.");
+    ImGui::Unindent(scaled(16));
+    ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"

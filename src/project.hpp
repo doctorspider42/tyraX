@@ -572,6 +572,16 @@ struct ProjectSettings {
     // wedges the USB stack.
     bool keyboardMouse = true;
 
+    // Experimental (debug): force the keyboard/mouse drivers on even under a
+    // ps2link deploy, where they are normally skipped. The engine then does
+    // NOT load its own usbd - it reuses whatever ps2link already has resident
+    // and only adds ps2kbd/ps2mouse on top, so it only works if that IOP
+    // actually carries a usbd (ps2link booted from USB). Meant for testing
+    // real USB devices over the network deploy while the EE console (visible
+    // in Output / ps2client) shows the driver-load logs live; may hang the
+    // USB stack on a rig where a second HID stack conflicts. Off by default.
+    bool keyboardMousePs2Link = false;
+
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
     // of screen tearing. Gameplay speed is unaffected either way - the
@@ -760,6 +770,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink &&
            a.keyboardMouse == b.keyboardMouse &&
+           a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
