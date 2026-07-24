@@ -8568,3 +8568,78 @@ Each finished feature lands as its own commit.
   report) - with a single-entry .mtl the Entry combo hides and the add
   button stood alone with no context. Label only; the tooltip already
   explained the semantics.
+- (91) **Tree Generator** (*Tools > Tree Generator*, user request: "generate
+  trees into the assets and place them from the editor - but not 100k-vertex
+  monsters") - procedural low-poly trees, EZ-Tree-inspired (MIT),
+  reimplemented host-side as `src/treegen.cpp` (the stochtile/matbake/
+  decalproj pattern: no GL, no Project dependency, pure functions over a
+  `Params` struct). Recursive branch skeleton -> tapered tubes with
+  parallel-transported frames, leaves as camera-agnostic quads on the outer
+  levels, plus two procedurally baked 128² textures (tileable bark: rough
+  ridges / birch lenticels / cracked plates; leaf card: broadleaf cluster /
+  needle sprig / single blade). `writeAssets()` emits `.obj` + `.mtl` + the
+  two PNGs into `res/models/trees/` and the tree enters the scene through
+  the EXISTING `addModelObject()` - so the whole model -> serialization ->
+  codegen -> runtime chain is untouched: no new object type, no new
+  manifest field, no codegen, no engine change. A generated tree is
+  indistinguishable from an imported .obj. Leaf transparency needed nothing
+  new either - the static pipeline already alpha-tests material textures -
+  but the leaf PNG bakes **hard 0/255 alpha** on purpose (the tRNS->CLUT
+  path loses a soft gradient) with opaque colors dilated into the
+  transparent margin so bilinear sampling never rings a dark fringe.
+  Determinism was a design constraint, not a nicety: each branch derives
+  its RNG stream from (parent seed, child index) via a splitmix mixer, so
+  dragging one slider ADJUSTS the tree instead of reshuffling it - without
+  that, every tweak of "Trunk sides" regenerates a different tree and the
+  tool feels random rather than dialable. Presets keep the current seed (a
+  preset is a shape, not a dice roll); Roll re-seeds. Tessellation is
+  explicit - radial sides and length rings interpolate from the trunk
+  values down to the `*Min` values on the outermost level, so detail lands
+  where it reads - and the window shows a live triangle count (green under
+  1800, amber past it, red past 3000, advisory only). The tool is a
+  parameter panel + a live turntable preview rendered from the IN-MEMORY
+  mesh/textures (nothing touches disk or the shared asset caches until you
+  add, so slider drags stay instant) in its **own framebuffer**, not the
+  Material Editor's - sharing `prevFbo_` was the first cut and is wrong:
+  both tools can be open at once and size their previews independently, so
+  one target would thrash its size and each window would show the other's
+  image. Doc: docs/tree-generator.md.
+  Verified: build.ps1 clean; a headless harness (the
+  headless-model-harness recipe - link `treegen.cpp.obj` +
+  `objparser.cpp.obj` against a tiny main) checked all six presets for
+  non-degenerate geometry and budget (**Oak 596, Birch 437, Spruce 943,
+  Poplar 646, Dead tree 549, Bush 620 triangles** - the "no kobyły"
+  requirement, comfortably met), determinism (same params -> identical
+  sizes/bounds; different seed -> different geometry), the leaf texture's
+  hard cutout (some fully transparent AND some fully opaque texels), and a
+  full **round-trip through objparser**: the written .obj re-loads with two
+  submeshes named bark/leaf, both textured, and a triangle count matching
+  the generator exactly (596 == 596), with the vertex dedup confirmed (739
+  positions vs 1788 raw corners). A second harness ran the non-GL half of
+  "Add to scene" (add a Model object -> ensureObjectIds -> save ->
+  refreshGenerated) against a scratch project: all clean. In the GUI the
+  window renders correctly at uiScale 1.5 (screenshot: full slider panel, a
+  real tree with trunk/branches/green leaves in the preview, live triangle
+  readout) and Add to scene writes the assets and adds the object.
+  **Found while verifying, NOT caused by this feature:** the editor dies
+  intermittently on the frame after a textured model is added to the scene
+  while a tool window with an offscreen 3D preview is open. Narrowed with
+  instrumented stderr to the GL texture creation inside
+  `Viewport::modelDraw` (objparser::load, uploadMesh and stbi_load all
+  succeed; `glGenTextures`/`glTexImage2D` for the new model is where it
+  goes), timing-sensitive enough that adding fflush'd prints sometimes
+  makes it survive - i.e. driver-level, on a machine with known AMD GL
+  quirks (see the white-window note in the screenshot harness). Attribution
+  settled by a stash A/B rather than assumed: on the **branch base with
+  this feature's changes stashed and treegen not even compiled**, the same
+  add-a-model-with-the-Material-Editor-open path crashed **4/4**, so it
+  predates this work (the older 2026-07-20 main-repo baseline binary
+  survived 3/3, so main may have regressed between that build and d220d14 -
+  worth a bisect). Filed as its own task; deliberately NOT papered over
+  here with a "close the window on add" workaround, which would have hidden
+  a bug that also hits the Material Editor. One real fix did come out of
+  the hunt: the AO occluder pass called the full `modelDraw()` (uploading
+  meshes AND textures to GL) purely to read a model's AABB - it now uses a
+  new GL-free `Viewport::modelBounds()` (objparser + its own cache), so
+  reading bounds mid-frame never triggers a GL upload. That is a
+  straightforward win regardless of the crash.
