@@ -8235,3 +8235,26 @@ Each finished feature lands as its own commit.
   baked .mtl carries the page + rect. 4bit project policy => shared
   256-color pages exercised. Docs: docs/texture-atlasing.md, README,
   both skills.
+- (79) **examples/material-lab: the material pipeline showcase** - a small
+  diorama exercising the whole epic in one project: a generated stone altar
+  .obj (three stacked boxes, 6x3 UV atlas) whose committed texture is a
+  REAL layer stack - base stone mottle, "Baked AO" multiply layer (matbake,
+  96 rays/texel, params persisted as "# tyra-bake" in the .mtl), "Cavity
+  grime" (Occlusion source, multiply) and "Edge wear" (Edges source,
+  noise-broken) smart-mask layers with full generator params in the
+  .png.layers sidecar, so opening Tools > Material Editor lands on a live,
+  regenerable stack; brick pillars + tiled orbs whose 64^2 textures join
+  the texture atlas with the altar's 128^2 ("Texture atlas: 3 textures in
+  2 page(s)" at boot, 4bit project = shared per-page CLUT); and a
+  material-presets/worn-stone.matpreset applying the wear recipe to any
+  other material. Assets are generated deterministically by a scratchpad
+  tool linking the editor's own matbake/pngquant objects - the committed
+  composite is exactly what the editor's own compositing math produces.
+  res/.gitignore replaced with the showcase-style one (the --new scaffold
+  trap from the memory notes - verified with git ls-files). Verified:
+  Docker build exit 0 with the atlas line in the bake log, PCSX2 boot
+  ("is executing", clean bin/log.txt with the atlas boot line) and an F8
+  screenshot showing the altar's baked contact darkening/grime/wear, the
+  brick pillars and orbs - all sampling shared atlas pages. Editor-side
+  panel walkthrough is described in the example README (the visual GUI
+  pass rides the same pending human check as the rest of the epic).
