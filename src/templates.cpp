@@ -365,10 +365,10 @@ int main(int argc, char** argv) {
   // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
   options.loadUsbKbdMouse = {{KBD_MOUSE}};
   // Experimental (Preferences > Build > Keyboard & mouse > Force under
-  // ps2link): normally the drivers are skipped under ps2link because a second
-  // usbd wedges the resident one. With this on the engine keeps them, reuses
-  // ps2link's usbd instead of loading its own, and logs the load over the EE
-  // console. See docs/keyboard-mouse.md (Debugging on real hardware).
+  // ps2link): normally the drivers are skipped under ps2link. With this on the
+  // engine keeps them and loads its own usbd (a network-booted ps2link has
+  // none), logging the load over the EE console. May wedge a USB-booted
+  // ps2link. See docs/keyboard-mouse.md (Debugging on real hardware).
   options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);

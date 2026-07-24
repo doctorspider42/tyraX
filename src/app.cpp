@@ -18212,13 +18212,12 @@ void App::drawPreferencesModal() {
                     &prefSettings_.keyboardMousePs2Link);
     prefHelp(
         "Debug aid: keep the keyboard/mouse drivers on even for a Run on PS2\n"
-        "(ps2link) deploy, where they are normally skipped. The engine reuses\n"
-        "ps2link's resident usbd instead of loading its own (so it only works\n"
-        "if ps2link was booted from USB), then adds ps2kbd/ps2mouse on top.\n"
-        "Use it to test real USB devices over the network deploy: the driver-\n"
-        "load logs (usbd / ps2kbd ready / mouse ready) show up live in Output\n"
-        "/ ps2client. May hang the USB stack on a rig where a second HID stack\n"
-        "conflicts - if the game freezes at boot, turn this back off.");
+        "(ps2link) deploy, where they are normally skipped. For the network\n"
+        "deploy the engine loads its own usbd + ps2kbd/ps2mouse (a network-\n"
+        "booted ps2link has none), and the driver-load logs show up live in\n"
+        "Output / ps2client. On a ps2link booted from USB (usbd already\n"
+        "resident) this may wedge the USB stack - boot the game from that USB\n"
+        "instead. If it freezes at boot, turn this back off.");
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);

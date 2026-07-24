@@ -109,19 +109,23 @@ disabled. To bridge that gap there is an experimental switch:
 
 *Project > Preferences > Build > Keyboard & mouse controls > **Force under
 ps2link (experimental)*** (stored as `"keyboardMousePs2Link"`). With it on, a
-ps2link deploy keeps the drivers, but instead of loading its own `usbd` the
-engine **reuses ps2link's resident one** and only adds `ps2kbd`/`ps2mouse` on
-top — so it only works if that IOP actually carries a `usbd` (i.e. ps2link was
-booted from USB). Then boot with F6 and watch *Output* / `ps2client`:
+ps2link deploy keeps the drivers and **loads its own `usbd` + `ps2kbd` /
+`ps2mouse`**. This targets a **network-booted ps2link** (its device list shows
+`tty:(TTY via SMAP UDP)` + `dev9x:` and no USB): such a ps2link carries no
+`usbd` of its own, so loading one is safe and is the only way to get a USB
+stack at all. On a ps2link **booted from USB** (a `usbd` is already resident) a
+second one may wedge the USB host — boot the game from that USB directly
+instead. Then boot with F6 and watch *Output* / `ps2client`:
 
 - `IRX: Loading usb keyboard/mouse modules...` → the modules are being loaded.
 - `KbdMouse: keyboard driver ready` / `mouse driver ready` → `PS2KbdInit` /
   `PS2MouseInit` bound the drivers.
-- `KbdMouse: keyboard driver NOT ready (no device / no usbd?)` → the driver
-  loaded but no device is attached — usually no resident `usbd` (a
-  network-booted ps2link) or the device did not enumerate.
-- a freeze with no further lines → the resident USB stack conflicts on this
-  rig; turn the switch back off and test via an exported ISO instead.
+- `Unknown device 'usbkbd'` + `open fd = -19` + `KbdMouse: keyboard driver NOT
+  ready` **followed by a freeze** → the *no-usbd* failure: `ps2kbd` / `ps2mouse`
+  found no `usbd`, self-unloaded, and `PS2MouseInit` then span forever on the
+  missing RPC server. It means a `usbd` was not present. The fix above (own
+  `usbd` under the override) removes this on a network ps2link; if it still
+  freezes, no `usbd` came up at all — test via an exported ISO instead.
 - the "ready" lines appear but no keys/motion arrive → the device itself is
   not being read. `ps2kbd`/`ps2mouse` only speak the **USB HID boot protocol**;
   many wireless dongles and gaming keyboards/mice do not expose it cleanly, so

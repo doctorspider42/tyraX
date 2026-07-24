@@ -56,13 +56,15 @@ void Engine::initAll(const EngineOptions& options) {
   ChangeThreadPriority(GetThreadId(), 0x40);
 
   srand(time(nullptr));
-  // No keyboard/mouse under ps2link by default: its IOP may already run usbd
-  // (ps2link is commonly booted from a USB stick) and a second USB stack
-  // wedges the first. Skipping the drivers also means PS2MouseInit() must not
-  // run - it would spin forever binding an RPC server that never loads. The
-  // experimental loadUsbKbdMouseUnderPs2Link override forces them on anyway
-  // (debug aid): loadAll then reuses ps2link's resident usbd instead of
-  // loading its own, so PS2MouseInit binds the driver we add on top.
+  // No keyboard/mouse under ps2link by default: a USB-booted ps2link already
+  // runs usbd, and loading a second USB stack wedges the first. Skipping the
+  // drivers also means PS2MouseInit() must not run - without a usbd, ps2mouse
+  // self-unloads and PS2MouseInit spins forever binding an RPC server that is
+  // gone. The experimental loadUsbKbdMouseUnderPs2Link override forces them on
+  // anyway (debug aid for the network-deploy dev loop): a NETWORK-booted
+  // ps2link has no usbd resident, so loadAll loads its own and the HID drivers
+  // attach to it. On a USB-booted ps2link the override may wedge - boot the
+  // game from that USB instead.
   const bool withKbdMouse =
       options.loadUsbKbdMouse &&
       (!IrxLoader::keepIopResident || options.loadUsbKbdMouseUnderPs2Link);

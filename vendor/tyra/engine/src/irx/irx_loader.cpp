@@ -82,11 +82,16 @@ void IrxLoader::loadAll(const bool& withUsb, const bool& withKbdMouse,
   loadPadman(!isLoggingToFile);
   loadLibsd(!isLoggingToFile);
 
-  // ps2link's IOP already has usbd resident (it is usually booted from a USB
-  // stick), and loading a second one wedges the USB host controller. So under
-  // ps2link we never load our own usbd - the USB paths below (mass storage,
-  // keyboard/mouse) ride the resident stack. Off ps2link we load it ourselves.
-  if ((withUsb || withKbdMouse) && !keepIopResident) loadUsbd(!isLoggingToFile);
+  // usbd: load it whenever any USB path is active. Under ps2link this loads a
+  // usbd onto the live IOP, which is correct for a NETWORK-booted ps2link
+  // (SMAP/dev9 - no usbd resident; the experimental keyboard/mouse override
+  // rides this path) but conflicts with a USB-booted ps2link that already has
+  // one. That is why the override is opt-in and documented as network-deploy
+  // only. A usbd MUST be present here: without it ps2kbd/ps2mouse self-unload
+  // and PS2MouseInit then spins forever binding an RPC server that is gone
+  // (the "usbkbd unknown / open -19 then freeze" seen on a network ps2link
+  // when we tried to reuse a resident usbd that did not exist).
+  if (withUsb || withKbdMouse) loadUsbd(!isLoggingToFile);
   if (withUsb) loadUsbMassModules(!isLoggingToFile);
   if (withKbdMouse) loadKbdMouseModules(!isLoggingToFile);
 

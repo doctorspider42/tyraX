@@ -36,11 +36,12 @@ struct EngineOptions {
   bool loadUsbKbdMouse = false;
 
   /** Experimental (TyraX fork): keep the keyboard/mouse drivers on even under
-   * a ps2link deploy, where loadUsbKbdMouse is otherwise ignored. The engine
-   * then does NOT load its own usbd (a second one wedges ps2link's resident
-   * stack); it reuses the resident usbd and only adds ps2kbd/ps2mouse - so it
-   * only works if that IOP actually carries a usbd (ps2link booted from USB).
-   * A debug aid: the driver-load logs reach the EE console live. */
+   * a ps2link deploy, where loadUsbKbdMouse is otherwise ignored. Intended for
+   * the network-deploy dev loop: a network-booted ps2link (SMAP/dev9) carries
+   * no usbd, so the engine loads its own plus ps2kbd/ps2mouse and the EE
+   * console shows the load live. On a USB-booted ps2link (usbd already
+   * resident) this may wedge the USB stack - boot the game from that USB
+   * instead. */
   bool loadUsbKbdMouseUnderPs2Link = false;
 
   /** Forced output video signal; Auto follows the console region. */

@@ -8641,3 +8641,23 @@ Each finished feature lands as its own commit.
   as `TextDisabled` while every neighbour used the `prefHelp` "(?)" hover.
   Swapped both to `prefHelp`; text unchanged. Compiles clean (app.cpp
   recompiled; the linker only skipped overwriting a running editor exe).
+
+- (93) **ps2link kbd/mouse override: load our OWN usbd (real-hardware fix)**
+  (user tested (91) on a physical PS2 over F6). The console logged `Unknown
+  device 'usbkbd'` / `open fd = -19` / `KbdMouse: keyboard driver NOT ready`
+  then **froze**. Diagnosis from the device list (`tty:(TTY via SMAP UDP)` +
+  `dev9x:`, no USB): this ps2link is **network-booted**, so there is **no
+  usbd resident** on the IOP. (91)'s "reuse ps2link's resident usbd" therefore
+  had nothing to reuse - `ps2kbd`/`ps2mouse` self-unloaded, and the following
+  `PS2MouseInit()` span forever binding the now-gone RPC server (the exact
+  hang the original guard warned about). Fix: under the override the IrxLoader
+  now **loads its own usbd** (reverted the `&& !keepIopResident` gate on
+  `loadUsbd` to the original `withUsb || withKbdMouse`), which is safe on a
+  network ps2link (nothing to conflict with) and keeps `ps2mouse` resident so
+  `PS2MouseInit` binds instead of spinning - removing the freeze as a side
+  effect. Caveat now documented everywhere (engine.hpp/.cpp, project.hpp,
+  Preferences tooltip, generated main.cpp, docs): on a **USB-booted** ps2link a
+  second usbd may wedge the resident one - boot the game from that USB instead.
+  Editor recompiles clean; **engine change reaches the game through the Docker
+  resync on the next build (no editor relink needed)**; real-hardware retest
+  still pending on the user's PS2.

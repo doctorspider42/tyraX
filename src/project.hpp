@@ -573,13 +573,12 @@ struct ProjectSettings {
     bool keyboardMouse = true;
 
     // Experimental (debug): force the keyboard/mouse drivers on even under a
-    // ps2link deploy, where they are normally skipped. The engine then does
-    // NOT load its own usbd - it reuses whatever ps2link already has resident
-    // and only adds ps2kbd/ps2mouse on top, so it only works if that IOP
-    // actually carries a usbd (ps2link booted from USB). Meant for testing
-    // real USB devices over the network deploy while the EE console (visible
-    // in Output / ps2client) shows the driver-load logs live; may hang the
-    // USB stack on a rig where a second HID stack conflicts. Off by default.
+    // ps2link deploy, where they are normally skipped. Meant for the network-
+    // deploy dev loop: a network-booted ps2link (SMAP/dev9) has no usbd, so
+    // the engine loads its own plus ps2kbd/ps2mouse and the EE console
+    // (Output / ps2client) shows the driver-load logs live. On a USB-booted
+    // ps2link (usbd already resident) it may wedge the USB stack - boot from
+    // that USB instead. Off by default.
     bool keyboardMousePs2Link = false;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
