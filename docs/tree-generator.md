@@ -101,6 +101,24 @@ Adding a tree whose name is taken picks the next free `-N` suffix rather than
 overwriting, so re-adding never clobbers an earlier tree that scene objects
 still reference.
 
+## Known issue: GL driver crash when previewing a generated tree
+
+On at least one AMD setup (the machine this was developed on), adding a
+generated tree to the scene **while the Material Editor is open** kills the
+editor ~50-100% of the time, the first frame its preview shows that model.
+
+It is a driver fault, not a logic bug, and the crashing code is not this
+module's: gdb puts it in `glTexImage2D` (`viewport.cpp:1810`, reached from
+`Viewport::renderMaterialPreview`) three frames inside `atio6axx.dll`, with
+every argument valid — 128², RGBA8, power-of-two, non-null pixels. The same
+upload of the same PNG on a hand-written 12-triangle cube never faults, so
+the trigger needs the generated model itself plus that preview path.
+
+**Workaround for now: close the Material Editor while adding trees.** With it
+closed the add is stable. Whether this is specific to that machine's driver is
+the open question — reproducing on another GPU is the next step (see PROGRESS
+entry 91 for the full diagnosis, including two hypotheses already ruled out).
+
 ## Where the code lives
 
 | File | Role |

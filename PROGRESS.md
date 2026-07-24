@@ -8621,25 +8621,40 @@ Each finished feature lands as its own commit.
   window renders correctly at uiScale 1.5 (screenshot: full slider panel, a
   real tree with trunk/branches/green leaves in the preview, live triangle
   readout) and Add to scene writes the assets and adds the object.
-  **Found while verifying, NOT caused by this feature:** the editor dies
-  intermittently on the frame after a textured model is added to the scene
-  while a tool window with an offscreen 3D preview is open. Narrowed with
-  instrumented stderr to the GL texture creation inside
-  `Viewport::modelDraw` (objparser::load, uploadMesh and stbi_load all
-  succeed; `glGenTextures`/`glTexImage2D` for the new model is where it
-  goes), timing-sensitive enough that adding fflush'd prints sometimes
-  makes it survive - i.e. driver-level, on a machine with known AMD GL
-  quirks (see the white-window note in the screenshot harness). Attribution
-  settled by a stash A/B rather than assumed: on the **branch base with
-  this feature's changes stashed and treegen not even compiled**, the same
-  add-a-model-with-the-Material-Editor-open path crashed **4/4**, so it
-  predates this work (the older 2026-07-20 main-repo baseline binary
-  survived 3/3, so main may have regressed between that build and d220d14 -
-  worth a bisect). Filed as its own task; deliberately NOT papered over
-  here with a "close the window on add" workaround, which would have hidden
-  a bug that also hits the Material Editor. One real fix did come out of
-  the hunt: the AO occluder pass called the full `modelDraw()` (uploading
-  meshes AND textures to GL) purely to read a model's AABB - it now uses a
-  new GL-free `Viewport::modelBounds()` (objparser + its own cache), so
-  reading bounds mid-frame never triggers a GL upload. That is a
-  straightforward win regardless of the crash.
+  **Found while verifying - a GL DRIVER crash, not this feature's code, but
+  reachable through it.** With the **Material Editor open**, adding a
+  generated tree model to the scene kills the editor (~50-100% of the time)
+  the moment the preview shows that model for the first time. Diagnosed
+  under gdb on a RelWithDebInfo build, so this is exact and not a guess:
+  the faulting call is **`glTexImage2D` at viewport.cpp:1810** inside
+  `Viewport::glTexture("res/models/trees/tree-12-bark.png")`, called from
+  **`Viewport::renderMaterialPreview`** (NOT the scene viewport), three
+  frames deep inside `atio6axx.dll`. Every argument is valid: 128x128,
+  comp=4, non-null pixels, power-of-two, RGBA8. A valid RGBA8 upload
+  segfaulting inside the driver is a driver fault; this machine has
+  documented AMD GL quirks (the white-window note in the screenshot
+  harness). Control: with the Material Editor **closed** the same add is
+  stable 4/4.
+  Two hypotheses were tested and **killed**, recorded so nobody re-runs
+  them: (1) "creating textures inside a render pass" - a `warmAssets()`
+  pre-pass that acquired every asset *before* any framebuffer was bound
+  still crashed, in the pre-pass itself; position within the frame is
+  irrelevant, and that change was reverted rather than shipped with a
+  wrong explanation attached. (2) "any textured .obj does it" - false: a
+  hand-written 12-triangle cube never reproduced it (0/10), not even
+  carrying the tree's own PNGs, not even with two materials and two
+  textures; a fresh project holding only `res/models/trees/` crashes 2/4.
+  So the trigger needs the generated tree model itself (596 tris, 2 parts)
+  plus the Material Editor. An earlier stash A/B "proving this predates the
+  feature" was flawed - it varied the binary while holding the poisoned
+  assets constant; what it does still show is that the faulting code is not
+  treegen's (the base binary, `treegen` not even compiled, crashed 4/4 on a
+  project full of generated trees). Filed as its own task and deliberately
+  NOT papered over with a "close the window on add" workaround. Next step
+  belongs on other hardware: reproduce on a second machine / another GPU
+  vendor to settle driver-vs-us before touching our upload path.
+  One real fix did come out of the hunt: the AO occluder pass called the
+  full `modelDraw()` (uploading meshes AND textures to GL) purely to read a
+  model's AABB - it now uses a new GL-free `Viewport::modelBounds()`
+  (objparser + its own cache), so reading bounds mid-frame never triggers a
+  GL upload. That is a straightforward win regardless of the crash.
