@@ -151,6 +151,24 @@ public:
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
     // (render() resizes the main one to the viewport every frame).
+    // Optional lighting override for the tool-window previews (Material /
+    // Animation Editor). A scene authored dark - low brightness, a night
+    // ambience - makes its previews unreadable too, because the previews shade
+    // with the scene's baked light on purpose (what you see is what ships).
+    // This lets a preview bake with different values instead: the panels offer
+    // the neutral studio default and every ambience preset in the project.
+    // It is a real re-bake of the preview's own vertex colors, not a post-hoc
+    // brightness scale, so the shading stays exactly what those light values
+    // would produce in-game.
+    struct PreviewLight {
+        bool on = false;  // false = follow the scene's resolved ambience
+        float dir[3] = {0.37f, 0.82f, 0.44f};
+        float ambient = 0.55f;
+        float diffuse = 0.45f;
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        float brightness = 1.0f;
+    };
+
     struct MatPreviewDesc {
         float kd[3] = {1.0f, 1.0f, 1.0f};  // staged tint of the selected entry
                                            // (channels may exceed 1 - brightness)
@@ -169,6 +187,7 @@ public:
         float zoom = 1.0f;        // dolly multiplier (1 = default framing)
         int displayMode = 0;      // 0 solid, 1 solid + wireframe overlay,
                                   // 2 UV checker (replaces every texture)
+        PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
 
@@ -197,6 +216,7 @@ public:
         float pitchDeg = 15.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier
         bool wireframe = false;   // overlay the triangles
+        PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
 
@@ -545,7 +565,15 @@ private:
     void ensurePreviewFramebuffer(int width, int height);
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
+    // Animation Editor preview target. Its own FBO on purpose: both tool
+    // windows can be open at once and size themselves independently, so
+    // sharing one target would resize it twice per frame and make each window
+    // show the other's last draw. Only the backdrop meshes are shared.
+    void ensureAnimFramebuffer(int width, int height);
+    uint32_t animFbo_ = 0, animTex_ = 0, animDepth_ = 0;
+    int animFbW_ = 0, animFbH_ = 0;
     Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
+    void ensurePreviewBackdrop();  // builds prevBg_/prevFloor_ once
     uint32_t uvCheckerTex_ = 0;  // generated UV-checker (displayMode 2)
 
     // Model shown in the material preview. Unlike modelCache_ the part Kd is
@@ -565,7 +593,9 @@ private:
         std::vector<float> tris;  // pos3 + uv2, flat triangle list
     };
     struct MatPrevModel {
-        std::string key;  // "<modelRel>|<mtlRel>", "" = nothing loaded
+        // "<modelRel>|<mtlRel>|<light>", "" = nothing loaded. The light rides
+        // along because the shade is baked into these vertex colors.
+        std::string key;
         bool ok = false;
         std::vector<MatPrevPart> parts;
         float center[3] = {0.0f, 0.0f, 0.0f};
@@ -574,7 +604,8 @@ private:
     };
     MatPrevModel matPrevModel_;
     const MatPrevModel* matPrevModelDraw(const std::string& modelRel,
-                                         const std::string& mtlRel);
+                                         const std::string& mtlRel,
+                                         const PreviewLight& light);
     // Bind-pose preview parts for an animated (.glb/.fbx) model.
     void buildMatPrevAnimated(const std::string& modelRel,
                               const std::string& mtlRel);
@@ -584,6 +615,20 @@ private:
     // first use from the same unit-mesh generators as box_/sphere_/... so the
     // paint raycast sees exactly the drawn geometry.
     std::vector<float> prevShapeTris_[4];
+
+    // Unit shapes re-baked for a PreviewLight override. box_/sphere_/... carry
+    // the scene's baked shade and are shared with the viewport, so an
+    // overridden material preview draws from these private copies instead.
+    // Rebuilt only when the override values change (`prevLightKey_`), not per
+    // frame - baking is the same cost as buildPrimitiveMeshes.
+    Mesh prevLitShape_[4];
+    std::string prevLightKey_;  // "" = no override baked yet
+    // Serialized PreviewLight - the shape cache key and part of the
+    // matPrevModel_ key (an override re-bakes the model's vertex colors too).
+    static std::string previewLightKey(const PreviewLight& l);
+    // Points the drawn mesh at the override copy when `l` is on, building it
+    // (and dropping a stale bake) on demand.
+    const Mesh& litShape(int shape, const PreviewLight& l);
 
     // Camera + geometry of the last renderMaterialPreview, consumed by
     // materialPreviewPick. Basis vectors are world-space, fov is vertical.

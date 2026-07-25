@@ -173,6 +173,23 @@ Because the edits are baked at build time, a running game cannot receive them
 over [Live Link](live-link.md) - the LIVE chip turns amber (rebuild) when you
 retime a clip.
 
+### Preview lighting
+
+The preview shades the model with the **scene's** ambience, on purpose: what
+you scrub is what ships. On a deliberately dark scene - a cavern preset, a low
+brightness - that also makes the preview unreadable, so the combo next to
+**Wireframe** picks what the preview bakes with instead:
+
+- **Scene ambience** (default) - the light the object will really get in game.
+- **Neutral studio** - the engine's default directional light, bright and
+  neutral. Reach for this to judge geometry, a pose or a texture.
+- **any ambience preset** of the project - preview the model under the mood it
+  will be placed in without switching the scene over to it.
+
+It only affects the preview: the scene, the project file and the build are
+untouched. The choice is a machine setting (`editor.ini`), shared with the
+Material Editor's identical combo - see [material painting](material-painting.md).
+
 ### Project-wide animation fps
 
 glTF and FBX store keyframe times in **seconds** and no frame rate at all. So a

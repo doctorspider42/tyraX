@@ -244,6 +244,13 @@ private:
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
+    // Preview lighting shared by the Material and Animation Editors.
+    // `sel` is the stored selection (see matEdLight_): resolves it into the
+    // override the viewport bakes with, and draws the combo that picks it
+    // ("Scene ambience" / "Neutral studio" / every ambience preset). The combo
+    // returns true when the selection changed (persist editor.ini then).
+    Viewport::PreviewLight previewLight(const std::string& sel) const;
+    bool previewLightCombo(const char* label, std::string& sel);
     // The edit row for (model, source clip), creating it on first touch.
     AnimClipEdit& animEditFor(const std::string& model, const std::string& clip);
     // Drops entries that no longer change anything (isDefault) so an undone
@@ -614,6 +621,7 @@ private:
     float animEdTime_ = 0.0f;   // playhead, seconds into the TRIMMED clip
     bool animEdPlaying_ = true;
     bool animEdWireframe_ = false;
+    std::string animEdLight_;  // preview lighting, see matEdLight_
     float animEdYaw_ = 40.0f, animEdPitch_ = 15.0f, animEdZoom_ = 1.0f;
     double animEdClock_ = 0.0;  // wall clock of the previous frame
     char animEdRename_[64] = {};  // rename field buffer for the selected clip
@@ -753,6 +761,11 @@ private:
     // between the property column and the preview; editor.ini, machine
     // setting like uiScale).
     float matEdSplit_ = 0.48f;
+    // Lighting the preview bakes with: "" = the scene's ambience (default),
+    // "*" = the neutral studio light, anything else = an ambience preset name.
+    // A dark scene otherwise makes its own previews unreadable. editor.ini,
+    // machine setting like matEdSplit_. See previewLight/previewLightCombo.
+    std::string matEdLight_;
     bool openNewMaterialPopup_ = false;
     char matEdNewName_[64] = "my-material";
     std::string matEdNewError_;
