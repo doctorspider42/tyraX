@@ -10,6 +10,51 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (179) **Clothes, shoes and hair for the Character Generator**
+  (docs/character-generator.md). The CC0 wardrobe fits through **the same
+  mechanism the body does** - a `.mhclo` is byte-for-byte the same barycentric
+  binding as a `.proxy`, so `mhdata::loadProxy` already read them and a shirt
+  bound to the reference mesh's shoulder follows every morph with no cloth
+  solver and no per-body refitting. Each garment becomes its own textured mesh
+  part; the same weight transfer gives it the same skeleton. Five suits, shoes
+  and four hairstyles fetched by setup.ps1 (+35 MB).
+  **The body under the clothes is removed**: every `.mhclo` lists the base-mesh
+  vertices it covers, and a body proxy vertex whose three reference vertices
+  are all covered drops out with its faces. Shirt + trousers takes the body
+  from 1460 to ~750 triangles, so a dressed character costs far less than body
+  plus garment. A full outfit (suit + shoes + hair, medium detail) is 3140
+  triangles and 830 KB.
+  **Three measurements shaped the implementation, and each killed the obvious
+  approach.** (a) The source garments are 3.5k-16k triangles - offline-render
+  meshes - so a *Detail* budget decimates them (~500/1100/2200), and the slots
+  do NOT share it equally (shoes get 22%: two small blocks at the bottom of the
+  screen). (b) The suits stop simplifying around 1000 triangles and start
+  TEARING instead - the probe render showed holes appearing, so that is the
+  floor, not a target. (c) **Hair does not decimate at all**: it is separate
+  quads with a uv seam around every one, and meshlod locks seam and border
+  vertices by construction - 3678 triangles asked for 550 came back at 2696.
+  Hair is thinned by dropping whole CARDS smallest-first (`thinCards`), which
+  is both what shrinks it and what a low-poly hairstyle is.
+  Two traps: the `.mhclo` reader must only end a block on a BLOCK keyword -
+  `bob01.mhclo` puts `material` on the line right after `verts`, and treating
+  that as the end silently dropped all 5203 bindings ("this asset has no vertex
+  bindings"); and hair's texture must KEEP its alpha while the body skin's is
+  forced opaque, with the alpha made binary and colors dilated outward - the
+  treegen leaf-card rule, because the palettized tRNS→CLUT path loses a
+  gradient.
+  Also here: `Viewport::drawToolPreview` now takes a LIST of meshes (the
+  character preview draws up to four parts, cutouts last) and `charanim::
+  poseMesh` skins every part; parts are tagged by material prefix
+  (`hair:`/`cloth:`) so the preview knows the draw order without guessing.
+  And setup.ps1 now checks the MakeHuman list **file by file** instead of
+  gating on a probe - the list GROWS, so an existing install has to pick up
+  what is new rather than being declared complete because base.obj is there.
+  **Verified**: a probe harness that fits a suit and renders it at five
+  decimation targets side by side (that is what produced measurements (a)-(c));
+  editor screenshot with the Wardrobe section; and a Docker build + PCSX2 boot
+  of a fully dressed character - shirt, jeans, shoes, hair - at **50 FPS**, 5
+  resident textures, 0.91 MB VRAM free, no eviction, no assert.
+
 - (178) **Procedural locomotion for generated characters** (`charanim.cpp`,
   docs/character-generator.md). Every generated character now ships with
   **idle / walk / run / jump** built analytically - no motion library, no

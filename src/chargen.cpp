@@ -12,6 +12,7 @@
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include "gltfwrite.hpp"
+#include "meshlod.hpp"
 #include "mhdata.hpp"
 
 #ifdef _WIN32
@@ -99,6 +100,15 @@ std::string findDataDir() {
     return "";
 }
 
+// One wearable's geometry, loaded once. Clothes and hair are `.mhclo` files -
+// the same barycentric format as the body proxy, which is the entire reason a
+// shirt fits a generated body without a cloth solver.
+struct GarmentData {
+    mhdata::Proxy proxy;
+    mhdata::BaseMesh mesh;
+    bool ok = false;
+};
+
 // Everything the generator reads from disk, loaded once. The base mesh alone
 // is 1.7 MB of text; a slider drag must not re-read it.
 struct DataSet {
@@ -123,6 +133,13 @@ struct DataSet {
     int skinIndex = -1, skinSize = 0;
     std::vector<unsigned char> skinPixels;  // skinSize * skinSize * 4
     std::vector<unsigned char> skinPng;
+
+    // Wearables, loaded and baked on demand and kept for the same reason.
+    std::map<std::string, GarmentData> garments;
+    struct GarmentTex {
+        std::vector<unsigned char> png;
+    };
+    std::map<std::string, GarmentTex> garmentTex;
 };
 
 DataSet& dataSet() {
@@ -390,6 +407,271 @@ void addInfluence(std::vector<Influence>& v, int slot, float w) {
     v.push_back({slot, w});
 }
 
+// Skin bindings for one proxy vertex: it rides three base vertices, so its
+// skinning is those three vertices' skinning mixed by the same barycentric
+// weights its position uses. Bodies and garments bind identically - a shirt
+// follows the shoulder because it is bound to the shoulder's vertices.
+void bindingsFor(const mhdata::Proxy& proxy, int i, const std::vector<float>& baseWeights,
+                 int baseVerts, int boneCount, unsigned char* joints, unsigned char* weights) {
+    std::vector<Influence> inf;
+    for (int k = 0; k < 3; ++k) {
+        const int v = proxy.ref[i * 3 + k];
+        const float bw = proxy.weight[i * 3 + k];
+        if (v < 0 || v >= baseVerts || bw == 0.0f) continue;
+        const float* row = &baseWeights[(size_t)v * boneCount];
+        for (int s = 0; s < boneCount; ++s)
+            if (row[s] > 0.0f) addInfluence(inf, s, row[s] * bw);
+    }
+    std::sort(inf.begin(), inf.end(),
+              [](const Influence& a, const Influence& b) { return a.weight > b.weight; });
+    if ((int)inf.size() > kMaxInfluences) inf.resize(kMaxInfluences);
+
+    for (int k = 0; k < kMaxInfluences; ++k) {
+        joints[k] = 0;
+        weights[k] = 0;
+    }
+    float sum = 0.0f;
+    for (const Influence& in : inf) sum += in.weight;
+    if (sum <= 0.0f) {
+        // A vertex the reference weights never touched (a proxy reaches
+        // slightly outside the body in places): bind it rigidly to the hips
+        // rather than leaving it unskinned at the origin.
+        weights[0] = 255;
+        return;
+    }
+    // Quantize to bytes summing to exactly 255, handing the rounding error to
+    // the strongest influence, where it is least visible.
+    int total = 0;
+    for (size_t k = 0; k < inf.size(); ++k) {
+        joints[k] = (unsigned char)inf[k].slot;
+        weights[k] = (unsigned char)std::clamp((int)std::lround(inf[k].weight / sum * 255.0f), 0, 255);
+        total += weights[k];
+    }
+    weights[0] = (unsigned char)std::clamp((int)weights[0] + (255 - total), 0, 255);
+}
+
+GarmentData* garment(const std::string& sub, const std::string& stem, std::string& note) {
+    DataSet& ds = dataSet();
+    const std::string key = sub + "/" + stem;
+    auto it = ds.garments.find(key);
+    if (it != ds.garments.end()) return it->second.ok ? &it->second : nullptr;
+
+    GarmentData g;
+    std::string err;
+    const std::string base = dataDir() + "/" + sub + "/" + stem;
+    if (mhdata::loadProxy(base + ".mhclo", g.proxy, err) &&
+        mhdata::loadBaseMesh(base + ".obj", g.mesh, err) &&
+        g.proxy.vertCount() == g.mesh.vertCount()) {
+        g.ok = true;
+    } else {
+        note = stem + ": " + (err.empty() ? "bindings and mesh disagree" : err);
+    }
+    GarmentData& stored = ds.garments.emplace(key, std::move(g)).first->second;
+    return stored.ok ? &stored : nullptr;
+}
+
+// A wearable's diffuse map, decoded and boxed down. `cutout` keeps the alpha
+// channel and forces it BINARY with the opaque colors dilated outward - hair
+// is an alpha-cutout card, and the engine's palettized tRNS->CLUT path loses a
+// soft gradient while bilinear filtering would ring dark fringes through it
+// (the same rule treegen's leaf card follows).
+const std::vector<unsigned char>* garmentTexture(const std::string& sub, const std::string& stem,
+                                                 int size, bool cutout, std::string& note) {
+    DataSet& ds = dataSet();
+    const std::string key = sub + "/" + stem + "@" + std::to_string(size);
+    auto it = ds.garmentTex.find(key);
+    if (it != ds.garmentTex.end())
+        return it->second.png.empty() ? nullptr : &it->second.png;
+
+    std::vector<unsigned char> png;
+    const std::string file = dataDir() + "/" + sub + "/" + stem + "_diffuse.png";
+    int w = 0, h = 0, comp = 0;
+    unsigned char* px = stbi_load(file.c_str(), &w, &h, &comp, 4);
+    if (!px) {
+        note = stem + ": texture could not be decoded";
+        ds.garmentTex[key] = {};
+        return nullptr;
+    }
+    std::vector<unsigned char> small((size_t)size * size * 4);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x) {
+            const int sx0 = (int)((int64_t)x * w / size);
+            const int sx1 = std::max(sx0 + 1, (int)((int64_t)(x + 1) * w / size));
+            const int sy0 = (int)((int64_t)y * h / size);
+            const int sy1 = std::max(sy0 + 1, (int)((int64_t)(y + 1) * h / size));
+            unsigned sum[4] = {0, 0, 0, 0};
+            unsigned n = 0, opaque = 0;
+            for (int sy = sy0; sy < sy1 && sy < h; ++sy)
+                for (int sx = sx0; sx < sx1 && sx < w; ++sx) {
+                    const unsigned char* s = px + ((size_t)sy * w + sx) * 4;
+                    // Average only the opaque source texels, or a cutout's
+                    // edge fades into whatever the transparent pixels hold
+                    // (usually black).
+                    if (!cutout || s[3] >= 128) {
+                        for (int k = 0; k < 3; ++k) sum[k] += s[k];
+                        ++opaque;
+                    }
+                    sum[3] += s[3];
+                    ++n;
+                }
+            unsigned char* d = &small[((size_t)y * size + x) * 4];
+            for (int k = 0; k < 3; ++k) d[k] = (unsigned char)(opaque ? sum[k] / opaque : 0);
+            d[3] = cutout ? (unsigned char)((n && sum[3] / n >= 110) ? 255 : 0) : 255;
+        }
+    stbi_image_free(px);
+
+    if (cutout) {
+        // Dilate opaque color into the transparent margin so bilinear sampling
+        // never pulls black in from outside the cutout.
+        for (int pass = 0; pass < 2; ++pass) {
+            std::vector<unsigned char> src = small;
+            for (int y = 0; y < size; ++y)
+                for (int x = 0; x < size; ++x) {
+                    unsigned char* d = &small[((size_t)y * size + x) * 4];
+                    if (src[((size_t)y * size + x) * 4 + 3]) continue;
+                    unsigned sum[3] = {0, 0, 0}, n = 0;
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            const int nx = x + dx, ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+                            const unsigned char* s = &src[((size_t)ny * size + nx) * 4];
+                            if (!s[3] && !(pass && s[0] + s[1] + s[2])) continue;
+                            for (int k = 0; k < 3; ++k) sum[k] += s[k];
+                            ++n;
+                        }
+                    if (n)
+                        for (int k = 0; k < 3; ++k) d[k] = (unsigned char)(sum[k] / n);
+                }
+        }
+    }
+
+    stbi_write_png_to_func(
+        [](void* ctx, void* data, int len) {
+            std::vector<unsigned char>* v = (std::vector<unsigned char>*)ctx;
+            v->insert(v->end(), (unsigned char*)data, (unsigned char*)data + len);
+        },
+        &png, size, size, 4, small.data(), size * 4);
+    DataSet::GarmentTex& stored = ds.garmentTex[key];
+    stored.png = std::move(png);
+    return stored.png.empty() ? nullptr : &stored.png;
+}
+
+// Thins an alpha-cutout garment by dropping whole CARDS, largest kept first.
+//
+// Edge collapse is close to useless on hair: it is a pile of separate quads
+// with a uv seam around every one, and meshlod locks seam and border vertices
+// by construction - a 3678-triangle hairstyle asked for 550 triangles comes
+// back at 2696. Removing whole strands is both what actually shrinks it and
+// what a low-poly hairstyle is: fewer, bigger cards. Smallest cards go first,
+// which is the wispy detail nobody sees at PS2 resolution.
+void thinCards(std::vector<float>& corners, std::vector<unsigned char>& joints,
+               std::vector<unsigned char>& weights, size_t targetTris) {
+    const size_t triCount = corners.size() / 24;
+    if (triCount <= targetTris) return;
+
+    // Connected components over shared positions (exact bits - the cards come
+    // from one .obj, so a shared corner is bit-identical).
+    std::map<std::array<uint32_t, 3>, int> vertId;
+    std::vector<int> parent;
+    auto find = [&](int a) {
+        while (parent[a] != a) a = parent[a] = parent[parent[a]];
+        return a;
+    };
+    std::vector<int> triVert(triCount * 3, 0);
+    for (size_t t = 0; t < triCount; ++t)
+        for (int c = 0; c < 3; ++c) {
+            std::array<uint32_t, 3> key{};
+            std::memcpy(key.data(), &corners[(t * 3 + c) * 8], 12);
+            auto it = vertId.find(key);
+            if (it == vertId.end()) {
+                it = vertId.emplace(key, (int)parent.size()).first;
+                parent.push_back((int)parent.size());
+            }
+            triVert[t * 3 + c] = it->second;
+        }
+    for (size_t t = 0; t < triCount; ++t) {
+        const int a = find(triVert[t * 3]), b = find(triVert[t * 3 + 1]),
+                  c = find(triVert[t * 3 + 2]);
+        parent[b] = a;
+        parent[find(c)] = a;
+    }
+
+    struct Card {
+        double area = 0.0;
+        std::vector<size_t> tris;
+    };
+    std::map<int, Card> cards;
+    for (size_t t = 0; t < triCount; ++t) {
+        const float* p = &corners[t * 24];
+        const float u[3] = {p[8] - p[0], p[9] - p[1], p[10] - p[2]};
+        const float v[3] = {p[16] - p[0], p[17] - p[1], p[18] - p[2]};
+        const float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2],
+                            u[0] * v[1] - u[1] * v[0]};
+        Card& card = cards[find(triVert[t * 3])];
+        card.area += 0.5 * std::sqrt((double)n[0] * n[0] + (double)n[1] * n[1] + (double)n[2] * n[2]);
+        card.tris.push_back(t);
+    }
+    if (cards.size() < 2) return;  // one shell: nothing to thin, leave it be
+
+    std::vector<const Card*> order;
+    order.reserve(cards.size());
+    for (const auto& [id, c] : cards) order.push_back(&c);
+    std::sort(order.begin(), order.end(),
+              [](const Card* a, const Card* b) { return a->area > b->area; });
+
+    std::vector<char> keep(triCount, 0);
+    size_t kept = 0;
+    for (const Card* c : order) {
+        if (kept && kept + c->tris.size() > targetTris) continue;
+        for (size_t t : c->tris) keep[t] = 1;
+        kept += c->tris.size();
+    }
+
+    std::vector<float> outCorners;
+    std::vector<unsigned char> outJoints, outWeights;
+    for (size_t t = 0; t < triCount; ++t) {
+        if (!keep[t]) continue;
+        outCorners.insert(outCorners.end(), corners.begin() + t * 24, corners.begin() + t * 24 + 24);
+        outJoints.insert(outJoints.end(), joints.begin() + t * 12, joints.begin() + t * 12 + 12);
+        outWeights.insert(outWeights.end(), weights.begin() + t * 12, weights.begin() + t * 12 + 12);
+    }
+    corners = std::move(outCorners);
+    joints = std::move(outJoints);
+    weights = std::move(outWeights);
+}
+
+// Welds, decimates and re-expands one skinned triangle list. meshlod's own
+// unweld does not carry skin bindings, so this mirrors what generateSkelLods
+// does for the .tskl LOD tiers.
+void decimateSkinned(std::vector<float>& corners, std::vector<unsigned char>& joints,
+                     std::vector<unsigned char>& weights, size_t targetVerts) {
+    const size_t count = corners.size() / 8;
+    if (count < 3 || targetVerts >= count) return;
+    std::vector<float> pos(count * 3), nrm(count * 3), uv(count * 2);
+    for (size_t i = 0; i < count; ++i) {
+        std::memcpy(&pos[i * 3], &corners[i * 8], 12);
+        std::memcpy(&nrm[i * 3], &corners[i * 8 + 3], 12);
+        std::memcpy(&uv[i * 2], &corners[i * 8 + 6], 8);
+    }
+    meshlod::Mesh m = meshlod::weld(pos.data(), nrm.data(), uv.data(), joints.data(),
+                                    weights.data(), count, true);
+    meshlod::decimate(m, targetVerts < 3 ? 3 : targetVerts);
+
+    corners.clear();
+    joints.clear();
+    weights.clear();
+    for (uint32_t idx : m.tris) {
+        corners.insert(corners.end(), {m.pos[idx * 3], m.pos[idx * 3 + 1], m.pos[idx * 3 + 2],
+                                       m.nrm[idx * 3], m.nrm[idx * 3 + 1], m.nrm[idx * 3 + 2],
+                                       m.hasUv ? m.uv[idx * 2] : 0.0f,
+                                       m.hasUv ? m.uv[idx * 2 + 1] : 0.0f});
+        for (int k = 0; k < 4; ++k) {
+            joints.push_back(m.hasSkin ? m.joints[idx * 4 + k] : 0);
+            weights.push_back(m.hasSkin ? m.weights[idx * 4 + k] : (k ? 0 : 255));
+        }
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -399,7 +681,9 @@ bool Params::operator==(const Params& o) const {
     return gender == o.gender && age == o.age && muscle == o.muscle && weight == o.weight &&
            african == o.african && asian == o.asian && caucasian == o.caucasian &&
            heightMeters == o.heightMeters && skin == o.skin && textureSize == o.textureSize &&
-           animations == o.animations && anim == o.anim && name == o.name;
+           clothes == o.clothes && shoes == o.shoes && hair == o.hair &&
+           clothingDetail == o.clothingDetail && animations == o.animations && anim == o.anim &&
+           name == o.name;
 }
 
 std::string dataDir() {
@@ -423,6 +707,43 @@ const std::vector<std::string>& skins() {
         std::sort(out.begin(), out.end());
         return out;
     }();
+    return list;
+}
+
+namespace {
+
+// Asset stems in one wardrobe directory, split by whether the name looks like
+// footwear (upstream keeps shoes in `clothes/`, and a shoes-or-suit choice is
+// not a choice anyone wants to make).
+std::vector<std::string> scanWardrobe(const char* sub, bool wantShoes) {
+    std::vector<std::string> out;
+    const std::string dir = dataDir();
+    if (dir.empty()) return out;
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(dir + "/" + sub, ec)) {
+        if (!e.is_regular_file(ec) || e.path().extension() != ".mhclo") continue;
+        const std::string stem = e.path().stem().string();
+        const bool shoes = stem.rfind("shoes", 0) == 0;
+        if (shoes == wantShoes) out.push_back(stem);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+}  // namespace
+
+const std::vector<std::string>& clothesList() {
+    static const std::vector<std::string> list = scanWardrobe("clothes", false);
+    return list;
+}
+
+const std::vector<std::string>& shoesList() {
+    static const std::vector<std::string> list = scanWardrobe("clothes", true);
+    return list;
+}
+
+const std::vector<std::string>& hairList() {
+    static const std::vector<std::string> list = scanWardrobe("hair", false);
     return list;
 }
 
@@ -507,44 +828,52 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
 
     std::vector<unsigned char> jointBytes((size_t)vertCount * kMaxInfluences, 0);
     std::vector<unsigned char> weightBytes((size_t)vertCount * kMaxInfluences, 0);
-    for (int i = 0; i < vertCount; ++i) {
-        // A proxy vertex rides three base vertices; its skinning is those
-        // three vertices' skinning, mixed by the same barycentric weights the
-        // position uses.
-        std::vector<Influence> inf;
-        for (int k = 0; k < 3; ++k) {
-            const int v = ds.proxy.ref[i * 3 + k];
-            const float bw = ds.proxy.weight[i * 3 + k];
-            if (v < 0 || v >= baseVerts || bw == 0.0f) continue;
-            const float* row = &baseWeights[(size_t)v * kBoneCount];
-            for (int s = 0; s < kBoneCount; ++s)
-                if (row[s] > 0.0f) addInfluence(inf, s, row[s] * bw);
-        }
-        std::sort(inf.begin(), inf.end(),
-                  [](const Influence& a, const Influence& b) { return a.weight > b.weight; });
-        if (inf.size() > kMaxInfluences) inf.resize(kMaxInfluences);
+    for (int i = 0; i < vertCount; ++i)
+        bindingsFor(ds.proxy, i, baseWeights, baseVerts, kBoneCount,
+                    &jointBytes[(size_t)i * kMaxInfluences],
+                    &weightBytes[(size_t)i * kMaxInfluences]);
 
-        float sum = 0.0f;
-        for (const Influence& in : inf) sum += in.weight;
-        if (sum <= 0.0f) {
-            // A vertex the reference weights never touched (the proxy reaches
-            // slightly outside the body in places): bind it rigidly to the
-            // hips rather than leaving it unskinned at the origin.
-            jointBytes[(size_t)i * kMaxInfluences] = 0;
-            weightBytes[(size_t)i * kMaxInfluences] = 255;
-            continue;
+    // --- wearables: what they cover comes off the body ------------------------
+    // Loaded before the body's triangles are expanded, because each garment
+    // lists the base-mesh vertices it hides. Without that the torso pokes
+    // through the shirt in exactly the places a shirt is supposed to cover.
+    struct Wear {
+        const char* sub;
+        std::string stem;
+        bool cutout;   // alpha-tested (hair) rather than solid
+        float budget;  // share of the triangle budget this slot deserves
+    };
+    std::vector<Wear> wear;
+    auto pick = [&](const std::vector<std::string>& list, int index, const char* sub, bool cutout,
+                    float budget) {
+        if (index >= 0 && index < (int)list.size())
+            wear.push_back({sub, list[index], cutout, budget});
+    };
+    // The slots do not deserve equal budgets: a suit is most of the
+    // silhouette, shoes are two small blocks at the bottom of the screen, and
+    // hair is somewhere between. Upstream they are all 3.5k-16k triangles.
+    pick(clothesList(), p.clothes, "clothes", false, 1.0f);
+    pick(shoesList(), p.shoes, "clothes", false, 0.22f);
+    pick(hairList(), p.hair, "hair", true, 0.5f);
+
+    std::vector<const GarmentData*> worn;
+    std::vector<char> bodyHidden((size_t)vertCount, 0);
+    for (const Wear& w : wear) {
+        std::string note;
+        const GarmentData* g = garment(w.sub, w.stem, note);
+        if (!note.empty()) warnings.push_back(note);
+        worn.push_back(g);
+        if (!g || g->proxy.deleteVerts.empty()) continue;
+        for (int i = 0; i < vertCount; ++i) {
+            if (bodyHidden[i]) continue;
+            // A body vertex counts as covered only when ALL three base
+            // vertices it rides are hidden - a coarse proxy vertex straddling
+            // the garment's edge must stay, or the body gains a hole beside
+            // the seam.
+            bool all = true;
+            for (int k = 0; k < 3 && all; ++k) all = g->proxy.deletes(ds.proxy.ref[i * 3 + k]);
+            if (all) bodyHidden[i] = 1;
         }
-        // Quantize to bytes summing to exactly 255: hand the rounding error to
-        // the strongest influence, which is where it is least visible.
-        int total = 0;
-        for (size_t k = 0; k < inf.size(); ++k) {
-            const int q = (int)std::lround(inf[k].weight / sum * 255.0f);
-            jointBytes[(size_t)i * kMaxInfluences + k] = (unsigned char)inf[k].slot;
-            weightBytes[(size_t)i * kMaxInfluences + k] = (unsigned char)std::clamp(q, 0, 255);
-            total += weightBytes[(size_t)i * kMaxInfluences + k];
-        }
-        weightBytes[(size_t)i * kMaxInfluences] =
-            (unsigned char)std::clamp(weightBytes[(size_t)i * kMaxInfluences] + (255 - total), 0, 255);
     }
 
     // --- smooth normals on the fitted mesh ----------------------------------
@@ -616,6 +945,12 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         pushCorner(f.v[c], f.t[c]);
     };
     for (const mhdata::BaseMesh::Face& f : ds.proxyMesh.faces) {
+        // Any covered corner drops the face, which is what MakeHuman itself
+        // does with a garment's deleted vertices.
+        bool hidden = false;
+        for (int c = 0; c < f.n && !hidden; ++c)
+            hidden = f.v[c] >= 0 && f.v[c] < vertCount && bodyHidden[f.v[c]];
+        if (hidden) continue;
         pushTri(f, 0, 1, 2);
         if (f.n == 4) pushTri(f, 0, 2, 3);
     }
@@ -653,17 +988,132 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
 
     out.parts.push_back(std::move(part));
 
+    // --- wearable parts -------------------------------------------------------
+    // Each garment is fitted exactly like the body proxy, skinned from the same
+    // reference weights, then DECIMATED: the upstream meshes are 3.5k-16k
+    // triangles, built for offline rendering. Measured floor for the suits is
+    // about 1000 triangles - below that the collapse starts tearing holes in
+    // them rather than simplifying.
+    {
+        const int budgets[3] = {500, 1100, 2200};
+        const int budget = budgets[std::clamp(p.clothingDetail, 0, 2)];
+        int texSize = std::clamp(p.textureSize, 32, 256);
+        {
+            int pot = 32;
+            while (pot * 2 <= texSize) pot *= 2;
+            texSize = pot;
+        }
+        for (size_t wi = 0; wi < wear.size(); ++wi) {
+            const GarmentData* g = worn[wi];
+            if (!g) continue;
+            const int gv = g->proxy.vertCount();
+            std::vector<float> gpos = mhdata::fitProxy(g->proxy, basePos);
+            for (int i = 0; i < gv; ++i) toWorld(&gpos[i * 3]);
+
+            std::vector<float> gnrm((size_t)gv * 3, 0.0f);
+            auto accumG = [&](int a, int b, int c) {
+                const float* pa = &gpos[a * 3];
+                const float* pb = &gpos[b * 3];
+                const float* pc = &gpos[c * 3];
+                const float u[3] = {pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]};
+                const float v[3] = {pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]};
+                const float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2],
+                                    u[0] * v[1] - u[1] * v[0]};
+                for (int idx : {a, b, c})
+                    for (int k = 0; k < 3; ++k) gnrm[idx * 3 + k] += n[k];
+            };
+            for (const mhdata::BaseMesh::Face& f : g->mesh.faces) {
+                accumG(f.v[0], f.v[1], f.v[2]);
+                if (f.n == 4) accumG(f.v[0], f.v[2], f.v[3]);
+            }
+            for (int i = 0; i < gv; ++i) {
+                float* n = &gnrm[i * 3];
+                const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (len > 1e-8f)
+                    for (int k = 0; k < 3; ++k) n[k] /= len;
+                else
+                    n[1] = 1.0f;
+            }
+
+            std::vector<unsigned char> gj((size_t)gv * kMaxInfluences, 0);
+            std::vector<unsigned char> gw((size_t)gv * kMaxInfluences, 0);
+            for (int i = 0; i < gv; ++i)
+                bindingsFor(g->proxy, i, baseWeights, baseVerts, kBoneCount,
+                            &gj[(size_t)i * kMaxInfluences], &gw[(size_t)i * kMaxInfluences]);
+
+            std::vector<float> corners;
+            std::vector<unsigned char> cj, cw;
+            auto pushG = [&](const mhdata::BaseMesh::Face& f, int a, int b, int c) {
+                // The body's winding check applies here too: garments follow
+                // the same .obj convention, so reuse its verdict.
+                int order[3] = {a, b, c};
+                if (flip) std::swap(order[1], order[2]);
+                for (int idx : order) {
+                    const int v = f.v[idx], t = f.t[idx];
+                    for (int k = 0; k < 3; ++k) corners.push_back(gpos[v * 3 + k]);
+                    for (int k = 0; k < 3; ++k) corners.push_back(gnrm[v * 3 + k]);
+                    const bool hasUv = t >= 0 && (size_t)t * 2 + 1 < g->mesh.uv.size();
+                    corners.push_back(hasUv ? g->mesh.uv[t * 2] : 0.0f);
+                    corners.push_back(hasUv ? 1.0f - g->mesh.uv[t * 2 + 1] : 0.0f);
+                    for (int k = 0; k < kMaxInfluences; ++k)
+                        cj.push_back(gj[(size_t)v * kMaxInfluences + k]);
+                    for (int k = 0; k < kMaxInfluences; ++k)
+                        cw.push_back(gw[(size_t)v * kMaxInfluences + k]);
+                }
+            };
+            for (const mhdata::BaseMesh::Face& f : g->mesh.faces) {
+                pushG(f, 0, 1, 2);
+                if (f.n == 4) pushG(f, 0, 2, 3);
+            }
+            const size_t slotBudget = (size_t)std::max(64.0f, (float)budget * wear[wi].budget);
+            if (wear[wi].cutout) thinCards(corners, cj, cw, slotBudget);
+            decimateSkinned(corners, cj, cw, slotBudget);
+
+            glbparser::SkelPart gp;
+            // The material name carries the kind: "hair:" is alpha-tested,
+            // "cloth:" is solid. Nothing downstream needs it (the PS2 gets its
+            // cutout from the texture's own alpha), but the editor preview has
+            // to know which part to draw last, and a prefix beats guessing.
+            gp.material = (wear[wi].cutout ? "hair:" : "cloth:") + wear[wi].stem;
+            gp.vertexCount = (int)corners.size() / 8;
+            gp.positions.reserve((size_t)gp.vertexCount * 3);
+            gp.normals.reserve((size_t)gp.vertexCount * 3);
+            gp.uvs.reserve((size_t)gp.vertexCount * 2);
+            for (int v = 0; v < gp.vertexCount; ++v) {
+                for (int k = 0; k < 3; ++k) gp.positions.push_back(corners[(size_t)v * 8 + k]);
+                for (int k = 0; k < 3; ++k) gp.normals.push_back(corners[(size_t)v * 8 + 3 + k]);
+                for (int k = 0; k < 2; ++k) gp.uvs.push_back(corners[(size_t)v * 8 + 6 + k]);
+            }
+            gp.joints = std::move(cj);
+            gp.weights = std::move(cw);
+
+            std::string note;
+            const std::vector<unsigned char>* png =
+                garmentTexture(wear[wi].sub, wear[wi].stem, texSize, wear[wi].cutout, note);
+            if (!note.empty()) warnings.push_back(note);
+            if (png) {
+                glbparser::Image img;
+                img.name = wear[wi].stem;
+                img.png = *png;
+                gp.image = (int)out.images.size();
+                out.images.push_back(std::move(img));
+            }
+            out.parts.push_back(std::move(gp));
+        }
+    }
+
     // --- bounds -------------------------------------------------------------
-    const glbparser::SkelPart& built = out.parts[0];
+    // Over every part: hair reaches above the skull and shoes below the sole.
     for (int k = 0; k < 3; ++k) {
         out.min[k] = 1e30f;
         out.max[k] = -1e30f;
     }
-    for (size_t i = 0; i + 2 < built.positions.size(); i += 3)
-        for (int k = 0; k < 3; ++k) {
-            out.min[k] = std::min(out.min[k], built.positions[i + k]);
-            out.max[k] = std::max(out.max[k], built.positions[i + k]);
-        }
+    for (const glbparser::SkelPart& built : out.parts)
+        for (size_t i = 0; i + 2 < built.positions.size(); i += 3)
+            for (int k = 0; k < 3; ++k) {
+                out.min[k] = std::min(out.min[k], built.positions[i + k]);
+                out.max[k] = std::max(out.max[k], built.positions[i + k]);
+            }
 
     // Last, because the cycles scale their translations by the finished body's
     // height - which is only known once the bounds above exist.

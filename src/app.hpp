@@ -689,9 +689,14 @@ private:
     chargen::Params charParams_;
     int charPreset_ = 0;
     glbparser::Skel charSkel_;
-    std::vector<float> charPrevTris_;  // pos3 + normal3 + uv2 per vertex
-    std::vector<unsigned char> charPrevRgba_;
-    int charPrevTexW_ = 0, charPrevTexH_ = 0;
+    // One entry per generated part (body, clothes, shoes, hair): the posed
+    // triangles and the decoded texture that goes with them.
+    std::vector<std::vector<float>> charPrevTris_;  // pos3 + normal3 + uv2
+    struct CharPrevTex {
+        std::vector<unsigned char> rgba;
+        int w = 0, h = 0;
+    };
+    std::vector<CharPrevTex> charPrevTex_;
     std::string charBuildError_;
     std::vector<std::string> charWarnings_;
     uint64_t charPreviewVersion_ = 0;

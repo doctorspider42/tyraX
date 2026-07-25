@@ -14,7 +14,7 @@ macro sliders (gender / age / muscle / weight / ethnicity)
 741-vertex body + UVs  ────skin weights transferred────>  rigged mesh
    │  gltfwrite
    ▼
-res/models/characters/<name>.glb   ← an ordinary asset (+ idle/walk/run/jump)
+res/models/characters/<name>.glb   ← body + clothes + hair, idle/walk/run/jump
    │  the existing animated-model chain: import, preview, Animation Editor,
    ▼  .tskl bake with LODs, player avatars, NPC AI, Live Link
 ```
@@ -32,7 +32,7 @@ proxy meshes, rig, vertex weights and skins were explicitly released as CC0 in
 that building your own character generator on them is fine. Credits are in
 [README.md](../README.md#credits).
 
-`setup.ps1` fetches about 45 MB into `vendor/mh-assets` (git-ignored, listed in
+`setup.ps1` fetches about 80 MB into `vendor/mh-assets` (git-ignored, listed in
 `deps.ps1`):
 
 | File | What it is |
@@ -43,6 +43,8 @@ that building your own character generator on them is fine. Credits are in
 | `default.mhskel` | the 163-bone reference rig |
 | `default_weights.mhw` | per-bone vertex weights on the base mesh |
 | `skins/*.png` | six 2048² CC0 diffuse maps |
+| `clothes/*.mhclo` + `.obj` + `_diffuse.png` | five suits and a pair of shoes |
+| `hair/*.mhclo` + `.obj` + `_diffuse.png` | four hairstyles (alpha-cutout cards) |
 
 The editor never downloads anything itself. With the directory missing the
 window explains how to get it and does nothing else.
@@ -126,9 +128,47 @@ Everything is **deterministic in the parameters**: identical sliders produce
 byte-identical files, which is what makes a rebuild-on-drag preview cheap to
 reason about and a generated character reproducible from its numbers.
 
+## The wardrobe
+
+Clothes, shoes and hair come from the same CC0 asset packs and fit through
+**the same mechanism the body does**: a `.mhclo` file is byte-for-byte the same
+barycentric binding as a `.proxy`, so a shirt is bound to the reference mesh's
+shoulder vertices and therefore follows every morph, and the *same* skin
+weights transfer gives it the same skeleton. There is no cloth solver and no
+per-body refitting; a shirt on a heavy-set character is the same shirt.
+
+Each garment becomes its own mesh part with its own texture, and the body
+underneath is **removed**: every `.mhclo` lists the base-mesh vertices it
+covers, and a body vertex whose three reference vertices are all covered drops
+out with its faces. A shirt-and-trousers pass takes the body from 1460 to about
+750 triangles, so a dressed character costs far less than body + garment.
+
+Three things about the source assets shape what the generator does with them:
+
+**They are 3.5k-16k triangles.** These are offline-render meshes. The *Detail*
+setting decimates each garment to a budget (~500 / 1100 / 2200 triangles), and
+the slots do not share it equally - a suit is most of the silhouette, shoes are
+two small blocks at the bottom of the screen. Measured: the suits stop
+simplifying around 1000 triangles and start tearing holes instead, so *Low* is
+for crowds, not for a hero.
+
+**Hair does not decimate at all.** It is a pile of separate quads with a uv
+seam around every one, and the quadric collapse locks seam and border vertices
+by construction - a 3678-triangle hairstyle asked for 550 came back at 2696.
+Hair is thinned by dropping whole **cards**, smallest first, which is both what
+actually shrinks it and what a low-poly hairstyle is: fewer, bigger strands.
+
+**Hair is an alpha cutout**, so its texture keeps its alpha channel while the
+body skin's is forced opaque - and that alpha is made **binary** with the
+opaque colors dilated outward, the same rule the tree generator's leaf card
+follows, because the engine's palettized tRNS→CLUT path loses a soft gradient
+and bilinear filtering would ring dark fringes through it. Parts are tagged by
+material prefix (`hair:` / `cloth:`) so the preview knows which to draw last;
+the console needs no tag, it gets the cutout from the texture itself.
+
 ## Cost on the console
 
-A generated character is ~380 KB of PS2 RAM (model data plus one instance's
+An undressed generated character is ~400 KB of PS2 RAM (a dressed one ~830 KB) (model data plus one instance's
 skinned output buffers) and skins on VU0 like any other animated model. The
 `.tskl` bake adds the usual two distance LODs on top. Budget guidance from
 [animated models](animated-models.md) applies unchanged: a few instances are
@@ -183,11 +223,6 @@ VU0, at a scale where a full re-skin per frame is free.
   importer already gets most of the way - is a mapping table rather than a
   rewrite. The one conversion it needs is that our bind rotations are identity
   while an authored rig's are not.
-- **Clothing and hair.** MakeHuman's CC0 asset packs include both, fitted
-  through the same proxy mechanism `proxy741` uses, so the machinery is
-  already here; what is missing is the second material, the alpha-cutout hair
-  card and the UI for it. Today a clothed character comes from picking one of
-  the two "special suit" skins.
 - **Face detail.** The 96 macro targets carry the face's overall character;
   the per-feature targets (nose, chin, ears, mouth - another ~1000 files) are
   not fetched, and at 1460 triangles most of them would not survive anyway.

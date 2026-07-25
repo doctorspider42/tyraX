@@ -529,10 +529,9 @@ void sampleChannel(const glbparser::SkelChannel& ch, float time, float* out, int
 }  // namespace
 
 void poseMesh(const glbparser::Skel& skel, int clipIndex, float time,
-              std::vector<float>& outInterleaved) {
-    outInterleaved.clear();
+              std::vector<std::vector<float>>& outParts) {
+    outParts.assign(skel.parts.size(), {});
     if (skel.parts.empty()) return;
-    const glbparser::SkelPart& part = skel.parts[0];
 
     std::vector<M16> local(skel.nodes.size());
     for (size_t i = 0; i < skel.nodes.size(); ++i) {
@@ -590,35 +589,39 @@ void poseMesh(const glbparser::Skel& skel, int clipIndex, float time,
         palette[j] = mulM(node >= 0 && node < (int)global.size() ? global[node] : M16(), ibm);
     }
 
-    outInterleaved.resize((size_t)part.vertexCount * 8);
-    const bool skinned = !palette.empty() && (int)part.joints.size() >= part.vertexCount * 4;
-    for (int v = 0; v < part.vertexCount; ++v) {
-        const float* p = &part.positions[v * 3];
-        const float* n = &part.normals[v * 3];
-        float op[3] = {0, 0, 0}, on[3] = {0, 0, 0};
-        if (skinned) {
-            for (int k = 0; k < 4; ++k) {
-                const int slot = part.joints[v * 4 + k];
-                const float w = part.weights[v * 4 + k] / 255.0f;
-                if (w <= 0.0f || slot < 0 || slot >= (int)palette.size()) continue;
-                const float* m = palette[slot].m;
-                for (int c = 0; c < 3; ++c) {
-                    op[c] += w * (m[c] * p[0] + m[4 + c] * p[1] + m[8 + c] * p[2] + m[12 + c]);
-                    on[c] += w * (m[c] * n[0] + m[4 + c] * n[1] + m[8 + c] * n[2]);
+    for (size_t pi = 0; pi < skel.parts.size(); ++pi) {
+        const glbparser::SkelPart& part = skel.parts[pi];
+        std::vector<float>& out = outParts[pi];
+        out.resize((size_t)part.vertexCount * 8);
+        const bool skinned = !palette.empty() && (int)part.joints.size() >= part.vertexCount * 4;
+        for (int v = 0; v < part.vertexCount; ++v) {
+            const float* p = &part.positions[v * 3];
+            const float* n = &part.normals[v * 3];
+            float op[3] = {0, 0, 0}, on[3] = {0, 0, 0};
+            if (skinned) {
+                for (int k = 0; k < 4; ++k) {
+                    const int slot = part.joints[v * 4 + k];
+                    const float w = part.weights[v * 4 + k] / 255.0f;
+                    if (w <= 0.0f || slot < 0 || slot >= (int)palette.size()) continue;
+                    const float* m = palette[slot].m;
+                    for (int c = 0; c < 3; ++c) {
+                        op[c] += w * (m[c] * p[0] + m[4 + c] * p[1] + m[8 + c] * p[2] + m[12 + c]);
+                        on[c] += w * (m[c] * n[0] + m[4 + c] * n[1] + m[8 + c] * n[2]);
+                    }
                 }
+            } else {
+                std::memcpy(op, p, sizeof(op));
+                std::memcpy(on, n, sizeof(on));
             }
-        } else {
-            std::memcpy(op, p, sizeof(op));
-            std::memcpy(on, n, sizeof(on));
+            const float len = std::sqrt(on[0] * on[0] + on[1] * on[1] + on[2] * on[2]);
+            if (len > 1e-8f)
+                for (float& c : on) c /= len;
+            float* dst = &out[(size_t)v * 8];
+            std::memcpy(dst, op, sizeof(op));
+            std::memcpy(dst + 3, on, sizeof(on));
+            dst[6] = (size_t)v * 2 + 1 < part.uvs.size() ? part.uvs[v * 2] : 0.0f;
+            dst[7] = (size_t)v * 2 + 1 < part.uvs.size() ? part.uvs[v * 2 + 1] : 0.0f;
         }
-        const float len = std::sqrt(on[0] * on[0] + on[1] * on[1] + on[2] * on[2]);
-        if (len > 1e-8f)
-            for (float& c : on) c /= len;
-        float* dst = &outInterleaved[(size_t)v * 8];
-        std::memcpy(dst, op, sizeof(op));
-        std::memcpy(dst + 3, on, sizeof(on));
-        dst[6] = part.uvs[v * 2];
-        dst[7] = part.uvs[v * 2 + 1];
     }
 }
 

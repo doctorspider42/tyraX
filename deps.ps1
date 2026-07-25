@@ -108,6 +108,27 @@ foreach ($s in @('young_lightskinned_female_diffuse', 'young_lightskinned_male_d
     [void]$MhFiles.Add(@{ Url = "$MhAssetLfs/skins/textures/$s.png"; Path = "skins/$s.png" })
 }
 
+# Clothes and hair. These are `.mhclo` files - the SAME barycentric binding
+# format as the body proxy, which is why a shirt fits a generated body with no
+# extra machinery. Each asset is a manifest + a mesh + a 2048-square diffuse
+# map (Git LFS again). A curated handful rather than the full wardrobe: the
+# textures dominate the download.
+foreach ($c in @('male_casualsuit01', 'male_worksuit01', 'male_elegantsuit01',
+                 'female_casualsuit01', 'female_elegantsuit01', 'shoes01')) {
+    foreach ($ext in @('mhclo', 'obj')) {
+        [void]$MhFiles.Add(@{ Url = "$MhAssetRaw/clothes/$c/$c.$ext"; Path = "clothes/$c.$ext" })
+    }
+    [void]$MhFiles.Add(@{ Url = "$MhAssetLfs/clothes/$c/${c}_diffuse.png"
+                          Path = "clothes/${c}_diffuse.png" })
+}
+foreach ($h in @('short01', 'bob01', 'long01', 'ponytail01')) {
+    foreach ($ext in @('mhclo', 'obj')) {
+        [void]$MhFiles.Add(@{ Url = "$MhAssetRaw/hair/$h/$h.$ext"; Path = "hair/$h.$ext" })
+    }
+    [void]$MhFiles.Add(@{ Url = "$MhAssetLfs/hair/$h/${h}_diffuse.png"
+                          Path = "hair/${h}_diffuse.png" })
+}
+
 $MhAssets = @{ Dir = 'vendor/mh-assets'; Probe = 'vendor/mh-assets/base.obj'
                Files = $MhFiles }
 

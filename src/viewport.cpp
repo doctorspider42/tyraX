@@ -3996,9 +3996,10 @@ uint32_t Viewport::renderTreePreview(int width, int height,
         refresh(treePrevLeafTex_, d.leafRgba, d.leafW, d.leafH);
     }
 
-    drawToolPreview(treeFbo_, width, height, treePrevBark_, treePrevBarkTex_, treePrevLeaves_,
-                    treePrevLeafTex_, d.center, d.minY, d.radius, d.angleDeg, d.pitchDeg, d.zoom,
-                    d.displayMode);
+    const PreviewDraw draws[2] = {{&treePrevBark_, treePrevBarkTex_, false},
+                                  {&treePrevLeaves_, treePrevLeafTex_, true}};
+    drawToolPreview(treeFbo_, width, height, draws, 2, d.center, d.minY, d.radius, d.angleDeg,
+                    d.pitchDeg, d.zoom, d.displayMode);
     return treeTex_;
 }
 
@@ -4012,43 +4013,48 @@ uint32_t Viewport::renderCharacterPreview(int width, int height, const CharPrevi
     if (!charPrevHasVersion_ || charPrevVersion_ != d.version) {
         charPrevHasVersion_ = true;
         charPrevVersion_ = d.version;
-        destroyMesh(charPrevMesh_);
-        if (d.tris && !d.tris->empty()) {
+        for (int i = 0; i < CharPreviewDesc::kMaxParts; ++i) {
+            destroyMesh(charPrevMesh_[i]);
+            const CharPreviewDesc::Part& p = d.parts[i];
+            if (i >= d.partCount || !p.tris || p.tris->empty()) continue;
             // Same shade bake as the tree preview: the vertex colors carry the
             // directional light so the preview matches what the .glb will look
             // like once it is a scene object.
             std::vector<float> il;
-            il.reserve(d.tris->size());
-            for (size_t i = 0; i + 7 < d.tris->size(); i += 8) {
-                const Vec3 s = shadeOf(
-                    normalize({(*d.tris)[i + 3], (*d.tris)[i + 4], (*d.tris)[i + 5]}));
-                il.insert(il.end(), {(*d.tris)[i], (*d.tris)[i + 1], (*d.tris)[i + 2], s.x, s.y,
-                                     s.z, (*d.tris)[i + 6], (*d.tris)[i + 7]});
+            il.reserve(p.tris->size());
+            for (size_t k = 0; k + 7 < p.tris->size(); k += 8) {
+                const Vec3 s =
+                    shadeOf(normalize({(*p.tris)[k + 3], (*p.tris)[k + 4], (*p.tris)[k + 5]}));
+                il.insert(il.end(), {(*p.tris)[k], (*p.tris)[k + 1], (*p.tris)[k + 2], s.x, s.y,
+                                     s.z, (*p.tris)[k + 6], (*p.tris)[k + 7]});
             }
-            charPrevMesh_ = uploadMesh(il);
-        }
-        if (d.rgba && d.texW > 0 && d.texH > 0) {
-            if (!charPrevTex_) {
-                GLuint id = 0;
-                glGenTextures(1, &id);
-                charPrevTex_ = id;
+            charPrevMesh_[i] = uploadMesh(il);
+            if (p.rgba && p.texW > 0 && p.texH > 0) {
+                if (!charPrevTex_[i]) {
+                    GLuint id = 0;
+                    glGenTextures(1, &id);
+                    charPrevTex_[i] = id;
+                }
+                glBindTexture(GL_TEXTURE_2D, charPrevTex_[i]);
+                glUploadTexRgba(p.texW, p.texH, p.rgba);
+                glBindTexture(GL_TEXTURE_2D, 0);
             }
-            glBindTexture(GL_TEXTURE_2D, charPrevTex_);
-            glUploadTexRgba(d.texW, d.texH, d.rgba);
-            glBindTexture(GL_TEXTURE_2D, 0);
         }
     }
 
-    const Mesh none;
-    drawToolPreview(charFbo_, width, height, charPrevMesh_, d.rgba ? charPrevTex_ : 0, none, 0,
-                    d.center, d.minY, d.radius, d.angleDeg, d.pitchDeg, d.zoom, d.displayMode);
+    PreviewDraw draws[CharPreviewDesc::kMaxParts];
+    int count = 0;
+    for (int i = 0; i < d.partCount && i < CharPreviewDesc::kMaxParts; ++i)
+        draws[count++] = {&charPrevMesh_[i], d.parts[i].rgba ? charPrevTex_[i] : 0,
+                          d.parts[i].cutout};
+    drawToolPreview(charFbo_, width, height, draws, count, d.center, d.minY, d.radius, d.angleDeg,
+                    d.pitchDeg, d.zoom, d.displayMode);
     return charTex_;
 }
 
-void Viewport::drawToolPreview(uint32_t fbo, int width, int height, const Mesh& solid,
-                               uint32_t solidTex, const Mesh& cutout, uint32_t cutoutTex,
-                               const float center3[3], float minY, float radiusIn, float angleDeg,
-                               float pitchDeg, float zoomIn, int displayMode) {
+void Viewport::drawToolPreview(uint32_t fbo, int width, int height, const PreviewDraw* draws,
+                               int count, const float center3[3], float minY, float radiusIn,
+                               float angleDeg, float pitchDeg, float zoomIn, int displayMode) {
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -4118,14 +4124,18 @@ void Viewport::drawToolPreview(uint32_t fbo, int width, int height, const Mesh& 
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0f, 1.0f);
     }
-    draw(solid, viewProj, 1.0f, 1.0f, 1.0f, solidTex, false);
-    // cutout last: the alpha-cutout shader path discards transparent texels
-    draw(cutout, viewProj, 1.0f, 1.0f, 1.0f, cutoutTex, true);
+    for (int i = 0; i < count; ++i)
+        if (draws[i].mesh && !draws[i].cutout)
+            draw(*draws[i].mesh, viewProj, 1.0f, 1.0f, 1.0f, draws[i].texture, false);
+    // cutouts last: the alpha-cutout shader path discards transparent texels
+    for (int i = 0; i < count; ++i)
+        if (draws[i].mesh && draws[i].cutout)
+            draw(*draws[i].mesh, viewProj, 1.0f, 1.0f, 1.0f, draws[i].texture, true);
     if (displayMode == 1) {
         glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        draw(solid, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
-        draw(cutout, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
+        for (int i = 0; i < count; ++i)
+            if (draws[i].mesh) draw(*draws[i].mesh, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -79,12 +80,23 @@ struct Proxy {
     int scaleVert[3][2] = {{0, 0}, {0, 0}, {0, 0}};
     float scaleDist[3] = {1.0f, 1.0f, 1.0f};
 
+    // Base-mesh vertices this asset covers up. Clothes list the body they
+    // hide, so the torso does not poke through a shirt; a proxy body has none.
+    // Sorted, so membership is a binary search.
+    std::vector<int> deleteVerts;
+
     std::string objFile;  // the .obj holding this proxy's topology and UVs
     std::string name;
 
     int vertCount() const { return (int)ref.size() / 3; }
+    bool deletes(int baseVert) const {
+        return std::binary_search(deleteVerts.begin(), deleteVerts.end(), baseVert);
+    }
 };
 
+// Reads a `.proxy` (body proxies) or `.mhclo` (clothes, hair) - the same
+// format, and the reason a shirt fits a generated body for free: both are
+// nothing but a barycentric binding to the reference mesh.
 bool loadProxy(const std::string& path, Proxy& out, std::string& error);
 
 // Evaluates the proxy against a (morphed) base-mesh position array.

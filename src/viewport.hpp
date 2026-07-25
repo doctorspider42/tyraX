@@ -245,10 +245,20 @@ public:
     // asset caches, and it renders into its OWN framebuffer so both tools can
     // be open at once.
     struct CharPreviewDesc {
+        // One entry per generated mesh part - body, clothes, shoes, hair -
+        // because each carries its own texture. Hair is drawn with the
+        // alpha-cutout path, the same one the tree preview's leaf cards use.
+        static constexpr int kMaxParts = 4;
+        struct Part {
+            const std::vector<float>* tris = nullptr;  // pos3+normal3+uv2
+            const unsigned char* rgba = nullptr;
+            int texW = 0, texH = 0;
+            bool cutout = false;
+        };
+
         uint64_t version = 0;
-        const std::vector<float>* tris = nullptr;  // pos3+normal3+uv2 triangles
-        const unsigned char* rgba = nullptr;       // skin texture pixels
-        int texW = 0, texH = 0;
+        Part parts[kMaxParts];
+        int partCount = 0;
         float center[3] = {0, 0, 0};
         float minY = 0.0f;
         float radius = 1.0f;
@@ -697,17 +707,21 @@ private:
     void ensureCharFramebuffer(int width, int height);
     uint32_t charFbo_ = 0, charTex_ = 0, charDepth_ = 0;
     int charFbW_ = 0, charFbH_ = 0;
-    Mesh charPrevMesh_;
-    uint32_t charPrevTex_ = 0;
+    Mesh charPrevMesh_[CharPreviewDesc::kMaxParts];
+    uint32_t charPrevTex_[CharPreviewDesc::kMaxParts] = {};
     uint64_t charPrevVersion_ = 0;
     bool charPrevHasVersion_ = false;
 
     // Shared body of the tool previews (tree, character): backdrop, checker
-    // floor, one solid mesh plus an optional alpha-cutout one, framed on an
-    // AABB. Only the framebuffer and what is drawn differ between the two, so
-    // the camera/framing math lives here once.
-    void drawToolPreview(uint32_t fbo, int width, int height, const Mesh& solid,
-                         uint32_t solidTex, const Mesh& cutout, uint32_t cutoutTex,
+    // floor and a list of meshes framed on an AABB. Only the framebuffer and
+    // what is drawn differ between the two, so the camera/framing math lives
+    // here once. Cutout meshes are drawn last, after every solid one.
+    struct PreviewDraw {
+        const Mesh* mesh = nullptr;
+        uint32_t texture = 0;
+        bool cutout = false;
+    };
+    void drawToolPreview(uint32_t fbo, int width, int height, const PreviewDraw* draws, int count,
                          const float center[3], float minY, float radius, float angleDeg,
                          float pitchDeg, float zoom, int displayMode);
 

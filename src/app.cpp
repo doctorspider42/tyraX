@@ -8878,8 +8878,7 @@ void App::rebuildCharacterPreview() {
     charWarnings_.clear();
     charBuildError_.clear();
     charPrevTris_.clear();
-    charPrevRgba_.clear();
-    charPrevTexW_ = charPrevTexH_ = 0;
+    charPrevTex_.clear();
     ++charPreviewVersion_;
 
     if (!chargen::build(charParams_, charSkel_, charWarnings_, charBuildError_)) {
@@ -8888,19 +8887,22 @@ void App::rebuildCharacterPreview() {
     }
     if (charSkel_.parts.empty()) return;
 
-    // Decoding the already-downscaled 256-square PNG costs about a millisecond
-    // - cheap enough to avoid a second copy of the pixels crossing the API.
-    if (!charSkel_.images.empty()) {
+    // One decoded texture per part. Decoding the already-downscaled PNGs costs
+    // about a millisecond each - cheap enough to avoid a second copy of the
+    // pixels crossing the API.
+    charPrevTex_.resize(charSkel_.parts.size());
+    for (size_t i = 0; i < charSkel_.parts.size(); ++i) {
+        const int img = charSkel_.parts[i].image;
+        if (img < 0 || img >= (int)charSkel_.images.size()) continue;
         int w = 0, h = 0, comp = 0;
-        unsigned char* px = stbi_load_from_memory(charSkel_.images[0].png.data(),
-                                                  (int)charSkel_.images[0].png.size(), &w, &h,
+        unsigned char* px = stbi_load_from_memory(charSkel_.images[img].png.data(),
+                                                  (int)charSkel_.images[img].png.size(), &w, &h,
                                                   &comp, 4);
-        if (px) {
-            charPrevRgba_.assign(px, px + (size_t)w * h * 4);
-            charPrevTexW_ = w;
-            charPrevTexH_ = h;
-            stbi_image_free(px);
-        }
+        if (!px) continue;
+        charPrevTex_[i].rgba.assign(px, px + (size_t)w * h * 4);
+        charPrevTex_[i].w = w;
+        charPrevTex_[i].h = h;
+        stbi_image_free(px);
     }
     if (charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
     refreshCharacterPose();
@@ -9032,6 +9034,42 @@ void App::drawCharacterGeneratorWindow() {
                 "so a crowd wants 64 or 128 (see docs/gs-vram.md).");
     }
 
+    if (ImGui::CollapsingHeader("Wardrobe", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Each garment is its own mesh part with its own texture, and the body
+        // it covers is dropped rather than left to poke through.
+        auto slot = [&](const char* label, const std::vector<std::string>& list, int& index) {
+            const char* current =
+                index >= 0 && index < (int)list.size() ? list[index].c_str() : "(none)";
+            ImGui::SetNextItemWidth(scaled(200.0f));
+            if (ImGui::BeginCombo(label, current)) {
+                if (ImGui::Selectable("(none)", index < 0)) {
+                    index = -1;
+                    dirty = true;
+                }
+                for (int i = 0; i < (int)list.size(); ++i)
+                    if (ImGui::Selectable(list[i].c_str(), index == i)) {
+                        index = i;
+                        dirty = true;
+                    }
+                ImGui::EndCombo();
+            }
+        };
+        slot("Clothes", chargen::clothesList(), p.clothes);
+        slot("Shoes", chargen::shoesList(), p.shoes);
+        slot("Hair", chargen::hairList(), p.hair);
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        if (ImGui::Combo("Detail", &p.clothingDetail, "Low\0" "Medium\0" "High\0"))
+            dirty = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Triangle budget per garment (~500 / 1100 / 2200).\n"
+                "The source meshes are 3.5k-16k triangles - built for offline\n"
+                "rendering - and they start tearing below about 1000, so Low\n"
+                "is for crowds, not for a hero.");
+        if (chargen::clothesList().empty())
+            ImGui::TextDisabled("No wardrobe installed - re-run setup.ps1.");
+    }
+
     if (ImGui::CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGui::Checkbox("Procedural clips", &p.animations)) dirty = true;
         if (ImGui::IsItemHovered())
@@ -9053,15 +9091,29 @@ void App::drawCharacterGeneratorWindow() {
     }
 
     ImGui::Separator();
-    const glbparser::SkelPart* part = charSkel_.parts.empty() ? nullptr : &charSkel_.parts[0];
     if (!charBuildError_.empty()) {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s", charBuildError_.c_str());
-    } else if (part) {
-        ImGui::Text("%d triangles, %d bones", part->vertexCount / 3,
-                    (int)charSkel_.palette.size());
+    } else if (!charSkel_.parts.empty()) {
+        ImGui::Text("%d triangles, %d bones, %d texture%s",
+                    charSkel_.totalVertexCount() / 3, (int)charSkel_.palette.size(),
+                    (int)charSkel_.images.size(), charSkel_.images.size() == 1 ? "" : "s");
+        if (charSkel_.parts.size() > 1) {
+            // Worth breaking out: a garment can easily outweigh the body.
+            std::string per;
+            for (const glbparser::SkelPart& sp : charSkel_.parts) {
+                const size_t colon = sp.material.find(':');
+                per += (per.empty() ? "" : ", ") +
+                       (colon == std::string::npos ? sp.material : sp.material.substr(colon + 1)) +
+                       " " + std::to_string(sp.vertexCount / 3);
+            }
+            ImGui::TextDisabled("%s", per.c_str());
+        }
         ImGui::Text("~%d KB of PS2 RAM", (int)(charSkel_.ps2Bytes() / 1024));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Model data plus one instance's skinned output buffers.");
+            ImGui::SetTooltip(
+                "Model data plus one instance's skinned output buffers.\n"
+                "Each texture is a separate GS VRAM allocation - the budget\n"
+                "is ~1.33 MB with no eviction (docs/gs-vram.md).");
     }
     for (const std::string& w : charWarnings_)
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "%s", w.c_str());
@@ -9092,11 +9144,17 @@ void App::drawCharacterGeneratorWindow() {
 
     Viewport::CharPreviewDesc desc;
     desc.version = charPreviewVersion_;
-    desc.tris = &charPrevTris_;
-    if (!charPrevRgba_.empty()) {
-        desc.rgba = charPrevRgba_.data();
-        desc.texW = charPrevTexW_;
-        desc.texH = charPrevTexH_;
+    for (size_t i = 0; i < charPrevTris_.size() && desc.partCount < desc.kMaxParts; ++i) {
+        Viewport::CharPreviewDesc::Part& dp = desc.parts[desc.partCount++];
+        dp.tris = &charPrevTris_[i];
+        if (i < charPrevTex_.size() && !charPrevTex_[i].rgba.empty()) {
+            dp.rgba = charPrevTex_[i].rgba.data();
+            dp.texW = charPrevTex_[i].w;
+            dp.texH = charPrevTex_[i].h;
+        }
+        // chargen tags the alpha-tested parts by material prefix.
+        dp.cutout = i < charSkel_.parts.size() &&
+                    charSkel_.parts[i].material.rfind("hair:", 0) == 0;
     }
     for (int i = 0; i < 3; ++i) desc.center[i] = (charSkel_.min[i] + charSkel_.max[i]) * 0.5f;
     desc.minY = charSkel_.min[1];
@@ -9197,7 +9255,7 @@ void App::addCharacterToScene() {
         return;
     }
     addModelObject(rel);  // creates the Model object + commitChange()
-    const int tris = charSkel_.parts.empty() ? 0 : charSkel_.parts[0].vertexCount / 3;
+    const int tris = charSkel_.totalVertexCount() / 3;
     statusMessage_ =
         "Added character '" + name + "' (" + std::to_string(tris) + " tris, " +
         std::to_string((int)charSkel_.palette.size()) + " bones)";

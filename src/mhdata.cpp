@@ -159,6 +159,7 @@ bool loadProxy(const std::string& path, Proxy& out, std::string& error) {
 
     out = Proxy();
     bool inVerts = false;
+    bool inDelete = false;
     std::string line;
     while (std::getline(f, line)) {
         if (line.empty() || line[0] == '#') continue;
@@ -173,9 +174,17 @@ bool loadProxy(const std::string& path, Proxy& out, std::string& error) {
             std::istringstream ls(line);
             std::string key;
             ls >> key;
-            inVerts = false;
+            // Only a BLOCK keyword ends the current block. Single-line
+            // properties can and do appear inside one - `bob01.mhclo` puts
+            // `material` on the line right after `verts`, and treating that as
+            // the end of the block silently dropped all 5203 bindings, which
+            // reads as "this asset has no vertex bindings".
             if (key == "verts") {
                 inVerts = true;
+                inDelete = false;
+            } else if (key == "delete_verts") {
+                inDelete = true;
+                inVerts = false;
             } else if (key == "obj_file") {
                 std::getline(ls >> std::ws, out.objFile);
                 while (!out.objFile.empty() &&
@@ -195,6 +204,32 @@ bool loadProxy(const std::string& path, Proxy& out, std::string& error) {
                     out.scaleDist[axis] = dist != 0.0f ? dist : 1.0f;
                 }
             }
+            continue;
+        }
+
+        if (inDelete) {
+            // Whitespace-separated singles and "a - b" ranges, wrapped over
+            // several lines: "1355 - 1388 1393 - 1394 1402 1404 - 1453".
+            std::istringstream ls(line);
+            std::string tok;
+            int pending = -1;
+            bool range = false;
+            while (ls >> tok) {
+                if (tok == "-") {
+                    range = true;
+                    continue;
+                }
+                const int v = std::atoi(tok.c_str());
+                if (range && pending >= 0) {
+                    for (int i = pending; i <= v; ++i) out.deleteVerts.push_back(i);
+                    range = false;
+                    pending = -1;
+                } else {
+                    if (pending >= 0) out.deleteVerts.push_back(pending);
+                    pending = v;
+                }
+            }
+            if (pending >= 0) out.deleteVerts.push_back(pending);
             continue;
         }
 
@@ -230,6 +265,9 @@ bool loadProxy(const std::string& path, Proxy& out, std::string& error) {
         error = path + ": no vertex bindings (expected a `verts` block)";
         return false;
     }
+    std::sort(out.deleteVerts.begin(), out.deleteVerts.end());
+    out.deleteVerts.erase(std::unique(out.deleteVerts.begin(), out.deleteVerts.end()),
+                          out.deleteVerts.end());
     return true;
 }
 

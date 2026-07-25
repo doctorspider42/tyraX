@@ -56,13 +56,14 @@ struct Params {
 // in the bind pose.
 void addLocomotion(glbparser::Skel& skel, const Params& p);
 
-// Linear-blend skinning on the host: poses part 0's mesh at `time` of
-// `clipIndex` and writes the result interleaved as pos3 + normal3 + uv2, ready
-// for Viewport::CharPreviewDesc. This is what lets the editor preview PLAY a
+// Linear-blend skinning on the host: poses EVERY part at `time` of `clipIndex`
+// and writes one interleaved pos3 + normal3 + uv2 array per part, ready for
+// Viewport::CharPreviewDesc. This is what lets the editor preview PLAY a
 // generated cycle - the same evaluation the PS2 does on VU0, at a scale where
-// doing it per frame on the CPU is free.
+// doing it per frame on the CPU is free. Per part rather than concatenated
+// because each carries its own texture (body skin, clothes, hair).
 // clipIndex < 0 (or an empty clip list) writes the bind pose.
 void poseMesh(const glbparser::Skel& skel, int clipIndex, float time,
-              std::vector<float>& outInterleaved);
+              std::vector<std::vector<float>>& outParts);
 
 }  // namespace charanim

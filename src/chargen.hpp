@@ -48,6 +48,17 @@ struct Params {
     int skin = 0;        // index into skins(), -1 = untextured
     int textureSize = 256;  // power of two, 32..256 (PS2 VRAM budget)
 
+    // Wearables: indices into clothesList() / shoesList() / hairList(), -1 =
+    // none. Each becomes its own mesh part with its own texture, and the body
+    // it covers is dropped rather than left to poke through.
+    int clothes = -1;
+    int shoes = -1;
+    int hair = -1;
+    // Triangle budget for the wearables: 0 low, 1 medium, 2 high. The source
+    // garments are 3.5k-16k triangles - offline-render meshes - so this is the
+    // difference between a character that fits a PS2 and one that does not.
+    int clothingDetail = 1;
+
     // Procedural idle/walk/run/jump (charanim). On by default: a character
     // with no clips is a statue, and these are the clip names the generated
     // game's third-person locomotion already looks for.
@@ -63,6 +74,12 @@ struct Params {
 // Skin textures found in the data directory (file stems, sorted). Empty when
 // the data is missing.
 const std::vector<std::string>& skins();
+
+// The CC0 wardrobe found in the data directory, by slot (asset stems, sorted).
+// Clothes and shoes both live in `clothes/` upstream and are split by name.
+const std::vector<std::string>& clothesList();
+const std::vector<std::string>& shoesList();
+const std::vector<std::string>& hairList();
 
 // Absolute path to the MakeHuman CC0 data (vendor/mh-assets next to the
 // editor's own directory), or "" when it is not there. setup.ps1 fetches it.
