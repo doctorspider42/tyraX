@@ -10,6 +10,45 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (178) **Procedural locomotion for generated characters** (`charanim.cpp`,
+  docs/character-generator.md). Every generated character now ships with
+  **idle / walk / run / jump** built analytically - no motion library, no
+  licence, no download - and the Character Generator preview PLAYS them (clip
+  picker, play/pause, scrub). Those four names are what the generated game's
+  third-person locomotion already looks for, so a generated character used as
+  a Player avatar walks, runs and idles with cross-fades and **no further
+  setup**; `idle` is written first so a plain Model object (which autoplays the
+  model's first clip) idles rather than standing in bind pose.
+  **Two design decisions did all the work.** (a) A `Frame` carries one **world**
+  rotation per bone and `buildClip` converts to glTF locals
+  (`inverse(parent world) * world`). "The shin follows the thigh plus a knee
+  bend" is a statement about world orientation; writing it as a chain of
+  parent-relative frames is how animation code becomes unreadable, and the
+  first attempt proved it. (b) The rest stance is **derived** from the rig's own
+  bind directions (`alignTo(bind, target)`), not hardcoded: MakeHuman's arms
+  bind diagonally down-out-forward at a body-dependent angle, so v1's "rotate
+  the arm down 72 degrees about Z" over-rotated past vertical and folded both
+  elbows across the chest - the render made that obvious in one look, which is
+  the whole argument for the throwaway rasterizer harness.
+  Three smaller traps worth keeping: consecutive quaternion keys need
+  **sign correction** (LINEAR interpolation between `q` and `-q` takes the long
+  way round and a limb snaps through the body); the hips translation channel
+  must **add to** the bind translation, not replace it, or the character drops
+  through the floor the moment a clip plays; and the elbow angle has to be held
+  relative to the upper arm through the cycle, not summed with the swing, or
+  the arms straighten out at the back of every stride.
+  `charanim::poseMesh` is host linear-blend skinning - the twin of the
+  console's VU0 pass - which is what makes the live preview possible at all;
+  4380 vertices re-skinned per frame is cheaper than the upload that follows.
+  **Verified**: contact sheets per clip (8 phases x front/side) from the host
+  rasterizer, which is what caught the elbow bug, the zombie-armed jump (arms
+  reaching forward instead of swinging overhead) and the run's straightening
+  elbows; editor screenshot with the Animation section and the preview posed;
+  and a Docker build + PCSX2 boot where the character stands **arms down in the
+  idle pose** rather than in the model's bind pose - which is the console
+  evaluating our generated channels - at 50 FPS. Cost: +17 KB of PS2 RAM
+  (380 -> 397 KB), rebuild still ~10 ms.
+
 - (177) **Character Generator** (docs/character-generator.md) - *Tools >
   Character Generator* builds a rigged, skinned, textured human at the PS2's
   budget (1460 triangles, 23 bones, one 256² skin) from macro sliders, with a

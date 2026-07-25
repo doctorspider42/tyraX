@@ -399,7 +399,7 @@ bool Params::operator==(const Params& o) const {
     return gender == o.gender && age == o.age && muscle == o.muscle && weight == o.weight &&
            african == o.african && asian == o.asian && caucasian == o.caucasian &&
            heightMeters == o.heightMeters && skin == o.skin && textureSize == o.textureSize &&
-           name == o.name;
+           animations == o.animations && anim == o.anim && name == o.name;
 }
 
 std::string dataDir() {
@@ -664,6 +664,10 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             out.min[k] = std::min(out.min[k], built.positions[i + k]);
             out.max[k] = std::max(out.max[k], built.positions[i + k]);
         }
+
+    // Last, because the cycles scale their translations by the finished body's
+    // height - which is only known once the bounds above exist.
+    if (p.animations) charanim::addLocomotion(out, p.anim);
     return true;
 }
 

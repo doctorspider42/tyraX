@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "charanim.hpp"
 #include "glbparser.hpp"
 
 // Procedural character generator (Tools > Character Generator,
@@ -46,6 +47,12 @@ struct Params {
 
     int skin = 0;        // index into skins(), -1 = untextured
     int textureSize = 256;  // power of two, 32..256 (PS2 VRAM budget)
+
+    // Procedural idle/walk/run/jump (charanim). On by default: a character
+    // with no clips is a statue, and these are the clip names the generated
+    // game's third-person locomotion already looks for.
+    bool animations = true;
+    charanim::Params anim;
 
     std::string name = "character";
 

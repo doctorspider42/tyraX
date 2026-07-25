@@ -273,9 +273,13 @@ private:
     // "Add to scene" writes the .glb into res/models/characters and drops in a
     // Model object - from there it is an ordinary animated model.
     void drawCharacterGeneratorWindow();
-    // (Re)builds charSkel_ + the interleaved preview arrays from charParams_
-    // and bumps charPreviewVersion_ so the viewport re-uploads.
+    // (Re)builds charSkel_ + the skin texture from charParams_ (the expensive
+    // half) and then poses it.
     void rebuildCharacterPreview();
+    // Skins charSkel_ at charAnimTime_ of the selected clip into the preview's
+    // interleaved array and bumps charPreviewVersion_ so the viewport
+    // re-uploads. Cheap enough to run every frame while a clip plays.
+    void refreshCharacterPose();
     void addCharacterToScene();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
@@ -693,6 +697,11 @@ private:
     uint64_t charPreviewVersion_ = 0;
     bool charPreviewDirty_ = true;
     char charName_[64] = "character";
+    // Clip playback in the preview: which generated clip, where in it, and
+    // whether it is running. Editor state only - it never reaches the asset.
+    int charClip_ = 0;
+    float charAnimTime_ = 0.0f;
+    bool charPlaying_ = true;
     float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
     bool charGenSpin_ = false;
     int charGenDisplayMode_ = 0;

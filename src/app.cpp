@@ -8888,15 +8888,6 @@ void App::rebuildCharacterPreview() {
     }
     if (charSkel_.parts.empty()) return;
 
-    // The preview takes one interleaved array; the Skel keeps the attributes
-    // apart because that is what both the .glb writer and the .tskl bake want.
-    const glbparser::SkelPart& part = charSkel_.parts[0];
-    charPrevTris_.reserve((size_t)part.vertexCount * 8);
-    for (int v = 0; v < part.vertexCount; ++v) {
-        for (int k = 0; k < 3; ++k) charPrevTris_.push_back(part.positions[v * 3 + k]);
-        for (int k = 0; k < 3; ++k) charPrevTris_.push_back(part.normals[v * 3 + k]);
-        for (int k = 0; k < 2; ++k) charPrevTris_.push_back(part.uvs[v * 2 + k]);
-    }
     // Decoding the already-downscaled 256-square PNG costs about a millisecond
     // - cheap enough to avoid a second copy of the pixels crossing the API.
     if (!charSkel_.images.empty()) {
@@ -8911,6 +8902,25 @@ void App::rebuildCharacterPreview() {
             stbi_image_free(px);
         }
     }
+    if (charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
+    refreshCharacterPose();
+}
+
+void App::refreshCharacterPose() {
+    if (charSkel_.parts.empty()) {
+        charPrevTris_.clear();
+        return;
+    }
+    // The preview takes one interleaved array; the Skel keeps the attributes
+    // apart because that is what both the .glb writer and the .tskl bake want.
+    // Skinning it here is the host twin of what the console does on VU0 - at
+    // 4380 vertices it is far cheaper than the upload that follows.
+    const int clip = charParams_.animations && charClip_ >= 0 &&
+                             charClip_ < (int)charSkel_.clips.size()
+                         ? charClip_
+                         : -1;
+    charanim::poseMesh(charSkel_, clip, charAnimTime_, charPrevTris_);
+    ++charPreviewVersion_;
 }
 
 // Tools > Character Generator: a rigged, skinned human built from the
@@ -9022,6 +9032,26 @@ void App::drawCharacterGeneratorWindow() {
                 "so a crowd wants 64 or 128 (see docs/gs-vram.md).");
     }
 
+    if (ImGui::CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Checkbox("Procedural clips", &p.animations)) dirty = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Generate idle / walk / run / jump on the rig.\n"
+                "Those are the clip names the generated game's third-person\n"
+                "locomotion looks for, so a character used as a Player avatar\n"
+                "walks and runs with no further setup.");
+        ImGui::BeginDisabled(!p.animations);
+        charanim::Params& a = p.anim;
+        dirty |= ImGui::SliderFloat("Walk cycle", &a.walkSeconds, 0.5f, 2.0f, "%.2f s");
+        dirty |= ImGui::SliderFloat("Run cycle", &a.runSeconds, 0.3f, 1.2f, "%.2f s");
+        dirty |= ImGui::SliderFloat("Stride", &a.stride, 0.3f, 1.8f, "%.2f");
+        dirty |= ImGui::SliderFloat("Arm swing", &a.armSwing, 0.0f, 2.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Posture", &a.posture, -1.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("-1 slouched ... +1 upright");
+        dirty |= ImGui::SliderFloat("Idle motion", &a.idleMotion, 0.0f, 2.0f, "%.2f");
+        ImGui::EndDisabled();
+    }
+
     ImGui::Separator();
     const glbparser::SkelPart* part = charSkel_.parts.empty() ? nullptr : &charSkel_.parts[0];
     if (!charBuildError_.empty()) {
@@ -9040,11 +9070,25 @@ void App::drawCharacterGeneratorWindow() {
     // ---- right: live preview ------------------------------------------------
     ImGui::SameLine();
     ImGui::BeginGroup();
-    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + scaled(8.0f);
+    const bool hasClips = charParams_.animations && !charSkel_.clips.empty();
+    const float footer = ImGui::GetFrameHeightWithSpacing() * (hasClips ? 3.0f : 2.0f) +
+                         scaled(8.0f);
     const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
     const int ph = (int)std::max(64.0f, ImGui::GetContentRegionAvail().y - footer);
 
     if (charGenSpin_) charGenAngle_ += io.DeltaTime * 26.0f;
+
+    // Clip playback. Posing is a few hundred microseconds; the version bump it
+    // does is what makes the viewport re-upload the skinned mesh.
+    if (hasClips) {
+        if (charClip_ < 0 || charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
+        const float duration = std::max(0.001f, charSkel_.clips[charClip_].duration);
+        if (charPlaying_) {
+            charAnimTime_ += io.DeltaTime;
+            if (charAnimTime_ > duration) charAnimTime_ = std::fmod(charAnimTime_, duration);
+            refreshCharacterPose();
+        }
+    }
 
     Viewport::CharPreviewDesc desc;
     desc.version = charPreviewVersion_;
@@ -9082,6 +9126,28 @@ void App::drawCharacterGeneratorWindow() {
         }
     } else {
         ImGui::Dummy(ImVec2((float)pw, (float)ph));
+    }
+
+    if (hasClips) {
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::BeginCombo("##charclip", charSkel_.clips[charClip_].name.c_str())) {
+            for (int i = 0; i < (int)charSkel_.clips.size(); ++i)
+                if (ImGui::Selectable(charSkel_.clips[i].name.c_str(), charClip_ == i)) {
+                    charClip_ = i;
+                    charAnimTime_ = 0.0f;
+                    refreshCharacterPose();
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(charPlaying_ ? "Pause" : "Play")) charPlaying_ = !charPlaying_;
+        ImGui::SameLine();
+        const float duration = std::max(0.001f, charSkel_.clips[charClip_].duration);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::SliderFloat("##charscrub", &charAnimTime_, 0.0f, duration, "%.2f s")) {
+            charPlaying_ = false;
+            refreshCharacterPose();
+        }
     }
 
     ImGui::Checkbox("Spin", &charGenSpin_);

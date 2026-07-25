@@ -14,7 +14,7 @@ macro sliders (gender / age / muscle / weight / ethnicity)
 741-vertex body + UVs  ────skin weights transferred────>  rigged mesh
    │  gltfwrite
    ▼
-res/models/characters/<name>.glb   ← an ordinary asset from here on
+res/models/characters/<name>.glb   ← an ordinary asset (+ idle/walk/run/jump)
    │  the existing animated-model chain: import, preview, Animation Editor,
    ▼  .tskl bake with LODs, player avatars, NPC AI, Live Link
 ```
@@ -136,12 +136,53 @@ comfortable, and the texture is the thing to watch in a crowd - GS VRAM is
 ~1.33 MB with no eviction, so drop the skin to 128 or 64 before dropping
 triangles (see [gs-vram.md](gs-vram.md)).
 
+## Animation
+
+Every generated character ships with **idle / walk / run / jump**, generated
+analytically by `charanim.cpp` - no motion library, no licence, no download.
+Those are exactly the clip names the generated game's third-person locomotion
+looks for, so a generated character dropped in as a Player avatar walks, runs
+and idles with cross-fades and **no further setup**. `idle` is written first,
+so a plain Model object (which autoplays the model's first clip) idles rather
+than standing in the bind pose.
+
+Two decisions carry the whole module:
+
+**Bones are found by name, poses are composed in world space.** A `Frame`
+holds one *world* rotation per bone role and `buildClip` converts to the local
+rotations glTF stores (`local = inverse(parent world) * world`). That is what
+makes the cycles readable: "the shin follows the thigh plus a knee bend" is a
+statement about world orientation, and expressing it as a chain of
+parent-relative frames instead is how animation code becomes unreadable.
+
+**The rest stance is derived, not hardcoded.** MakeHuman's arms bind straight
+out to the sides, and diagonally - down, out and slightly forward, at an angle
+that changes with the body's proportions. The first attempt rotated them down
+by a fixed angle and folded both elbows across the chest. `alignTo(bind
+direction, target direction)` builds the minimal rotation instead, so "the
+upper arm hangs down and a little out" means that for every body.
+
+The cycles themselves are ordinary keyframe animation - sinusoidal hip and arm
+swing in counterphase, a knee that only folds backward and only through the
+back half of the swing, an ankle that rolls the foot off at toe-off, a lean and
+counter-rotation up the spine that grow with speed, and two hip rises per
+stride. Sampled at 15 keys/second and written as LINEAR quaternion channels,
+with consecutive keys sign-corrected (interpolating between `q` and `-q` takes
+the long way round, which reads as a limb snapping through the body).
+An all-identity channel is dropped rather than written - the EE pays per
+channel.
+
+`charanim::poseMesh` does linear-blend skinning on the host, which is what lets
+the editor preview PLAY a cycle: it is the same evaluation the console does on
+VU0, at a scale where a full re-skin per frame is free.
+
 ## What is not here yet
 
-- **Animation.** A generated character ships in bind pose with no clips. The
-  rig is Mixamo-named precisely so that the next step - importing a `.fbx`
-  animation library and retargeting onto it, which the vendored ufbx importer
-  already gets most of the way - is a mapping table rather than a rewrite.
+- **Imported animation.** The rig is Mixamo-named precisely so that importing a
+  `.fbx` animation library and retargeting onto it - which the vendored ufbx
+  importer already gets most of the way - is a mapping table rather than a
+  rewrite. The one conversion it needs is that our bind rotations are identity
+  while an authored rig's are not.
 - **Clothing and hair.** MakeHuman's CC0 asset packs include both, fitted
   through the same proxy mechanism `proxy741` uses, so the machinery is
   already here; what is missing is the second material, the alpha-cutout hair
@@ -158,6 +199,7 @@ triangles (see [gs-vram.md](gs-vram.md)).
 |---|---|
 | `src/mhdata.cpp` | readers for the CC0 data (base mesh, targets, proxies, rig, weights). Host-only, no GL. |
 | `src/chargen.cpp` | `Params` → `glbparser::Skel`: macro blend, proxy fit, rig, weight transfer, skin bake. Host-only, no GL, no `Project`. |
+| `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, plus host linear-blend skinning for the preview. Host-only, no GL. |
 | `src/gltfwrite.cpp` | `Skel` → `.glb` bytes; the exact inverse of `glbparser::parseSkel`. |
 | `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer (`charFbo_`), sharing `drawToolPreview` with the Tree Generator. |
