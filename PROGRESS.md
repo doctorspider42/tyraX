@@ -10,6 +10,38 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (180) **Mixamo retargeting for generated characters**
+  (docs/character-generator.md). *Import clips...* in the Character Generator
+  retargets any `.glb`/`.fbx` animation library whose bones carry Mixamo names
+  onto the generated rig, replacing the procedural cycles. This is what the
+  Mixamo naming was for, and the conversion is one line of intent - apply the
+  source bone's rotation relative to its OWN bind pose:
+  `target_world = src_animated_global * inverse(src_bind_global)`, then
+  `local = inverse(parent world) * world`. It works because the generated rig
+  binds with identity rotations, so the delta IS the target's world
+  orientation - the payoff for (177)'s decision - and a constant transform on
+  the source (the -90 deg X flip an FBX conversion leaves behind, a 0.01 unit
+  scale) cancels out of the delta for free.
+  Two things happen on the way in, and they are the point of doing this at
+  all: only the 23 bones this rig HAS are sampled (a Mixamo clip carries ~65
+  including every finger - **156 source channels land as 23**), and the keys
+  are resampled to ~15/s (Mixamo exports a key per frame per bone at 24-30
+  fps, and the EE evaluates those at runtime). Hips translation is scaled by
+  the height ratio and rebased onto the generated bind pose so a 1.95 m source
+  does not lift a 1.60 m character off the floor; *In place* strips the
+  horizontal component.
+  Matrix-form nodes are handled (`localRotation` pulls the rotation out of a
+  matrix with the columns normalized) because an FBX conversion often leaves
+  the root as one, and a failed import leaves the character with the
+  procedural clips it already had rather than with nothing.
+  **Verified** against a real merged Mixamo download the owner supplied
+  (`Arissa_merged2.glb`, 80 nodes, 4 clips, non-identity bind rotations):
+  3 clips retargeted onto 22 matched bones, 156 -> 23 channels each; contact
+  sheets per clip show coherent human motion (a sword guard stance, a lunge, a
+  duck) rather than the folded-limb garbage a sign error produces; and a
+  Docker build + PCSX2 boot shows the dressed character holding the retargeted
+  fighting stance at **50 FPS**.
+
 - (179) **Clothes, shoes and hair for the Character Generator**
   (docs/character-generator.md). The CC0 wardrobe fits through **the same
   mechanism the body does** - a `.mhclo` is byte-for-byte the same barycentric

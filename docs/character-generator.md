@@ -216,13 +216,45 @@ channel.
 the editor preview PLAY a cycle: it is the same evaluation the console does on
 VU0, at a scale where a full re-skin per frame is free.
 
+## Importing animation (Mixamo and friends)
+
+*Import clips...* retargets an existing `.glb`/`.fbx` animation library onto the
+generated rig, replacing the procedural cycles. Any rig that names its bones
+the Mixamo way works - which is the whole reason the generated rig carries
+those names.
+
+The conversion is one line of intent: **apply the source bone's rotation
+relative to its own bind pose**.
+
+```
+target_world(bone) = source_animated_global(bone) * inverse(source_bind_global(bone))
+target_local(bone) = inverse(target_world(parent)) * target_world(bone)
+```
+
+That works because the generated rig binds with identity rotations, so the
+delta IS the target's world orientation - the payoff for that decision. It also
+means a constant transform on the source (the -90° X flip an FBX conversion
+leaves behind, a 0.01 unit scale) cancels out of the delta for free, and a rig
+with different proportions simply drives the joints it matches.
+
+Two things happen on the way in, and both are the point of doing this at all:
+
+- **Only the bones this rig has are sampled.** A Mixamo clip carries ~65 bones
+  including every finger; a 156-channel source clip lands as a 23-channel one.
+- **The keys are resampled** (default 15/s, adjustable). Mixamo exports a key
+  per frame per bone at 24-30 fps, and the EE evaluates those at runtime.
+
+The hips translation is scaled by the height ratio and rebased onto the
+generated bind pose, so a 1.95 m source does not lift a 1.60 m character off
+the floor. *In place* strips the horizontal component - the game moves the
+character, the clip animates it.
+
+Clip names come from the source, so a merged Mixamo download arrives as
+`mixamo.com_1`, `mixamo.com_2`... Rename them in *Tools > Animation Editor*,
+which is non-destructive and retargets every reference for you.
+
 ## What is not here yet
 
-- **Imported animation.** The rig is Mixamo-named precisely so that importing a
-  `.fbx` animation library and retargeting onto it - which the vendored ufbx
-  importer already gets most of the way - is a mapping table rather than a
-  rewrite. The one conversion it needs is that our bind rotations are identity
-  while an authored rig's are not.
 - **Face detail.** The 96 macro targets carry the face's overall character;
   the per-feature targets (nose, chin, ears, mouth - another ~1000 files) are
   not fetched, and at 1460 triangles most of them would not survive anyway.
@@ -234,7 +266,7 @@ VU0, at a scale where a full re-skin per frame is free.
 |---|---|
 | `src/mhdata.cpp` | readers for the CC0 data (base mesh, targets, proxies, rig, weights). Host-only, no GL. |
 | `src/chargen.cpp` | `Params` → `glbparser::Skel`: macro blend, proxy fit, rig, weight transfer, skin bake. Host-only, no GL, no `Project`. |
-| `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, plus host linear-blend skinning for the preview. Host-only, no GL. |
+| `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, retargeting from an imported library, and host linear-blend skinning for the preview. Host-only, no GL. |
 | `src/gltfwrite.cpp` | `Skel` → `.glb` bytes; the exact inverse of `glbparser::parseSkel`. |
 | `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer (`charFbo_`), sharing `drawToolPreview` with the Tree Generator. |

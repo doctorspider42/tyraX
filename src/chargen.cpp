@@ -11,6 +11,7 @@
 #include <stb_image.h>        // implementation lives in app.cpp
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
+#include "fbxparser.hpp"  // animimport::parseSkel - .glb and .fbx alike
 #include "gltfwrite.hpp"
 #include "meshlod.hpp"
 #include "mhdata.hpp"
@@ -140,6 +141,11 @@ struct DataSet {
         std::vector<unsigned char> png;
     };
     std::map<std::string, GarmentTex> garmentTex;
+
+    // Imported animation libraries, keyed by path. A Mixamo .glb is several
+    // megabytes with a mesh nobody needs - parsing it per slider frame would
+    // be absurd.
+    std::map<std::string, glbparser::Skel> animSources;
 };
 
 DataSet& dataSet() {
@@ -683,7 +689,8 @@ bool Params::operator==(const Params& o) const {
            heightMeters == o.heightMeters && skin == o.skin && textureSize == o.textureSize &&
            clothes == o.clothes && shoes == o.shoes && hair == o.hair &&
            clothingDetail == o.clothingDetail && animations == o.animations && anim == o.anim &&
-           name == o.name;
+           animSource == o.animSource && retarget.fps == o.retarget.fps &&
+           retarget.inPlace == o.retarget.inPlace && name == o.name;
 }
 
 std::string dataDir() {
@@ -1115,9 +1122,28 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 out.max[k] = std::max(out.max[k], built.positions[i + k]);
             }
 
-    // Last, because the cycles scale their translations by the finished body's
+    // Last, because both paths scale their translations by the finished body's
     // height - which is only known once the bounds above exist.
     if (p.animations) charanim::addLocomotion(out, p.anim);
+    if (!p.animSource.empty()) {
+        // An imported library replaces the procedural clips, but only if it
+        // actually retargets - a file that turns out not to be a Mixamo-named
+        // rig leaves the character with the cycles it already had rather than
+        // with nothing.
+        DataSet& ds2 = dataSet();
+        auto it = ds2.animSources.find(p.animSource);
+        if (it == ds2.animSources.end()) {
+            glbparser::Skel src;
+            std::string err2;
+            if (!animimport::parseSkel(p.animSource, src, err2)) {
+                warnings.push_back("animation source: " + err2);
+                src = glbparser::Skel();
+            }
+            it = ds2.animSources.emplace(p.animSource, std::move(src)).first;
+        }
+        if (!it->second.clips.empty())
+            charanim::retarget(it->second, out, p.retarget, warnings);
+    }
     return true;
 }
 

@@ -302,6 +302,35 @@ glbparser::SkelClip buildClip(const std::string& name, const Rig& rig, const flo
     return clip;
 }
 
+// Samples one channel at `time`, holding the ends. LINEAR only - which is all
+// addLocomotion emits, all that Mixamo exports, and all the .tskl runtime does
+// between keys.
+void sampleChannel(const glbparser::SkelChannel& ch, float time, float* out, int comps) {
+    const size_t n = ch.times.size();
+    if (!n || ch.values.size() < n * (size_t)comps) return;
+    size_t hi = 0;
+    while (hi < n && ch.times[hi] < time) ++hi;
+    if (hi == 0) {
+        std::memcpy(out, &ch.values[0], comps * sizeof(float));
+        return;
+    }
+    if (hi >= n) {
+        std::memcpy(out, &ch.values[(n - 1) * comps], comps * sizeof(float));
+        return;
+    }
+    const size_t lo = hi - 1;
+    const float t0 = ch.times[lo], t1 = ch.times[hi];
+    const float f = t1 > t0 ? (time - t0) / (t1 - t0) : 0.0f;
+    for (int c = 0; c < comps; ++c)
+        out[c] = ch.values[lo * comps + c] * (1.0f - f) + ch.values[hi * comps + c] * f;
+    if (comps == 4) {
+        const float len =
+            std::sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2] + out[3] * out[3]);
+        if (len > 1e-8f)
+            for (int c = 0; c < 4; ++c) out[c] /= len;
+    }
+}
+
 // Samples `seconds` at the parameter's rate, always closing with a key at
 // exactly `seconds` - a cycle that ends one sample early stutters at the loop.
 std::vector<float> sampleTimes(float seconds, int fps) {
@@ -461,6 +490,175 @@ void addLocomotion(glbparser::Skel& skel, const Params& p) {
 }
 
 // ---------------------------------------------------------------------------
+// Retargeting
+
+namespace {
+
+// The rotation part of a node's local transform, matrix nodes included: a
+// glTF file may carry either form, and an FBX conversion often leaves the root
+// as a matrix.
+Quat localRotation(const glbparser::SkelNode& n) {
+    if (!n.hasMatrix) return normalized({n.r[0], n.r[1], n.r[2], n.r[3]});
+    // Column-major 3x3, columns normalized to divide out scale.
+    float c[3][3];
+    for (int col = 0; col < 3; ++col) {
+        float len = 0.0f;
+        for (int row = 0; row < 3; ++row) len += n.matrix[col * 4 + row] * n.matrix[col * 4 + row];
+        len = std::sqrt(len);
+        if (len < 1e-8f) len = 1.0f;
+        for (int row = 0; row < 3; ++row) c[row][col] = n.matrix[col * 4 + row] / len;
+    }
+    const float trace = c[0][0] + c[1][1] + c[2][2];
+    Quat q;
+    if (trace > 0.0f) {
+        const float s = std::sqrt(trace + 1.0f) * 2.0f;
+        q = {(c[2][1] - c[1][2]) / s, (c[0][2] - c[2][0]) / s, (c[1][0] - c[0][1]) / s, 0.25f * s};
+    } else if (c[0][0] > c[1][1] && c[0][0] > c[2][2]) {
+        const float s = std::sqrt(1.0f + c[0][0] - c[1][1] - c[2][2]) * 2.0f;
+        q = {0.25f * s, (c[0][1] + c[1][0]) / s, (c[0][2] + c[2][0]) / s, (c[2][1] - c[1][2]) / s};
+    } else if (c[1][1] > c[2][2]) {
+        const float s = std::sqrt(1.0f + c[1][1] - c[0][0] - c[2][2]) * 2.0f;
+        q = {(c[0][1] + c[1][0]) / s, 0.25f * s, (c[1][2] + c[2][1]) / s, (c[0][2] - c[2][0]) / s};
+    } else {
+        const float s = std::sqrt(1.0f + c[2][2] - c[0][0] - c[1][1]) * 2.0f;
+        q = {(c[0][2] + c[2][0]) / s, (c[1][2] + c[2][1]) / s, 0.25f * s, (c[1][0] - c[0][1]) / s};
+    }
+    return normalized(q);
+}
+
+// Global rotations of every source node, given a per-node local rotation.
+std::vector<Quat> globalRotations(const glbparser::Skel& s, const std::vector<Quat>& local) {
+    std::vector<Quat> global(s.nodes.size());
+    std::vector<char> done(s.nodes.size(), 0);
+    for (size_t i = 0; i < s.nodes.size(); ++i) {
+        std::vector<int> chain;
+        int cur = (int)i;
+        while (cur >= 0 && cur < (int)s.nodes.size() && !done[cur]) {
+            chain.push_back(cur);
+            cur = s.nodes[cur].parent;
+        }
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+            const int parent = s.nodes[*it].parent;
+            global[*it] = (parent >= 0 && parent < (int)s.nodes.size() && done[parent])
+                              ? mul(global[parent], local[*it])
+                              : local[*it];
+            done[*it] = 1;
+        }
+    }
+    return global;
+}
+
+// Which source node drives each role, by name (the "mixamorig:" prefix is
+// optional on either side).
+std::vector<int> matchRoles(const glbparser::Skel& s) {
+    std::vector<int> node(RoleCount, -1);
+    for (size_t i = 0; i < s.nodes.size(); ++i) {
+        std::string name = s.nodes[i].name;
+        const size_t colon = name.find(':');
+        if (colon != std::string::npos) name = name.substr(colon + 1);
+        for (int role = 0; role < RoleCount; ++role)
+            if (node[role] < 0 && name == kRoleNames[role]) node[role] = (int)i;
+    }
+    return node;
+}
+
+}  // namespace
+
+int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const RetargetOptions& opts,
+             std::vector<std::string>& warnings) {
+    const Rig rig = findRig(skel);
+    if (rig.node[Hips] < 0) return 0;
+    const std::vector<int> srcNode = matchRoles(source);
+    if (srcNode[Hips] < 0) {
+        warnings.push_back(
+            "animation source has no Mixamo-named bones (looked for \"Hips\") - not retargeted");
+        return 0;
+    }
+    int matched = 0;
+    for (int role = 0; role < RoleCount; ++role)
+        if (srcNode[role] >= 0 && rig.node[role] >= 0) ++matched;
+
+    // Bind rotations of the source, and the source's own scale, so a hips
+    // translation lands proportionally on a body of a different height.
+    std::vector<Quat> srcBindLocal(source.nodes.size());
+    for (size_t i = 0; i < source.nodes.size(); ++i) srcBindLocal[i] = localRotation(source.nodes[i]);
+    const std::vector<Quat> srcBindGlobal = globalRotations(source, srcBindLocal);
+    const float srcHeight = source.max[1] - source.min[1];
+    const float heightScale = srcHeight > 0.1f ? rig.height / srcHeight : 1.0f;
+
+    float bindHips[3] = {0, 0, 0};
+    std::memcpy(bindHips, skel.nodes[rig.node[Hips]].t, sizeof(bindHips));
+
+    std::vector<glbparser::SkelClip> out;
+    for (const glbparser::SkelClip& clip : source.clips) {
+        if (clip.duration < opts.minSeconds) continue;
+
+        const std::vector<float> times = sampleTimes(clip.duration, (int)std::lround(opts.fps));
+        std::vector<Frame> frames;
+        frames.reserve(times.size());
+
+        // Root motion is measured on the first sample so an in-place clip
+        // keeps the height it was authored at instead of snapping to bind.
+        float hipsBase[3] = {0, 0, 0};
+        bool haveBase = false;
+
+        for (float t : times) {
+            std::vector<Quat> local = srcBindLocal;
+            float hipsT[3] = {0, 0, 0};
+            bool haveHipsT = false;
+            if (srcNode[Hips] >= 0)
+                std::memcpy(hipsT, source.nodes[srcNode[Hips]].t, sizeof(hipsT));
+
+            for (const glbparser::SkelChannel& ch : clip.channels) {
+                if (ch.node < 0 || ch.node >= (int)source.nodes.size()) continue;
+                if (ch.path == 1) {
+                    float q[4] = {local[ch.node].x, local[ch.node].y, local[ch.node].z,
+                                  local[ch.node].w};
+                    sampleChannel(ch, t, q, 4);
+                    local[ch.node] = {q[0], q[1], q[2], q[3]};
+                } else if (ch.path == 0 && ch.node == srcNode[Hips]) {
+                    sampleChannel(ch, t, hipsT, 3);
+                    haveHipsT = true;
+                }
+            }
+            const std::vector<Quat> global = globalRotations(source, local);
+
+            Frame f;
+            for (int role = 0; role < RoleCount; ++role) {
+                const int sn = srcNode[role];
+                if (sn < 0 || rig.node[role] < 0) continue;
+                // The whole conversion: the source's rotation relative to its
+                // OWN bind, applied to a target that binds with identity.
+                f.put(role, normalized(mul(global[sn], conj(srcBindGlobal[sn]))));
+            }
+            if (haveHipsT) {
+                if (!haveBase) {
+                    std::memcpy(hipsBase, hipsT, sizeof(hipsBase));
+                    haveBase = true;
+                }
+                for (int k = 0; k < 3; ++k)
+                    f.hipsOffset[k] = (hipsT[k] - hipsBase[k]) * heightScale;
+                if (opts.inPlace) f.hipsOffset[0] = f.hipsOffset[2] = 0.0f;
+            }
+            frames.push_back(f);
+        }
+
+        glbparser::SkelClip built = buildClip(clip.name, rig, bindHips, times, frames);
+        if (!built.channels.empty()) out.push_back(std::move(built));
+    }
+
+    if (out.empty()) {
+        warnings.push_back("animation source has no usable clips - not retargeted");
+        return 0;
+    }
+    warnings.push_back("retargeted " + std::to_string(out.size()) + " clip" +
+                       (out.size() == 1 ? "" : "s") + " onto " + std::to_string(matched) +
+                       " matched bones");
+    skel.clips = std::move(out);
+    return (int)skel.clips.size();
+}
+
+// ---------------------------------------------------------------------------
 // Host-side posing (the preview's twin of the console's VU0 skinning)
 
 namespace {
@@ -496,34 +694,6 @@ M16 trs(const float* t, const float* r, const float* s) {
     m.m[13] = t[1];
     m.m[14] = t[2];
     return m;
-}
-
-// Samples one channel at `time`, holding the ends. LINEAR only - which is all
-// addLocomotion emits, and all the .tskl runtime does between keys.
-void sampleChannel(const glbparser::SkelChannel& ch, float time, float* out, int comps) {
-    const size_t n = ch.times.size();
-    if (!n || ch.values.size() < n * (size_t)comps) return;
-    size_t hi = 0;
-    while (hi < n && ch.times[hi] < time) ++hi;
-    if (hi == 0) {
-        std::memcpy(out, &ch.values[0], comps * sizeof(float));
-        return;
-    }
-    if (hi >= n) {
-        std::memcpy(out, &ch.values[(n - 1) * comps], comps * sizeof(float));
-        return;
-    }
-    const size_t lo = hi - 1;
-    const float t0 = ch.times[lo], t1 = ch.times[hi];
-    const float f = t1 > t0 ? (time - t0) / (t1 - t0) : 0.0f;
-    for (int c = 0; c < comps; ++c)
-        out[c] = ch.values[lo * comps + c] * (1.0f - f) + ch.values[hi * comps + c] * f;
-    if (comps == 4) {
-        const float len =
-            std::sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2] + out[3] * out[3]);
-        if (len > 1e-8f)
-            for (int c = 0; c < 4; ++c) out[c] /= len;
-    }
 }
 
 }  // namespace

@@ -64,6 +64,12 @@ struct Params {
     // game's third-person locomotion already looks for.
     bool animations = true;
     charanim::Params anim;
+    // A .glb/.fbx whose clips are retargeted onto the generated rig instead of
+    // the procedural ones ("" = procedural). Any Mixamo-named rig works - that
+    // is what the bone naming is for. The file is read at build time, so a
+    // character is deterministic in (Params + that file).
+    std::string animSource;
+    charanim::RetargetOptions retarget;
 
     std::string name = "character";
 

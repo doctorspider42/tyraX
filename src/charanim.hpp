@@ -56,6 +56,37 @@ struct Params {
 // in the bind pose.
 void addLocomotion(glbparser::Skel& skel, const Params& p);
 
+struct RetargetOptions {
+    // Mixamo exports at 24-30 fps with a key on every frame for all ~65 bones.
+    // The PS2 evaluates keys on the EE, so resampling to a rate a PS2 game
+    // would actually use is most of the win here.
+    float fps = 15.0f;
+    // Strip horizontal root motion: the clip animates in place and the game
+    // moves the character, which is what every locomotion system here expects.
+    bool inPlace = true;
+    // Drop clips shorter than this (Mixamo merges leave a 0-second "mixamo.com"
+    // clip that is just the bind pose).
+    float minSeconds = 0.05f;
+};
+
+// Retargets every clip of `source` onto `skel`, replacing its clips. Both rigs
+// are matched BY BONE NAME (the Mixamo names chargen writes), and only the
+// bones `skel` actually has are driven - a source rig's fingers and twist
+// bones are simply not sampled, which is most of why a 156-channel Mixamo clip
+// lands as a ~23-channel one.
+//
+// The conversion is a rotation DELTA: the source bone's animated global
+// rotation relative to its own BIND global rotation is applied to the target's
+// bind orientation. That is what makes an authored rig (whose bind rotations
+// are not identity) drive a generated one (whose are), and a constant root
+// transform on the source - the -90 degree X flip an FBX conversion leaves
+// behind, a 0.01 unit scale - cancels out of the delta for free.
+//
+// Returns the number of clips written; 0 means nothing matched (with a note in
+// `warnings`), and the caller should keep whatever clips it had.
+int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const RetargetOptions& opts,
+             std::vector<std::string>& warnings);
+
 // Linear-blend skinning on the host: poses EVERY part at `time` of `clipIndex`
 // and writes one interleaved pos3 + normal3 + uv2 array per part, ready for
 // Viewport::CharPreviewDesc. This is what lets the editor preview PLAY a

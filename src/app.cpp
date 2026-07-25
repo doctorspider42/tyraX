@@ -9088,6 +9088,44 @@ void App::drawCharacterGeneratorWindow() {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("-1 slouched ... +1 upright");
         dirty |= ImGui::SliderFloat("Idle motion", &a.idleMotion, 0.0f, 2.0f, "%.2f");
         ImGui::EndDisabled();
+
+        ImGui::Spacing();
+        // An imported library replaces the procedural clips. Any rig whose
+        // bones carry Mixamo names works - which is the whole reason the
+        // generated rig carries them.
+        if (ImGui::Button("Import clips...")) {
+            const std::string file = pickPath(PickKind::ObjModel);
+            if (!file.empty()) {
+                p.animSource = file;
+                dirty = true;
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Retarget a .glb/.fbx animation library (Mixamo and anything\n"
+                "else that names its bones the same way) onto this character.\n"
+                "Replaces the procedural clips.");
+        if (!p.animSource.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear##animsrc")) {
+                p.animSource.clear();
+                dirty = true;
+            }
+            const size_t slash = p.animSource.find_last_of("/\\");
+            ImGui::TextWrapped(
+                "%s", slash == std::string::npos ? p.animSource.c_str()
+                                                 : p.animSource.c_str() + slash + 1);
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            if (ImGui::SliderFloat("Key rate", &p.retarget.fps, 8.0f, 30.0f, "%.0f fps"))
+                dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Mixamo exports a key per frame for every bone; the EE\n"
+                    "evaluates those, so resampling is most of the saving.");
+            if (ImGui::Checkbox("In place", &p.retarget.inPlace)) dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Strip horizontal root motion - the game moves the character.");
+        }
     }
 
     ImGui::Separator();
