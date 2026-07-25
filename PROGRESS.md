@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (175) **Camera roll: Dutch angles from the phone's own tilt, all the way to the
+- (178) **Camera roll: Dutch angles from the phone's own tilt, all the way to the
   console.** Asked for as a "tiny fix" alongside locking the phone app to
   landscape; landscape was tiny, this was not - it runs model -> serialization ->
   codegen -> PS2 runtime -> **engine** -> viewport -> UI.
@@ -69,7 +69,7 @@ Each finished feature lands as its own commit.
   graph to trigger the cutscene, which this scratch project has none of. The data
   and the render path are verified as far as they can be without booting.
 
-- (174) **Phone camera: the phone as a live viewfinder that records cutscene
+- (177) **Phone camera: the phone as a live viewfinder that records cutscene
   camera moves.** The other half of the camera-takes story (152): instead of
   importing a finished ARKit recording, the editor **hosts a link on the LAN**,
   a companion iOS app connects, and from then on the phone screen shows a live
@@ -190,6 +190,150 @@ Each finished feature lands as its own commit.
   flying the same lane would fight the person holding the device, and there is
   no reading of that fight where the software should win.
 
+- (176) **The baked light was being clipped by the GS ALPHA TEST - it was never
+  a resolution problem.** The user kept saying the lights looked square and
+  "like the texture is just cut off", and proposed reworking the whole thing
+  onto per-object textures. Measured before rewriting anything, and the
+  measurement said the architecture was fine and something else was broken.
+  **The forensics** (worth keeping - each step killed a hypothesis):
+  the atlas region for the lit alley wall has **every one of its 10920 texels
+  lit** and no hard edge anywhere in RGB or in alpha, so the "the lightmap cuts
+  off" reading could not be about the data. A **1-texel checkerboard written
+  over the entire atlas** then showed the wall correctly checkered *except* the
+  same black V-shaped notch and isolated square - a hole that survives whatever
+  is in the texture is a hole in the RASTERISATION, not the bake. It also
+  measured the two things I would otherwise have guessed at: the atlas IS
+  bilinearly filtered (the checker renders as a smooth dot pattern, not hard
+  squares) and one texel is ~6 GS pixels wide at that distance. Dumping the
+  region's **alpha == 0 mask** produced exactly the notch, pixel for pixel.
+  **The bug:** StaPip sets the GS alpha test to `ATEST_METHOD_NOTEQUAL` against
+  0 - the cutout rule that makes foliage and decals work. The scene lightmap
+  carries occlusion in `A` and light in `RGB` and is read by two passes over
+  the same texture, so **any texel with zero occlusion failed the alpha test
+  and discarded the additive LIGHT pass with it**. Baked light was silently
+  clipped to wherever the ambient occlusion happened to be non-zero. It has
+  been that way since the atlas landed; it reads as blockiness because the
+  clip follows the texel grid, which is why nobody chased it to the alpha
+  channel.
+  **The fix is one line:** floor every lightmap texel's alpha at 2
+  (`aobake::kMinLightmapAlpha`). Not 1 - the engine's PNG loader scales alpha
+  0..255 to 0..128 by integer division, so 1 lands back on 0. Two costs 1/128
+  of darkening, under one framebuffer level. No engine change, no format
+  change, no VRAM, no extra pass.
+  **Result** (PCSX2, software renderer, frozen camera, bloom held fixed so the
+  pulser cannot confound it): the notch, the isolated square and the whole
+  blocky lit/unlit boundary are gone, and the wall is one continuous gradient.
+  **26.4% of the frame gained light** (up to +30 levels) and nothing lost more
+  than 4. 50 FPS unchanged.
+  Also landed here: per-texel bakes now average over the texel's **footprint**
+  (a 4×4 sub-sample grid, `kSuper`) instead of point-sampling its centre. A
+  fixture 0.3 units off a wall throws a penumbra far under one texel, and a
+  point sample of that aliases into the staircase bilinear then reconstructs.
+  Worth 17% off the worst-direction step on the softest edges
+  (`s3-pillar-lit-3` r3: 2.18 → 1.82) for host bake time only.
+  **The rework was not needed, and the numbers say it would not have helped:**
+  a per-object 128² texture is 16384 texels for a whole object, and that wall
+  already gets 14080 from the shared atlas. The only real lever on texel count
+  would be bits per texel (the atlas is RGBA32 because the *occlusion* needs a
+  smooth alpha), and that is a much bigger change to reach for once the actual
+  bug is fixed.
+
+- (175) **Texel density per AXIS, and a measured dead end.** Half of this
+  entry's original subject - baked light landing per texel on the TERRAIN - was
+  implemented independently on `main` as (172) while this branch was in flight,
+  and the merge kept that implementation; it is the better one (shadow casters
+  pruned once per emitter rather than once per texel). What survives here is
+  the atlas side.
+  The alley wall in `examples/glow` was still visibly coarse along its length.
+  The obvious fix - raise the flat 128-texel per-region cap that was binding on
+  that axis - was tried first and **measured worse**: 42528 -> 32722 texels in
+  use, and the worst-direction step on the lit face grew, because huge regions
+  pack badly and the extra resolution went onto the axis with no gradient on
+  it. The cap was not the problem; **isotropic density** was. The pre-pass grid
+  went 4x4 -> 6x6 and now also measures how fast the signal moves along each of
+  the region's two axes, splitting the area the peak earned between them (area
+  still proportional to peak, only the aspect moves, clamped to 2x).
+  **Numbers** (`examples/glow`, host harness, same 256 square atlas).
+  Blockiness is the mean step between neighbouring texels in the region's
+  *worse* direction: `s4-wall-left` r0 went **5.70 -> 2.53 -> 2.26** (original
+  -> (174) -> now) at **6.0x6.0 -> 13.8x7.1 -> 15.6x7.8** texels per world
+  unit; `s3-shadow-wall` r1 **7.80 -> 3.20 -> 2.99**. The last step uses FEWER
+  texels than (174) did (39068 vs 42528) - the win is the axis, not the budget.
+  *Testing lesson, and it cost me a bogus A/B:* freezing the camera with
+  `walkSpeed`/`lookSpeed` 0 is **not enough** when the project has
+  *Keyboard & mouse controls* on - PCSX2 binds the host pointer to an emulated
+  USB mouse and any cursor movement turns the view. The first comparison
+  reported "53% of pixels brighter"; with `keyboardMouse` off in the fixture the
+  same pair is 6.3% brighter / 10.1% darker, mean **-1.35** - a redistribution,
+  not a brightening. Turn the preference off in any screenshot fixture.
+
+- (174) **Scene lightmap: soft shadows from area emitters, and a texel budget
+  that follows the light.** Two independent improvements to the existing bake
+  (`aobake.cpp` + its two twins), both measured rather than eyeballed.
+  **(a) Soft shadows.** The shadow test cast ONE ray, to the emitter's nearest
+  surface point, and the contribution was all-or-nothing - but an emitter is an
+  AREA source (a lava plate, a neon strip), so that can only ever produce a hard
+  rectangular edge where a real one has a penumbra. It now casts eight: ray 0 to
+  the nearest surface point (so `samples = 1` reproduces the old behaviour bit
+  for bit) plus seven spread over the emitter's silhouette as seen from the lit
+  point - its extent projected onto the plane perpendicular to ray 0, sampled on
+  a fixed Vogel disk (`kEmisShadowDisk`). **No RNG anywhere**: a bake has to be
+  reproducible, and a spiral beats a grid here because a straight shadow edge
+  resolves into as many levels as there are distinct offsets (8, not the 3 a 3×3
+  grid gives). One subtlety worth keeping: rays aimed *below* the receiver's
+  horizon are dropped from the vote rather than counted as blocked - counting
+  them would darken a floor standing next to a big plate with no occluder
+  anywhere, and leaving them out keeps the "nothing blocks ⇒ identical to
+  before" invariant exact.
+  **(b) Texel density where the light is.** Region sizing was pure world area,
+  so on `examples/glow` the atlas spent 36% of a 256² image uniformly - pedestal
+  undersides and wall backs at the same density as the lit walls. A 4×4 probe
+  grid per region now estimates the peak signal it can carry (light received +
+  occlusion cast on it), the density scales with `sqrt(peak)` so the AREA a
+  region gets is proportional to what it receives, and a 20-step bisection then
+  raises the density globally until the pack actually fills the image (the old
+  halving ladder left whatever the power-of-two round-up wasted). The atlas
+  DIMENSION is still derived from the *unweighted* area on purpose: weighting
+  must not move a project's VRAM in either direction.
+  **Numbers** (`examples/glow`, same 256² atlas both sides, both from a full
+  `--build` - `--refresh-gen` does not run texbake, so an A/B across it compares
+  a stale PNG with itself and silently proves nothing):
+  texels in use 23572 → 42528 (36.0% → 64.9% of the image); texels on regions
+  that receive light 20571 → 38944 (+89%) against 3001 → 3584 (+19%) for those
+  that receive none; the lit face of `s4-wall-left` went 30×108 → 69×128, i.e.
+  **6.0 → 13.8 texels per world unit** with the mean step between neighbouring
+  texels along the gradient dropping 7.76 → 3.24 - that step size *is* the
+  blockiness. Decoding the shipped `.res-baked/aoatlas/scene0.png` on both sides
+  agrees: 22939 → 41328 lit texels, 20256 → 40384 occluded.
+  For (a) in isolation (layout held fixed, so the comparison is per texel):
+  185 texels darkened, 298 brightened, 65053 unchanged, total light +0.36%. Note
+  the tempting invariant "a shadowing change must never brighten a texel" is
+  **false** for this change and has to be - a penumbra darkens the lit side of
+  the old hard edge and brightens the shadowed side; what does hold, and what
+  was asserted, is that nothing outside the penumbra band moves at all.
+  `s3-pillar-OUT-OF-REACH` stays at 0 lit texels, while `s3-pillar-lit-3` -
+  which the wall put in full umbra - goes from 0 lit texels to 319.
+  **The one deliberate divergence.** The generated game's per-vertex path
+  (terrain, models, spawned clones, physics bodies, textured receivers) keeps
+  the single hard ray, so the three implementations are no longer exact twins.
+  Measured before deciding, per the brief: an EE timer around `loadScene(0)` in
+  PCSX2 with the blocker loop repeated 8× cost **+200 ms of scene load**
+  (1160 → 1360 ms) on this scene, and the same multiplier would land mid-frame
+  on every runtime spawn and static-batch rebuild - to resolve a penumbra on a
+  grid whose own resolution is 2 world units (33×33 heightmap over 64×64) or a
+  box face's four corners. Written down in docs/emissive-materials.md, in the
+  `emissiveLightAt` header comment, in the editor skill and in the glow README,
+  because an undocumented twin divergence is a trap for the next person.
+  **Verified**: PCSX2, software renderer, PAL - **50 FPS held** on both builds;
+  before/after screenshots from a frozen camera (walkSpeed/lookSpeed 0 in the
+  fixture - the FPP camera drifts, and two boots otherwise never line up), and
+  the difference is confined to the shadowed faces (0.43% of pixels brighter,
+  0.17% darker, everything else untouched). Editor viewport: shader compiles and
+  renders the scene with the same softening - it could not be pixel-A/B'd,
+  because moving its camera needs synthetic input this machine must not receive.
+  Host side, the whole bake is exercised by a scratch harness that links
+  `aobake.cpp` + `project.cpp` and dumps the atlas plus per-region statistics -
+  the same trick treegen and matbake use, and far faster than clicking the GUI.
 - (173) **Authoring ergonomics: orthographic/axis views, collision-aware
   placement, and a paste that follows the cursor.** Three requested editor
   features, one commit each in spirit but one branch in practice - they share

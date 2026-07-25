@@ -430,6 +430,48 @@ non-RGBA formats (the R32F heightmap) do the same two steps inline.
   and the emitter's own must be excluded (the ray starts on one and ends on
   the other), and the ray needs a small bias off the surface or a prop resting
   on a floor shadows it with its contact face.
+  Emitters are AREA sources, so ONE ray only ever answers lit-or-black and
+  paints a hard edge: the host bake and the viewport cast
+  `aobake::kEmisShadowSamples` rays (ray 0 to the nearest surface point, the
+  rest over the silhouette via the fixed `kEmisShadowDisk` - no RNG, bakes must
+  be reproducible) and use the unblocked fraction as a visibility multiplier.
+  Rays aimed below the receiver's horizon are left OUT of the vote, not counted
+  as blocked - otherwise a floor beside a big plate darkens with no occluder
+  anywhere. The generated game's per-vertex path deliberately stays at one ray
+  (measured: 8 rays = +200 ms of EE scene load on examples/glow, and the vertex
+  grid cannot resolve a penumbra anyway) - the ONE place these three twins
+  diverge, written down in docs/emissive-materials.md.
+- **Atlas region sizing is importance-weighted, per AXIS**: a 6×6 probe grid
+  per region gives both the peak signal (sets the region's AREA, density
+  `sqrt(peak)`) and the signal's gradient along each of its two axes (splits
+  that area between them - a long wall's height needs density its length does
+  not). A bisection then raises the density until the image is full. The atlas
+  DIMENSION still comes from the unweighted area on purpose - VRAM must not
+  move when the weighting does. Measured dead end: simply RAISING the old flat
+  128-texel per-axis cap made things worse (it packs badly and spends the win
+  on the flat axis); the cap was not the problem, isotropic density was.
+- **A lightmap texel's ALPHA MUST NEVER BE 0** (`aobake::kMinLightmapAlpha`).
+  StaPip draws with the GS alpha test set to "pass only when alpha != 0" - the
+  cutout rule that makes foliage and decals work
+  (`stapip_qbuffer_renderer.cpp`). Both lightmap passes sample the SAME
+  texture, so a texel whose occlusion is zero fails that test and takes the
+  ADDITIVE LIGHT pass down with it: baked light silently clipped to wherever
+  the AO happened to be non-zero, as hard texel-aligned holes. This looks
+  exactly like "the lightmap is too low-res" and is not - if a bake looks
+  cut off, dump the alpha channel before touching resolution. The engine's PNG
+  loader scales alpha 0..255 -> 0..128 by integer division, so the floor has to
+  be 2, not 1.
+- **Per-texel bakes average over the texel footprint** (`kSuper`), because a
+  fixture close to a wall throws a sub-texel-sharp penumbra and point-sampling
+  it aliases into a staircase. Host-side cost only.
+- **The terrain takes the same treatment through the terrain AO map**, whose
+  RGB channels carry the light while the alpha keeps the occlusion
+  (`SCENE_TERRAIN_LIT` gates the extra additive chunk pass AND tells the vertex
+  bake to leave the light out - miss the second half and it lands twice). Two
+  traps: the occlusion pass's vertex color MUST be black once RGB is populated
+  (white drags the light into the multiply), and a TEXTURED terrain has to stay
+  on the vertex path for the same reason textured receivers do (a flat add
+  blows out dark texels).
 - **Facing terms**: `max(0, N.L)` is wrong for anything standing in for an
   AREA source - it lights one face of a box fully and its neighbour not at all,
   seaming on the corner. The occluder bake uses a linear wrap
