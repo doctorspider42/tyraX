@@ -9138,3 +9138,63 @@ Each finished feature lands as its own commit.
   not possible: the FPP camera lands in a different pose each boot (the known
   per-run camera problem in tyra-testing), so the comparison is on the leaf
   artefact, not on identical frames.
+
+- (104) **Tree Generator: height scales the tree, and conifers grow by their
+  own rule** (user, on the first real use of the generator: "when I raise the
+  height the tree gets thinner, and there is no way to make a Christmas tree").
+  Two separate shortcomings, both about the parameter MODEL rather than the
+  mesh code.
+  *Proportions:* `height` was a world length while `trunkRadius` and
+  `leafSize` were world lengths too, so the Height slider stretched the trunk
+  and left the girth behind - a taller tree became a pole, a shorter one a
+  stump. Height is now the tree's SIZE: `thickness` and `leafSize` are
+  fractions of it (the sliders read `% of h`, tooltips show the resulting
+  units), so dragging Height is a uniform scale. Measured with a host harness:
+  the Oak's width/height is 0.5969 at heights 5, 10 and 20 - bit-identical
+  proportions, which is exactly the property that was missing.
+  *Conifers:* the recursion only knew one habit - children spiral up every
+  parent and the crown emerges from ratios. A spruce is not that shape with
+  different numbers: its trunk keeps an unbroken leader and carries WHORLS
+  whose length follows a profile ALONG THE TRUNK (longest low, vanishing at the
+  apex - that profile is the cone) with the tilt sweeping from drooping at the
+  bottom to raised at the top. `lengthTaper` is a per-generation ratio and
+  cannot express either, which is why the old Spruce preset was a bare pole
+  with tufts on stalks. Added `Params::crown` (0 spread / 1 conical) +
+  `whorls`; conical mode runs `conicalWhorls()` off the trunk, reads
+  `children[0]` as the count per whorl, and offsets each whorl by the golden
+  angle so boughs never stack into columns.
+  Foliage needed two fixes to match: anchors now carry the **branch length they
+  own** (`Anchor::span`) and needle cards spread over it instead of over the
+  card size - a low-poly bough has two or three rings, so without this its
+  needles clumped at those points with bare tube between them - and the
+  conifer's leader is sampled at its own fixed rate rather than at the trunk's
+  rings, because foliage is shared out per anchor and the apex's two rings lost
+  every time against the ~200 anchors down in the whorls (measured: 13 leaf
+  triangles above y=8.25 before, 33 after, on a 10-unit tree). Needle cards
+  also lie along the twig and spin around it now instead of facing a random
+  direction. Spruce preset rebuilt around all of it: 10 whorls of 5, needles
+  down the whole bough, **1440 triangles** (was 943 for a shape nobody wanted).
+  Verified with a scratch harness (`treegen` has no GL/Project dependency, so
+  it links into a 40-line host program): triangle counts and bounding boxes for
+  every preset, the proportionality table above, a foliage-per-height-band
+  histogram to find the starved apex, and orthographic silhouettes of the
+  result from three angles - the shape is a continuous cone from base to spire,
+  and the five other presets are unchanged. That harness loop found three
+  problems the GUI would have made me squint at; it belongs in the scratchpad,
+  not the repo.
+  *Follow-up, same session:* the user dragged the finished Height slider and
+  found it still gave "two shapes it jumps hard between". Scaling the world
+  DIMENSIONS was not enough - the "too small to bother" cutoffs that drop a
+  child branch (`clen < 0.02`, `crad < 0.004`) were still absolute, so below
+  about height 2 whole whorls fell through them and a 0.5-unit spruce came out
+  a pole with a skirt (315 bark triangles against 840 at height 20 - the
+  triangle counters in the two screenshots were the tell). They are fractions
+  of height now, as is the degenerate-radius guard in the bark `vStep`. Proven
+  by the strong form of the property rather than by eye: generated at heights
+  0.5 through 20 every preset holds one triangle count and one width/height
+  ratio, and the height-5 mesh multiplied by 4 is **bit-identical** to the
+  height-20 mesh, vertex for vertex, for all six (exact because 4 is a power of
+  two; a non-power-of-two ratio would differ in the last float bits). Lesson
+  worth keeping: a size control must not change what it is sizing, and an
+  absolute epsilon inside a parametric generator is a shape parameter in
+  disguise.

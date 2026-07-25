@@ -8171,7 +8171,16 @@ void App::drawTreeGeneratorWindow() {
 
     if (ImGui::CollapsingHeader("Trunk", ImGuiTreeNodeFlags_DefaultOpen)) {
         dirty |= ImGui::SliderFloat("Height", &p.height, 0.5f, 20.0f, "%.1f");
-        dirty |= ImGui::SliderFloat("Base radius", &p.trunkRadius, 0.03f, 1.0f, "%.2f");
+        // Thickness and leaf size are FRACTIONS of height (shown as percent),
+        // so Height scales the whole tree instead of stretching it thinner.
+        float thickPct = p.thickness * 100.0f;
+        if (ImGui::SliderFloat("Thickness", &thickPct, 0.5f, 15.0f, "%.1f%% of h")) {
+            p.thickness = thickPct * 0.01f;
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Trunk base radius as a share of height (= %.2f units)",
+                              p.thickness * p.height);
         dirty |= ImGui::SliderFloat("Root flare", &p.flare, 1.0f, 3.0f, "%.2f");
         dirty |= ImGui::SliderFloat("Taper", &p.taper, 0.1f, 0.95f, "%.2f");
         dirty |= ImGui::SliderFloat("Gnarliness", &p.gnarliness, 0.0f, 0.5f, "%.2f");
@@ -8179,25 +8188,56 @@ void App::drawTreeGeneratorWindow() {
     }
 
     if (ImGui::CollapsingHeader("Branches", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const char* kCrown[] = {"Spread (broadleaf)", "Conical (conifer)"};
+        dirty |= ImGui::Combo("Crown", &p.crown, kCrown, 2);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Spread: branches spiral up every parent, the shape emerges.\n"
+                "Conical: the trunk runs to the apex and carries whorls of\n"
+                "boughs that shorten toward the top - a spruce/fir habit.");
         dirty |= ImGui::SliderInt("Levels", &p.levels, 1, 4);
-        for (int i = 0; i + 1 < p.levels && i < 3; ++i) {
-            ImGui::PushID(i);
-            char lbl[32];
-            std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
-            dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
-            ImGui::PopID();
+        if (p.crown == 1) {
+            dirty |= ImGui::SliderInt("Whorls", &p.whorls, 2, 20);
+            dirty |= ImGui::SliderInt("Per whorl", &p.children[0], 1, 8);
+            for (int i = 1; i + 1 < p.levels && i < 3; ++i) {
+                ImGui::PushID(i);
+                char lbl[32];
+                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
+                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
+                ImGui::PopID();
+            }
+        } else {
+            for (int i = 0; i + 1 < p.levels && i < 3; ++i) {
+                ImGui::PushID(i);
+                char lbl[32];
+                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
+                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
+                ImGui::PopID();
+            }
         }
         dirty |= ImGui::SliderFloat("Branch angle", &p.branchAngle, 5.0f, 90.0f, "%.0f");
+        if (p.crown == 1 && ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Conical: the tilt at mid-trunk. Lower whorls droop past it,\n"
+                "the ones near the apex sweep up.");
         dirty |= ImGui::SliderFloat("Angle jitter", &p.angleJitter, 0.0f, 30.0f, "%.0f");
         dirty |= ImGui::SliderFloat("Length ratio", &p.lengthRatio, 0.2f, 0.95f, "%.2f");
-        dirty |= ImGui::SliderFloat("Length taper", &p.lengthTaper, 0.0f, 0.9f, "%.2f");
+        if (p.crown != 1)
+            dirty |= ImGui::SliderFloat("Length taper", &p.lengthTaper, 0.0f, 0.9f, "%.2f");
         dirty |= ImGui::SliderFloat("Radius ratio", &p.radiusRatio, 0.2f, 0.9f, "%.2f");
         dirty |= ImGui::SliderFloat("Spawn start", &p.spawnStart, 0.0f, 0.8f, "%.2f");
     }
 
     if (ImGui::CollapsingHeader("Leaves", ImGuiTreeNodeFlags_DefaultOpen)) {
-        dirty |= ImGui::SliderInt("Count", &p.leafCount, 0, 400);
-        dirty |= ImGui::SliderFloat("Size", &p.leafSize, 0.1f, 1.5f, "%.2f");
+        dirty |= ImGui::SliderInt("Count", &p.leafCount, 0, 600);
+        float leafPct = p.leafSize * 100.0f;
+        if (ImGui::SliderFloat("Size", &leafPct, 1.0f, 30.0f, "%.1f%% of h")) {
+            p.leafSize = leafPct * 0.01f;
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Leaf card width as a share of height (= %.2f units)",
+                              p.leafSize * p.height);
         dirty |= ImGui::SliderFloat("Aspect", &p.leafAspect, 0.5f, 2.5f, "%.2f");
         dirty |= ImGui::SliderInt("On outer levels", &p.leafLevels, 1, 4);
         const char* kLeaf[] = {"Broadleaf", "Needles", "Single leaf"};

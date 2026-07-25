@@ -48,7 +48,10 @@ rather than emergent. Radial sides and length rings **interpolate from the trunk
 values down to the `*Min` values on the outermost branch level** — the trunk
 gets 6 sides, twigs get 3, and detail lands where it reads.
 
-The six presets land at **437–943 triangles** each (measured, see PROGRESS).
+The six presets land at **437–1440 triangles** each (measured, see PROGRESS).
+Spruce is the expensive one by nature: a conifer's look IS its bough count, so
+it spends ~50 short tubes plus 300 needle cards where a broadleaf spends a
+dozen big branches.
 The window shows a live triangle count, green under 1800, amber past it, red
 past 3000 with a nudge to trim — advisory, never blocking.
 
@@ -73,14 +76,62 @@ disk or the shared asset caches until you add — so slider drags stay instant.
 It renders into its **own framebuffer**, not the Material Editor's: both tools
 can be open at once and size their previews independently.
 
-Parameter groups: **Trunk** (height, base radius, root flare, taper,
-gnarliness, upward pull), **Branches** (levels 1–4, children per level, tilt +
-jitter, length/radius ratios, spawn start), **Leaves** (count, size, aspect, how
-many outer levels get them, foliage style), **Appearance** (bark style, four
-colors) and **Detail** (the poly-budget levers above).
+Parameter groups: **Trunk** (height, thickness, root flare, taper,
+gnarliness, upward pull), **Branches** (crown architecture, levels 1–4,
+children per level, tilt + jitter, length/radius ratios, spawn start),
+**Leaves** (count, size, aspect, how many outer levels get them, foliage
+style), **Appearance** (bark style, four colors) and **Detail** (the
+poly-budget levers above).
 
 Presets: **Oak**, **Birch**, **Spruce**, **Poplar**, **Dead tree** (no leaves),
 **Bush**.
+
+### Height is the tree's size
+
+Everything with a world dimension — trunk radius, leaf card — is a **fraction
+of height** (the sliders read as `% of h`, with the resulting world units in
+the tooltip). So dragging Height scales the whole tree, which is what you
+expect from a size control. Absolute radii did the opposite: a taller tree kept
+its old girth and turned into a pole, a shorter one into a stump.
+
+The **"too small to bother" cutoffs** that drop a child branch are fractions of
+height for the same reason. As absolute sizes they made a small tree a
+different tree rather than a smaller one: at height 0.5 a spruce lost whole
+whorls to the cutoff and came out a pole with a skirt, while the identical
+parameters at 20 kept everything — the slider read as two shapes with a jump
+between them. The invariant to preserve when adding anything with a world
+dimension: **the same parameters at two heights must produce the same mesh,
+scaled** — same triangle count, same proportions, positions differing only by
+the ratio.
+
+### Crown architecture
+
+**Spread** is the branching recursion: children spiral up every parent and the
+shape emerges from the ratios. That is a broadleaf.
+
+**Conical** is the conifer habit, and it is a different growth rule rather than
+a preset of the same one — which is why no amount of slider tuning produced a
+believable spruce before. The trunk runs unbroken to the apex (an *excurrent*
+leader) and carries **whorls**: rings of boughs, each ring offset from the last
+by the golden angle so they never stack into columns. Two things make the
+silhouette, and neither is a per-generation ratio:
+
+- **length follows a profile along the trunk** — longest low, vanishing at the
+  apex. That profile *is* the cone. `Length ratio` sets the bottom bough, the
+  falloff is fixed.
+- **tilt sweeps with height** — lower boughs droop past horizontal, the ones
+  near the apex sweep up. `Branch angle` is the tilt at mid-trunk.
+
+Foliage differs too: a conifer needles the bough from the trunk outward (a
+broadleaf clusters toward the tips), and cards spread over the **branch length
+an anchor owns** rather than over the card size, so a low-poly bough with two
+rings still comes out evenly needled instead of clumping at its ring points.
+The leader is sampled at its own fixed rate for the same reason — foliage is
+shared out per anchor, so hanging the apex off the trunk's few rings starved it
+against the ~200 anchors down in the whorls.
+
+Needle cards also lie **along** the twig and spin around it, instead of facing
+a random direction like a broadleaf cluster.
 
 Bark styles bake tileable procedural textures (rough ridges, birch lenticels,
 cracked plates); foliage styles bake the leaf card (broadleaf cluster, needle

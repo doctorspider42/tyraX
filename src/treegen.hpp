@@ -19,16 +19,30 @@ namespace treegen {
 struct Params {
     uint32_t seed = 1234;
 
-    // Trunk
+    // Trunk. Height is the tree's overall SIZE: everything else that carries a
+    // world dimension (trunk radius, leaf card) is a fraction of it, so the
+    // Height slider scales the tree instead of stretching it into a thinner
+    // and thinner pole - which is what absolute radii used to do.
     float height = 7.0f;        // trunk length, world units
-    float trunkRadius = 0.30f;  // base radius (before flare)
+    float thickness = 0.043f;   // base radius as a fraction of height
     float flare = 1.5f;         // base widening multiplier (1 = none)
     float taper = 0.55f;        // radius fraction kept along a branch
     float gnarliness = 0.12f;   // random per-ring bend
     float sweep = 0.12f;        // upward pull per ring (negative = droop)
 
+    // Crown architecture. "Spread" is the deciduous habit the recursion has
+    // always produced: children spiral up each parent and the shape emerges.
+    // "Conical" is the conifer habit - the trunk runs unbroken to the apex and
+    // carries WHORLS of branches whose length falls off toward the top, which
+    // is what actually makes a Christmas-tree silhouette. A cone cannot be
+    // coaxed out of the spread rules: their length falloff is a jittered ratio
+    // per generation, not a profile along the trunk.
+    int crown = 0;              // 0 spread (broadleaf), 1 conical (conifer)
+    int whorls = 9;             // conical: branch rings up the trunk
+
     // Branching. Level 0 is the trunk; children[L] branches sprout from every
-    // level-L branch while L + 1 < levels.
+    // level-L branch while L + 1 < levels. In conical mode children[0] is read
+    // as the count PER WHORL instead.
     int levels = 3;             // 1..4
     int children[3] = {3, 3, 2};
     float branchAngle = 45.0f;  // child tilt away from the parent axis, deg
@@ -47,7 +61,7 @@ struct Params {
     // Leaves (0 = bare tree). Quads spread over the last leafLevels branch
     // generations, each 2 triangles with the alpha-cutout leaf card.
     int leafCount = 130;
-    float leafSize = 0.60f;     // quad width, world units
+    float leafSize = 0.086f;    // quad width as a fraction of height
     float leafAspect = 1.15f;   // quad height / width
     int leafLevels = 2;
 

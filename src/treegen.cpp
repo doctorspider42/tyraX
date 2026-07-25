@@ -66,8 +66,21 @@ struct Rng {
 float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b : v); }
 
+// Below these a child branch is not worth its triangles. They are FRACTIONS OF
+// HEIGHT on purpose: as absolute world sizes they made small trees a different
+// shape rather than a smaller one - a 0.5-unit spruce lost whole whorls to the
+// cutoff and came out a pole with a skirt, while the same parameters at 20
+// units kept everything. A size control must not change what it is sizing.
+constexpr float kMinLenFrac = 0.003f;   // ~0.02 units at the default height 7
+constexpr float kMinRadFrac = 0.0006f;  // ~0.004 units there
+
 struct Anchor {
     V3 pos, dir;
+    // Length of branch this anchor speaks for. Foliage spreads over it, so
+    // coverage follows the BRANCH rather than the tessellation: a low-poly
+    // bough has few rings, and without this its needles clump at two or three
+    // spots with bare tube between them.
+    float span = 0;
 };
 
 struct Builder {
@@ -153,8 +166,10 @@ struct Builder {
 
         Rng rng(mix(seed, 0xF00Du));
         const float stepLen = len / (float)ringCount;
-        // v advances so bark texels stay roughly square around the base girth
-        const float vStep = stepLen / std::max(0.05f, 2.0f * kPi * baseRadius);
+        // v advances so bark texels stay roughly square around the base girth.
+        // The guard is only against a degenerate radius - make it absolute and
+        // the bark tiling stops tracking the tree's size on small trees.
+        const float vStep = stepLen / std::max(1e-5f, 2.0f * kPi * baseRadius);
 
         // spine with parallel-transported frames
         std::vector<Ring> spine;
@@ -187,18 +202,56 @@ struct Builder {
         const float tipLen = stepLen * 0.7f;
         tipCap(last, last.center + last.dir * tipLen, last.v + vStep * 0.7f, sides);
 
-        // leaf anchors on the outer generations (and on a trunk-only tree)
+        // leaf anchors on the outer generations (and on a trunk-only tree).
+        // A broadleaf clusters its foliage toward the branch tips; a conifer
+        // needles the whole bough, so the anchor window starts much earlier.
         const bool leafy = level >= std::max(0, p.levels - std::max(1, p.leafLevels));
+        // A conifer needles its bough from the trunk out; a broadleaf clusters
+        // toward the tips.
+        const float anchorFrom = p.crown == 1 ? 0.0f : 0.45f;
         if (leafy) {
             for (int i = 0; i <= ringCount; ++i) {
                 const float t = (float)i / (float)ringCount;
-                if (t >= 0.45f) anchors.push_back({spine[i].center, spine[i].dir});
+                if (t >= anchorFrom)
+                    anchors.push_back({spine[i].center, spine[i].dir, stepLen});
             }
-            anchors.push_back({last.center + last.dir * tipLen, last.dir});
+            // half-way up the tip cone, not at its point: foliage spreads
+            // along its span, and an anchor sitting at the very end throws
+            // cards past the apex where they read as detached blobs
+            anchors.push_back(
+                {last.center + last.dir * (tipLen * 0.5f), last.dir, tipLen});
+        } else if (p.crown == 1 && level == 0) {
+            // The conifer's leader. Foliage is shared out per ANCHOR, so
+            // hanging these off the trunk's rings starves the apex: the trunk
+            // has a handful of rings over its whole length and the top of the
+            // tree would get two of them against ~200 down in the whorls.
+            // Sample the leader at its own fixed rate instead, starting below
+            // the highest whorl (~0.93 of the trunk) so the two meet.
+            const float from = 0.78f;
+            const int kLeader = 9;
+            for (int k = 0; k < kLeader; ++k) {
+                const float t = from + (1.0f - from) * (float)k / (float)(kLeader - 1);
+                const float f = t * (float)ringCount;
+                const int i0 = std::min((int)f, ringCount - 1);
+                const float fr = f - (float)i0;
+                const V3 pos = spine[i0].center +
+                               (spine[i0 + 1].center - spine[i0].center) * fr;
+                anchors.push_back(
+                    {pos, spine[i0].dir, (1.0f - from) * len / (float)kLeader});
+            }
+            // half-way up the tip cone, not at its point: foliage spreads
+            // along its span, and an anchor sitting at the very end throws
+            // cards past the apex where they read as detached blobs
+            anchors.push_back(
+                {last.center + last.dir * (tipLen * 0.5f), last.dir, tipLen});
         }
 
         // children
         if (level + 1 >= p.levels) return;
+        if (p.crown == 1 && level == 0) {
+            conicalWhorls(spine, ringCount, len, seed);
+            return;
+        }
         const int count = clampi(p.children[std::min(level, 2)], 0, 16);
         for (int i = 0; i < count; ++i) {
             Rng crng(mix(seed, 0xC0FFEEu + (uint32_t)i));
@@ -219,9 +272,55 @@ struct Builder {
                                (1.0f - p.lengthTaper * tt);
             const float crad =
                 std::min(s.radius * 0.85f, s.radius * p.radiusRatio);
-            if (clen < 0.02f || crad < 0.004f) continue;
+            if (clen < p.height * kMinLenFrac || crad < p.height * kMinRadFrac)
+                continue;
             branch(s.center + cdir * (s.radius * 0.25f), cdir, clen, crad,
                    level + 1, mix(seed, 0xB0B0u + (uint32_t)i));
+        }
+    }
+
+    // Conifer trunk: rings ("whorls") of boughs instead of the spiral spread.
+    // Two things make the silhouette, and neither is expressible as a ratio
+    // per generation: length follows a PROFILE along the trunk (longest low,
+    // vanishing at the apex - that is the cone), and the tilt sweeps from
+    // drooping at the bottom to raised near the top, the way a real spruce
+    // carries its branches.
+    void conicalWhorls(const std::vector<Ring>& spine, int ringCount, float len,
+                       uint32_t seed) {
+        const int perWhorl = clampi(p.children[0], 1, 16);
+        const int whorlCount = clampi(p.whorls, 1, 24);
+        for (int w = 0; w < whorlCount; ++w) {
+            const float tt =
+                p.spawnStart + (0.97f - p.spawnStart) *
+                                   (((float)w + 0.5f) / (float)whorlCount);
+            const int at = std::min((int)std::lround(tt * ringCount), ringCount);
+            const Ring& s = spine[at];
+            // successive whorls are offset by the golden angle so the boughs
+            // never stack into visible vertical columns
+            const float whorlAz = (float)w * 2.39996f;
+            for (int i = 0; i < perWhorl; ++i) {
+                Rng crng(mix(seed, 0x5E1Fu + (uint32_t)(w * 32 + i)));
+                const float az = whorlAz + 2.0f * kPi * (float)i / (float)perWhorl +
+                                 crng.range(-0.16f, 0.16f);
+                const V3 radial = s.ax * std::cos(az) + s.ay * std::sin(az);
+                // > 90 deg = below horizontal (the drooping lower boughs)
+                const float ang =
+                    clampf(p.branchAngle * (1.18f - 0.62f * tt) +
+                               crng.range(-p.angleJitter, p.angleJitter),
+                           8.0f, 118.0f) *
+                    kPi / 180.0f;
+                const V3 cdir = normalize(s.dir * std::cos(ang) + radial * std::sin(ang));
+                // the cone profile; a gentler exponent than linear keeps the
+                // upper whorls from collapsing into stubs
+                const float clen = len * p.lengthRatio *
+                                   std::pow(std::max(0.0f, 1.0f - tt), 0.70f) *
+                                   crng.range(0.85f, 1.15f);
+                const float crad = std::min(s.radius * 0.8f, s.radius * p.radiusRatio);
+                if (clen < p.height * kMinLenFrac || crad < p.height * kMinRadFrac)
+                    continue;
+                branch(s.center + cdir * (s.radius * 0.25f), cdir, clen, crad, 1,
+                       mix(seed, 0xC0D1u + (uint32_t)(w * 32 + i)));
+            }
         }
     }
 
@@ -229,16 +328,38 @@ struct Builder {
 
     void leaves() {
         if (p.leafCount <= 0 || anchors.empty()) return;
+        // A needle sprig is a tuft growing OUT of the twig it sits on, so its
+        // card wants to lie along the branch and spin around it. Broadleaf
+        // cards stay free-floating - a cluster reads better scattered.
+        const bool sprig = p.leafStyle == 1 || p.crown == 1;
+        const float size = p.leafSize * p.height;
         for (int k = 0; k < p.leafCount; ++k) {
             Rng rng(mix(p.seed, 0x1EAFu + (uint32_t)k));
             const Anchor& a = anchors[(size_t)k % anchors.size()];
-            const float w = p.leafSize * rng.range(0.8f, 1.2f);
+            const float w = size * rng.range(0.8f, 1.2f);
             const float h = w * p.leafAspect;
-            const V3 c = a.pos + rng.unit() * (p.leafSize * 0.35f) +
-                         a.dir * rng.range(0.0f, p.leafSize * 0.4f);
-            // face outward-ish with an upward bias so canopies read from above
-            const V3 n = normalize(rng.unit() + V3{0, 0.35f, 0});
-            V3 ua = normalize(cross(n, rng.unit()));
+            V3 c, n, ua;
+            if (sprig) {
+                // frame around the twig: the card's width axis IS the branch
+                // direction, its normal a random radial around it
+                ua = normalize(a.dir);
+                const V3 t1 = normalize(cross(ua, std::fabs(ua.y) < 0.95f
+                                                      ? V3{0, 1, 0}
+                                                      : V3{1, 0, 0}));
+                const V3 t2 = cross(ua, t1);
+                const float az = rng.range(0.0f, 2.0f * kPi);
+                n = normalize(t1 * std::cos(az) + t2 * std::sin(az));
+                // spread over the branch length this anchor owns, not over the
+                // card size - that is what keeps a sparse bough evenly needled
+                c = a.pos + ua * (rng.range(-0.5f, 0.5f) * std::max(a.span, w * 0.6f)) +
+                    n * (w * rng.range(0.05f, 0.30f));
+            } else {
+                c = a.pos + rng.unit() * (size * 0.35f) +
+                    a.dir * rng.range(0.0f, size * 0.4f);
+                // face outward-ish with an upward bias so canopies read from above
+                n = normalize(rng.unit() + V3{0, 0.35f, 0});
+                ua = normalize(cross(n, rng.unit()));
+            }
             const V3 ub = cross(n, ua);
             const V3 A = c - ua * (w * 0.5f) - ub * (h * 0.5f);
             const V3 B = c + ua * (w * 0.5f) - ub * (h * 0.5f);
@@ -332,10 +453,15 @@ Mesh generate(const Params& params) {
     p.rings = Builder::clampi(params.rings, 1, 16);
     p.ringsMin = Builder::clampi(params.ringsMin, 1, p.rings);
     p.leafCount = Builder::clampi(params.leafCount, 0, 600);
+    p.crown = Builder::clampi(params.crown, 0, 1);
+    p.whorls = Builder::clampi(params.whorls, 1, 24);
+    p.height = std::max(0.2f, params.height);
     Mesh mesh;
     Builder b{p, mesh};
-    b.branch({0, 0, 0}, {0, 1, 0}, std::max(0.2f, p.height),
-             std::max(0.02f, p.trunkRadius), 0, p.seed);
+    // radius (and the leaf card, in leaves()) derive from height, so dragging
+    // Height scales the tree instead of thinning it
+    b.branch({0, 0, 0}, {0, 1, 0}, p.height,
+             std::max(0.01f, p.thickness) * p.height, 0, p.seed);
     b.leaves();
     return mesh;
 }
@@ -624,11 +750,11 @@ const std::vector<Preset>& presets() {
         {
             Preset pr{"Birch", {}};
             Params& p = pr.params;
-            p.height = 8.0f, p.trunkRadius = 0.20f, p.flare = 1.2f;
+            p.height = 8.0f, p.thickness = 0.025f, p.flare = 1.2f;
             p.taper = 0.5f, p.gnarliness = 0.07f, p.sweep = 0.20f;
             p.levels = 3, p.children[0] = 2, p.children[1] = 3;
             p.branchAngle = 35.0f, p.lengthRatio = 0.55f, p.lengthTaper = 0.35f;
-            p.sides = 5, p.leafCount = 110, p.leafSize = 0.5f;
+            p.sides = 5, p.leafCount = 110, p.leafSize = 0.062f;
             p.barkStyle = 1;
             const float c1[3] = {0.88f, 0.87f, 0.80f}, c2[3] = {0.16f, 0.15f, 0.13f};
             std::copy(c1, c1 + 3, p.barkColor);
@@ -641,13 +767,18 @@ const std::vector<Preset>& presets() {
         {
             Preset pr{"Spruce", {}};
             Params& p = pr.params;
-            p.height = 9.0f, p.trunkRadius = 0.28f, p.flare = 1.4f;
-            p.taper = 0.35f, p.gnarliness = 0.03f, p.sweep = 0.02f;
-            p.levels = 3, p.children[0] = 7, p.children[1] = 2;
-            p.branchAngle = 78.0f, p.angleJitter = 6.0f;
-            p.lengthRatio = 0.42f, p.lengthTaper = 0.75f, p.radiusRatio = 0.45f;
-            p.spawnStart = 0.18f, p.sides = 6, p.rings = 6;
-            p.leafCount = 170, p.leafSize = 0.55f, p.leafStyle = 1;
+            // The conifer habit: an unbroken leader (hard taper = a spike),
+            // ten whorls of four boughs, needles down the whole bough.
+            p.height = 9.0f, p.thickness = 0.030f, p.flare = 1.35f;
+            p.taper = 0.16f, p.gnarliness = 0.02f, p.sweep = 0.0f;
+            p.crown = 1, p.whorls = 10;
+            p.levels = 2, p.children[0] = 5;
+            p.branchAngle = 72.0f, p.angleJitter = 7.0f;
+            p.lengthRatio = 0.30f, p.radiusRatio = 0.35f;
+            p.spawnStart = 0.12f;
+            p.sides = 6, p.sidesMin = 3, p.rings = 7, p.ringsMin = 2;
+            p.leafCount = 300, p.leafSize = 0.072f, p.leafAspect = 1.0f;
+            p.leafStyle = 1, p.leafLevels = 1;
             p.barkStyle = 2;
             const float c1[3] = {0.38f, 0.26f, 0.18f}, c2[3] = {0.20f, 0.13f, 0.09f};
             std::copy(c1, c1 + 3, p.barkColor);
@@ -660,17 +791,17 @@ const std::vector<Preset>& presets() {
         {
             Preset pr{"Poplar", {}};
             Params& p = pr.params;
-            p.height = 8.5f, p.trunkRadius = 0.24f, p.flare = 1.3f;
+            p.height = 8.5f, p.thickness = 0.028f, p.flare = 1.3f;
             p.taper = 0.45f, p.gnarliness = 0.06f, p.sweep = 0.30f;
             p.levels = 3, p.children[0] = 4, p.children[1] = 2;
             p.branchAngle = 25.0f, p.lengthRatio = 0.45f, p.lengthTaper = 0.45f;
-            p.spawnStart = 0.15f, p.leafCount = 140, p.leafSize = 0.45f;
+            p.spawnStart = 0.15f, p.leafCount = 140, p.leafSize = 0.053f;
             v.push_back(pr);
         }
         {
             Preset pr{"Dead tree", {}};
             Params& p = pr.params;
-            p.height = 6.0f, p.trunkRadius = 0.26f, p.flare = 1.7f;
+            p.height = 6.0f, p.thickness = 0.043f, p.flare = 1.7f;
             p.gnarliness = 0.30f, p.sweep = 0.0f;
             p.levels = 4, p.children[0] = 3, p.children[1] = 2, p.children[2] = 2;
             p.branchAngle = 50.0f, p.angleJitter = 18.0f;
@@ -683,12 +814,12 @@ const std::vector<Preset>& presets() {
         {
             Preset pr{"Bush", {}};
             Params& p = pr.params;
-            p.height = 1.6f, p.trunkRadius = 0.10f, p.flare = 1.1f;
+            p.height = 1.6f, p.thickness = 0.062f, p.flare = 1.1f;
             p.levels = 3, p.children[0] = 4, p.children[1] = 3;
             p.branchAngle = 55.0f, p.spawnStart = 0.10f;
             p.lengthRatio = 0.70f, p.lengthTaper = 0.20f;
             p.sides = 4, p.rings = 3;
-            p.leafCount = 150, p.leafSize = 0.38f;
+            p.leafCount = 150, p.leafSize = 0.24f;
             v.push_back(pr);
         }
         return v;
