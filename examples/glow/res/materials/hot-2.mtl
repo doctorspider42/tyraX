@@ -1,0 +1,8 @@
+# Station 2, rung 3: white-hot core 0.7. Blown out to a warm white with a white
+# halo - the classic "too bright to have a color" look. This is the only way up
+# once a colored surface has hit the framebuffer maximum in its own hue.
+newmtl hot-2
+# tyra-brightness 1
+Kd 1.0000 0.1500 0.1000
+# tyra-glow 1 1 0.15 0.1 0.7
+Ke 1.7000 0.8500 0.8000

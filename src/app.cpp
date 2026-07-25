@@ -8553,11 +8553,44 @@ void App::drawUiEditorWindow() {
     ImGui::BeginChild("##ui_props", ImVec2(0, 0));
     if (uiFxSel_ == 1) {
         ImGui::SeparatorText("Bloom + color grading");
-        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 1.0f, "%.2f");
+        // The re-add FIX is a whole byte, so bloom can go to 2x - the extra
+        // headroom is what a hot glow needs once the threshold has eaten part
+        // of the emitter's energy.
+        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 2.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How much of the blur is added back. Above 1.0\n"
+                              "the blur is over-added - blown-out, hot glow.");
         ImGui::TextDisabled(
             "GS framebuffer trick - no pixel shaders on the PS2. Quarter-res\n"
             "blur re-added over the frame (soft glow).");
+        // Bright pass: without it the whole picture glows (soft focus); with
+        // it only what is brighter than the cut blooms, which is what makes an
+        // emissive material read as a glowing object.
+        ImGui::SliderFloat("Threshold", &project_.settings.bloomThreshold, 0.0f,
+                           1.0f,
+                           project_.settings.bloomThreshold <= 0.0f
+                               ? "off - whole frame"
+                               : "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Only pixels BRIGHTER than this contribute to the glow (the\n"
+                "GS subtracts it from the downsampled frame and clamps at 0).\n"
+                "0 = the classic soft-focus bloom over everything. Raise it to\n"
+                "~0.6 and the halo collapses onto emissive materials (Material\n"
+                "Editor > Glow), the sky and specular hits.");
+        ImGui::SliderFloat("Spread", &project_.settings.bloomSpread, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How far the glow reaches. Extra blur rounds over the\n"
+                "quarter-res buffer, each with doubled tap offsets, so the\n"
+                "halo grows from a tight fringe to a wide corona. Costs 4\n"
+                "extra GS sprites per round and no EE time - but a very wide\n"
+                "glow over a busy frame reads as haze, so tune it with the\n"
+                "threshold.");
         ImGui::Spacing();
         ImGui::TextWrapped(
             "Stack entries above this layer draw crisp on top of the bloom - "
@@ -12320,11 +12353,19 @@ void App::drawCutsceneWindow() {
 // Materials are the project's plain Wavefront .mtl asset files - the same
 // files objects reference via materialPath and the PS2 runtime parses with
 // LeanObjLoader. The editor reads/writes the subset the whole pipeline
-// understands (newmtl / Kd / map_Kd / refl) plus a "# tyra-brightness" hint
-// line so the color x brightness split survives a round trip (both multiply
-// into the written Kd; every parser ignores comments). Unrecognized lines of
-// hand-imported files are preserved verbatim. Edits are saved straight to
-// disk on commit - assets are not project data, so no undo (same as imports).
+// understands (newmtl / Kd / Ke / map_Kd / refl) plus "# tyra-brightness" and
+// "# tyra-glow" hint lines so the color x strength splits survive a round trip
+// (each pair multiplies into the written Kd / Ke; every parser ignores
+// comments). Unrecognized lines of hand-imported files are preserved verbatim.
+// Edits are saved straight to disk on commit - assets are not project data, so
+// no undo (same as imports).
+
+void App::matEdKe(const MatEdEntry& e, float out[3]) {
+    for (int i = 0; i < 3; ++i) {
+        const float v = e.glowColor[i] * e.glow + e.glowWhite;
+        out[i] = v < 0.0f ? 0.0f : v > 1.99f ? 1.99f : v;
+    }
+}
 
 bool App::loadMaterialFile(const std::string& relPath) {
     matEdMats_.clear();
@@ -12333,7 +12374,14 @@ bool App::loadMaterialFile(const std::string& relPath) {
     std::ifstream in(std::filesystem::path(project_.dir) / relPath);
     if (!in) return false;
 
-    std::vector<char> gotHint;
+    std::vector<char> gotHint;      // "# tyra-brightness" seen (Kd split)
+    std::vector<char> gotKe;        // an "Ke" statement seen (emission)
+    // "# tyra-glow" seen: 0 none, 1 strength only (legacy - split Ke),
+    // 2 strength + authored color (+ optional white-hot; nothing to split)
+    std::vector<char> gotGlowHint;
+    // The raw "Ke" of each entry, kept OUT of the staged color so the hint
+    // line and the statement cannot clobber each other whatever their order.
+    std::vector<std::array<float, 3>> keRaw;
     std::string line;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -12374,12 +12422,19 @@ bool App::loadMaterialFile(const std::string& relPath) {
             ss >> e.name;
             matEdMats_.push_back(std::move(e));
             gotHint.push_back(0);
+            gotKe.push_back(0);
+            gotGlowHint.push_back(0);
+            keRaw.push_back({0.0f, 0.0f, 0.0f});
             continue;
         }
         if (matEdMats_.empty()) continue;  // stray header lines
         MatEdEntry& e = matEdMats_.back();
         if (tag == "Kd") {
             ss >> e.color[0] >> e.color[1] >> e.color[2];
+        } else if (tag == "Ke") {
+            std::array<float, 3>& k = keRaw.back();
+            ss >> k[0] >> k[1] >> k[2];
+            gotKe.back() = 1;
         } else if (tag == "map_Kd") {
             std::vector<std::string> toks;  // "<options> filename"; filename last
             for (std::string t; ss >> t;) toks.push_back(t);
@@ -12419,6 +12474,21 @@ bool App::loadMaterialFile(const std::string& relPath) {
             if (what == "tyra-brightness") {
                 ss >> e.brightness;
                 gotHint.back() = 1;
+            } else if (what == "tyra-glow") {
+                // "<strength> [r g b] [white]" - the authored controls behind
+                // the resolved Ke. The 1-number form is the original layout
+                // (color recovered by dividing Ke, no white-hot core).
+                ss >> e.glow;
+                float r, g, b;
+                if (ss >> r >> g >> b) {
+                    e.glowColor[0] = r, e.glowColor[1] = g, e.glowColor[2] = b;
+                    gotGlowHint.back() = 2;  // color authored too - no split
+                    ss >> e.glowWhite;       // absent = 0 (leaves the default)
+                } else {
+                    gotGlowHint.back() = 1;
+                }
+            } else if (what == "tyra-glow-light") {
+                ss >> e.glowRange >> e.glowLight;
             }
             // other comments are dropped - saveMaterialFile rewrites its own
         } else if (!tag.empty()) {
@@ -12430,6 +12500,9 @@ bool App::loadMaterialFile(const std::string& relPath) {
         e.name = std::filesystem::path(relPath).stem().string();
         matEdMats_.push_back(std::move(e));
         gotHint.push_back(1);
+        gotKe.push_back(0);
+        gotGlowHint.push_back(0);
+        keRaw.push_back({0.0f, 0.0f, 0.0f});
     }
 
     // The file's Kd = color x brightness; split them back for the UI. Without
@@ -12448,6 +12521,36 @@ bool App::loadMaterialFile(const std::string& relPath) {
             c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
         }
         e.brightness = b;
+
+        // Emission. The full hint (form 2) carries the authored controls, so
+        // nothing has to be recovered from Ke. Otherwise the split is the same
+        // ambiguity as Kd/brightness: the brightest Ke component is the
+        // strength (so "Ke 1 1 1" reads as a full white glow), which renders
+        // identically either way.
+        if (!gotKe[i]) {
+            e.glow = 0.0f;
+            e.glowWhite = 0.0f;
+            e.glowColor[0] = e.glowColor[1] = e.glowColor[2] = 1.0f;
+            continue;
+        }
+        if (gotGlowHint[i] == 2) {
+            e.glow = e.glow < 0.0f ? 0.0f : (e.glow > 2.0f ? 2.0f : e.glow);
+            e.glowWhite = e.glowWhite < 0.0f ? 0.0f
+                          : (e.glowWhite > 1.0f ? 1.0f : e.glowWhite);
+            for (float& c : e.glowColor)
+                c = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+            continue;
+        }
+        const std::array<float, 3>& k = keRaw[i];
+        float g = gotGlowHint[i] == 1 ? e.glow
+                                      : std::max(k[0], std::max(k[1], k[2]));
+        g = g < 0.0f ? 0.0f : g > 2.0f ? 2.0f : g;
+        for (int c = 0; c < 3; ++c) {
+            float v = g > 0.01f ? k[c] / g : 1.0f;
+            e.glowColor[c] = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+        }
+        e.glow = g;
+        e.glowWhite = 0.0f;
     }
     matEdPrevMats_ = matEdMats_;  // undo baseline for the first edit
     return true;
@@ -12494,6 +12597,26 @@ void App::saveMaterialFile() {
         };
         std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f", kd(0), kd(1), kd(2));
         out << buf << "\n";
+        // Emission, written only when the material glows so untouched files
+        // stay clean. The hint carries the authored controls, "Ke" the
+        // resolved emission every renderer reads (matEdKe caps it at the 1.99
+        // the PS2 color byte can carry, where 128 = 1.0 modulating a texture).
+        if (e.glow > 0.0f || e.glowWhite > 0.0f) {
+            std::snprintf(buf, sizeof(buf), "# tyra-glow %.4g %.4g %.4g %.4g %.4g",
+                          e.glow, e.glowColor[0], e.glowColor[1], e.glowColor[2],
+                          e.glowWhite);
+            out << buf << "\n";
+            if (e.glowRange > 0.0f) {
+                std::snprintf(buf, sizeof(buf), "# tyra-glow-light %.4g %.4g",
+                              e.glowRange, e.glowLight);
+                out << buf << "\n";
+            }
+            float ke[3];
+            matEdKe(e, ke);
+            std::snprintf(buf, sizeof(buf), "Ke %.4f %.4f %.4f", ke[0], ke[1],
+                          ke[2]);
+            out << buf << "\n";
+        }
         if (!e.texture.empty()) {
             // -s tiling (repeats per world unit) matters only for terrain; skip
             // it at the default 1 to keep files clean. Wavefront: "-s u v w".
@@ -15122,6 +15245,107 @@ void App::drawMaterialEditorWindow() {
         }
     }
 
+    // --- Glow (Ke): emission. Not a light - a brightness FLOOR baked into the
+    // vertex colors, so the surface keeps its own color in a pitch-black scene
+    // (docs/emissive-materials.md). Pair it with the bloom threshold in the UI
+    // Editor screen stack to get the halo around it.
+    ImGui::SeparatorText("Glow (emissive)");
+    {
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        const float before = e.glow;
+        ImGui::SliderFloat("Glow", &e.glow, 0.0f, 2.0f,
+                           e.glow <= 0.0f ? "off" : "%.2f");
+        // Raising it the first time: start from the material's own color, which
+        // is what "it glows in its own color" means to the eye.
+        if (before <= 0.0f && e.glow > 0.0f)
+            for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Self-illumination. The surface never renders darker than\n"
+                "glow color x this - at 1.0 it shows its full color even in\n"
+                "complete darkness, ignoring the sun, point lights and baked\n"
+                "AO. Above 1.0 only bites on textured materials (the PS2\n"
+                "color byte modulates the texture up to 2x).");
+        if (e.glow > 0.0f || e.glowWhite > 0.0f) {
+            ImGui::ColorEdit3("Glow color", e.glowColor);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Button("Match material color", ImVec2(scaled(180), 0))) {
+                for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+                committed = true;
+            }
+
+            // The one control that can make an ALREADY saturated surface read
+            // brighter: an untextured emitter is at the framebuffer maximum in
+            // its own hue at glow 1, so "more" can only mean "whiter".
+            ImGui::SetNextItemWidth(scaled(180.0f));
+            ImGui::SliderFloat("White-hot core", &e.glowWhite, 0.0f, 1.0f,
+                               e.glowWhite <= 0.0f ? "off" : "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Blows the surface out toward white, the way an\n"
+                    "overexposed emitter looks on camera. This is what makes\n"
+                    "a glow read as HOT: at full strength a colored surface\n"
+                    "is already at the maximum the framebuffer can hold in\n"
+                    "its own hue, so the only way up is desaturating. It also\n"
+                    "pushes every channel over the bloom threshold, which\n"
+                    "widens and brightens the halo.");
+
+            // Step 2: the emitter bakes light into the geometry around it.
+            bool lights = e.glowRange > 0.0f;
+            if (ImGui::Checkbox("Lights up surroundings", &lights)) {
+                e.glowRange = lights ? 4.0f : 0.0f;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes this material's light into the walls, floor and\n"
+                    "props around it at scene load - the ambient-occlusion\n"
+                    "treatment, in reverse. Free at runtime (it lands in the\n"
+                    "same vertex colors), and the editor viewport previews it.\n"
+                    "Static: the pool of light does not follow a moving\n"
+                    "object, and animated models do not receive it.");
+            if (e.glowRange > 0.0f) {
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                ImGui::DragFloat("Light reach", &e.glowRange, 0.1f, 0.2f, 60.0f,
+                                 "%.1f units");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                ImGui::SliderFloat("Light strength", &e.glowLight, 0.0f, 3.0f,
+                                   "%.2f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How bright the pool of light is at the emitter's\n"
+                        "surface. The light color is the glow color (white-hot\n"
+                        "core included), the falloff is quadratic to the reach.");
+            }
+
+            ImGui::TextDisabled(
+                "Baked into the vertex colors at scene load - free on the\n"
+                "console.");
+            // The halo is the bloom's job, and a glow with bloom off is the
+            // single most common "why doesn't it glow?" - say so where the
+            // slider is, not only in the docs.
+            if (project_.settings.bloom <= 0.0f)
+                ImGui::TextColored(
+                    ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                    "No halo: Bloom is 0. Raise Bloom (and its Threshold)\n"
+                    "in UI Editor > the screen stack > Bloom.");
+            else if (project_.settings.bloomThreshold <= 0.0f)
+                ImGui::TextDisabled(
+                    "Bloom has no Threshold - the halo spreads over the whole\n"
+                    "frame. Raise it in UI Editor > Bloom to focus the glow.");
+            else
+                ImGui::TextDisabled(
+                    "Halo: Bloom %.2f, threshold %.2f, spread %.2f\n"
+                    "(UI Editor > the screen stack > Bloom).",
+                    project_.settings.bloom, project_.settings.bloomThreshold,
+                    project_.settings.bloomSpread);
+        }
+    }
+
     // --- Bake maps (docs/material-baking.md) ---------------------------------
     matEdBakeSection(e.name,
                      e.texture.empty()
@@ -15717,6 +15941,7 @@ void App::drawMaterialEditorWindow() {
         // --- the preview image + mouse interaction ---------------------------
         Viewport::MatPreviewDesc desc;
         desc.kd[0] = kd[0], desc.kd[1] = kd[1], desc.kd[2] = kd[2];
+        matEdKe(sel, desc.ke);
         desc.texRel = texRel;
         desc.reflRel = reflRel;
         desc.reflStrength = sel.refl.empty() ? 0.0f : sel.reflStrength;
@@ -15734,6 +15959,7 @@ void App::drawMaterialEditorWindow() {
             // raw-map view: the baked map replaces the material's look
             desc.texRel = "@matbake-view";
             desc.kd[0] = desc.kd[1] = desc.kd[2] = 1.0f;
+            desc.ke[0] = desc.ke[1] = desc.ke[2] = 0.0f;
             desc.reflRel.clear();
             desc.reflStrength = 0.0f;
             desc.reflSky = false;
@@ -19601,7 +19827,11 @@ void App::drawScenePreferencesModal() {
     });
 
     category("Post effects", ov.postFx, [&] {
-        ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Bloom threshold", &s.bloomThreshold, 0.0f, 1.0f,
+                           s.bloomThreshold <= 0.0f ? "off - whole frame"
+                                                    : "%.2f");
+        ImGui::SliderFloat("Bloom spread", &s.bloomSpread, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");

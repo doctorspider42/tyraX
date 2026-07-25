@@ -1,0 +1,286 @@
+# Emissive materials (glow)
+
+A material that lights **itself** — and, if you want, everything around it.
+Lava cracks, neon signs, monitor screens, sci-fi panels, magic runes: anything
+that must stay visible, in its own color, when the scene around it is pitch
+black.
+
+The PS2 has no pixel shaders and no HDR framebuffer, so this is not one effect
+but three cheap, independent ones that together read as glow:
+
+1. **The material's own brightness floor** — baked into the vertex colors at
+   scene load, free at runtime.
+2. **A thresholded bloom** — the GS bloom pass with a bright-pass cut and a
+   spread control, so the halo lands on the glowing surface instead of veiling
+   the whole frame.
+3. **Baked emissive light** — the emitter's light folded into the vertex colors
+   of the geometry around it, the ambient-occlusion treatment in reverse.
+
+You can use any of them on its own. Together they give the full effect.
+
+> **Why doesn't it glow harder at maximum?** Because at glow 1 an untextured
+> surface is *already* at the framebuffer maximum in its own hue — there is no
+> "brighter orange" left. From there, "more" means one of three things: whiter
+> (the **White-hot core** slider), a bigger halo (**Bloom** / **Spread**), or
+> lighting the surroundings so the whole area reads hot (**Lights up
+> surroundings**). All three are below.
+
+## 1. Making a material glow
+
+*Tools > Material Editor* → pick a material → the **Glow (emissive)** section.
+
+- **Glow** — 0 turns it off (matte, the default). 1 means "fully self-lit".
+- **Glow color** — starts from the material's own color the first time you
+  raise the slider (that is what "it glows in its own color" means to the eye);
+  *Match material color* snaps it back after you have edited either.
+- **White-hot core** — blows the surface out toward white, the way an
+  overexposed emitter looks on camera. This is the control that makes a glow
+  read as *hot*: a colored surface at glow 1 is already at the framebuffer
+  maximum in its own hue, so the only way up is desaturating. It also pushes
+  every channel over the bloom threshold, which widens and brightens the halo.
+- **Lights up surroundings** + **Light reach** / **Light strength** — see
+  [§3](#3-lighting-the-surroundings) below.
+
+Both the Material Editor preview and the scene viewport show all of it live,
+running the same formulas the console does. The section also reports the
+project's current bloom setup, and warns when bloom is off — a glow with no
+bloom is the single most common "why doesn't it glow?".
+
+The material file stores the emission as the standard Wavefront `Ke`
+statement — the **resolved** color, `glowColor × glow + whiteHot`, capped at
+1.99. The authored controls ride in a `# tyra-glow` comment so a round trip
+through the editor is lossless, exactly like `# tyra-brightness` does for `Kd`:
+
+```
+newmtl lava
+# tyra-brightness 1
+Kd 1.0000 0.3500 0.0500
+# tyra-glow 1 1 0.35 0.05 0.3
+# tyra-glow-light 9 1.6
+Ke 1.0000 0.6500 0.3500
+```
+
+`# tyra-glow` is `<strength> <r> <g> <b> <white-hot>`; the one-number form from
+the first release still loads (the color is then recovered by dividing `Ke`).
+A hand-written `Ke` with no comment at all works too — its brightest component
+is read as the strength. `Ke 0 0 0`, which most exporters write, is matte.
+
+Any object using the material gets it: primitives via *Material*, `.obj` models
+via their own or an override `.mtl`.
+
+### What it actually does
+
+The floor is applied **last**, after every lighting term:
+
+```
+shade  = directional × AO + point lights + emissive lights   // the normal path
+shade  = shade × Kd
+shade  = max(shade, Ke)                                      // the floor
+color  = objectTint × shade
+```
+
+So an emissive surface:
+
+- **ignores darkness** — sun, ambient, baked AO and point lights can only make
+  it *brighter*, never dimmer than `Ke`;
+- still respects the object's own **tint** color (a red-tinted object glows
+  red-tinted), and still gets **fogged** at distance like everything else;
+- costs **nothing** at runtime — it is three compares per vertex during the
+  one-time geometry bake, and the console draws an ordinary bag.
+
+`Ke 1 1 1` is therefore the classic *unlit* material: the texture or Kd color
+renders at full brightness regardless of the scene. Values above 1 only bite on
+**textured** materials, where the PS2 color byte modulates the texture up to 2×
+— which is exactly why an untextured emitter cannot be made "brighter" past
+glow 1, and why the White-hot core exists.
+
+Objects with an emissive material are automatically excluded from the baked
+**AO lightmap atlas** (docs/ambient-occlusion.md): that pass darkens per pixel
+in a separate draw, which a floor baked into vertex colors cannot clamp back
+up. They keep the per-vertex AO path, where the floor wins.
+
+### Limitations
+
+- **Animated models (`.glb`/`.fbx`) ignore `Ke`.** The skeletal runtime lights
+  parts through a manual VU1 directional rig with no emission slot — the same
+  reason `refl` is ignored there (docs/reflective-materials.md). Use a static
+  `.obj` for a glowing prop.
+- **Terrain ignores `Ke`.** Its material supplies the base tint and tiling
+  only. (Terrain does *receive* emissive light — see §3.)
+
+## 2. The glow halo (thresholded bloom)
+
+The bloom pass downsamples the frame, blurs it and adds it back. Without a
+threshold *everything* glows — the soft-focus look, not a glowing object.
+
+*UI Editor* → the screen stack → **[ Bloom + color grading ]**:
+
+- **Bloom** — how much of the blur is added back, **0 to 2**. The GS blend
+  factor is a whole byte, so above 1 the blur is *over*-added: a blown-out,
+  hot glow. (The *Set Bloom* flow node takes the same 0–2.)
+- **Threshold** — only pixels **brighter** than this contribute. 0 = off (the
+  whole frame, the historical behavior); ~0.5–0.7 collapses the halo onto
+  emissive materials, the sky and specular hits.
+- **Spread** — how far the glow reaches: 0 is the original tight fringe, 1 adds
+  three more blur rounds over the quarter-res buffer, each with **doubled** tap
+  offsets, so the halo grows geometrically into a real corona. A very wide glow
+  over a busy frame reads as haze — tune it together with the threshold.
+
+All three are per-scene overridable (*Scene > Scene Preferences > Post
+effects*) and travel in the project settings as `bloom` / `bloomThreshold` /
+`bloomSpread`.
+
+On the GS the bright pass is one extra quarter-res sprite: a flat grey
+subtracted from the downsampled frame through the `(0 − Cs)·128/128 + Cd`
+blend, which clamps at zero — everything below the cut becomes black and drops
+out of the blur, everything above keeps the excess. Each spread round is 4 more
+sprites over the same tiny buffers. No EE cost, no extra VRAM.
+
+## 3. Lighting the surroundings
+
+Tick **Lights up surroundings** in the Glow section and the emitter stops being
+a bright decal and starts behaving like a lamp: its light is folded into the
+vertex colors of the terrain, walls and props around it at scene load.
+
+- **Light reach** — world units. The falloff is quadratic from the emitter's
+  **surface**, not its center, so a long neon strip lights evenly along its
+  length instead of pooling at the middle.
+- **Light strength** — brightness at that surface. The light *color* is the
+  **glow color**, deliberately *not* the resolved `Ke`: the white-hot core is
+  an exposure effect on the emitter's own surface, and a green lamp keeps
+  casting green light however blown out it looks.
+
+The facing term is **half-Lambert squared**, `((1 + N·L) / 2)²`. These are area
+sources — a lava plate, a neon strip — not points, so a plain `max(0, N·L)`
+would light one face of a box fully and its neighbour not at all, seaming right
+on the corner; and even a linear wrap still reaches zero at some finite angle,
+which in a dark scene reads as a hard shading edge. The squared half-Lambert is
+smooth everywhere, hits zero only directly away from the emitter, and leaves a
+faint fill across the back hemisphere where a real bounce would put one. (The
+occlusion term next door keeps its own linear `0.35 + 0.65·N·L` — different
+physics, and it is the shape that bake was tuned with.)
+
+Stored as `# tyra-glow-light <reach> <strength>`. This is the ambient-occlusion
+machinery in reverse and shares its guts: `aobake::collectEmitters` reuses the
+exact analytic box/sphere `collectOccluders` builds, the game answers both with
+one distance-to-shape query, and the emitter list is pruned once per object /
+per terrain chunk (never per vertex — see the dcache note on `pointLightAt` in
+the generated game). Codegen emits the table into `inc/ao_data.gen.hpp`; a
+scene with no emitters emits none and pays nothing.
+
+### Per pixel, via the scene lightmap
+
+Baked light lands on **vertices**, and a plain box face is two triangles — so a
+strong gradient across one face is interpolated from four corners and the
+diagonal split between the triangles shows up as a hard seam. Primitives
+therefore take the light through the **scene lightmap atlas** instead, the same
+per-texel image the ambient occlusion already used:
+
+- one 256² RGBA32 atlas per scene, **`A` = occlusion, `RGB` = emissive light**,
+  so the light costs no extra VRAM;
+- it is read twice, because texturing is MODULATE and the vertex color of each
+  pass selects the channels it can see: a **black**-vertex alpha-over pass
+  (an exact per-pixel multiply) and a **white**-vertex additive pass;
+- the additive pass is `fogDisabled` — GS fog would add the fog color through
+  an additive equation and brighten fogged pixels.
+
+The atlas is built whenever *either* bake has content, so a scene can have
+glowing lamps and no ambient occlusion at all. Everything else keeps the
+per-vertex path, where the gradient is coarser but there is no atlas budget to
+spend: imported models, spawned clones, physics bodies, pickables — and
+**textured receivers**, deliberately. The additive pass adds a flat color, so
+on a texture it would blow out the dark texels; the vertex path multiplies the
+texture instead, and texture detail hides the Gouraud seam far better than a
+flat surface does. `SCENE_AO_ATLAS_LIT` tells the game which objects took the
+atlas route, so the light is never applied twice.
+
+For anything on the vertex path, raising the object's **Detail** (Properties >
+subdivisions) is the fallback: a Detail-5 box is 300 triangles instead of 12
+and the gradient smooths out.
+
+### The limit you will actually hit: banding
+
+A pool of light is a wide, *low-amplitude* ramp — it may span half the screen
+while covering only 30 of the framebuffer's 255 levels. Each level therefore
+becomes a broad plateau, and magnifying a handful of atlas texels over it turns
+the plateau edges into visible irregular blocks. The bake dithers the light
+with an ordered 4×4 pattern (sub-level, keyed on the atlas texel, so it is
+deterministic and never crawls), which breaks those plateaus down to about one
+texel — but it cannot manufacture precision that is not there.
+
+What is left is a hard budget, not a bug:
+
+- the whole scene shares **one 256² atlas** — bigger means RGBA32 VRAM the GS
+  does not have (see the note on texture residency in the editor skill);
+- the framebuffer is **8-bit per channel** with no dithering on the blend.
+
+Two things genuinely help. Keep the emitter's **reach** tight, so the ramp is
+steep and spends its levels over a shorter distance instead of smearing them
+across a whole wall. And add a little **film grain** (*UI Editor* > the screen
+stack) — the era-standard answer, and what PS2 games shipped for exactly this
+reason: a few levels of noise make the eye integrate the plateaus away.
+
+### Shadows
+
+The light is **blocked by solids**. Every object marked *Cast shadow*
+(Properties — the same flag the ambient occlusion uses) becomes an analytic
+box or sphere, and a light contribution is dropped outright when the segment
+from the lit point to the emitter's nearest surface enters one. So a wall stops
+the glow instead of letting it through.
+
+Two things follow from "analytic":
+
+- shadows are **hard and blocky** — a wall throws a rectangle, not its
+  silhouette, and a detailed mesh shadows as its bounding box;
+- there is **no partial shadow**: a contribution is either blocked or not, so
+  a thin object can produce a sharper edge than its real geometry would.
+
+Untick *Cast shadow* on anything that should not stop light (a railing, a
+grate, foliage) — otherwise its bounding box will.
+
+It is **static light**, exactly like the baked AO and the point lights:
+
+- the pool does not follow an object that moves at runtime, and neither do its
+  shadows;
+- animated `.glb`/`.fbx` models neither cast light, nor receive it, nor shadow
+  it;
+- an emitter never lights *itself* (its own floor already holds it at full
+  brightness) and never shadows its own light.
+
+Only the object's **assigned** material is consulted, so a `.obj` model must
+have the glowing `.mtl` set as its *Material* override to emit; a glowing
+submesh inside the model's own library lights nothing.
+
+## Recipes
+
+"It glows in the dark", from subtle to blazing:
+
+| Setting | Where | Subtle | Blazing |
+|---|---|---|---|
+| Glow | Material Editor | 1.0, color = material color | 1.0 |
+| White-hot core | Material Editor | 0 | 0.3–0.5 |
+| Lights up surroundings | Material Editor | off | on, reach ≈ 2× the object |
+| Light strength | Material Editor | — | 1.2–2.0 |
+| Bloom | UI Editor > Bloom | 0.7 | 1.2–1.6 |
+| Threshold | UI Editor > Bloom | 0.5 | 0.5 |
+| Spread | UI Editor > Bloom | 0.2 | 0.6–0.8 |
+| Ambient / Diffuse | Ambience / Scene Preferences | low | very low |
+
+## Where the code lives
+
+Host and console implement the same formula twice — change one, change the
+other:
+
+| Piece | Console | Editor |
+|---|---|---|
+| `Ke` parsing | `vendor/tyra/engine/src/loaders/3d/obj_loader/lean_obj_loader.cpp` | `src/objparser.cpp` |
+| The floor | `pushVert` in `src/templates.cpp` | the `uEmissive` line in `src/viewport.cpp`'s fragment shader |
+| Shape query | `occShapeAt` in `src/templates.cpp` | `shapeAt` in the viewport FS — and `aobake::occShapeAt` on the host |
+| Emissive light | `emissiveLightAt` in `src/templates.cpp` | `emissiveLight` in the viewport FS — host reference `aobake::emitterLightAt` |
+| Emitter shapes | baked into `inc/ao_data.gen.hpp` | `aobake::collectEmitters` (single source for both) |
+| Scene lightmap | the atlas passes in `rebuildObjectGeometry` | `aobake::bakeSceneLightAtlas` bakes it, texbake writes the PNG |
+| Bright pass + spread | `RendererCorePostFx::apply` (`renderer_core_postfx.cpp`) | not previewed (GS-only, like every screen effect) |
+
+Authoring UI: `App::drawMaterialEditorWindow` + `loadMaterialFile` /
+`saveMaterialFile` / `matEdKe` (`src/app.cpp`). AO-atlas exclusion:
+`materialGlow` in `src/aobake.cpp`.

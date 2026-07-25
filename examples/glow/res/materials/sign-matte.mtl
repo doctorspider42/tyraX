@@ -1,0 +1,4 @@
+# Station 1, the control. IDENTICAL Kd to sign-glow.mtl, no Ke.
+newmtl sign-matte
+# tyra-brightness 1
+Kd 0.1000 0.9000 1.0000

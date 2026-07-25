@@ -39,6 +39,9 @@ struct LeanObjMaterial {
   std::string name;         // usemtl name ("" = no material)
   std::string textureName;  // map_Kd, relative to the .obj directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};  // diffuse color 0..1
+  // Ke: emission - a per-channel brightness floor the consumer must never
+  // shade below (TyraX emissive materials). {0,0,0} = matte.
+  float ke[3] = {0.0F, 0.0F, 0.0F};
   // refl: spherical environment map ("" = not reflective) + strength 0..1;
   // rounded = env normals radiate from the part centroid ("-rounded" flag)
   std::string reflTextureName;
@@ -77,6 +80,8 @@ struct LeanMtlMaterial {
   std::string name;
   std::string textureName;  // map_Kd, relative to the .mtl directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};
+  // Ke: emission - a per-channel brightness floor (see LeanObjMaterial).
+  float ke[3] = {0.0F, 0.0F, 0.0F};
   // refl: spherical environment map ("" = not reflective) + strength 0..1;
   // rounded = env normals radiate from the part centroid ("-rounded" flag)
   std::string reflTextureName;

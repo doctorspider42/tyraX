@@ -56,6 +56,8 @@
     "aoRadius": 2.5,
     "terrainMaterial": "",
     "bloom": 0,
+    "bloomThreshold": 0,
+    "bloomSpread": 0,
     "grain": 0,
     "dofAmount": 0,
     "dofFocus": 20,
@@ -76,7 +78,7 @@
   "scenes": [
     { "name": "main",
       "terrain": { "width": 32, "depth": 32 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["f4c8db4c8767e492", "3645b116fad513ea", "b3abd3696696f938", "a2056914cad5dddf", "293ed8b088aee699", "e5ce1f7e495a704b", "40ffb456fa1d59e5", "722ff255fcfe9f1a"] }
   ],
   "fonts": [

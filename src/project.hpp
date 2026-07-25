@@ -731,6 +731,15 @@ struct ProjectSettings {
     // Post effects (GS framebuffer blits at the end of every frame; no
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
+    // Bright-pass cut for the bloom, 0..1 of full white. 0 = the whole frame
+    // glows (soft focus); raise it and only what is brighter than this blooms,
+    // which is what makes emissive materials (docs/emissive-materials.md) read
+    // as glowing objects instead of veiling the picture.
+    float bloomThreshold = 0.0f;
+    // How far the glow reaches, 0..1 -> 1..4 soften iterations over the
+    // quarter-res buffer (each doubles the tap offsets). 0 = the original
+    // tight fringe; raise it for a real corona around emissive surfaces.
+    float bloomSpread = 0.0f;
     float grain = 0.0f;  // animated film grain noise overlay
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
@@ -810,6 +819,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
            a.aoRadius == b.aoRadius &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
+           a.bloomThreshold == b.bloomThreshold &&
+           a.bloomSpread == b.bloomSpread &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.fogEnabled == b.fogEnabled &&
