@@ -9172,3 +9172,250 @@ Each finished feature lands as its own commit.
   only compiles inside the container. Examples unaffected (none has an empty
   scene). Note: the editor exe in `build/` was locked by a running editor, so
   this was built and verified from a throwaway `build-verify/` tree.
+- (100) **Tree Generator** (*Tools > Tree Generator*, user request: "generate
+  trees into the assets and place them from the editor - but not 100k-vertex
+  monsters") - procedural low-poly trees, EZ-Tree-inspired (MIT),
+  reimplemented host-side as `src/treegen.cpp` (the stochtile/matbake/
+  decalproj pattern: no GL, no Project dependency, pure functions over a
+  `Params` struct). Recursive branch skeleton -> tapered tubes with
+  parallel-transported frames, leaves as camera-agnostic quads on the outer
+  levels, plus two procedurally baked 128² textures (tileable bark: rough
+  ridges / birch lenticels / cracked plates; leaf card: broadleaf cluster /
+  needle sprig / single blade). `writeAssets()` emits `.obj` + `.mtl` + the
+  two PNGs into `res/models/trees/` and the tree enters the scene through
+  the EXISTING `addModelObject()` - so the whole model -> serialization ->
+  codegen -> runtime chain is untouched: no new object type, no new
+  manifest field, no codegen, no engine change. A generated tree is
+  indistinguishable from an imported .obj. Leaf transparency needed nothing
+  new either - the static pipeline already alpha-tests material textures -
+  but the leaf PNG bakes **hard 0/255 alpha** on purpose (the tRNS->CLUT
+  path loses a soft gradient) with opaque colors dilated into the
+  transparent margin so bilinear sampling never rings a dark fringe.
+  Determinism was a design constraint, not a nicety: each branch derives
+  its RNG stream from (parent seed, child index) via a splitmix mixer, so
+  dragging one slider ADJUSTS the tree instead of reshuffling it - without
+  that, every tweak of "Trunk sides" regenerates a different tree and the
+  tool feels random rather than dialable. Presets keep the current seed (a
+  preset is a shape, not a dice roll); Roll re-seeds. Tessellation is
+  explicit - radial sides and length rings interpolate from the trunk
+  values down to the `*Min` values on the outermost level, so detail lands
+  where it reads - and the window shows a live triangle count (green under
+  1800, amber past it, red past 3000, advisory only). The tool is a
+  parameter panel + a live turntable preview rendered from the IN-MEMORY
+  mesh/textures (nothing touches disk or the shared asset caches until you
+  add, so slider drags stay instant) in its **own framebuffer**, not the
+  Material Editor's - sharing `prevFbo_` was the first cut and is wrong:
+  both tools can be open at once and size their previews independently, so
+  one target would thrash its size and each window would show the other's
+  image. Doc: docs/tree-generator.md.
+  Verified: build.ps1 clean; a headless harness (the
+  headless-model-harness recipe - link `treegen.cpp.obj` +
+  `objparser.cpp.obj` against a tiny main) checked all six presets for
+  non-degenerate geometry and budget (**Oak 596, Birch 437, Spruce 943,
+  Poplar 646, Dead tree 549, Bush 620 triangles** - the "no kobyły"
+  requirement, comfortably met), determinism (same params -> identical
+  sizes/bounds; different seed -> different geometry), the leaf texture's
+  hard cutout (some fully transparent AND some fully opaque texels), and a
+  full **round-trip through objparser**: the written .obj re-loads with two
+  submeshes named bark/leaf, both textured, and a triangle count matching
+  the generator exactly (596 == 596), with the vertex dedup confirmed (739
+  positions vs 1788 raw corners). A second harness ran the non-GL half of
+  "Add to scene" (add a Model object -> ensureObjectIds -> save ->
+  refreshGenerated) against a scratch project: all clean. In the GUI the
+  window renders correctly at uiScale 1.5 (screenshot: full slider panel, a
+  real tree with trunk/branches/green leaves in the preview, live triangle
+  readout) and Add to scene writes the assets and adds the object.
+  **Found while verifying - a GL DRIVER crash, not this feature's code, but
+  reachable through it.** With the **Material Editor open**, adding a
+  generated tree model to the scene kills the editor (~50-100% of the time)
+  the moment the preview shows that model for the first time. Diagnosed
+  under gdb on a RelWithDebInfo build, so this is exact and not a guess:
+  the faulting call is **`glTexImage2D` at viewport.cpp:1810** inside
+  `Viewport::glTexture("res/models/trees/tree-12-bark.png")`, called from
+  **`Viewport::renderMaterialPreview`** (NOT the scene viewport), three
+  frames deep inside `atio6axx.dll`. Every argument is valid: 128x128,
+  comp=4, non-null pixels, power-of-two, RGBA8. A valid RGBA8 upload
+  segfaulting inside the driver is a driver fault; this machine has
+  documented AMD GL quirks (the white-window note in the screenshot
+  harness). Control: with the Material Editor **closed** the same add is
+  stable 4/4.
+  Two hypotheses were tested and **killed**, recorded so nobody re-runs
+  them: (1) "creating textures inside a render pass" - a `warmAssets()`
+  pre-pass that acquired every asset *before* any framebuffer was bound
+  still crashed, in the pre-pass itself; position within the frame is
+  irrelevant, and that change was reverted rather than shipped with a
+  wrong explanation attached. (2) "any textured .obj does it" - false: a
+  hand-written 12-triangle cube never reproduced it (0/10), not even
+  carrying the tree's own PNGs, not even with two materials and two
+  textures; a fresh project holding only `res/models/trees/` crashes 2/4.
+  So the trigger needs the generated tree model itself (596 tris, 2 parts)
+  plus the Material Editor. An earlier stash A/B "proving this predates the
+  feature" was flawed - it varied the binary while holding the poisoned
+  assets constant; what it does still show is that the faulting code is not
+  treegen's (the base binary, `treegen` not even compiled, crashed 4/4 on a
+  project full of generated trees). Filed as its own task and deliberately
+  NOT papered over with a "close the window on add" workaround. **Fixed in
+  (101)** - the entry below has the answer.
+  One real fix did come out of the hunt: the AO occluder pass called the
+  full `modelDraw()` (uploading meshes AND textures to GL) purely to read a
+  model's AABB - it now uses a new GL-free `Viewport::modelBounds()`
+  (objparser + its own cache), so reading bounds mid-frame never triggers a
+  GL upload. That is a straightforward win regardless of the crash.
+- (101) **Fix: the AMD GL driver crash on texture upload** (user report: "I
+  open the tree editor and it crashes instantly; a reboot didn't help" - and
+  it had worked during my own testing, which made it look like a regression
+  from the main merge; it wasn't). Windows' own Application Error log settled
+  it in one query: `Faulting module atio6axx.dll 31.0.21921.11005`,
+  `0xc0000005`, **fault offset 0x2152beb - byte-identical across every crash**,
+  the user's and mine, over several different builds. So: one driver bug, not
+  a regression and not several bugs; the user simply hit it earlier, because
+  merely opening the Tree Generator uploads its two preview textures, while
+  my repro needed a model added with a preview window open.
+  The fix is the *form* of the upload, not its arguments (which gdb showed
+  were always valid - 128², RGBA8, power-of-two, non-null pixels): a single
+  `glTexImage2D` carrying the pixel pointer faults, so every RGBA upload now
+  goes through **`glUploadTexRgba()`** in `gl_loader.h/.cpp` - allocate the
+  level empty, then fill it with `glTexSubImage2D` (`TexSubImage2D` added to
+  the loader's X-macro list). Applied at **all ten** upload sites, not just
+  the tree ones (viewport: disk textures, live paint, animated-model embedded
+  textures, the UV checker, the tree preview; app: HUD image cache, the
+  built-in USE sprite, HUD text, the text preview, the menu preview), plus the
+  R32F heightmap upload for the same reason - a driver bug does not care which
+  feature triggers it, and leaving nine sites armed would just relocate the
+  crash. Framebuffer attachments already allocate empty, so they were fine.
+  Verified on the three paths that used to fail: opening the Tree Generator
+  **0/4** (was crashing on every attempt for the user), Material Editor + add
+  a tree model **0/4** (was 4/4 on a clean base), Tree Generator "Add to
+  scene" **0/4** (was 3/4) - 12 clean runs where the previous binary managed
+  at most one. build.ps1 clean.
+  Also corrected in this pass: the `modelBounds()` comment still justified
+  itself with the earlier in-a-render-pass theory, which the gdb evidence had
+  already killed (the crash happened in a pre-pass too). The change stands on
+  its own merit - reading an AABB should not upload a model as a side effect -
+  and now says so instead.
+
+- (102) **Build: one dependency list, so a missing vendor/ clone can never
+  reach cmake again** (user report: a fresh worktree died with `Cannot find
+  source file: vendor/ufbx/ufbx.c` + `No SOURCES given to target`). The
+  dependency set lived in TWO places: `setup.ps1` cloned seven directories,
+  while `build.ps1` guarded only the original four (imgui/glfw/imguizmo/
+  imnodes) - so stb, ufbx and tyra were never checked. Every dependency added
+  after that guard was written (ufbx came with the FBX importer, #119) was
+  invisible to it, and any worktree created before the addition walked
+  straight into a cmake error that reads like a corrupt checkout rather than
+  "run setup". PROGRESS (1545) records the same trap firing once already.
+  Now `deps.ps1` holds the single list (`$VendorDeps` + `$StbHeaders` +
+  `$Ps2Tools`), dot-sourced by both scripts: setup fetches from it, build
+  probes every entry marked `Build` and runs setup itself when one is
+  missing, then re-probes and fails loudly with the offending path if the
+  fetch didn't help. Probes are **files the build actually compiles**
+  (`vendor/ufbx/ufbx.c`, `vendor/imgui/imgui.cpp`, ...), not directories, so
+  an interrupted clone counts as missing instead of passing the guard.
+  Two smaller fixes rode along: `vendor/tyra` is in-tree (its engine sources
+  are versioned here), so cloning into it always failed with a `fatal:
+  destination path already exists` that looked like a real error - it now
+  reports as present; and native tools run through `Invoke-Native`, because
+  git and tar write progress to stderr and Windows PowerShell turns that into
+  a terminating error under `$ErrorActionPreference='Stop'` **only when the
+  caller captured the stream** (build.ps1 piped into a log, CI) - the exit
+  code is what actually decides.
+  Verified both directions: renaming `vendor/ufbx/ufbx.c` away makes build.ps1
+  stop before cmake with the explicit path, and deleting the whole directory
+  makes it re-clone and build clean through to `tyrax-editor.exe`.
+
+- (103) **Fix: alpha-cutout foliage - black cards in the editor, z-stamping
+  transparent texels on the PS2** (user report on the Tree Generator: "in the
+  editor the leaves have a black background instead of alpha, and in the game
+  they have alpha but you can't see other leaves through them"). Two
+  independent bugs that happened to land on the same asset.
+  *Editor:* `Viewport::modelDraw` recorded a part's texture but nothing about
+  its transparency, and the scene pass drew every model part with
+  `alpha = false` - the shader's cutout discard was reserved for decals. A
+  leaf card is 13 395 of 16 384 texels at alpha 0, 12 302 of them pure black
+  RGB, so ignoring alpha renders exactly the black rectangle the user saw.
+  `glTexture()` now records whether an image carries any non-opaque texel
+  (only when the FILE has an alpha channel - an opaque RGBA PNG keeps the
+  cheap path), `ModelPart::alpha` reads it, and the scene, the mirror
+  reflections and the Material Editor preview all draw cutout parts with the
+  discard on. Opaque parts draw first, cutout after, the order the tree
+  preview already used.
+  *Engine:* the static pipeline's standard alpha test was
+  `GS_SET_TEST(..., ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_FRAMEBUFFER, ...)`
+  - and that ps2sdk constant reads backwards: `ATEST_KEEP_FRAMEBUFFER` is
+  **2 = ZB_ONLY**, "keep the framebuffer, update z" (`ATEST_KEEP_ZBUFFER` is
+  1 = FB_ONLY - the pair names what is PRESERVED, not what is written; the
+  header is `ps2sdk/ee/include/draw_tests.h`). So every fully transparent
+  texel drew no colour and still stamped the z buffer, and the invisible part
+  of a cutout card occluded whatever was drawn behind it later - leaves cut
+  along the straight edges of the card in front of them, holes of sky inside
+  the canopy. `ATEST_KEEP_ALL` (0) writes neither buffer, which is what a
+  cutout means; opaque geometry carries alpha 0x80 and never fails the test,
+  so nothing else moves. Fixed in both twins (stapip + dynpip).
+  Verified: editor screenshot of the trees project shows terrain through the
+  foliage with no black cards; on the PS2 side, built and booted the same
+  project in PCSX2 (software renderer, 50 FPS) with the engine line reverted
+  and restored - the upstream build shows leaves amputated along invisible
+  card boundaries, the fixed one a properly layered canopy. A pixel A/B was
+  not possible: the FPP camera lands in a different pose each boot (the known
+  per-run camera problem in tyra-testing), so the comparison is on the leaf
+  artefact, not on identical frames.
+
+- (104) **Tree Generator: height scales the tree, and conifers grow by their
+  own rule** (user, on the first real use of the generator: "when I raise the
+  height the tree gets thinner, and there is no way to make a Christmas tree").
+  Two separate shortcomings, both about the parameter MODEL rather than the
+  mesh code.
+  *Proportions:* `height` was a world length while `trunkRadius` and
+  `leafSize` were world lengths too, so the Height slider stretched the trunk
+  and left the girth behind - a taller tree became a pole, a shorter one a
+  stump. Height is now the tree's SIZE: `thickness` and `leafSize` are
+  fractions of it (the sliders read `% of h`, tooltips show the resulting
+  units), so dragging Height is a uniform scale. Measured with a host harness:
+  the Oak's width/height is 0.5969 at heights 5, 10 and 20 - bit-identical
+  proportions, which is exactly the property that was missing.
+  *Conifers:* the recursion only knew one habit - children spiral up every
+  parent and the crown emerges from ratios. A spruce is not that shape with
+  different numbers: its trunk keeps an unbroken leader and carries WHORLS
+  whose length follows a profile ALONG THE TRUNK (longest low, vanishing at the
+  apex - that profile is the cone) with the tilt sweeping from drooping at the
+  bottom to raised at the top. `lengthTaper` is a per-generation ratio and
+  cannot express either, which is why the old Spruce preset was a bare pole
+  with tufts on stalks. Added `Params::crown` (0 spread / 1 conical) +
+  `whorls`; conical mode runs `conicalWhorls()` off the trunk, reads
+  `children[0]` as the count per whorl, and offsets each whorl by the golden
+  angle so boughs never stack into columns.
+  Foliage needed two fixes to match: anchors now carry the **branch length they
+  own** (`Anchor::span`) and needle cards spread over it instead of over the
+  card size - a low-poly bough has two or three rings, so without this its
+  needles clumped at those points with bare tube between them - and the
+  conifer's leader is sampled at its own fixed rate rather than at the trunk's
+  rings, because foliage is shared out per anchor and the apex's two rings lost
+  every time against the ~200 anchors down in the whorls (measured: 13 leaf
+  triangles above y=8.25 before, 33 after, on a 10-unit tree). Needle cards
+  also lie along the twig and spin around it now instead of facing a random
+  direction. Spruce preset rebuilt around all of it: 10 whorls of 5, needles
+  down the whole bough, **1440 triangles** (was 943 for a shape nobody wanted).
+  Verified with a scratch harness (`treegen` has no GL/Project dependency, so
+  it links into a 40-line host program): triangle counts and bounding boxes for
+  every preset, the proportionality table above, a foliage-per-height-band
+  histogram to find the starved apex, and orthographic silhouettes of the
+  result from three angles - the shape is a continuous cone from base to spire,
+  and the five other presets are unchanged. That harness loop found three
+  problems the GUI would have made me squint at; it belongs in the scratchpad,
+  not the repo.
+  *Follow-up, same session:* the user dragged the finished Height slider and
+  found it still gave "two shapes it jumps hard between". Scaling the world
+  DIMENSIONS was not enough - the "too small to bother" cutoffs that drop a
+  child branch (`clen < 0.02`, `crad < 0.004`) were still absolute, so below
+  about height 2 whole whorls fell through them and a 0.5-unit spruce came out
+  a pole with a skirt (315 bark triangles against 840 at height 20 - the
+  triangle counters in the two screenshots were the tell). They are fractions
+  of height now, as is the degenerate-radius guard in the bark `vStep`. Proven
+  by the strong form of the property rather than by eye: generated at heights
+  0.5 through 20 every preset holds one triangle count and one width/height
+  ratio, and the height-5 mesh multiplied by 4 is **bit-identical** to the
+  height-20 mesh, vertex for vertex, for all six (exact because 4 is a power of
+  two; a non-power-of-two ratio would differ in the last float bits). Lesson
+  worth keeping: a size control must not change what it is sizing, and an
+  absolute epsilon inside a parametric generator is a shape parameter in
+  disguise.

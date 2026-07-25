@@ -1057,6 +1057,10 @@ void Viewport::shutdown() {
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
+    destroyMesh(treePrevBark_);
+    destroyMesh(treePrevLeaves_);
+    if (treePrevBarkTex_) glDeleteTextures(1, &treePrevBarkTex_);
+    if (treePrevLeafTex_) glDeleteTextures(1, &treePrevLeafTex_);
     clearModelCache();
     clearTexCache();
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
@@ -1065,6 +1069,9 @@ void Viewport::shutdown() {
     if (prevFbo_) glDeleteFramebuffers(1, &prevFbo_);
     if (prevTex_) glDeleteTextures(1, &prevTex_);
     if (prevDepth_) glDeleteRenderbuffers(1, &prevDepth_);
+    if (treeFbo_) glDeleteFramebuffers(1, &treeFbo_);
+    if (treeTex_) glDeleteTextures(1, &treeTex_);
+    if (treeDepth_) glDeleteRenderbuffers(1, &treeDepth_);
     if (gradeProgram_) glDeleteProgram(gradeProgram_);
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
@@ -1287,8 +1294,12 @@ void Viewport::buildTerrainMesh() {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // Allocate empty, then fill - the same two-step upload glUploadTexRgba
+        // documents (a data-carrying glTexImage2D faults inside the AMD driver).
         glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, hmW_, hmD_, 0, GL_RED, GL_FLOAT,
-                     heights_.data());
+                     nullptr);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, hmW_, hmD_, GL_RED, GL_FLOAT,
+                        heights_.data());
         glBindTexture(GL_TEXTURE_2D, 0);
         aoHmW_ = hmW_, aoHmD_ = hmD_;
     } else {
@@ -1627,6 +1638,36 @@ void Viewport::ensurePreviewFramebuffer(int width, int height) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// Tree Generator preview target - the twin of ensurePreviewFramebuffer, kept
+// separate so the two tools never share one render target (see the members).
+void Viewport::ensureTreeFramebuffer(int width, int height) {
+    if (treeFbo_ && width == treeFbW_ && height == treeFbH_) return;
+    treeFbW_ = width;
+    treeFbH_ = height;
+
+    if (!treeFbo_) glGenFramebuffers(1, &treeFbo_);
+    if (!treeTex_) glGenTextures(1, &treeTex_);
+    if (!treeDepth_) glGenRenderbuffers(1, &treeDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, treeTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, treeDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, treeFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           treeTex_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, treeDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "tree preview framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 namespace {
 
 // Forward euler rotation (X, then Y, then Z) - matches the generated game's
@@ -1921,6 +1962,7 @@ void Viewport::clearTexCache() {
     for (auto& [path, tex] : texCache_)
         if (tex) glDeleteTextures(1, &tex);
     texCache_.clear();
+    texAlpha_.clear();  // re-derived when the images reload
 }
 
 void Viewport::invalidateAssets() {
@@ -1935,26 +1977,40 @@ uint32_t Viewport::glTexture(const std::string& relPath) {
     if (it != texCache_.end()) return it->second;
 
     GLuint tex = 0;
+    bool hasAlpha = false;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
     int w = 0, h = 0, comp = 0;
     if (unsigned char* pixels = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
+        // comp is the FILE's channel count, so a 3-channel source is opaque by
+        // definition and needs no scan; anything with an alpha channel is only
+        // really transparent if some texel says so (plenty of RGBA PNGs are
+        // fully opaque and should keep the cheaper opaque path).
+        if (comp == 4)
+            for (size_t i = 3, n = (size_t)w * h * 4; i < n; i += 4)
+                if (pixels[i] < 255) {
+                    hasAlpha = true;
+                    break;
+                }
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glUploadTexRgba(w, h, pixels);
         stbi_image_free(pixels);
     }
     texCache_[relPath] = tex;  // 0 is cached too (missing/unreadable)
+    texAlpha_[relPath] = hasAlpha;
     return tex;
+}
+
+bool Viewport::texHasAlpha(const std::string& relPath) const {
+    auto it = texAlpha_.find(relPath);
+    return it != texAlpha_.end() && it->second;
 }
 
 void Viewport::clearModelCache() {
     for (auto& [path, draw] : modelCache_)
         for (auto& part : draw.parts) destroyMesh(part.mesh);
     modelCache_.clear();
+    modelBoundsCache_.clear();  // re-read bounds after a disk change too
     materialCache_.clear();  // GL textures are owned by texCache_
     for (auto& [path, draw] : animModelCache_)
         for (auto& part : draw.parts) {
@@ -2127,17 +2183,10 @@ void Viewport::updateTexturePixels(const std::string& relPath, int w, int h,
     if (!tex) {
         GLuint t = 0;
         glGenTextures(1, &t);
-        glBindTexture(GL_TEXTURE_2D, t);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         tex = t;
-    } else {
-        glBindTexture(GL_TEXTURE_2D, tex);
     }
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 rgba);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUploadTexRgba(w, h, rgba);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
@@ -2172,6 +2221,36 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
         }
     }
     return &materialCache_.emplace(relPath, draw).first->second;
+}
+
+// Model AABB in model space WITHOUT any GL work (objparser is CPU-only) -
+// the bounds-only path for AO occluder collection. Cached separately from the
+// GL ModelDraw so reading bounds never forces a texture/mesh upload. Returns
+// false for an unloadable/animated model (no occluder).
+bool Viewport::modelBounds(const std::string& relPath,
+                           const std::string& materialRel, float mn[3],
+                           float mx[3]) {
+    if (relPath.empty()) return false;
+    const std::string key = relPath + "|" + materialRel;
+    auto it = modelBoundsCache_.find(key);
+    if (it == modelBoundsCache_.end()) {
+        std::array<float, 6> b{};
+        bool ok = false;
+        objparser::Model model;
+        if (objparser::load(
+                (std::filesystem::path(projectDir_) / relPath).string(), model,
+                materialRel.empty()
+                    ? ""
+                    : (std::filesystem::path(projectDir_) / materialRel)
+                          .string())) {
+            for (int k = 0; k < 3; ++k) b[k] = model.min[k], b[k + 3] = model.max[k];
+            ok = true;
+        }
+        it = modelBoundsCache_.emplace(key, std::pair<bool, std::array<float, 6>>{ok, b}).first;
+    }
+    if (!it->second.first) return false;
+    for (int k = 0; k < 3; ++k) mn[k] = it->second.second[k], mx[k] = it->second.second[k + 3];
+    return true;
 }
 
 const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
@@ -2216,8 +2295,11 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             ModelPart part;
             part.mesh = uploadMesh(interleaved);
             for (int k = 0; k < 3; ++k) part.ke[k] = sub.ke[k];
-            if (!sub.texture.empty())
-                part.tex = glTexture((modelDir / sub.texture).generic_string());
+            if (!sub.texture.empty()) {
+                const std::string texRel = (modelDir / sub.texture).generic_string();
+                part.tex = glTexture(texRel);
+                part.alpha = part.tex && texHasAlpha(texRel);
+            }
             if (!sub.refl.empty()) {
                 if (sub.refl == "@sky")
                     part.reflSky = true;
@@ -2274,12 +2356,7 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
             if (!pixels) continue;
             glGenTextures(1, &imageTex[i]);
             glBindTexture(GL_TEXTURE_2D, imageTex[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                         GL_UNSIGNED_BYTE, pixels);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glUploadTexRgba(w, h, pixels);
             stbi_image_free(pixels);
         }
         for (size_t pi = 0; pi < draw.baked.parts.size(); ++pi) {
@@ -2705,12 +2782,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // the same shapes serve both, so a scene with lamps and no baked
         // occlusion still needs them uploaded.
         if (aoOn_ || emisCount > 0) {
+            // Occluder bounds only need the model AABB, so read it through the
+            // GL-free bounds path rather than modelDraw(): asking for a number
+            // should not upload a whole textured model's meshes and textures to
+            // GL as a side effect. The model still uploads lazily in the draw
+            // loop, where it is actually drawn.
             std::vector<aobake::Occluder> occs = aobake::collectOccluders(
                 objects, [&](const SceneObject& o, float* mn, float* mx) {
-                    const ModelDraw* md = modelDraw(o.modelPath, o.materialPath);
-                    if (!md) return false;
-                    for (int k = 0; k < 3; ++k) mn[k] = md->mn[k], mx[k] = md->mx[k];
-                    return true;
+                    return modelBounds(o.modelPath, o.materialPath, mn, mx);
                 });
             // hidden layers cast nothing (like the point-light preview)
             occs.erase(std::remove_if(occs.begin(), occs.end(),
@@ -2969,7 +3048,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(o.modelPath, o.materialPath)
                                       : nullptr;
             if (md) {
+                // Opaque parts first, cutout ones (leaf cards) after, so a
+                // blended part never darkens a trunk it was authored in front
+                // of - the same order the tree preview draws in.
+                for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
                 for (const ModelPart& part : md->parts) {
+                    const bool cutout = part.alpha && !asLines;
+                    if ((int)cutout != alphaPass) continue;
                     // rounded env normals radiate from the part centroid -
                     // transform it to world space with the object matrix
                     float c[3] = {0, 0, 0};
@@ -2985,7 +3070,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                               : o.color[a] * tintScale * part.ke[a];
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
-                         asLines ? 0 : part.tex, lit ? &model : nullptr, false,
+                         asLines ? 0 : part.tex, lit ? &model : nullptr, cutout,
                          1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
                          asLines ? false : part.reflSky, part.reflRounded, c);
                 }
@@ -3064,12 +3149,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(t.modelPath, t.materialPath)
                                       : nullptr;
             if (md) {
-                for (const ModelPart& part : md->parts) {
-                    for (int a = 0; a < 3; ++a)
-                        emissive[a] = t.color[a] * part.ke[a];
-                    draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
-                         t.color[2], part.tex, &model);
-                }
+                for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
+                    for (const ModelPart& part : md->parts) {
+                        if ((int)part.alpha != alphaPass) continue;
+                        // emissive is one-shot - draw() consumes it, so it has
+                        // to be set per part, inside the ordering loop
+                        for (int a = 0; a < 3; ++a)
+                            emissive[a] = t.color[a] * part.ke[a];
+                        draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
+                             t.color[2], part.tex, &model, part.alpha);
+                    }
+
                 return;
             }
             const MaterialDraw* mat =
@@ -3328,13 +3418,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 // viewport (and the PS2 bake). The camera orbits instead of the shape spinning
 // - the directional shade is baked into the mesh vertex colors, so rotating
 // the mesh would drag the light along with it.
-uint32_t Viewport::renderMaterialPreview(int width, int height,
-                                         const MatPreviewDesc& d) {
-    if (!program_) return 0;
-    if (width < 1) width = 1;
-    if (height < 1) height = 1;
-    ensurePreviewFramebuffer(width, height);
-
+void Viewport::ensurePreviewBackdrop() {
     if (!prevBg_.vao) {
         std::vector<float> q;
         const float bot[3] = {0.09f, 0.10f, 0.13f}, top[3] = {0.24f, 0.27f, 0.34f};
@@ -3366,6 +3450,15 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             }
         prevFloor_ = uploadMesh(f);
     }
+}
+
+uint32_t Viewport::renderMaterialPreview(int width, int height,
+                                         const MatPreviewDesc& d) {
+    if (!program_) return 0;
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    ensurePreviewFramebuffer(width, height);
+    ensurePreviewBackdrop();
 
     // UV checker (displayMode 2): 8-cell two-gray checker with a hue wash
     // per 2x2 block and a texel grid - stretch and density read at a glance.
@@ -3388,12 +3481,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         GLuint t = 0;
         glGenTextures(1, &t);
         glBindTexture(GL_TEXTURE_2D, t);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, S, S, 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, px.data());
+        glUploadTexRgba(S, S, px.data());
         glBindTexture(GL_TEXTURE_2D, 0);
         uvCheckerTex_ = t;
     }
@@ -3432,14 +3520,16 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                     uint32_t texture, uint32_t reflTex = 0,
                     float reflStrength = 0.0f, bool reflSky = false,
                     bool reflRounded = false,
-                    const float* reflCenter = nullptr) {
+                    const float* reflCenter = nullptr, bool alpha = false) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
         glUniform3f(uEmissive_, emissive[0], emissive[1], emissive[2]);
         glUniform1i(uUseTex_, texture ? 1 : 0);
-        glUniform1i(uAlpha_, 0);
+        // cutout materials (leaf cards) discard their transparent texels here
+        // too, or painting one shows the PNG's black margin instead
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
         glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
         if (reflTex || reflSky) {
             glUniform1f(uReflStrength_, reflStrength);
@@ -3532,7 +3622,8 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                      glTexture(refl),
                      staged ? d.reflStrength : part.reflStrength,
                      staged ? d.reflSky : part.reflSky,
-                     staged ? d.reflRounded : part.reflRounded, part.centroid);
+                     staged ? d.reflRounded : part.reflRounded, part.centroid,
+                     texHasAlpha(tex));
         }
     } else {
         // unit shapes sit at the origin - that's the rounded-normal centre
@@ -3547,7 +3638,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         else
             draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
                  glTexture(d.texRel), glTexture(d.reflRel), d.reflStrength,
-                 d.reflSky, d.reflRounded, origin);
+                 d.reflSky, d.reflRounded, origin, texHasAlpha(d.texRel));
     }
     if (d.displayMode == 1) {
         glDisable(GL_POLYGON_OFFSET_FILL);
@@ -3598,6 +3689,139 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     }
 
     return prevTex_;
+}
+
+uint32_t Viewport::renderTreePreview(int width, int height,
+                                     const TreePreviewDesc& d) {
+    if (!program_) return 0;
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    ensureTreeFramebuffer(width, height);
+    ensurePreviewBackdrop();
+
+    // (Re)upload on version change: bake the directional shade into the
+    // vertex colors (shadeOf - the modelDraw twin, so the preview matches how
+    // the saved .obj will look in the scene) and refresh both textures.
+    if (!treePrevHasVersion_ || treePrevVersion_ != d.version) {
+        treePrevHasVersion_ = true;
+        treePrevVersion_ = d.version;
+        destroyMesh(treePrevBark_);
+        destroyMesh(treePrevLeaves_);
+        auto upload = [&](const std::vector<float>* src) {
+            Mesh m;
+            if (!src || src->empty()) return m;
+            std::vector<float> il;
+            il.reserve(src->size());
+            for (size_t i = 0; i + 7 < src->size(); i += 8) {
+                const Vec3 s = shadeOf(normalize(
+                    {(*src)[i + 3], (*src)[i + 4], (*src)[i + 5]}));
+                il.insert(il.end(),
+                          {(*src)[i], (*src)[i + 1], (*src)[i + 2], s.x, s.y,
+                           s.z, (*src)[i + 6], (*src)[i + 7]});
+            }
+            return uploadMesh(il);
+        };
+        treePrevBark_ = upload(d.bark);
+        treePrevLeaves_ = upload(d.leaves);
+        auto refresh = [](uint32_t& t, const unsigned char* px, int w, int h) {
+            if (!px || w < 1 || h < 1) return;
+            if (!t) {
+                GLuint id = 0;
+                glGenTextures(1, &id);
+                t = id;
+            }
+            glBindTexture(GL_TEXTURE_2D, t);
+            glUploadTexRgba(w, h, px);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        };
+        refresh(treePrevBarkTex_, d.barkRgba, d.barkW, d.barkH);
+        refresh(treePrevLeafTex_, d.leafRgba, d.leafW, d.leafH);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, treeFbo_);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(program_);
+    glUniform1i(uLightCount_, 0);
+    glUniform1i(uAoOn_, 0);
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uReflOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);  // shared program: clear a mirror's leftover
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g,
+                    float b, uint32_t texture, bool alpha) {
+        if (!mesh.vao) return;
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
+        glUniform1i(uLit_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+
+    // backdrop: NDC-space gradient quad, no depth
+    glDisable(GL_DEPTH_TEST);
+    draw(prevBg_, id, 1.0f, 1.0f, 1.0f, 0, false);
+    glEnable(GL_DEPTH_TEST);
+
+    // camera framing from the mesh AABB (the model branch of the material
+    // preview, with a slightly lower default pivot so the trunk base shows)
+    const Vec3 center{d.center[0], d.center[1], d.center[2]};
+    float radius = d.radius < 0.01f ? 0.01f : d.radius;
+    float baseDist = radius * 2.4f;
+    float zoom = d.zoom < 0.05f ? 0.05f : (d.zoom > 16.0f ? 16.0f : d.zoom);
+    const float dist = baseDist / zoom;
+    float pitch = d.pitchDeg;
+    if (pitch < -30.0f) pitch = -30.0f;
+    if (pitch > 85.0f) pitch = 85.0f;
+    const float a = d.angleDeg * kPi / 180.0f;
+    const float p = pitch * kPi / 180.0f;
+    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
+                   center.y + dist * std::sin(p),
+                   center.z + dist * std::cos(p) * std::sin(a)};
+    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const float zFar = dist + radius * 4.0f + 50.0f;
+    const Mat4 proj = perspective(45.0f * kPi / 180.0f,
+                                  (float)width / (float)height,
+                                  dist * 0.01f < 0.01f ? 0.01f : dist * 0.01f,
+                                  zFar);
+    const Mat4 viewProj = mul(proj, view);
+
+    {
+        const Mat4 floorM = mul(translation(center.x, d.minY - radius * 0.002f,
+                                            center.z),
+                                scaleM(radius, 1.0f, radius));
+        draw(prevFloor_, mul(viewProj, floorM), 1.0f, 1.0f, 1.0f, 0, false);
+    }
+
+    if (d.displayMode == 1) {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 1.0f);
+    }
+    draw(treePrevBark_, viewProj, 1.0f, 1.0f, 1.0f, treePrevBarkTex_, false);
+    // leaves last: the alpha-cutout shader path discards transparent texels
+    draw(treePrevLeaves_, viewProj, 1.0f, 1.0f, 1.0f, treePrevLeafTex_, true);
+    if (d.displayMode == 1) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        draw(treePrevBark_, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
+        draw(treePrevLeaves_, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    }
+
+    glUniform1i(uAlpha_, 0);
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return treeTex_;
 }
 
 std::vector<std::string> Viewport::animClipNames(const std::string& modelRel,
