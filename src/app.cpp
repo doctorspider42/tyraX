@@ -12205,9 +12205,10 @@ void App::drawPhoneCamWindow() {
                     "New pairing code - restart the link for it to take effect";
             }
         }
-        ImGui::TextDisabled("The phone app is tools/tyrax-cam. Opening the http://\n"
-                            "address in any browser gives a test client that shows\n"
-                            "the same stream and can fake a pose.");
+        ImGui::TextDisabled("The phone app is github.com/doctorspider42/tyrax-cam\n"
+                            "(sideloaded). Opening the http:// address in any\n"
+                            "browser gives a test client that shows the same\n"
+                            "stream and can fake a pose.");
     }
 
     // --- the connected device ----------------------------------------------

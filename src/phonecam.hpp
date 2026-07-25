@@ -1,8 +1,9 @@
 #pragma once
 
 // Live phone camera link (docs/phone-camera.md): the editor HOSTS a session on
-// the LAN, the companion iOS app (tools/tyrax-cam) joins, and from then on the
-// phone IS a viewfinder - it shows a live JPEG stream of the editor's chosen
+// the LAN, the companion iOS app joins (a separate public repo,
+// github.com/doctorspider42/tyrax-cam - its own toolchain and release cycle),
+// and from then on the phone IS a viewfinder - it shows a live JPEG stream of the editor's chosen
 // camera and its 6DoF ARKit pose drives that camera. The Cutscene Director can
 // record the move straight into camera keyframes while you watch the framing on
 // the phone.

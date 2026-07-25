@@ -455,7 +455,7 @@ void Link::workerMain() {
 // --- Browser test client ---------------------------------------------------------
 // Served to a plain GET on the link's port. Deliberately synthetic-pose only:
 // drag to look, WASD/QE to fly. The real device path is ARKit in
-// tools/tyrax-cam, and a half-right DeviceOrientation conversion here would be
+// the tyrax-cam app, and a half-right DeviceOrientation conversion here would be
 // a misleading reference for it. What this page IS good for is proving the
 // whole chain - handshake, pairing, pose ingest, JPEG stream, commands - from
 // any machine on the LAN, with no phone and no build.

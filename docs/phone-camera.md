@@ -10,8 +10,12 @@ imported from a file afterwards.
 
 - Editor side: *Tools > Phone Camera* (the link) and *Tools > Cutscene Director >
   Phone camera* (the recording).
-- Phone side: the companion app in [`tools/tyrax-cam`](../tools/tyrax-cam)
-  (iOS/ARKit, sideloaded — see its README).
+- Phone side: the companion app lives in **its own public repo**,
+  [doctorspider42/tyrax-cam](https://github.com/doctorspider42/tyrax-cam)
+  (iOS/ARKit, sideloaded — its README covers the three routes, and its CI builds
+  an unsigned `.ipa` you can sign with a free Apple ID). It is separate because
+  it has a completely different toolchain (Expo/React Native + Swift) and its own
+  release cycle: nothing in this repo builds or needs it.
 - No phone to hand? Open `http://<editor-ip>:7798` in any browser for a **test
   client** that shows the same stream and can fake a pose.
 
@@ -214,7 +218,13 @@ here would be a misleading reference for the ARKit one.
 | `src/camtake.hpp/.cpp` | `mapCamSample` (shared with the live view), the live anchor, fixed-rate resampling |
 | `src/viewport.cpp` | `grabPreviewRgb()` — GPU downscale + readback of the last rendered frame |
 | `src/app.cpp` | `phoneCamTick` / `drawPhoneCamWindow` / `phoneCamPushPreview` / the Director's *Phone camera* section |
-| `tools/tyrax-cam/` | the iOS app |
+
+The iOS app is not in this repo: see
+[doctorspider42/tyrax-cam](https://github.com/doctorspider42/tyrax-cam), whose
+`PROTOCOL.md` is the client-side statement of the same protocol documented above
+— **when you change the protocol, change it there too** (and bump
+`phonecam::kProtoVersion`, which makes a mismatched app fail loudly at the
+handshake instead of misbehaving).
 
 Nothing about this reaches the generated game: a recording ends as ordinary
 `SeqCameraKey`s, so the PS2 runtime, codegen and project format are untouched.

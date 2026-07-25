@@ -149,7 +149,8 @@ on the dopesheet afterwards.
 ## Live streaming from the phone
 
 Shipped: see **[docs/phone-camera.md](phone-camera.md)**. A companion iOS app
-(`tools/tyrax-cam`) streams ARKit pose into a `CamTake` on a worker thread while
+([its own repo](https://github.com/doctorspider42/tyrax-cam)) streams ARKit pose
+into a `CamTake` on a worker thread while
 the editor streams the viewport image back to the phone, and the Cutscene
 Director records the move into keys as it happens. It reuses this whole file's
 second half unchanged; the only additions to the bake were an explicit mapping

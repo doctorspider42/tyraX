@@ -16,8 +16,21 @@ Each finished feature lands as its own commit.
   a companion iOS app connects, and from then on the phone screen shows a live
   JPEG stream of the editor viewport while the phone's 6DoF pose drives that
   camera. In the Cutscene Director, *Record* writes the move into camera keys as
-  it happens, at a configurable keyframe density. Docs: `docs/phone-camera.md`,
-  `tools/tyrax-cam/README.md`.
+  it happens, at a configurable keyframe density. Docs: `docs/phone-camera.md`.
+  **The app lives in its own public repo**, `doctorspider42/tyrax-cam` - it has a
+  completely different toolchain (Expo/React Native + a Swift ARKit module) and
+  its own release cycle (a sideloaded `.ipa`, never built by `build.ps1`), so
+  keeping it under `tools/` here bought nothing and hid it from anyone who just
+  wants the app. That repo carries a `PROTOCOL.md` stating the wire format from
+  the client side, which makes it self-contained (this repo is private, so it
+  could not link back into these docs anyway) - and makes the protocol a
+  **two-repo contract**: change it in both, and bump `phonecam::kProtoVersion` so
+  a stale app is denied at the handshake instead of misbehaving. Its CI builds an
+  **unsigned .ipa** on a macOS runner that Sideloadly/AltStore can sign with a
+  free Apple ID, plus a fast Linux job that Metro-bundles the JS and asserts the
+  local ARKit module is autolinked - that last check exists because autolinking
+  dropping the module is otherwise INVISIBLE: the app still builds and still
+  runs, it just quietly cannot move the camera.
   **Transport.** `wire::makeWebSocketTransport()` - an RFC 6455 server (SHA-1 +
   base64 upgrade, unmasking, ping/pong, fragmentation) behind the existing
   `wire::Transport` interface, which is exactly the seam the collaboration work
