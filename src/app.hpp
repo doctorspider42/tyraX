@@ -161,6 +161,21 @@ private:
     // the sanitized names) into res/models. Returns the project-relative path
     // of the model, or "" when cancelled/failed. Does NOT create an object.
     std::string importModelAsset();
+    // "Real-world size" of a model asset (docs/world-scale.md): what one unit
+    // of the file measures in meters, which combined with the project's world
+    // scale is the scale objects made from it are inserted at. Opened right
+    // after an import and from the Assets list; nothing about the file itself
+    // is touched, only Project::modelUnitMeters.
+    void beginModelSizing(const std::string& relPath);
+    void drawModelSizeModal();
+    bool modelSizeOpen_ = false;       // a sizing dialog is requested this frame
+    std::string modelSizePath_;        // asset being sized ("" = none staged)
+    float modelSizeSrc_[3] = {0.0f, 0.0f, 0.0f};  // authored size, file units
+    bool modelSizeMeasured_ = false;   // the bounds above could be read
+    int modelSizeUnit_ = 0;            // preset: 0 m, 1 cm, 2 inch, 3 custom
+    float modelSizeMeters_ = 1.0f;     // meters per file unit (what is stored)
+    bool modelSizeApplyExisting_ = false;  // also rescale objects already placed
+    bool modelSizeFresh_ = false;      // opened straight after an import
     // Copies a picked PNG into res/textures (terrain tiling); "" on cancel.
     std::string importTextureAsset();
     // Copies a picked .mtl (with its map_Kd textures, references rewritten to
@@ -597,6 +612,21 @@ private:
     // scale deltas cumulatively over the whole drag, not per frame)
     float gizmoDragScale0_[3] = {1.0f, 1.0f, 1.0f};
     bool gizmoWasUsing_ = false;
+
+    // Measuring tape (docs/world-scale.md): click two points on the scene and
+    // read the distance between them, in world units and in meters. A pure
+    // viewport overlay - it never touches the project.
+    bool measureMode_ = false;
+    int measurePoints_ = 0;  // 0 = nothing placed, 1 = start placed, 2 = frozen
+    float measureA_[3] = {0.0f, 0.0f, 0.0f};
+    float measureB_[3] = {0.0f, 0.0f, 0.0f};
+    bool measureLive_ = false;  // the end point is following the cursor
+    // Draws the tape over the viewport image (line, endpoints, readout).
+    void drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail);
+    // World-space size of an object as drawn: the unit primitive or the
+    // model's own bounds, times its scale. False for types with no extent
+    // worth quoting (markers, lights). Used by the Properties readout.
+    bool objectWorldSize(const SceneObject& o, float out[3]);
 
     // Terrain sculpting brush
     bool sculptMode_ = false;

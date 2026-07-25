@@ -78,6 +78,14 @@ public:
     bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
                           const std::vector<char>& skip, float outPoint[3]) const;
 
+    // Inverse of camRay: a world point -> normalized image coords (u, v in
+    // [0,1], origin top-left) of the LAST rendered frame. False when the point
+    // is behind a perspective camera. App-side ImDrawList overlays that have
+    // to sit on world geometry (the measuring tape) place themselves with
+    // this, so they agree with the image under every projection instead of
+    // rebuilding a camera of their own.
+    bool projectToImage(const float world[3], float& outU, float& outV) const;
+
     // Local-space AABB of what an object DRAWS as a model: static .obj bounds
     // (GL-free, cached) or an animated model's baked pose bounds. False for
     // non-model objects and unreadable files. The aobake::ModelAabbFn the app

@@ -1281,6 +1281,32 @@ void Viewport::camRay(const CamView& c, float u, float v, float o[3],
     d[0] = dir.x, d[1] = dir.y, d[2] = dir.z;
 }
 
+bool Viewport::projectToImage(const float world[3], float& outU,
+                              float& outV) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+    const CamView c = camView(fbWidth_, fbHeight_);
+    const float d[3] = {world[0] - c.eye[0], world[1] - c.eye[1],
+                        world[2] - c.eye[2]};
+    const float x = d[0] * c.right[0] + d[1] * c.right[1] + d[2] * c.right[2];
+    const float y = d[0] * c.up[0] + d[1] * c.up[1] + d[2] * c.up[2];
+    const float z = d[0] * c.fwd[0] + d[1] * c.fwd[1] + d[2] * c.fwd[2];
+    float ndcX, ndcY;
+    if (c.ortho) {
+        // A parallel view draws what is behind the camera too (the depth range
+        // straddles the eye), so depth does not gate the projection here.
+        if (c.halfH < 1e-6f) return false;
+        ndcX = x / (c.halfH * c.aspect);
+        ndcY = y / c.halfH;
+    } else {
+        if (z <= 1e-4f) return false;  // behind the eye / on the plane
+        ndcX = x / (z * c.tanHalf * c.aspect);
+        ndcY = y / (z * c.tanHalf);
+    }
+    outU = (ndcX + 1.0f) * 0.5f;
+    outV = (1.0f - ndcY) * 0.5f;
+    return true;
+}
+
 bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
 
