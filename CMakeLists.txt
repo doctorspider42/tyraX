@@ -75,6 +75,9 @@ add_executable(tyrax-editor
     src/pcsx2_config.cpp
     src/pngquant.cpp
     src/primmesh.cpp
+    src/procgraph.cpp
+    src/procgen.cpp
+    src/procbake.cpp
     src/decalproj.cpp
     src/navmesh.cpp
     src/project.cpp

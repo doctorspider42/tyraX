@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "app.hpp"
+#include "procbake.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 
@@ -40,6 +41,23 @@ static int createFromCli(int argc, char** argv) {
 }
 
 // Headless helper: tyrax-editor.exe --build <projectDir> [--run | --run-ps2 [ip]]
+// Bakes every stale Scatter volume into its chunk meshes and saves the result
+// (docs/procedural-generation.md). The GUI does this in App::projectForBuild;
+// the headless paths need their own call, or an agent-driven build would ship
+// whatever the last GUI session happened to bake - or nothing at all.
+static void bakeProcedural(Project& p) {
+    if (!procbake::anyStale(p)) return;
+    const procbake::Report rep = procbake::bakeAll(p, false);
+    std::printf("procedural: baked %d volume(s) -> %d chunks, %d instances, "
+                "%d triangles\n",
+                rep.volumes, rep.chunks, rep.instances, rep.triangles);
+    for (const std::string& w : rep.warnings)
+        std::printf("procedural: %s\n", w.c_str());
+    if (std::string err = project::save(p); !err.empty())
+        std::fprintf(stderr, "warning: could not save the baked scene: %s\n",
+                     err.c_str());
+}
+
 static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -56,6 +74,7 @@ static int buildFromCli(int argc, char** argv) {
         return 1;
     }
     if (runPs2 && argc > 4) p.ps2LinkIp = argv[4];
+    bakeProcedural(p);
 
     Runner runner;
     if (runPs2)
@@ -343,6 +362,7 @@ static int refreshGenFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    bakeProcedural(p);
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;

@@ -10,6 +10,90 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (171) **Procedural content generation: a scatter-graph tool whose output is
+  ordinary static geometry** (owner brief: a backlog for node-based procedural
+  scenes, "adapt it to our system, aim for the best solution"). The backlog
+  asked for a graph, typed edges, a cached evaluator, deterministic RNG,
+  scattering, filters, splines, terrain nodes, a bake and ergonomics. What
+  landed is the minimal path plus most of layers 2/6 - and one architectural
+  decision that shaped everything else.
+  *The decision.* On real hardware every StaPip submit costs ~0.7-1.5 ms of
+  fixed EE overhead regardless of vertex count (measured in entry 100 and
+  written into the static-batching notes), so "draw one tree 500 times" is
+  arithmetically impossible - 500 submits is half a second per frame. So there
+  is no runtime instancing and no runtime graph: the bake MERGES the instances
+  of one asset inside one world chunk into a single mesh and writes it as an
+  ordinary `.obj` in the source asset's own folder, plus one Model scene object
+  per chunk. Everything downstream then works with **zero new code**: the
+  `.tmdl` bake, distance mesh LOD, texture quantization/atlasing, frustum
+  culling, the disc layout, live link. That is also why the chunk meshes live
+  next to their source asset - the same `mtllib` line resolves unchanged.
+  D2 from the backlog ("bake or runtime-from-seed?") is therefore answered
+  "always bake", and D1 ("global graph or per object?") is answered per object:
+  a new `Scatter` scene-object type (17) carries the graph in
+  `SceneObject::procGraph` and its transform IS the region, so the ordinary
+  gizmo moves/resizes it and copy/paste/undo/collaboration come for free.
+  *The modules* follow the decalproj/aobake/navmesh pattern - host-only, no GL,
+  no ImGui: `procgraph` (data model + the 19-node registry + validation),
+  `procgen` (the evaluator), `procbake` (the merge + the scene reconcile).
+  Three properties they are built around, in the order their absence hurts:
+  DETERMINISM (every draw is `hash(seed, node id, point key, channel)`, so
+  adding an unconnected node in another branch cannot reshuffle the forest),
+  PREFIX STABILITY (generators emit a fixed Halton sequence and density picks a
+  PREFIX of it, so raising density adds points BETWEEN the existing ones - which
+  is simultaneously what makes progressive preview honest and what lets a manual
+  override stay attached to its instance) and CACHING (per-node memo keyed on
+  parameters + input hashes; a slider at the end of a 20-node graph re-runs one
+  node). Manual per-instance edits (FILT-05, the task the backlog calls out as
+  the one procedural tools lose) bind to the point's stable key, never an index.
+  *Deliberately not done:* procedural terrain (the graph READS height/slope/
+  curvature/painted layers instead), spline geometry extrusion, painted density
+  masks, and a background evaluation thread - the evaluator is 0.6 ms on the
+  demo scene, and drag frames fall back to a density fraction with a ~25 ms
+  budget, which is the user-visible half of GRAF-05. All written up in
+  `docs/procedural-generation.md`.
+  **Verified in four layers.** (1) A host harness (procgraph+procgen+procbake +
+  objparser+primmesh, no GUI) runs 40 property checks: identical output for
+  identical input; a new seed reshuffles; two unconnected nodes in another
+  branch change NOTHING; density 3 -> 12 loses 0 of 113 points and moves 0 of
+  them; editing the last node re-runs 2 nodes and serves 5 from cache, an
+  unchanged graph runs 0; a 10 % preview is a strict subset of the full result;
+  an override survives a density change (and so does a deletion); a hard slope
+  filter leaves nothing above 9.78 deg of a 10 deg limit (re-derived from the
+  heightmap independently); a 4-unit minimum distance yields a closest pair of
+  4.018; type-mismatched and cyclic links are refused; the bake is idempotent
+  and keeps chunk object ids. (2) A fixture harness built a real project
+  (two Tree-Generator trees at 132 and 380 triangles, 69 instances, 18 chunks,
+  13 572 triangles), baked it, saved, reloaded and compared - graph identical,
+  chunks intact, bake not stale. (3) `--build` + PCSX2 (software renderer):
+  the forest renders on the console with per-instance scale/rotation variety on
+  sculpted terrain at **109 FPS** with vsync off (PAL caps at 50), 18 draw
+  calls. (4) The editor GUI: the Procedural window and the live viewport
+  preview captured and read (the preview draws the instances through the
+  ordinary model path, so it is shaded like the chunks that ship).
+  **Three bugs the verification caught, worth recording:**
+  - chunk objects were created without an object id, and the merge-friendly file
+    layout keys `objects/<id>.json` on it - so every baked chunk was written to
+    nowhere and silently vanished on the next load;
+  - `bakeHash` (the staleness check) hashed raw floats, but the `.tyra` stores
+    floats as `%.6g`: after a save/load round trip 1056 of 1089 heightmap
+    samples came back as different bit patterns and every bake read as stale
+    forever. A fixed-step quantizer does not fix this either (values straddle
+    step boundaries); hashing to the file's OWN six significant digits is
+    stable by construction, because the reparsed value quantizes to the integer
+    it was printed from;
+  - `ImNodes::EditorContextSet(nullptr)` after drawing the second node canvas
+    left imnodes' editor context null, so the next frame's Flow Graph crashed
+    on startup (an access violation with no output). Both canvases now own an
+    explicit editor context created at init - which they need anyway, or their
+    panning and selection fight over one state.
+  Also: `Instance detail` on the Output node decimates the source mesh once
+  before merging (meshlod, welded WITHOUT normals as the .tmdl bake learned to
+  do) - measured 21 % off a tree, because a leaf-card canopy is all locked
+  border edges and can only be made cheaper by authoring fewer, bigger cards.
+  That is in the docs as the honest answer to "why is my forest still 30k
+  triangles".
+
 - (170) **Emissive light is blocked by solids (no more glow through a wall).**
   Owner spotted the obvious hole in (169): a lamp lit the ground on the far
   side of a wall. The occluder shapes were already there - `collectOccluders`

@@ -8,6 +8,7 @@
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "procgraph.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
 
@@ -104,6 +105,12 @@ enum class PrimitiveType {
     // transform - a seamless corridor between two parts of the map. See
     // portalTarget / portalObjects below and docs/portals.md.
     Portal = 16,
+    // Scatter volume: an authoring-only region (wireframe box in the editor,
+    // nothing at all in the game) carrying a procedural graph in
+    // procGraph. The graph scatters instances inside this box; the build
+    // bakes them into ordinary static chunk meshes, so the console never
+    // learns a graph existed. See docs/procedural-generation.md.
+    Scatter = 17,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -410,6 +417,19 @@ struct SceneObject {
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
 
+    // Procedural graph (type == Scatter): what this volume generates. The
+    // object's transform IS the region the graph works in, so the ordinary
+    // gizmo moves and resizes it. Evaluated in the editor (procgen), baked to
+    // static geometry at build (procbake); nothing of it reaches the PS2.
+    ProcGraph procGraph;
+    // Set on the chunk objects a Scatter bake produced: the id of the Scatter
+    // object that owns them. They are real scene objects (so codegen,
+    // culling, LOD and the disc layout need no special case) but the editor
+    // treats them as build output: not drawn in the viewport (the live graph
+    // preview stands in for them), grouped in the outliner, and replaced
+    // wholesale by the next bake. Empty = hand-authored, the normal case.
+    std::string procSource;
+
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
     // instance in the game (Unity-style components); the same class can be
@@ -501,7 +521,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
-           a.flowGraph == b.flowGraph && a.scripts == b.scripts;
+           a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
+           a.procGraph == b.procGraph && a.procSource == b.procSource;
 }
 
 // General project preferences (Project > Preferences in the editor).

@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
+#include "procbake.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
@@ -252,6 +253,35 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Procedural (docs/procedural-generation.md): the scatter-graph
+    // editor. One window drives every Scatter volume in the active scene -
+    // graph editing, the live budget, per-instance overrides and the bake.
+    void drawProceduralWindow();
+    // Re-evaluates the Scatter volumes of the active scene when anything they
+    // read changed, and pushes the result to the viewport. Called once per
+    // frame from the viewport draw, like updateNavOverlay/updateProjectedDecals.
+    void updateProcPreview();
+    // Indices of the active scene's Scatter volumes, in scene order.
+    std::vector<int> procVolumes() const;
+    // Inserts a Scatter volume covering most of the terrain, with the starter
+    // graph, and opens the Procedural window on it.
+    void addScatterVolume();
+    // Bakes one volume (index into the active scene) or every stale volume in
+    // the project, then commits. Returns the report for the status line.
+    procbake::Report bakeProcVolume(int objectIndex);
+    procbake::Report bakeStaleProcVolumes();
+    // The project every build/export path passes to the Runner: stale scatter
+    // volumes are baked first, so the console always runs the current graph.
+    Project& projectForBuild();
+    // The instance nearest to the camera ray through image coords (u, v), or
+    // -1: the per-instance override editor's picker. Index into procResult_.
+    int pickProcInstance(float u, float v) const;
+    // The override row for a point key, creating it on first touch.
+    ProcOverride& procOverrideFor(ProcGraph& g, uint64_t key);
+    // Drops overrides that no longer change anything, so an undone tweak
+    // leaves nothing behind in the .tyra.
+    void pruneProcOverrides(ProcGraph& g);
+
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -574,10 +604,61 @@ private:
     // Clipboard for flow-graph copy/paste: the copied nodes plus the links that
     // connect two of them (dangling links are dropped). nextId is unused.
     FlowGraph flowClipboard_;
+    // imnodes editor context of the Flow Graph canvas (the Procedural graph has
+    // its own - see procEditorCtx_). Panning/zoom/selection live in the editor
+    // context, so two canvases need two of them.
+    void* flowEditorCtx_ = nullptr;
     // Node-description tooltip (FlowNodeType::desc): node the mouse rests on
     // and since when - shown after a short delay, reset on hover change.
     int flowDescNode_ = -1;
     double flowDescSince_ = 0.0;
+
+    // Procedural scatter (Tools > Procedural). The graph editor mirrors the
+    // flow-graph editor's imnodes setup (own editor context, so panning and
+    // selection do not fight over one canvas).
+    bool showProcedural_ = false;
+    // The edited volume is addressed by ID and the index is re-resolved every
+    // frame: baking and clearing insert/erase chunk objects, so an index is
+    // stale the moment either runs.
+    std::string procVolumeId_;
+    int procVolume_ = -1;                // resolved index of procVolumeId_
+    // Range of procResult_.instances that belongs to the edited volume - the
+    // override picker must not hand out a point key from another volume's
+    // graph (it would be stored in the wrong graph and never match again).
+    int procOwnFirst_ = 0, procOwnCount_ = 0;
+    bool procPositionsApplied_ = false;  // node positions pushed to imnodes
+    float procZoom_ = 1.0f;
+    int procPreviewNode_ = 0;  // isolate this node's output (0 = the Output node)
+    int procDescNode_ = -1;    // node-description tooltip target + since when
+    double procDescSince_ = 0.0;
+    ProcGraph procClipboard_;
+    void* procEditorCtx_ = nullptr;  // ImNodesEditorContext (own canvas state)
+    // Evaluation. One cache per volume id (keyed so switching volumes keeps
+    // both warm); procPreviewSerial_ is the modelEditSerial_ the current
+    // preview was computed from - the whole invalidation rule.
+    std::map<std::string, procgen::Cache> procCaches_;
+    procgen::Result procResult_;   // merged preview of the active scene
+    uint64_t procPreviewSerial_ = 0;
+    bool procPreviewValid_ = false;
+    uint64_t procPreviewVersion_ = 1;  // bumped per rebuild (viewport overlays)
+    double procLastMs_ = 0.0;          // last full evaluation cost
+    float procFraction_ = 1.0f;        // progressive density fraction in use
+    int procInstances_ = 0, procCandidates_ = 0, procNodesRun_ = 0;
+    procbake::Report procBudget_;      // estimate of the active volume's bake
+    std::vector<std::string> procModels_;  // res/models .obj list (asset pickers)
+    double procModelsAt_ = -1.0;           // when it was last scanned
+    // Cached "is the bake stale" answer for the edited volume, recomputed only
+    // when the model changes (the check hashes the terrain + every object).
+    bool procStale_ = false, procStaleValid_ = false;
+    uint64_t procStaleSerial_ = 0;
+    std::string procStatus_;
+    // Viewport interaction modes (mutually exclusive, off by default):
+    // curve editing (click the ground to append/move a control point) and
+    // instance overrides (click an instance, then nudge/delete it).
+    int procCurveNode_ = 0;    // Curve node being edited (0 = none)
+    int procCurvePoint_ = -1;  // its selected control point (-1 = append mode)
+    bool procOverrideMode_ = false;
+    uint64_t procSelInstance_ = 0;  // selected instance key (0 = none)
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)

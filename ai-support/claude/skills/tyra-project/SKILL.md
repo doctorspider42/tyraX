@@ -77,7 +77,8 @@ to see exactly what the game will compile.
 
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
-  emitters, sound emitters, the player, decals, mirrors, cameras...).
+  emitters, sound emitters, the player, decals, mirrors, cameras, scatter
+  volumes...).
 - Every object can carry a **flow graph** (visual logic - tyra-flowgraph skill)
   and **attached scripts** (your C++ classes - tyra-scripting skill).
 - Object references (in graphs, sequences, menus) are **by name**; keep names
@@ -86,3 +87,12 @@ to see exactly what the game will compile.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
   HUD images/texts, color gradings, ambience presets, loading screens and
   cutscene sequences. `--dump` lists all of their names.
+- **Scatter volumes** (type `scatter`) are procedural authoring regions: the
+  object carries a node graph (`procGraph` in its `objects/<id>.json`) that
+  scatters models inside its box, and every build bakes the result into merged
+  static chunk meshes plus one generated Model object per chunk. Those chunk
+  objects carry `procSource` (the volume's id), live in `res/models/.../procgen-*.obj`
+  and are **rewritten wholesale by the next bake** - never hand-edit them or
+  reference them by name; edit the volume's graph in the editor instead
+  (*Tools > Procedural*). A `--build` / `--refresh-gen` of such a project
+  rewrites the `.tyra`, which is expected.

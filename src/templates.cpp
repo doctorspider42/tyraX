@@ -4950,7 +4950,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
-        o.data.type == 14)                         // 14 = camera marker
+        o.data.type == 14 || o.data.type == 17)    // 14 camera, 17 scatter
       continue;
     if (o.data.collision == 2) continue;  // none
     // Portal pass-through (updatePortalPass): while the walker stands in a
@@ -5810,7 +5810,7 @@ void TerrainGame::updateUseTarget() {
     if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
-        o.data.type == 14)
+        o.data.type == 14 || o.data.type == 17)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -6780,7 +6780,7 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     if (!o.active || !o.visible) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 13 || ty == 14)
+        ty == 13 || ty == 14 || ty == 17)
       continue;  // markers / emitters / decals / the avatar - not blockers
     if (o.data.collision == 2) continue;  // "none": the sweep passes through
     if (sweepPassOn) {
@@ -7494,6 +7494,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       case 8: break;   // sound emitter - marker only, no geometry
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
+      case 17: break;  // scatter volume - editor authoring region only
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -14104,6 +14105,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             // 15=mirror (glass quad; reflections via MIRRORS below)\n"
            "             // 16=portal (linked surface; through-view + teleport\n"
            "             //    via PORTALS below)\n"
+           "             // 17=scatter volume (procedural authoring region; its\n"
+           "             //    instances are baked to static chunk meshes)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -16347,7 +16350,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
     if (!o.active || !o.visible || i == player) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 14)
+        ty == 14 || ty == 17)
       continue;  // markers/emitters, not geometry
     // bounding sphere: half the largest scale axis (matches the USE picker)
     float half = o.data.scale[0];

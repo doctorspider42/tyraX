@@ -39,6 +39,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Camera: return "camera";
         case PrimitiveType::Mirror: return "mirror";
         case PrimitiveType::Portal: return "portal";
+        case PrimitiveType::Scatter: return "scatter";
     }
     return "box";
 }
@@ -60,6 +61,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "camera") return PrimitiveType::Camera;
     if (s == "mirror") return PrimitiveType::Mirror;
     if (s == "portal") return PrimitiveType::Portal;
+    if (s == "scatter") return PrimitiveType::Scatter;
     return PrimitiveType::Box;
 }
 
@@ -177,6 +179,183 @@ static std::string flowGraphJson(const FlowGraph& fg) {
 // Public wrapper (project.hpp) - the whole file already sits in namespace
 // project, flowGraphJson above is the private serializer.
 std::string flowGraphToJson(const FlowGraph& fg) { return flowGraphJson(fg); }
+
+// 64-bit values that must survive JSON round-tripping exactly (point-override
+// keys, bake hashes) travel as 16 hex digits: a JSON number would silently
+// lose the low bits past 2^53.
+static std::string hex64(uint64_t v) {
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)v);
+    return buf;
+}
+
+static uint64_t parseHex64(const std::string& s) {
+    uint64_t v = 0;
+    for (char c : s) {
+        int d;
+        if (c >= '0' && c <= '9')
+            d = c - '0';
+        else if (c >= 'a' && c <= 'f')
+            d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F')
+            d = c - 'A' + 10;
+        else
+            continue;
+        v = (v << 4) | (uint64_t)d;
+    }
+    return v;
+}
+
+// "procGraph": { seed, nextId, baked, nodes, links, overrides } - the
+// procedural graph of a Scatter object. Parameters are written as the maps
+// they are, so a node only carries what was actually set and a new parameter
+// on an existing node type reads as its registry default in old projects.
+static std::string procGraphJson(const ProcGraph& g) {
+    std::string json = "{ \"seed\": " + std::to_string((long long)g.seed) +
+                       ", \"nextId\": " + std::to_string(g.nextId);
+    if (g.bakedHash) json += ", \"baked\": \"" + hex64(g.bakedHash) + "\"";
+    json += ", \"nodes\": [";
+    for (size_t i = 0; i < g.nodes.size(); ++i) {
+        const ProcNode& n = g.nodes[i];
+        json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(n.id) +
+                ", \"type\": \"" + n.type + "\", \"pos\": [" + fmtFloat(n.pos[0]) +
+                ", " + fmtFloat(n.pos[1]) + "]";
+        if (n.bypass) json += ", \"bypass\": true";
+        if (!n.nums.empty()) {
+            json += ", \"nums\": {";
+            bool first = true;
+            for (const auto& kv : n.nums) {
+                json += std::string(first ? "" : ", ") + "\"" + jsonEscape(kv.first) +
+                        "\": " + fmtFloat(kv.second);
+                first = false;
+            }
+            json += "}";
+        }
+        if (!n.strs.empty()) {
+            json += ", \"strs\": {";
+            bool first = true;
+            for (const auto& kv : n.strs) {
+                json += std::string(first ? "" : ", ") + "\"" + jsonEscape(kv.first) +
+                        "\": \"" + jsonEscape(kv.second) + "\"";
+                first = false;
+            }
+            json += "}";
+        }
+        if (!n.rows.empty()) {
+            json += ", \"rows\": [";
+            for (size_t r = 0; r < n.rows.size(); ++r) {
+                const ProcRow& row = n.rows[r];
+                json += std::string(r ? ", " : "") + "{ \"s\": \"" +
+                        jsonEscape(row.s) + "\", \"v\": [" + fmtFloat(row.v[0]) +
+                        ", " + fmtFloat(row.v[1]) + ", " + fmtFloat(row.v[2]) +
+                        ", " + fmtFloat(row.v[3]) + "] }";
+            }
+            json += "]";
+        }
+        json += " }";
+    }
+    json += "], \"links\": [";
+    for (size_t i = 0; i < g.links.size(); ++i) {
+        const ProcLink& l = g.links[i];
+        json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(l.id) +
+                ", \"from\": " + std::to_string(l.fromNode) +
+                ", \"fromPin\": " + std::to_string(l.fromPin) +
+                ", \"to\": " + std::to_string(l.toNode) +
+                ", \"toPin\": " + std::to_string(l.toPin) + " }";
+    }
+    json += "]";
+    if (!g.overrides.empty()) {
+        json += ", \"overrides\": [";
+        for (size_t i = 0; i < g.overrides.size(); ++i) {
+            const ProcOverride& o = g.overrides[i];
+            // The key is a 64-bit hash: written as hex text because JSON
+            // numbers lose the low bits past 2^53.
+            json += std::string(i ? ", " : "") + "{ \"key\": \"" + hex64(o.key) + "\"";
+            if (o.removed) json += ", \"removed\": true";
+            if (o.offset[0] || o.offset[1] || o.offset[2])
+                json += ", \"offset\": " + fmtVec3(o.offset);
+            if (o.rotate[0] || o.rotate[1] || o.rotate[2])
+                json += ", \"rotate\": " + fmtVec3(o.rotate);
+            if (o.scale != 1.0f) json += ", \"scale\": " + fmtFloat(o.scale);
+            if (o.asset >= 0) json += ", \"asset\": " + std::to_string(o.asset);
+            json += " }";
+        }
+        json += "]";
+    }
+    return json + " }";
+}
+
+static void readProcGraph(const json::Value& jg, ProcGraph& g) {
+    if (const auto* v = jg.find("seed")) g.seed = (uint32_t)v->numberOr(1);
+    if (const auto* v = jg.find("nextId")) g.nextId = (int)v->numberOr(1);
+    if (const auto* v = jg.find("baked")) g.bakedHash = parseHex64(v->stringOr(""));
+    if (const auto* nodes = jg.find("nodes");
+        nodes && nodes->type == json::Value::Type::Array) {
+        for (const auto& jn : nodes->arr) {
+            ProcNode n;
+            if (const auto* v = jn.find("id")) n.id = (int)v->numberOr(0);
+            if (const auto* v = jn.find("type")) n.type = v->stringOr("");
+            if (const auto* v = jn.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                n.pos[0] = (float)v->arr[0].numberOr(0);
+                n.pos[1] = (float)v->arr[1].numberOr(0);
+            }
+            if (const auto* v = jn.find("bypass"))
+                n.bypass = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jn.find("nums");
+                v && v->type == json::Value::Type::Object)
+                for (const auto& kv : v->obj) n.nums[kv.first] = (float)kv.second.numberOr(0);
+            if (const auto* v = jn.find("strs");
+                v && v->type == json::Value::Type::Object)
+                for (const auto& kv : v->obj) n.strs[kv.first] = kv.second.stringOr("");
+            if (const auto* v = jn.find("rows");
+                v && v->type == json::Value::Type::Array)
+                for (const auto& jr : v->arr) {
+                    ProcRow row;
+                    if (const auto* s = jr.find("s")) row.s = s->stringOr("");
+                    if (const auto* a = jr.find("v");
+                        a && a->type == json::Value::Type::Array)
+                        for (size_t i = 0; i < 4 && i < a->arr.size(); ++i)
+                            row.v[i] = (float)a->arr[i].numberOr(0);
+                    n.rows.push_back(std::move(row));
+                }
+            // Unknown node types are dropped (a graph from a newer editor, or
+            // a retired type) - the links to them go with them below.
+            if (n.id > 0 && procNodeType(n.type)) g.nodes.push_back(std::move(n));
+        }
+    }
+    if (const auto* links = jg.find("links");
+        links && links->type == json::Value::Type::Array) {
+        for (const auto& jl : links->arr) {
+            ProcLink l;
+            if (const auto* v = jl.find("id")) l.id = (int)v->numberOr(0);
+            if (const auto* v = jl.find("from")) l.fromNode = (int)v->numberOr(0);
+            if (const auto* v = jl.find("fromPin")) l.fromPin = (int)v->numberOr(0);
+            if (const auto* v = jl.find("to")) l.toNode = (int)v->numberOr(0);
+            if (const auto* v = jl.find("toPin")) l.toPin = (int)v->numberOr(0);
+            const bool ends = procgraph::node(g, l.fromNode) && procgraph::node(g, l.toNode);
+            if (l.id > 0 && ends) g.links.push_back(l);
+        }
+    }
+    if (const auto* ovr = jg.find("overrides");
+        ovr && ovr->type == json::Value::Type::Array) {
+        for (const auto& jo : ovr->arr) {
+            ProcOverride o;
+            if (const auto* v = jo.find("key")) o.key = parseHex64(v->stringOr(""));
+            if (const auto* v = jo.find("removed"))
+                o.removed = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jo.find("offset")) readVec3(v, o.offset);
+            if (const auto* v = jo.find("rotate")) readVec3(v, o.rotate);
+            if (const auto* v = jo.find("scale")) o.scale = (float)v->numberOr(1.0);
+            if (const auto* v = jo.find("asset")) o.asset = (int)v->numberOr(-1);
+            if (o.key) g.overrides.push_back(o);
+        }
+    }
+    // Keep nextId ahead of everything actually in the graph: a hand-edited or
+    // truncated file must not hand out an id that is already taken.
+    for (const ProcNode& n : g.nodes) g.nextId = std::max(g.nextId, n.id + 1);
+    for (const ProcLink& l : g.links) g.nextId = std::max(g.nextId, l.id + 1);
+}
 
 // Pre-Font-Manager projects stored a raw TTF path on every text and menu
 // ("res/fonts/x.ttf", "impact.ttf"). Those fields now name a Project::fonts
@@ -448,6 +627,9 @@ std::string objectJson(const SceneObject& o) {
         json += "]";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
+    if (!o.procGraph.empty()) json += ", \"procGraph\": " + procGraphJson(o.procGraph);
+    if (!o.procSource.empty())
+        json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     return json + " }";
 }
 
@@ -2246,6 +2428,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.scripts.push_back(s.str);
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
+        if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
+        if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         out.push_back(std::move(o));
     }
 }
