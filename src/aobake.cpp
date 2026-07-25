@@ -615,10 +615,14 @@ int pow2Up(int v) {
 
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
-                     const std::vector<Occluder>& occs, float radiusWorld,
-                     float strength) {
+                     const std::vector<Occluder>& occs,
+                     const std::vector<Emitter>& ems, float radiusWorld,
+                     float strength, bool aoOn) {
     AoImage out;
-    if (width <= 0 || depth <= 0 || strength <= 0.0f) return out;
+    if (width <= 0 || depth <= 0) return out;
+    const bool bakeOcc = aoOn && strength > 0.0f;
+    const bool bakeLight = !ems.empty();
+    if (!bakeOcc && !bakeLight) return out;
     const bool hasHeights = w >= 2 && d >= 2 && (int)heights.size() == w * d;
     // ~4 texels per terrain unit, power of two. Capped at 256: the maps ship
     // as RGBA32 (see texbake - the engine's palettized alpha path can't carry
@@ -627,7 +631,36 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     if (size < 64) size = 64;
     if (size > 256) size = 256;
     out.size = size;
-    out.alpha.assign((size_t)size * size, 0);
+    if (bakeOcc) out.alpha.assign((size_t)size * size, 0);
+    if (bakeLight) out.light.assign((size_t)size * size * 3, 0);
+
+    // Shadow casters per emitter, pruned ONCE. Every shadow ray for emitter e
+    // ends on its surface and is at most `range` long, so it stays inside a
+    // ball of radius (range + the emitter's half-diagonal) around the emitter
+    // - only occluders overlapping that ball can ever block it. Without this
+    // the terrain would run size*size*|ems|*|occs| slab tests.
+    std::vector<std::vector<const Occluder*>> emBlock(ems.size());
+    if (bakeLight) {
+        for (size_t e = 0; e < ems.size(); ++e) {
+            const Emitter& em = ems[e];
+            const float emR =
+                em.range + std::sqrt(em.shape.half[0] * em.shape.half[0] +
+                                     em.shape.half[1] * em.shape.half[1] +
+                                     em.shape.half[2] * em.shape.half[2]);
+            for (const Occluder& oc : occs) {
+                if (oc.objIndex == em.shape.objIndex) continue;  // the source
+                const float dx = oc.pos[0] - em.shape.pos[0];
+                const float dy = oc.pos[1] - em.shape.pos[1];
+                const float dz = oc.pos[2] - em.shape.pos[2];
+                const float reach =
+                    emR + std::sqrt(oc.half[0] * oc.half[0] +
+                                    oc.half[1] * oc.half[1] +
+                                    oc.half[2] * oc.half[2]);
+                if (dx * dx + dy * dy + dz * dz <= reach * reach)
+                    emBlock[e].push_back(&oc);
+            }
+        }
+    }
 
     const float stepX = hasHeights ? width / (w - 1) : width;
     const float stepZ = hasHeights ? depth / (d - 1) : depth;
@@ -640,7 +673,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                               {0.7071f, 0.7071f},  {0.7071f, -0.7071f},
                               {-0.7071f, 0.7071f}, {-0.7071f, -0.7071f}};
 
-    bool any = false;
+    bool anyOcc = false, anyLight = false;
     for (int j = 0; j < size; ++j) {
         for (int i = 0; i < size; ++i) {
             const float x = ((i + 0.5f) / size - 0.5f) * width;
@@ -661,8 +694,9 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
                 if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
                 // heightmap self-occlusion: the same horizon scan as
-                // terrainAO, on bilinear heights
-                for (int dir = 0; dir < 8; ++dir) {
+                // terrainAO, on bilinear heights (alpha only - an
+                // emitters-only map skips the whole scan)
+                for (int dir = 0; bakeOcc && dir < 8; ++dir) {
                     float maxSin = 0.0f;
                     for (int k = 1; k <= maxSteps; ++k) {
                         const float dist = minStep * k;
@@ -682,15 +716,42 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 }
             }
             const float wp[3] = {x, h0, z};
-            for (const Occluder& oc : occs)
-                occ += occluderOcclusionAt(oc, wp, n, radiusWorld);
-            if (occ > 1.0f) occ = 1.0f;
-            const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
-            out.alpha[(size_t)j * size + i] = a;
-            any |= (a != 0);
+            const size_t texel = (size_t)j * size + i;
+            if (bakeOcc) {
+                for (const Occluder& oc : occs)
+                    occ += occluderOcclusionAt(oc, wp, n, radiusWorld);
+                if (occ > 1.0f) occ = 1.0f;
+                const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
+                out.alpha[texel] = a;
+                anyOcc |= (a != 0);
+            }
+            // Emissive light, in framebuffer units - the additive pass adds
+            // these bytes straight onto the frame, modulated by the terrain's
+            // own base tint (which rides in that pass's vertex colors, so the
+            // bake stays independent of the terrain material).
+            if (!bakeLight) continue;
+            float add[3] = {0, 0, 0};
+            for (size_t e = 0; e < ems.size(); ++e) {
+                float l[3];
+                emitterLightAt(ems[e], wp, n, l, &emBlock[e]);
+                for (int k = 0; k < 3; ++k) add[k] += l[k];
+            }
+            const float dz = bayerDither(i, j);
+            for (int k = 0; k < 3; ++k) {
+                float v = 255.0f * add[k] + dz;
+                if (v <= 0.0f) continue;  // stays 0, no dither noise
+                if (v > 255.0f) v = 255.0f;
+                const uint8_t b = (uint8_t)(v + 0.5f);
+                out.light[texel * 3 + k] = b;
+                if (b) anyLight = true;
+            }
         }
     }
-    if (!any) out.size = 0, out.alpha.clear();
+    out.hasAlpha = anyOcc;
+    out.hasLight = anyLight;
+    if (!anyOcc) out.alpha.clear();
+    if (!anyLight) out.light.clear();
+    if (!anyOcc && !anyLight) out.size = 0;
     return out;
 }
 
