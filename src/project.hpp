@@ -1522,6 +1522,9 @@ struct Project {
     int gizmoOp = 0;           // transform gizmo: 0 move, 1 rotate, 2 scale
     int gizmoSpace = 0;        // gizmo axes: 0 absolute (world), 1 camera-relative
     int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
+    // Viewport camera projection (Viewport::Projection): 0 perspective,
+    // 1 ortho (free), 2..7 the locked Top/Bottom/Front/Back/Right/Left views.
+    int viewProjection = 0;
     // Named window layouts (docking arrangements), switchable from the Layout
     // menu and edited by simply rearranging windows. Every project keeps at
     // least one; seedBuiltinLayouts() fills a fresh/legacy project with the

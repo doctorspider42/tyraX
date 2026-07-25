@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (174) **The baked light was being clipped by the GS ALPHA TEST - it was never
+- (176) **The baked light was being clipped by the GS ALPHA TEST - it was never
   a resolution problem.** The user kept saying the lights looked square and
   "like the texture is just cut off", and proposed reworking the whole thing
   onto per-object textures. Measured before rewriting anything, and the
@@ -58,56 +58,36 @@ Each finished feature lands as its own commit.
   smooth alpha), and that is a much bigger change to reach for once the actual
   bug is fixed.
 
-- (173) **Baked light per texel on the GROUND too, and a texel budget that
-  follows the gradient - not just the peak.** Follow-up to (172), from the user
-  looking at station 4 of `examples/glow` and saying the lights were still
-  square. They were, in two different ways, and only one of them was the atlas.
-  **(a) The ground was never in the atlas at all.** Terrain takes its emissive
-  light on the heightmap vertices - one every terrain cell, **2 world units** in
-  that scene - so a light pool was a handful of enormous Gouraud facets with the
-  diagonal triangle split showing straight through. It now rides the terrain AO
-  map, which was already a resident RGBA32 texture with **nothing in its RGB**:
-  `A` = occlusion, `RGB` = light, read by the same two passes the primitive
-  atlas uses. 256² over a 64×64 terrain = **4 texels per world unit against 0.5
-  vertices per world unit, 8× finer**, for **zero extra VRAM** (the texture was
-  already loaded) and one more blended pass per visible chunk. Two traps paid
-  for in advance: the occlusion pass's vertex color had to flip from white to
-  **black** (harmless while RGB was empty, but a white vertex color drags the
-  light into what is supposed to be an exact per-pixel multiply), and
-  `SCENE_TERRAIN_LIT` has to gate BOTH the new pass and the `emissiveLightAt`
-  call in the chunk shader, or the light lands twice. A **textured** terrain
-  stays on the vertex path, the same exclusion textured receivers already have -
-  a flat additive pass blows out a texture's dark texels.
-  **(b) Texel density is now per AXIS.** The obvious fix for the alley wall -
-  raise the flat 128-texel per-region cap that was binding on its long axis -
-  was tried first and **measured worse**: 42528 → 32722 texels in use, and the
-  worst-direction step on the lit face got bigger, because huge regions pack
-  badly and the extra resolution went onto the axis with no gradient on it. The
-  cap was not the problem; isotropic density was. The 6×6 pre-pass now also
-  measures how fast the signal moves along each of the region's two axes and
-  splits the area it earned between them (area still ∝ peak; only the aspect
-  moves, clamped to 2×).
-  **Numbers** (`examples/glow`, host harness, same 256² atlas). Blockiness is
-  the mean step between neighbouring texels in the region's *worse* direction:
-  the lit alley wall `s4-wall-left` r0 went **5.70 → 2.53 → 2.26** across
-  (original → (172) → now) at **6.0×6.0 → 13.8×7.1 → 15.6×7.8** texels per world
-  unit; `s3-shadow-wall` r1 **7.80 → 3.20 → 2.99**. Note the last step also uses
-  FEWER texels than (172) did (39068 vs 42528) - the win is spending them on the
-  right axis, not spending more.
-  **Verified in PCSX2** (software renderer, PAL): **50 FPS holds** with the
-  extra terrain pass (EE 37%, GS 8%). Before/after from a frozen camera show the
-  ground's flat olive facets replaced by a continuous falloff. Only `glow` has
-  a lit terrain among the examples (`SCENE_TERRAIN_LITS = {1}`, every other
-  example `{0}`), so nothing else changes behaviour.
-  *Testing lesson, cost me a bogus A/B:* freezing the camera with
+- (175) **Texel density per AXIS, and a measured dead end.** Half of this
+  entry's original subject - baked light landing per texel on the TERRAIN - was
+  implemented independently on `main` as (172) while this branch was in flight,
+  and the merge kept that implementation; it is the better one (shadow casters
+  pruned once per emitter rather than once per texel). What survives here is
+  the atlas side.
+  The alley wall in `examples/glow` was still visibly coarse along its length.
+  The obvious fix - raise the flat 128-texel per-region cap that was binding on
+  that axis - was tried first and **measured worse**: 42528 -> 32722 texels in
+  use, and the worst-direction step on the lit face grew, because huge regions
+  pack badly and the extra resolution went onto the axis with no gradient on
+  it. The cap was not the problem; **isotropic density** was. The pre-pass grid
+  went 4x4 -> 6x6 and now also measures how fast the signal moves along each of
+  the region's two axes, splitting the area the peak earned between them (area
+  still proportional to peak, only the aspect moves, clamped to 2x).
+  **Numbers** (`examples/glow`, host harness, same 256 square atlas).
+  Blockiness is the mean step between neighbouring texels in the region's
+  *worse* direction: `s4-wall-left` r0 went **5.70 -> 2.53 -> 2.26** (original
+  -> (174) -> now) at **6.0x6.0 -> 13.8x7.1 -> 15.6x7.8** texels per world
+  unit; `s3-shadow-wall` r1 **7.80 -> 3.20 -> 2.99**. The last step uses FEWER
+  texels than (174) did (39068 vs 42528) - the win is the axis, not the budget.
+  *Testing lesson, and it cost me a bogus A/B:* freezing the camera with
   `walkSpeed`/`lookSpeed` 0 is **not enough** when the project has
   *Keyboard & mouse controls* on - PCSX2 binds the host pointer to an emulated
   USB mouse and any cursor movement turns the view. The first comparison
   reported "53% of pixels brighter"; with `keyboardMouse` off in the fixture the
-  same pair is 6.3% brighter / 10.1% darker, mean **−1.35** - a redistribution,
+  same pair is 6.3% brighter / 10.1% darker, mean **-1.35** - a redistribution,
   not a brightening. Turn the preference off in any screenshot fixture.
 
-- (172) **Scene lightmap: soft shadows from area emitters, and a texel budget
+- (174) **Scene lightmap: soft shadows from area emitters, and a texel budget
   that follows the light.** Two independent improvements to the existing bake
   (`aobake.cpp` + its two twins), both measured rather than eyeballed.
   **(a) Soft shadows.** The shadow test cast ONE ray, to the emitter's nearest
@@ -174,6 +154,140 @@ Each finished feature lands as its own commit.
   Host side, the whole bake is exercised by a scratch harness that links
   `aobake.cpp` + `project.cpp` and dumps the atlas plus per-region statistics -
   the same trick treegen and matbake use, and far faster than clicking the GUI.
+- (173) **Authoring ergonomics: orthographic/axis views, collision-aware
+  placement, and a paste that follows the cursor.** Three requested editor
+  features, one commit each in spirit but one branch in practice - they share
+  the viewport's camera/ray plumbing.
+  **(a) Orthographic projection on a chosen axis.** `Viewport::Projection` is
+  now perspective / free ortho / the six locked axis views (Top, Bottom,
+  Front, Back, Right, Left), persisted per project as `editor.viewProjection`.
+  The front door is a **Blender-style axis gizmo** in the viewport's top-right
+  corner (`App::drawAxisGizmo`): the three world axes as coloured balls that
+  turn with the camera (positive ends stemmed and lettered, negative ends
+  hollow), click one to snap to that ortho view, click the hub to toggle
+  perspective. Drawn straight into the window's `ImDrawList` from the view
+  matrix's columns - no GL, no extra pass - and painter-sorted by view-space
+  z so the axis facing the camera is on top and wins the hover. It handles its
+  own hit test (nearest ball, front-most first) instead of an `InvisibleButton`
+  and returns "cursor is over me", which the pick / rubber-band / paste-commit
+  branches consult - otherwise every click on the widget would also clear the
+  selection, the way the pre-existing corner buttons quietly do. Backed by
+  three other entry points on the same setting: the `Proj:` button, *View >
+  Projection* and the numpad (`5` toggles, `1`/`3`/`7` + `Ctrl` pick a side -
+  the number ROW stays on the transform tools). The enabling refactor was
+  collapsing four hand-rolled cameras into one: `camView()` + `camRay()` now
+  resolve eye/basis/extents once (including the Cutscene/look-through
+  override), and `render()`, `pick()`, `terrainRaycast()` and the new
+  `placementRaycast()` all consume them. Before this, three of those four
+  rebuilt a **hardcoded 50-degree perspective ray**, so they already disagreed
+  with the image while looking through a Camera entity with a different FOV -
+  a latent bug the ortho work would have multiplied by six. Two deliberate
+  choices: the ortho depth range **straddles the eye** (a parallel view is a
+  slab through the scene - a Top view must not hide the roof it looks
+  through), and orbiting a locked axis view **seeds yaw/pitch from that axis
+  and drops to free ortho** instead of ignoring the drag or teleporting to a
+  stale angle. `pan`/`fly` read the same basis, so flying in a Top view walks
+  up the image (no view direction left to flatten onto the ground).
+  **(b) Surface snapping.** New host-only `placement.cpp` (the
+  decalproj/navmesh pattern): world AABB per object (rotation and real model
+  bounds included), `isSupport()` for what counts as a surface, and
+  `restOffsetY` - the offset that rests an object on the highest support under
+  its *footprint* (terrain sampled corners+center, plus overlapping objects'
+  tops). One `ceilingY` argument carries the whole behavioral difference
+  between "insert on top of whatever is there" (`FLT_MAX` - three boxes added
+  in one spot stack) and the `End` drop-to-floor ("nothing may lift it").
+  Wired into every add path, the paste, and *Scene > Drop to floor*; toggled by
+  *Surface snap* in the tool row / *View > Placement* (machine setting in
+  `editor.ini`, on by default). Explicitly NOT a collision solver - no sweep,
+  no penetration resolve; gizmo dragging stays free.
+  **(c) Deferred paste.** `Ctrl+V` stages the copies instead of inserting
+  them: they follow the cursor (outlined, surface-snapped, rendered from a
+  scratch list so the scene model is untouched), and a left click *or* a
+  second `Ctrl+V` commits them; `Esc` discards with no undo step. A group
+  moves as one rigid arrangement, lifted by the largest offset any member
+  needs. Pasting without ever passing over the viewport falls back to the old
+  one-unit diagonal offset. The staged set is dropped on a scene switch and on
+  project attach.
+  **Verified.** Layer 0 (clean build) plus: a scratchpad host harness over
+  `placement.cpp` covering all 11 placement rules (flat ground, sloped ground,
+  insert-inside-a-table → on top, beside/flush footprints, drop-to-floor
+  ceiling, skip list, lights and `collisionMode == 2` not being surfaces, a
+  45-degree box resting on its corner at half a diagonal, group offset, model
+  bounds with feet at the origin) - all pass; `--resave` round-trip of the new
+  `editor.viewProjection` key; and window screenshots of the editor rendering
+  `examples/showcase` in the **Top** view (terrain a perfect square, gizmo and
+  overlays correct) and `examples/script-demo` in the **Front** view (terrain
+  edge-on as a line, the box sitting on it), against a perspective capture of
+  the same project as the baseline. The axis gizmo was screenshotted zoomed in
+  (stems, letters, hollow negative ends, the hub) and the capture happened to
+  catch a live hover - white ring plus the "Top view - orthographic along the
+  +Y axis" tooltip - so the hit test and tooltip path are covered too. **Still needs a hands-on pass**: the
+  interactive paste flow and the insert snap are mouse-driven, and synthetic
+  input is off-limits on this machine - the math and the wiring are covered,
+  the *feel* (does the copy land where you expect, is the numpad muscle memory
+  right) is a human check.
+- (172) **The GROUND goes per pixel too: baked emissive light + its shadows
+  move onto the terrain lightmap.** (169) fixed the props and left the biggest
+  surface in the frame behind. `examples/glow` measures it: *Terrain detail* 32
+  over a 64-unit map is a 33x33 vertex grid, one lighting sample every **1.94
+  world units**, and `shadeAt` in `buildTerrainChunk` ran the emitter response
+  AND its shadow test per vertex - so every pool of light and every shadow edge
+  on the ground was quantised into ~2-metre squares. In a dark scene where the
+  ground fills most of the frame, that was the most visible artifact left.
+  The fix is the exact twin of what objects already do, one level up: the
+  terrain AO map (`.res-baked/aomap/scene<N>.png`, already RGBA32, already
+  drawn as an extra chunk pass) becomes the terrain **lightmap** - `A` =
+  occlusion as before, `RGB` = baked emissive light - and each chunk draws it
+  twice, the occlusion multiply with BLACK vertex colors (it had grey ones,
+  harmless while the RGB was zero, wrong the moment it is not) and then an
+  additive pass through `lightAddInfoBag` whose vertex color carries the
+  terrain's own base tint. `aobake::terrainAOMap` bakes both channels from the
+  same heightmap normal `shadeAt` derives, reusing `collectEmitters` /
+  `emitterLightAt` / `shapeBlocksRay`, with the same ordered 4x4 Bayer dither
+  the object atlas uses (these are wide low-amplitude ramps; an 8-bit
+  framebuffer bands them badly without it) and the shadow casters pruned ONCE
+  per emitter instead of per texel. `SCENE_AO_MAP_LIT` is the terrain's
+  `SCENE_AO_ATLAS_LIT`: with it set the chunk build stops adding
+  `emissiveLightAt` to the vertex colors and skips the per-chunk emitter
+  collect entirely, so the light cannot land twice; `SCENE_AO_MAP_OCC` gates
+  the occlusion pass separately, so **each pass is drawn only when its channel
+  has content**. The map is no longer gated on the ambient-occlusion
+  preference either - the object atlas was ungated in (169) for the same
+  reason, and `examples/glow` is exactly the case (AO off, five emitters).
+  Along the way: every extra chunk pass now carries the BASE bag's
+  `bboxVersion` instead of its own `++g_bboxStamp`. The engine's package-bbox
+  cache is keyed by the vertex pointer, and all the passes share
+  `ch.vertices`, so distinct stamps made each pass recompute the boxes the
+  previous one had just built, every frame - the new pass would have been the
+  fourth. Not previously noticed because it is invisible except in EE time.
+  Known limits, documented rather than papered over: one 256² map for the
+  WHOLE terrain (RGBA32 - palettising destroys the gradient through the
+  engine's tRNS→CLUT path), so **0.25 world units per texel at 64 units**
+  (~8x finer per axis than the vertex grid) but **0.75 at 192** like
+  `examples/showcase` - better than per vertex, not dramatic. Shadows stay
+  rectangular (analytic boxes/spheres); this makes them smooth-edged and
+  correctly placed, not silhouette-accurate. And on a *textured* terrain the
+  additive pass adds flat light instead of modulating the texture, so a hot
+  pool reads slightly bright over dark texels - the opposite call from the one
+  objects make (a prop is small and its texture hides the Gouraud seam; the
+  ground is the whole frame and had nowhere to hide).
+  **Verified in PCSX2 (software renderer), full `--build` on both sides** - not
+  `--refresh-gen`, which does not run texbake and would have compared a stale
+  PNG with itself (the trap (170) fell into). Decoded the baked PNG directly:
+  before 256x256, alpha 10175 texels, **RGB 0 texels**; after, the identical
+  10175 alpha texels and **11858 RGB texels**, max (255,203,146) - the lava's
+  orange. Sampled the map along the ground: a smooth quadratic ramp away from
+  the plate edge (124, 108, 87, 57, 34, 17, 5, 0 over 0.25-unit texels) and a
+  hard cut to 0 behind `s3-shadow-wall`. Screenshots from a fixed spawn (a
+  scratch copy of `examples/glow` with the player parked facing the lava pit,
+  so the frames line up): before, the ground is a fan of ~2-metre facets and
+  the wall's shadow is a visible polygon; after, both are smooth with a clean
+  edge. **50.08 FPS** in steady state (before: 50.02), EE 34%. Also built the
+  AO-off variant end to end: the map ships with **0 alpha texels** and 11858
+  RGB ones, i.e. only the additive pass. `examples/showcase`, `large-terrain`
+  and `script-demo` regenerate byte-identically apart from the two new flag
+  tables, both all-zero - a scene with no emitters gains no pass. All 18
+  example projects regenerated.
 
 - (171) **GS VRAM: a real residency manager (order-independent free +
   coldest-first eviction), after measuring what the old one actually cost.**

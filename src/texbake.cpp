@@ -549,11 +549,13 @@ std::string bake(const Project& p,
         if (!atlasPlan.empty()) log("[editor] " + texatlas::info(atlasPlan));
     }
 
-    // Baked ambient occlusion (docs/ambient-occlusion.md): the terrain AO
-    // map + the primitive lightmap atlas, one pair per AO-enabled scene,
-    // regenerated wholesale like the stochastic supertiles. Codegen emits
-    // the matching atlas rects from the SAME deterministic bake
-    // (aobake::bakeSceneLightAtlas), so pixels and UVs cannot drift.
+    // The scene lightmaps (docs/ambient-occlusion.md, emissive-materials.md):
+    // the terrain map + the primitive atlas, one pair per scene that has
+    // baked occlusion or baked emissive light (both images carry BOTH:
+    // alpha = occlusion, RGB = light), regenerated wholesale like the
+    // stochastic supertiles. Codegen emits the matching atlas rects from the
+    // SAME deterministic bake (aobake::bakeSceneLightAtlas), so pixels and
+    // UVs cannot drift.
     fs::remove_all(baked / "aomap", ec);
     fs::remove_all(baked / "aoatlas", ec);
     {
@@ -591,18 +593,16 @@ std::string bake(const Project& p,
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             const SceneData& sc = p.scenes[si];
             const ProjectSettings srs = project::resolvedSettings(p, sc);
-            // Both images carry occlusion in the alpha AND baked emissive
-            // light in the RGB, so neither is gated on the AO preference -
-            // a scene can have glowing lamps and no ambient occlusion.
-            const aobake::TerrainLightInput tli =
-                aobake::terrainLightInput(p, sc, aabbFn);
-            if (srs.aoEnabled || !tli.emitters.empty()) {
+            // Neither image is gated on the AO preference: both carry baked
+            // emissive light as well, so a scene can have glowing lamps and
+            // no ambient occlusion at all.
+            {
                 const aobake::AoImage map = aobake::terrainAOMap(
                     sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                     (float)sc.terrain.depth,
-                    aobake::collectOccluders(sc.objects, aabbFn), srs.aoRadius,
-                    srs.aoEnabled ? srs.aoStrength : 0.0f, &tli.emitters,
-                    tli.tint);
+                    aobake::collectOccluders(sc.objects, aabbFn),
+                    aobake::collectEmitters(p.dir, sc.objects, aabbFn),
+                    srs.aoRadius, srs.aoStrength, srs.aoEnabled);
                 if (map.size > 0 &&
                     writeAlphaPng(
                         baked / "aomap" / ("scene" + std::to_string(si) + ".png"),

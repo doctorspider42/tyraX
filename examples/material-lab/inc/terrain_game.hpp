@@ -61,14 +61,14 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
-    // The terrain lightmap, read TWICE over the base (and the layers) from one
-    // texture, exactly like the primitive atlas: the vertex color of each pass
-    // picks the channels it can see. Shares the chunk's vertices and one set of
-    // extent-normalized STs.
-    //   aoCols  = BLACK -> only the map's ALPHA survives, and alpha-over is
-    //             then an exact per-pixel multiply. Black is load-bearing: a
-    //             white vertex color would drag the light in RGB into it.
-    //   emisCols = WHITE -> the map's RGB, added straight onto the frame.
+    // The terrain lightmap passes, both blended over the base (and the
+    // layers) and both sampling ONE map with the chunk's extent-normalized
+    // STs - texturing is MODULATE, so the vertex color of each pass picks
+    // which channels it sees (docs/emissive-materials.md):
+    //   aoCols: BLACK -> only the map's alpha reaches the alpha-over blend,
+    //     an exact per-pixel multiply (a white color would drag the light
+    //     channel into the darkening);
+    //   emisCols: the terrain's own base tint -> the map's RGB, added.
     std::vector<Tyra::Vec4> aoSts;
     std::vector<Tyra::Color> aoCols;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
@@ -96,13 +96,17 @@ class TerrainGame : public Tyra::Game {
   // Shared info bag of the additive scene-lightmap pass (identity model -
   // only world-space static primitives ever get atlas regions).
   std::unique_ptr<Tyra::StaPipInfoBag> lightAddInfoBag;
-  // Experimental textured AO: the per-scene terrain AO map + primitive
-  // lightmap atlas (acquired in loadScene when the mode is on; nullptr
-  // otherwise). Both draw as alpha-over passes of black textures - the GS
-  // blend turns the alpha into an exact per-pixel darkening.
+  // The per-scene lightmaps: the terrain map + the primitive atlas (acquired
+  // in loadScene when the scene has one; nullptr otherwise). Each carries the
+  // occlusion in its alpha (an alpha-over pass = exact per-pixel darkening)
+  // and the baked emissive light in its RGB (an additive pass).
   Tyra::Texture* aoMapTexture = nullptr;
   Tyra::Texture* aoAtlasTexture = nullptr;
   std::string aoMapTexPath, aoAtlasTexPath;  // for the release on scene swap
+  // ...and which of the terrain map's channels actually have content, latched
+  // per scene in loadScene. terrainMapLit ALSO switches buildTerrainChunk's
+  // vertex shade off the emissive light, so it never lands twice.
+  bool terrainMapOcc = false, terrainMapLit = false;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])

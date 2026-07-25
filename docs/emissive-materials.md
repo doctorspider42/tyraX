@@ -139,8 +139,10 @@ sprites over the same tiny buffers. No EE cost, no extra VRAM.
 ## 3. Lighting the surroundings
 
 Tick **Lights up surroundings** in the Glow section and the emitter stops being
-a bright decal and starts behaving like a lamp: its light is folded into the
-vertex colors of the terrain, walls and props around it at scene load.
+a bright decal and starts behaving like a lamp: its light is baked into the
+terrain, walls and props around it — per pixel where a lightmap covers the
+surface, into the vertex colors at scene load everywhere else
+([below](#per-pixel-via-the-scene-lightmaps)).
 
 - **Light reach** — world units. The falloff is quadratic from the emitter's
   **surface**, not its center, so a long neon strip lights evenly along its
@@ -168,7 +170,7 @@ per terrain chunk (never per vertex — see the dcache note on `pointLightAt` in
 the generated game). Codegen emits the table into `inc/ao_data.gen.hpp`; a
 scene with no emitters emits none and pays nothing.
 
-### Per pixel, via the scene lightmap
+### Per pixel, via the scene lightmaps
 
 Baked light lands on **vertices**, and a plain box face is two triangles — so a
 strong gradient across one face is interpolated from four corners and the
@@ -256,6 +258,41 @@ For anything on the vertex path, raising the object's **Detail** (Properties >
 subdivisions) is the fallback: a Detail-5 box is 300 triangles instead of 12
 and the gradient smooths out.
 
+#### The ground
+
+The **terrain** is where this matters most — it fills most of the frame in a
+dark scene, and its vertex grid is coarse: *Preferences > Terrain detail* 32
+over a 64-unit map is one lighting sample every **1.94 units**, so every pool
+of light and every shadow edge on the ground was quantised into ~2-metre
+squares.
+
+It takes the identical route, one level up: the **terrain lightmap**
+(`.res-baked/aomap/scene<N>.png`, the image the ambient occlusion already
+shipped) gained the same `RGB` light channel, and every terrain chunk draws it
+as a second, additive pass next to the occlusion one — same texture, same STs,
+same `lightAddInfoBag`. It covers the whole terrain at ≤256², so the light
+lands **per pixel at 0.25 world units per texel** on a 64-unit map (~8× finer
+per axis than the vertex grid) and **0.75** on a 192-unit one like
+`examples/showcase` — better than per vertex everywhere, dramatic on a small
+map. `SCENE_AO_MAP_LIT` is the terrain's `SCENE_AO_ATLAS_LIT`: with the map
+lit, `buildTerrainChunk` stops adding `emissiveLightAt` to the vertex colors
+(and skips collecting the chunk's emitters entirely), so the light never lands
+twice. A scene with no emitters bakes no light channel and draws no extra pass.
+
+Two consequences worth knowing:
+
+- the additive pass's vertex color carries the terrain's own **base tint**, so
+  the light still lands on the ground's color. On an **untextured** terrain
+  that is exactly what the vertex path did. On a **textured** one it is not:
+  the add is flat rather than modulating the texture, so a hot pool reads
+  slightly brighter over dark texels than it should. That is the opposite call
+  from the one objects make, and deliberate — a prop is small and its texture
+  hides the Gouraud seam, while the ground is the biggest surface on screen and
+  its 2-metre quantisation had nowhere to hide.
+- the map is **not** gated on the ambient-occlusion preference any more. A
+  scene with glowing lamps and no baked occlusion ships a map with an empty
+  alpha channel and draws only the additive pass.
+
 ### The limit you will actually hit: banding
 
 A pool of light is a wide, *low-amplitude* ramp — it may span half the screen
@@ -268,10 +305,15 @@ texel — but it cannot manufacture precision that is not there.
 
 What is left is a hard budget, not a bug:
 
-- the whole scene shares **one 256² atlas** — bigger means RGBA32 VRAM the GS
-  does not have (see the note on texture residency in the editor skill). The
-  importance weighting above spends that budget where the light is, but it
-  cannot enlarge it;
+- the whole scene shares **one 256² atlas** for its primitives, and **one
+  256² map for the whole terrain** — bigger means RGBA32 VRAM the GS does not
+  have (see the note on texture residency in the editor skill). On the terrain
+  that cap is a texel size: 0.25 world units on a 64-unit map, 0.75 on a
+  192-unit one, so a big map trades resolution for coverage. The importance
+  weighting above spends the atlas budget where the light is, but it cannot
+  enlarge it;
+- palettising is not an option — the engine's tRNS→CLUT path destroys these
+  smooth gradients (verified in PCSX2: a quantized bake renders as nothing);
 - the framebuffer is **8-bit per channel** with no dithering on the blend.
 
 Two things genuinely help. Keep the emitter's **reach** tight, so the ramp is
@@ -357,8 +399,9 @@ other:
 | Emitter shapes | baked into `inc/ao_data.gen.hpp` | `aobake::collectEmitters` (single source for both) |
 | Soft shadows | *single hard ray — the documented divergence above* | `aobake::emitterVisibility` + `kEmisShadowDisk`; `emisVisibility` in the viewport FS |
 | Scene lightmap | the atlas passes in `rebuildObjectGeometry` | `aobake::bakeSceneLightAtlas` bakes it, texbake writes the PNG |
-| Terrain lightmap | the two chunk passes in `buildTerrainChunk` (`SCENE_TERRAIN_LIT`) | `aobake::terrainAOMap` + `aobake::terrainLightInput` |
+| Terrain lightmap | the two chunk passes in `buildTerrainChunk` | `aobake::terrainAOMap` bakes it, texbake writes the PNG |
 | Texel budget | — | the importance pre-pass in `aobake::bakeSceneLightAtlas` (host only) |
+| Alpha floor | — | `aobake::kMinLightmapAlpha`, applied by both bakes |
 | Bright pass + spread | `RendererCorePostFx::apply` (`renderer_core_postfx.cpp`) | not previewed (GS-only, like every screen effect) |
 
 Authoring UI: `App::drawMaterialEditorWindow` + `loadMaterialFile` /

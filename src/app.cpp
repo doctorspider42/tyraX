@@ -100,6 +100,14 @@ struct EditorConfig {
     // Material Editor: the preview panel's share of the window width
     // (0.25..0.75), set by dragging the splitter between the columns.
     float matEdSplit = 0.48f;
+    // Collision-aware placement (docs/object-placement.md): inserted and
+    // pasted objects rest on the surface under them instead of sinking into
+    // it. A workflow preference like the navigation scheme, so it lives here
+    // rather than in the .tyra.
+    bool placementSnap = true;
+    // The axis-view gizmo in the viewport's top-right corner. On by default;
+    // it can be turned off because it sits where HUD authoring wants space.
+    bool axisGizmo = true;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -145,6 +153,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("aiModel", v)) cfg.ai.model = v;
         else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
+        else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
+        else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
     }
     if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
@@ -176,7 +186,9 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiBackend=" << cfg.ai.backend << "\n"
       << "aiModel=" << cfg.ai.model << "\n"
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
-      << "matEdSplit=" << cfg.matEdSplit << "\n";
+      << "matEdSplit=" << cfg.matEdSplit << "\n"
+      << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
+      << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -389,6 +401,8 @@ int App::run(const std::string& initialProjectDir) {
         globalSessionCacheDir_ = cfg.sessionCacheDir;
         globalAi_ = cfg.ai;
         matEdSplit_ = cfg.matEdSplit;
+        placementSnap_ = cfg.placementSnap;
+        showAxisGizmo_ = cfg.axisGizmo;
     }
     applyUiScale();
 
@@ -670,7 +684,7 @@ void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_});
+                      matEdSplit_, placementSnap_, showAxisGizmo_});
 }
 
 void App::setUiScale(float userScale) {
@@ -709,10 +723,14 @@ void App::drawMenuBar() {
             ImGui::Separator();
             const char* copyLabel =
                 selection_.size() > 1 ? "Copy objects" : "Copy object";
-            const char* pasteLabel =
-                clipboard_.size() > 1 ? "Paste objects" : "Paste object";
+            // A pending paste is still following the cursor - the same command
+            // settles it (see pasteObject).
+            const char* pasteLabel = pastePending_ ? "Place paste"
+                                     : clipboard_.size() > 1 ? "Paste objects"
+                                                             : "Paste object";
             if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
-            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false, hasProject_ && !clipboard_.empty()))
+            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
+                                hasProject_ && (pastePending_ || !clipboard_.empty())))
                 pasteObject();
             ImGui::Separator();
             if (ImGui::MenuItem("Preferences...")) {
@@ -775,6 +793,57 @@ void App::drawMenuBar() {
             }
 
             ImGui::Separator();
+            ImGui::TextDisabled("Projection");
+            {
+                // Perspective + the parallel views. The axis entries also aim
+                // the camera down that world axis; orbiting afterwards keeps
+                // the parallel projection and returns to "Orthographic".
+                struct ProjItem {
+                    Viewport::Projection p;
+                    const char* label;
+                    const char* shortcut;
+                };
+                static const ProjItem items[] = {
+                    {Viewport::Projection::Perspective, "Perspective", "Num 5"},
+                    {Viewport::Projection::Ortho, "Orthographic", "Num 5"},
+                    {Viewport::Projection::OrthoTop, "Top (-Y)", "Num 7"},
+                    {Viewport::Projection::OrthoBottom, "Bottom (+Y)", "Ctrl+Num 7"},
+                    {Viewport::Projection::OrthoFront, "Front (-Z)", "Num 1"},
+                    {Viewport::Projection::OrthoBack, "Back (+Z)", "Ctrl+Num 1"},
+                    {Viewport::Projection::OrthoRight, "Right (-X)", "Num 3"},
+                    {Viewport::Projection::OrthoLeft, "Left (+X)", "Ctrl+Num 3"},
+                };
+                for (const ProjItem& it : items) {
+                    const bool active = viewport_.projection() == it.p;
+                    if (ImGui::MenuItem(it.label, it.shortcut, active, hasProject_) &&
+                        !active)
+                        setViewProjection(it.p);
+                }
+                if (ImGui::MenuItem("Axis gizmo", nullptr, showAxisGizmo_)) {
+                    showAxisGizmo_ = !showAxisGizmo_;
+                    saveGlobalConfig();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(
+                        "The axis widget in the viewport's top-right corner:\n"
+                        "click an axis ball to snap to that orthographic view,\n"
+                        "click the hub to switch perspective/parallel.");
+            }
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Placement");
+            if (ImGui::MenuItem("Snap to surface", nullptr, placementSnap_)) {
+                placementSnap_ = !placementSnap_;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Inserted and pasted objects rest on the surface under "
+                    "them\n(the terrain, or the top of the object below) "
+                    "instead of\nsinking into it. A machine setting, not "
+                    "project data.");
+
+            ImGui::Separator();
             ImGui::TextDisabled("Preview");
             if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
                 showFog_ = !showFog_;
@@ -809,6 +878,13 @@ void App::drawMenuBar() {
                 drawAddObjectMenu();
                 ImGui::EndMenu();
             }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Drop to floor", "End", false, !selection_.empty()))
+                dropSelectionToFloor();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Rest every selected object on the first surface below it "
+                    "-\nthe terrain or the top of another object.");
             ImGui::Separator();
             if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
             ImGui::EndMenu();
@@ -1398,7 +1474,24 @@ void App::drawViewportWindow() {
                                animedit::projectTimeScale(project_.settings));
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
-        const std::vector<SceneObject>& renderObjects = cutscenePosedObjects();
+        const std::vector<SceneObject>& posedObjects = cutscenePosedObjects();
+        // Deferred paste: the staged copies are not in the scene yet, so they
+        // ride along in a scratch list and render outlined like a selection -
+        // that outline IS the "this is still being placed" feedback.
+        const std::vector<SceneObject>* renderList = &posedObjects;
+        std::vector<int> renderSel = selection_;
+        int renderPrimary = selectedObject_;
+        if (pastePending_ && !pasteStaged_.empty()) {
+            pasteRenderScratch_ = posedObjects;
+            renderSel.clear();
+            for (const SceneObject& o : pasteStaged_) {
+                renderSel.push_back((int)pasteRenderScratch_.size());
+                pasteRenderScratch_.push_back(o);
+            }
+            renderPrimary = renderSel.back();
+            renderList = &pasteRenderScratch_;
+        }
+        const std::vector<SceneObject>& renderObjects = *renderList;
         // Look-through camera ("View:" overlay / camera Properties): render
         // from the chosen Camera entity's pose + FOV. The cutscene camera
         // track wins while it previews; reading the POSED objects means a
@@ -1440,7 +1533,7 @@ void App::drawViewportWindow() {
         updateProjectedDecals();
         updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
-                                        selection_, selectedObject_);
+                                        renderSel, renderPrimary);
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
@@ -1470,6 +1563,11 @@ void App::drawViewportWindow() {
                 dl->AddRectFilled(imgPos, br,
                                   IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
         }
+
+        // --- Axis view gizmo (top-right corner) ---
+        // Drawn before the input handling so its hover can veto the click that
+        // would otherwise fall through and change the selection.
+        const bool overAxisGizmo = drawAxisGizmo(imgPos, avail);
 
         // --- Terrain sculpting / painting brush (shared raycast + ring) ---
         const bool brushMode = sculptMode_ || paintMode_;
@@ -1560,13 +1658,14 @@ void App::drawViewportWindow() {
 
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
-        bool objectSelected = !sculptMode_ && !paintMode_ && selectedObject_ >= 0 &&
+        bool objectSelected = !sculptMode_ && !paintMode_ && !pastePending_ &&
+                              selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
 
-            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::SetOrthographic(viewport_.orthographic());
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect(imgPos.x, imgPos.y, avail.x, avail.y);
 
@@ -1770,9 +1869,27 @@ void App::drawViewportWindow() {
             // button is not driving the camera in this scheme (only Maya's
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
-            if (!sculptMode_ && !paintMode_ && !lmbCamera &&
-                ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            if (!sculptMode_ && !paintMode_ && !pastePending_ && !lmbCamera &&
+                !overAxisGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
+        }
+
+        // --- Deferred paste: the staged copies follow the cursor until a
+        // click (or another Ctrl+V) settles them; Esc drops them. ---
+        if (pastePending_) {
+            if (imageHovered && !gizmoBusy && !overAxisGizmo) {
+                const float u = (io.MousePos.x - imgPos.x) / avail.x;
+                const float v = (io.MousePos.y - imgPos.y) / avail.y;
+                float point[3];
+                if (viewport_.placementRaycast(u, v, project_.objects(),
+                                               placementSkip(), point))
+                    movePasteStaged(point);
+                // A plain click (not an orbit drag) commits where they stand.
+                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                    io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f)
+                    commitPastePlacement();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) cancelPastePlacement();
         }
 
         // Rubber-band box select: tracked until the button is released, even if
@@ -1801,6 +1918,7 @@ void App::drawViewportWindow() {
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
         if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
+            !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -1986,6 +2104,31 @@ void App::drawViewportWindow() {
         }
         if (paintMode_) ImGui::PopStyleColor();
 
+        // Surface snapping: inserted / pasted objects rest on what is under
+        // them. A machine-global preference, mirrored in the View menu.
+        ImGui::SameLine(0.0f, 24.0f);
+        if (placementSnap_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Surface snap")) {
+            placementSnap_ = !placementSnap_;
+            saveGlobalConfig();
+        }
+        if (placementSnap_) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Inserted and pasted objects rest on the surface under them\n"
+                "(the terrain, or the top of the object below) instead of\n"
+                "sinking into it. End drops the selection to the floor.");
+
+        // While a paste is in flight, say so where the eye already is.
+        if (pastePending_) {
+            ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                               "Placing paste - click to drop, Ctrl+V to drop, "
+                               "Esc to cancel");
+        }
+
         // Geometry for the bottom-corner overlays. SmallButton keeps
         // FramePadding.x, so its width is the label plus twice that padding.
         auto smallBtnW = [](const char* s) {
@@ -2011,6 +2154,34 @@ void App::drawViewportWindow() {
             ImGui::EndDisabled();
             if (objSel && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Move the camera pivot to the selected object.");
+        }
+
+        // --- Camera projection (next to the recenter buttons) ---
+        // Perspective / parallel + the six locked axis views. The numpad
+        // shortcuts below do the same; this button is the discoverable half
+        // (and the only one on a keyboard without a numpad).
+        {
+            ImGui::SameLine(0.0f, 16.0f);
+            const std::string projLbl =
+                std::string("Proj: ") + Viewport::projectionName(viewport_.projection());
+            if (ImGui::SmallButton(projLbl.c_str())) ImGui::OpenPopup("##projection");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Camera projection. Orthographic drops the perspective\n"
+                    "foreshortening; the axis views also aim the camera down\n"
+                    "a world axis (Num 1/3/7, Ctrl for the opposite side,\n"
+                    "Num 5 toggles perspective). Orbiting an axis view keeps\n"
+                    "the parallel projection.");
+            if (ImGui::BeginPopup("##projection")) {
+                for (int i = 0; i < Viewport::kProjectionCount; ++i) {
+                    const Viewport::Projection p = (Viewport::Projection)i;
+                    if (i == 2) ImGui::Separator();  // free modes | axis views
+                    if (ImGui::MenuItem(Viewport::projectionName(p), nullptr,
+                                        viewport_.projection() == p))
+                        setViewProjection(p);
+                }
+                ImGui::EndPopup();
+            }
         }
 
         // --- Look-through camera (next to the recenter buttons) ---
@@ -2133,6 +2304,26 @@ void App::drawViewportWindow() {
                 }
             }
             if (ImGui::IsKeyPressed(ImGuiKey_5)) gizmoSpace_ = 1 - gizmoSpace_;
+            // Camera projection on the numpad (CAD/Blender muscle memory):
+            // 1/3/7 front/right/top, Ctrl for the opposite side, 5 toggles
+            // perspective. The tool keys live on the number ROW, so nothing
+            // collides.
+            {
+                const bool ctrl = io.KeyCtrl;
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad7))
+                    setViewProjection(ctrl ? Viewport::Projection::OrthoBottom
+                                           : Viewport::Projection::OrthoTop);
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad1))
+                    setViewProjection(ctrl ? Viewport::Projection::OrthoBack
+                                           : Viewport::Projection::OrthoFront);
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad3))
+                    setViewProjection(ctrl ? Viewport::Projection::OrthoLeft
+                                           : Viewport::Projection::OrthoRight);
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad5))
+                    setViewProjection(viewport_.orthographic()
+                                          ? Viewport::Projection::Perspective
+                                          : Viewport::Projection::Ortho);
+            }
             if (ImGui::IsKeyPressed(ImGuiKey_6)) {
                 paintMode_ = !paintMode_;
                 if (paintMode_) {
@@ -2163,9 +2354,145 @@ void App::drawViewportWindow() {
             viewport_.fly(fwd, strafe, io.DeltaTime);
             if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete))
                 deleteSelectedObjects();
+            // End: rest the selection on the first surface below it.
+            if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_End))
+                dropSelectionToFloor();
         }
     }
     ImGui::End();
+}
+
+bool App::drawAxisGizmo(ImVec2 imgPos, ImVec2 avail) {
+    if (!showAxisGizmo_) return false;
+    const float radius = scaled(42.0f);   // hub -> axis tip
+    const float ballR = scaled(8.5f);
+    const float pad = scaled(14.0f);
+    // A viewport docked down to a sliver has no room for it.
+    if (avail.x < radius * 4.0f || avail.y < radius * 4.0f) return false;
+    const ImVec2 hub(imgPos.x + avail.x - radius - ballR - pad,
+                     imgPos.y + radius + ballR + pad);
+
+    // World axis k in view space: the view matrix is column-major, so column k
+    // (V[k*4 + r]) is where that axis points on screen. Screen Y grows down.
+    const float* V = viewport_.viewMatrix();
+    static const char* kLabel[3] = {"X", "Y", "Z"};
+    static const ImU32 kColor[3] = {IM_COL32(226, 88, 96, 255),     // X red
+                                    IM_COL32(126, 200, 78, 255),    // Y green
+                                    IM_COL32(70, 145, 240, 255)};   // Z blue
+    // Ball i (axis i/2, negative when odd) -> the view you get by standing on
+    // that end of the axis and looking back at the scene.
+    static const Viewport::Projection kProj[6] = {
+        Viewport::Projection::OrthoRight, Viewport::Projection::OrthoLeft,
+        Viewport::Projection::OrthoTop,   Viewport::Projection::OrthoBottom,
+        Viewport::Projection::OrthoFront, Viewport::Projection::OrthoBack};
+    static const char* kTip[6] = {"Right view", "Left view",  "Top view",
+                                  "Bottom view", "Front view", "Back view"};
+
+    struct Ball {
+        int i = 0;
+        ImVec2 pos;
+        float depth = 0.0f;  // view-space z: bigger = nearer the camera
+    };
+    Ball balls[6];
+    for (int i = 0; i < 6; ++i) {
+        const int axis = i / 2;
+        const float s = (i & 1) ? -1.0f : 1.0f;
+        const float dx = V[axis * 4 + 0] * s, dy = V[axis * 4 + 1] * s,
+                    dz = V[axis * 4 + 2] * s;
+        balls[i].i = i;
+        balls[i].pos = ImVec2(hub.x + dx * radius, hub.y - dy * radius);
+        balls[i].depth = dz;
+    }
+    int order[6] = {0, 1, 2, 3, 4, 5};  // painter's order: far ones first
+    std::sort(order, order + 6, [&](int a, int b) {
+        return balls[a].depth < balls[b].depth;
+    });
+
+    ImGuiIO& io = ImGui::GetIO();
+    const float dxm = io.MousePos.x - hub.x, dym = io.MousePos.y - hub.y;
+    const float mouseDist2 = dxm * dxm + dym * dym;
+    const float reach = radius + ballR + scaled(3.0f);
+    // IsWindowHovered so an open modal (or another window over the corner)
+    // makes the widget inert instead of eating clicks meant for it.
+    const bool overWidget = mouseDist2 <= reach * reach &&
+                            ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+
+    // Nearest ball under the cursor, front-most first so an axis pointing at
+    // the camera wins over the one it covers.
+    int hovered = -1;
+    if (overWidget) {
+        const float grab = ballR + scaled(3.0f);
+        for (int k = 5; k >= 0 && hovered < 0; --k) {
+            const Ball& b = balls[order[k]];
+            const float bx = io.MousePos.x - b.pos.x, by = io.MousePos.y - b.pos.y;
+            if (bx * bx + by * by <= grab * grab) hovered = b.i;
+        }
+    }
+    const bool overHub =
+        overWidget && hovered < 0 && mouseDist2 <= (ballR * 1.6f) * (ballR * 1.6f);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddCircleFilled(hub, reach,
+                        IM_COL32(18, 20, 26, overWidget ? 120 : 45), 32);
+
+    for (int k = 0; k < 6; ++k) {
+        const Ball& b = balls[order[k]];
+        const int axis = b.i / 2;
+        const bool neg = (b.i & 1) != 0;
+        const bool active = viewport_.projection() == kProj[b.i];
+        const bool hot = hovered == b.i;
+        const ImU32 col = kColor[axis];
+        // Positive ends carry the stem and the letter; negative ends are
+        // hollow until you hover them - the same reading as Blender's.
+        if (!neg)
+            dl->AddLine(hub, b.pos, col, scaled(2.0f));
+        if (!neg || hot || active) {
+            dl->AddCircleFilled(b.pos, ballR, col, 16);
+        } else {
+            dl->AddCircleFilled(b.pos, ballR, IM_COL32(30, 32, 38, 200), 16);
+            dl->AddCircle(b.pos, ballR, col, 16, scaled(1.6f));
+        }
+        if (active || hot)
+            dl->AddCircle(b.pos, ballR + scaled(2.5f),
+                          IM_COL32(255, 255, 255, active ? 220 : 120), 16,
+                          scaled(1.5f));
+        if (!neg || hot) {
+            const ImVec2 ts = ImGui::CalcTextSize(kLabel[axis]);
+            dl->AddText(ImVec2(b.pos.x - ts.x * 0.5f, b.pos.y - ts.y * 0.5f),
+                        IM_COL32(20, 20, 24, 255), kLabel[axis]);
+        }
+    }
+    // Hub: the perspective/parallel switch (Blender has no such button, but
+    // the widget is exactly where the hand already is).
+    dl->AddCircleFilled(hub, ballR * (overHub ? 0.85f : 0.6f),
+                        viewport_.orthographic() ? IM_COL32(235, 235, 240, 230)
+                                                 : IM_COL32(130, 134, 145, 210),
+                        16);
+
+    if (hovered >= 0)
+        ImGui::SetTooltip("%s - orthographic along the %s%s axis", kTip[hovered],
+                          (hovered & 1) ? "-" : "+", kLabel[hovered / 2]);
+    else if (overHub)
+        ImGui::SetTooltip("%s (click to switch)", viewport_.orthographic()
+                                                      ? "Orthographic"
+                                                      : "Perspective");
+
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (hovered >= 0) setViewProjection(kProj[hovered]);
+        else if (overHub)
+            setViewProjection(viewport_.orthographic()
+                                  ? Viewport::Projection::Perspective
+                                  : Viewport::Projection::Ortho);
+    }
+    return overWidget;
+}
+
+void App::setViewProjection(Viewport::Projection p) {
+    viewport_.setProjection(p);
+    // Editor state, not a model edit: saveProject() reads it back out of the
+    // viewport, so it lands in the .tyra with the next save (like gizmoOp).
+    project_.viewProjection = (int)p;
+    statusMessage_ = std::string("View: ") + Viewport::projectionName(p);
 }
 
 void App::drawProjectWindow() {
@@ -2216,6 +2543,7 @@ void App::drawProjectWindow() {
                 project_.activeScene != i) {
                 project_.activeScene = i;
                 clearSelection();
+                cancelPastePlacement();  // staged copies belong to the old scene
                 flowGraphObject_ = -1;
                 flowPositionsApplied_ = false;
                 applyProjectToViewport();  // terrain/lighting are per scene
@@ -2259,6 +2587,7 @@ void App::saveProject() {
     project_.gizmoOp = gizmoOp_;
     project_.gizmoSpace = gizmoSpace_;
     project_.viewMode = (int)viewport_.viewMode();
+    project_.viewProjection = (int)viewport_.projection();
     // Fold the live docking arrangement + open windows into the active layout.
     // While a switch is still settling (load or rebuild pending) the on-screen
     // layout doesn't yet belong to the active layout - keep the stored one
@@ -3340,11 +3669,80 @@ void App::copyObject() {
 }
 
 void App::pasteObject() {
+    // A pending paste is settled by the next Ctrl+V (the keyboard twin of
+    // clicking it down); only then does a fresh one start.
+    if (pastePending_) {
+        commitPastePlacement();
+        return;
+    }
     if (clipboard_.empty()) return;
+    beginPastePlacement();
+}
 
-    // Paste the whole group offset by the same amount so it keeps its shape,
-    // then select the pasted objects (primary = the last one).
-    selection_.clear();
+// --- Collision-aware placement -------------------------------------------
+
+aobake::ModelAabbFn App::placementModelAabb() {
+    return [this](const SceneObject& o, float mn[3], float mx[3]) {
+        return viewport_.modelLocalBounds(o, mn, mx);
+    };
+}
+
+placement::HeightFn App::placementHeight() const {
+    return [this](float x, float z) { return viewport_.terrainHeight(x, z); };
+}
+
+std::vector<char> App::placementSkip(const std::vector<int>& extra) const {
+    std::vector<char> skip(project_.objects().size(), 0);
+    for (size_t i = 0; i < project_.objects().size(); ++i)
+        if (isObjectHiddenInEditor(project_.objects()[i])) skip[i] = 1;
+    for (int i : extra)
+        if (i >= 0 && i < (int)skip.size()) skip[i] = 1;
+    return skip;
+}
+
+void App::snapInsertedObject() {
+    if (!placementSnap_ || project_.objects().empty()) return;
+    const int last = (int)project_.objects().size() - 1;
+    SceneObject& o = project_.objects()[last];
+    // No ceiling: a fresh object rests on whatever stands under it, however
+    // tall - inserting into an occupied spot stacks instead of intersecting.
+    o.position[1] += placement::restOffsetY(o, project_.objects(),
+                                            placementSkip({last}),
+                                            placementModelAabb(),
+                                            placementHeight(), FLT_MAX);
+}
+
+void App::dropSelectionToFloor() {
+    if (selection_.empty()) return;
+    const aobake::ModelAabbFn aabb = placementModelAabb();
+    const placement::HeightFn height = placementHeight();
+    // Every selected object is its own drop: the ceiling is its own underside,
+    // so only surfaces BELOW it can catch it (lift an object over a shelf,
+    // press End, it lands on the shelf).
+    const std::vector<char> skip = placementSkip(selection_);
+    int moved = 0;
+    for (int i : selection_) {
+        if (i < 0 || i >= (int)project_.objects().size()) continue;
+        SceneObject& o = project_.objects()[i];
+        const placement::Aabb box = placement::worldAabb(o, aabb);
+        const float dy = placement::restOffsetY(o, project_.objects(), skip, aabb,
+                                                height, box.mn[1] + 0.001f);
+        if (dy != 0.0f) ++moved;
+        o.position[1] += dy;
+    }
+    if (!moved) {
+        statusMessage_ = "Nothing to drop onto";
+        return;
+    }
+    commitChange();
+    statusMessage_ = moved == 1 ? "Dropped to floor"
+                                : "Dropped " + std::to_string(moved) + " objects";
+}
+
+// --- Deferred paste -------------------------------------------------------
+
+void App::beginPastePlacement() {
+    pasteStaged_.clear();
     for (const SceneObject& src : clipboard_) {
         SceneObject o = src;
         o.id.clear();  // a paste is a new object - it must get its own id
@@ -3352,20 +3750,73 @@ void App::pasteObject() {
         for (int n = 2;; ++n) {
             bool taken = false;
             for (const auto& other : project_.objects()) taken |= (other.name == name);
+            for (const auto& other : pasteStaged_) taken |= (other.name == name);
             if (!taken) break;
             name = o.name + "-copy" + std::to_string(n);
         }
         o.name = name;
-        o.position[0] += 1.0f;  // offset so the copy is visible next to the original
-        o.position[2] += 1.0f;
+        pasteStaged_.push_back(std::move(o));
+    }
+    if (pasteStaged_.empty()) return;
+    pastePending_ = true;
+    pasteMoved_ = false;
+    sculptMode_ = paintMode_ = false;  // one viewport tool at a time
+    // Nothing is selected while a paste is in flight: the gizmo would fight
+    // the cursor for the drag, and the staged copies aren't in the scene yet.
+    clearSelection();
+    statusMessage_ = "Click to place the paste (Ctrl+V places, Esc cancels)";
+}
+
+void App::movePasteStaged(const float point[3]) {
+    if (pasteStaged_.empty()) return;
+    // The first copy is the anchor: the group keeps its arrangement and lands
+    // with that copy's origin on the cursor point.
+    const float* anchor = pasteStaged_.front().position;
+    const float d[3] = {point[0] - anchor[0], point[1] - anchor[1],
+                        point[2] - anchor[2]};
+    for (SceneObject& o : pasteStaged_)
+        for (int k = 0; k < 3; ++k) o.position[k] += d[k];
+    if (placementSnap_) {
+        // ONE offset for the whole group (the largest any member needs), so
+        // a pasted stack keeps its shape instead of collapsing onto the floor.
+        const float dy = placement::restOffsetYGroup(
+            pasteStaged_, project_.objects(), placementSkip(),
+            placementModelAabb(), placementHeight(), FLT_MAX);
+        for (SceneObject& o : pasteStaged_) o.position[1] += dy;
+    }
+    pasteMoved_ = true;
+}
+
+void App::commitPastePlacement() {
+    if (!pastePending_) return;
+    pastePending_ = false;
+    selection_.clear();
+    // Settled without ever passing over the viewport (Ctrl+V twice with the
+    // cursor elsewhere): fall back to the classic diagonal offset so the copy
+    // doesn't land exactly inside the original.
+    if (!pasteMoved_)
+        for (SceneObject& o : pasteStaged_) {
+            o.position[0] += 1.0f;
+            o.position[2] += 1.0f;
+        }
+    for (SceneObject& o : pasteStaged_) {
         project_.objects().push_back(std::move(o));
         selection_.push_back((int)project_.objects().size() - 1);
     }
+    const size_t count = pasteStaged_.size();
+    pasteStaged_.clear();
+    if (selection_.empty()) return;
     selectedObject_ = selection_.back();
     commitChange();
-    statusMessage_ = clipboard_.size() == 1
-                         ? "Pasted " + project_.objects().back().name
-                         : "Pasted " + std::to_string(clipboard_.size()) + " objects";
+    statusMessage_ = count == 1 ? "Pasted " + project_.objects().back().name
+                                : "Pasted " + std::to_string(count) + " objects";
+}
+
+void App::cancelPastePlacement() {
+    if (!pastePending_) return;
+    pastePending_ = false;
+    pasteStaged_.clear();
+    statusMessage_ = "Paste cancelled";
 }
 
 void App::attachProject() {
@@ -3420,12 +3871,19 @@ void App::attachProject() {
     }
     // Editor-side state + window layout came in with the .tyra project file.
     // Only the primary selection persists; seed the (transient) set from it.
+    pastePending_ = false;  // a staged paste never survives a project switch
+    pasteStaged_.clear();
     selectOnly(project_.selectedObject);
     gizmoOp_ = (project_.gizmoOp >= 0 && project_.gizmoOp <= 2) ? project_.gizmoOp : 0;
     gizmoSpace_ = project_.gizmoSpace == 1 ? 1 : 0;
     const int viewMode =
         (project_.viewMode >= 0 && project_.viewMode <= 2) ? project_.viewMode : 0;
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
+    const int viewProj = (project_.viewProjection >= 0 &&
+                          project_.viewProjection < Viewport::kProjectionCount)
+                             ? project_.viewProjection
+                             : 0;
+    viewport_.setProjection((Viewport::Projection)viewProj);
     // Window layouts arrived with the .tyra. Guard against an empty/out-of-range
     // set (hand-edited or very old file), then apply the active one. Applying is
     // deferred to a frame boundary: loading ImGui settings mid-frame is
@@ -3554,6 +4012,7 @@ void App::addSavePoint() {
     o.scale[0] = 0.8f, o.scale[1] = 1.5f, o.scale[2] = 0.8f;
     o.color[0] = 0.25f, o.color[1] = 0.85f, o.color[2] = 0.95f;
     o.usable = true;  // implicit in the game; mirrored here for the viewport
+    snapInsertedObject();  // re-snap: the pillar's real height is set here
     saveAll("Saved");
 }
 void App::addObject(PrimitiveType type) {
@@ -3585,6 +4044,9 @@ void App::addObject(PrimitiveType type) {
     }
     project_.objects().push_back(o);
     selectOnly((int)project_.objects().size() - 1);
+    // Rest it on whatever is under the spawn spot instead of spawning inside
+    // it (the marker types have no volume, so this is a no-op for them).
+    snapInsertedObject();
     commitChange();
 }
 
@@ -4383,6 +4845,7 @@ void App::addModelObject(const std::string& relPath) {
 
     project_.objects().push_back(std::move(o));
     selectOnly((int)project_.objects().size() - 1);
+    snapInsertedObject();  // stand the model on the surface, not inside it
     commitChange();
 }
 

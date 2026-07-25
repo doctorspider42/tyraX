@@ -61,14 +61,7 @@ throws a rectangle, not its silhouette — but the **edge is soft**: the plate i
 an area source, so the pillar catches the part of it that reaches around the
 wall, and the band widens the further the surface is from the caster.
 
-The **ground** carries it per texel too. Its light used to land on the heightmap
-vertices — one every 2 world units here — so the pool was a handful of huge flat
-facets with the triangle split showing through. It now rides the terrain map's
-RGB channels at 4 texels per world unit, 8× finer, and the pool has a real
-gradient. See [docs/emissive-materials.md](../../docs/emissive-materials.md).
-
-All of it is baked into vertex colors at scene load. There is no runtime light
-here at all.
+All of it is baked at build. There is no runtime light here at all.
 
 **Everything here is Detail 1.** Baked light normally lands on *vertices*, and
 a plain box face is two triangles, so a gradient this strong would show the
@@ -76,6 +69,13 @@ diagonal split between them as a hard seam. It doesn't, because primitives take
 the light through the **scene lightmap atlas** — per texel, in the same image
 the ambient occlusion uses (`A` = occlusion, `RGB` = light). The pillars keep
 their 12 triangles and still shade smoothly.
+
+The **ground** takes the same route through the terrain lightmap, and it is the
+one that shows: this map is 64 units across on a 33×33 vertex grid, so per
+vertex the pool and the wall's shadow were quantised into ~2-metre squares.
+Per texel the map is 256² over the whole terrain — 0.25 units per texel, ~8×
+finer per axis — which is why the falloff and the shadow edge above read as
+curves and straight lines rather than as facets.
 
 ### Station 4 — the alley (z ≈ 12–28)
 
@@ -131,9 +131,11 @@ light, the falloff. The bloom halo is GS-only and shows up in the game.
 
 ## Cost
 
-Nothing in this scene costs anything per frame. The emissive floors and the
-five emitters' light are folded into the vertex colors once, at scene load;
-the bloom is a fixed handful of GS sprites over two 1/8-res scratch buffers.
+Almost nothing in this scene costs anything per frame. The emissive floors are
+folded into the vertex colors once, at scene load, and the five emitters' light
+is a build-time bake read back as one extra additive pass per terrain chunk and
+per lit primitive; the bloom is a fixed handful of GS sprites over two 1/8-res
+scratch buffers.
 It runs at a full 50 FPS in the PCSX2 software renderer — the frame is
 dominated by ordinary geometry, not by the glow.
 

@@ -694,31 +694,16 @@ int pow2Up(int v) {
 
 }  // namespace
 
-TerrainLightInput terrainLightInput(const Project& p, const SceneData& sc,
-                                    const ModelAabbFn& modelAabb) {
-    TerrainLightInput out;
-    const ProjectSettings rs = project::resolvedSettings(p, sc);
-    GlowCache cache;
-    const MaterialGlow& base = materialGlow(p.dir, rs.terrainMaterial, cache);
-    // A textured ground keeps the vertex bake - see the header.
-    if (base.textured) return out;
-    for (const TerrainLayer& l : sc.terrainLayers)
-        if (materialGlow(p.dir, l.material, cache).textured) return out;
-    for (int k = 0; k < 3; ++k) out.tint[k] = base.kd[k];
-    out.emitters = collectEmitters(p.dir, sc.objects, modelAabb);
-    return out;
-}
-
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
-                     const std::vector<Occluder>& occs, float radiusWorld,
-                     float strength,
-                     const std::vector<Emitter>* emitters,
-                     const float* recvTint) {
+                     const std::vector<Occluder>& occs,
+                     const std::vector<Emitter>& ems, float radiusWorld,
+                     float strength, bool aoOn) {
     AoImage out;
-    const bool aoOn = strength > 0.0f;
-    const bool lightOn = emitters && !emitters->empty();
-    if (width <= 0 || depth <= 0 || (!aoOn && !lightOn)) return out;
+    if (width <= 0 || depth <= 0) return out;
+    const bool bakeOcc = aoOn && strength > 0.0f;
+    const bool bakeLight = !ems.empty();
+    if (!bakeOcc && !bakeLight) return out;
     const bool hasHeights = w >= 2 && d >= 2 && (int)heights.size() == w * d;
     // ~4 texels per terrain unit, power of two. Capped at 256: the maps ship
     // as RGBA32 (see texbake - the engine's palettized alpha path can't carry
@@ -727,18 +712,35 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     if (size < 64) size = 64;
     if (size > 256) size = 256;
     out.size = size;
-    out.alpha.assign((size_t)size * size, 0);
-    if (lightOn) out.light.assign((size_t)size * size * 3, 0);
-    const float tint[3] = {recvTint ? recvTint[0] : 1.0f,
-                           recvTint ? recvTint[1] : 1.0f,
-                           recvTint ? recvTint[2] : 1.0f};
-    // Every Cast-shadow solid in the scene can block that light. The terrain
-    // is not an object, so there is no receiver shape to exclude here; the
-    // emitter's own is skipped inside emitterLightAt.
-    std::vector<const Occluder*> blockers;
-    if (lightOn) {
-        blockers.reserve(occs.size());
-        for (const Occluder& oc : occs) blockers.push_back(&oc);
+    if (bakeOcc) out.alpha.assign((size_t)size * size, 0);
+    if (bakeLight) out.light.assign((size_t)size * size * 3, 0);
+
+    // Shadow casters per emitter, pruned ONCE. Every shadow ray for emitter e
+    // ends on its surface and is at most `range` long, so it stays inside a
+    // ball of radius (range + the emitter's half-diagonal) around the emitter
+    // - only occluders overlapping that ball can ever block it. Without this
+    // the terrain would run size*size*|ems|*|occs| slab tests.
+    std::vector<std::vector<const Occluder*>> emBlock(ems.size());
+    if (bakeLight) {
+        for (size_t e = 0; e < ems.size(); ++e) {
+            const Emitter& em = ems[e];
+            const float emR =
+                em.range + std::sqrt(em.shape.half[0] * em.shape.half[0] +
+                                     em.shape.half[1] * em.shape.half[1] +
+                                     em.shape.half[2] * em.shape.half[2]);
+            for (const Occluder& oc : occs) {
+                if (oc.objIndex == em.shape.objIndex) continue;  // the source
+                const float dx = oc.pos[0] - em.shape.pos[0];
+                const float dy = oc.pos[1] - em.shape.pos[1];
+                const float dz = oc.pos[2] - em.shape.pos[2];
+                const float reach =
+                    emR + std::sqrt(oc.half[0] * oc.half[0] +
+                                    oc.half[1] * oc.half[1] +
+                                    oc.half[2] * oc.half[2]);
+                if (dx * dx + dy * dy + dz * dz <= reach * reach)
+                    emBlock[e].push_back(&oc);
+            }
+        }
     }
 
     const float stepX = hasHeights ? width / (w - 1) : width;
@@ -752,7 +754,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                               {0.7071f, 0.7071f},  {0.7071f, -0.7071f},
                               {-0.7071f, 0.7071f}, {-0.7071f, -0.7071f}};
 
-    bool any = false;
+    bool anyOcc = false, anyLight = false;
     for (int j = 0; j < size; ++j) {
         for (int i = 0; i < size; ++i) {
             const float x = ((i + 0.5f) / size - 0.5f) * width;
@@ -773,8 +775,9 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
                 if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
                 // heightmap self-occlusion: the same horizon scan as
-                // terrainAO, on bilinear heights
-                for (int dir = 0; dir < 8; ++dir) {
+                // terrainAO, on bilinear heights (alpha only - an
+                // emitters-only map skips the whole scan)
+                for (int dir = 0; bakeOcc && dir < 8; ++dir) {
                     float maxSin = 0.0f;
                     for (int k = 1; k <= maxSteps; ++k) {
                         const float dist = minStep * k;
@@ -794,70 +797,77 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 }
             }
             const float wp[3] = {x, h0, z};
+            const size_t texel = (size_t)j * size + i;
             // Sub-sample positions inside this texel's footprint. The horizon
-            // scan above stays a single sample - it is a slow function of
-            // position and the scan is expensive - but the OCCLUDER contact
+            // scan above stays ONE sample - it is a slow function of position
+            // and the scan is the expensive part - but the occluder contact
             // term and the emissive light both carry near-hard edges, and a
             // point sample of those aliases into the staircase bilinear then
             // reconstructs (see kSuper).
             const float sxStep = width / size, szStep = depth / size;
-            const float invS = 1.0f / (kSuper * kSuper);
-            if (aoOn) {
+            const float invSuper = 1.0f / (kSuper * kSuper);
+            auto subPoint = [&](int sx, int sy, float p[3]) {
+                p[0] = x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
+                p[1] = h0;
+                p[2] = z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
+            };
+            if (bakeOcc) {
                 float occAcc = 0.0f;
                 for (int sy = 0; sy < kSuper; ++sy)
                     for (int sx = 0; sx < kSuper; ++sx) {
-                        const float px =
-                            x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
-                        const float pz =
-                            z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
-                        const float p[3] = {px, h0, pz};
+                        float sp[3];
+                        subPoint(sx, sy, sp);
                         for (const Occluder& oc : occs)
-                            occAcc += occluderOcclusionAt(oc, p, n, radiusWorld);
+                            occAcc += occluderOcclusionAt(oc, sp, n, radiusWorld);
                     }
-                occ += occAcc * invS;
+                occ += occAcc * invSuper;
                 if (occ > 1.0f) occ = 1.0f;
                 const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
-                out.alpha[(size_t)j * size + i] = a;
-                any |= (a != 0);
+                out.alpha[texel] = a;
+                anyOcc |= (a != 0);
             }
-            // Emissive light, folded with the ground's own Kd and dithered the
-            // same way the atlas dithers it - a light pool is a wide,
-            // low-amplitude ramp and 8 bits alone turn it into plateaus.
-            if (lightOn) {
-                float add[3] = {0, 0, 0};
-                for (int sy = 0; sy < kSuper; ++sy)
-                    for (int sx = 0; sx < kSuper; ++sx) {
-                        const float px =
-                            x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
-                        const float pz =
-                            z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
-                        const float p[3] = {px, h0, pz};
-                        for (const Emitter& em : *emitters) {
-                            float l[3];
-                            emitterLightAt(em, p, n, l, &blockers);
-                            for (int k = 0; k < 3; ++k) add[k] += l[k] * invS;
-                        }
+            // Emissive light, in framebuffer units - the additive pass adds
+            // these bytes straight onto the frame, modulated by the terrain's
+            // own base tint (which rides in that pass's vertex colors, so the
+            // bake stays independent of the terrain material).
+            if (!bakeLight) continue;
+            float add[3] = {0, 0, 0};
+            for (int sy = 0; sy < kSuper; ++sy)
+                for (int sx = 0; sx < kSuper; ++sx) {
+                    float sp[3];
+                    subPoint(sx, sy, sp);
+                    for (size_t e = 0; e < ems.size(); ++e) {
+                        float l[3];
+                        emitterLightAt(ems[e], sp, n, l, &emBlock[e]);
+                        for (int k = 0; k < 3; ++k) add[k] += l[k] * invSuper;
                     }
-                const float dz = bayerDither(i, j);
-                for (int k = 0; k < 3; ++k) {
-                    float v = 255.0f * add[k] * tint[k] + dz;
-                    if (v <= 0.0f) continue;  // stays 0, no dither noise
-                    if (v > 255.0f) v = 255.0f;
-                    const uint8_t b = (uint8_t)(v + 0.5f);
-                    out.light[((size_t)j * size + i) * 3 + k] = b;
-                    any |= (b != 0);
                 }
+            const float dz = bayerDither(i, j);
+            for (int k = 0; k < 3; ++k) {
+                float v = 255.0f * add[k] + dz;
+                if (v <= 0.0f) continue;  // stays 0, no dither noise
+                if (v > 255.0f) v = 255.0f;
+                const uint8_t b = (uint8_t)(v + 0.5f);
+                out.light[texel * 3 + k] = b;
+                if (b) anyLight = true;
             }
         }
     }
-    if (!any) {
-        out.size = 0, out.alpha.clear(), out.light.clear();
-    } else {
-        // Alpha floor - see kMinLightmapAlpha. Without it the additive light
-        // pass is thrown away by the GS alpha test wherever this map has no
-        // occlusion, which is most of an open field.
-        for (uint8_t& a : out.alpha)
-            if (a < kMinLightmapAlpha) a = kMinLightmapAlpha;
+    out.hasAlpha = anyOcc;
+    out.hasLight = anyLight;
+    if (!anyOcc) out.alpha.clear();
+    if (!anyLight) out.light.clear();
+    if (!anyOcc && !anyLight) out.size = 0;
+    // Alpha floor (kMinLightmapAlpha), applied AFTER the content decisions
+    // above: without it the GS alpha test discards the additive light pass
+    // wherever this map has no occlusion, which is most of an open field. An
+    // emitters-only map has no alpha array at all, so give it a flat one.
+    if (out.size > 0) {
+        if (out.alpha.empty())
+            out.alpha.assign((size_t)out.size * out.size, kMinLightmapAlpha);
+        else
+            for (uint8_t& a : out.alpha)
+                if (a < kMinLightmapAlpha) a = kMinLightmapAlpha;
     }
     return out;
 }

@@ -76,10 +76,10 @@ static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
 static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};
 static const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png"};
 static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
-static const unsigned char SCENE_TERRAIN_LITS[] = {1};
+static const unsigned char SCENE_AO_MAP_OCCS[] = {1};
+static const unsigned char SCENE_AO_MAP_LITS[] = {1};
 }  // namespace
 
-#define SCENE_TERRAIN_LIT SCENE_TERRAIN_LITS[g_activeScene]
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
 #define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]
 #define SCENE_EMIS SCENE_EMIS_TABLES[g_activeScene]
@@ -89,3 +89,5 @@ static const unsigned char SCENE_TERRAIN_LITS[] = {1};
 #define SCENE_AO_ATLAS_LIT SCENE_AO_ATLAS_LITS_T[g_activeScene]
 #define SCENE_AO_ATLAS_PATH SCENE_AO_ATLAS_PATHS[g_activeScene]
 #define SCENE_AO_MAP_PATH SCENE_AO_MAP_PATHS[g_activeScene]
+#define SCENE_AO_MAP_OCC SCENE_AO_MAP_OCCS[g_activeScene]
+#define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]

@@ -104,16 +104,6 @@ std::vector<Emitter> collectEmitters(const std::string& projectDir,
 constexpr int kEmisShadowSamples = 8;
 constexpr int kEmisShadowSamplesVertex = 1;
 
-// Sub-samples per texel per axis in the per-texel bakes. A texel is the mean
-// over its own footprint, not a point sample at its centre: shadow edges here
-// are very nearly hard (a fixture 0.3 units off a wall throws a penumbra of
-// centimetres, far under one texel), and point-sampling one writes a
-// full-amplitude step between neighbouring texels that bilinear filtering then
-// reconstructs as a visible staircase. Averaging band-limits the edge to what
-// the grid can carry. Host-side cost only - the bake is kSuper^2 times the
-// samples, the console draws exactly what it drew before.
-constexpr int kSuper = 4;
-
 // Deterministic Vogel-disk offsets for rays 1..N-1, in units of the emitter's
 // projected half-extent perpendicular to the ray. No RNG - the same bake twice
 // is the same bytes twice. Every offset is distinct in BOTH axes, which is what
@@ -125,6 +115,28 @@ constexpr float kEmisShadowDisk[7][2] = {
     {-0.789527f, -0.139656f}, {0.747909f, -0.475759f},
     {-0.250161f, 0.930586f},
 };
+
+// Sub-samples per texel per axis in the per-texel bakes. A texel is the mean
+// over its own footprint, not a point sample at its centre: shadow edges here
+// are very nearly hard (a fixture 0.3 units off a wall throws a penumbra of
+// centimetres, far under one texel), and point-sampling one writes a
+// full-amplitude step between neighbouring texels that bilinear filtering then
+// reconstructs as a visible staircase. Averaging band-limits the edge to what
+// the grid can carry. Host-side cost only - the bake is kSuper^2 times the
+// samples, the console draws exactly what it drew before.
+constexpr int kSuper = 4;
+
+// Alpha floor for every texel of a lightmap image. NOT cosmetic: StaPip draws
+// with the GS alpha test set to "pass only when alpha != 0" (the cutout rule
+// that makes foliage and decals work - stapip_qbuffer_renderer.cpp). Both
+// lightmap passes sample the SAME texture, so a texel whose OCCLUSION is zero
+// used to fail that test and throw the additive LIGHT pass away with it: the
+// baked light was silently clipped to wherever the ambient occlusion happened
+// to be non-zero, punching hard, texel-aligned holes into every lit surface.
+// The engine's PNG loader scales alpha 0..255 -> 0..128 by integer division,
+// so 1 would still land on 0; 2 is the smallest value that survives, and it
+// darkens by 1/128 - under one framebuffer level.
+constexpr uint8_t kMinLightmapAlpha = 2;
 
 // Host reference of the emissive-light response at a surface point: the
 // per-channel light this emitter adds. Twin of emissiveLightAt in the
@@ -157,59 +169,35 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
 
 // --- the AO textures (how the bake ships) -----------------------------------
 
-// Alpha floor for every texel of a lightmap image. NOT cosmetic: StaPip draws
-// with the GS alpha test set to "pass only when alpha != 0" (the cutout rule
-// that makes foliage and decals work - stapip_qbuffer_renderer.cpp). Both
-// lightmap passes sample the SAME texture, so a texel whose OCCLUSION is zero
-// used to fail that test and throw the additive LIGHT pass away with it: the
-// baked light was silently clipped to wherever the ambient occlusion happened
-// to be non-zero, punching hard, texel-aligned holes into every lit surface.
-// The engine's PNG loader scales alpha 0..255 -> 0..128 by integer division,
-// so 1 would still land on 0; 2 is the smallest value that survives, and it
-// darkens by 1/128 - under one framebuffer level.
-constexpr uint8_t kMinLightmapAlpha = 2;
-
-// A square, power-of-two terrain image. alpha = strength * occlusion (255 =
-// darken fully), read by an alpha-over pass which is then an exact per-pixel
-// multiply (Cd * (1 - a)). RGB = baked emissive light in framebuffer units,
-// read by a second, ADDITIVE pass - the same two-passes-one-texture trick the
-// primitive atlas uses (SceneLightAtlas), and the reason the terrain no longer
-// has to carry the light on its heightmap-resolution vertices.
+// A square, power-of-two terrain lightmap. Exactly the two channels the
+// primitive atlas below carries, for the same reason (one RGBA32 image the GS
+// reads twice, the pass's vertex color picking the channels):
+//   alpha = strength * occlusion (255 = darken fully), read by an alpha-over
+//     pass with BLACK vertex colors - an exact per-pixel multiply
+//     (Cd * (1 - a));
+//   light = baked emissive light in framebuffer units, read by an additive
+//     pass whose vertex color carries the terrain's own base tint.
+// Either channel may be empty; the image ships when at least one has content.
 struct AoImage {
     int size = 0;  // 0 = nothing to bake
-    std::vector<uint8_t> alpha;
-    std::vector<uint8_t> light;  // size*size*3, empty = no light channel
+    std::vector<uint8_t> alpha;  // size*size
+    std::vector<uint8_t> light;  // size*size*3
+    bool hasAlpha = false;
+    bool hasLight = false;
 };
 
-// Terrain AO map covering the full terrain extent: per-texel heightmap
+// Terrain lightmap covering the full terrain extent: per-texel heightmap
 // self-occlusion (the same horizon scan as terrainAO, on bilinear heights)
-// plus the occluder contact term.
-// strength 0 bakes no alpha (the AO preference is off) but still produces the
-// image when `emitters` has content - the light channel is not AO-gated, just
-// as the primitive atlas isn't. `occs` doubles as the shadow-caster list for
-// that light; `recvTint` is the terrain material's Kd, folded in because the
-// additive pass adds a flat color and cannot pick the surface up on its own.
+// plus the occluder contact term into the alpha, and the emissive light the
+// `ems` reach - shadowed by `occs` - into the RGB.
+// aoOn = the scene's ambient-occlusion preference; with it off (or no
+// emitters) the corresponding channel is simply not baked, so a scene pays
+// only for the passes it actually needs.
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
-                     const std::vector<Occluder>& occs, float radiusWorld,
-                     float strength,
-                     const std::vector<Emitter>* emitters = nullptr,
-                     const float* recvTint = nullptr);
-
-// Whether a scene's terrain may take its emissive light PER TEXEL, and with
-// what surface tint. Resolved identically by texbake and by codegen - the
-// deterministic-bake rule: two callers, one answer.
-// Empty `emitters` means the terrain keeps the per-vertex path. That happens
-// when there are no emitters at all, or when the terrain is TEXTURED: the
-// additive pass adds a flat color, which would blow out a texture's dark
-// texels, while the vertex path multiplies the texture instead (the same
-// deliberate exclusion the atlas makes for textured receivers).
-struct TerrainLightInput {
-    std::vector<Emitter> emitters;
-    float tint[3] = {1, 1, 1};
-};
-TerrainLightInput terrainLightInput(const Project& p, const SceneData& sc,
-                                    const ModelAabbFn& modelAabb);
+                     const std::vector<Occluder>& occs,
+                     const std::vector<Emitter>& ems, float radiusWorld,
+                     float strength, bool aoOn);
 
 // One atlas region: normalized UV rect (inset by half a texel against
 // bilinear bleed). A primitive's base-texture UVs map into it 1:1.

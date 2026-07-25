@@ -19,6 +19,15 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+- [Orthographic and axis views](orthographic-views.md) - the viewport's
+  parallel projection and the six locked Top/Bottom/Front/Back/Right/Left
+  views: the clickable axis gizmo in the corner, the other three ways to
+  switch (button, View menu, numpad), what orbiting an axis view does, and
+  why a parallel view draws what is behind the camera.
+- [Placing objects: surface snapping and deferred paste](object-placement.md) -
+  inserted and pasted objects resting on the terrain or on the object below
+  instead of sinking into it, the `End` drop-to-floor command, and the paste
+  that follows the cursor until you click it down.
 - [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
   Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
   snippets with `{placeholders}`, or `call = fn` nodes backed by a real
