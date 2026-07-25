@@ -121,21 +121,35 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
 
 // --- the AO textures (how the bake ships) -----------------------------------
 
-// A square, power-of-two occlusion image; alpha = strength * occlusion
-// (255 = darken fully). Written as a black RGBA PNG whose alpha the GS
-// alpha-over blend turns into an exact per-pixel multiply (Cd * (1 - a)).
+// A square, power-of-two terrain lightmap. Exactly the two channels the
+// primitive atlas below carries, for the same reason (one RGBA32 image the GS
+// reads twice, the pass's vertex color picking the channels):
+//   alpha = strength * occlusion (255 = darken fully), read by an alpha-over
+//     pass with BLACK vertex colors - an exact per-pixel multiply
+//     (Cd * (1 - a));
+//   light = baked emissive light in framebuffer units, read by an additive
+//     pass whose vertex color carries the terrain's own base tint.
+// Either channel may be empty; the image ships when at least one has content.
 struct AoImage {
     int size = 0;  // 0 = nothing to bake
-    std::vector<uint8_t> alpha;
+    std::vector<uint8_t> alpha;  // size*size
+    std::vector<uint8_t> light;  // size*size*3
+    bool hasAlpha = false;
+    bool hasLight = false;
 };
 
-// Terrain AO map covering the full terrain extent: per-texel heightmap
+// Terrain lightmap covering the full terrain extent: per-texel heightmap
 // self-occlusion (the same horizon scan as terrainAO, on bilinear heights)
-// plus the occluder contact term.
+// plus the occluder contact term into the alpha, and the emissive light the
+// `ems` reach - shadowed by `occs` - into the RGB.
+// aoOn = the scene's ambient-occlusion preference; with it off (or no
+// emitters) the corresponding channel is simply not baked, so a scene pays
+// only for the passes it actually needs.
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
-                     const std::vector<Occluder>& occs, float radiusWorld,
-                     float strength);
+                     const std::vector<Occluder>& occs,
+                     const std::vector<Emitter>& ems, float radiusWorld,
+                     float strength, bool aoOn);
 
 // One atlas region: normalized UV rect (inset by half a texel against
 // bilinear bleed). A primitive's base-texture UVs map into it 1:1.
