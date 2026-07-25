@@ -38,6 +38,14 @@ the 256×256 cap (~320 KB of the ~1.33 MB GS texture budget together).
 Codegen and `texbake` call the **same deterministic bake**, so the atlas
 pixels and the emitted UV rects cannot drift.
 
+Regions are sized by **importance**, not by world area alone: a 4×4 probe grid
+per region estimates the occlusion (and emissive light) it will carry, the texel
+density scales with the square root of that peak, and a bisection then raises
+the density globally until the image is full. Faces that receive nothing shrink
+to a floor size instead of eating the budget. The atlas *dimension* still comes
+from the unweighted area, so this never changes VRAM - it only moves texels to
+where the gradient is. See docs/emissive-materials.md for the numbers.
+
 ## Who casts, who receives
 
 - **Casts** (with *Cast shadow* on): boxes, spheres, cylinders, cones,

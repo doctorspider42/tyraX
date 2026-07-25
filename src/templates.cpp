@@ -2610,7 +2610,19 @@ void emisCollectLocal(float cx, float cy, float cz, float radius,
 /** Light the pruned local emitters add at a surface point. Quadratic falloff
  * from the emitter SHAPE (not its center, so a long neon strip lights evenly
  * along its length) times N.L. Twin of aobake::emitterLightAt on the host and
- * of emissiveLight() in the viewport shader. */
+ * of emissiveLight() in the viewport shader - with ONE deliberate divergence:
+ * the shadow test here casts a single ray, so shadows on this path stay HARD.
+ * Those two run the area-source test (aobake::kEmisShadowSamples rays across
+ * the emitter, unblocked fraction = visibility) and get a penumbra.
+ *
+ * The divergence is written down in docs/emissive-materials.md and it is a
+ * resolution argument, not a laziness one: this path bakes into VERTEX colors,
+ * whose own spatial resolution is a terrain grid cell or a box face's four
+ * corners - far coarser than the penumbra it would resolve. It also runs on the
+ * EE at scene load and on every runtime spawn/rebuild: measured on examples/glow
+ * in PCSX2, taking this loop to 8 rays cost +200 ms of scene load (1160 -> 1360),
+ * and the same multiplier lands mid-frame on every spawn and static-batch
+ * rebuild. The per-texel atlas pays neither price - it bakes on the host. */
 V3 emissiveLightAt(const V3& wp, const V3& n) {
   V3 add = {0.0F, 0.0F, 0.0F};
   for (const EmisLightData* em : g_emisLocal) {

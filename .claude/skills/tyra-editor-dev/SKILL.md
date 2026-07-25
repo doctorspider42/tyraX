@@ -421,6 +421,22 @@ non-RGBA formats (the R32F heightmap) do the same two steps inline.
   and the emitter's own must be excluded (the ray starts on one and ends on
   the other), and the ray needs a small bias off the surface or a prop resting
   on a floor shadows it with its contact face.
+  Emitters are AREA sources, so ONE ray only ever answers lit-or-black and
+  paints a hard edge: the host bake and the viewport cast
+  `aobake::kEmisShadowSamples` rays (ray 0 to the nearest surface point, the
+  rest over the silhouette via the fixed `kEmisShadowDisk` - no RNG, bakes must
+  be reproducible) and use the unblocked fraction as a visibility multiplier.
+  Rays aimed below the receiver's horizon are left OUT of the vote, not counted
+  as blocked - otherwise a floor beside a big plate darkens with no occluder
+  anywhere. The generated game's per-vertex path deliberately stays at one ray
+  (measured: 8 rays = +200 ms of EE scene load on examples/glow, and the vertex
+  grid cannot resolve a penumbra anyway) - the ONE place these three twins
+  diverge, written down in docs/emissive-materials.md.
+- **Atlas region sizing is importance-weighted**: a 4×4 probe grid per region
+  estimates the signal it will carry and the texel density scales with
+  `sqrt(peak)`, then a bisection raises the density until the image is full.
+  The atlas DIMENSION still comes from the unweighted area on purpose - VRAM
+  must not move when the weighting does.
 - **Facing terms**: `max(0, N.L)` is wrong for anything standing in for an
   AREA source - it lights one face of a box fully and its neighbour not at all,
   seaming on the corner. The occluder bake uses a linear wrap

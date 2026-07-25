@@ -184,6 +184,18 @@ per-texel image the ambient occlusion already used:
 - the additive pass is `fogDisabled` — GS fog would add the fog color through
   an additive equation and brighten fogged pixels.
 
+Regions are **not** all sized alike. A pre-pass probes each one on a 4×4 grid
+and asks how strong a signal it can carry — light received, occlusion cast on
+it — and the texel *density* is scaled by the square root of that peak, so the
+*area* a region gets is proportional to what it actually receives. A pedestal's
+underside, a wall's back and a face turned away from every lamp collapse toward
+a floor size, and the density then rises globally (by bisection) until the image
+is genuinely full instead of leaving the ~60% that a power-of-two round-up used
+to waste. The atlas **dimension** is still computed from the unweighted area, so
+this never changes a project's VRAM in either direction — it only redistributes
+texels inside the same image. On `examples/glow` the lit faces gained 2.3× the
+texel density at the same 256².
+
 The atlas is built whenever *either* bake has content, so a scene can have
 glowing lamps and no ambient occlusion at all. Everything else keeps the
 per-vertex path, where the gradient is coarser but there is no atlas budget to
@@ -211,7 +223,9 @@ texel — but it cannot manufacture precision that is not there.
 What is left is a hard budget, not a bug:
 
 - the whole scene shares **one 256² atlas** — bigger means RGBA32 VRAM the GS
-  does not have (see the note on texture residency in the editor skill);
+  does not have (see the note on texture residency in the editor skill). The
+  importance weighting above spends that budget where the light is, but it
+  cannot enlarge it;
 - the framebuffer is **8-bit per channel** with no dithering on the blend.
 
 Two things genuinely help. Keep the emitter's **reach** tight, so the ramp is
@@ -224,19 +238,37 @@ reason: a few levels of noise make the eye integrate the plateaus away.
 
 The light is **blocked by solids**. Every object marked *Cast shadow*
 (Properties — the same flag the ambient occlusion uses) becomes an analytic
-box or sphere, and a light contribution is dropped outright when the segment
-from the lit point to the emitter's nearest surface enters one. So a wall stops
-the glow instead of letting it through.
+box or sphere, and the light is scaled by how much of the emitter the lit point
+can still see. So a wall stops the glow instead of letting it through.
 
-Two things follow from "analytic":
+These are **area** sources, so the edge is a **penumbra**, not a cut. Eight rays
+go out per emitter — one to its nearest surface point, seven spread across the
+emitter's silhouette as seen from the lit point (a fixed Vogel disk, no RNG: the
+same scene bakes to the same bytes every time) — and the fraction that gets
+through scales the contribution. Where nothing blocks, all eight arrive and the
+result is bit-identical to an unshadowed bake; the soft band appears only along
+the edge, and it **widens with distance from the caster**, the way a real one
+does.
 
-- shadows are **hard and blocky** — a wall throws a rectangle, not its
-  silhouette, and a detailed mesh shadows as its bounding box;
-- there is **no partial shadow**: a contribution is either blocked or not, so
-  a thin object can produce a sharper edge than its real geometry would.
+What stays hard is the *shape*, not the edge. The caster is still an analytic
+solid, so a wall throws a soft-edged rectangle rather than its silhouette, and a
+detailed mesh shadows as its bounding box. Untick *Cast shadow* on anything that
+should not stop light (a railing, a grate, foliage) — otherwise its bounding box
+will.
 
-Untick *Cast shadow* on anything that should not stop light (a railing, a
-grate, foliage) — otherwise its bounding box will.
+> **One path is deliberately still hard.** Eight rays instead of one are free
+> where the shadow is baked on the host — the scene lightmap atlas below, and
+> the editor viewport. The **per-vertex** path (terrain, imported models,
+> spawned clones, physics bodies, textured receivers) keeps the single ray, for
+> two measured reasons: its own resolution is a terrain grid cell — 2 world
+> units in `examples/glow` — or a box face's four corners, far coarser than the
+> penumbra it would resolve; and it runs on the EE at scene load and again on
+> every runtime spawn and static-batch rebuild, where eight rays cost **+200 ms
+> of scene load** on that example (1160 → 1360 ms, measured in PCSX2) with the
+> same multiplier landing mid-frame on a spawn. So a primitive can show a soft
+> shadow edge while the terrain under it shows a hard one. The three
+> implementations are otherwise exact twins; this is the one place they diverge,
+> and this paragraph is where it is written down.
 
 It is **static light**, exactly like the baked AO and the point lights:
 
@@ -278,7 +310,9 @@ other:
 | Shape query | `occShapeAt` in `src/templates.cpp` | `shapeAt` in the viewport FS — and `aobake::occShapeAt` on the host |
 | Emissive light | `emissiveLightAt` in `src/templates.cpp` | `emissiveLight` in the viewport FS — host reference `aobake::emitterLightAt` |
 | Emitter shapes | baked into `inc/ao_data.gen.hpp` | `aobake::collectEmitters` (single source for both) |
+| Soft shadows | *single hard ray — the documented divergence above* | `aobake::emitterVisibility` + `kEmisShadowDisk`; `emisVisibility` in the viewport FS |
 | Scene lightmap | the atlas passes in `rebuildObjectGeometry` | `aobake::bakeSceneLightAtlas` bakes it, texbake writes the PNG |
+| Texel budget | — | the importance pre-pass in `aobake::bakeSceneLightAtlas` (host only) |
 | Bright pass + spread | `RendererCorePostFx::apply` (`renderer_core_postfx.cpp`) | not previewed (GS-only, like every screen effect) |
 
 Authoring UI: `App::drawMaterialEditorWindow` + `loadMaterialFile` /

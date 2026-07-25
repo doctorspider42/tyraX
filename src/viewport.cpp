@@ -266,11 +266,6 @@ float shapeAt(vec3 wp, vec3 c, float isSphere, vec3 ax, vec3 ay, vec3 az,
     return dist;
 }
 
-// Light the emissive materials around this point add. Quadratic falloff from
-// the emitter SHAPE (so a long strip lights evenly along its length) times a
-// half-Lambert SQUARED facing weight: these are area sources, so a plain
-// max(0, N.L) seams on every box corner and a linear wrap still cuts to zero
-// at a finite angle. Smooth everywhere, zero only at N.L = -1.
 // Does the segment from `o` along unit `d` for `maxT` units enter occluder i?
 // Slab test for a box, quadratic for a sphere - the twin of
 // aobake::shapeBlocksRay and the generated game's shapeBlocksRay.
@@ -307,6 +302,71 @@ bool shadowHit(int i, vec3 o, vec3 d, float maxT) {
     return true;
 }
 
+// Deterministic Vogel-disk offsets for the soft-shadow rays, in units of the
+// emitter's projected half-extent. Twin of aobake::kEmisShadowDisk - the same
+// seven numbers bake the scene lightmap, so the preview and the shipped atlas
+// draw the same penumbra.
+const vec2 kEmisShadowDisk[7] = vec2[7](
+    vec2( 0.267261,  0.000000), vec2(-0.341335,  0.312691),
+    vec2( 0.052247, -0.595326), vec2( 0.430231,  0.561160),
+    vec2(-0.789527, -0.139656), vec2( 0.747909, -0.475759),
+    vec2(-0.250161,  0.930586));
+
+// Fraction of the emitter that is visible from wp. Ray 0 goes to its nearest
+// surface point (what a hard shadow test uses); the rest spread over the
+// shape's silhouette, so the shadow edge becomes a penumbra that widens with
+// distance from the caster. Rays aimed below the surface's horizon are left out
+// of the vote - the facing term already accounts for those. Twin of
+// aobake::emitterVisibility.
+float emisVisibility(int i, vec3 wp, vec3 n, vec3 dir, float dist, int selfObj) {
+    vec3 o = wp + dir * 0.02;
+    int hits = 0, votes = 1;
+    bool blocked = false;
+    for (int k = 0; k < uAoCount; ++k) {
+        if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
+        if (shadowHit(k, o, dir, dist - 0.04)) { blocked = true; break; }
+    }
+    if (!blocked) ++hits;
+    // basis around ray 0, seeded from the world axis least aligned with it
+    vec3 a = abs(dir);
+    vec3 up = (a.x <= a.y && a.x <= a.z) ? vec3(1.0, 0.0, 0.0)
+            : (a.y <= a.z)              ? vec3(0.0, 1.0, 0.0)
+                                        : vec3(0.0, 0.0, 1.0);
+    vec3 t = normalize(cross(dir, up));
+    vec3 b = cross(dir, t);
+    // half-extents of the silhouette along t and b (box support function)
+    vec3 h = vec3(uEmisAx[i].w, uEmisAy[i].w, uEmisAz[i].w);
+    float rt = h.x, rb = h.x;
+    if (uEmisPos[i].w <= 0.5) {
+        rt = dot(h, abs(vec3(dot(uEmisAx[i].xyz, t), dot(uEmisAy[i].xyz, t),
+                             dot(uEmisAz[i].xyz, t))));
+        rb = dot(h, abs(vec3(dot(uEmisAx[i].xyz, b), dot(uEmisAy[i].xyz, b),
+                             dot(uEmisAz[i].xyz, b))));
+    }
+    for (int s = 0; s < 7; ++s) {
+        vec3 sp = uEmisPos[i].xyz + t * (kEmisShadowDisk[s].x * rt) +
+                  b * (kEmisShadowDisk[s].y * rb);
+        vec3 d = sp - o;
+        float len = length(d);
+        if (len <= 0.04) continue;
+        d /= len;
+        if (dot(n, d) <= 0.0) continue;
+        ++votes;
+        blocked = false;
+        for (int k = 0; k < uAoCount; ++k) {
+            if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
+            if (shadowHit(k, o, d, len - 0.02)) { blocked = true; break; }
+        }
+        if (!blocked) ++hits;
+    }
+    return float(hits) / float(votes);
+}
+
+// Light the emissive materials around this point add. Quadratic falloff from
+// the emitter SHAPE (so a long strip lights evenly along its length) times a
+// half-Lambert SQUARED facing weight: these are area sources, so a plain
+// max(0, N.L) seams on every box corner and a linear wrap still cuts to zero
+// at a finite angle. Smooth everywhere, zero only at N.L = -1.
 vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
     vec3 add = vec3(0.0);
     for (int i = 0; i < uEmisCount; ++i) {
@@ -320,21 +380,16 @@ vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
         fade *= fade;
         float w = 0.5 + 0.5 * dot(n, dir);
         if (w <= 0.0) continue;
-        // Solids between here and the emitter block it (hard shadow). The bias
-        // keeps a solid resting ON this surface from shadowing it. Occluders
-        // come from the AO uniforms; uAoCount is filled whether or not the
-        // project bakes occlusion, so lamps cast shadows either way.
-        if (dist > 0.02) {
-            vec3 o = wp + dir * 0.02;
-            float len = dist - 0.04;
-            bool blocked = false;
-            for (int k = 0; k < uAoCount; ++k) {
-                if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
-                if (shadowHit(k, o, dir, len)) { blocked = true; break; }
-            }
-            if (blocked) continue;
+        // Solids between here and the emitter block it. The origin bias keeps a
+        // solid resting ON this surface from shadowing it. Occluders come from
+        // the AO uniforms; uAoCount is filled whether or not the project bakes
+        // occlusion, so lamps cast shadows either way.
+        float vis = 1.0;
+        if (dist > 0.02 && uAoCount > 0) {
+            vis = emisVisibility(i, wp, n, dir, dist, selfObj);
+            if (vis <= 0.0) continue;
         }
-        add += uEmisCol[i].rgb * (uEmisCol[i].w * fade * w * w);
+        add += uEmisCol[i].rgb * (uEmisCol[i].w * fade * w * w * vis);
     }
     return add;
 }
