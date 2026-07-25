@@ -64,7 +64,17 @@ selectable as "Precise clipping on EE (legacy)" and remains the load-time
 default for pre-M4 `.tyra` files without a `clipping` key — design + status
 in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — DoF
+`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — bloom
+takes an optional **bright-pass threshold** (`setBloomThreshold`), one extra
+quarter-res sprite subtracting a flat grey from the downsampled frame through
+`(0 - Cs)*128/128 + Cd`; the GS clamps at zero, so sub-threshold pixels drop
+out of the blur and the halo collapses onto emissive materials instead of
+veiling the frame (`docs/emissive-materials.md`), plus a **spread**
+(`setBloomSpread`, 1..4 soften rounds with doubled tap offsets each, buffers
+ping-ponging) that grows the halo into a corona for 4 sprites a round. NOTE the
+postfx `packet2_create` size (512 qwords) is sized for the WORST case of every
+pass at once — a blit is 12 qwords, a flat quad 7; an undersized packet
+corrupts the GIF stream, so grow it whenever a pass gains primitives — DoF
 (`PassDof`, authored in the UI Editor / overridden by the Set Depth Of Field
 flow node) reuses the bloom blur chain and composites the blur back through
 full-screen sprites drawn at real GS depths under the pass's GEQUAL z-test,
@@ -83,7 +93,10 @@ the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:
-centroid-radial env normals for flat surfaces; parses the TyraX
+centroid-radial env normals for flat surfaces; parses `Ke` as the emission
+floor of emissive materials (`docs/emissive-materials.md` - the
+`# tyra-glow*` hint lines are editor-side only, the baked tables carry
+everything the game needs); parses the TyraX
 `# tyra-uvrect u0 v0 du dv` hint the texture-atlas bake writes into baked
 .mtl files (docs/texture-atlasing.md) - model vertex UVs multiply through
 it at load and `LeanMtlMaterial::uvRect` exposes it for the generated

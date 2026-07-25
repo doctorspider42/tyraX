@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "aobake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
 #include "project.hpp"
@@ -156,6 +157,7 @@ public:
     struct MatPreviewDesc {
         float kd[3] = {1.0f, 1.0f, 1.0f};  // staged tint of the selected entry
                                            // (channels may exceed 1 - brightness)
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // staged Ke emission floor (0 = matte)
         std::string texRel;   // staged map_Kd, project-relative ("" = none)
         std::string reflRel;  // staged refl sphere map, project-relative
         float reflStrength = 0.0f;  // staged reflection strength (0 = matte)
@@ -412,6 +414,10 @@ private:
     int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
+    int uEmissive_ = -1;  // Ke floor, premultiplied by the object tint
+    // Emissive lights (materials that light their surroundings)
+    int uEmisCount_ = -1, uEmisPos_ = -1, uEmisAx_ = -1, uEmisAy_ = -1,
+        uEmisAz_ = -1, uEmisCol_ = -1, uEmisRange_ = -1, uEmisObj_ = -1;
     // Ambient occlusion preview (see setAmbientOcclusion)
     int uAoOn_ = -1, uAoStrength_ = -1, uAoRadius_ = -1, uAoCount_ = -1;
     int uAoSelfObj_ = -1, uAoGround_ = -1, uAoReceive_ = -1;
@@ -466,6 +472,7 @@ private:
         // cards are the everyday case (Tree Generator); without it their
         // transparent margin renders as the PNG's black RGB.
         bool alpha = false;
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
         bool reflSky = false;      // refl "@sky" - live sky gradient
@@ -526,6 +533,7 @@ private:
     struct MaterialDraw {
         uint32_t tex = 0;
         float kd[3] = {1.0f, 1.0f, 1.0f};
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
         bool reflSky = false;      // refl "@sky" - live sky gradient
@@ -533,6 +541,9 @@ private:
     };
     std::map<std::string, MaterialDraw> materialCache_;  // by relative path
     const MaterialDraw* materialDraw(const std::string& relPath);
+    // Emissive-light material lookups (collectEmitters reads .mtl files, and
+    // the emitter set is rebuilt every frame). Cleared by invalidateAssets().
+    aobake::GlowCache emisGlowCache_;
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
     // Which of those images actually carry transparency (any texel below
@@ -613,6 +624,7 @@ private:
         Mesh mesh;
         std::string material;  // usemtl name
         float kd[3] = {1.0f, 1.0f, 1.0f};
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         std::string texRel;    // project-relative map_Kd ("" = none)
         std::string reflRel;   // project-relative refl sphere map ("" = none)
         float reflStrength = 0.0f;

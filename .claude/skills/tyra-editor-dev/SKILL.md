@@ -390,6 +390,70 @@ non-RGBA formats (the R32F heightmap) do the same two steps inline.
   so both sides consume identical data with no resampling. The **macro ground
   variation** noise (`tintNoise2`) is another such twin: templates.cpp (above
   `buildTerrainChunk`) and viewport.cpp - change one, change both.
+- **Analytic per-vertex lighting bakes** (AO occluders, emissive lights -
+  `docs/ambient-occlusion.md`, `docs/emissive-materials.md`) all follow one
+  shape: `aobake` extracts the analytic box/sphere per object (`objectShape`,
+  shared by `collectOccluders`/`collectEmitters`), codegen emits the table into
+  `ao_data.gen.hpp`, and the response is evaluated per vertex at scene load
+  from ONE distance-to-shape query (`occShapeAt`, a THREE-way twin: host,
+  generated game, viewport FS). **The load-bearing rule is pruning**: the local
+  list is collected once per object / per terrain chunk, never scanned per
+  vertex (an 1100-object scene cost ~170 ms per chunk when it was) - and every
+  bake site needs its own collect call. `rebuildStaticBatch` is the easy miss:
+  it bakes MANY objects in one call, so the collect belongs inside its member
+  loop, not before it.
+  **Per-vertex is not good enough for a strong gradient**: a plain box face is
+  two triangles, so the diagonal split between them shows as a hard seam.
+  Primitives take such bakes through the **scene lightmap atlas**
+  (`aobake::bakeSceneLightAtlas`) - ONE 256² RGBA32 image per scene where
+  `A` = occlusion and `RGB` = emissive light, read by two passes whose VERTEX
+  COLOR selects the channels (texturing is MODULATE: black sees only the alpha
+  multiply, white only the RGB add). A new per-texel bake means claiming a free
+  channel there, not adding a second texture. Objects that stay on the vertex
+  path (models, spawned clones, physics bodies, textured receivers) need a
+  per-object flag saying which route they took, or the term lands twice - see
+  `SCENE_AO_ATLAS_LIT`.
+- **Shadowing an analytic light** is a segment test against those same
+  occluder shapes (`aobake::shapeBlocksRay` - slab for a box, quadratic for a
+  sphere; twins in the generated game and the viewport FS). Three things go
+  wrong if you skip them: the caster list must be pruned by the LIGHT's reach
+  (not `SCENE_AO_RADIUS`, so it needs its own list), the receiver's own shape
+  and the emitter's own must be excluded (the ray starts on one and ends on
+  the other), and the ray needs a small bias off the surface or a prop resting
+  on a floor shadows it with its contact face.
+- **Facing terms**: `max(0, N.L)` is wrong for anything standing in for an
+  AREA source - it lights one face of a box fully and its neighbour not at all,
+  seaming on the corner. The occluder bake uses a linear wrap
+  (`0.35 + 0.65*N.L`); emissive light uses **half-Lambert squared**
+  (`((1+N.L)/2)²`), because a linear wrap still reaches zero at a finite angle
+  and in a dark scene that angle itself reads as a hard shading edge.
+- **Material features live in the `.mtl`, not in `project.json`.** A
+  `SceneObject` only carries a `materialPath`; anything a material *is* rides
+  in the Wavefront file as a standard-looking statement, parsed FOUR times and
+  those four must stay in sync: `src/objparser.cpp` (host/viewport),
+  `App::loadMaterialFile`/`saveMaterialFile` (the Material Editor's staged
+  `MatEdEntry`), and `parseMtl` in the engine's
+  `lean_obj_loader.cpp` (filling BOTH `LeanObjMaterial` for models and
+  `LeanMtlMaterial` for primitive materials). Existing members: `refl`
+  (`docs/reflective-materials.md`), `Ke` emission
+  (`docs/emissive-materials.md`), `# tyra-uvrect` (atlasing), plus the
+  editor-only `# tyra-brightness` / `# tyra-glow` / `# tyra-glow-light` /
+  `# tyra-bake` hint lines that make a color x strength split round-trip.
+  A hint that carries authored controls behind a resolved statement (`Ke`)
+  must have ONE resolve function (`App::matEdKe`) used by the writer AND every
+  preview, or the file and the viewport drift; and the reader must keep the
+  raw statement out of the staged fields, or the hint and the statement clobber
+  each other depending on line order. Runtime plumbing for a new
+  field means a member on BOTH `GameModelPart` and `GameMaterial` **in both
+  game-hpp templates** (TPL_GAME_HPP_ORBIT and TPL_GAME_HPP_FPP - they are
+  duplicated), copies in `loadModelAsset`/`loadMaterialAsset`, and a staging
+  global next to `g_primKd` set in BOTH `rebuildObjectGeometry` and
+  `rebuildStaticBatch` (miss the second and batched props silently lose the
+  feature). The asset-import and texbake `.mtl` rewriters pass unknown lines
+  through verbatim, so they need no change. Animated `.glb`/`.fbx` models take
+  a `.mtl` as an override through `objparser::applyMaterialOverride`, which
+  only carries `Kd` + texture - anything else (refl, Ke) has no `.tskl`/VU1
+  slot and is silently ignored there; say so in the docs rather than faking it.
 - **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
   scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
   pixel literals you pass to ImGui. So a hardcoded `SetNextItemWidth(180)`,

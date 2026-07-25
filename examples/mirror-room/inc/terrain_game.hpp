@@ -84,6 +84,9 @@ class TerrainGame : public Tyra::Game {
   // Same render settings as infoBag but with GS blending on - shared by every
   // chunk's layer passes (the base pass must stay opaque).
   std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
+  // Shared info bag of the additive scene-lightmap pass (identity model -
+  // only world-space static primitives ever get atlas regions).
+  std::unique_ptr<Tyra::StaPipInfoBag> lightAddInfoBag;
   // Experimental textured AO: the per-scene terrain AO map + primitive
   // lightmap atlas (acquired in loadScene when the mode is on; nullptr
   // otherwise). Both draw as alpha-over passes of black textures - the GS
@@ -120,10 +123,34 @@ class TerrainGame : public Tyra::Game {
     // aoSts map this part's vertices into the object's atlas regions; shares
     // the vertices and bboxVersion like the env pass does.
     std::vector<Tyra::Vec4> aoSts;
-    std::vector<Tyra::Color> aoCols;  // flat 128s - the texture carries it all
+    std::vector<Tyra::Color> aoCols;  // flat BLACK - the texture's alpha is
+                                      // the whole occlusion (see the rebuild)
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
+    // Distance LOD tiers of a static model part (docs/model-pipeline.md).
+    // Tier 0 is the full mesh in the arrays above; a deeper tier owns its own
+    // baked buffers, filled the first time the object renders that far away
+    // and kept afterwards - so a tier flip only re-aims the bag pointers, and
+    // each tier keeps its own frustum-bbox cache entry (the cache is keyed by
+    // vertex pointer, so distinct buffers never invalidate each other).
+    struct Lod {
+      std::vector<Tyra::Vec4> vertices;
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::vector<Tyra::Vec4> envNormals;
+      std::vector<Tyra::Color> envColors;
+      u32 stamp = 0;  // bboxVersion of these buffers
+    };
+    std::vector<Lod> lods;
+    int shownLod = 0;  // tier the bags currently point at
+    u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
+    // The additive twin of the pass above: same atlas, same STs, WHITE vertex
+    // colors, so it sees the baked emissive light in the texture's RGB.
+    std::vector<Tyra::Color> emisCols;
+    std::unique_ptr<Tyra::StaPipBag> emisBag;
+    std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> emisTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -190,11 +217,18 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // Decimated variants baked into the .tmdl (same layout, coarsest last);
+    // empty unless the project's mesh LOD distance is on. Shared by every
+    // instance - each object bakes its own shaded copy on demand.
+    std::vector<std::vector<float>> lodVerts;
     // baked ambient-occlusion visibility per vertex (255 = open sky), from
     // the model's .aov sidecar; empty when the project bakes no AO
     std::vector<unsigned char> vertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // Ke: emission - the brightness floor pushVert never shades below, so the
+    // part keeps its color in a pitch-black scene. {0,0,0} = matte.
+    float ke[3] = {0.0F, 0.0F, 0.0F};
     // refl: spherical environment map (nullptr = not reflective).
     // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
     // reflRounded = "-rounded": env normals radiate from the part centroid.
@@ -252,6 +286,8 @@ class TerrainGame : public Tyra::Game {
   struct GameMaterial {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // Ke: emission floor (see GameModelPart). {0,0,0} = matte.
+    float ke[3] = {0.0F, 0.0F, 0.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
     // refl: spherical environment map (nullptr = not reflective).
     // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
@@ -344,6 +380,11 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  // Static mesh LOD: points one model part's bags at distance tier `lod`
+  // (0 = the full mesh), baking that tier's shaded buffers on first use.
+  void applyGeoLod(int index, int partIndex, int lod);
+  // True when this object may swap tiers at all - see the implementation.
+  bool modelLodEligible(int index) const;
   // A moving body takes the matrix fast path unless another consumer assumes
   // world-space vertex arrays (usable highlight hull, reflective matcap
   // normals) or it is an animated model (animMat already drives those).

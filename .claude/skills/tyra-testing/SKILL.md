@@ -74,7 +74,12 @@ build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
   one-shot batch-migration tool for existing projects.
 - `--refresh-gen` runs `project::refreshGenerated` directly — the clean way to
   check codegen without Docker (supersedes the "run --build and let it fail"
-  trick below, which still works). It also runs the **asset bakes that live
+  trick below, which still works). **It does NOT run `texbake`**, so nothing
+  under `.res-baked/` is rebuilt: quantized textures, atlas pages, the terrain
+  AO map and the scene lightmap atlas all stay as the last `--build` left them.
+  Comparing a baked image after a `--refresh-gen` compares a stale file against
+  itself and silently "proves" that your change did nothing — use `--build`
+  whenever the thing you are measuring is an asset. It also runs the **asset bakes that live
   inside refreshGenerated**: animated models into `res/models/*.tskl` and
   static ones into `res/models/*.tmdl` (docs/model-pipeline.md), each printing
   its problems as `[anim bake]` / `[model bake]` lines on stdout. So a model

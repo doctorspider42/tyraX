@@ -1,0 +1,1 @@
+{ "id": "glowex0201ped", "name": "s2-pedestal-1", "type": "box", "position": [0, 0.4, -8], "rotation": [0, 0, 0], "scale": [1.8, 0.8, 1.8], "color": [1, 1, 1], "physics": false, "material": "res/materials/concrete.mtl" }

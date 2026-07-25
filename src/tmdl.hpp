@@ -23,7 +23,7 @@
 namespace tmdl {
 
 // Bumped when the layout changes; the loader accepts a range of versions.
-constexpr unsigned int kVersion = 1;
+constexpr unsigned int kVersion = 2;  // 2 added Part::ke
 
 // One decimated variant of a part's mesh (same layout, fewer triangles),
 // rendered instead of the full mesh beyond a distance. Baked by the build,
@@ -40,6 +40,9 @@ struct Part {
     std::string reflTexture;  // refl sphere map, bin-relative;
                               // "@sky" = the engine's dynamic env map
     float kd[3] = {1.0f, 1.0f, 1.0f};
+    // Ke: emission floor (docs/emissive-materials.md). Version 2 onward - a
+    // v1 file reads back matte, which is what it was.
+    float ke[3] = {0.0f, 0.0f, 0.0f};
     float reflStrength = 0.0f;
     bool reflRounded = false;       // -rounded: centroid-radial env normals
     std::vector<float> verts;       // flat triangle list, 8 floats per vertex
@@ -66,6 +69,7 @@ struct Model {
 //     char texture[64]
 //     char reflTexture[64]
 //     f32  kd[3]
+//     f32  ke[3]              // version >= 2
 //     f32  reflStrength
 //     u32  flags              // bit0 = reflRounded
 //     u32  vertexCount        // always a multiple of 3
