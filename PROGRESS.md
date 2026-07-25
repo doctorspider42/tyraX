@@ -10,6 +10,52 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (173) **Areas: an invisible volume you place instead of typing a distance.**
+  New object type `PrimitiveType::Area = 17` (docs/areas.md) - an oriented box
+  with NO geometry in the game: a wireframe in the editor (its own pass, so it
+  never fills the volume and hides what it encloses), nothing on the console,
+  type 17 added to every marker skip list (`collidePlayer`, the USE scan, the
+  carry/throw sweep, `physObstacle`, the geometry switch, `flowRaycast`,
+  `blocksNavigation`). Four features stopped guessing at numbers: a
+  **streaming layer's auto zone** can be an area instead of the center+radius
+  circle (`SceneLayer::streamArea` -> `SCENE_LAYER_STREAM_AREAS`, the object
+  INDEX so the zone is read live), and **Mirror / Portal / feed Camera** take a
+  **catch area** (one field, `SceneObject::catchArea` - an object is only ever
+  one of the three) whose contents join their re-draw list. Plus the **In Area**
+  flow trigger: rising edge on entry, `Who` = either/P1/P2, and a live
+  "inside now" bool output (NOT + On Condition = an exit trigger).
+  The two design calls worth recording. (1) Catch areas resolve **at build**,
+  not per frame: the Mirror philosophy is that a second submission's cost must
+  stay visible, so the Properties panel prints the resolved count and
+  `batchBlockedNames` excludes the caught objects (a batched member has no solo
+  bag and would silently vanish from the reflection - verified: with AO off the
+  caught crate drops to `batchStatic 0` while an identical crate outside the
+  area keeps `1`). (2) The point test has exactly TWO implementations and the
+  runtime one lives in the generated **data** header (`pointInArea` in
+  scene_data.hpp), not in a game-cpp template - that way both generated TUs
+  (terrain_game.cpp's layer zones, flow_graph.gen.cpp's trigger) share one
+  definition instead of the usual host/game twin pair; `areaCaughtObjects` is
+  likewise the single expansion behind the panel preview, the viewport mirror
+  preview and codegen. Host vs generated formulations (rotate-three-axes vs
+  columns of Rz*Ry*Rx) were cross-checked over **200k random oriented boxes,
+  zero mismatches**. Sound-emitter range and point-light radius deliberately
+  keep their radius - those describe a falloff, not a boundary.
+  Live Link: an area's transform is in its recipe hash (catch areas bake), so
+  moving one live flips the chip to LIVE (rebuild) instead of showing half the
+  edit; `liveLinkCanSpawnLive` excludes areas.
+  Verified e2e in PCSX2 (Docker build clean, `-Wall`, 50 FPS): a fixture with
+  the FPP player spawning inside a trigger area logged `AREA-TRIGGER-OK`
+  **exactly once** (rising edge, no re-fire over 1000 frames); an auto-streamed
+  layer pointed at a far-away area logged `FAR-LAYER-LOADED= false` despite
+  `startLoaded: true` (the zone decides), and when a Move Object To slid that
+  area onto the player mid-run it flipped to `true` - the live per-frame branch
+  and "the area moves its zone" in one run. Codegen inspected:
+  `SCENE_LAYER_STREAM_AREAS = {{2}}`, `MIRROR_TARGETS = {3}` (the crate inside
+  the area; the one outside absent). The editor-side visuals (wireframe box,
+  the Area properties block, the pickers) still need a human look - this
+  machine is in the known AMD-GL white-window state, so GUI captures are
+  unusable (see the editor-gui-screenshot notes).
+
 - (172) **The GROUND goes per pixel too: baked emissive light + its shadows
   move onto the terrain lightmap.** (169) fixed the props and left the biggest
   surface in the frame behind. `examples/glow` measures it: *Terrain detail* 32

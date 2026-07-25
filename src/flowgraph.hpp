@@ -101,6 +101,7 @@ enum class FlowParamKind {
     GradingName,  // name of a Project::gradings preset ("" = neutral/off)
     AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
+    AreaName,   // name of a PrimitiveType::Area object in the scene
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
@@ -161,6 +162,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .numLabels = {"Radius"}, .idIn = true, .idOut = true,
          .desc = "Fires every frame the player is within num[0] (Radius) "
                  "units of the target object."},
+        // Volume trigger: the Area object's box instead of Near Object's
+        // radius (docs/areas.md). Read live, so a moving area drags its
+        // trigger along.
+        {.key = "InArea", .title = "In Area", .category = "Triggers",
+         .trigger = true, .strKind = FlowParamKind::AreaName, .numCount = 1,
+         .numLabels = {"Who"}, .idOut = true, .boolOut = true,
+         .desc = "Fires the frame someone ENTERS the Area object named str (a "
+                 "rising edge, like On Player Seen). num[0] Who: 0 = either "
+                 "player, 1 = player 1 only, 2 = player 2 only. Its bool "
+                 "output is the live 'inside right now' condition - wire it "
+                 "through NOT into On Condition for an exit trigger. Unlike "
+                 "Near Object the test is a real volume: it bounds Y too, so "
+                 "one floor of a building can trigger on its own."},
         // BTN_USE lives in controls.hpp.
         {.key = "OnUsed", .title = "On Used", .category = "Triggers",
          .trigger = true, .strKind = FlowParamKind::ObjectName, .idIn = true,

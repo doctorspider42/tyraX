@@ -77,7 +77,11 @@ to see exactly what the game will compile.
 
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
-  emitters, sound emitters, the player, decals, mirrors, cameras...).
+  emitters, sound emitters, the player, decals, mirrors, cameras, areas...).
+- An **area** is an invisible box (no geometry in the game). Other things
+  reference one by name instead of carrying a distance: a streaming layer's
+  auto zone, a mirror/portal/camera-feed target list (`catchArea`), and the
+  **In Area** flow trigger.
 - Every object can carry a **flow graph** (visual logic - tyra-flowgraph skill)
   and **attached scripts** (your C++ classes - tyra-scripting skill).
 - Object references (in graphs, sequences, menus) are **by name**; keep names

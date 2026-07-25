@@ -19,6 +19,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+- [Areas (invisible volumes)](areas.md) - the box-shaped object that has no
+  geometry in the game and replaces hand-typed distances: streaming-layer
+  zones that bound height too, mirror / portal / camera-feed target lists
+  picked up by volume instead of one name at a time, and the In Area trigger
+  (rising edge + a live "inside" bool). Also: which radii deliberately stay
+  radii.
 - [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
   Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
   snippets with `{placeholders}`, or `call = fn` nodes backed by a real

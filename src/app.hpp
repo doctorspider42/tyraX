@@ -141,7 +141,12 @@ private:
     void addDecal();
     void addMirror();
     void addPortal();
+    void addArea();
     void drawAddObjectMenu();
+    // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
+    // a layer zone: a combo of this scene's Area objects plus <none>. Returns
+    // true when the selection changed (the caller commits).
+    bool areaCombo(const char* label, std::string& ref);
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
     // of the model, or "" when cancelled/failed. Does NOT create an object.

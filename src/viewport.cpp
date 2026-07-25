@@ -1755,8 +1755,13 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
                                 fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
                                 fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
 
-    int best = -1;
-    float bestT = 1e9f;
+    // Areas are picked only when the click hits nothing else: an area big
+    // enough to enclose a room has its front face closer to the camera than
+    // everything inside it, so ranking it with the rest would make the volume
+    // swallow every click in the room. Click empty space inside it (or the
+    // Scene tree) to select the area itself.
+    int best = -1, bestArea = -1;
+    float bestT = 1e9f, bestAreaT = 1e9f;
     for (size_t i = 0; i < objects.size(); ++i) {
         if (hiddenAt(i)) continue;  // hidden layers are unclickable
         const SceneObject& o = objects[i];
@@ -1768,12 +1773,18 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
         ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
 
         const float t = rayUnitBox(lo, ld);
-        if (t > 0.0f && t < bestT) {
+        if (t <= 0.0f) continue;
+        if (o.type == PrimitiveType::Area) {
+            if (t < bestAreaT) {
+                bestAreaT = t;
+                bestArea = (int)i;
+            }
+        } else if (t < bestT) {
             bestT = t;
             best = (int)i;
         }
     }
-    return best;
+    return best >= 0 ? best : bestArea;
 }
 
 void Viewport::setLighting(const float* dir, float ambient, float diffuse,
@@ -3021,6 +3032,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             if ((o.type == PrimitiveType::Mirror ||
                  o.type == PrimitiveType::Portal) && !asLines)
                 continue;
+            // Areas have no geometry in ANY view mode - their own pass below
+            // draws the box outline (drawing them here would fill the volume
+            // and hide whatever it encloses).
+            if (o.type == PrimitiveType::Area) continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -3198,11 +3213,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             refl.m[12] = 2.0f * d * n.x;
             refl.m[13] = 2.0f * d * n.y;
             refl.m[14] = 2.0f * d * n.z;
-            for (const std::string& tname : m.mirrorObjects) {
-                int ti = -1;
+            // Explicit list + the catch area's contents, exactly what codegen
+            // bakes into MIRROR_TARGETS (project::areaCaughtObjects is the one
+            // implementation both sides call).
+            std::vector<int> targets;
+            for (const std::string& tname : m.mirrorObjects)
                 for (size_t k = 0; k < objects.size(); ++k)
-                    if (objects[k].name == tname) { ti = (int)k; break; }
-                if (ti < 0 || hiddenAt((size_t)ti)) continue;
+                    if (objects[k].name == tname) {
+                        targets.push_back((int)k);
+                        break;
+                    }
+            for (int k : project::areaCaughtObjects(objects, m.catchArea, (int)mi)) {
+                bool listed = false;
+                for (int e : targets) listed |= (e == k);
+                if (!listed) targets.push_back(k);
+            }
+            for (int ti : targets) {
+                if (hiddenAt((size_t)ti)) continue;
                 aoSelfObj = ti;  // the copy keeps its source's self-exclusion
                 aoGroundOn = true;
                 drawReflected(objects[(size_t)ti],
@@ -3280,6 +3307,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     if (navOverlayOn_ && navOverlayMesh_.vertexCount)
         draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
              nullptr, false, 0.4f);
+
+    // Areas (docs/areas.md): the invisible trigger/selection volume, drawn as
+    // the wireframe of its box in the object color - the object's whole
+    // appearance in the editor and nothing at all in the game.
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
+        draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), o.color[0],
+             o.color[1], o.color[2]);
+    }
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).
