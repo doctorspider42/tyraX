@@ -239,6 +239,10 @@ private:
     // fontPath changed. Only the Font Manager resolves real files.
     bool fontSourceCombo(std::string& fontPath);
     void drawFontManagerWindow();
+    // Tools > UI Editor > Button icons: the {{name}} placeholders any text can
+    // splice an image into (docs/text-icons.md). A modal, not a panel section:
+    // it wants room for a preview grid.
+    void drawTextIconsModal();
     // Tools > Input Map (docs/input-bindings.md): the named actions every
     // gameplay button goes through, plus the per-project binding presets.
     void drawInputMapWindow();

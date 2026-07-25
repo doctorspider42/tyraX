@@ -65,6 +65,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   in-game *Rebind key* menu row (capture mode, overrides persisted in save
   values), the configurable sprint, and the On Action / On Key / Set Input
   Preset flow nodes. Pairs with [keyboard & mouse](keyboard-mouse.md).
+- [Text icons (button glyphs in text)](text-icons.md) - `{{cross}}` /
+  `{{action:jump}}` placeholders that draw a pad-button glyph inside any text:
+  the seeded DualShock set the editor draws itself, overriding one with your own
+  PNG, and the two paths (composited into baked sprites, blitted from a sheet in
+  runtime text).
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

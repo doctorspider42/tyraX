@@ -39,6 +39,8 @@ Every scene object owns a flow graph (in its `objects/<id>.json`), compiled to
 have only an exec input (wire each action from the trigger; Delay's "after"
 output sequences over time). Object params resolve link → `str` name → self;
 logic gates are pure and bridge back to exec via On Condition (rising edge).
+Any text may contain `{{cross}}` (a pad-button glyph) or `{{action:jump}}` (the
+glyph of whatever that action is bound to) - see docs/text-icons.md.
 For buttons prefer the **On Action** trigger (`str` = an input-action name from
 the project's Input Map, e.g. `jump` / `sprint`): it follows the current
 binding, including a preset switch and the player's own in-game rebind.

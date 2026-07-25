@@ -86,6 +86,10 @@ to see exactly what the game will compile.
   HUD images/texts, color gradings, ambience presets, loading screens,
   cutscene sequences and the **input map** (named input actions + binding
   presets). `--dump` lists all of their names.
+- **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
+  `{{action:jump}}` draws whatever that action is currently bound to. Works in
+  HUD texts, menu titles/labels, option labels, loading screens and Display Text
+  nodes; the pad set is seeded per project (Tools > UI Editor > Button icons).
 - **Buttons go through named input actions**, not raw pad buttons: the project's
   Input Map binds each action ("jump", "sprint", "use", ...) to a pad button
   and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"

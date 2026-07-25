@@ -972,6 +972,19 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << " }";
     }
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
+    // Inline text icons ({{name}} in any text). Emitted even at their seeded
+    // defaults: the set is what a project's texts reference by name, and a
+    // dropped key would silently change what {{cross}} resolves to.
+    json << ",\n  \"textIcons\": [";
+    for (size_t i = 0; i < p.textIcons.size(); ++i) {
+        const TextIcon& ic = p.textIcons[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(ic.name) << "\", \"path\": \"" << jsonEscape(ic.path)
+             << "\"";
+        if (ic.scale != 1.0f) json << ", \"scale\": " << fmtFloat(ic.scale);
+        json << " }";
+    }
+    json << (p.textIcons.empty() ? "]" : "\n  ]");
     json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
     json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
     if (!p.screenFx.empty()) {
@@ -1559,6 +1572,22 @@ const char* inputRoleName(int role) {
     }
 }
 
+void ensureTextIcons(Project& p) {
+    // One entry per pad button, named after it (lowercased) - that convention
+    // is what makes {{cross}} and {{action:jump}} resolve. Their PNGs are
+    // generated into res/hud/ by saveAssets when missing, so an override is
+    // just replacing the file.
+    for (const std::string& name : menubake::builtinIconNames()) {
+        bool have = false;
+        for (const TextIcon& ic : p.textIcons) have |= (ic.name == name);
+        if (have) continue;
+        TextIcon ic;
+        ic.name = name;
+        ic.path = "res/hud/" + menubake::iconFileName(name);
+        p.textIcons.push_back(std::move(ic));
+    }
+}
+
 void ensureInputActions(Project& p) {
     // The bindings TyraX hardcoded before the Input Map existed (the old
     // controls.hpp defaults - see docs/keyboard-mouse.md), plus the new sprint
@@ -1706,6 +1735,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureProjectId(out);
     ensureObjectIds(out);
     ensureInputActions(out);
+    ensureTextIcons(out);
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
@@ -2771,6 +2801,26 @@ static void readHudSection(const json::Value& root, Project& out) {
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }
+    out.textIcons.clear();
+    if (const auto* icons = root.find("textIcons");
+        icons && icons->type == json::Value::Type::Array) {
+        for (const auto& ji : icons->arr) {
+            TextIcon ic;
+            if (const auto* v = ji.find("name")) ic.name = v->stringOr("");
+            if (const auto* v = ji.find("path")) ic.path = v->stringOr("");
+            if (const auto* v = ji.find("scale")) ic.scale = (float)v->numberOr(1.0);
+            if (ic.scale < 0.2f) ic.scale = 0.2f;
+            if (ic.scale > 4.0f) ic.scale = 4.0f;
+            // A nameless icon has no placeholder that could reach it.
+            if (ic.name.empty()) continue;
+            bool dup = false;
+            for (const TextIcon& e : out.textIcons) dup |= (e.name == ic.name);
+            if (!dup) out.textIcons.push_back(std::move(ic));
+        }
+    }
+    // Seed/backfill the pad-button set: a project from before text icons (or one
+    // whose key was trimmed) still resolves {{cross}}.
+    ensureTextIcons(out);
     // Effect layer positions; absent (older projects) or out of range = -1,
     // i.e. the effect applies over everything at end of frame - the old
     // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
@@ -3944,6 +3994,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp" ||
+            f.relativePath == "inc\\icon_data.gen.hpp" ||
             f.relativePath == "inc\\input_map.gen.hpp" ||
             f.relativePath == "src\\gen\\input_map.gen.cpp") {
             write = true;  // editor-owned, always in sync with project data
@@ -4130,6 +4181,40 @@ std::string refreshGenerated(const Project& p) {
                 for (const std::string& w : wantedAtlases) wanted |= (w == fn);
                 if (!wanted) fs::remove(e.path(), ec);
             }
+        }
+    }
+
+    // Text icons ({{name}} placeholders, docs/text-icons.md). The built-in
+    // pad-button images are GENERATED when their file is missing and never
+    // overwritten afterwards - that is what makes "override an icon" simply
+    // mean "replace the PNG". The icon sheet the runtime text path blits from
+    // is always rebaked, like the font atlases: its rects live in
+    // icon_data.gen.hpp and a stale sheet would misplace every icon.
+    for (const TextIcon& ic : p.textIcons) {
+        if (ic.path.empty()) continue;
+        const fs::path path = fs::path(p.dir) / ic.path;
+        std::error_code ec;
+        if (fs::exists(path, ec)) continue;
+        std::vector<unsigned char> png;
+        if (!menubake::bakeBuiltinIconPNG(ic.name, menubake::kIconBakeSize, png))
+            continue;  // a user icon with no file yet: not ours to invent
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write text icon: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
+    }
+    {
+        std::vector<unsigned char> png;
+        const fs::path path = fs::path(p.dir) / "res" / "hud" / "icons.png";
+        std::error_code ec;
+        if (menubake::bakeIconAtlasPNG(p, png)) {
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write icon sheet: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        } else {
+            fs::remove(path, ec);  // no icons left: don't ship a stale sheet
         }
     }
 

@@ -1971,6 +1971,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_game.hpp"
 #include "terrain_config.hpp"
 #include "input_map.gen.hpp"  // configurable buttons/keys (Tools > Input Map)
+#include "icon_data.gen.hpp"  // inline {{icon}} placeholders in runtime text
 #include "controls.hpp"
 // Fallbacks for user-owned controls.hpp files written before these knobs
 // existed - the game must still build when that header never regenerates.
@@ -2704,13 +2705,61 @@ float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
  * hidden again keeps costing only its EE-side copy. We deliberately never call
  * useTexture() eagerly here (unlike the streamed model textures), because that
  * would pin the sheet before anything asked for it. */
+/** Inline text icons: `{{name}}` / `{{action:jump}}` in a runtime string
+ * (docs/text-icons.md). Baked text has its icons composited into the sprite at
+ * build time; here the string is only known now, so the token is resolved per
+ * frame and blitted from the shared icon sheet.
+ *
+ * Returns the icon index (-1 = not a token / unknown, draw it as literal text)
+ * and, on success, how many bytes of `s` the token spans. */
+int resolveIconToken(const char* s, int* tokenLen) {
+  if (ICON_COUNT <= 0 || s[0] != '{' || s[1] != '{') return -1;
+  const char* end = strstr(s + 2, "}}");
+  if (!end) return -1;
+  const int inner = (int)(end - (s + 2));
+  if (inner <= 0 || inner > 40) return -1;
+  char name[41];
+  memcpy(name, s + 2, (size_t)inner);
+  name[inner] = 0;
+  *tokenLen = inner + 4;
+
+  // {{action:x}}: the icon of whatever x is bound to RIGHT NOW - a preset
+  // switch or the player's own rebind moves the glyph with it.
+  if (strncmp(name, "action:", 7) == 0) {
+    const char* action = name + 7;
+    for (int a = 0; a < INPUT_ACTION_COUNT; ++a) {
+      if (strcmp(INPUT_ACTION_NAMES[a], action) != 0) continue;
+      const int pad = g_inputBind[a].pad;
+      return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
+    }
+    return -1;
+  }
+  for (int i = 0; i < ICON_COUNT; ++i)
+    if (strcmp(ICONS[i].name, name) == 0) return i;
+  return -1;
+}
+
+// Drawn box + gap of an icon inside text of `size` (mirrors iconAdvance in
+// menubake.cpp - the baked twin; change one, change both).
+float iconAdvanceFor(int icon, float size) {
+  return size * ICONS[icon].scale + size * 0.12F;
+}
+
 float fontTextWidth(int fontIdx, const char* s, float size) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs) return 0.0F;
   const float k = size / (float)f.baseSize;
   float w = 0.0F;
-  for (; *s; ++s) {
+  while (*s) {
+    int tokenLen = 0;
+    const int icon = resolveIconToken(s, &tokenLen);
+    if (icon >= 0) {
+      w += iconAdvanceFor(icon, size);
+      s += tokenLen;
+      continue;
+    }
     const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    ++s;
     if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
     w += (float)f.glyphs[gi].adv * k;
   }
@@ -2742,6 +2791,19 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
   const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
   const float top = cy - (float)f.lineH * k * 0.5F;
 
+  // The icon sheet rides along as a second sprite, handed to the repository
+  // (and so to VRAM) only the first time a text actually blits an icon - a
+  // project that uses no {{tokens}} never pays for it.
+  static Sprite iconSprite;
+  static bool iconReady = false;
+  if (ICON_COUNT > 0 && !iconReady) {
+    iconSprite.mode = SpriteMode::MODE_REPEAT;
+    auto* tex = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(ICON_SHEET));
+    tex->addLink(iconSprite.id);
+    iconReady = true;
+  }
+
   // Shadow first, then the glyphs: two passes over the same cells, the dark
   // one offset by a pixel (the baked texts get theirs at bake time instead).
   for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
@@ -2750,10 +2812,36 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
     else
       sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+    // Icons carry their own colors (the DualShock palette for the face
+    // buttons), so they draw untinted - and only on the glyph pass: a dark
+    // offset copy under a colored icon just leaks a fringe around it.
+    iconSprite.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
 
     float pen = startX;
-    for (const char* c = s; *c; ++c) {
+    const char* c = s;
+    while (*c) {
+      int tokenLen = 0;
+      const int icon = resolveIconToken(c, &tokenLen);
+      if (icon >= 0) {
+        const float adv = iconAdvanceFor(icon, size);
+        const float box = adv - size * 0.12F;
+        const IconRect& ir = ICONS[icon];
+        if (ir.h > 0 && pass == 1) {
+          iconSprite.size = Vec2((float)ir.w, (float)ir.h);
+          iconSprite.offset = Vec2((float)ir.u, (float)ir.v);
+          iconSprite.scale = box / (float)ir.h;
+          // Sit on the line box like a capital does, not on the baseline.
+          iconSprite.position =
+              Vec2(pen + size * 0.06F + ox,
+                   top + ((float)f.lineH * k - box) * 0.5F + ox);
+          engine->renderer.renderer2D.render(iconSprite);
+        }
+        pen += adv;
+        c += tokenLen;
+        continue;
+      }
       const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      ++c;
       if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
       const FontGlyph& g = f.glyphs[gi];
       if (g.w > 0 && g.h > 0) {
@@ -6444,16 +6532,23 @@ void TerrainGame::renderGameMenu() {
     for (int i = 0; i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.action != 10) continue;
-      const char* txt = (menuRebindRow == i) ? "PRESS..." : "";
+      const char* txt = "PRESS...";
+      char iconTok[40];
       if (menuRebindRow != i) {
-        int code = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
-                       ? (int)saveValues[e.param]
-                       : 0;
-        if (code < 0 || code >= INPUT_CODE_COUNT) code = 0;
-        // 0 = no override: show what the preset (or a user-owned controls.hpp)
-        // actually resolved to, not the word "Default".
-        txt = code > 0 ? INPUT_CODE_LABELS[code]
-                       : inputBindLabel(e.inputAction);
+        // The LIVE pad binding (inputRebuild already folded the player's
+        // override in), shown as the button's ICON when the project has one and
+        // as its name otherwise. Never the word "Default" - the row should say
+        // what the button IS.
+        const int pad = (e.inputAction >= 0 && e.inputAction < INPUT_ACTION_COUNT)
+                            ? g_inputBind[e.inputAction].pad
+                            : -1;
+        const int icon = (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
+        if (icon >= 0) {
+          snprintf(iconTok, sizeof(iconTok), "{{%s}}", ICONS[icon].name);
+          txt = iconTok;
+        } else {
+          txt = inputBindLabel(e.inputAction);
+        }
       }
       // A long binding ("Left Shift", "Backspace") can still outgrow the right
       // half of a 128px panel, so shrink to fit rather than run over the row's
@@ -19205,6 +19300,62 @@ static std::vector<std::string> collectMenuEvents(const Project& p) {
     return events;
 }
 
+// inc/icon_data.gen.hpp - the inline text icons ({{name}} placeholders,
+// docs/text-icons.md) the RUNTIME text path can splice in. Baked text needs
+// nothing here: menubake composites its icons straight into the sprite. Runtime
+// text (a Display Text node, a menu rebind row) draws them from one shared
+// sheet, the same trick the font atlases use.
+static std::string iconDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const menubake::IconAtlasLayout l = menubake::iconAtlasLayout(p);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "// Inline text icons: `{{name}}` in any text draws one of these\n"
+           "// (docs/text-icons.md). One sheet for all of them - it reaches GS\n"
+           "// VRAM only when a runtime text actually blits an icon.\n"
+        << "constexpr int ICON_COUNT = " << l.icons.size() << ";\n"
+        << "constexpr const char* ICON_SHEET = \"hud/icons.png\";\n"
+        << "constexpr int ICON_SHEET_W = " << l.texW << ";\n"
+        << "constexpr int ICON_SHEET_H = " << l.texH << ";\n\n"
+           "struct IconRect {\n"
+           "  const char* name;\n"
+           "  short u, v, w, h;  // rect in the sheet\n"
+           "  float scale;       // drawn height / the text's size\n"
+           "};\n\n";
+    out << "inline const IconRect ICONS[ICON_COUNT > 0 ? ICON_COUNT : 1] = {\n";
+    if (l.icons.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 1.0F},\n";
+    } else {
+        for (const menubake::IconAtlasEntry& e : l.icons) {
+            float scale = 1.0f;
+            for (const TextIcon& ic : p.textIcons)
+                if (ic.name == e.name) scale = ic.scale;
+            out << "    {\"" << e.name << "\", " << e.u << ", " << e.v << ", "
+                << e.w << ", " << e.h << ", " << floatLit(scale) << "},\n";
+        }
+    }
+    out << "};\n\n";
+
+    // Pad button -> icon, so {{action:jump}} can go from the LIVE binding to a
+    // glyph without any string work at draw time.
+    out << "// Icon index per pad button (kPadButtonNames order), -1 = the\n"
+           "// project has no icon for it. This is what turns a live binding\n"
+           "// into a glyph for {{action:...}}.\n"
+           "constexpr int ICON_FOR_PAD[16] = {";
+    for (int i = 0; i < 16; ++i) {
+        const std::string want = textIconNameForPad(kPadButtonNames[i]);
+        int idx = -1;
+        for (size_t k = 0; k < l.icons.size(); ++k)
+            if (l.icons[k].name == want) idx = (int)k;
+        out << (i ? ", " : "") << idx;
+    }
+    out << "};\n\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
 // ---------------------------------------------------------------------------
 // Configurable input (Tools > Input Map, docs/input-bindings.md). The action
 // table + the binding presets become inc/input_map.gen.hpp; the runtime that
@@ -20536,6 +20687,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\terrain_game.cpp", gameCpp},
         {"inc\\terrain_game.hpp", fill(fpp ? TPL_GAME_HPP_FPP : TPL_GAME_HPP_ORBIT)},
         {"inc\\terrain_config.hpp", fill(TPL_TERRAIN_CONFIG_HPP)},
+        {"inc\\icon_data.gen.hpp", iconDataHeader(p)},
         {"inc\\input_map.gen.hpp", inputMapHeader(p)},
         {"src\\gen\\input_map.gen.cpp", inputMapSource(p)},
         {"inc\\controls.hpp", fill(TPL_CONTROLS_HPP)},

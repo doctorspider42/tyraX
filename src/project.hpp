@@ -939,6 +939,100 @@ inline bool operator==(const GameFont& a, const GameFont& b) {
            a.shadow == b.shadow && a.quant == b.quant;
 }
 
+// One inline icon a text can splice in (Tools > UI Editor > Button icons,
+// docs/text-icons.md). ANY text in the project - HUD texts, menu titles and
+// entry labels, loading-screen texts, Display Text nodes - substitutes
+// `{{name}}` with this image, sized to the text it sits in.
+//
+// The seeded set is named after the pad buttons ("cross", "l1", "start", ...),
+// which is also what makes `{{action:jump}}` work: that form resolves the
+// action's bound button and then looks up the icon of that name. Extra entries
+// with any name are fine ({{coin}}) - they just have no action to resolve from.
+struct TextIcon {
+    std::string name;  // the placeholder token: {{cross}}
+    // Project-relative PNG. The seeded pad-button entries point at
+    // res/hud/icon-<name>.png, which the editor generates when the file is
+    // missing - overriding an icon is just replacing that PNG (or pointing
+    // this at your own).
+    std::string path;
+    // Height relative to the text's line height (1 = as tall as a capital).
+    float scale = 1.0f;
+};
+
+inline bool operator==(const TextIcon& a, const TextIcon& b) {
+    return a.name == b.name && a.path == b.path && a.scale == b.scale;
+}
+
+// One piece of a text carrying icon placeholders: either a run of plain
+// characters or a resolved icon token. Every text renderer walks these instead
+// of raw bytes, which is what makes `{{cross}}` work in every text at once.
+struct TextRun {
+    std::string text;  // non-empty on a plain run
+    std::string icon;  // non-empty on an icon token (a TextIcon name)
+};
+
+// Lowercased pad-button name, i.e. the TextIcon that stands for that button
+// ("Cross" -> "cross"). The naming convention the seeded icon set follows.
+inline std::string textIconNameForPad(const std::string& padName) {
+    std::string s;
+    for (char c : padName) s += (char)tolower((unsigned char)c);
+    return s;
+}
+
+// Splits `s` into plain runs and icon tokens.
+//   {{cross}}        -> the icon named "cross"
+//   {{action:jump}}  -> the icon named after the pad button the "jump" action
+//                       is bound to in `input`'s active preset
+// A token whose action is unknown or has no pad button, and anything that is
+// not a well-formed `{{...}}`, stays LITERAL text - a typo shows up on screen
+// instead of silently vanishing.
+inline std::vector<TextRun> parseTextIcons(const std::string& s,
+                                           const InputMap& input) {
+    std::vector<TextRun> out;
+    auto pushText = [&out](const std::string& t) {
+        if (t.empty()) return;
+        if (!out.empty() && out.back().icon.empty())
+            out.back().text += t;
+        else
+            out.push_back(TextRun{t, ""});
+    };
+    size_t i = 0;
+    while (i < s.size()) {
+        const size_t open = s.find("{{", i);
+        if (open == std::string::npos) {
+            pushText(s.substr(i));
+            break;
+        }
+        const size_t close = s.find("}}", open + 2);
+        if (close == std::string::npos) {
+            pushText(s.substr(i));
+            break;
+        }
+        pushText(s.substr(i, open - i));
+        const std::string token = s.substr(open + 2, close - open - 2);
+        std::string icon = token;
+        if (token.rfind("action:", 0) == 0) {
+            const std::string action = token.substr(7);
+            const InputBinding b = input.resolve(action);
+            icon = b.pad.empty() ? std::string() : textIconNameForPad(b.pad);
+        }
+        if (icon.empty())
+            pushText(s.substr(open, close + 2 - open));  // keep it visible
+        else
+            out.push_back(TextRun{"", icon});
+        i = close + 2;
+    }
+    return out;
+}
+
+// The text with every icon token removed - what a plain-text consumer (a
+// window title, a list row) should show.
+inline std::string stripTextIcons(const std::string& s, const InputMap& input) {
+    std::string out;
+    for (const TextRun& r : parseTextIcons(s, input)) out += r.text;
+    return out;
+}
+
 // An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
 // build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
 // runtime by the Set Text Visible flow node. Multi-line on '\n'. The string is
@@ -1423,6 +1517,11 @@ struct Project {
     std::vector<GameFont> fonts{GameFont{}};
 
     std::vector<HudImage> hud;
+    // Inline text icons (Tools > UI Editor > Button icons,
+    // docs/text-icons.md): any text in the project can splice one in with a
+    // {{name}} placeholder. Seeded with one entry per pad button by
+    // project::ensureTextIcons, so {{cross}} works in a fresh project.
+    std::vector<TextIcon> textIcons;
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).
     // Always present - the UI Editor edits it but cannot delete it.
     HudImage usePrompt = defaultUsePrompt();
@@ -1591,6 +1690,12 @@ void ensureInputActions(Project& p);
 // ensureInputActions seeds and what the codegen role slots look for. Empty for
 // RoleNone / out-of-range values.
 const char* inputRoleName(int role);
+
+// Fills in the pad-button text icons (Tools > UI Editor > Button icons) so
+// {{cross}} and {{action:jump}} resolve in a fresh or older project. Only ADDS
+// missing entries - a renamed/repointed/deleted icon stays as the user left it.
+// Their PNGs are generated into res/hud/ when absent (saveAssets).
+void ensureTextIcons(Project& p);
 
 // --- Per-object / per-section (de)serialization ------------------------------
 // The building blocks of both the on-disk format and the collaboration wire

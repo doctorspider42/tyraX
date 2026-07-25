@@ -10,6 +10,54 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (166) **Text icons: `{{cross}}` in any text draws the button glyph.** Written
+  as a companion to the Input Map (165): a controls menu that says "Cross" reads
+  like a manual, one that shows ✕ reads like a PlayStation game. `Project::textIcons`
+  (`TextIcon`: name + PNG + scale) is the registry, edited in *UI Editor > Button
+  icons*, and the placeholder comes in two forms - `{{cross}}` for a named icon
+  and **`{{action:jump}}` for whatever that action is currently bound to**, which
+  is what keeps a prompt correct after a preset switch or a player's rebind (live
+  in runtime text; resolved from the default preset at bake time in baked text,
+  documented as the snapshot it is). A token naming nothing stays LITERAL on
+  screen - a typo should be visible, not vanish.
+  The trick that made this cheap: **both text renderers already funnel through
+  one function each**, so teaching `textWidth`/`drawText` (menubake.cpp) about
+  icon runs gave menu titles, entry labels, Toggle/Choice option strips, HUD
+  texts and loading screens the feature simultaneously, and the parser itself
+  (`parseTextIcons` -> `TextRun`s) is header-only in project.hpp so the editor,
+  the baker and codegen share it. Baked text **composites the icon into the
+  sprite** (zero runtime cost - still one quad); runtime text (Display Text
+  nodes, a rebind row's value) blits from one sheet `res/hud/icons.png` with
+  rects in `inc/icon_data.gen.hpp`, handed to the texture repository only the
+  first time something actually draws an icon, so an unused feature costs no
+  VRAM. The advance formulas are explicit twins (`iconAdvance` /
+  `iconAdvanceFor`) - they must stay equal or a baked and a runtime copy of the
+  same string come out different widths.
+  The built-in set is **drawn, not shipped as blobs**: 16 pad-button glyphs from
+  signed-distance fields (4x4 supersampled) in the DualShock colors - blue ✕,
+  red ○, pink □, green △, grey plates for L1-R3/Start/Select, grey arrows for
+  the d-pad - written to `res/hud/icon-<name>.png` on the first build and never
+  overwritten after, so "override an icon" is just "replace the PNG" (with
+  *Regenerate built-in PNGs* as the way back). Unlike font glyphs they keep
+  their own colors and are skipped in shadow passes; a colored icon tinted with
+  the text color, or shadowed, looks wrong.
+  Two rounds of visual review paid for themselves. The first drew all four
+  d-pad icons as "a plus with one arm marked", which at 16px on a TV is the same
+  icon four times - replaced with solid direction arrows. The second (asked for
+  during the review) put the face buttons in PlayStation colors and revealed
+  that the ✕ and □ **touched the ring**: a diagonal shape reaches sqrt(2) further
+  than its radius suggests, so those two now have their own smaller extents and
+  every inner glyph is checked against the ring's inner edge.
+  Verified: editor builds clean; a scratch project's 16 icons rendered and
+  reviewed at 4x; a hand-authored menu proves the baked path end to end
+  (`{{triangle}} HINTS` title, `{{cross}} Jump`, `{{action:use}}` -> □,
+  `{{l1}}+{{r1}}`, `{{dpadleft}} Low` in a value strip, `{{nope}}` staying
+  literal) and a HUD text proves `{{action:jump}}`; **full Docker build returns
+  `Build OK` and PCSX2 shows all of it on screen in color**, including the
+  runtime path (the Jump rebind row drawing a blue ✕ and Sprint a grey R2 from
+  the sheet). Examples regenerated; docs/text-icons.md + README, docs index,
+  editor skill and both ai-support guides.
+
 - (165) **Configurable buttons & keys: the Input Map, in-game rebinding and a
   sprint action.** Every gameplay button in a generated game was a `#define` in
   `inc/controls.hpp` — jump was Cross, full stop, and a player had no say. Now

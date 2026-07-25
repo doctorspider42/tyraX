@@ -7926,6 +7926,149 @@ void App::renameInputPreset(int index, const std::string& newName) {
                     fn.str = newName;
 }
 
+// Tools > UI Editor > Button icons. The registry of `{{name}}` placeholders
+// (docs/text-icons.md): every text in the project - HUD texts, menu titles and
+// labels, loading screens, Display Text nodes - substitutes them for an image.
+// The pad-button set is seeded and its PNGs are generated at build, so
+// overriding one is just pointing it at your own file.
+void App::drawTextIconsModal() {
+    ImGui::SetNextWindowSize(ImVec2(scaled(600.0f), scaled(440.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::BeginPopupModal("Button icons")) return;
+
+    bool changed = false;
+    ImGui::TextWrapped(
+        "Write {{name}} in any text to splice an icon in. {{action:jump}} draws "
+        "whatever that action is bound to right now (Tools > Input Map), so a "
+        "prompt stays correct after the player rebinds. An unknown name stays "
+        "on screen as literal text.");
+    ImGui::Spacing();
+
+    ImGui::BeginChild("##iconlist", ImVec2(0, -scaled(72.0f)),
+                      ImGuiChildFlags_Borders);
+    const float row = scaled(28.0f);
+    for (int i = 0; i < (int)project_.textIcons.size(); ++i) {
+        TextIcon& ic = project_.textIcons[i];
+        ImGui::PushID(i);
+
+        // Preview: the project's PNG once it exists (after the first build),
+        // otherwise nothing to show yet - the built-in is drawn at bake time.
+        if (const HudTexture* t = ic.path.empty() ? nullptr : hudTexture(ic.path))
+            ImGui::Image((ImTextureID)(intptr_t)t->tex, ImVec2(row, row));
+        else
+            ImGui::Dummy(ImVec2(row, row));
+        ImGui::SameLine();
+
+        {
+            char buf[48];
+            std::snprintf(buf, sizeof(buf), "%s", ic.name.c_str());
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::InputText("##name", buf, sizeof(buf))) {
+                // The name IS the placeholder, so it must stay unique - a clash
+                // would make {{x}} ambiguous.
+                std::string want = buf;
+                bool clash = want.empty();
+                for (int k = 0; k < (int)project_.textIcons.size(); ++k)
+                    if (k != i && project_.textIcons[k].name == want) clash = true;
+                if (!clash) ic.name = want;
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("{{%s}}", ic.name.c_str());
+        ImGui::SameLine();
+
+        ImGui::SetNextItemWidth(scaled(70.0f));
+        if (ImGui::DragFloat("##scale", &ic.scale, 0.02f, 0.2f, 4.0f, "%.2fx"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Drawn height relative to the text it sits in.");
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton("PNG...")) {
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "hud";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    ic.path = "res/hud/" + fileName;
+                    hudTexCache_.erase(ic.path);
+                    menubake::clearIconImageCache();
+                    changed = true;
+                }
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", ic.path.empty() ? "(no image yet)"
+                                                    : ic.path.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) {
+            project_.textIcons.erase(project_.textIcons.begin() + i);
+            menubake::clearIconImageCache();
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    if (ImGui::Button("+ Add icon")) {
+        TextIcon ic;
+        std::string base = "icon";
+        ic.name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const TextIcon& e : project_.textIcons) taken |= (e.name == ic.name);
+            if (!taken) break;
+            ic.name = base + "-" + std::to_string(n);
+        }
+        project_.textIcons.push_back(std::move(ic));
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Restore pad buttons")) {
+        // Only adds what is missing (project::ensureTextIcons).
+        project::ensureTextIcons(project_);
+        menubake::clearIconImageCache();
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Re-adds any missing pad-button icon. Never touches\n"
+                          "an icon you already have.");
+    ImGui::SameLine();
+    if (ImGui::Button("Regenerate built-in PNGs")) {
+        // Deletes the generated files so the next build redraws them - the way
+        // back after overwriting one by hand.
+        std::error_code ec;
+        for (const TextIcon& ic : project_.textIcons) {
+            if (ic.path != "res/hud/" + menubake::iconFileName(ic.name)) continue;
+            std::filesystem::remove(
+                std::filesystem::path(project_.dir) / ic.path, ec);
+            hudTexCache_.erase(ic.path);
+        }
+        menubake::clearIconImageCache();
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Deletes the generated icon-*.png files; the next\n"
+                          "build redraws them. Use it to undo a hand-edit.");
+    ImGui::SameLine();
+    if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+
+    // UI Editor content is saved, not undone - same as the rest of this window.
+    if (changed) saveAll("Icons saved");
+    ImGui::EndPopup();
+}
+
 // Tools > Font Manager: the project's typefaces. Every text (HUD texts, menus,
 // loading screens, Display Text nodes) names one of these, so restyling a
 // project is an edit here rather than a hunt through every text.
@@ -8688,6 +8831,19 @@ void App::drawUiEditorWindow() {
         ImGui::SetTooltip(
             "Baked to PNG sprites at build (the PS2 engine has no font).\n"
             "Show/hide them from the flow graph: Show Text / Hide Text.");
+
+    // Inline text icons. They belong to no single element - ANY text in the
+    // project can splice one in - so they get their own modal rather than a
+    // slot in the screen stack.
+    ImGui::SeparatorText("Button icons");
+    if (ImGui::SmallButton("Manage icons..."))
+        ImGui::OpenPopup("Button icons");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Images any text can splice in with a {{name}} placeholder:\n"
+            "\"Press {{cross}} to jump\". {{action:jump}} draws whatever\n"
+            "that action is bound to right now. Seeded with the pad buttons.");
+    drawTextIconsModal();
 
     // Custom screen effects loaded from screen-effects/*.screenfx. Effects not
     // yet placed in the stack are offered here with a "+ Add"; management

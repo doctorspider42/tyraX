@@ -245,6 +245,21 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
 `inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
 
+**Inline text icons** (`{{cross}}` / `{{action:jump}}`, docs/text-icons.md).
+`Project::textIcons` (`TextIcon`: name + PNG + scale, seeded per pad button by
+`project::ensureTextIcons`, edited in *UI Editor > Button icons*). The parser is
+**shared, header-only** — `parseTextIcons` in project.hpp returns `TextRun`s —
+but the two renderers are TWINS and must stay in step: `textWidth`/`drawText` in
+menubake.cpp composite icons into baked sprites (so menus, HUD texts, loading
+screens and value strips all gained it at once through those two functions),
+while the generated game blits them from `res/hud/icons.png` via
+`resolveIconToken`/`drawFontText` with rects from `inc/icon_data.gen.hpp`. Both
+sides take their geometry from `menubake::iconAtlasLayout`, and the advance
+formulas (`iconAdvance` / `iconAdvanceFor`) are the pair to change together, or
+the same string measures differently baked vs runtime. Icons are NOT tinted with
+the text color (the face buttons carry the DualShock palette) and are skipped in
+shadow passes. A `{{token}}` naming nothing stays literal on purpose.
+
 **Anything that draws text.** `Project::fonts` (`GameFont`) is the single font
 registry — *Tools > Font Manager* (`drawFontManagerWindow`). Text carries a font
 **name**, never a path (`HudText::font`, `GameMenu::font`); only `GameFont::fontPath`
