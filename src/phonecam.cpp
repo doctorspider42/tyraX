@@ -353,6 +353,18 @@ void Link::workerMain() {
                 if (!ev.text.empty()) pushEvent(std::move(ev));
                 continue;
             }
+            if (type == "origin") {
+                // Fly the start point: a delta in the camera's own
+                // right/up/forward frame, in scene units. The editor resolves
+                // the frame - the phone only knows "left a bit, forward a bit".
+                Event ev;
+                ev.type = Event::Type::MoveStart;
+                if (const json::Value* v = msg.find("d"))
+                    readVec(msg, "d", ev.vec, 3);
+                if (ev.vec[0] != 0.0f || ev.vec[1] != 0.0f || ev.vec[2] != 0.0f)
+                    pushEvent(std::move(ev));
+                continue;
+            }
             if (type == "cfg") {
                 // The device knows its screen and its Wi-Fi better than we do.
                 std::lock_guard<std::mutex> lk(mutex_);

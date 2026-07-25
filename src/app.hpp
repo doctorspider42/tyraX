@@ -438,6 +438,9 @@ private:
     // editor view - the take importer's "From view", live. Nothing else may
     // move the anchor: it is what keeps the phone's motion relative.
     void phoneCamRecenter();
+    // Slides the mapping's start point along the current view basis (a delta in
+    // right/up/forward, scene units) - the phone's "fly the start point" mode.
+    void movePhoneStart(const float delta[3]);
     // Recording into the selected sequence. Returns false (and says why in the
     // Output panel) when there is nothing to record into.
     bool startPhoneRecording();

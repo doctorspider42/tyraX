@@ -11980,6 +11980,27 @@ void App::phoneCamRecenter() {
     phoneMap_.yawDeg = y;
 }
 
+// Flies the mapping's start point along the CURRENT view basis, so a nudge the
+// phone describes as "left a bit" means left as seen on its screen. The anchor
+// is deliberately untouched: moving the origin moves the camera bodily while the
+// phone's own motion stays relative to wherever it now is.
+void App::movePhoneStart(const float delta[3]) {
+    float fwd[3] = {phoneTarget_[0] - phoneEye_[0], phoneTarget_[1] - phoneEye_[1],
+                    phoneTarget_[2] - phoneEye_[2]};
+    const float fl = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+    if (fl > 1e-6f)
+        for (int c = 0; c < 3; ++c) fwd[c] /= fl;
+    float up[3];
+    seqCameraUp(fwd, phoneRoll_, up);
+    // right = cross(fwd, up)
+    const float right[3] = {fwd[1] * up[2] - fwd[2] * up[1],
+                            fwd[2] * up[0] - fwd[0] * up[2],
+                            fwd[0] * up[1] - fwd[1] * up[0]};
+    for (int c = 0; c < 3; ++c)
+        phoneMap_.origin[c] +=
+            right[c] * delta[0] + up[c] * delta[1] + fwd[c] * delta[2];
+}
+
 bool App::startPhoneRecording() {
     if (phoneRec_) return true;
     if (!hasProject_) {
@@ -12091,6 +12112,9 @@ void App::phoneCamTick() {
                 if (e.text == phonecam::kCmdRecord) startPhoneRecording();
                 else if (e.text == phonecam::kCmdStop) stopPhoneRecording();
                 else if (e.text == phonecam::kCmdRecenter) phoneCamRecenter();
+                break;
+            case phonecam::Event::Type::MoveStart:
+                movePhoneStart(e.vec);
                 break;
             case phonecam::Event::Type::Error:
                 statusMessage_ = "Phone camera link: " + e.text;
@@ -12274,6 +12298,26 @@ void App::drawPhoneCamWindow() {
         ImGui::SetTooltip("Put the phone camera back at the editor's own camera and\n"
                           "aim it where the viewport is looking. Everything the\n"
                           "phone does is relative to this point.");
+    // The start point, editable directly: Recentre snaps it to the viewport
+    // camera, but a shot often wants an exact spot - and the phone can fly it
+    // too (its Move mode), which writes the same three numbers.
+    if (ImGui::DragFloat3("Start point", phoneMap_.origin, 0.1f))
+        phoneMap_.hasAnchor = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Where the phone's motion starts from. Drag to place it\n"
+                          "exactly, or fly it live from the app (its Move button).\n"
+                          "Moving this slides the camera bodily; the phone's own\n"
+                          "motion stays relative to wherever it ends up.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("From view")) {
+        float eye[3], at[3];
+        viewport_.currentCamera(eye, at);
+        for (int c = 0; c < 3; ++c) phoneMap_.origin[c] = eye[c];
+        phoneMap_.hasAnchor = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Move the start point to the editor camera, leaving the\n"
+                          "aim alone (Recentre does both).");
     ImGui::SetNextItemWidth(scaled(140.0f));
     ImGui::DragFloat("Yaw", &phoneMap_.yawDeg, 1.0f, -360.0f, 360.0f, "%.0f deg");
     if (ImGui::IsItemHovered())

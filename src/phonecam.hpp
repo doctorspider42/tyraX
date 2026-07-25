@@ -71,11 +71,14 @@ struct Event {
         Connected,     // device joined (`device` filled)
         Disconnected,  // device left; text = reason
         Command,       // the phone pressed a button; text = the command below
+        MoveStart,     // fly the start point; `vec` = a delta in the camera's
+                       // own right/up/forward frame, scene units
         Error,         // the link died; text = why (state() is Error)
     };
     Type type = Type::Error;
     DeviceInfo device;
     std::string text;
+    float vec[3] = {0.0f, 0.0f, 0.0f};
 };
 
 // Command strings a phone can send (Event::Type::Command). The editor owns
