@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "TyraX Cam",
+    "slug": "tyrax-cam",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.example.tyraxcam",
+      "supportsTablet": true,
+      "requireFullScreen": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "ARKit world tracking needs the camera to work out how the phone moves. The picture is never recorded, shown or sent anywhere - only the position and rotation of the device go to the editor.",
+        "UIRequiredDeviceCapabilities": ["arkit"],
+        "UIViewControllerBasedStatusBarAppearance": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "TyraX Cam connects to the TyraX editor running on your computer over the local network."
+      }
+    }
+  }
+}

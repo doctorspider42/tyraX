@@ -73,6 +73,7 @@ add_executable(tyrax-editor
     src/menubake.cpp
     src/meshlod.cpp
     src/pcsx2_config.cpp
+    src/phonecam.cpp
     src/placement.cpp
     src/pngquant.cpp
     src/primmesh.cpp

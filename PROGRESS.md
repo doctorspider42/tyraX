@@ -10,6 +10,101 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (174) **Phone camera: the phone as a live viewfinder that records cutscene
+  camera moves.** The other half of the camera-takes story (152): instead of
+  importing a finished ARKit recording, the editor **hosts a link on the LAN**,
+  a companion iOS app connects, and from then on the phone screen shows a live
+  JPEG stream of the editor viewport while the phone's 6DoF pose drives that
+  camera. In the Cutscene Director, *Record* writes the move into camera keys as
+  it happens, at a configurable keyframe density. Docs: `docs/phone-camera.md`,
+  `tools/tyrax-cam/README.md`.
+  **Transport.** `wire::makeWebSocketTransport()` - an RFC 6455 server (SHA-1 +
+  base64 upgrade, unmasking, ping/pong, fragmentation) behind the existing
+  `wire::Transport` interface, which is exactly the seam the collaboration work
+  (113-118) predicted would be reused. WebSocket rather than the raw TCP
+  framing because it is what React Native and every browser have built in, so
+  the phone needs no native socket module; one binary message carries one
+  `encodeFrame` image, so the codec above it is unchanged. It is a per-connection
+  `WsCodec` slotted between the socket and the same `FrameDecoder` rather than a
+  second Transport class - the accept/poll/send loop stays single. Two contract
+  wrinkles that took thinking: a WS peer is announced on **upgrade**, not on
+  accept (so an ordinary browser GET, which gets served an HTML page instead,
+  never becomes a peer and never emits an unmatched `Disconnected`), and a dying
+  codec sets `closeAfterFlush` instead of dropping, or the served page is
+  truncated by the close.
+  **The image.** `Viewport::grabPreviewRgb` reads back the frame `render()` just
+  produced - so the phone sees the editor's own picture, colour grading included,
+  not a second slightly different render. It blits into its own small
+  framebuffer and reads back *that*: a straight `glReadPixels` of a 1600x900
+  viewport is 5.7 MB and stalls the frame. `lastImageFbo_` tracks which target
+  holds the final image, so a graded frame streams graded. JPEG encoding happens
+  on the link's worker thread (stb_image_write), a pending frame is replaced
+  rather than queued, and `previewWanted()` gates on the send backlog - a weak
+  link must cost frame rate, never latency.
+  **The camera.** The live view and the baked keys had to be the same math or
+  the feature is a lie, so `mapCamSample()` came out of `bakeCamTake` and both
+  call it. Two `CamTakeMapping` fields are new and both exist for the streaming
+  case: `hasAnchor`/`anchor`, because a stream has no meaningful "first sample"
+  to pivot on (without an explicit anchor the whole path jumps the moment a
+  recording starts mid-stream), and `keyRate`, the fixed-rate resampler behind
+  the density control. Density and the RDP tolerance are deliberately exclusive:
+  a density that is then decimated away is not a density.
+  **Recording.** The buffer is a plain `CamTake`, so the target logic (a Camera
+  entity's transform track, or free shots on the camera lane) is the file
+  importer's code, parameterized. Re-baked at 15 Hz so the dopesheet visibly
+  fills up while you move, which meant making the re-bake **idempotent**: the
+  pre-recording camera lane and duration are snapshotted at *Record* and
+  restored before each bake, otherwise keys compound and shots authored earlier
+  are eaten. Undo sees one step for the whole recording - the live re-bakes
+  leave the history alone and only *Stop* commits. The phone can press
+  Record/Stop/Recentre itself, which matters more than it sounds: you cannot
+  reach the keyboard while holding the camera.
+  **Verified** in three layers: three host harnesses, and then the whole thing
+  in the real editor, driven from the browser test client the link serves on its
+  own port (`http://<editor-ip>:7798` - synthetic poses, drag to look, WASD to
+  walk).
+  *Harnesses* (all no-GUI, the treegen/placement pattern). The camtake one
+  (40 lines + `camtake.cpp`) proved properties rather than eyeballing them:
+  `mapCamSample` is **bit-identical** to what the bake writes, re-anchoring is a
+  rigid translation (the path's shape survives it), a fixed rate at or above the
+  stream rate reproduces the samples, every rate lands evenly spaced and exactly
+  on the take's last sample, and the 2048-key cap holds on a 10-minute take. It
+  caught a real bug the GUI would have hidden: `t += step` accumulates float
+  error, so the final clamp to the take's end emitted **two keys at the same
+  time** - a zero-length segment for the PS2 player. Key times come from the
+  step index now. The link harness (`phonecam` + `wire` + `json`) ran 100 s of
+  continuous streaming: **1279 JPEG frames, 3018 poses**, no drops, a clean
+  close-handshake disconnect, and all three refusal paths correct (wrong pairing
+  code, protocol mismatch, second device). The grab harness renders on a HIDDEN
+  GLFW window (an FBO readback needs a context, not a composited window - which
+  is why this one works even in the AMD white-window state of (101)) and checks
+  `grabPreviewRgb` at three caps: aspect preserved and never cropped, inside the
+  cap, real content, **row 0 is the sky** (the check that catches a silently
+  upside-down phone), sane JPEG sizes, and 200 repeated grabs byte-identical.
+  *Real editor*, scratch FPP project, browser as the phone: the link hosts and
+  lists all three LAN addresses + the pairing code (and raises exactly the
+  Windows Firewall prompt the docs warn about); the browser pairs; the stream
+  runs at **13 fps of 960x590** of the actual viewport image; the pose drives
+  the camera in both channels (pose -1.63/0.36/-1.75 m moved the scene camera
+  51.8 -> 49.4 and visibly rotated the axis gizmo); Recentre puts it back and
+  re-derives the yaw; **Record and Stop pressed on the phone** captured a 4.16 s
+  handheld move as **43 keys** - and the saved `.tyra` says exactly what it
+  should: 43 keys, strictly increasing times, **zero duplicate timestamps**,
+  spacing 0.1 s dead on the requested 10 keys/s with a short tail key landing on
+  the take's real last sample, `ease: 0` throughout, free shots, `cameraEnabled`
+  auto-set, 3.89 units of eye travel and 4.43 of look-at pan. The dopesheet
+  filled live while the move was happening.
+  **Not verified: the iOS app itself** - it needs a Mac to build and there isn't
+  one here. The editor side, the protocol and the stream are proven; the app is
+  written and its README says plainly that it is unbuilt, along with the three
+  sideload routes (Xcode + free Apple ID, 7-day expiry; an ad-hoc `.ipa` via
+  EAS; Sideloadly/AltStore). The one behaviour a browser cannot stand in for is
+  real ARKit tracking quality.
+  *Judgement worth recording:* the phone deliberately wins the camera over both
+  the cutscene preview and the look-through camera while it drives. A playhead
+  flying the same lane would fight the person holding the device, and there is
+  no reading of that fight where the software should win.
+
 - (173) **Authoring ergonomics: orthographic/axis views, collision-aware
   placement, and a paste that follows the cursor.** Three requested editor
   features, one commit each in spirit but one branch in practice - they share

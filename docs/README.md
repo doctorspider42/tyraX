@@ -83,8 +83,14 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and
-  decimation controls in the import modal, and the acquisition/bake split that
-  keeps the door open for live phone streaming.
+  decimation controls in the import modal, and the acquisition/bake split the
+  live link below plugs into.
+- [Phone camera (live viewfinder)](phone-camera.md) - the companion iOS app as
+  a viewfinder: the editor hosts a LAN link, the phone shows a live JPEG stream
+  of the viewport and its ARKit pose drives that camera, and the Cutscene
+  Director records the move into keyframes at a chosen density. Covers pairing
+  and firewall, the mapping controls, the recording options and table-size
+  budget, the WebSocket protocol, and the built-in browser test client.
 - [AI flow-graph generation](ai-flow-graph.md) - describing game logic in
   plain language and letting an AI backend (Claude CLI, Copilot CLI or the
   OpenAI API) build the graph: backend/model/thinking preferences, what the

@@ -32,6 +32,9 @@ tools/ps2link-usbhid/*
 # ...and the VS Code extension for .flownode/.screenfx files (see
 # tools/vscode-tyrax/README.md; its own .gitignore drops *.vsix + node_modules).
 !tools/vscode-tyrax/
+# ...and the iOS phone-camera companion app (docs/phone-camera.md; its own
+# .gitignore drops node_modules + the generated ios/ and android/ trees).
+!tools/tyrax-cam/
 
 # Vendored dependencies are fetched separately (see README)...
 vendor/*

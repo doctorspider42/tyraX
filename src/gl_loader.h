@@ -75,6 +75,11 @@ typedef ptrdiff_t GLintptr;
 #define GL_TEXTURE2 0x84C2
 #define GL_RED 0x1903
 #define GL_R32F 0x822E
+#define GL_RGB 0x1907
+#define GL_NEAREST 0x2600
+#define GL_PACK_ALIGNMENT 0x0D05
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
 
 #define TYRA_GL_FUNCS(X) \
     X(void, Clear, GLbitfield) \
@@ -137,7 +142,10 @@ typedef ptrdiff_t GLintptr;
     X(void, BindRenderbuffer, GLenum, GLuint) \
     X(void, RenderbufferStorage, GLenum, GLenum, GLsizei, GLsizei) \
     X(void, FramebufferRenderbuffer, GLenum, GLenum, GLenum, GLuint) \
-    X(GLenum, CheckFramebufferStatus, GLenum)
+    X(GLenum, CheckFramebufferStatus, GLenum) \
+    X(void, BlitFramebuffer, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum) \
+    X(void, ReadPixels, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*) \
+    X(void, PixelStorei, GLenum, GLint)
 
 #define TYRA_GL_DECLARE(ret, name, ...) \
     typedef ret (*PFN_gl##name)(__VA_ARGS__); \

@@ -180,6 +180,18 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     const std::vector<int>& selection, int primary);
 
+    // Phone camera link (docs/phone-camera.md): reads the image the LAST
+    // render() produced back into packed RGB for JPEG streaming to the
+    // companion app - so the phone sees exactly the frame the editor viewport
+    // shows, grading included, without a second scene pass. The image is
+    // downscaled on the GPU (a blit into a small dedicated target, which is
+    // also all that gets read back, so a 1600x900 viewport does not stall the
+    // frame) and row-flipped into top-down order on the way out.
+    // maxW/maxH cap the long edges; the source aspect is preserved. False when
+    // nothing has been rendered yet.
+    bool grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
+                        int& outW, int& outH);
+
     // Collaboration presence: other participants' selections in the ACTIVE
     // scene, outlined in each peer's color under the local selection (local
     // amber always reads on top). The app resolves object ids to indices per
@@ -656,6 +668,16 @@ private:
 
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
+    // Which framebuffer holds the image the last render() returned (fbo_, or
+    // gradeFbo_ when the grading pass ran) - the source grabPreviewRgb blits
+    // from, so the phone sees the graded picture too. 0 = nothing rendered yet.
+    uint32_t lastImageFbo_ = 0;
+
+    // Phone-camera readback target: a small RGBA8 framebuffer the viewport
+    // image is blitted (and thus downscaled) into before glReadPixels.
+    void ensureGrabFramebuffer(int width, int height);
+    uint32_t grabFbo_ = 0, grabTex_ = 0;
+    int grabW_ = 0, grabH_ = 0;
 
     // Material Editor preview target + fixed backdrop meshes
     void ensurePreviewFramebuffer(int width, int height);

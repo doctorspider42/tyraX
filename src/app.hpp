@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
+#include "phonecam.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
 #include "placement.hpp"
@@ -418,6 +419,38 @@ private:
     void copyObject();
     void pasteObject();
 
+    // --- Phone camera link (docs/phone-camera.md) ---------------------------
+    // The phone as a viewfinder: it shows a live JPEG stream of what the
+    // editor camera sees and its ARKit pose drives that camera; the Cutscene
+    // Director records the move into camera keyframes. phonecam::Link owns the
+    // network side on a worker thread, phoneCamTick() drains it once per frame
+    // and is the ONLY place link data meets project_/ImGui - the same contract
+    // sessionTick() follows.
+    void phoneCamTick();
+    void startPhoneCam();
+    void stopPhoneCam();
+    void drawPhoneCamWindow();
+    // Streams the frame the viewport just rendered. Called from
+    // drawViewportWindow right after render(), so the phone sees exactly the
+    // editor's image (grading included) with no second scene pass.
+    void phoneCamPushPreview();
+    // Anchors the mapping on the CURRENT pose and aims the path along the
+    // editor view - the take importer's "From view", live. Nothing else may
+    // move the anchor: it is what keeps the phone's motion relative.
+    void phoneCamRecenter();
+    // Recording into the selected sequence. Returns false (and says why in the
+    // Output panel) when there is nothing to record into.
+    bool startPhoneRecording();
+    void stopPhoneRecording();
+    // (Re)bakes the recorded buffer into the target sequence. Called live while
+    // recording (throttled) so the dopesheet fills up as you move, and once
+    // more on stop - which is also the only call that commits an undo step.
+    void bakePhoneRecording();
+    // Frames per second the built game will run at (60 NTSC / 50 PAL, from the
+    // project's video system + display mode) - the "sync with project" option
+    // for the keyframe density.
+    float projectFrameRate() const;
+
     // --- Collision-aware placement (docs/object-placement.md) --------------
     // Inserted and pasted objects rest ON the surface under them (terrain or
     // another object's top) instead of sinking into it. placementSnap_ is a
@@ -783,11 +816,60 @@ private:
     // in place without re-importing. Valid while it matches the open sequence.
     bool seqTakeActive_ = false;      // a re-bakeable last import exists
     int seqTakeSeqIdx_ = -1;          // sequence it was imported into
-    // Applies the loaded take (seqTake_/seqTakeMap_/seqTakeTarget_) to sequence
-    // s: free shots -> camera lane (replace or append); a Camera entity target
-    // -> its transform track + FOV + a bound camera key. Returns the first key
-    // time (for the playhead), or -1 on no-op.
+    // Applies a take to sequence s: free shots -> camera lane (replace or
+    // append); a Camera entity target -> its transform track + FOV + a bound
+    // camera key. Returns the first key time (for the playhead), or -1 on
+    // no-op. The one-argument form uses the take-import members; the live
+    // phone recording passes its own buffer through the same code, so a
+    // recorded move and an imported file land identically.
+    float applyCamTake(Sequence& s, bool replace, const CamTake& take,
+                       const CamTakeMapping& map, const std::string& target,
+                       CamTakeBakeStats& stats);
     float applyCamTake(Sequence& s, bool replace);
+
+    // --- Phone camera link state (see the method block above) ---------------
+    phonecam::Link phoneCam_;
+    bool showPhoneCamWindow_ = false;
+    // Machine-global settings (editor.ini).
+    phonecam::PreviewPrefs phoneCamPrefs_;
+    int phoneCamPort_ = (int)phonecam::kDefaultPort;
+    std::string phoneCamCode_;
+    bool phoneCamRequireCode_ = true;
+    // The newest pose and where it maps to. phoneMap_ is a full CamTakeMapping
+    // so the live view and the baked keys run through identical math
+    // (mapCamSample); its `anchor` is pinned by phoneCamRecenter().
+    CamTakeMapping phoneMap_;
+    CamTakeSample phonePose_;
+    bool phoneHasPose_ = false;
+    double phonePoseAt_ = 0.0;  // ImGui time of the newest pose (staleness)
+    bool phoneDrive_ = true;    // the pose drives the viewport camera
+    float phoneEye_[3] = {0.0f, 0.0f, 0.0f};
+    float phoneTarget_[3] = {0.0f, 0.0f, -1.0f};
+    float phoneFov_ = 60.0f;
+    bool phoneCamPushed_ = false;  // camera override handed to the viewport?
+    double phonePreviewAt_ = 0.0;  // ImGui time of the last streamed frame
+    // Recording. The buffer is a plain CamTake, so everything downstream is the
+    // file importer's code.
+    bool phoneRec_ = false;
+    CamTake phoneTake_;
+    int phoneRecSeq_ = -1;           // sequence index being recorded into
+    std::string phoneRecTarget_;     // Camera entity ("" = free camera shots)
+    double phoneRecBakedAt_ = 0.0;   // ImGui time of the last live re-bake
+    CamTakeBakeStats phoneRecStats_;
+    // The sequence's camera lane and duration as they were when recording
+    // started. Every live re-bake restores these first and appends on top, so
+    // growing the buffer never compounds keys or ratchets the duration - and
+    // shots authored before the recording survive it.
+    std::vector<SeqCameraKey> phoneRecBaseCam_;
+    float phoneRecBaseDuration_ = 5.0f;
+    float phoneRecPlayhead_ = 0.0f;  // time the first recorded key sits at
+    // Keyframe density. 0 = the project's frame rate (every game frame gets a
+    // key - exact, but the biggest table), 1 = a custom rate, 2 = no fixed
+    // rate at all: decimate by the take importer's error tolerance instead.
+    int phoneDensityMode_ = 1;
+    float phoneDensity_ = 10.0f;   // keys per second (mode 1)
+    float phoneTolerance_ = 0.05f; // world-unit error bound (mode 2)
+    bool phoneRecAtPlayhead_ = false;  // keys start at the playhead, not at 0
     // "From view" for the take import: set the mapping origin to the preview
     // camera's position AND the mapping yaw so the take's first sample looks
     // where the editor camera looks (aim the recorded path along the view).

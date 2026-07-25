@@ -16,14 +16,18 @@ new — scrub the playhead to preview it immediately.
 The implementation (`src/camtake.hpp/.cpp`) is split in two, on purpose:
 
 1. **Take acquisition** — anything that produces a `CamTake` (a list of
-   `CamTakeSample`: time, position, rotation quaternion, optional FOV).
-   Today: the two file loaders below. Phase 2 will add a live Wi-Fi/USB
-   receiver that appends samples to the same `CamTake` while the editor runs.
+   `CamTakeSample`: time, position, rotation quaternion, optional FOV). Two
+   sources: the file loaders below, and the **live phone camera link**
+   (`src/phonecam.hpp`, [docs/phone-camera.md](phone-camera.md)), which appends
+   samples over Wi-Fi while the editor runs.
 2. **Take → keys** (`bakeCamTake`) — mapping into the scene, resampling and
    decimation. Pure functions of `(CamTake, CamTakeMapping)`, callable on a
    partially filled take, so a live buffer can be re-baked as it grows.
 
 New sources implement acquisition only; the mapping/decimation/UI is shared.
+`mapCamSample()` — one sample → eye + look-at — is public for exactly that
+reason: the live link previews the camera through it, so what you see while
+moving the phone is what the baked keys reproduce.
 
 ## Canonical take space
 
@@ -142,12 +146,16 @@ FOV is averaged over the take for now (per-key FOV would fight the
 decimator); keys are plain `SeqCameraKey`s, so everything stays hand-editable
 on the dopesheet afterwards.
 
-## Phase 2 (planned): live streaming from the phone
+## Live streaming from the phone
 
-The acquisition/bake split above is the contract: a streaming receiver
-(e.g. the documented Record3D protocol, or a tiny companion iOS app over UDP)
-will push `CamTakeSample`s into a `CamTake` on a background thread while the
-editor runs; `bakeCamTake` already works on a growing buffer, and previewing
-a take path should stay independent from the baked sequence keys (bake once
-on "stop recording"). Nothing in the current pipeline assumes a complete
-file — keep it that way.
+Shipped: see **[docs/phone-camera.md](phone-camera.md)**. A companion iOS app
+(`tools/tyrax-cam`) streams ARKit pose into a `CamTake` on a worker thread while
+the editor streams the viewport image back to the phone, and the Cutscene
+Director records the move into keys as it happens. It reuses this whole file's
+second half unchanged; the only additions to the bake were an explicit mapping
+**anchor** (a live stream has no meaningful "first sample" to pivot on) and
+**fixed-rate resampling** (`CamTakeMapping::keyRate`) for the recorder's
+keyframe-density control — the tolerance decimator above is still what a file
+import uses.
+
+Nothing in the pipeline assumes a complete file — keep it that way.

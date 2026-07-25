@@ -108,6 +108,14 @@ struct EditorConfig {
     // The axis-view gizmo in the viewport's top-right corner. On by default;
     // it can be turned off because it sits where HUD authoring wants space.
     bool axisGizmo = true;
+    // Phone camera link (docs/phone-camera.md). Which port is free and how
+    // much the Wi-Fi here can carry are properties of this machine, so the
+    // whole thing is machine config rather than project data. The pairing code
+    // persists so a paired phone keeps working across editor restarts.
+    phonecam::PreviewPrefs phoneCam;
+    int phoneCamPort = (int)phonecam::kDefaultPort;
+    std::string phoneCamCode;      // 6 digits; generated on first use
+    bool phoneCamRequireCode = true;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -155,7 +163,16 @@ static EditorConfig loadEditorConfig() {
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
         else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
+        else if (match("phoneCamPort", v)) cfg.phoneCamPort = toI(v, cfg.phoneCamPort);
+        else if (match("phoneCamCode", v)) cfg.phoneCamCode = v;
+        else if (match("phoneCamRequireCode", v)) cfg.phoneCamRequireCode = toI(v, 1) != 0;
+        else if (match("phoneCamMaxW", v)) cfg.phoneCam.maxWidth = toI(v, cfg.phoneCam.maxWidth);
+        else if (match("phoneCamMaxH", v)) cfg.phoneCam.maxHeight = toI(v, cfg.phoneCam.maxHeight);
+        else if (match("phoneCamFps", v)) cfg.phoneCam.fps = toI(v, cfg.phoneCam.fps);
+        else if (match("phoneCamQuality", v)) cfg.phoneCam.quality = toI(v, cfg.phoneCam.quality);
     }
+    if (cfg.phoneCamPort < 1024 || cfg.phoneCamPort > 65535)
+        cfg.phoneCamPort = (int)phonecam::kDefaultPort;
     if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
 }
@@ -188,7 +205,14 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
       << "matEdSplit=" << cfg.matEdSplit << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
-      << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n";
+      << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n"
+      << "phoneCamPort=" << cfg.phoneCamPort << "\n"
+      << "phoneCamCode=" << cfg.phoneCamCode << "\n"
+      << "phoneCamRequireCode=" << (cfg.phoneCamRequireCode ? 1 : 0) << "\n"
+      << "phoneCamMaxW=" << cfg.phoneCam.maxWidth << "\n"
+      << "phoneCamMaxH=" << cfg.phoneCam.maxHeight << "\n"
+      << "phoneCamFps=" << cfg.phoneCam.fps << "\n"
+      << "phoneCamQuality=" << cfg.phoneCam.quality << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -403,6 +427,10 @@ int App::run(const std::string& initialProjectDir) {
         matEdSplit_ = cfg.matEdSplit;
         placementSnap_ = cfg.placementSnap;
         showAxisGizmo_ = cfg.axisGizmo;
+        phoneCamPrefs_ = cfg.phoneCam;
+        phoneCamPort_ = cfg.phoneCamPort;
+        phoneCamCode_ = cfg.phoneCamCode;
+        phoneCamRequireCode_ = cfg.phoneCamRequireCode;
     }
     applyUiScale();
 
@@ -555,6 +583,11 @@ void App::drawUI() {
     // session end) - the only place session state meets project_/ImGui.
     sessionTick();
 
+    // Drain the phone camera link (poses, phone-side buttons, connect/drop) and
+    // re-bake a running recording. Same contract as sessionTick: the only place
+    // link data meets project_/ImGui.
+    phoneCamTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -575,6 +608,7 @@ void App::drawUI() {
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
+    drawPhoneCamWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
@@ -684,7 +718,9 @@ void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_, placementSnap_, showAxisGizmo_});
+                      matEdSplit_, placementSnap_, showAxisGizmo_,
+                      phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
+                      phoneCamRequireCode_});
 }
 
 void App::setUiScale(float userScale) {
@@ -987,6 +1023,7 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::EndMenu();
         }
 
@@ -1492,12 +1529,21 @@ void App::drawViewportWindow() {
             renderList = &pasteRenderScratch_;
         }
         const std::vector<SceneObject>& renderObjects = *renderList;
+        // Phone camera link: while a phone is streaming a pose and driving, IT
+        // is the camera - ahead of the cutscene preview and the look-through
+        // camera both, because the person holding it is framing the shot and a
+        // playhead flying the same lane would fight them for it.
+        phoneCamPushed_ = false;
+        if (phoneDrive_ && phoneHasPose_ && phoneCam_.connected()) {
+            viewport_.setCameraOverride(phoneEye_, phoneTarget_, phoneFov_);
+            phoneCamPushed_ = true;
+        }
         // Look-through camera ("View:" overlay / camera Properties): render
         // from the chosen Camera entity's pose + FOV. The cutscene camera
         // track wins while it previews; reading the POSED objects means a
         // dollied camera entity is followed live. A stale name (deleted
         // entity) falls back to the free orbit camera.
-        if (!seqCameraPushed_) {
+        if (!seqCameraPushed_ && !phoneCamPushed_) {
             const SceneObject* cam = nullptr;
             if (!lookThroughCam_.empty())
                 for (const SceneObject& o : renderObjects)
@@ -1520,8 +1566,12 @@ void App::drawViewportWindow() {
         // sequence films from; otherwise the single looked-through camera.
         {
             std::vector<std::string> hideCams;
-            if (seqCameraPushed_ && selectedSequence_ >= 0 &&
-                selectedSequence_ < (int)project_.sequences.size()) {
+            if (phoneCamPushed_) {
+                // Recording into a Camera entity puts that entity exactly where
+                // the view is, so it would fill the frame.
+                if (!phoneRecTarget_.empty()) hideCams.push_back(phoneRecTarget_);
+            } else if (seqCameraPushed_ && selectedSequence_ >= 0 &&
+                       selectedSequence_ < (int)project_.sequences.size()) {
                 for (const SeqCameraKey& k :
                      project_.sequences[selectedSequence_].cameraKeys)
                     if (!k.camera.empty()) hideCams.push_back(k.camera);
@@ -1534,6 +1584,10 @@ void App::drawViewportWindow() {
         updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
+        // Phone camera link: stream THIS frame to the connected device, so the
+        // phone is a viewfinder onto the editor's own image rather than a
+        // second, subtly different render.
+        phoneCamPushPreview();
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
@@ -2632,6 +2686,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "phonecam") return &showPhoneCamWindow_;
     return nullptr;
 }
 
@@ -2641,7 +2696,7 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
-    "anim",     "tree"};
+    "anim",     "tree",     "phonecam"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -11731,14 +11786,16 @@ void App::cutsceneAutoKey() {
     }
 }
 
-// Applies the loaded camera take to a sequence. Free target -> camera-lane
-// shots (replace or append). A Camera-entity target -> the take is baked into
-// that entity's transform track (position = eye, rotation = the Euler whose
-// +Z lens points along the recorded view), the entity's FOV is set from the
-// take, and a bound camera key is ensured so the shot dollies along the path.
+// Applies a camera take to a sequence. Free target -> camera-lane shots
+// (replace or append). A Camera-entity target -> the take is baked into that
+// entity's transform track (position = eye, rotation = the Euler whose +Z lens
+// points along the recorded view), the entity's FOV is set from the take, and a
+// bound camera key is ensured so the shot dollies along the path.
 // Returns the first key time, or -1 on no-op.
-float App::applyCamTake(Sequence& s, bool replace) {
-    std::vector<SeqCameraKey> baked = bakeCamTake(seqTake_, seqTakeMap_, &seqTakeStats_);
+float App::applyCamTake(Sequence& s, bool replace, const CamTake& take,
+                        const CamTakeMapping& map, const std::string& target,
+                        CamTakeBakeStats& stats) {
+    std::vector<SeqCameraKey> baked = bakeCamTake(take, map, &stats);
     if (baked.empty()) return -1.0f;
     auto sortCam = [&]() {
         std::sort(s.cameraKeys.begin(), s.cameraKeys.end(),
@@ -11747,7 +11804,7 @@ float App::applyCamTake(Sequence& s, bool replace) {
                   });
     };
 
-    if (seqTakeTarget_.empty()) {
+    if (target.empty()) {
         // free camera shots on the camera lane
         if (replace)
             s.cameraKeys = baked;
@@ -11787,13 +11844,13 @@ float App::applyCamTake(Sequence& s, bool replace) {
     // find (or create) the object track that drives this camera entity
     SeqTrack* track = nullptr;
     for (SeqTrack& tr : s.tracks)
-        if (tr.target == seqTakeTarget_) {
+        if (tr.target == target) {
             track = &tr;
             break;
         }
     if (!track) {
         SeqTrack tr;
-        tr.target = seqTakeTarget_;
+        tr.target = target;
         s.tracks.push_back(std::move(tr));
         track = &s.tracks.back();
     }
@@ -11805,27 +11862,31 @@ float App::applyCamTake(Sequence& s, bool replace) {
     track->keys = std::move(objKeys);
     // set the entity's FOV from the take (active-scene object of that name)
     for (SceneObject& o : project_.objects())
-        if (o.name == seqTakeTarget_ && o.type == PrimitiveType::Camera) {
-            if (seqTakeStats_.fovDeg > 0.0f) o.cameraFov = seqTakeStats_.fovDeg;
+        if (o.name == target && o.type == PrimitiveType::Camera) {
+            if (stats.fovDeg > 0.0f) o.cameraFov = stats.fovDeg;
             break;
         }
     // ensure a bound camera key so the entity is actually filmed
     bool bound = false;
     for (const SeqCameraKey& k : s.cameraKeys)
-        if (k.camera == seqTakeTarget_) {
+        if (k.camera == target) {
             bound = true;
             break;
         }
     if (!bound) {
         SeqCameraKey k;
         k.time = track->keys.front().time;
-        k.camera = seqTakeTarget_;
+        k.camera = target;
         k.easing = 0;
         s.cameraKeys.push_back(k);
         sortCam();
     }
     s.cameraEnabled = true;
     return track->keys.front().time;
+}
+
+float App::applyCamTake(Sequence& s, bool replace) {
+    return applyCamTake(s, replace, seqTake_, seqTakeMap_, seqTakeTarget_, seqTakeStats_);
 }
 
 // "From view" for take import: drop the take's first sample at the preview
@@ -11842,6 +11903,416 @@ void App::takeOriginAimFromView() {
     while (y > 180.0f) y -= 360.0f;
     while (y < -180.0f) y += 360.0f;
     seqTakeMap_.yawDeg = y;
+}
+
+// --- Phone camera link -----------------------------------------------------------
+// The phone as a viewfinder (docs/phone-camera.md): phonecam::Link runs the
+// network side on a worker thread, this block is the UI half - the per-frame
+// drain, the live camera override, the preview stream and the recording that
+// turns phone motion into Cutscene Director camera keys.
+
+float App::projectFrameRate() const {
+    // Fixed display modes pin the refresh regardless of the video system; only
+    // the region-following ones follow it (see ProjectSettings::displayMode).
+    const std::string& dm = project_.settings.displayMode;
+    if (dm == "progressive" || dm == "1080i") return 60.0f;
+    if (dm == "pal576") return 50.0f;
+    return project_.settings.videoSystem == "pal" ? 50.0f : 60.0f;
+}
+
+void App::startPhoneCam() {
+    if (phoneCamCode_.empty()) phoneCamCode_ = phonecam::newPairCode();
+    phonecam::Config cfg;
+    cfg.port = (uint16_t)phoneCamPort_;
+    cfg.pairCode = phoneCamRequireCode_ ? phoneCamCode_ : std::string();
+    cfg.projectName = hasProject_ ? project_.name : std::string();
+    phoneCam_.setPreviewDefaults(phoneCamPrefs_);
+    phoneCam_.start(cfg);
+    phoneHasPose_ = false;
+    saveGlobalConfig();
+    statusMessage_ = "Phone camera link listening on port " +
+                     std::to_string(phoneCamPort_);
+}
+
+void App::stopPhoneCam() {
+    if (phoneRec_) stopPhoneRecording();
+    phoneCam_.stop();
+    phoneHasPose_ = false;
+    phoneCamPushed_ = false;
+    statusMessage_ = "Phone camera link stopped";
+}
+
+void App::phoneCamRecenter() {
+    if (!phoneHasPose_) return;
+    // The orbit camera, deliberately: currentCamera() ignores the override the
+    // phone itself installed, so "recentre" always means "come back to the
+    // vantage point I framed in the viewport", however far the phone wandered.
+    float eye[3], at[3];
+    viewport_.currentCamera(eye, at);
+    for (int c = 0; c < 3; ++c) {
+        phoneMap_.origin[c] = eye[c];
+        phoneMap_.anchor[c] = phonePose_.pos[c];
+    }
+    phoneMap_.hasAnchor = true;
+    const float viewYaw =
+        std::atan2(at[0] - eye[0], at[2] - eye[2]) * 180.0f / 3.14159265f;
+    float y = viewYaw - camSampleYawDeg(phonePose_);
+    while (y > 180.0f) y -= 360.0f;
+    while (y < -180.0f) y += 360.0f;
+    phoneMap_.yawDeg = y;
+}
+
+bool App::startPhoneRecording() {
+    if (phoneRec_) return true;
+    if (!hasProject_) {
+        statusMessage_ = "Open a project before recording a camera move";
+        return false;
+    }
+    if (selectedSequence_ < 0 || selectedSequence_ >= (int)project_.sequences.size()) {
+        statusMessage_ = "Select a cutscene in the Cutscene Director first";
+        return false;
+    }
+    if (!phoneCam_.connected() || !phoneHasPose_) {
+        statusMessage_ = "No phone is streaming a pose yet";
+        return false;
+    }
+    // Validate the target: a stale name (renamed/deleted camera) would bake a
+    // track nothing films from.
+    if (!phoneRecTarget_.empty()) {
+        bool ok = false;
+        for (const SceneObject& o : project_.objects())
+            if (o.name == phoneRecTarget_ && o.type == PrimitiveType::Camera) ok = true;
+        if (!ok) phoneRecTarget_.clear();
+    }
+    phoneRecSeq_ = selectedSequence_;
+    Sequence& s = project_.sequences[phoneRecSeq_];
+    phoneRecBaseCam_ = s.cameraKeys;
+    phoneRecBaseDuration_ = s.duration;
+    phoneRecPlayhead_ = phoneRecAtPlayhead_ ? seqPlayhead_ : 0.0f;
+    phoneTake_ = CamTake{};
+    phoneTake_.source = "Phone camera link";
+    phoneTake_.fps = 0.0f;  // irregular by nature - it is a network stream
+    phoneTake_.samples.push_back(phonePose_);  // t = 0 is where the phone is now
+    phoneRecStats_ = CamTakeBakeStats{};
+    phoneRecBakedAt_ = 0.0;
+    phoneRec_ = true;
+    seqPlaying_ = false;  // the phone owns the clock while it records
+    seqPlayhead_ = phoneRecPlayhead_;
+    statusMessage_ = "Recording camera from " + phoneCam_.device().name;
+    return true;
+}
+
+void App::stopPhoneRecording() {
+    if (!phoneRec_) return;
+    bakePhoneRecording();
+    phoneRec_ = false;
+    if (phoneRecStats_.keyCount > 0) {
+        // One undo step for the whole recording - every live re-bake before
+        // this deliberately left the history alone.
+        commitChange();
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "Recorded %d camera keys over %.2f s",
+                      phoneRecStats_.keyCount, phoneRecStats_.duration);
+        statusMessage_ = buf;
+        seqPlayhead_ = phoneRecPlayhead_;
+    } else {
+        statusMessage_ = "Recording produced no keys (too short?)";
+    }
+}
+
+void App::bakePhoneRecording() {
+    if (!phoneRec_ || !hasProject_) return;
+    if (phoneRecSeq_ < 0 || phoneRecSeq_ >= (int)project_.sequences.size()) return;
+    if (phoneTake_.samples.size() < 2) return;
+    Sequence& s = project_.sequences[phoneRecSeq_];
+    CamTakeMapping map = phoneMap_;
+    map.timeOffset = phoneRecPlayhead_;
+    switch (phoneDensityMode_) {
+        case 0:  // every game frame gets a key
+            map.keyRate = projectFrameRate();
+            break;
+        case 1:
+            map.keyRate = phoneDensity_ > 0.1f ? phoneDensity_ : 0.1f;
+            break;
+        default:  // no density: decimate by the take importer's tolerance
+            map.keyRate = 0.0f;
+            map.tolerance = phoneTolerance_;
+            break;
+    }
+    // Restore the pre-recording lane, then lay this take on top (see
+    // phoneRecBaseCam_) - a live re-bake must be idempotent.
+    s.cameraKeys = phoneRecBaseCam_;
+    applyCamTake(s, false, phoneTake_, map, phoneRecTarget_, phoneRecStats_);
+    float lastT = phoneRecBaseDuration_;
+    for (const SeqCameraKey& k : s.cameraKeys) lastT = std::max(lastT, k.time);
+    for (const SeqTrack& tr : s.tracks)
+        if (tr.target == phoneRecTarget_ && !tr.keys.empty())
+            lastT = std::max(lastT, tr.keys.back().time);
+    s.duration = lastT;
+    setDirty(true);  // transient edit: no undo snapshot until the recording ends
+}
+
+void App::phoneCamTick() {
+    for (phonecam::Event& e : phoneCam_.drainEvents()) {
+        switch (e.type) {
+            case phonecam::Event::Type::Connected:
+                statusMessage_ = e.device.name + " connected" +
+                                 (e.device.sixDof ? "" : " (orientation only)");
+                phoneHasPose_ = false;  // re-anchor on the first pose
+                break;
+            case phonecam::Event::Type::Disconnected:
+                if (phoneRec_) stopPhoneRecording();
+                phoneHasPose_ = false;
+                phoneCamPushed_ = false;
+                statusMessage_ = (e.device.name.empty() ? std::string("Phone")
+                                                        : e.device.name) +
+                                 " disconnected" +
+                                 (e.text.empty() ? "" : " (" + e.text + ")");
+                break;
+            case phonecam::Event::Type::Command:
+                if (e.text == phonecam::kCmdRecord) startPhoneRecording();
+                else if (e.text == phonecam::kCmdStop) stopPhoneRecording();
+                else if (e.text == phonecam::kCmdRecenter) phoneCamRecenter();
+                break;
+            case phonecam::Event::Type::Error:
+                statusMessage_ = "Phone camera link: " + e.text;
+                break;
+        }
+    }
+
+    const std::vector<CamTakeSample> poses = phoneCam_.drainPoses();
+    if (!poses.empty()) {
+        phonePose_ = poses.back();
+        phonePoseAt_ = ImGui::GetTime();
+        if (!phoneHasPose_) {
+            // First pose of a connection: pin the anchor here and aim the path
+            // along the current view, so the phone starts framed on what the
+            // editor camera was already looking at.
+            phoneHasPose_ = true;
+            phoneCamRecenter();
+        }
+        if (phoneRec_)
+            phoneTake_.samples.insert(phoneTake_.samples.end(), poses.begin(),
+                                      poses.end());
+    }
+    if (phoneHasPose_) {
+        float anchor[3];
+        camTakeAnchor(phoneTake_, phoneMap_, anchor);
+        mapCamSample(phonePose_, phoneMap_, anchor, phoneEye_, phoneTarget_);
+        phoneFov_ = phonePose_.fovDeg > 1.0f ? phonePose_.fovDeg : 60.0f;
+    }
+
+    // Live re-bake at 15 Hz: enough for the dopesheet to visibly fill up while
+    // you move, cheap enough not to matter (a few hundred samples).
+    if (phoneRec_) {
+        const double now = ImGui::GetTime();
+        if (now - phoneRecBakedAt_ > 1.0 / 15.0) {
+            phoneRecBakedAt_ = now;
+            bakePhoneRecording();
+        }
+    }
+
+    if (phoneCam_.connected()) {
+        phonecam::Status st;
+        st.recording = phoneRec_;
+        st.time = phoneRec_ ? (float)phoneTake_.duration() : seqPlayhead_;
+        st.keys = phoneRec_ ? phoneRecStats_.keyCount : 0;
+        if (hasProject_ && selectedSequence_ >= 0 &&
+            selectedSequence_ < (int)project_.sequences.size())
+            st.sequence = project_.sequences[selectedSequence_].name;
+        st.target = phoneRecTarget_;
+        st.density = phoneDensityMode_ == 0 ? projectFrameRate()
+                     : phoneDensityMode_ == 1 ? phoneDensity_
+                                              : 0.0f;
+        st.driving = phoneCamPushed_;
+        phoneCam_.setStatus(st);
+    }
+}
+
+// Tools > Phone Camera: hosting controls, what the phone has to be told to
+// connect, and the live mapping. Recording lives in the Cutscene Director -
+// this window is the link itself.
+void App::drawPhoneCamWindow() {
+    if (!showPhoneCamWindow_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(430), scaled(520)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Phone Camera", &showPhoneCamWindow_)) {
+        ImGui::End();
+        return;
+    }
+
+    const bool up = phoneCam_.listening();
+    const bool live = phoneCam_.connected();
+    const phonecam::DeviceInfo dev = phoneCam_.device();
+
+    // --- state line ---------------------------------------------------------
+    if (phoneCam_.state() == phonecam::Link::State::Error) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error");
+        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
+    } else if (live) {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Connected");
+        ImGui::SameLine();
+        ImGui::Text("- %s", dev.name.c_str());
+    } else if (up) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Waiting for a phone");
+    } else {
+        ImGui::TextDisabled("Not hosting");
+    }
+
+    if (!up) {
+        if (ImGui::Button("Start link", ImVec2(scaled(120), 0))) startPhoneCam();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80.0f));
+        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0))
+            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Require code", &phoneCamRequireCode_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Off accepts any device on this network - fine at a\n"
+                              "desk of your own, wrong in a shared office.");
+    } else {
+        if (ImGui::Button("Stop link", ImVec2(scaled(120), 0))) stopPhoneCam();
+        if (live) {
+            ImGui::SameLine();
+            if (ImGui::Button("Disconnect")) phoneCam_.disconnectDevice();
+        }
+    }
+
+    // --- what to type into the phone ---------------------------------------
+    if (up) {
+        ImGui::SeparatorText("Connect the phone to");
+        const std::vector<std::string> ips = wire::localIPv4();
+        if (ips.empty()) {
+            ImGui::TextDisabled("No LAN address found - is this machine on Wi-Fi?");
+        }
+        for (const std::string& ip : ips) {
+            const std::string addr = ip + ":" + std::to_string(phoneCam_.port());
+            ImGui::PushID(ip.c_str());
+            ImGui::Text("%s", addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) ImGui::SetClipboardText(addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy URL"))
+                ImGui::SetClipboardText(("http://" + addr).c_str());
+            ImGui::PopID();
+        }
+        if (phoneCamRequireCode_) {
+            ImGui::Text("Pairing code: %s", phoneCamCode_.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("New code")) {
+                phoneCamCode_ = phonecam::newPairCode();
+                saveGlobalConfig();
+                statusMessage_ =
+                    "New pairing code - restart the link for it to take effect";
+            }
+        }
+        ImGui::TextDisabled("The phone app is tools/tyrax-cam. Opening the http://\n"
+                            "address in any browser gives a test client that shows\n"
+                            "the same stream and can fake a pose.");
+    }
+
+    // --- the connected device ----------------------------------------------
+    if (live) {
+        ImGui::SeparatorText("Device");
+        if (!dev.model.empty()) ImGui::Text("Model: %s", dev.model.c_str());
+        if (!dev.client.empty()) ImGui::Text("App: %s", dev.client.c_str());
+        if (!dev.address.empty()) ImGui::Text("Address: %s", dev.address.c_str());
+        ImGui::Text("Tracking: %s",
+                    dev.sixDof ? "6DoF (position + rotation)" : "rotation only");
+        if (!dev.sixDof && ImGui::IsItemHovered())
+            ImGui::SetTooltip("This device reports no world position, so the camera\n"
+                              "turns in place instead of walking.");
+        const double age = ImGui::GetTime() - phonePoseAt_;
+        if (phoneHasPose_ && age < 1.0) {
+            ImGui::Text("Stream: %llu poses", (unsigned long long)phoneCam_.poseCount());
+            ImGui::Text("Pose: %.2f %.2f %.2f m", phonePose_.pos[0], phonePose_.pos[1],
+                        phonePose_.pos[2]);
+            ImGui::Text("Camera: %.1f %.1f %.1f", phoneEye_[0], phoneEye_[1],
+                        phoneEye_[2]);
+        } else {
+            ImGui::TextDisabled(phoneHasPose_ ? "Stream stalled" : "No pose yet");
+        }
+    }
+
+    // --- mapping ------------------------------------------------------------
+    ImGui::SeparatorText("Camera");
+    if (ImGui::Checkbox("Drive the viewport camera", &phoneDrive_)) {
+        if (!phoneDrive_) phoneCamPushed_ = false;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The phone's motion moves the editor camera (and so the\n"
+                          "image it is streaming). Off leaves the viewport under\n"
+                          "your own control while the link stays up.");
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::DragFloat("Scale", &phoneMap_.scale, 0.02f, 0.01f, 1000.0f, "%.2f u/m");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Game units per real metre. At 1, walking a metre moves\n"
+                          "the camera one unit; raise it to cover more map from\n"
+                          "the same room.");
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    if (ImGui::Button("Recentre")) phoneCamRecenter();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Put the phone camera back at the editor's own camera and\n"
+                          "aim it where the viewport is looking. Everything the\n"
+                          "phone does is relative to this point.");
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::DragFloat("Yaw", &phoneMap_.yawDeg, 1.0f, -360.0f, 360.0f, "%.0f deg");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Which way the phone's forward points in the scene.\n"
+                          "Recentre sets this from the viewport view.");
+
+    // --- preview stream -----------------------------------------------------
+    ImGui::SeparatorText("Preview stream");
+    bool prefsChanged = false;
+    static const char* kSizes[] = {"256", "320", "480", "640", "960"};
+    static const int kSizeVals[] = {256, 320, 480, 640, 960};
+    int sizeIdx = 2;
+    for (int i = 0; i < 5; ++i)
+        if (phoneCamPrefs_.maxWidth == kSizeVals[i]) sizeIdx = i;
+    ImGui::SetNextItemWidth(scaled(90.0f));
+    if (ImGui::Combo("Max size", &sizeIdx, kSizes, 5)) {
+        phoneCamPrefs_.maxWidth = phoneCamPrefs_.maxHeight = kSizeVals[sizeIdx];
+        prefsChanged = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Long-edge cap of the streamed image. The phone can ask\n"
+                          "for its own value, which then wins.");
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    if (ImGui::SliderInt("fps", &phoneCamPrefs_.fps, 1, 30)) prefsChanged = true;
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    if (ImGui::SliderInt("JPEG quality", &phoneCamPrefs_.quality, 20, 90))
+        prefsChanged = true;
+    if (prefsChanged) {
+        phoneCam_.setPreviewDefaults(phoneCamPrefs_);
+        saveGlobalConfig();
+    }
+
+    ImGui::Separator();
+    if (phoneRec_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.4f, 1.0f), "RECORDING");
+        ImGui::SameLine();
+        ImGui::Text("%.2f s, %d keys", (float)phoneTake_.duration(),
+                    phoneRecStats_.keyCount);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop")) stopPhoneRecording();
+    } else {
+        ImGui::TextDisabled("Record the move into keyframes in\n"
+                            "Tools > Cutscene Director > Phone camera.");
+    }
+    ImGui::End();
+}
+
+void App::phoneCamPushPreview() {
+    if (!phoneCam_.connected() || !phoneCam_.previewWanted()) return;
+    const phonecam::PreviewPrefs p = phoneCam_.preview();
+    const double now = ImGui::GetTime();
+    const double period = 1.0 / (double)(p.fps > 0 ? p.fps : 15);
+    if (now - phonePreviewAt_ < period) return;
+    phonePreviewAt_ = now;
+    std::vector<unsigned char> rgb;
+    int w = 0, h = 0;
+    if (viewport_.grabPreviewRgb(p.maxWidth, p.maxHeight, rgb, w, h))
+        phoneCam_.pushPreview(w, h, rgb.data());
 }
 
 // Poses a copy of the active scene's objects at the playhead using the SAME
@@ -12231,6 +12702,107 @@ void App::drawCutsceneWindow() {
                     s.cameraKeys.empty() ? 0.0f : s.cameraKeys.back().time;
                 if (lastT > s.duration) s.duration = lastT;
                 changed = true;
+            }
+        }
+    }
+
+    // --- Phone camera (live recording) --------------------------------------
+    // The other half of the phone story: instead of importing a finished file,
+    // record the move as it happens (docs/phone-camera.md). The link itself
+    // lives in Tools > Phone Camera; this is where a take lands in a sequence.
+    if (ImGui::CollapsingHeader("Phone camera",
+                                phoneRec_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        if (!phoneCam_.listening()) {
+            ImGui::TextDisabled("Hold your phone, watch the shot on its screen and\n"
+                                "record the camera move straight into this cutscene.");
+            if (ImGui::Button("Open Phone Camera...")) showPhoneCamWindow_ = true;
+        } else {
+            // Target: a Camera entity (a real dolly the game films from) or the
+            // camera lane's free shots - same choice the take importer offers.
+            bool anyCam = false;
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) anyCam = true;
+            const std::string targetLabel =
+                phoneRecTarget_.empty() ? "Free camera shots" : phoneRecTarget_;
+            ImGui::SetNextItemWidth(scaled(190.0f));
+            if (ImGui::BeginCombo("Into", targetLabel.c_str())) {
+                if (ImGui::Selectable("Free camera shots", phoneRecTarget_.empty()))
+                    phoneRecTarget_.clear();
+                if (anyCam) ImGui::Separator();
+                for (const SceneObject& o : project_.objects())
+                    if (o.type == PrimitiveType::Camera)
+                        if (ImGui::Selectable(o.name.c_str(), phoneRecTarget_ == o.name))
+                            phoneRecTarget_ = o.name;
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A Camera entity records into its transform track, so\n"
+                                  "the game films from a camera that dollies along your\n"
+                                  "path. Free shots write the camera lane directly.");
+
+            // Keyframe density. "Project frame rate" is the sync-with-the-game
+            // option: one key per rendered frame, so nothing is interpolated.
+            static const char* kDensNames[] = {"Project frame rate", "Custom rate",
+                                               "Optimize (tolerance)"};
+            ImGui::SetNextItemWidth(scaled(190.0f));
+            ImGui::Combo("Keyframes", &phoneDensityMode_, kDensNames, 3);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How densely the move is sampled into keys.\n"
+                                  "Project frame rate = one key per game frame (exact,\n"
+                                  "biggest table). Custom rate = keys per second.\n"
+                                  "Optimize = no fixed rate; drop keys the PS2's own\n"
+                                  "interpolation already reproduces within an error\n"
+                                  "bound (the smallest table).");
+            ImGui::SameLine(0.0f, scaled(12.0f));
+            if (phoneDensityMode_ == 0) {
+                ImGui::Text("%.0f keys/s", projectFrameRate());
+            } else if (phoneDensityMode_ == 1) {
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                ImGui::DragFloat("##dens", &phoneDensity_, 0.5f, 0.5f, 60.0f,
+                                 "%.1f keys/s");
+            } else {
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                ImGui::SliderFloat("##tol", &phoneTolerance_, 0.005f, 1.0f, "%.3f u",
+                                   ImGuiSliderFlags_Logarithmic);
+            }
+            ImGui::Checkbox("Start at playhead", &phoneRecAtPlayhead_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Recorded keys begin at the playhead instead of at\n"
+                                  "t = 0, so a move can be dropped after an existing\n"
+                                  "shot.");
+
+            if (phoneRec_) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.13f, 0.17f, 1.0f));
+                if (ImGui::Button("Stop recording", ImVec2(scaled(140), 0)))
+                    stopPhoneRecording();
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.4f, 1.0f),
+                                   "REC  %.2f s  %d keys", (float)phoneTake_.duration(),
+                                   phoneRecStats_.keyCount);
+                if (phoneRecSeq_ != selectedSequence_)
+                    ImGui::TextDisabled("(recording into \"%s\")",
+                                        phoneRecSeq_ >= 0 &&
+                                                phoneRecSeq_ < (int)project_.sequences.size()
+                                            ? project_.sequences[phoneRecSeq_].name.c_str()
+                                            : "?");
+                if (phoneRecStats_.keyCount > 600)
+                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
+                                       "%d keys is a big table - consider a lower "
+                                       "density.", phoneRecStats_.keyCount);
+            } else {
+                const bool canRec = phoneCam_.connected() && phoneHasPose_;
+                ImGui::BeginDisabled(!canRec);
+                if (ImGui::Button("Record", ImVec2(scaled(140), 0)))
+                    startPhoneRecording();
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (!phoneCam_.connected())
+                    ImGui::TextDisabled("Waiting for the phone to connect...");
+                else if (!phoneHasPose_)
+                    ImGui::TextDisabled("Waiting for a pose...");
+                else
+                    ImGui::TextDisabled("The phone's REC button does this too.");
             }
         }
     }
