@@ -572,6 +572,7 @@ void App::drawUI() {
     drawUiEditorWindow();
     drawFontManagerWindow();
     drawTreeGeneratorWindow();
+    drawCharacterGeneratorWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
@@ -986,6 +987,10 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Tree Generator...")) {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
+            }
+            if (ImGui::MenuItem("Character Generator...")) {
+                showCharGenerator_ = true;
+                charPreviewDirty_ = true;
             }
             ImGui::EndMenu();
         }
@@ -2632,6 +2637,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "chargen") return &showCharGenerator_;
     return nullptr;
 }
 
@@ -2641,7 +2647,7 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
-    "anim",     "tree"};
+    "anim",     "tree",     "chargen"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -8865,6 +8871,270 @@ void App::addTreeToScene() {
     addModelObject(objRel);        // creates the Model object + commitChange()
     statusMessage_ = "Added tree '" + name + "' (" +
                      std::to_string(treeMesh_.triangles()) + " tris)";
+}
+
+void App::rebuildCharacterPreview() {
+    charPreviewDirty_ = false;
+    charWarnings_.clear();
+    charBuildError_.clear();
+    charPrevTris_.clear();
+    charPrevRgba_.clear();
+    charPrevTexW_ = charPrevTexH_ = 0;
+    ++charPreviewVersion_;
+
+    if (!chargen::build(charParams_, charSkel_, charWarnings_, charBuildError_)) {
+        charSkel_ = glbparser::Skel();
+        return;
+    }
+    if (charSkel_.parts.empty()) return;
+
+    // The preview takes one interleaved array; the Skel keeps the attributes
+    // apart because that is what both the .glb writer and the .tskl bake want.
+    const glbparser::SkelPart& part = charSkel_.parts[0];
+    charPrevTris_.reserve((size_t)part.vertexCount * 8);
+    for (int v = 0; v < part.vertexCount; ++v) {
+        for (int k = 0; k < 3; ++k) charPrevTris_.push_back(part.positions[v * 3 + k]);
+        for (int k = 0; k < 3; ++k) charPrevTris_.push_back(part.normals[v * 3 + k]);
+        for (int k = 0; k < 2; ++k) charPrevTris_.push_back(part.uvs[v * 2 + k]);
+    }
+    // Decoding the already-downscaled 256-square PNG costs about a millisecond
+    // - cheap enough to avoid a second copy of the pixels crossing the API.
+    if (!charSkel_.images.empty()) {
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(charSkel_.images[0].png.data(),
+                                                  (int)charSkel_.images[0].png.size(), &w, &h,
+                                                  &comp, 4);
+        if (px) {
+            charPrevRgba_.assign(px, px + (size_t)w * h * 4);
+            charPrevTexW_ = w;
+            charPrevTexH_ = h;
+            stbi_image_free(px);
+        }
+    }
+}
+
+// Tools > Character Generator: a rigged, skinned human built from the
+// MakeHuman CC0 data set (docs/character-generator.md). The macro sliders are
+// MakeHuman's own, the body comes out at the PS2's budget (1460 triangles, 23
+// Mixamo-named bones), and "Add to scene" writes a plain .glb - from there it
+// is an ordinary animated model with nothing downstream aware it was
+// generated.
+void App::drawCharacterGeneratorWindow() {
+    if (!showCharGenerator_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(880.0f), scaled(600.0f)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Character Generator", &showCharGenerator_)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!chargen::dataAvailable()) {
+        ImGui::TextWrapped(
+            "The MakeHuman CC0 data set is not installed.\n\n"
+            "It is not part of the repository (about 45 MB of base mesh, morph targets, rig and "
+            "skins), so setup.ps1 fetches it into vendor/mh-assets. Run setup.ps1 in the editor "
+            "repository and reopen this window.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("Everything it downloads is CC0 - see README.md > Credits.");
+        ImGui::End();
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    chargen::Params& p = charParams_;
+    bool dirty = false;
+
+    // ---- left: parameter panel ---------------------------------------------
+    ImGui::BeginChild("charparams", ImVec2(scaled(330.0f), 0), true);
+
+    const std::vector<chargen::Preset>& presets = chargen::presets();
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::BeginCombo("Preset", presets[charPreset_].name)) {
+        for (int i = 0; i < (int)presets.size(); ++i)
+            if (ImGui::Selectable(presets[i].name, charPreset_ == i)) {
+                charPreset_ = i;
+                const int keepSkin = p.skin;
+                const int keepTex = p.textureSize;
+                p = presets[i].params;
+                p.skin = keepSkin;  // a preset is a body, not a skin
+                p.textureSize = keepTex;
+                dirty = true;
+            }
+        ImGui::EndCombo();
+    }
+
+    if (ImGui::CollapsingHeader("Body", ImGuiTreeNodeFlags_DefaultOpen)) {
+        dirty |= ImGui::SliderFloat("Gender", &p.gender, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = female, 1 = male");
+        dirty |= ImGui::SliderFloat("Age", &p.age, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "MakeHuman's age scale: 0 = baby (1 year), 0.19 = child (10),\n"
+                "0.5 = young adult (25), 1 = old (90).");
+        dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Height", &p.heightMeters, 0.6f, 2.4f, "%.2f m");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Scales the finished body, feet on y = 0.\n"
+                "MakeHuman's height targets are a separate 144-file set the\n"
+                "editor does not ship - see docs/character-generator.md.");
+    }
+
+    if (ImGui::CollapsingHeader("Ethnicity", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // The three normalize to 1 inside the generator, so a slider raised
+        // here simply takes share from the others.
+        dirty |= ImGui::SliderFloat("African", &p.african, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Asian", &p.asian, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Caucasian", &p.caucasian, 0.0f, 1.0f, "%.2f");
+        if (ImGui::SmallButton("Even mix")) {
+            p.african = p.asian = p.caucasian = 1.0f / 3.0f;
+            dirty = true;
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Skin", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const std::vector<std::string>& list = chargen::skins();
+        const char* current = p.skin >= 0 && p.skin < (int)list.size() ? list[p.skin].c_str()
+                                                                      : "(none)";
+        ImGui::SetNextItemWidth(scaled(220.0f));
+        if (ImGui::BeginCombo("Texture", current)) {
+            if (ImGui::Selectable("(none)", p.skin < 0)) {
+                p.skin = -1;
+                dirty = true;
+            }
+            for (int i = 0; i < (int)list.size(); ++i)
+                if (ImGui::Selectable(list[i].c_str(), p.skin == i)) {
+                    p.skin = i;
+                    dirty = true;
+                }
+            ImGui::EndCombo();
+        }
+        const int sizes[] = {64, 128, 256};
+        int sizeIdx = p.textureSize >= 256 ? 2 : (p.textureSize >= 128 ? 1 : 0);
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::Combo("Size", &sizeIdx, "64\0" "128\0" "256\0")) {
+            p.textureSize = sizes[sizeIdx];
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Baked into the .glb. GS VRAM is ~1.33 MB with no eviction,\n"
+                "so a crowd wants 64 or 128 (see docs/gs-vram.md).");
+    }
+
+    ImGui::Separator();
+    const glbparser::SkelPart* part = charSkel_.parts.empty() ? nullptr : &charSkel_.parts[0];
+    if (!charBuildError_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s", charBuildError_.c_str());
+    } else if (part) {
+        ImGui::Text("%d triangles, %d bones", part->vertexCount / 3,
+                    (int)charSkel_.palette.size());
+        ImGui::Text("~%d KB of PS2 RAM", (int)(charSkel_.ps2Bytes() / 1024));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Model data plus one instance's skinned output buffers.");
+    }
+    for (const std::string& w : charWarnings_)
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "%s", w.c_str());
+    ImGui::EndChild();
+
+    // ---- right: live preview ------------------------------------------------
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + scaled(8.0f);
+    const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
+    const int ph = (int)std::max(64.0f, ImGui::GetContentRegionAvail().y - footer);
+
+    if (charGenSpin_) charGenAngle_ += io.DeltaTime * 26.0f;
+
+    Viewport::CharPreviewDesc desc;
+    desc.version = charPreviewVersion_;
+    desc.tris = &charPrevTris_;
+    if (!charPrevRgba_.empty()) {
+        desc.rgba = charPrevRgba_.data();
+        desc.texW = charPrevTexW_;
+        desc.texH = charPrevTexH_;
+    }
+    for (int i = 0; i < 3; ++i) desc.center[i] = (charSkel_.min[i] + charSkel_.max[i]) * 0.5f;
+    desc.minY = charSkel_.min[1];
+    const float dx = charSkel_.max[0] - charSkel_.min[0];
+    const float dy = charSkel_.max[1] - charSkel_.min[1];
+    const float dz = charSkel_.max[2] - charSkel_.min[2];
+    desc.radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+    desc.angleDeg = charGenAngle_;
+    desc.pitchDeg = charGenPitch_;
+    desc.zoom = charGenZoom_;
+    desc.displayMode = charGenDisplayMode_;
+
+    const uint32_t tex = charPrevTris_.empty() ? 0 : viewport_.renderCharacterPreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph), ImVec2(0, 1),
+                     ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##char_prev_in", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
+            charGenZoom_ = std::clamp(charGenZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
+        if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            charGenAngle_ += io.MouseDelta.x * 0.5f;
+            charGenPitch_ = std::clamp(charGenPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
+            charGenSpin_ = false;  // grabbing the camera stops the turntable
+        }
+    } else {
+        ImGui::Dummy(ImVec2((float)pw, (float)ph));
+    }
+
+    ImGui::Checkbox("Spin", &charGenSpin_);
+    ImGui::SameLine();
+    bool wire = charGenDisplayMode_ == 1;
+    if (ImGui::Checkbox("Wireframe", &wire)) charGenDisplayMode_ = wire ? 1 : 0;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset view")) {
+        charGenAngle_ = 20.0f;
+        charGenPitch_ = 6.0f;
+        charGenZoom_ = 1.0f;
+    }
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    ImGui::InputText("Name", charName_, sizeof(charName_));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charPrevTris_.empty());
+    if (ImGui::Button("Add to scene")) addCharacterToScene();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Write the .glb into res/models/characters and drop a\n"
+                          "Model object into the current scene.");
+    ImGui::EndGroup();
+
+    if (dirty) charPreviewDirty_ = true;
+    if (charPreviewDirty_) rebuildCharacterPreview();
+
+    ImGui::End();
+}
+
+// "Add to scene" from the Character Generator. Same shape as addTreeToScene:
+// a distinct asset file per generated character so two of them never overwrite
+// each other, then the ordinary Model insert path.
+void App::addCharacterToScene() {
+    std::string base = sanitizeAssetName(charName_);
+    if (base.empty()) base = "character";
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                               (name + ".glb"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string rel, err;
+    if (!chargen::writeAsset(project_.dir, name, charSkel_, &rel, &err)) {
+        statusMessage_ = "Character export failed: " + err;
+        return;
+    }
+    addModelObject(rel);  // creates the Model object + commitChange()
+    const int tris = charSkel_.parts.empty() ? 0 : charSkel_.parts[0].vertexCount / 3;
+    statusMessage_ =
+        "Added character '" + name + "' (" + std::to_string(tris) + " tris, " +
+        std::to_string((int)charSkel_.palette.size()) + " bones)";
 }
 
 // Picks one of the project's Font Manager entries by name. An empty reference

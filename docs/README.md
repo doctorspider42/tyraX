@@ -85,6 +85,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   Cutscene Director camera track: the canonical take space, the mapping and
   decimation controls in the import modal, and the acquisition/bake split that
   keeps the door open for live phone streaming.
+- [Character generator](character-generator.md) - the *Tools > Character
+  Generator* window: how a handful of macro sliders become a rigged, skinned
+  1460-triangle human, where the MakeHuman CC0 data comes from and what is in
+  it, the three tricks that make it fit a PS2 (corner-blended macro targets, a
+  proxy body riding the reference mesh, a rig re-derived from the morph), the
+  Mixamo-named bone list, and what is deliberately not there yet.
 - [AI flow-graph generation](ai-flow-graph.md) - describing game logic in
   plain language and letting an AI backend (Claude CLI, Copilot CLI or the
   OpenAI API) build the graph: backend/model/thinking preferences, what the

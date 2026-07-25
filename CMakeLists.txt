@@ -61,10 +61,13 @@ add_executable(tyrax-editor
     src/aobake.cpp
     src/app.cpp
     src/camtake.cpp
+    src/chargen.cpp
     src/flownode.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
+    src/gltfwrite.cpp
+    src/mhdata.cpp
     src/json.cpp
     src/matbake.cpp
     src/objparser.cpp

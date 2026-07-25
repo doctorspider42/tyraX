@@ -39,6 +39,14 @@ bug this arrangement exists to prevent: the two lists used to drift, and a
 worktree that predated a new dependency reached cmake with the sources
 missing.
 
+`setup.ps1` also fetches ~45 MB of MakeHuman **CC0 data** into
+`vendor/mh-assets` for the Character Generator (`$MhAssets` in `deps.ps1`).
+It is data, not sources, so `build.ps1` never blocks on it and the editor
+compiles without it — the window just explains how to get it. A `chargen`
+harness or a Character Generator test therefore needs `setup.ps1` to have run
+at least once; the harness resolves the directory relative to the exe, or from
+`vendor/mh-assets` when run from a repo root.
+
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
 corrupt checkout — that path simply isn't on disk yet. `./build.ps1` normally

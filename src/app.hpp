@@ -10,6 +10,7 @@
 
 #include "aigen.hpp"
 #include "camtake.hpp"
+#include "chargen.hpp"
 #include "history.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
@@ -267,6 +268,15 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Character Generator: a rigged, skinned, PS2-budget human built
+    // from the MakeHuman CC0 data (chargen, docs/character-generator.md).
+    // "Add to scene" writes the .glb into res/models/characters and drops in a
+    // Model object - from there it is an ordinary animated model.
+    void drawCharacterGeneratorWindow();
+    // (Re)builds charSkel_ + the interleaved preview arrays from charParams_
+    // and bumps charPreviewVersion_ so the viewport re-uploads.
+    void rebuildCharacterPreview();
+    void addCharacterToScene();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -666,6 +676,26 @@ private:
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
     int treeGenDisplayMode_ = 0;
+
+    // Character Generator (Tools > Character Generator). charSkel_ is the
+    // built character; charPrevTris_/charPrevRgba_ are the same thing in the
+    // interleaved form the viewport preview takes, rebuilt together so one
+    // version stamp covers both.
+    bool showCharGenerator_ = false;
+    chargen::Params charParams_;
+    int charPreset_ = 0;
+    glbparser::Skel charSkel_;
+    std::vector<float> charPrevTris_;  // pos3 + normal3 + uv2 per vertex
+    std::vector<unsigned char> charPrevRgba_;
+    int charPrevTexW_ = 0, charPrevTexH_ = 0;
+    std::string charBuildError_;
+    std::vector<std::string> charWarnings_;
+    uint64_t charPreviewVersion_ = 0;
+    bool charPreviewDirty_ = true;
+    char charName_[64] = "character";
+    float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
+    bool charGenSpin_ = false;
+    int charGenDisplayMode_ = 0;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;

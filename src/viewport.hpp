@@ -238,6 +238,26 @@ public:
         int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
     };
     uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
+
+    // Character Generator live preview (Tools > Character Generator): the
+    // generated body in bind pose with its baked-down skin texture, straight
+    // from chargen - like the tree preview, nothing touches disk or the shared
+    // asset caches, and it renders into its OWN framebuffer so both tools can
+    // be open at once.
+    struct CharPreviewDesc {
+        uint64_t version = 0;
+        const std::vector<float>* tris = nullptr;  // pos3+normal3+uv2 triangles
+        const unsigned char* rgba = nullptr;       // skin texture pixels
+        int texW = 0, texH = 0;
+        float center[3] = {0, 0, 0};
+        float minY = 0.0f;
+        float radius = 1.0f;
+        float angleDeg = 0.0f;
+        float pitchDeg = 8.0f;
+        float zoom = 1.0f;
+        int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
+    };
+    uint32_t renderCharacterPreview(int width, int height, const CharPreviewDesc& d);
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals
@@ -672,6 +692,24 @@ private:
     void ensureTreeFramebuffer(int width, int height);
     uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
     int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Character Generator preview target - its own, for the same reason.
+    void ensureCharFramebuffer(int width, int height);
+    uint32_t charFbo_ = 0, charTex_ = 0, charDepth_ = 0;
+    int charFbW_ = 0, charFbH_ = 0;
+    Mesh charPrevMesh_;
+    uint32_t charPrevTex_ = 0;
+    uint64_t charPrevVersion_ = 0;
+    bool charPrevHasVersion_ = false;
+
+    // Shared body of the tool previews (tree, character): backdrop, checker
+    // floor, one solid mesh plus an optional alpha-cutout one, framed on an
+    // AABB. Only the framebuffer and what is drawn differ between the two, so
+    // the camera/framing math lives here once.
+    void drawToolPreview(uint32_t fbo, int width, int height, const Mesh& solid,
+                         uint32_t solidTex, const Mesh& cutout, uint32_t cutoutTex,
+                         const float center[3], float minY, float radius, float angleDeg,
+                         float pitchDeg, float zoom, int displayMode);
 
     // Tree Generator preview geometry + textures (see renderTreePreview);
     // rebuilt only when the desc version changes.

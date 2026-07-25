@@ -45,6 +45,72 @@ $VendorDeps = @(
 # partial vendor/stb is missing (setup.ps1 does the fetching).
 $StbHeaders = @('stb_image.h', 'stb_truetype.h', 'stb_image_write.h')
 
+# MakeHuman CC0 data for the Character Generator (docs/character-generator.md).
+# DATA ONLY - the MakeHuman *program* is AGPL and none of it is used here; the
+# base mesh, targets, proxy meshes, rig, vertex weights and skins were
+# explicitly released as CC0 in 2020 (each file carries the release notice in
+# its own header, and the assets repository ships the CC0 text). Credits live
+# in README.md; keep them in sync when this list grows.
+#
+# Fetched file-by-file rather than cloned: the two upstream repositories are
+# several GB, and the editor needs ~110 of their files. The download is about
+# 40 MB, all of it git-ignored under vendor/. Not compiled into the editor, so
+# build.ps1 never blocks on it - the Character Generator window explains how to
+# get the data when it is missing.
+$MhRaw = 'https://raw.githubusercontent.com/makehumancommunity/makehuman/master/makehuman/data'
+$MhAssetRaw = 'https://raw.githubusercontent.com/makehumancommunity/makehuman-assets/master/base'
+# The skin textures are stored in Git LFS, so raw.githubusercontent serves a
+# 132-byte pointer file instead of the PNG - media.githubusercontent serves the
+# real bytes.
+$MhAssetLfs = 'https://media.githubusercontent.com/media/makehumancommunity/makehuman-assets/master/base'
+
+$MhFiles = [System.Collections.ArrayList]@(
+    @{ Url = "$MhRaw/3dobjs/base.obj";              Path = 'base.obj' },
+    @{ Url = "$MhRaw/rigs/default.mhskel";          Path = 'default.mhskel' },
+    @{ Url = "$MhRaw/rigs/default_weights.mhw";     Path = 'default_weights.mhw' },
+    @{ Url = "$MhAssetRaw/proxymeshes/proxy741/proxy741.obj";   Path = 'proxy741.obj' },
+    @{ Url = "$MhAssetRaw/proxymeshes/proxy741/proxy741.proxy"; Path = 'proxy741.proxy' },
+    @{ Url = 'https://raw.githubusercontent.com/makehumancommunity/makehuman-assets/master/LICENSE.txt'
+       Path = 'LICENSE-CC0.txt' }
+)
+
+# The macro target set: every combination the macro sliders blend between.
+# "<ethnicity>-<gender>-<age>" carries the facial/skeletal character, and
+# "universal-<gender>-<age>-<muscle>-<weight>" the build. Height and body
+# proportions have their own 144-file sets upstream; the generator scales for
+# height instead, so they are deliberately not fetched (see the docs).
+foreach ($e in @('african', 'asian', 'caucasian')) {
+    foreach ($g in @('female', 'male')) {
+        foreach ($a in @('baby', 'child', 'young', 'old')) {
+            [void]$MhFiles.Add(@{ Url = "$MhRaw/targets/macrodetails/$e-$g-$a.target"
+                                  Path = "targets/$e-$g-$a.target" })
+        }
+    }
+}
+foreach ($g in @('female', 'male')) {
+    foreach ($a in @('baby', 'child', 'young', 'old')) {
+        foreach ($m in @('minmuscle', 'averagemuscle', 'maxmuscle')) {
+            foreach ($w in @('minweight', 'averageweight', 'maxweight')) {
+                $n = "universal-$g-$a-$m-$w.target"
+                [void]$MhFiles.Add(@{ Url = "$MhRaw/targets/macrodetails/$n"
+                                      Path = "targets/$n" })
+            }
+        }
+    }
+}
+
+# Skins (2048x2048 diffuse maps, downscaled to 256 at generate time). Six of
+# the 22 upstream textures, chosen to span age x tone x gender plus the two
+# clothed "special suit" ones.
+foreach ($s in @('young_lightskinned_female_diffuse', 'young_lightskinned_male_diffuse',
+                 'young_darkskinned_female_diffuse', 'young_darkskinned_male_diffuse',
+                 'young_caucasian_female_special_suit', 'young_caucasian_male_special_suit')) {
+    [void]$MhFiles.Add(@{ Url = "$MhAssetLfs/skins/textures/$s.png"; Path = "skins/$s.png" })
+}
+
+$MhAssets = @{ Dir = 'vendor/mh-assets'; Probe = 'vendor/mh-assets/base.obj'
+               Files = $MhFiles }
+
 # Real-PS2 network deploy tools ("Run on PS2" in the editor): ps2client.exe
 # talks to a console running ps2link. The Runner looks for it in
 # tools/ps2client/bin; ps2link goes onto the console's memory card once

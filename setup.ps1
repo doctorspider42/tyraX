@@ -45,6 +45,37 @@ foreach ($h in $StbHeaders) {
     }
 }
 
+# MakeHuman CC0 data (Character Generator). ~110 small files plus six large
+# skin textures, so this is the one fetch worth reporting progress on. Each
+# file is checked individually: an interrupted run resumes where it stopped
+# instead of re-downloading 40 MB.
+if (Test-Path $MhAssets.Probe) {
+    Write-Host "OK: $($MhAssets.Dir) already present"
+} else {
+    Write-Host "Fetching MakeHuman CC0 data into $($MhAssets.Dir) (~40 MB, one time)"
+    # Invoke-WebRequest's own progress bar costs more than the download on a
+    # list this long - it re-renders per read on Windows PowerShell 5.1.
+    $prevProgress = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        $done = 0
+        foreach ($f in $MhAssets.Files) {
+            $dest = Join-Path $MhAssets.Dir $f.Path
+            $done++
+            if (Test-Path $dest) { continue }
+            New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+            if ($done % 20 -eq 0) {
+                Write-Host "  $done/$($MhAssets.Files.Count) $($f.Path)"
+            }
+            # A partial file must not look like a finished one to the next run.
+            $tmp = "$dest.part"
+            Invoke-WebRequest -Uri $f.Url -OutFile $tmp
+            Move-Item -Force $tmp $dest
+        }
+    } finally { $ProgressPreference = $prevProgress }
+    Write-Host "  done ($($MhAssets.Files.Count) files)"
+}
+
 foreach ($t in $Ps2Tools) {
     if (Test-Path $t.Probe) {
         Write-Host "OK: $($t.Dir) already present"

@@ -10,6 +10,68 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (177) **Character Generator** (docs/character-generator.md) - *Tools >
+  Character Generator* builds a rigged, skinned, textured human at the PS2's
+  budget (1460 triangles, 23 bones, one 256² skin) from macro sliders, with a
+  live preview, and "Add to scene" writes a plain `.glb` into
+  `res/models/characters/` + drops a Model object in. **Nothing downstream
+  knows a character was generated** - `isAnimatedModelPath()` keys off the
+  extension, so import validation, the viewport preview, the Animation Editor,
+  the `.tskl` bake with its LODs, player avatars, NPC AI and Live Link all work
+  unchanged. That is why the output is a real glTF file and not a private
+  format, and it is also why the one genuinely new piece of plumbing here is
+  `gltfwrite.cpp`, the exact inverse of `glbparser::parseSkel`.
+  **The bodies are MakeHuman's CC0 DATA, not MakeHuman the program** (which is
+  AGPL and is not used): base mesh, macro targets, the `proxy741` proxy, the
+  rig, its vertex weights and six skins, fetched by `setup.ps1` into
+  `vendor/mh-assets` (~45 MB, listed in `deps.ps1`, git-ignored). Credits in
+  README.
+  **Three things made it fit a console**, and each replaced an approach that
+  would not have: (a) the macro sliders blend the CORNERS of MakeHuman's target
+  space (up to 16 `universal-*` plus 12 `<ethnicity>-*` files, one factor per
+  axis multiplied together) rather than one morph per slider; (b) the CC0
+  741-vertex `proxy741` body is bound to the 19158-vertex reference mesh
+  BARYCENTRICALLY (three base vertices + weights + an offset in units of the
+  body's own proportions), so the low-poly mesh follows every morph exactly -
+  no quadric decimation melting the face, and the UVs the CC0 skins are painted
+  for come along untouched; (c) the rig is RE-DERIVED from the morphed mesh
+  (MakeHuman defines each joint as a cube of base-mesh vertices, so the joint
+  is their centroid) instead of being fitted to it - a child and a heavy-set
+  adult get correctly placed hips for free. The reference rig's 163 bones
+  collapse onto 23 **Mixamo-named** ones by walking each bone to its nearest
+  kept ancestor (the toe chains are matched by name instead - MakeHuman parents
+  all five straight to the foot, so the ancestor walk would leave the toe bone
+  dead). Bind rotations are identity, so an inverse bind matrix is a pure
+  translation.
+  Two traps worth keeping: the `.proxy` format has a **one-token short form**
+  for a vertex that sits exactly on a base vertex (proxy741 has exactly one),
+  and dropping it shifts every later vertex against the .obj's face indices -
+  the mesh comes out subtly scrambled rather than obviously broken, which is
+  why `build()` now refuses a bindings/topology count mismatch outright. And
+  the skin texture is forced **opaque**: StaPip's alpha test discards `a == 0`,
+  so a transparent texel in a body skin punches a hole through the character
+  (the same rule as the lightmap floor in (176)).
+  Also here: `SkelNode` gained a `name` (filled by both the .glb and .fbx
+  importers) - nothing on the PS2 needs it, but it is what identifies a bone to
+  Blender and to any future retarget, and it round-trips through the writer.
+  The tool previews now share `Viewport::drawToolPreview`; the Character
+  Generator still gets its **own** framebuffer (`charFbo_`), per the rule that
+  two tools may be open at once.
+  Rebuild cost is ~8 ms once the targets are cached (the reference weights and
+  the decoded skin are computed once, not per slider frame - they cost 140 ms
+  when they were not).
+  **Verified**: host harnesses for each layer (mhdata loaders + proxy fit
+  against the base body's bbox; a hand-built Skel round-tripped through
+  `writeGlb` → `parseSkel`; every preset checked for requested height, feet on
+  y=0, weights summing to 255, joint indices in range, UVs in 0..1, outward
+  winding, plausible hip height, byte-identical rebuilds - plus a software
+  rasterizer dumping front/side shaded+textured contact sheets, which is how
+  the UV flip and the winding were confirmed by eye rather than by hope).
+  Editor GUI screenshot of the window with its live preview. Full e2e:
+  `--refresh-gen` bakes `man.tskl` (24 nodes, 23 palette slots) + extracts the
+  skin PNG, then a Docker build + PCSX2 boot shows the character standing
+  textured on the terrain at **50 FPS**, no assert, 2 resident textures.
+
 - (176) **The baked light was being clipped by the GS ALPHA TEST - it was never
   a resolution problem.** The user kept saying the lights looked square and
   "like the texture is just cut off", and proposed reworking the whole thing
