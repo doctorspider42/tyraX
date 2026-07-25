@@ -20,9 +20,13 @@ RendererCore3D::~RendererCore3D() {}
 
 void RendererCore3D::update() { is3DSupportEnabled = false; }
 
+// Modified by TyraX: honour CameraInfo3D::up in the view matrix, so a camera can
+// roll about its view axis (cutscene Dutch angles). The frustum below already
+// culled against `up`; only this was dropping it. `up` is never null - it
+// defaults to (0, 1, 0) - so every existing caller gets a bit-identical matrix.
 void RendererCore3D::update(const CameraInfo3D& cameraInfo) {
   frustumPlanes.update(cameraInfo, fov);
-  M4x4::lookAt(&view, *cameraInfo.position, *cameraInfo.looksAt);
+  M4x4::lookAt(&view, *cameraInfo.position, *cameraInfo.looksAt, *cameraInfo.up);
   viewProj = projection * view;
   is3DSupportEnabled = true;
 }
