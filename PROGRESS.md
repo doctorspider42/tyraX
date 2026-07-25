@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (171) **Procedural content generation: a scatter-graph tool whose output is
+- (173) **Procedural content generation: a scatter-graph tool whose output is
   ordinary static geometry** (owner brief: a backlog for node-based procedural
   scenes, "adapt it to our system, aim for the best solution"). The backlog
   asked for a graph, typed edges, a cached evaluator, deterministic RNG,
@@ -93,6 +93,135 @@ Each finished feature lands as its own commit.
   border edges and can only be made cheaper by authoring fewer, bigger cards.
   That is in the docs as the honest answer to "why is my forest still 30k
   triangles".
+- (172) **The GROUND goes per pixel too: baked emissive light + its shadows
+  move onto the terrain lightmap.** (169) fixed the props and left the biggest
+  surface in the frame behind. `examples/glow` measures it: *Terrain detail* 32
+  over a 64-unit map is a 33x33 vertex grid, one lighting sample every **1.94
+  world units**, and `shadeAt` in `buildTerrainChunk` ran the emitter response
+  AND its shadow test per vertex - so every pool of light and every shadow edge
+  on the ground was quantised into ~2-metre squares. In a dark scene where the
+  ground fills most of the frame, that was the most visible artifact left.
+  The fix is the exact twin of what objects already do, one level up: the
+  terrain AO map (`.res-baked/aomap/scene<N>.png`, already RGBA32, already
+  drawn as an extra chunk pass) becomes the terrain **lightmap** - `A` =
+  occlusion as before, `RGB` = baked emissive light - and each chunk draws it
+  twice, the occlusion multiply with BLACK vertex colors (it had grey ones,
+  harmless while the RGB was zero, wrong the moment it is not) and then an
+  additive pass through `lightAddInfoBag` whose vertex color carries the
+  terrain's own base tint. `aobake::terrainAOMap` bakes both channels from the
+  same heightmap normal `shadeAt` derives, reusing `collectEmitters` /
+  `emitterLightAt` / `shapeBlocksRay`, with the same ordered 4x4 Bayer dither
+  the object atlas uses (these are wide low-amplitude ramps; an 8-bit
+  framebuffer bands them badly without it) and the shadow casters pruned ONCE
+  per emitter instead of per texel. `SCENE_AO_MAP_LIT` is the terrain's
+  `SCENE_AO_ATLAS_LIT`: with it set the chunk build stops adding
+  `emissiveLightAt` to the vertex colors and skips the per-chunk emitter
+  collect entirely, so the light cannot land twice; `SCENE_AO_MAP_OCC` gates
+  the occlusion pass separately, so **each pass is drawn only when its channel
+  has content**. The map is no longer gated on the ambient-occlusion
+  preference either - the object atlas was ungated in (169) for the same
+  reason, and `examples/glow` is exactly the case (AO off, five emitters).
+  Along the way: every extra chunk pass now carries the BASE bag's
+  `bboxVersion` instead of its own `++g_bboxStamp`. The engine's package-bbox
+  cache is keyed by the vertex pointer, and all the passes share
+  `ch.vertices`, so distinct stamps made each pass recompute the boxes the
+  previous one had just built, every frame - the new pass would have been the
+  fourth. Not previously noticed because it is invisible except in EE time.
+  Known limits, documented rather than papered over: one 256² map for the
+  WHOLE terrain (RGBA32 - palettising destroys the gradient through the
+  engine's tRNS→CLUT path), so **0.25 world units per texel at 64 units**
+  (~8x finer per axis than the vertex grid) but **0.75 at 192** like
+  `examples/showcase` - better than per vertex, not dramatic. Shadows stay
+  rectangular (analytic boxes/spheres); this makes them smooth-edged and
+  correctly placed, not silhouette-accurate. And on a *textured* terrain the
+  additive pass adds flat light instead of modulating the texture, so a hot
+  pool reads slightly bright over dark texels - the opposite call from the one
+  objects make (a prop is small and its texture hides the Gouraud seam; the
+  ground is the whole frame and had nowhere to hide).
+  **Verified in PCSX2 (software renderer), full `--build` on both sides** - not
+  `--refresh-gen`, which does not run texbake and would have compared a stale
+  PNG with itself (the trap (170) fell into). Decoded the baked PNG directly:
+  before 256x256, alpha 10175 texels, **RGB 0 texels**; after, the identical
+  10175 alpha texels and **11858 RGB texels**, max (255,203,146) - the lava's
+  orange. Sampled the map along the ground: a smooth quadratic ramp away from
+  the plate edge (124, 108, 87, 57, 34, 17, 5, 0 over 0.25-unit texels) and a
+  hard cut to 0 behind `s3-shadow-wall`. Screenshots from a fixed spawn (a
+  scratch copy of `examples/glow` with the player parked facing the lava pit,
+  so the frames line up): before, the ground is a fan of ~2-metre facets and
+  the wall's shadow is a visible polygon; after, both are smooth with a clean
+  edge. **50.08 FPS** in steady state (before: 50.02), EE 34%. Also built the
+  AO-off variant end to end: the map ships with **0 alpha texels** and 11858
+  RGB ones, i.e. only the additive pass. `examples/showcase`, `large-terrain`
+  and `script-demo` regenerate byte-identically apart from the two new flag
+  tables, both all-zero - a scene with no emitters gains no pass. All 18
+  example projects regenerated.
+
+- (171) **GS VRAM: a real residency manager (order-independent free +
+  coldest-first eviction), after measuring what the old one actually cost.**
+  Upstream's allocator was a bump pointer whose `free(address)` was literally
+  `pointer = address`, and `useTexture` deallocated the ENTIRE resident set the
+  moment one texture didn't fit. Measured first, per the brief.
+  **What the measurement said** (new `VRAMSTAT` counters in
+  `RendererCoreTexture` - binds/hits/uploads/re-uploads/evictions/free-VRAM
+  low-water, logged from `endFrame` on every evicting frame plus every 120
+  frames; counters always compiled, logging debug-only since `TYRA_LOG` is a
+  no-op under NDEBUG):
+  (a) **A realistic scene never flushes.** `examples/showcase` - a whole
+  village with streaming layers, particles, post-fx - holds **6 texture
+  allocations and 0.87 MB of the ~1.08 MB heap free**, 0 evictions, 0
+  re-uploads, forever. 4-bit palettization is doing all the work. So the
+  headline claim ("the ceiling under per-model lightmaps") is real only for
+  full-colour textures: one 256² 32bpp texture is 24% of the heap and a 512²
+  is 93% of it.
+  (b) **But it does not fall off a cliff gracefully.** A fixture just over
+  budget (3×256² + 3×128² 32bpp, fixed camera so visibility is deterministic)
+  re-uploaded **9-10 textures every frame** - the whole working set, because
+  one over-budget bind dumped everything.
+  (c) **And `free()` was memory-unsafe, not just wasteful.** Freeing anything
+  but the newest allocation rewinds the pointer under still-live textures.
+  Streaming layers hit this on every unload: a fixture that unloads a 3-object
+  layer at t=6 s and reloads it at t=10 s logged 3 out-of-order frees, free
+  space "gained" 0.11 MB out of nowhere, and on screen **two surviving boxes
+  started drawing another box's texture**. This, not the flush count, is the
+  reason the work was worth doing.
+  **What was built.** `RendererCoreGSVRam` now splits VRAM into a *permanent
+  region* (bump, filled by `allocateBuffer()` at init: frame/z buffers,
+  post-fx scratch, noise, env-map + camera-feed targets, never released - and
+  `free()` simply doesn't know those addresses, so nothing can reclaim them)
+  and a *texture heap* above it managed by a coalescing best-fit free list, so
+  `free()` is order independent. `RendererCoreTexture::makeRoomFor()` evicts
+  one allocation at a time until the newcomer fits, victim chosen in two tiers
+  (`pickVictim`): stale entries first (not bound this frame *or* the one
+  before - LRU, ties to the bigger block), and when everything resident is in
+  the live working set, the **most recently bound** one instead. That MRU tier
+  is not a detail: with plain LRU a scene that re-binds in the same order every
+  frame evicts exactly what it needs next, and the entire set cycles. The
+  two-frame window matters for the same reason - "not bound yet this frame" is
+  the tail of last frame's scan, not cold data. Both were measured, not
+  assumed (single-tier LRU: 7-8 re-uploads/frame on the pathological fixture;
+  a one-frame window: 8; the shipped policy: 3 on the realistic one).
+  `RendererCoreTextureBuffers` gained a `lastUsedSeq` stamp for this.
+  **Verified** (Layer 3 throughout - engine code only compiles in Docker;
+  PCSX2 software renderer, PAL, same fixture and same fixed camera on both
+  sides of every A/B, eviction policy isolated from the allocator with a
+  temporary compile switch so the comparison is like-for-like):
+  re-uploads/frame **9-10 -> 3** on the just-over-budget scene, output pixel
+  identical, 5.51 -> 5.33 ms EE frame time with vsync off and PCSX2's GS
+  thread (where emulated PATH3 transfers land) 39% -> 23%. The streaming
+  fixture now round-trips exactly (free space 0.406 -> 0.617 -> 0.406 MB,
+  largest free block unchanged at 416 KB, i.e. no fragmentation) and the
+  post-reload frame is pixel-identical to the pre-unload one - the wrong-texture
+  corruption is gone. `examples/showcase` is **byte-identical** before and
+  after on every counter (bind/hit/up/res/freeMB at f=120..720), which is the
+  point: realistic projects see no change at all. `examples/reflections`
+  re-checked because the env map binds through `vramResident` - reflections
+  still render, 50 FPS. Deliberate over-subscription (6×256² 32bpp, ~2.4× the
+  heap) degrades rather than breaks: 10 -> 8 re-uploads/frame, scene still
+  correct at 195 FPS uncapped. Honest limit: nothing fixes a working set that
+  is 2.4× VRAM; the answer there stays palettization/atlasing. Not yet tested
+  on real PS2 hardware. Docs: new [docs/gs-vram.md](docs/gs-vram.md) (budget
+  table, what a texture really costs, the policy, the `VRAMSTAT` fields, the
+  numbers) + docs/README + README + the `tyra-engine-dev` skill.
 
 - (170) **Emissive light is blocked by solids (no more glow through a wall).**
   Owner spotted the obvious hole in (169): a lamp lit the ground on the far

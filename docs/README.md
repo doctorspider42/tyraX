@@ -105,3 +105,6 @@ Developer design docs (internals, not user guides):
 - [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
   real hardware (2026-07-11) and the design + milestones for moving StaPip
   clipping into a VU1 microprogram.
+- [GS VRAM residency](gs-vram.md) - where the 4 MB goes, what a texture
+  really costs, the free-list texture heap and its eviction policy, the
+  `VRAMSTAT` counters, and the measured before/after numbers.

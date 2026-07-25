@@ -240,7 +240,17 @@ Notes:
   frame rate is 50 FPS — the generated showcase scenes hold it. For *where* a
   frame is spent, enable the built-in **frame profiler** (debug build profile +
   *Preferences > Build > Show frame profiler*): per-phase EE ms on the HUD
-  (whole frame / scene / usable-highlight / particles). For a finer breakdown,
+  (whole frame / scene / usable-highlight / particles). For **GS VRAM**
+  specifically, a debug build prints `VRAMSTAT` lines into the game's
+  `bin/log.txt` (texture binds/hits/uploads/re-uploads/evictions, resident
+  count, free MB, largest free block) — the honest way to tell "the scene is
+  thrashing textures" from "the scene is just heavy"; see
+  [docs/gs-vram.md](../../../docs/gs-vram.md). A `--build --run` also kills
+  every other PCSX2 instance, and parallel worktree sessions run their own —
+  when several are up, `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs
+  whichever it finds first, so check the window title in the capture (or
+  select the process by `MainWindowTitle`) before trusting a screenshot.
+  For a finer breakdown,
   the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —

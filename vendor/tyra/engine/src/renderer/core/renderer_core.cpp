@@ -203,6 +203,7 @@ void RendererCore::endFrame() {
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
   applyPostFx();
+  texture.traceFrame();  // Modified by TyraX: GS VRAM residency report
   if (isFrameLimitOn) graph_wait_vsync();
   gs.flipBuffers();
 }
