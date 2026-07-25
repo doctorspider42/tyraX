@@ -245,6 +245,24 @@ Notes:
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
   GS load.
+- **Flow-graph logic, without a pad or a screenshot**: a debug build with the
+  *Live Debugger* preference on (docs/live-debugger.md) writes
+  `bin/livedbg.bin` every 6 frames - per-node hit counters, a ring of recent
+  fires, the flow variables and save values, the halted flag - and reads
+  `bin/livedbg.cmd` (breakpoint list, halt/step, force-fire). Both are small
+  fixed-layout binaries (`src/livedbg.hpp`), so **a ~40-line Python probe
+  replaces the whole editor for scripted verification**: read the snapshot to
+  assert which nodes ran how often and what the variables hold, and write a
+  command to prove Pause freezes the counters, Step frame advances exactly
+  one frame, or a force-fire runs a trigger's branch (that is how entry 177
+  was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
+  editor and the probe must not both drive `livedbg.cmd` at once (the editor
+  rewrites it whenever it goes missing or its state changes).
+- **The editor GUI needs a GPU-backed GL context.** On a session without one
+  (PCSX2's log naming "Microsoft Basic Render Driver" is the tell) the editor
+  window comes up **blank white** and no screenshot harness can help - verify
+  with a main-branch build before blaming a change, and say so in PROGRESS
+  rather than claiming a visual check that did not happen.
 - **Audio**: EE-side logs are invisible, so use the Windows WASAPI session peak
   meter on the PCSX2 process (e.g. via `AudioMeterInformation`) — silence vs
   bursts at expected times proved music/sfx features before; a by-ear speaker

@@ -1,0 +1,138 @@
+// Live Debugger - the host side of the flow-graph debugging channel.
+//
+// The generated game streams what its flow graphs are doing into
+// bin/livedbg.bin (over the same host: filesystem Live Link rides on) and
+// reads commands - breakpoints, pause/step, "fire this node now" - back from
+// bin/livedbg.cmd. This module owns both formats plus the as-built symbol
+// table (src/gen/livedbg.sym, written by codegen) that maps the game's opaque
+// node keys onto editor objects and nodes.
+//
+// No GL, no ImGui, no project.hpp: the same harness-testable shape as
+// aobake/placement. See docs/live-debugger.md.
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace livedbg {
+
+// ---------------------------------------------------------------- symbols ---
+
+/** One instrumented flow-graph node, in codegen's key order. */
+struct NodeSym {
+    int key = 0;              // what the game reports (index into the hit table)
+    int scene = 0;            // scene index
+    std::string objectId;     // owner object's stable editor id (16 hex)
+    int nodeId = 0;           // FlowNode::id inside that object's graph
+    std::string type;         // FlowNode::type, for display without the project
+};
+
+/** One flow variable, in the game's watch-table order. */
+struct VarSym {
+    int index = 0;
+    char kind = 'i';  // 'i' int, 'b' bool, 'p' position
+    std::string name;
+};
+
+/** src/gen/livedbg.sym - the as-built map from node keys to editor ids. */
+struct Symbols {
+    bool loaded = false;
+    uint64_t hash = 0;  // identity of this table; the game reports its own copy
+    std::vector<NodeSym> nodes;
+    std::vector<VarSym> vars;
+
+    const NodeSym* find(int key) const;
+};
+
+/** Parses a symbol file. Returns false (and leaves `out` unloaded) on any
+ * malformed line - a half-written file must never half-load. */
+bool loadSymbols(const std::string& path, Symbols& out);
+
+// --------------------------------------------------------------- snapshot ---
+
+/** One node fire, with the frame it happened on. */
+struct Event {
+    int key = 0;
+    uint32_t frame = 0;
+};
+
+/** bin/livedbg.bin - what the running game reports. */
+struct Snapshot {
+    uint32_t seq = 0;    // flush counter; unchanged = nothing new to read
+    uint32_t frame = 0;  // the game's frame counter at flush time
+    int scene = 0;
+    bool halted = false;
+    int breakKey = -1;  // the node whose breakpoint stopped the game (-1 none)
+    uint64_t hash = 0;  // the symbol-table hash baked into the ELF
+    std::vector<uint32_t> hits;  // cumulative fire count per node key
+    std::vector<Event> events;   // recent fires, oldest first
+    std::vector<float> vars;     // 3 floats per watch variable
+};
+
+/** Decodes a snapshot. Torn/partial writes fail the size + footer checks and
+ * return false, which the caller simply retries on its next tick. */
+bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out);
+bool readSnapshot(const std::string& path, Snapshot& out);
+
+// ---------------------------------------------------------------- command ---
+
+/** bin/livedbg.cmd - what the editor asks the game to do. Applied by the game
+ * whenever `seq` changes, so every command must carry the FULL desired state
+ * (the breakpoint list included). */
+struct Command {
+    uint32_t seq = 0;
+    bool halt = false;         // freeze the game now
+    bool stepUntilFire = false;  // run until any instrumented node fires
+    int stepFrames = 0;        // run exactly this many frames, then freeze
+    std::vector<uint16_t> breakpoints;  // node keys that halt the game
+    std::vector<uint16_t> fire;         // node keys to force-fire once
+
+    /** Everything except `seq` - the editor rewrites the file only when this
+     * changes (a resend of the same state would re-run a step). */
+    bool sameStateAs(const Command& o) const;
+};
+
+std::vector<unsigned char> encodeCommand(const Command& c);
+/** Writes atomically (sibling tmp + rename). Returns "" or an error string. */
+std::string writeCommand(const std::string& path, const Command& c);
+
+// --------------------------------------------------------------- timeline ---
+
+/** Editor-side history of what the game did: one entry per frame that had at
+ * least one node fire, plus the variable values sampled at that flush. Feeds
+ * the Debugger's timeline and its scrub-back ("what fired on frame N?").
+ */
+class Timeline {
+ public:
+    struct Frame {
+        uint32_t frame = 0;
+        std::vector<int> keys;      // node keys that fired, in order
+        std::vector<float> vars;    // watch values at the flush that carried it
+    };
+
+    /** Folds a fresh snapshot in. Ignores repeats (same seq) and snapshots
+     * from a restarted game (frame went backwards -> the history is cleared,
+     * a new run is not a continuation of the old one). */
+    void ingest(const Snapshot& s);
+    void clear();
+
+    const std::vector<Frame>& frames() const { return frames_; }
+    /** Index of the newest entry at or before `frame`, or -1. */
+    int indexAtOrBefore(uint32_t frame) const;
+    uint32_t lastSeq() const { return lastSeq_; }
+
+ private:
+    std::vector<Frame> frames_;  // oldest first, capped at kMaxFrames
+    uint32_t lastSeq_ = 0;
+    uint32_t lastFrame_ = 0;
+    static constexpr size_t kMaxFrames = 900;
+};
+
+// Shared limits - the game side (templates.cpp) mirrors them; keep in sync.
+constexpr int kMaxNodes = 1024;       // instrumented nodes (hit-table size)
+constexpr int kMaxBreakpoints = 64;   // breakpoints the game tracks at once
+constexpr int kMaxForced = 8;         // force-fire keys per command
+constexpr int kMaxEvents = 192;       // event ring the game flushes
+
+}  // namespace livedbg

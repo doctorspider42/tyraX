@@ -813,6 +813,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.showProfiler ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
+         << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
+         << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -1389,7 +1391,12 @@ static std::string manifestJson(const Project& p) {
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
          << ", \"viewMode\": " << p.viewMode
-         << ", \"viewProjection\": " << p.viewProjection << " }";
+         << ", \"viewProjection\": " << p.viewProjection
+         << ", \"breakpoints\": [";
+    for (size_t i = 0; i < p.debugBreakpoints.size(); ++i)
+        json << (i ? ", " : "") << "\"" << jsonEscape(p.debugBreakpoints[i])
+             << "\"";
+    json << "] }";
     // emulatorPath / ps2LinkIp used to live here but are now machine-global
     // editor settings (editor.ini), no longer written per-project. The reader
     // still accepts them to migrate older projects into the global config.
@@ -1474,6 +1481,8 @@ void seedBuiltinLayouts(Project& p) {
         {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
     p.windowLayouts.push_back(
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
+    p.windowLayouts.push_back(
+        {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     p.activeLayout = 0;
 }
 
@@ -2337,6 +2346,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("showProfiler"))
             st.showProfiler = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
+        if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
@@ -3383,6 +3393,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewProjection"))
             out.viewProjection = (int)v->numberOr(0);
+        if (const auto* v = ed->find("breakpoints");
+            v && v->type == json::Value::Type::Array)
+            for (const auto& jb : v->arr)
+                if (jb.type == json::Value::Type::String && !jb.str.empty())
+                    out.debugBreakpoints.push_back(jb.str);
         // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
         // (editor.ini). Still read so the editor can migrate an older project's
         // values into the global config on first open (see App::attachProject);
@@ -3414,6 +3429,20 @@ std::string load(Project& out, const std::string& projectDir) {
             const std::string legacy = v->stringOr("");
             if (!legacy.empty()) out.windowLayouts[0].ini = legacy;  // keep old arrangement
         }
+    }
+    // Top up the built-in set: a project saved before a built-in layout existed
+    // keeps its own layouts, and would otherwise never see the new one. Only
+    // recipe-backed built-ins are added (a user layout with the same name is
+    // left alone), so this stays a one-time migration per project.
+    {
+        auto hasRecipe = [&](LayoutRecipe r) {
+            for (const WindowLayout& L : out.windowLayouts)
+                if (L.recipe == (int)r) return true;
+            return false;
+        };
+        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Debugger))
+            out.windowLayouts.push_back(
+                {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
@@ -3750,6 +3779,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_debug.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\live_debug.gen.hpp" ||
+            f.relativePath == "src\\gen\\livedbg.sym" ||
             f.relativePath == "src\\gen\\live_tex.gen.cpp" ||
             f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||

@@ -278,6 +278,13 @@ bool Runner::launchPCSX2(const Project& p) {
     std::error_code logEc;
     fs::remove(fs::path(p.dir) / "bin" / "log.txt", logEc);
     fs::remove(fs::path(p.dir) / "bin" / "ps2link.run", logEc);
+    // Live Debugger channel (docs/live-debugger.md): both files describe a
+    // session that is over. A stale livedbg.cmd would freeze the fresh boot at
+    // whatever the last session was doing, and a stale livedbg.bin would read
+    // as a game already reporting; the editor re-sends its breakpoints within
+    // a tick of the new game coming up.
+    fs::remove(fs::path(p.dir) / "bin" / "livedbg.bin", logEc);
+    fs::remove(fs::path(p.dir) / "bin" / "livedbg.cmd", logEc);
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -468,6 +475,8 @@ bool Runner::deployToPs2(const Project& p) {
     // host: (here: over the network); drop the stale file for the Debug window.
     std::error_code logEc;
     fs::remove(fs::path(binDir) / "log.txt", logEc);
+    fs::remove(fs::path(binDir) / "livedbg.bin", logEc);
+    fs::remove(fs::path(binDir) / "livedbg.cmd", logEc);
 
     // ps2link passes execee arguments in a non-standard way that the game's
     // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied

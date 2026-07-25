@@ -23,6 +23,7 @@
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
+#include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
 #include "menubake.hpp"
 #include "meshlod.hpp"
 #include "navmesh.hpp"
@@ -2131,6 +2132,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -3564,12 +3566,19 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
-  const bool menuActive = saveMenuActive || gameMenuPausing;
+  // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
+  // the halt, and a halt then freezes the world exactly the way a pausing menu
+  // does - scripts, walker, particles and animation stop while frames keep
+  // being presented, so you can still look at what you stopped. All of this
+  // compiles to nothing when the debugger is off.
+  livedbg::tickFromLoop(scriptCtx);
+  const bool dbgHalted = livedbg::halted();
+  const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -11913,12 +11922,19 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
-  const bool menuActive = saveMenuActive || gameMenuPausing;
+  // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
+  // the halt, and a halt then freezes the world exactly the way a pausing menu
+  // does - scripts, walker, particles and animation stop while frames keep
+  // being presented, so you can still look at what you stopped. All of this
+  // compiles to nothing when the debugger is off.
+  livedbg::tickFromLoop(scriptCtx);
+  const bool dbgHalted = livedbg::halted();
+  const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -16287,6 +16303,130 @@ static std::vector<DynTextSlot> dynTextSlots(const Project& p) {
 }
 
 // ---------------------------------------------------------------------------
+// Live Debugger symbol table (docs/live-debugger.md). The generated game only
+// ever reports opaque integer KEYS - one per instrumented flow-graph node, one
+// per watch variable - because a PS2 game must not carry name strings for
+// something a debug build streams every few frames. This table is what turns
+// them back into editor objects and nodes, and it is emitted next to the
+// generated sources as src/gen/livedbg.sym for the editor to read.
+//
+// The enumeration below IS the key assignment, so it must walk the graphs in
+// exactly the order flowGraphScript does (scene, then object, then node).
+// Everything that needs a key - the instrumentation, the runtime tables, the
+// sym file - goes through debugSymbols(), so there is one order, not four.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct DbgNodeSym {
+    int key = 0;
+    int scene = 0;
+    std::string objectId;
+    int nodeId = 0;
+    std::string type;
+};
+struct DbgVarSym {
+    char kind = 'i';  // 'i' int / 'b' bool / 'p' position / 's' save value
+    std::string name;
+};
+struct DbgSymbols {
+    std::vector<DbgNodeSym> nodes;
+    std::vector<DbgVarSym> vars;
+    int flowVarCount = 0;  // the leading vars[] entries that are flow variables
+    uint64_t hash = 0;     // identity of this table (baked into the ELF too)
+    std::string text;      // the sym file body, minus the hash line
+};
+
+// Flow variables live in one namespace per type across every graph in the
+// project - a variable exists by being named on any Set/Get node. Both
+// flowGraphScript (which emits the arrays) and the debugger's watch table read
+// them from here, so the indices always agree.
+void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
+                     std::vector<std::string>& boolVars,
+                     std::vector<std::string>& posVars) {
+    auto collect = [](std::vector<std::string>& v, const std::string& name) {
+        if (name.empty()) return;
+        for (const std::string& e : v)
+            if (e == name) return;
+        v.push_back(name);
+    };
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
+                    n.type == "GetVarIntText")
+                    collect(intVars, n.str);
+                else if (n.type == "SetVarBool" || n.type == "GetVarBool")
+                    collect(boolVars, n.str);
+                else if (n.type == "SetVarPos" || n.type == "GetVarPos")
+                    collect(posVars, n.str);
+            }
+}
+
+// A node is instrumented when it can "run": triggers (they fire) and actions
+// (they execute). Pure data nodes are expressions folded into the C++ of
+// whoever reads them - they have no moment in time to report.
+bool dbgInstrumented(const FlowNode& n) {
+    const FlowNodeType* t = flowNodeType(n.type);
+    return t && (t->trigger || !t->pure);
+}
+
+DbgSymbols debugSymbols(const Project& p) {
+    DbgSymbols s;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi) {
+            if (objs[oi].flowGraph.empty()) continue;
+            for (const FlowNode& n : objs[oi].flowGraph.nodes) {
+                if (!dbgInstrumented(n)) continue;
+                if ((int)s.nodes.size() >= livedbg::kMaxNodes) break;
+                DbgNodeSym e;
+                e.key = (int)s.nodes.size();
+                e.scene = (int)si;
+                e.objectId = objs[oi].id;
+                e.nodeId = n.id;
+                e.type = n.type;
+                s.nodes.push_back(std::move(e));
+            }
+        }
+    }
+
+    std::vector<std::string> intVars, boolVars, posVars;
+    collectFlowVars(p, intVars, boolVars, posVars);
+    for (const std::string& n : intVars) s.vars.push_back({'i', n});
+    for (const std::string& n : boolVars) s.vars.push_back({'b', n});
+    for (const std::string& n : posVars) s.vars.push_back({'p', n});
+    s.flowVarCount = (int)s.vars.size();
+    // Save values ride in the same watch array (read straight off
+    // ScriptContext), so a paused game shows its persistent state too.
+    for (const SaveValue& v : p.saveValues) s.vars.push_back({'s', v.name});
+
+    std::ostringstream t;
+    t << "nodes " << s.nodes.size() << "\n";
+    for (const DbgNodeSym& n : s.nodes)
+        t << "n " << n.key << " " << n.scene << " " << n.objectId << " "
+          << n.nodeId << " " << n.type << "\n";
+    t << "vars " << s.vars.size() << "\n";
+    for (size_t i = 0; i < s.vars.size(); ++i)
+        t << "v " << i << " " << s.vars[i].kind << " "
+          << (s.vars[i].name.empty() ? "-" : s.vars[i].name) << "\n";
+    s.text = t.str();
+    s.hash = wire::fnv1a64(s.text.data(), s.text.size());
+    return s;
+}
+
+// The Live Debugger is a debug-profile feature behind its own preference, and
+// it needs something to instrument: with no runnable node in any graph the
+// generated runtime would only be dead weight.
+bool liveDebugEnabled(const Project& p) {
+    return p.settings.buildProfile == "debug" && p.settings.liveDebug;
+}
+bool liveDebugOn(const Project& p, const DbgSymbols& syms) {
+    return liveDebugEnabled(p) && !syms.nodes.empty();
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
 // ---------------------------------------------------------------------------
@@ -16346,25 +16486,25 @@ std::string flowGraphScript(const Project& p) {
     // flowInt/flowBool/flowPos arrays emitted below - a variable exists by
     // being named on any Set/Get node.
     std::vector<std::string> intVars, boolVars, posVars;
-    {
-        auto collect = [](std::vector<std::string>& v, const std::string& name) {
-            if (name.empty()) return;
-            for (const std::string& e : v)
-                if (e == name) return;
-            v.push_back(name);
-        };
-        for (const SceneData& sc : p.scenes)
-            for (const SceneObject& o : sc.objects)
-                for (const FlowNode& n : o.flowGraph.nodes) {
-                    if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
-                        n.type == "GetVarIntText")
-                        collect(intVars, n.str);
-                    else if (n.type == "SetVarBool" || n.type == "GetVarBool")
-                        collect(boolVars, n.str);
-                    else if (n.type == "SetVarPos" || n.type == "GetVarPos")
-                        collect(posVars, n.str);
-                }
-    }
+    collectFlowVars(p, intVars, boolVars, posVars);
+
+    // Live Debugger (docs/live-debugger.md): with the debugger on, every
+    // trigger and every action reports itself to the running game's hit table
+    // through livedbg::hit(key), each script bails out while the game is
+    // halted, and every trigger gains a second, editor-driven entry (its body
+    // repeated under livedbg::forced(key)) so the Debugger's "Fire" button can
+    // run a branch on demand. Keys come from debugSymbols() - the same table
+    // src/gen/livedbg.sym is written from, so the ELF and the editor agree by
+    // construction. All of it disappears when the debugger is off.
+    const DbgSymbols dbgSyms = debugSymbols(p);
+    const bool dbgOn = liveDebugOn(p, dbgSyms);
+    auto dbgKeyOf = [&](size_t si, const std::string& objectId, int nodeId) {
+        for (const DbgNodeSym& e : dbgSyms.nodes)
+            if (e.scene == (int)si && e.nodeId == nodeId &&
+                e.objectId == objectId)
+                return e.key;
+        return -1;
+    };
     auto varIndex = [](const std::vector<std::string>& v, const std::string& name) {
         for (size_t i = 0; i < v.size(); ++i)
             if (v[i] == name) return (int)i;
@@ -16429,6 +16569,9 @@ std::string flowGraphScript(const Project& p) {
     if (anyNav)
         out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
                "(Patrol/Chase/Flee/On Player Seen)\n";
+    if (dbgOn)
+        out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
+               "hits / halt / force-fire\n";
     out << "\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
@@ -16596,6 +16739,15 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             for (const FlowNode& n : fg.nodes)
                 if (n.id == id) return &n;
             return nullptr;
+        };
+
+        // "This node just ran" - one line, or nothing at all when the Live
+        // Debugger is off.
+        auto dbgHit = [&](const FlowNode& n, const std::string& pad) {
+            if (!dbgOn) return std::string();
+            const int k = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
+            return k < 0 ? std::string()
+                         : pad + "livedbg::hit(" + std::to_string(k) + ");\n";
         };
 
         // Which object a node refers to: incoming data link (follow the
@@ -17527,10 +17679,14 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             }
             // Clone targets guard on the handle: no clone spawned yet (or it
             // was despawned / the scene reloaded) skips the action outright.
-            if (!dyn.empty() && !c.str().empty())
+            // The debugger's hit goes INSIDE that guard - a skipped action did
+            // not run, and must not report that it did.
+            if (c.str().empty()) return std::string();
+            if (!dyn.empty())
                 return pad + "if (" + dyn + " >= 0 && " + dyn +
-                       " < ctx.objectCount) {\n" + c.str() + pad + "}\n";
-            return c.str();
+                       " < ctx.objectCount) {\n" + dbgHit(n, pad + "  ") +
+                       c.str() + pad + "}\n";
+            return dbgHit(n, pad) + c.str();
         };
 
         // Emit the actions reached by exec links out of `fromId`. A custom
@@ -17585,7 +17741,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                "    if (ctx.scene != "
             << si
             << ") return;\n"
-               "    if (ctx.sceneGeneration != generation) {\n"
+            << (dbgOn ? "    // Live Debugger: nothing in this graph advances "
+                        "while the game is\n    // stopped at a breakpoint "
+                        "(the loop's own pause covers the rest).\n"
+                        "    if (livedbg::halted()) return;\n"
+                      : "")
+            << "    if (ctx.sceneGeneration != generation) {\n"
                "      // scene was (re)loaded - back to the initial state\n"
                "      generation = ctx.sceneGeneration;\n"
                "      frame = 0;\n"
@@ -17705,8 +17866,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !t->trigger) continue;
-            const std::string body = linkedActions(n.id, "      ");
-            if (body.empty()) continue;
+            const std::string chain = linkedActions(n.id, "      ");
+            if (chain.empty()) continue;
+            const std::string body = dbgHit(n, "      ") + chain;
+
+            // Debugger "Fire": the trigger's whole branch, reachable on demand
+            // from the editor. Emitted before the trigger's own condition so
+            // the unresolved-reference branches below (which `continue`) can't
+            // drop it, and only in debug builds with the debugger on.
+            if (dbgOn) {
+                const int fk = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
+                if (fk >= 0)
+                    clsOut << "    if (livedbg::forced(" << fk
+                           << ")) {  // Live Debugger: fired from the editor\n"
+                           << body << "    }\n";
+            }
 
             if (n.type == "OnStart") {
                 clsOut << "    if (!started) {\n      started = true;\n" << body << "    }\n";
@@ -17870,7 +18044,459 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
 
     if (!anyGraph) out << "\n// No object has a flow graph yet.\n";
 
+    // The Live Debugger's watch table. The flow variables live in this
+    // translation unit (they are statics above), so the accessor does too;
+    // live_debug.gen.cpp appends the project's save values off ScriptContext
+    // and streams both to the editor.
+    if (dbgOn) {
+        out << "\n// Live Debugger watch table (docs/live-debugger.md): the "
+               "flow variables\n// in one shared order - ints, then bools, "
+               "then positions.\n"
+               "int flowDbgVarCount() { return "
+            << (intVars.size() + boolVars.size() + posVars.size()) << "; }\n"
+               "void flowDbgReadVar(int index, float* out3) {\n"
+               "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
+        const size_t total = intVars.size() + boolVars.size() + posVars.size();
+        if (total == 0) {
+            out << "  (void)index;  // this project defines no flow variables\n";
+        } else {
+            out << "  switch (index) {\n";
+            size_t slot = 0;
+            for (size_t i = 0; i < intVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = (float)flowInt[" << i
+                    << "]; break;  // " << intVars[i] << "\n";
+            for (size_t i = 0; i < boolVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = flowBool[" << i
+                    << "] ? 1.0F : 0.0F; break;  // " << boolVars[i] << "\n";
+            for (size_t i = 0; i < posVars.size(); ++i, ++slot)
+                out << "    case " << slot << ":\n      out3[0] = flowPos[" << i
+                    << "][0]; out3[1] = flowPos[" << i
+                    << "][1]; out3[2] = flowPos[" << i << "][2];\n"
+                       "      break;  // "
+                    << posVars[i] << "\n";
+            out << "    default: break;\n  }\n";
+        }
+        out << "}\n";
+    }
+
     out << "\n}  // namespace " << ns << "\n\n" << registrations.str();
+    return out.str();
+}
+
+// ---------------------------------------------------------------------------
+// Live Debugger: inc/scripts/live_debug.gen.hpp + src/gen/live_debug.gen.cpp +
+// src/gen/livedbg.sym (docs/live-debugger.md).
+//
+// The header is ALWAYS generated and is what the rest of the generated code
+// talks to: with the debugger off every entry point is an inline no-op and
+// `halted()` is a compile-time false, so `... || livedbg::halted()` in the
+// game loop folds away and the feature costs literally nothing. With it on,
+// the source below implements them: a hit table + event ring fed by the
+// instrumented graphs, a snapshot written to livedbg.bin over host:, and a
+// command file (livedbg.cmd) carrying the breakpoint list, halt/step and
+// force-fire requests back from the editor.
+// ---------------------------------------------------------------------------
+static const char* TPL_LIVE_DEBUG_HPP_ON = R"DBG(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Debugger hooks (docs/live-debugger.md). Implemented in
+// src/gen/live_debug.gen.cpp; the instrumented graphs in flow_graph.gen.cpp
+// call hit()/forced(), the game loop calls tickFromLoop() + halted().
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+
+// The debugger's watch table, emitted by flow_graph.gen.cpp: every flow
+// variable in the project, in one shared order (ints, then bools, then
+// positions). Save values are appended by the runtime straight off
+// ScriptContext, so they need no accessor.
+int flowDbgVarCount();
+void flowDbgReadVar(int index, float* out3);
+
+namespace livedbg {
+
+/** An instrumented node ran. Bumps its counter, records it in the event ring
+ * and stops the game when the editor has a breakpoint on it. */
+void hit(int key);
+
+/** True while the game is stopped by the debugger. The generated loop folds
+ * this into its "a menu is pausing the world" condition, so a halt freezes
+ * scripts, the walker, particles and animation while frames keep presenting.
+ */
+bool halted();
+
+/** True for the one frame in which the editor asked to force-fire this node
+ * (Debugger > "Fire"), OR'd into the node's own trigger condition. */
+bool forced(int key);
+
+/** Per-frame pump. The generated loop calls tickFromLoop() before anything
+ * reads halted(); tickFromScript() is the fallback for projects that took
+ * ownership of terrain_game.cpp (it does nothing once the loop hook is seen).
+ */
+void tickFromLoop(ScriptContext& ctx);
+void tickFromScript(ScriptContext& ctx);
+
+}  // namespace livedbg
+}  // namespace {{NS}}
+)DBG";
+
+static const char* TPL_LIVE_DEBUG_HPP_OFF = R"DBG(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Debugger hooks, compiled out: this build is either a release build, has
+// the "Live Debugger" preference off, or has no runnable flow-graph node to
+// instrument. Every entry point below is an empty inline function and
+// halted() is a compile-time false, so the calls in the generated game (and in
+// terrain_game.cpp's loop) disappear entirely. See docs/live-debugger.md.
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+namespace livedbg {
+
+inline void hit(int) {}
+inline bool halted() { return false; }
+inline bool forced(int) { return false; }
+inline void tickFromLoop(ScriptContext&) {}
+inline void tickFromScript(ScriptContext&) {}
+
+}  // namespace livedbg
+}  // namespace {{NS}}
+)DBG";
+
+static const char* TPL_LIVE_DEBUG_CPP = R"DBG(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Debugger runtime (docs/live-debugger.md). Debug builds with Project >
+// Preferences > Build > "Live Debugger" on; otherwise this file is an empty
+// translation unit.
+//
+// Two files next to the ELF, on the same host: filesystem the game already
+// loads its assets from (PCSX2's Host Filesystem / the ps2link file server):
+//
+//   livedbg.bin  written here, read by the editor - cumulative hit count per
+//                instrumented node, a ring of the most recent fires (with
+//                their age in frames), the watch values, the halted flag and
+//                the node whose breakpoint stopped the game.
+//   livedbg.cmd  written by the editor, read here - the full breakpoint list,
+//                halt / resume / step, and nodes to force-fire once.
+//
+// Both layouts are documented field by field in the editor's src/livedbg.hpp
+// and parsed there; the two ends must agree, so change them together. Torn
+// writes are rejected by an exact-size + footer-echo check on both sides, and
+// a command is applied only when its sequence number changes.
+#include <tyra>
+#include <cstdio>
+#include <cstring>
+
+#include "scripts/script.hpp"
+#include "scripts/live_debug.gen.hpp"
+
+namespace {{NS}} {
+namespace livedbg {
+namespace {
+
+const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
+const unsigned int SNAP_VERSION = 1U;
+const int SNAP_HEADER = 64;
+const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
+const unsigned int CMD_VERSION = 1U;
+const int CMD_HEADER = 32;
+const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
+
+const int NODES = {{NODES}};      // instrumented flow-graph nodes
+const int VARS = {{VARS}};        // watch slots: flow variables + save values
+const int FLOW_VARS = {{FLOW_VARS}};  // how many of those are flow variables
+const int EVENTS = {{EVENTS}};    // event-ring capacity
+const int MAX_BP = {{MAX_BP}};    // breakpoints tracked at once
+const int MAX_FIRE = {{MAX_FIRE}};  // force-fire keys per command
+// Identity of the symbol table this ELF was built from (src/gen/livedbg.sym).
+// The editor compares it with the file on disk: a mismatch means the graphs
+// moved since this build, so node keys would point at the wrong nodes.
+const unsigned int HASH_LO = {{HASH_LO}}U, HASH_HI = {{HASH_HI}}U;
+
+unsigned int hits[NODES] = {};
+unsigned short evKey[EVENTS] = {};
+unsigned int evFrame[EVENTS] = {};
+int evCount = 0;  // valid ring entries
+int evNext = 0;   // write cursor
+unsigned int frameNo = 0;
+
+bool haltRequested = false;  // sticky: the game is stopped
+bool haltedFrame = false;    // this frame's answer to halted()
+int breakKey = -1;           // which node's breakpoint stopped it
+int stepFrames = 0;          // frames left to run before stopping again
+bool stepUntilFire = false;  // run until any instrumented node fires
+unsigned short bp[MAX_BP] = {};
+int bpCount = 0;
+unsigned short forcedKeys[MAX_FIRE] = {};
+int forcedCount = 0;
+
+unsigned int cmdSeq = 0;  // last applied command
+unsigned int outSeq = 0;  // snapshots written
+int pollCooldown = 1;
+int flushCooldown = 1;
+bool flushNow = true;  // first frame: tell the editor we are alive
+bool loopHook = false;  // the generated loop is driving the pump
+
+// One static snapshot buffer - the EE has no business allocating per flush.
+unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 + 4];
+
+inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
+inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
+
+void readVar(ScriptContext& ctx, int i, float* out) {
+  out[0] = out[1] = out[2] = 0.0F;
+  if (i < FLOW_VARS) {
+    flowDbgReadVar(i, out);
+    return;
+  }
+  const int s = i - FLOW_VARS;
+  if (ctx.saveValues && s < ctx.saveValueCount) out[0] = ctx.saveValues[s];
+}
+
+void pollCommand() {
+  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 + 4];
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
+  if (!f) return;  // no editor attached (or a shipped build)
+  const size_t got = fread(c, 1, sizeof(c), f);
+  fclose(f);
+  if (got < (size_t)CMD_HEADER + 4) return;
+
+  unsigned int magic, version, seq, flags;
+  int steps, bpc, firec;
+  memcpy(&magic, c + 0, 4);
+  memcpy(&version, c + 4, 4);
+  memcpy(&seq, c + 8, 4);
+  memcpy(&flags, c + 12, 4);
+  memcpy(&steps, c + 16, 4);
+  memcpy(&bpc, c + 20, 4);
+  memcpy(&firec, c + 24, 4);
+  if (magic != CMD_MAGIC || version != CMD_VERSION) return;
+  if (seq == cmdSeq) return;  // already applied
+  if (bpc < 0 || bpc > MAX_BP || firec < 0 || firec > MAX_FIRE) return;
+  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + 4)) return;
+  unsigned int foot;
+  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2, 4);
+  if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
+
+  cmdSeq = seq;
+  bpCount = bpc;
+  for (int i = 0; i < bpc; ++i) memcpy(&bp[i], c + CMD_HEADER + i * 2, 2);
+  forcedCount = firec;
+  for (int i = 0; i < firec; ++i)
+    memcpy(&forcedKeys[i], c + CMD_HEADER + bpc * 2 + i * 2, 2);
+  const bool halt = (flags & 1U) != 0;
+  stepUntilFire = (flags & 2U) != 0;
+  stepFrames = steps;
+  haltRequested = halt;
+  if (!halt) breakKey = -1;
+  flushNow = true;  // answer the editor on the next tick, not in 6 frames
+}
+
+void flush(ScriptContext& ctx) {
+  unsigned char* p = snapBuf;
+  ++outSeq;
+  put32(p + 0, SNAP_MAGIC);
+  put32(p + 4, SNAP_VERSION);
+  put32(p + 8, outSeq);
+  put32(p + 12, frameNo);
+  const int scene = ctx.scene;
+  memcpy(p + 16, &scene, 4);
+  put32(p + 20, haltRequested ? 1U : 0U);
+  memcpy(p + 24, &breakKey, 4);
+  const int nodes = NODES, vars = VARS;
+  memcpy(p + 28, &nodes, 4);
+  memcpy(p + 32, &vars, 4);
+  memcpy(p + 36, &evCount, 4);
+  put32(p + 40, HASH_LO);
+  put32(p + 44, HASH_HI);
+  unsigned int total = 0;
+  for (int i = 0; i < NODES; ++i) total += hits[i];
+  put32(p + 48, total);
+  memcpy(p + 52, &stepFrames, 4);
+  put32(p + 56, 0U);
+  put32(p + 60, 0U);
+  p += SNAP_HEADER;
+  for (int i = 0; i < NODES; ++i, p += 4) put32(p, hits[i]);
+  // Oldest first, each with its AGE in frames - the editor rebuilds absolute
+  // frame numbers from the header's counter, so the ring needs no rebasing.
+  const int start = evCount == EVENTS ? evNext : 0;
+  for (int i = 0; i < evCount; ++i, p += 4) {
+    const int s = (start + i) % EVENTS;
+    put16(p, evKey[s]);
+    unsigned int age = frameNo - evFrame[s];
+    if (age > 65535U) age = 65535U;
+    put16(p + 2, (unsigned short)age);
+  }
+  for (int i = 0; i < VARS; ++i, p += 12) {
+    float v[3];
+    readVar(ctx, i, v);
+    memcpy(p, v, 12);
+  }
+  put32(p, outSeq ^ FOOTER_XOR);
+  p += 4;
+
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.bin").c_str(), "wb");
+  if (!f) return;
+  fwrite(snapBuf, 1, (size_t)(p - snapBuf), f);
+  fclose(f);
+}
+
+void tickImpl(ScriptContext& ctx) {
+  forcedCount = 0;  // force-fires live for exactly one frame
+
+  // Over ps2link every fopen is a network round-trip, so poll sparsely there.
+  // While the game is stopped the editor is waiting on us: poll fast.
+  const bool ps2link = Tyra::IrxLoader::keepIopResident;
+  if (--pollCooldown <= 0) {
+    pollCooldown = ps2link ? 25 : (haltRequested ? 2 : 6);
+    pollCommand();
+  }
+
+  // A force-fire that arrives while the game is stopped runs exactly the one
+  // frame its keys are armed for. Without this it would do nothing at all: a
+  // halted game runs no scripts, so nobody would ever ask forced().
+  if (forcedCount > 0 && haltRequested && stepFrames == 0) stepFrames = 1;
+
+  if (stepFrames > 0) {
+    // Step: this frame runs, and the last one of the batch stops again.
+    haltedFrame = false;
+    if (--stepFrames == 0) {
+      haltRequested = true;
+      flushNow = true;
+    }
+  } else {
+    haltedFrame = haltRequested;
+  }
+  // The frame counter is the game's LOGIC clock, not its picture clock: it
+  // stops while the debugger has the game stopped, so "halted at frame N"
+  // stays N and the event ages the editor reads stay put too.
+  if (!haltedFrame) ++frameNo;
+
+  if (--flushCooldown <= 0 || flushNow) {
+    flushCooldown = ps2link ? 25 : 6;
+    flushNow = false;
+    flush(ctx);
+  }
+}
+
+// The fallback pump is a plain global Script: it runs only in projects whose
+// terrain_game.cpp no longer carries the loop hook (the user took ownership of
+// the file), and then the halt works through each generated graph's own
+// early-out instead of the loop's pause.
+class LiveDebugPump : public Script {
+ public:
+  void update(ScriptContext& ctx) override { tickFromScript(ctx); }
+};
+LiveDebugPump g_pump;
+const bool g_pumpRegistered = []() {
+  getScripts().push_back(&g_pump);
+  return true;
+}();
+
+}  // namespace
+
+void hit(int key) {
+  if (key < 0 || key >= NODES) return;
+  ++hits[key];
+  evKey[evNext] = (unsigned short)key;
+  evFrame[evNext] = frameNo;
+  evNext = (evNext + 1) % EVENTS;
+  if (evCount < EVENTS) ++evCount;
+
+  if (stepUntilFire) {  // "Step node": stop on the next fire, whatever it is
+    stepUntilFire = false;
+    haltRequested = true;
+    breakKey = key;
+    flushNow = true;
+    return;
+  }
+  // A breakpoint stops the game from the NEXT frame: the node's own action has
+  // already run by the time it is reported, which is what the editor shows.
+  for (int i = 0; i < bpCount; ++i)
+    if (bp[i] == (unsigned short)key) {
+      if (!haltRequested) {
+        haltRequested = true;
+        breakKey = key;
+        flushNow = true;
+      }
+      return;
+    }
+}
+
+bool halted() { return haltedFrame; }
+
+bool forced(int key) {
+  for (int i = 0; i < forcedCount; ++i)
+    if (forcedKeys[i] == (unsigned short)key) return true;
+  return false;
+}
+
+void tickFromLoop(ScriptContext& ctx) {
+  loopHook = true;
+  tickImpl(ctx);
+}
+
+void tickFromScript(ScriptContext& ctx) {
+  if (!loopHook) tickImpl(ctx);
+}
+
+}  // namespace livedbg
+}  // namespace {{NS}}
+)DBG";
+
+static std::string liveDebugHeader(const Project& p) {
+    const DbgSymbols syms = debugSymbols(p);
+    const std::string ns = sanitizeNamespace(p.name);
+    return replaceAll(liveDebugOn(p, syms) ? TPL_LIVE_DEBUG_HPP_ON
+                                           : TPL_LIVE_DEBUG_HPP_OFF,
+                      "{{NS}}", ns);
+}
+
+static std::string liveDebugSource(const Project& p) {
+    const DbgSymbols syms = debugSymbols(p);
+    if (!liveDebugOn(p, syms)) {
+        std::string why = "the \"Live Debugger\" preference is off";
+        if (p.settings.buildProfile != "debug")
+            why = "this is a release build";
+        else if (p.settings.liveDebug)
+            why = "no flow graph has a runnable node to instrument";
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// Live Debugger: nothing to compile here - " +
+               why +
+               ".\n// See docs/live-debugger.md (Project > Preferences > "
+               "Build).\n";
+    }
+    std::string s = TPL_LIVE_DEBUG_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{NODES}}", std::to_string(syms.nodes.size()));
+    s = replaceAll(s, "{{VARS}}", std::to_string(syms.vars.size()));
+    s = replaceAll(s, "{{FLOW_VARS}}", std::to_string(syms.flowVarCount));
+    s = replaceAll(s, "{{EVENTS}}", std::to_string(livedbg::kMaxEvents));
+    s = replaceAll(s, "{{MAX_BP}}", std::to_string(livedbg::kMaxBreakpoints));
+    s = replaceAll(s, "{{MAX_FIRE}}", std::to_string(livedbg::kMaxForced));
+    s = replaceAll(s, "{{HASH_LO}}",
+                   std::to_string((unsigned int)(syms.hash & 0xFFFFFFFFULL)));
+    s = replaceAll(s, "{{HASH_HI}}",
+                   std::to_string((unsigned int)(syms.hash >> 32)));
+    return s;
+}
+
+// src/gen/livedbg.sym - the editor's map from the keys the game reports back
+// to objects and nodes. Plain text on purpose: it is a build artifact a human
+// (or an AI agent inspecting a project) can read.
+static std::string liveDebugSymFile(const Project& p) {
+    const DbgSymbols syms = debugSymbols(p);
+    std::ostringstream out;
+    out << "# TyraX Live Debugger symbols. Generated by TyraX - do not edit.\n"
+           "# Maps the node keys the running game reports (livedbg.bin) onto\n"
+           "# scene objects (stable editor id) and flow-graph node ids.\n"
+           "1\n";
+    char hex[32];
+    std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)syms.hash);
+    out << "hash " << hex << "\n";
+    if (!liveDebugOn(p, syms))
+        out << "# The build this was generated with carries no debugger "
+               "runtime.\n";
+    out << syms.text;
     return out.str();
 }
 
@@ -20740,6 +21366,9 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\gen\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"inc\\scripts\\live_debug.gen.hpp", liveDebugHeader(p)},
+        {"src\\gen\\live_debug.gen.cpp", liveDebugSource(p)},
+        {"src\\gen\\livedbg.sym", liveDebugSymFile(p)},
         {"src\\gen\\live_link.gen.cpp", liveLinkScript(p)},
         {"src\\gen\\live_tex.gen.cpp", liveTexScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},

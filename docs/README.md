@@ -70,6 +70,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [Live Debugger (step through the running game's logic)](live-debugger.md) -
+  breakpoints on flow-graph nodes, pause/step/step-node of a game running on
+  the console, the live node highlighting and hit counters in the Flow Graph,
+  the watch table (flow variables + save values), the rewindable execution
+  timeline, firing a trigger from the editor, and the file channel + symbol
+  table it all rides on.
 - [Live collaboration sessions](collaboration.md) - real-time multi-user
   editing: hosting a project, joining over the LAN with a code, what syncs
   live and how conflicts resolve (host-ordered last-write-wins), presence

@@ -551,6 +551,10 @@ void App::drawUI() {
     // the live-patchable state changed since the last write).
     liveLinkTick();
 
+    // Read what the running game reports about its flow graphs, and push
+    // breakpoint / halt / step commands back to it (throttled).
+    livedbgTick();
+
     // Drain collaboration-session events (peer joins/leaves, sync completion,
     // session end) - the only place session state meets project_/ImGui.
     sessionTick();
@@ -574,6 +578,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
+    drawDebuggerWindow();
     drawSessionWindow();
     drawNewProjectModal();
     drawPreferencesModal();
@@ -628,6 +633,29 @@ void App::drawUI() {
             runner_.buildAndRunPs2(project_, false);
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
             runner_.buildAndRun(project_, false);
+    }
+    // Debugger shortcuts (docs/live-debugger.md). F9 opens the panel; the
+    // transport keys only mean something while a game is reporting, and they
+    // are deliberately the ones every debugger uses: F5-family for run/pause
+    // is taken by "Build && Run" here, so pause/step live on F10/F11.
+    if (hasProject_) {
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F9)) showDebugger_ = true;
+        if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) {
+            if (ImGui::IsKeyChordPressed(ImGuiKey_F10)) {
+                dbgCmd_.halt = dbgState_ != DbgState::Halted;
+                dbgCmd_.stepFrames = 0;
+                dbgCmd_.stepUntilFire = false;
+                dbgCmdWritten_ = false;
+                dbgScrub_ = -1;
+            }
+            if (ImGui::IsKeyChordPressed(ImGuiKey_F11)) {
+                dbgCmd_.halt = false;
+                dbgCmd_.stepFrames = 1;
+                dbgCmd_.stepUntilFire = false;
+                dbgCmdWritten_ = false;
+                dbgScrub_ = -1;
+            }
+        }
     }
     if (hasProject_) {
         // Ctrl+S is host-only in a joined session (the client's disk copy is
@@ -934,6 +962,19 @@ void App::drawMenuBar() {
                 project_.settings.liveLink = !project_.settings.liveLink;
                 commitChange();
             }
+            if (ImGui::MenuItem("Live Debugger", nullptr,
+                                project_.settings.liveDebug)) {
+                project_.settings.liveDebug = !project_.settings.liveDebug;
+                commitChange();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Debug builds report every flow-graph node they run, and "
+                    "take breakpoint,\n"
+                    "pause/step and force-fire commands from "
+                    "the editor (docs/live-debugger.md).\n"
+                    "Open the panel with "
+                    "Tools > Debugger (F9) or the DBG chip in the toolbar.");
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip(
                     "Mirror scene edits (move/rotate/scale/recolor objects, "
@@ -982,6 +1023,8 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
             ImGui::Separator();
             if (ImGui::MenuItem("Tree Generator...")) {
                 showTreeGenerator_ = true;
@@ -1224,6 +1267,65 @@ void App::drawToolbar() {
                                         p.y + h),
                               ImGui::GetColorU32(ImGuiCol_ButtonHovered),
                               round);
+        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
+        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
+                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                    c, label);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    }
+
+    // Live Debugger chip, next to LIVE and read the same way: green DBG = the
+    // game is reporting what its graphs do, orange = stopped at a breakpoint
+    // (with the frame it stopped on), amber = the running build predates the
+    // current graphs, dim = nothing reporting yet. Clicking opens the panel
+    // (the on/off switch is a project preference, in Build > Live Debugger).
+    if (project_.settings.buildProfile == "debug" && project_.settings.liveDebug) {
+        ImU32 c = colDim;
+        char label[48] = "DBG";
+        const char* tip =
+            "Live Debugger: waiting for a game to report. Build & Run (F5) and "
+            "the\n"
+            "graph starts lighting up as it runs. Click to open the "
+            "Debugger panel (F9).";
+        switch (dbgState_) {
+            case DbgState::Running:
+                c = IM_COL32(95, 200, 115, 255);
+                std::snprintf(label, sizeof(label), "DBG %.0f fps", dbgFps_);
+                tip = "Live Debugger: the running game is reporting every "
+                      "flow-graph node it\n"
+                      "fires - watch the Flow Graph light "
+                      "up. Click to open the Debugger (F9).";
+                break;
+            case DbgState::Halted:
+                c = IM_COL32(245, 130, 90, 255);
+                std::snprintf(label, sizeof(label), "DBG halted @ %u",
+                              dbgSnap_.frame);
+                tip = "Live Debugger: the game is stopped (breakpoint or "
+                      "Pause). F10 continues,\n"
+                      "F11 steps one frame. Click to "
+                      "open the Debugger panel.";
+                break;
+            case DbgState::Stale:
+                c = IM_COL32(240, 175, 70, 255);
+                std::snprintf(label, sizeof(label), "DBG (rebuild)");
+                tip = "Live Debugger: the running game was built from "
+                      "different graphs, so node\n"
+                      "numbering no longer matches. "
+                      "Build & Run (F5) to resync.";
+                break;
+            default: break;
+        }
+        ImGui::SameLine(0.0f, gapPair);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float dotR = h * 0.14f;
+        const float textW = ImGui::CalcTextSize(label).x;
+        const float chipW = dotR * 2.0f + 4.0f + textW;
+        if (ImGui::InvisibleButton("##tb_livedbg", ImVec2(chipW, h)))
+            showDebugger_ = true;
+        if (ImGui::IsItemHovered())
+            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
+                              ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -2632,6 +2734,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "debugger") return &showDebugger_;
     return nullptr;
 }
 
@@ -2639,9 +2742,9 @@ bool* App::showFlagForKey(const std::string& key) {
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
 static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "terrain", "ui",      "fonts",
-    "menus",    "grading",  "ambience", "loading", "disc",
-    "anim",     "tree"};
+    "cutscene", "material", "terrain",  "ui",   "fonts", "menus",
+    "grading",  "ambience", "loading",  "disc", "anim",  "tree",
+    "debugger"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -2699,6 +2802,25 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         ImGui::DockBuilderDockWindow("Debug", center);
         ImGui::DockBuilderDockWindow("Material Editor", center);
         pendingFocusWindow_ = "Material Editor";
+        break;
+    }
+    case LayoutRecipe::Debugger: {
+        // The debugging desk: the graph being watched fills the middle, the
+        // Debugger (state, watch, timeline, breakpoints) owns the right column,
+        // and the Viewport sits behind the graph so a glance at the scene is one
+        // tab away. Output/Debug logs along the bottom - a crashed game shows up
+        // there, not in the graph.
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.24f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Debugger", right);
+        ImGui::DockBuilderDockWindow("Properties", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        pendingFocusWindow_ = "Flow Graph";
         break;
     }
     case LayoutRecipe::Default:
@@ -3862,6 +3984,26 @@ void App::attachProject() {
     liveLinkSeq_ = (uint32_t)std::time(nullptr);
     liveLinkSigNextRead_ = 0.0;
     liveLinkNextTick_ = 0.0;
+    // Same for the Live Debugger: symbols, history and heat belong to the
+    // project that was open, and the command file of the new one must be
+    // (re)written from scratch.
+    dbgState_ = DbgState::Off;
+    dbgSyms_ = livedbg::Symbols();
+    dbgSnap_ = livedbg::Snapshot();
+    dbgTimeline_.clear();
+    dbgCmd_ = livedbg::Command();
+    // The seq is seeded from the clock for the same reason Live Link's is: a
+    // game left running would ignore a command whose seq it has already seen.
+    dbgCmd_.seq = (uint32_t)std::time(nullptr);
+    dbgCmdWritten_ = false;
+    dbgPrevHits_.clear();
+    dbgHeat_.clear();
+    dbgFireQueue_.clear();
+    dbgScrub_ = -1;
+    dbgFps_ = 0.0f;
+    dbgSnapTime_ = dbgSnapPrevTime_ = 0.0;
+    dbgSnapPrevFrame_ = 0;
+    dbgNextTick_ = dbgSymNextRead_ = 0.0;
     history_.reset({project_.scenes});
     // The history file restores the undo stack when it is in sync with the
     // project file; otherwise we start fresh (and write a new one).
@@ -7179,6 +7321,43 @@ void App::drawFlowGraphWindow() {
             ImGui::TextUnformatted(">");
     };
 
+    // --- Live Debugger overlay state (docs/live-debugger.md) ---------------
+    // With a game reporting, this graph is drawn as a live instrument: node
+    // titles glow as they run, exec links light up behind them, hit counters
+    // sit in the corners and breakpoints show as red dots. Rewinding in the
+    // Debugger's timeline replaces "recently" with "in the frame you are
+    // looking at", so the same drawing code replays history.
+    const bool dbgOverlay =
+        (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) &&
+        flowGraphObject_ >= 0 && flowGraphObject_ < (int)project_.objects().size();
+    const std::string dbgOwnerId =
+        dbgOverlay ? project_.objects()[flowGraphObject_].id : std::string();
+    // Rewound? Then only the nodes of that one frame count as "just fired".
+    std::vector<int> dbgScrubKeys;
+    if (dbgOverlay && dbgScrub_ >= 0) {
+        const auto& frames = dbgTimeline_.frames();
+        if (dbgScrub_ < (int)frames.size()) dbgScrubKeys = frames[dbgScrub_].keys;
+    }
+    const bool dbgRewound = dbgOverlay && dbgScrub_ >= 0;
+    auto dbgKeyOfNode = [&](int nodeId) {
+        return dbgOverlay ? dbgKeyFor(project_.activeScene, dbgOwnerId, nodeId) : -1;
+    };
+    // 0 = firing right now, 1 = cold. Fades over kDbgFade seconds so a node
+    // that fires every few frames stays lit instead of strobing.
+    const float kDbgFade = 0.6f;
+    auto dbgGlow = [&](int key) -> float {
+        if (key < 0) return 0.0f;
+        if (dbgRewound) {
+            for (int k : dbgScrubKeys)
+                if (k == key) return 1.0f;
+            return 0.0f;
+        }
+        const float age = dbgNodeHeat(key);
+        return age >= kDbgFade ? 0.0f : 1.0f - age / kDbgFade;
+    };
+    const ImVec2 dbgCanvasMin = ImGui::GetCursorScreenPos();
+    const ImVec2 dbgCanvasSize = ImGui::GetContentRegionAvail();
+
     ImNodes::BeginNodeEditor();
 
     // Push stored node positions into imnodes whenever the edited graph or
@@ -7194,12 +7373,19 @@ void App::drawFlowGraphWindow() {
         const FlowNodeType* t = flowNodeType(n.type);
         if (!t) continue;
 
-        if (t->pure && t->boolIn)  // logic gate
-            ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(110, 70, 150, 255));
-        else if (t->trigger)
-            ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(40, 110, 60, 255));
-        else
-            ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(60, 80, 140, 255));
+        ImU32 titleCol = (t->pure && t->boolIn)  // logic gate
+                             ? IM_COL32(110, 70, 150, 255)
+                             : t->trigger ? IM_COL32(40, 110, 60, 255)
+                                          : IM_COL32(60, 80, 140, 255);
+        // Live Debugger: the title bar IS the activity light.
+        if (const float g = dbgGlow(dbgKeyOfNode(n.id)); g > 0.0f) {
+            const ImVec4 base = ImColor(titleCol).Value;
+            const ImVec4 hot(0.98f, 0.70f, 0.20f, 1.0f);
+            titleCol = ImColor(base.x + (hot.x - base.x) * g,
+                               base.y + (hot.y - base.y) * g,
+                               base.z + (hot.z - base.z) * g, 1.0f);
+        }
+        ImNodes::PushColorStyle(ImNodesCol_TitleBar, titleCol);
 
         ImNodes::BeginNode(n.id);
         ImNodes::BeginNodeTitleBar();
@@ -7791,6 +7977,18 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(90, 190, 210, 255));
             ImNodes::Link(l.id, flowTextOutPin(l.fromNode), flowTextInPin(l.toNode));
             ImNodes::PopColorStyle();
+        } else if (const float g = dbgGlow(dbgKeyOfNode(l.fromNode)); g > 0.0f) {
+            // Live Debugger: the exec chain that just ran, lit and thickened -
+            // this is what makes the flow of a frame readable at a glance.
+            ImNodes::PushColorStyle(
+                ImNodesCol_Link,
+                (ImU32)ImColor(1.0f, 0.55f + 0.35f * g, 0.20f,
+                               0.55f + 0.45f * g));
+            ImNodes::PushStyleVar(ImNodesStyleVar_LinkThickness, 3.0f + 2.0f * g);
+            ImNodes::Link(l.id, flowOutPin(l.fromNode),
+                          flowExecInPin(l.toNode, l.toPin));
+            ImNodes::PopStyleVar();
+            ImNodes::PopColorStyle();
         } else {
             ImNodes::Link(l.id, flowOutPin(l.fromNode),
                           flowExecInPin(l.toNode, l.toPin));
@@ -7800,6 +7998,61 @@ void App::drawFlowGraphWindow() {
     ImNodes::MiniMap(0.15f, ImNodesMiniMapLocation_BottomRight);
     const bool editorHovered = ImNodes::IsEditorHovered();
     ImNodes::EndNodeEditor();
+
+    // Live Debugger badges, drawn over the finished canvas: a red breakpoint
+    // dot on the left of the title bar, the cumulative hit count under the
+    // node's bottom-right corner, and a fading ring around whatever just ran.
+    // Clipped to the canvas by hand - this draw list belongs to the window, so
+    // a node scrolled out of view would otherwise paint over the rest of the UI.
+    if (dbgOverlay) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->PushClipRect(dbgCanvasMin,
+                         ImVec2(dbgCanvasMin.x + dbgCanvasSize.x,
+                                dbgCanvasMin.y + dbgCanvasSize.y),
+                         true);
+        for (const FlowNode& n : fg.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t || (t->pure && !t->trigger)) continue;  // pure data node
+            const int key = dbgKeyOfNode(n.id);
+            const bool bp = dbgHasBreakpoint(dbgOwnerId, n.id);
+            const float g = dbgGlow(key);
+            if (key < 0 && !bp) continue;
+            const ImVec2 p = ImNodes::GetNodeScreenSpacePos(n.id);
+            const ImVec2 d = ImNodes::GetNodeDimensions(n.id);
+            if (g > 0.0f) {
+                const float pad = scaled(3.0f) + scaled(3.0f) * g;
+                dl->AddRect(ImVec2(p.x - pad, p.y - pad),
+                            ImVec2(p.x + d.x + pad, p.y + d.y + pad),
+                            ImColor(1.0f, 0.72f, 0.22f, 0.25f + 0.65f * g),
+                            scaled(6.0f), 0, scaled(2.0f) + scaled(1.5f) * g);
+            }
+            if (bp) {
+                const float r = scaled(5.0f);
+                const ImVec2 c(p.x + r * 0.6f, p.y + r * 0.6f);
+                const bool stopped = dbgState_ == DbgState::Halted &&
+                                     dbgSnap_.breakKey == key;
+                dl->AddCircleFilled(c, r,
+                                    stopped ? IM_COL32(255, 210, 90, 255)
+                                            : IM_COL32(225, 70, 60, 255));
+                dl->AddCircle(c, r, IM_COL32(20, 20, 20, 200), 0, scaled(1.5f));
+            }
+            if (key >= 0 && key < (int)dbgSnap_.hits.size() &&
+                dbgSnap_.hits[key] > 0) {
+                char buf[24];
+                std::snprintf(buf, sizeof(buf), "%u", dbgSnap_.hits[key]);
+                const ImVec2 ts = ImGui::CalcTextSize(buf);
+                const ImVec2 at(p.x + d.x - ts.x - scaled(4.0f),
+                                p.y + d.y - ts.y - scaled(2.0f));
+                dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f),
+                            IM_COL32(0, 0, 0, 160), buf);
+                dl->AddText(at,
+                            g > 0.0f ? IM_COL32(255, 225, 150, 255)
+                                     : IM_COL32(170, 180, 195, 220),
+                            buf);
+            }
+        }
+        dl->PopClipRect();
+    }
 
     // Rest the mouse on a node to get its description (FlowNodeType::desc -
     // the same text the add-menu tooltips and the AI catalog use). Delayed so
@@ -8015,9 +8268,58 @@ void App::drawFlowGraphWindow() {
         }
     }
 
-    // Right-click: add node (categorized)
-    if (editorHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+    // Right-click on a node: the debugger's per-node actions (breakpoint,
+    // force-fire). Right-click on empty canvas keeps opening the add-node menu.
+    int dbgCtxHovered = -1;
+    if (editorHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
+        ImNodes::IsNodeHovered(&dbgCtxHovered)) {
+        flowCtxNode_ = dbgCtxHovered;
+        ImGui::OpenPopup("##flow_node_ctx");
+    } else if (editorHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
         ImGui::OpenPopup("##flow_add_node");
+    if (ImGui::BeginPopup("##flow_node_ctx")) {
+        const FlowNode* cn = nullptr;
+        for (const FlowNode& n : fg.nodes)
+            if (n.id == flowCtxNode_) cn = &n;
+        const FlowNodeType* ct = cn ? flowNodeType(cn->type) : nullptr;
+        if (!cn || !ct) {
+            ImGui::CloseCurrentPopup();
+        } else {
+            ImGui::TextDisabled("%s", ct->title);
+            ImGui::Separator();
+            const std::string ownerId =
+                flowGraphObject_ >= 0 &&
+                        flowGraphObject_ < (int)project_.objects().size()
+                    ? project_.objects()[flowGraphObject_].id
+                    : std::string();
+            const bool dataNode = ct->pure && !ct->trigger;
+            const int key = dbgKeyOfNode(cn->id);
+            if (dataNode) {
+                ImGui::TextDisabled(
+                    "A data node - it has no moment of its own to break on.");
+            } else {
+                const bool bp = dbgHasBreakpoint(ownerId, cn->id);
+                if (ImGui::MenuItem(bp ? "Remove breakpoint" : "Set breakpoint",
+                                    nullptr, bp))
+                    dbgToggleBreakpoint(ownerId, cn->id);
+                const bool live = dbgState_ == DbgState::Running ||
+                                  dbgState_ == DbgState::Halted;
+                if (ct->trigger) {
+                    if (ImGui::MenuItem("Fire now in the running game", nullptr,
+                                        false, live && key >= 0))
+                        dbgFireNode(key);
+                }
+                if (!live)
+                    ImGui::TextDisabled(
+                        "(no game reporting - breakpoints arm on the next run)");
+                if (key >= 0 && key < (int)dbgSnap_.hits.size())
+                    ImGui::TextDisabled("%u hits so far", dbgSnap_.hits[key]);
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Open the Debugger panel")) showDebugger_ = true;
+        }
+        ImGui::EndPopup();
+    }
     if (ImGui::BeginPopup("##flow_add_node")) {
         const ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
         for (const char* cat : flowNodeCategories()) {
@@ -18680,6 +18982,639 @@ void App::liveLinkTick() {
     liveLinkLastPayload_ = std::move(body);
 }
 
+// ---------------------------------------------------------------------------
+// Live Debugger (docs/live-debugger.md). Everything here is reading files and
+// bookkeeping: the game's snapshot in, a command file out, and the derived
+// state the Debugger window + the Flow Graph overlay draw from.
+// ---------------------------------------------------------------------------
+
+std::string App::dbgBreakpointKey(const std::string& objectId, int nodeId) const {
+    return objectId + ":" + std::to_string(nodeId);
+}
+
+bool App::dbgHasBreakpoint(const std::string& objectId, int nodeId) const {
+    const std::string k = dbgBreakpointKey(objectId, nodeId);
+    for (const std::string& b : project_.debugBreakpoints)
+        if (b == k) return true;
+    return false;
+}
+
+void App::dbgToggleBreakpoint(const std::string& objectId, int nodeId) {
+    const std::string k = dbgBreakpointKey(objectId, nodeId);
+    auto& list = project_.debugBreakpoints;
+    for (size_t i = 0; i < list.size(); ++i)
+        if (list[i] == k) {
+            list.erase(list.begin() + i);
+            dbgCmdWritten_ = false;  // the game's list must follow
+            setDirty(true);
+            return;
+        }
+    list.push_back(k);
+    dbgCmdWritten_ = false;
+    setDirty(true);
+}
+
+int App::dbgKeyFor(int scene, const std::string& objectId, int nodeId) const {
+    for (const livedbg::NodeSym& n : dbgSyms_.nodes)
+        if (n.scene == scene && n.nodeId == nodeId && n.objectId == objectId)
+            return n.key;
+    return -1;
+}
+
+float App::dbgNodeHeat(int key) const {
+    if (key < 0 || key >= (int)dbgHeat_.size() || dbgHeat_[key] <= 0.0)
+        return FLT_MAX;
+    return (float)(ImGui::GetTime() - dbgHeat_[key]);
+}
+
+void App::dbgFireNode(int key) {
+    if (key < 0) return;
+    for (uint16_t k : dbgFireQueue_)
+        if (k == (uint16_t)key) return;
+    if ((int)dbgFireQueue_.size() >= livedbg::kMaxForced) return;
+    dbgFireQueue_.push_back((uint16_t)key);
+    dbgCmdWritten_ = false;
+}
+
+void App::livedbgTick() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !project_.settings.liveDebug ||
+        project_.settings.buildProfile != "debug") {
+        dbgState_ = DbgState::Off;
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (now < dbgNextTick_) return;  // keep the last state between ticks
+    dbgNextTick_ = now + 0.05;       // 20 Hz: the graph overlay is animated
+
+    // The symbol table is a build artifact of codegen (src/gen/livedbg.sym).
+    // Re-read it rarely - a build or a --refresh-gen must be picked up, but it
+    // is not worth a disk hit at tick rate.
+    if (now >= dbgSymNextRead_) {
+        dbgSymNextRead_ = now + 1.5;
+        livedbg::Symbols s;
+        if (livedbg::loadSymbols(
+                (fs::path(project_.dir) / "src" / "gen" / "livedbg.sym").string(), s)) {
+            if (s.hash != dbgSyms_.hash) {
+                // A different table means different keys: everything derived
+                // from the old one (heat, deltas, history) is meaningless now.
+                dbgHeat_.clear();
+                dbgPrevHits_.clear();
+                dbgTimeline_.clear();
+                dbgScrub_ = -1;
+            }
+            dbgSyms_ = std::move(s);
+        }
+    }
+    if (!dbgSyms_.loaded) {
+        dbgState_ = DbgState::NoBuild;
+        return;
+    }
+
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    livedbg::Snapshot snap;
+    if (livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
+        (snap.seq != dbgSnap_.seq || snap.frame != dbgSnap_.frame)) {
+        // A restarted game rewinds its frame counter: drop the history and the
+        // heat so the new run is not drawn on top of the old one's trail.
+        const bool restarted = snap.frame + 1 < dbgSnap_.frame;
+        if (restarted) {
+            dbgHeat_.clear();
+            dbgPrevHits_.clear();
+            dbgTimeline_.clear();
+            dbgScrub_ = -1;
+            dbgCmdWritten_ = false;  // re-arm the breakpoints in the new run
+        }
+        // FPS from the editor's own wall clock across two snapshots: what the
+        // player actually sees, and it needs nothing from the engine.
+        if (!restarted && dbgSnapPrevTime_ > 0.0 && snap.frame > dbgSnapPrevFrame_) {
+            const double dt = now - dbgSnapPrevTime_;
+            if (dt > 0.15) {  // long enough to be a measurement, not a jitter
+                dbgFps_ = (float)((snap.frame - dbgSnapPrevFrame_) / dt);
+                dbgSnapPrevTime_ = now;
+                dbgSnapPrevFrame_ = snap.frame;
+            }
+        } else {
+            dbgSnapPrevTime_ = now;
+            dbgSnapPrevFrame_ = snap.frame;
+        }
+
+        dbgHeat_.resize(dbgSyms_.nodes.size(), 0.0);
+        // Heat comes from the DELTA between two snapshots, so the first one of
+        // a session is only a baseline - counting it would flash every node
+        // that has ever fired the moment the editor attaches.
+        const bool baseline = dbgPrevHits_.size() != snap.hits.size();
+        if (baseline) dbgPrevHits_.assign(snap.hits.size(), 0);
+        if (!baseline)
+            for (size_t i = 0; i < snap.hits.size() && i < dbgHeat_.size(); ++i)
+                if (snap.hits[i] != dbgPrevHits_[i]) dbgHeat_[i] = now;
+        dbgPrevHits_ = snap.hits;
+        dbgTimeline_.ingest(snap);
+        dbgSnap_ = std::move(snap);
+        dbgSnapTime_ = now;
+    }
+
+    // The game is "there" while its snapshots keep arriving. A halted game
+    // still flushes (its loop keeps running), so silence means gone, not paused.
+    const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < 2.0;
+    if (!reporting) {
+        dbgState_ = DbgState::Waiting;
+    } else if (dbgSnap_.hash != dbgSyms_.hash) {
+        dbgState_ = DbgState::Stale;
+    } else {
+        dbgState_ = dbgSnap_.halted ? DbgState::Halted : DbgState::Running;
+    }
+
+    // Command file. Written when the desired state changed - and whenever the
+    // file is missing, which is how a fresh run (the Runner deletes it) gets
+    // this session's breakpoints back without the user doing anything.
+    livedbg::Command want = dbgCmd_;
+    want.breakpoints.clear();
+    for (const livedbg::NodeSym& n : dbgSyms_.nodes)
+        if (dbgHasBreakpoint(n.objectId, n.nodeId) &&
+            (int)want.breakpoints.size() < livedbg::kMaxBreakpoints)
+            want.breakpoints.push_back((uint16_t)n.key);
+    want.fire = dbgFireQueue_;
+    const bool missing = !fs::exists(binDir / "livedbg.cmd");
+    if (!dbgCmdWritten_ || missing || !want.sameStateAs(dbgCmd_)) {
+        want.seq = dbgCmd_.seq + 1;
+        if (livedbg::writeCommand((binDir / "livedbg.cmd").string(), want)
+                .empty()) {
+            dbgCmd_ = want;
+            dbgCmdWritten_ = true;
+            // A force-fire is a one-shot: it has been handed over, and the
+            // step/pause request must not re-fire on the next resend either.
+            dbgFireQueue_.clear();
+            dbgCmd_.fire.clear();
+            dbgCmd_.stepFrames = 0;
+            dbgCmd_.stepUntilFire = false;
+        }
+    }
+}
+
+// Tools > Debugger (F9). The state of the running game's logic: what fired,
+// what the variables hold, where it is stopped - plus the transport controls
+// and the breakpoint list. The graph itself is the other half of this UI (the
+// Flow Graph window's overlay); this panel is the instrument cluster.
+void App::drawDebuggerWindow() {
+    if (!showDebugger_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(520)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Debugger", &showDebugger_)) {
+        ImGui::End();
+        return;
+    }
+    if (!hasProject_) {
+        ImGui::TextDisabled("No project open.");
+        ImGui::End();
+        return;
+    }
+
+    // --- object / node naming helpers --------------------------------------
+    auto objectName = [&](int scene, const std::string& id) -> std::string {
+        if (scene >= 0 && scene < (int)project_.scenes.size())
+            for (const SceneObject& o : project_.scenes[scene].objects)
+                if (o.id == id) return o.name;
+        return "(deleted object)";
+    };
+    auto nodeTitle = [&](const livedbg::NodeSym& n) -> std::string {
+        const FlowNodeType* t = flowNodeType(n.type);
+        return t ? t->title : n.type;
+    };
+    auto nodeLabel = [&](const livedbg::NodeSym& n) -> std::string {
+        return objectName(n.scene, n.objectId) + " \xc2\xb7 " + nodeTitle(n);
+    };
+    // Jumps the Flow Graph window to a node's owner (and selects the object).
+    auto revealNode = [&](const livedbg::NodeSym& n) {
+        if (n.scene >= 0 && n.scene < (int)project_.scenes.size() &&
+            n.scene != project_.activeScene) {
+            // Same steps the Project window's scene list takes - terrain and
+            // lighting are per scene, and staged pastes belong to the old one.
+            project_.activeScene = n.scene;
+            clearSelection();
+            cancelPastePlacement();
+            flowPositionsApplied_ = false;
+            applyProjectToViewport();
+        }
+        const auto& objs = project_.objects();
+        for (size_t i = 0; i < objs.size(); ++i)
+            if (objs[i].id == n.objectId) {
+                flowGraphObject_ = (int)i;
+                flowPositionsApplied_ = false;
+                selectedObject_ = (int)i;
+                ImGui::SetWindowFocus("Flow Graph");
+                break;
+            }
+    };
+
+    // --- state chip + guidance ---------------------------------------------
+    struct Chip { ImU32 col; const char* text; };
+    Chip chip{IM_COL32(150, 150, 150, 255), "off"};
+    switch (dbgState_) {
+        case DbgState::Off: chip = {IM_COL32(150, 150, 150, 255), "OFF"}; break;
+        case DbgState::NoBuild:
+            chip = {IM_COL32(140, 140, 140, 255), "NO SYMBOLS"};
+            break;
+        case DbgState::Waiting:
+            chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
+            break;
+        case DbgState::Stale:
+            chip = {IM_COL32(240, 175, 70, 255), "STALE (rebuild)"};
+            break;
+        case DbgState::Running:
+            chip = {IM_COL32(95, 200, 115, 255), "RUNNING"};
+            break;
+        case DbgState::Halted:
+            chip = {IM_COL32(245, 130, 90, 255), "HALTED"};
+            break;
+    }
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = scaled(5.0f);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        dl->AddCircleFilled(
+            ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.5f), r,
+            chip.col);
+        ImGui::Dummy(ImVec2(r * 2.0f + scaled(4.0f), 0.0f));
+        ImGui::SameLine();
+        ImGui::TextColored(ImColor(chip.col), "%s", chip.text);
+    }
+    if (dbgState_ == DbgState::Halted && dbgSnap_.breakKey >= 0) {
+        if (const livedbg::NodeSym* n = dbgSyms_.find(dbgSnap_.breakKey)) {
+            ImGui::SameLine();
+            ImGui::Text("at %s", nodeLabel(*n).c_str());
+            if (ImGui::IsItemClicked()) revealNode(*n);
+        }
+    }
+    if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) {
+        ImGui::SameLine(0.0f, scaled(12.0f));
+        ImGui::TextDisabled("frame %u \xc2\xb7 %.0f fps \xc2\xb7 scene %d",
+                            dbgSnap_.frame, dbgFps_, dbgSnap_.scene);
+    }
+
+    switch (dbgState_) {
+        case DbgState::Off:
+            ImGui::TextWrapped(
+                "The Live Debugger is compiled only into debug builds with the "
+                "\"Live Debugger\" preference on.");
+            if (project_.settings.buildProfile != "debug")
+                ImGui::TextDisabled(
+                    "This project builds in the release profile "
+                    "(Project > Preferences > Build).");
+            if (ImGui::Checkbox("Live Debugger (project setting)",
+                                &project_.settings.liveDebug))
+                commitChange();
+            break;
+        case DbgState::NoBuild:
+            ImGui::TextWrapped(
+                "No symbol table yet. Build & Run (F5) once - codegen writes "
+                "src/gen/livedbg.sym next to the generated sources, and the "
+                "game starts reporting as soon as it boots.");
+            break;
+        case DbgState::Waiting:
+            ImGui::TextWrapped(
+                "Symbols loaded (%d nodes). Waiting for a game to report - "
+                "Build & Run (F5) for PCSX2, or F6 for a real console.",
+                (int)dbgSyms_.nodes.size());
+            break;
+        case DbgState::Stale:
+            ImGui::TextWrapped(
+                "The running game was built from different graphs, so its node "
+                "numbering no longer matches the project. Build & Run (F5) to "
+                "resync - nothing is highlighted until then.");
+            break;
+        default: break;
+    }
+
+    // --- transport ---------------------------------------------------------
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    ImGui::Separator();
+    ImGui::BeginDisabled(!live);
+    const float btnW = scaled(104.0f);
+    if (dbgState_ == DbgState::Halted) {
+        if (ImGui::Button("\xe2\x96\xb6 Continue", ImVec2(btnW, 0))) {
+            dbgCmd_.halt = false;
+            dbgCmd_.stepFrames = 0;
+            dbgCmd_.stepUntilFire = false;
+            dbgCmdWritten_ = false;
+            dbgScrub_ = -1;
+        }
+    } else {
+        if (ImGui::Button("\xe2\x8f\xb8 Pause", ImVec2(btnW, 0))) {
+            dbgCmd_.halt = true;
+            dbgCmd_.stepFrames = 0;
+            dbgCmd_.stepUntilFire = false;
+            dbgCmdWritten_ = false;
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "F10. A halt freezes the world - scripts, the walker, particles, "
+            "animation -\nwhile the game keeps presenting frames, so you can "
+            "still look at what you stopped.");
+    ImGui::SameLine();
+    if (ImGui::Button("\xe2\x8f\xad Step frame", ImVec2(btnW, 0))) {
+        dbgCmd_.halt = false;
+        dbgCmd_.stepFrames = 1;
+        dbgCmd_.stepUntilFire = false;
+        dbgCmdWritten_ = false;
+        dbgScrub_ = -1;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("F11. Runs exactly one frame, then stops again.");
+    ImGui::SameLine();
+    if (ImGui::Button("\xe2\x8f\xa9 Step node", ImVec2(btnW, 0))) {
+        dbgCmd_.halt = false;
+        dbgCmd_.stepFrames = 0;
+        dbgCmd_.stepUntilFire = true;
+        dbgCmdWritten_ = false;
+        dbgScrub_ = -1;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Runs until ANY instrumented node fires, then stops on it -\n"
+            "the fastest way to find out what actually runs next.");
+    ImGui::EndDisabled();
+
+    // --- tabs --------------------------------------------------------------
+    if (!ImGui::BeginTabBar("##dbgtabs")) {
+        ImGui::End();
+        return;
+    }
+
+    // Watch: flow variables + save values, live or as of the scrubbed frame.
+    if (ImGui::BeginTabItem("Watch")) {
+        const std::vector<float>* vals = &dbgSnap_.vars;
+        const auto& frames = dbgTimeline_.frames();
+        if (dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size() &&
+            !frames[dbgScrub_].vars.empty())
+            vals = &frames[dbgScrub_].vars;
+        if (dbgSyms_.vars.empty()) {
+            ImGui::TextDisabled(
+                "This project has no flow variables and no save values.");
+            ImGui::TextWrapped(
+                "Variables nodes (Set/Get Int, Bool, Position) and Save values "
+                "show up here automatically.");
+        } else if (ImGui::BeginTable("##watch", 3,
+                                     ImGuiTableFlags_RowBg |
+                                         ImGuiTableFlags_SizingStretchProp |
+                                         ImGuiTableFlags_ScrollY)) {
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+            ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+            ImGui::TableHeadersRow();
+            for (size_t i = 0; i < dbgSyms_.vars.size(); ++i) {
+                const livedbg::VarSym& v = dbgSyms_.vars[i];
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(v.name.c_str());
+                ImGui::TableSetColumnIndex(1);
+                const char* kind = v.kind == 'i'   ? "int"
+                                   : v.kind == 'b' ? "bool"
+                                   : v.kind == 'p' ? "position"
+                                                   : "save value";
+                ImGui::TextDisabled("%s", kind);
+                ImGui::TableSetColumnIndex(2);
+                const size_t o = i * 3;
+                if (o + 2 >= vals->size()) {
+                    ImGui::TextDisabled("-");
+                } else if (v.kind == 'b') {
+                    ImGui::TextColored((*vals)[o] != 0.0f
+                                           ? ImVec4(0.45f, 0.85f, 0.5f, 1.0f)
+                                           : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+                                       "%s", (*vals)[o] != 0.0f ? "true" : "false");
+                } else if (v.kind == 'p') {
+                    ImGui::Text("%.2f, %.2f, %.2f", (*vals)[o], (*vals)[o + 1],
+                                (*vals)[o + 2]);
+                } else if (v.kind == 'i') {
+                    ImGui::Text("%d", (int)(*vals)[o]);
+                } else {
+                    ImGui::Text("%g", (*vals)[o]);
+                }
+            }
+            ImGui::EndTable();
+        }
+        ImGui::EndTabItem();
+    }
+
+    // Timeline: the rewind. One column per frame that had a fire; click (or
+    // drag the slider) to inspect that frame - the graph overlay follows.
+    if (ImGui::BeginTabItem("Timeline")) {
+        const auto& frames = dbgTimeline_.frames();
+        if (frames.empty()) {
+            ImGui::TextDisabled("Nothing has fired yet.");
+        } else {
+            const bool liveView = dbgScrub_ < 0;
+            if (liveView) {
+                ImGui::TextDisabled(
+                    "Live. Click a column (or drag below) to rewind - the graph "
+                    "shows that frame.");
+            } else {
+                const int idx = ImClamp(dbgScrub_, 0, (int)frames.size() - 1);
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f),
+                                   "Rewound to frame %u (%d fired)",
+                                   frames[idx].frame,
+                                   (int)frames[idx].keys.size());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Back to live")) dbgScrub_ = -1;
+            }
+
+            // The tape: newest frames on the right, bar height = fires in that
+            // frame, breakpoint-carrying frames tinted.
+            const float h = scaled(72.0f);
+            const ImVec2 size(ImGui::GetContentRegionAvail().x, h);
+            const ImVec2 org = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##tape", size);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(org, ImVec2(org.x + size.x, org.y + size.y),
+                              IM_COL32(22, 24, 28, 255), scaled(3.0f));
+            const float colW = ImMax(scaled(2.0f), 3.0f);
+            const int fits = (int)(size.x / colW);
+            const int first = ImMax(0, (int)frames.size() - fits);
+            int maxFires = 1;
+            for (size_t i = first; i < frames.size(); ++i)
+                maxFires = ImMax(maxFires, (int)frames[i].keys.size());
+            const bool hovered = ImGui::IsItemHovered();
+            int hoverIdx = -1;
+            for (size_t i = first; i < frames.size(); ++i) {
+                const float x = org.x + (i - first) * colW;
+                const float frac = (float)frames[i].keys.size() / (float)maxFires;
+                const float bh = ImMax(scaled(2.0f), frac * (h - scaled(8.0f)));
+                const bool sel = dbgScrub_ == (int)i;
+                ImU32 col = sel ? IM_COL32(250, 200, 90, 255)
+                                : IM_COL32(90, 175, 235, 220);
+                dl->AddRectFilled(ImVec2(x, org.y + h - bh - scaled(4.0f)),
+                                  ImVec2(x + colW - 1.0f, org.y + h - scaled(4.0f)),
+                                  col);
+                if (hovered && ImGui::GetMousePos().x >= x &&
+                    ImGui::GetMousePos().x < x + colW)
+                    hoverIdx = (int)i;
+            }
+            if (hoverIdx >= 0) {
+                ImGui::BeginTooltip();
+                ImGui::Text("frame %u", frames[hoverIdx].frame);
+                int shown = 0;
+                for (int k : frames[hoverIdx].keys) {
+                    if (++shown > 8) {
+                        ImGui::TextDisabled("...");
+                        break;
+                    }
+                    if (const livedbg::NodeSym* n = dbgSyms_.find(k))
+                        ImGui::TextDisabled("%s", nodeLabel(*n).c_str());
+                }
+                ImGui::EndTooltip();
+            }
+            if (hoverIdx >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                dbgScrub_ = hoverIdx;
+            int scrub = dbgScrub_ < 0 ? (int)frames.size() - 1 : dbgScrub_;
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::SliderInt("##scrub", &scrub, 0, (int)frames.size() - 1,
+                                 "frame %d of history"))
+                dbgScrub_ = scrub;
+
+            // What fired in the inspected frame, in order.
+            const int idx = ImClamp(dbgScrub_ < 0 ? (int)frames.size() - 1 : dbgScrub_,
+                                    0, (int)frames.size() - 1);
+            ImGui::BeginChild("##fires", ImVec2(0, 0), true);
+            {
+                for (int k : frames[idx].keys) {
+                    const livedbg::NodeSym* n = dbgSyms_.find(k);
+                    if (!n) continue;
+                    const FlowNodeType* t = flowNodeType(n->type);
+                    ImGui::PushID(k);
+                    ImGui::Bullet();
+                    ImGui::SameLine();
+                    if (ImGui::Selectable(nodeLabel(*n).c_str())) revealNode(*n);
+                    if (t && t->trigger) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(trigger)");
+                    }
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::EndTabItem();
+    }
+
+    // Nodes: everything instrumented in the graph currently being edited, with
+    // its hit count, a breakpoint toggle and (for triggers) a Fire button.
+    if (ImGui::BeginTabItem("Nodes")) {
+        const auto& objs = project_.objects();
+        const bool haveGraph = flowGraphObject_ >= 0 &&
+                               flowGraphObject_ < (int)objs.size();
+        if (!haveGraph) {
+            ImGui::TextDisabled("No graph selected in the Flow Graph window.");
+        } else {
+            ImGui::Text("Graph of \"%s\"", objs[flowGraphObject_].name.c_str());
+            ImGui::TextDisabled(
+                "Right-clicking a node in the Flow Graph does the same.");
+            if (ImGui::BeginTable("##nodes", 4,
+                                  ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_SizingStretchProp |
+                                      ImGuiTableFlags_ScrollY)) {
+                ImGui::TableSetupColumn("Break", ImGuiTableColumnFlags_WidthFixed,
+                                        scaled(44.0f));
+                ImGui::TableSetupColumn("Node", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+                ImGui::TableSetupColumn("Hits", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+                ImGui::TableHeadersRow();
+                const std::string ownerId = objs[flowGraphObject_].id;
+                for (const FlowNode& n : objs[flowGraphObject_].flowGraph.nodes) {
+                    const FlowNodeType* t = flowNodeType(n.type);
+                    if (!t || (t->pure && !t->trigger)) continue;  // data node
+                    const int key = dbgKeyFor(project_.activeScene, ownerId, n.id);
+                    ImGui::TableNextRow();
+                    ImGui::PushID(n.id);
+                    ImGui::TableSetColumnIndex(0);
+                    bool bp = dbgHasBreakpoint(ownerId, n.id);
+                    if (ImGui::Checkbox("##bp", &bp))
+                        dbgToggleBreakpoint(ownerId, n.id);
+                    ImGui::TableSetColumnIndex(1);
+                    const float age = dbgNodeHeat(key);
+                    if (age < 0.35f)
+                        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "%s",
+                                           t->title);
+                    else
+                        ImGui::TextUnformatted(t->title);
+                    ImGui::TableSetColumnIndex(2);
+                    if (key >= 0 && key < (int)dbgSnap_.hits.size())
+                        ImGui::Text("%u", dbgSnap_.hits[key]);
+                    else
+                        ImGui::TextDisabled("-");
+                    ImGui::TableSetColumnIndex(3);
+                    if (t->trigger && key >= 0) {
+                        ImGui::BeginDisabled(!live);
+                        if (ImGui::SmallButton("Fire")) dbgFireNode(key);
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "Runs everything wired to this trigger in the "
+                                "running game, once.");
+                    } else if (age < FLT_MAX) {
+                        ImGui::TextDisabled("%.1fs ago", age);
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        ImGui::EndTabItem();
+    }
+
+    // Breakpoints: the whole project's list, resolvable to names and clearable.
+    if (ImGui::BeginTabItem("Breakpoints")) {
+        if (project_.debugBreakpoints.empty()) {
+            ImGui::TextWrapped(
+                "No breakpoints. Right-click a node in the Flow Graph (or use "
+                "the Nodes tab) to stop the game the moment it runs.");
+        } else {
+            if (ImGui::SmallButton("Clear all")) {
+                project_.debugBreakpoints.clear();
+                dbgCmdWritten_ = false;
+                setDirty(true);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%d of %d slots",
+                                (int)project_.debugBreakpoints.size(),
+                                livedbg::kMaxBreakpoints);
+            ImGui::Separator();
+            for (size_t i = 0; i < project_.debugBreakpoints.size(); ++i) {
+                const std::string& b = project_.debugBreakpoints[i];
+                const size_t colon = b.rfind(':');
+                if (colon == std::string::npos) continue;
+                const std::string objId = b.substr(0, colon);
+                const int nodeId = std::atoi(b.c_str() + colon + 1);
+                ImGui::PushID((int)i);
+                if (ImGui::SmallButton("x")) {
+                    project_.debugBreakpoints.erase(
+                        project_.debugBreakpoints.begin() + i);
+                    dbgCmdWritten_ = false;
+                    setDirty(true);
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::SameLine();
+                bool named = false;
+                for (const livedbg::NodeSym& n : dbgSyms_.nodes)
+                    if (n.objectId == objId && n.nodeId == nodeId) {
+                        if (ImGui::Selectable(nodeLabel(n).c_str())) revealNode(n);
+                        named = true;
+                        break;
+                    }
+                if (!named)
+                    ImGui::TextDisabled("node %d of %s (not in this build)",
+                                        nodeId, objId.c_str());
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndTabItem();
+    }
+
+    ImGui::EndTabBar();
+    ImGui::End();
+}
+
 void App::pollGameError() {
     if (!hasProject_) return;
     const double now = ImGui::GetTime();
@@ -19718,6 +20653,16 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Debugger", &prefSettings_.liveDebug);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds report what their flow graphs run - every trigger and\n"
+        "action, the flow variables, the save values - so the editor can show\n"
+        "the graph executing live, set breakpoints, stop and step the game,\n"
+        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
+        "counter bump per fired node plus one small file write every few\n"
+        "frames; release builds carry none of it. Tools > Debugger (F9).");
     prefHelp(
         "Debug builds poll livelink.bin next to the ELF so the editor can\n"
         "stream scene edits into the running game (docs/live-link.md). Turn\n"

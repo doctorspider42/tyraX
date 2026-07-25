@@ -1,0 +1,183 @@
+# Live Debugger — step through a PS2 game's logic from the editor
+
+Live Link streams edits *into* the running game. The Live Debugger is the other
+direction: the game streams back **what its flow graphs are doing**, and takes
+commands. Nodes light up in the editor as the console runs them, exec links glow
+behind the branch that just executed, hit counters tick up, the flow variables
+and save values are visible while the game moves — and you can set a
+**breakpoint** on a node, **stop the game**, **step it one frame at a time**,
+**rewind** the last few hundred frames of execution history, and **fire a
+trigger** from the editor to see what it does.
+
+It works in PCSX2 and on a real PlayStation 2 over ps2link, over the same host
+filesystem channel the game already loads its assets from. No debug hardware, no
+extra transport, no engine change.
+
+## Using it
+
+1. Set the project's build profile to **debug** (*Project > Preferences >
+   Build*) — the same requirement Live Link has. Release builds carry no
+   instrumentation at all.
+2. Leave **Live Debugger** on (*Project > Preferences > Build*, or *Build > Live
+   Debugger*; on by default).
+3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
+4. Open *Tools > Debugger* (**F9**), or click the **DBG** chip in the toolbar.
+   Switch to the built-in **Debugger** window layout (Layout menu) for the full
+   desk: the graph in the middle, the Debugger panel on the right.
+
+The Flow Graph window becomes a live instrument the moment the game reports:
+
+- a node's **title bar glows** amber the moment it runs and fades over ~0.6 s,
+  so a node firing every few frames stays lit instead of strobing;
+- the **exec links** out of a node that just ran are thickened and lit — the
+  path a frame took through the graph is readable at a glance;
+- a **hit counter** sits in each node's bottom-right corner (cumulative since
+  the game booted);
+- a **breakpoint** shows as a red dot on the node's title bar; the one the game
+  actually stopped on turns yellow.
+
+Right-click a node for *Set breakpoint* / *Fire now in the running game*, or use
+the Debugger panel's **Nodes** tab, which lists every runnable node of the graph
+being edited with its hit count, breakpoint checkbox and Fire button.
+
+### The chip
+
+The **DBG** chip in the toolbar (next to LIVE) reads like a status light:
+
+- **DBG 50 fps** (green) — the game is reporting; the number is measured against
+  the editor's own clock, so it is the frame rate you are actually seeing.
+- **DBG halted @ 1234** (orange) — the game is stopped, at that frame.
+- **DBG (rebuild)** (amber) — the running ELF was built from different graphs, so
+  its node numbering no longer matches the project. Nothing is highlighted until
+  you Build & Run again.
+- **DBG** (dim) — nothing is reporting yet.
+
+Clicking it opens the Debugger panel.
+
+### Transport
+
+| Action | Key | What the game does |
+|---|---|---|
+| Pause / Continue | **F10** | Freezes / resumes the world |
+| Step frame | **F11** | Runs exactly one frame, then freezes again |
+| Step node | — | Runs until **any** instrumented node fires, then stops on it |
+
+A halt freezes the world exactly the way a pausing menu does — scripts, the
+player walker, particles and animation all stop — while the game keeps
+presenting frames. The picture stays up, so you can look at what you stopped.
+
+A breakpoint stops the game **at the end of the frame the node ran in**: by the
+time a node can report itself, its own action has already happened. That is the
+honest granularity of this design, and it is what the editor shows ("HALTED at
+*chest · On Used*").
+
+### The panel
+
+- **Watch** — every flow variable in the project (Set/Get Int, Bool, Position
+  nodes) plus every save value, with live values. Rewinding the timeline shows
+  the values as of that frame.
+- **Timeline** — the rewind. One column per frame that had a fire, newest on the
+  right, bar height = how many nodes fired; hover for the list, click (or drag
+  the slider) to inspect that frame. While rewound, the **graph overlay replays
+  that frame** instead of the live one — the same drawing code, driven by
+  history. ~900 frames are kept (about 15–18 seconds of PAL game time).
+- **Nodes** — the current graph's runnable nodes: hit counts, breakpoints, Fire.
+- **Breakpoints** — the whole project's list; click one to jump to its node.
+
+### Firing a trigger from the editor
+
+*Fire now* runs everything wired to a trigger, once, in the running game — the
+trigger's own condition is bypassed. It is the fastest way to test a branch you
+would otherwise have to walk across the map to reach. Codegen emits the
+trigger's branch a second time under `livedbg::forced(key)` for this, in debug
+builds only.
+
+## How it works
+
+Two files next to the ELF, on the host filesystem (PCSX2's *Host Filesystem*,
+the ps2link file server on a console):
+
+| File | Written by | Contents |
+|---|---|---|
+| `bin/livedbg.bin` | the game, every 6 frames (25 under ps2link) | cumulative hit count per node, a ring of the ~192 most recent fires with their age in frames, the watch values, the halted flag, the node that stopped it, the symbol-table hash |
+| `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire |
+
+Both are validated by an exact-size + footer-echo check on both ends, so a torn
+write is skipped rather than half-applied, and a command is applied only when its
+sequence number changes. The Runner deletes both at build start: a stale command
+must not freeze a fresh boot.
+
+The editor-side formats live in [`src/livedbg.hpp`](../src/livedbg.hpp) (parsers,
+command writer, the timeline model — no GL, no ImGui, harness-testable); the game
+side is generated into `src/gen/live_debug.gen.cpp` from `templates.cpp`. **They
+are twins: change one layout and the other must follow.**
+
+### Symbols
+
+The game only ever reports **integer keys** — a PS2 game has no business carrying
+name strings for something it flushes every few frames. Codegen assigns one key
+per instrumented node (walking scenes, then objects, then nodes) and writes the
+map to **`src/gen/livedbg.sym`**, a plain-text build artifact:
+
+```
+1
+hash c212533fb7a98cfd
+nodes 6
+n 0 0 4a623929cf3bf60b 1 OnStart
+...
+vars 2
+v 0 i score
+v 1 b ticked
+```
+
+Each node line is `key scene objectId nodeId type`, where `objectId` is the
+object's stable editor id — so breakpoints and highlighting survive renames and
+reorders. The same table's hash is baked into the ELF; when the two disagree the
+editor shows *DBG (rebuild)* rather than lighting up the wrong nodes.
+Breakpoints themselves are stored in the `.tyra` as `<objectId>:<nodeId>`
+(editor state, deliberately **not** a collaboration section — a peer's
+breakpoints are their own).
+
+### What is instrumented
+
+Triggers and actions — everything that "runs". Pure data nodes (logic gates,
+Get Position, variable reads) are expressions folded into the C++ of whoever
+reads them; they have no moment in time to report, and the editor says so if you
+right-click one. Up to 1024 nodes and 64 breakpoints are tracked.
+
+### Cost
+
+In a debug build with the debugger on: one counter bump plus a ring write per
+node that fires, and one `fopen`/`fwrite` of a few KB every 6 frames (25 over
+ps2link, where every file operation is a network round-trip). Nothing on the GS.
+In a release build — or with the preference off, or in a project whose graphs
+have no runnable node — the generated runtime is an empty translation unit, every
+`livedbg::` entry point is an inline no-op and `halted()` is a compile-time
+`false`, so the game loop's `|| livedbg::halted()` folds away. There is nothing
+to strip out later.
+
+## Limits
+
+- **Frame granularity.** A breakpoint reports after its node's action ran, and
+  the halt takes effect from the next frame. There is no "stop between two nodes
+  in the same frame".
+- **Projects that took ownership of `terrain_game.cpp`** (deleted its marker
+  line) do not get the loop hook. The debugger still reports and breakpoints
+  still stop all graph execution — a fallback global Script drives the pump —
+  but the walker, particles and animation keep running while "halted", because
+  the pause in the loop is what freezes those.
+- **The watch is read-only.** Values are reported, not editable; changing them
+  from the editor would need a second command channel and is not implemented.
+- **ps2link** serves the same file channel and the code paths are identical, but
+  the verified target is PCSX2 (see the PROGRESS entry).
+- Sequences, object scripts and custom `.flownode` C++ bodies are not
+  instrumented beyond the node that invokes them.
+
+## Related
+
+- [live-link.md](live-link.md) — the opposite direction (edits into the game),
+  and the channel this rides on.
+- [object-scripts.md](object-scripts.md), [custom-flow-nodes.md](custom-flow-nodes.md)
+  — the other halves of the scripting story.
+- `examples/script-demo` is a good playground: open it, set the build profile to
+  debug, F5, then F9.

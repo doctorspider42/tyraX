@@ -10,6 +10,78 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (177) **Live Debugger: breakpoints, pause/step and a rewindable execution
+  timeline for a game running on the PlayStation 2** (docs/live-debugger.md).
+  Live Link streams edits INTO the running game; this is the return channel.
+  A debug build reports every flow-graph node it runs, so the Flow Graph
+  window becomes a live instrument - node titles glow as they fire and fade
+  over 0.6 s, the exec links behind them thicken and light up, cumulative hit
+  counters sit in the node corners, breakpoints show as red dots (yellow on
+  the one that stopped the game). Right-click a node for *Set breakpoint* /
+  *Fire now in the running game*. The new **Debugger** panel (Tools > Debugger,
+  F9, plus a built-in "Debugger" window layout: graph centre, panel right)
+  carries the transport (Pause/Continue F10, Step frame F11, **Step node** =
+  run until anything fires), a **watch table** of every flow variable and save
+  value, the breakpoint list, and the **timeline**: one column per frame that
+  had a fire, ~900 frames deep, clickable - and while rewound the graph
+  overlay replays THAT frame instead of the live one, through the same drawing
+  code. Toolbar **DBG chip** = fps / halted@frame / rebuild-needed.
+  **How it rides**: no new transport - the same host: filesystem Live Link
+  uses. The game writes `bin/livedbg.bin` every 6 frames (25 under ps2link:
+  hit table + a 192-entry ring of recent fires carrying their AGE in frames +
+  watch values + halted flag), and reads `bin/livedbg.cmd` (full breakpoint
+  list, halt/step, force-fire keys). Torn writes die on an exact-size +
+  footer-echo check on both ends; a command applies only when its seq changes;
+  the Runner deletes both files at build start so a stale halt can't freeze a
+  fresh boot. Host side in `src/livedbg.cpp` (no GL/ImGui - formats + the
+  timeline model), game side generated into `src/gen/live_debug.gen.cpp`.
+  **Keys, not names**: codegen (`debugSymbols`) numbers the instrumented nodes
+  (scene -> object -> node) and writes `src/gen/livedbg.sym` mapping each key
+  to a scene + STABLE object id + node id (so breakpoints survive renames and
+  reorders), with the table's hash baked into the ELF - a mismatch shows as
+  amber "DBG (rebuild)" instead of highlighting the wrong nodes. Breakpoints
+  live in the `.tyra` as editor state, deliberately not a collaboration
+  section. **The halt reuses the pause that already existed**: `livedbg::halted()`
+  is OR'd into the generated loop's `menuActive`/`menuOwnsPad`, so scripts,
+  walker, particles and animation freeze exactly like a pausing menu while the
+  GS keeps presenting - you can look at what you stopped. Two design notes
+  worth keeping: a breakpoint reports AFTER its node's action ran (a node
+  cannot report itself before it runs), so the halt takes effect from the next
+  frame - frame granularity, stated in the docs rather than faked; and a
+  force-fire that arrives while the game is stopped silently becomes a
+  one-frame step, because a halted game runs no scripts and nobody would ever
+  ask `forced()`. The frame counter is the game's LOGIC clock: it stops while
+  halted, so "halted at frame N" stays N. Cost when off (release, preference
+  off, or no runnable node in any graph): the generated TU is empty, every
+  entry point an inline no-op, `halted()` a compile-time false - the loop's
+  `|| livedbg::halted()` folds away.
+  **Verified** (PCSX2, D3D11, a fixture project with a 6-node graph: On Start
+  -> Set Var Int, Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int):
+  codegen inspected headlessly (`--refresh-gen`: hits emitted per trigger and
+  action, the forced-fire duplicate branch, the halted early-out, the watch
+  accessor, and the sym file's 6 nodes + 2 vars); then the whole channel
+  against the running console. Telemetry: `On Start` 1 hit, the 1-second
+  trigger chain 40+ and climbing in step, `score`/`ticked` shown live, sym
+  hash matching the ELF's. Transport, each step measured from the snapshots:
+  a breakpoint on the `Every 1 s` node halted the game (`brk=2`) and froze
+  every counter for 2 s, Continue resumed it; Pause froze the frame counter
+  too; **Step frame advanced exactly 1 frame**; a force-fire of `On Start`
+  while halted ran its whole branch once (both nodes 1 -> 2 hits) and advanced
+  exactly one frame; Step node stopped on the next fire one frame later; a
+  breakpoint on an unreachable node never fired. PCSX2 kept reporting FPS 50 /
+  Speed 100% while halted (screenshot) - the freeze is logic-only, as designed.
+  The fixture also caught a real graph bug by itself: the 2 s Delay never
+  fired because the 1 s trigger re-arms it - visible as a node with 0 hits
+  next to neighbours at 45, which is exactly what this feature is for.
+  **Not verified here**: the editor-side panel and graph overlay could not be
+  screenshot-checked - this machine's session has no GPU-backed GL (PCSX2's
+  own log lists "Microsoft Basic Render Driver"), so the editor window renders
+  blank; a main-branch build does the same, so it is the session, not a
+  regression. The panel/overlay code compiles clean and its data comes from
+  the same snapshots verified above, but a human should still eyeball the
+  glow/timeline once. ps2link (real hardware) uses identical code paths on a
+  25-frame cadence; untested.
+
 - (176) **The baked light was being clipped by the GS ALPHA TEST - it was never
   a resolution problem.** The user kept saying the lights looked square and
   "like the texture is just cut off", and proposed reworking the whole thing

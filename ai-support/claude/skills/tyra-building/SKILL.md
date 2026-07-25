@@ -52,6 +52,14 @@ copy-back, so prefer it.
   Preferences > Build > Profile) - if `bin/log.txt` stays empty, check the
   profile.
 
+- **Flow-graph logic**: a debug build with the *Live Debugger* preference on
+  reports every trigger and action it runs into `bin/livedbg.bin`, and the
+  editor can set breakpoints / stop / step / force-fire a trigger through
+  `bin/livedbg.cmd`. If a node's logic seems not to run, that is the direct
+  way to find out: the editor's Debugger panel (F9) shows per-node hit
+  counters, the flow variables and the save values live. The map from the
+  keys in those files to objects and nodes is `src/gen/livedbg.sym`.
+
 ## Verification etiquette
 
 After changing project data or scripts: `--refresh-gen` + diff first (cheap),

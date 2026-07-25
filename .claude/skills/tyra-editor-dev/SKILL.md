@@ -70,6 +70,7 @@ Two sibling skills cover the rest of the system:
 | `iso9660.cpp`, `isoexport.cpp` | 379+264 | In-tree ISO9660 writer + disc layout planning (`Project > Export PS2 ISO`, Disc Layout window). |
 | `json.cpp/.hpp` | 158 | Tiny standalone JSON parser used for reading the `.tyra` project file. |
 | `session.cpp/.hpp` | ~900 | **Live collaboration session** (docs/collaboration.md). `Session` (Host/Client) owns one worker thread — Runner idiom (`std::atomic` state, mutex-guarded event + command queues); the UI thread drains `drainEvents()` once per frame in `App::sessionTick()`, the ONLY place session data touches `project_`/ImGui. Host scans+hashes the project (model files from `project::manifestFiles()`, everything else from disk minus bin/obj/.git/.res-baked/*.history), serves a content-hash `manifest`; the client diffs against its `remote-cache/<projectId>` cache, fetches only misses in 256 KiB chunks, opens the materialized project. Handshake: proto-version + 6-digit join code, `deny`/`bye`, ping/timeout keepalive, kick/close. `broadcastFrame`/`sendFrameToHost` + `AppEvent::Frame` are the hook the live-sync layer rides. Never touches sockets directly — goes through `wire::Transport`. |
+| `livedbg.cpp/.hpp` | ~250 | **Live Debugger host side** (docs/live-debugger.md) - the flow-graph debugger's formats and history model. No GL, no ImGui, no project.hpp: the aobake/placement shape, harness-testable. Owns the three artifacts the feature is made of - `Symbols` (`src/gen/livedbg.sym`, written by codegen: node key -> scene + object id + node id, plus the watch-variable list and the table's hash), `Snapshot` (`bin/livedbg.bin`, what the running game reports: cumulative hits per node, a ring of recent fires with their AGE in frames, watch values, halted flag, break key) and `Command` (`bin/livedbg.cmd`, what the editor asks for: full breakpoint list, halt/step/step-until-fire, force-fire keys) - plus `Timeline`, the per-frame fire history the Debugger scrubs. **Every layout here has a twin in `templates.cpp`'s generated runtime; the shared caps (`kMaxNodes`/`kMaxBreakpoints`/`kMaxForced`/`kMaxEvents`) are read by codegen from this header, so change them in one place.** Torn writes are rejected by exact-size + footer-echo on both ends; commands apply only when `seq` changes (so the editor must bump it for a repeated Step). |
 | `wire.cpp/.hpp` | ~330 | **Collaboration transport** (no project.hpp dependency — pure bytes). Frame codec `[u32 jsonLen][u32 binLen][json][bin]` LE with per-part caps + incremental `FrameDecoder`; `wire::Transport` interface (listen/connect/poll/send/kick, single-thread contract) with `makeTcpTransport()` (Winsock2 + WSAPoll) as the LAN impl — a future tunnel/WebSocket transport implements the same interface, protocol code never sees sockets. Also `fnv1a64`/`hashFile` (transfer-cache hashing) and `localIPv4()`. Binary payloads ride the raw trailer, never JSON (json.cpp collapses `\u`). |
 | `objparser.cpp` | 109 | Wavefront .obj importer for custom models. Editor-side only: the GAME never reads .obj, it reads the baked `.tmdl` (below). |
 | `tmdl.cpp/.hpp` | ~130 | **The binary static-model format the game ships** (docs/model-pipeline.md). Pure serialization, no project.hpp: `tmdl::Model{parts, min, max}` -> bytes, following the `.tskl` conventions (4-byte magic, `u32` version read as a range, packed little-endian, fixed NUL-padded strings, counts + inline arrays). Written by `templates::bakeStaticModels` (called from `refreshGenerated`, so `--refresh-gen` produces it without Docker), read by the engine's `TmdlLoader`, which returns the SAME `LeanObjMesh` the .obj loader does so the generated game keeps one geometry path. Everything the EE used to work out at load is resolved at bake: triangulation, flat normals, the V flip, material assignment incl. a per-object .mtl override, atlas UV rects folded into the UVs, bin-relative texture paths, and the LOD tiers. `texbake` then skips mirroring the source .obj and the Runner sweeps a superseded one out of `bin/`. **Both sides carry a "keep in sync" comment - the layout lives in two files.** |
@@ -358,6 +359,35 @@ new unspawnable categories into `liveLinkCanSpawnLive`), or Live Link will
 silently not show that edit while claiming LIVE. The snapshot seq is seeded
 from the clock at attach — a restarted editor must never reuse a seq the
 still-running game already applied.
+
+**Live Debugger** (`App::livedbgTick` each frame from `drawUI`; docs in
+`docs/live-debugger.md`) — Live Link's reverse channel, on the same host: files.
+Debug profile + `ProjectSettings::liveDebug`. Codegen (`debugSymbols` in
+templates.cpp) assigns ONE KEY per instrumented flow-graph node by walking
+scenes → objects → nodes, and that enumeration is the single source of truth
+for four consumers: the `livedbg::hit(key)` calls emitted into
+`flow_graph.gen.cpp`, the runtime tables in `src/gen/live_debug.gen.cpp`, the
+`src/gen/livedbg.sym` map the editor reads, and the hash baked into the ELF
+that flips the chip to amber when the two disagree. So **a change that alters
+which nodes exist changes the keys** — never hand-roll a second enumeration,
+call `debugSymbols()`.
+Instrumented = triggers + actions (`!t->pure`); pure data nodes are
+expressions with no moment to report. The generated header
+(`inc/scripts/live_debug.gen.hpp`) is ALWAYS emitted and is the on/off seam:
+with the debugger off every entry point is an inline no-op and `halted()` a
+compile-time `false`, so the game loop's `|| livedbg::halted()` folds away —
+that is why the loop hook needs no `{{...}}` gating. The halt itself is the
+existing menu pause (`menuActive`/`menuOwnsPad`/`g_gameplayPaused`), so a
+project that took ownership of `terrain_game.cpp` loses the world freeze but
+keeps the reporting (a fallback global Script pumps it — `tickFromLoop` sets a
+flag that permanently disables `tickFromScript`). Breakpoints live in
+`Project::debugBreakpoints` as `"<objectId>:<nodeId>"` — editor state in the
+`.tyra`, deliberately NOT a collaboration section. Anything new that the
+Debugger should watch goes into the ONE watch array: flow variables via
+`flowDbgReadVar` (emitted next to the `flowInt/flowBool/flowPos` statics,
+because that is the TU that owns them), then save values read straight off
+`ScriptContext` — the sym file's per-entry `kind` is what tells the editor
+which is which.
 
 ### 4. Never hand pixels straight to `glTexImage2D`
 Every RGBA texture upload in the editor goes through **`glUploadTexRgba(w, h,

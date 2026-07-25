@@ -13,6 +13,7 @@
 #include "history.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
+#include "livedbg.hpp"
 #include "placement.hpp"
 #include "project.hpp"
 #include "runner.hpp"
@@ -633,6 +634,9 @@ private:
     // and since when - shown after a short delay, reset on hover change.
     int flowDescNode_ = -1;
     double flowDescSince_ = 0.0;
+    // Node the per-node context menu was opened on (Live Debugger actions:
+    // breakpoint, force-fire).
+    int flowCtxNode_ = -1;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)
@@ -651,6 +655,10 @@ private:
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
+
+    // Live Debugger panel (Tools > Debugger, the DBG toolbar chip, or the
+    // built-in "Debugger" window layout).
+    bool showDebugger_ = false;
 
     // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
     // rebuilt into these on any param change; treePreviewVersion_ tells the
@@ -1312,6 +1320,54 @@ private:
     double liveLinkSigNextRead_ = 0.0; // ImGui::GetTime() gate for sig re-read
     double liveLinkNextTick_ = 0.0;    // ImGui::GetTime() gate for the ticker
     void liveLinkTick();
+
+    // Live Debugger (docs/live-debugger.md): Live Link's opposite direction.
+    // A debug build with the "Live Debugger" preference reports what its flow
+    // graphs are doing - every trigger and action it runs, the flow variables,
+    // the save values - into bin/livedbg.bin, and reads breakpoints, halt/step
+    // and force-fire requests back from bin/livedbg.cmd. Both files ride the
+    // same host: channel as Live Link, so PCSX2 and a real console over
+    // ps2link work identically. livedbgTick() (each frame from drawUI,
+    // self-throttled to ~20 Hz) reads the snapshot, folds it into the timeline
+    // and writes the command file whenever the desired state changed (or the
+    // Runner deleted it for a fresh run). The Debugger window and the Flow
+    // Graph overlay draw from dbgSnap_/dbgSyms_/dbgTimeline_ only.
+    enum class DbgState {
+        Off,       // release build, preference off, or no project
+        NoBuild,   // no symbol table yet - refresh/build once
+        Waiting,   // symbols known, no game reporting
+        Stale,     // the running ELF was built from different graphs
+        Running,   // the game is reporting and moving
+        Halted     // stopped at a breakpoint / by Pause
+    };
+    DbgState dbgState_ = DbgState::Off;
+    livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
+    livedbg::Snapshot dbgSnap_;     // newest snapshot the game wrote
+    livedbg::Timeline dbgTimeline_;  // per-frame fire history (the scrub)
+    livedbg::Command dbgCmd_;       // last command written (state + seq)
+    bool dbgCmdWritten_ = false;    // has the current dbgCmd_ reached the game?
+    std::vector<uint32_t> dbgPrevHits_;  // previous snapshot's counters
+    std::vector<double> dbgHeat_;   // per key: ImGui::GetTime() of its last fire
+    std::vector<uint16_t> dbgFireQueue_;  // keys the user asked to force-fire
+    double dbgNextTick_ = 0.0;      // ImGui::GetTime() gate for the ticker
+    double dbgSymNextRead_ = 0.0;   // gate for re-reading the symbol table
+    double dbgSnapTime_ = 0.0;      // when the newest snapshot arrived
+    double dbgSnapPrevTime_ = 0.0;  // and the one before it (for the FPS)
+    uint32_t dbgSnapPrevFrame_ = 0;
+    float dbgFps_ = 0.0f;           // measured against the editor's wall clock
+    int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
+    void livedbgTick();
+    void drawDebuggerWindow();
+    // Breakpoints are stored as "<objectId>:<nodeId>" in the project (editor
+    // state), and resolved to the game's integer keys through dbgSyms_.
+    std::string dbgBreakpointKey(const std::string& objectId, int nodeId) const;
+    bool dbgHasBreakpoint(const std::string& objectId, int nodeId) const;
+    void dbgToggleBreakpoint(const std::string& objectId, int nodeId);
+    int dbgKeyFor(int scene, const std::string& objectId, int nodeId) const;
+    // Seconds since a node last fired (FLT_MAX = not since the game started).
+    float dbgNodeHeat(int key) const;
+    // Fires the whole branch under a trigger in the running game, once.
+    void dbgFireNode(int key);
 
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.

@@ -36,7 +36,9 @@ build. Two kinds of files coexist here:
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
 | `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources | Only after deleting the ownership marker line |
 | `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `Dockerfile`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
+| `src/gen/livedbg.sym` | Live Debugger symbol map (node keys -> object ids), written by codegen for the editor | No - regenerated |
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
+| `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
 | `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
