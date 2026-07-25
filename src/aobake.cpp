@@ -5,13 +5,52 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <map>
+
+#include "objparser.hpp"
 
 namespace aobake {
 
 namespace {
 
 constexpr float kPi = 3.14159265358979f;
+
+// Ordered 4x4 Bayer, remapped to [-0.5, 0.5) of one output level. The baked
+// light is a wide, low-amplitude ramp (a pool spanning half the screen may
+// only cover 30 of the 255 levels), and an 8-bit framebuffer turns each level
+// into a broad plateau whose bilinear-magnified edges read as irregular
+// blocks. A sub-level ripple moves those edges apart pixel by pixel and the
+// eye integrates it back into a smooth gradient. Keyed on the ATLAS texel, so
+// it is deterministic and never crawls between rebuilds.
+inline float bayerDither(int x, int y) {
+    static const int m[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+    return m[(y & 3) * 4 + (x & 3)] * (1.0f / 16.0f) - 0.5f;
+}
+
+// Reads an object's assigned .mtl (docs/emissive-materials.md). Cached per
+// path - the sweeps below hit every object in the scene, and this touches disk.
+const MaterialGlow& materialGlow(const std::string& projectDir,
+                                 const std::string& materialPath,
+                                 GlowCache& cache) {
+    auto it = cache.find(materialPath);
+    if (it != cache.end()) return it->second;
+    MaterialGlow g;
+    std::vector<objparser::MtlMaterial> mats;
+    if (!materialPath.empty() &&
+        objparser::loadMtl(
+            (std::filesystem::path(projectDir) / materialPath).string(), mats) &&
+        !mats.empty()) {
+        for (int i = 0; i < 3; ++i) g.ke[i] = mats.front().ke[i];
+        for (int i = 0; i < 3; ++i) g.kd[i] = mats.front().kd[i];
+        for (int i = 0; i < 3; ++i) g.color[i] = mats.front().glowColor[i];
+        g.textured = !mats.front().texture.empty();
+        g.range = mats.front().glowRange;
+        g.light = mats.front().glowLight;
+    }
+    return cache.emplace(materialPath, g).first->second;
+}
 
 struct V3 {
     float x, y, z;
@@ -52,13 +91,14 @@ bool animatedModelPath(const std::string& p) {
 
 }  // namespace
 
-std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
-                                       const ModelAabbFn& modelAabb) {
-    std::vector<Occluder> out;
-    for (int i = 0; i < (int)objects.size(); ++i) {
-        const SceneObject& o = objects[i];
-        if (!o.castShadow) continue;  // per-object opt-out (Properties)
-        float cLocal[3] = {0, 0, 0};  // occluder center in object-local units
+// The analytic box/sphere standing in for one scene object, in world space.
+// Returns false for shapes that have no volume worth approximating (markers,
+// lights, decals, mirrors, portals, animated models). Shared by the occluder
+// and the emissive-light collection - both need the exact same solid.
+static bool objectShape(const SceneObject& o, int index,
+                        const ModelAabbFn& modelAabb, Occluder& out) {
+    {
+        float cLocal[3] = {0, 0, 0};  // shape center in object-local units
         float half[3];
         bool sphere = false;
         switch (o.type) {
@@ -82,9 +122,9 @@ std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
                 half[2] = 0.5f * std::fabs(o.scale[2]);
                 break;
             case PrimitiveType::Model: {
-                if (animatedModelPath(o.modelPath)) continue;
+                if (animatedModelPath(o.modelPath)) return false;
                 float mn[3], mx[3];
-                if (!modelAabb || !modelAabb(o, mn, mx)) continue;
+                if (!modelAabb || !modelAabb(o, mn, mx)) return false;
                 for (int k = 0; k < 3; ++k) {
                     cLocal[k] = 0.5f * (mn[k] + mx[k]) * o.scale[k];
                     half[k] = 0.5f * std::fabs((mx[k] - mn[k]) * o.scale[k]);
@@ -92,11 +132,11 @@ std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
                 break;
             }
             default:
-                continue;  // markers, lights, decals, mirrors, portals...
+                return false;  // markers, lights, decals, mirrors, portals...
         }
         Occluder oc;
         oc.sphere = sphere;
-        oc.objIndex = i;
+        oc.objIndex = index;
         for (int k = 0; k < 3; ++k) oc.half[k] = std::max(half[k], 0.005f);
         const V3 axX = rotated({1, 0, 0}, o.rotation);
         const V3 axY = rotated({0, 1, 0}, o.rotation);
@@ -108,17 +148,31 @@ std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
         oc.pos[0] = o.position[0] + cw.x;
         oc.pos[1] = o.position[1] + cw.y;
         oc.pos[2] = o.position[2] + cw.z;
-        out.push_back(oc);
+        out = oc;
+        return true;
+    }
+}
+
+std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
+                                       const ModelAabbFn& modelAabb) {
+    std::vector<Occluder> out;
+    for (int i = 0; i < (int)objects.size(); ++i) {
+        if (!objects[i].castShadow) continue;  // per-object opt-out (Properties)
+        Occluder oc;
+        if (objectShape(objects[i], i, modelAabb, oc)) out.push_back(oc);
     }
     return out;
 }
 
-float occluderOcclusionAt(const Occluder& oc, const float wp[3],
-                          const float n[3], float range) {
+// Distance from a world point to the analytic shape's SURFACE (negative-ish
+// clamped to <= 0 inside) plus the unit direction toward it. Both the AO
+// response and the emissive-light response are built on this one query - the
+// generated game (occShapeAt in templates.cpp) and the viewport shader are
+// twins of it.
+static void occShapeAt(const Occluder& oc, const float wp[3], float& dist,
+                float toOcc[3]) {
     const float rel[3] = {wp[0] - oc.pos[0], wp[1] - oc.pos[1],
                           wp[2] - oc.pos[2]};
-    float dist;
-    float toOcc[3];  // direction from the point toward the occluder surface
     if (oc.sphere) {
         const float d =
             std::sqrt(rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]);
@@ -148,6 +202,13 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
             toOcc[0] = 0, toOcc[1] = 1, toOcc[2] = 0;
         }
     }
+}
+
+float occluderOcclusionAt(const Occluder& oc, const float wp[3],
+                          const float n[3], float range) {
+    float dist;
+    float toOcc[3];  // direction from the point toward the occluder surface
+    occShapeAt(oc, wp, dist, toOcc);
     if (dist <= 0.0f) return 1.0f;  // touching / inside
     float fade = 1.0f - dist / range;
     if (fade <= 0.0f) return 0.0f;
@@ -157,6 +218,108 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
     if (w <= 0.0f) return 0.0f;
     if (w > 1.0f) w = 1.0f;
     return fade * w;
+}
+
+std::vector<Emitter> collectEmitters(const std::string& projectDir,
+                                     const std::vector<SceneObject>& objects,
+                                     const ModelAabbFn& modelAabb,
+                                     GlowCache* cache) {
+    std::vector<Emitter> out;
+    GlowCache own;
+    GlowCache& c = cache ? *cache : own;
+    for (int i = 0; i < (int)objects.size(); ++i) {
+        const SceneObject& o = objects[i];
+        // Note castShadow is deliberately NOT consulted: a glowing sign that
+        // casts no shadow still lights the wall behind it.
+        const MaterialGlow& g = materialGlow(projectDir, o.materialPath, c);
+        if (!g.glows() || g.range <= 0.0f || g.light <= 0.0f) continue;
+        Emitter em;
+        if (!objectShape(o, i, modelAabb, em.shape)) continue;
+        // The AUTHORED glow color, not Ke: Ke has the white-hot core folded
+        // in, which is an exposure effect on the emitter's own surface - a
+        // green lamp still casts green light however blown out it looks.
+        for (int k = 0; k < 3; ++k) em.color[k] = g.color[k];
+        em.range = g.range;
+        em.bright = g.light;
+        out.push_back(em);
+    }
+    return out;
+}
+
+bool shapeBlocksRay(const Occluder& oc, const float origin[3],
+                    const float dir[3], float maxT) {
+    const float rel[3] = {origin[0] - oc.pos[0], origin[1] - oc.pos[1],
+                          origin[2] - oc.pos[2]};
+    if (oc.sphere) {
+        const float b = rel[0] * dir[0] + rel[1] * dir[1] + rel[2] * dir[2];
+        const float c =
+            rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2] -
+            oc.half[0] * oc.half[0];
+        if (c < 0.0f) return true;   // origin inside the sphere
+        if (b > 0.0f) return false;  // sphere is behind the ray
+        const float disc = b * b - c;
+        if (disc < 0.0f) return false;
+        const float t = -b - std::sqrt(disc);
+        return t >= 0.0f && t <= maxT;
+    }
+    // Oriented box: the standard slab test, in the box's own frame.
+    float t0 = 0.0f, t1 = maxT;
+    for (int k = 0; k < 3; ++k) {
+        const float e = rel[0] * oc.axis[k][0] + rel[1] * oc.axis[k][1] +
+                        rel[2] * oc.axis[k][2];
+        const float f = dir[0] * oc.axis[k][0] + dir[1] * oc.axis[k][1] +
+                        dir[2] * oc.axis[k][2];
+        if (std::fabs(f) < 1e-6f) {
+            if (e < -oc.half[k] || e > oc.half[k]) return false;  // parallel, outside
+            continue;
+        }
+        float ta = (-oc.half[k] - e) / f;
+        float tb = (oc.half[k] - e) / f;
+        if (ta > tb) std::swap(ta, tb);
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+        if (t0 > t1) return false;
+    }
+    return true;
+}
+
+void emitterLightAt(const Emitter& em, const float wp[3], const float n[3],
+                    float outRgb[3],
+                    const std::vector<const Occluder*>* blockers) {
+    outRgb[0] = outRgb[1] = outRgb[2] = 0.0f;
+    float dist;
+    float toEm[3];
+    occShapeAt(em.shape, wp, dist, toEm);
+    if (dist >= em.range) return;
+    if (blockers && dist > 0.02f) {
+        // Nudge off the surface so a solid touching the receiver (a prop on
+        // the floor) does not shadow it with its own contact face, and stop
+        // just short of the emitter.
+        const float bias = 0.02f;
+        const float o[3] = {wp[0] + toEm[0] * bias, wp[1] + toEm[1] * bias,
+                            wp[2] + toEm[2] * bias};
+        const float len = dist - 2.0f * bias;
+        for (const Occluder* oc : *blockers) {
+            if (oc->objIndex == em.shape.objIndex) continue;  // the source itself
+            if (shapeBlocksRay(*oc, o, toEm, len)) return;
+        }
+    }
+    if (dist < 0.0f) dist = 0.0f;  // touching / inside: full strength
+    float fade = 1.0f - dist / em.range;
+    fade *= fade;  // same rounder pool as the point lights
+    // Facing weight: half-Lambert SQUARED. These emitters are area sources (a
+    // lava plate, a neon strip), not points, so a plain max(0, N.L) lights one
+    // face of a box fully and its neighbour not at all - a seam right on the
+    // corner. A linear wrap (what the occluder term uses) fixes that but still
+    // reaches zero at a finite angle, and in a dark scene that angle reads as
+    // a hard shading edge. ((1 + N.L) / 2)^2 is smooth everywhere, hits zero
+    // ONLY at N.L = -1, and stays near-zero across the back hemisphere - the
+    // faint fill a real bounce would give. Side-on lands at 0.25.
+    float w = 0.5f + 0.5f * (n[0] * toEm[0] + n[1] * toEm[1] + n[2] * toEm[2]);
+    if (w <= 0.0f) return;
+    w *= w;
+    const float k = em.bright * fade * w;
+    for (int c = 0; c < 3; ++c) outRgb[c] = k * em.color[c];
 }
 
 std::vector<uint8_t> terrainAO(const std::vector<float>& heights, int w, int d,
@@ -650,22 +813,31 @@ int regionCountFor(PrimitiveType t) {
 
 }  // namespace
 
-SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
+SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                               const ModelAabbFn& modelAabb) {
-    SceneAoAtlas out;
+    SceneLightAtlas out;
     const ProjectSettings rs = project::resolvedSettings(p, sc);
     out.firstRegion.assign(sc.objects.size(), -1);
-    if (!rs.aoEnabled || rs.aoStrength <= 0.0f) return out;
+    out.lit.assign(sc.objects.size(), 0);
+    // Two independent reasons to build an atlas; either one is enough.
+    const bool aoOn = rs.aoEnabled && rs.aoStrength > 0.0f;
+    const std::vector<Emitter> ems = collectEmitters(p.dir, sc.objects, modelAabb);
+    if (!aoOn && ems.empty()) return out;
 
-    const std::vector<Occluder> occs = collectOccluders(sc.objects, modelAabb);
+    // Collected regardless of the AO preference: with emitters present these
+    // same shapes also SHADOW the baked light (a wall must not be lit through).
+    const std::vector<Occluder> occs =
+        (aoOn || !ems.empty()) ? collectOccluders(sc.objects, modelAabb)
+                               : std::vector<Occluder>();
 
     // Region list with pixel sizes; shelf-packed, halving the density until
-    // everything fits a 512 atlas (leftovers fall back to vertex AO).
+    // everything fits a 512 atlas (leftovers fall back to the vertex bake).
     struct Region {
         int obj, idx;
         int px, py, w, h;
     };
     std::vector<Region> regions;
+    GlowCache glowCache;
     for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
         const SceneObject& o = sc.objects[oi];
         const int rc = regionCountFor(o.type);
@@ -673,6 +845,12 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
         // Runtime movers keep the vertex bake (which re-bakes on rebuild);
         // an atlas region would glue the baked shadow to the moved surface.
         if (o.physics || o.pickable || o.saveState) continue;
+        // An emissive surface takes neither bake: the atlas passes multiply and
+        // add per pixel AFTER the emissive floor is already in the vertex
+        // colors, so occlusion would darken a surface that is supposed to be
+        // self-lit and extra light would only wash it out. Emitters keep the
+        // per-vertex path, where the floor wins.
+        if (materialGlow(p.dir, o.materialPath, glowCache).glows()) continue;
         for (int r = 0; r < rc; ++r) regions.push_back({oi, r, 0, 0, 0, 0});
     }
     if (regions.empty()) return out;
@@ -725,20 +903,74 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
 
     out.size = atlasSize;
     out.alpha.assign((size_t)atlasSize * atlasSize, 0);
+    out.light.assign((size_t)atlasSize * atlasSize * 3, 0);
 
     // Rasterize each region: (u,v) -> local -> world (the pushVert transform:
-    // scale, rotate, translate) -> occluders (excluding self) + ground term.
-    // Objects whose every texel comes out fully lit (an isolated prop in the
-    // open) are dropped from the atlas afterwards - no extra pass, and they
-    // stay eligible for static batching.
-    std::vector<char> objHasAo(sc.objects.size(), 0);
+    // scale, rotate, translate) -> occluders (excluding self) + ground term
+    // into the alpha, emitters into the RGB. Objects whose every texel comes
+    // out fully lit AND unlit-by-emitters (an isolated prop in the open) are
+    // dropped from the atlas afterwards - no extra passes, and they stay
+    // eligible for static batching.
+    std::vector<char> objHasBake(sc.objects.size(), 0);
     int lastObj = -1;
     std::vector<const Occluder*> local;
+    std::vector<const Emitter*> localEm;
+    // Shadow casters for this object's emitters. Pruned by the EMITTER reach,
+    // which is unrelated to aoRadius, so it cannot share `local`.
+    std::vector<const Occluder*> localBlock;
+    // The additive pass adds a flat color, so the surface's own diffuse has to
+    // be folded in here - light * Kd * the object tint, in framebuffer units.
+    float recvTint[3] = {1, 1, 1};
+    bool recvTextured = false;
     for (const Region& rg : regions) {
         const SceneObject& o = sc.objects[rg.obj];
         if (rg.obj != lastObj) {
             lastObj = rg.obj;
             local.clear();
+            localEm.clear();
+            localBlock.clear();
+            {
+                const MaterialGlow& mg =
+                    materialGlow(p.dir, o.materialPath, glowCache);
+                for (int k = 0; k < 3; ++k)
+                    recvTint[k] = o.color[k] * mg.kd[k];
+                recvTextured = mg.textured;
+            }
+            const float emReach =
+                0.87f * std::sqrt(o.scale[0] * o.scale[0] +
+                                  o.scale[1] * o.scale[1] +
+                                  o.scale[2] * o.scale[2]);
+            for (const Emitter& em : ems) {
+                if (em.shape.objIndex == rg.obj) continue;
+                const float dx = em.shape.pos[0] - o.position[0];
+                const float dy = em.shape.pos[1] - o.position[1];
+                const float dz = em.shape.pos[2] - o.position[2];
+                const float reach =
+                    emReach + em.range +
+                    std::sqrt(em.shape.half[0] * em.shape.half[0] +
+                              em.shape.half[1] * em.shape.half[1] +
+                              em.shape.half[2] * em.shape.half[2]);
+                if (dx * dx + dy * dy + dz * dz <= reach * reach)
+                    localEm.push_back(&em);
+            }
+            if (!localEm.empty()) {
+                float maxRange = 0.0f;
+                for (const Emitter* e : localEm)
+                    if (e->range > maxRange) maxRange = e->range;
+                for (const Occluder& oc : occs) {
+                    if (oc.objIndex == rg.obj) continue;  // the receiver itself
+                    const float dx = oc.pos[0] - o.position[0];
+                    const float dy = oc.pos[1] - o.position[1];
+                    const float dz = oc.pos[2] - o.position[2];
+                    const float reach =
+                        emReach + maxRange +
+                        std::sqrt(oc.half[0] * oc.half[0] +
+                                  oc.half[1] * oc.half[1] +
+                                  oc.half[2] * oc.half[2]);
+                    if (dx * dx + dy * dy + dz * dz <= reach * reach)
+                        localBlock.push_back(&oc);
+                }
+            }
             const float reachBase =
                 0.87f * std::sqrt(o.scale[0] * o.scale[0] + o.scale[1] * o.scale[1] +
                                   o.scale[2] * o.scale[2]) +
@@ -770,45 +1002,83 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
                 const float wp[3] = {rp.x + o.position[0], rp.y + o.position[1],
                                      rp.z + o.position[2]};
                 const float n[3] = {rn.x, rn.y, rn.z};
-                float occ = 0.0f;
-                for (const Occluder* oc : local)
-                    occ += occluderOcclusionAt(*oc, wp, n, rs.aoRadius);
-                // ground term; an empty heightmap samples the y = 0 plane
-                const float ground = heightAtWorld(
-                    sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-                    (float)sc.terrain.depth, wp[0], wp[2]);
-                occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
-                if (occ > 1.0f) occ = 1.0f;
-                const uint8_t a = (uint8_t)(255.0f * rs.aoStrength * occ + 0.5f);
-                out.alpha[(size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i] = a;
-                if (a) objHasAo[rg.obj] = 1;
+                const size_t texel =
+                    (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
+                if (aoOn) {
+                    float occ = 0.0f;
+                    for (const Occluder* oc : local)
+                        occ += occluderOcclusionAt(*oc, wp, n, rs.aoRadius);
+                    // ground term; an empty heightmap samples the y = 0 plane
+                    const float ground = heightAtWorld(
+                        sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                        (float)sc.terrain.depth, wp[0], wp[2]);
+                    occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
+                    if (occ > 1.0f) occ = 1.0f;
+                    const uint8_t a =
+                        (uint8_t)(255.0f * rs.aoStrength * occ + 0.5f);
+                    out.alpha[texel] = a;
+                    if (a) objHasBake[rg.obj] = 1;
+                }
+                // Emissive light, folded with the receiver's own diffuse and
+                // scaled to framebuffer units (255 = full white) - the
+                // additive pass adds these bytes straight onto the frame.
+                float add[3] = {0, 0, 0};
+                for (const Emitter* em : localEm) {
+                    float l[3];
+                    emitterLightAt(*em, wp, n, l, &localBlock);
+                    for (int k = 0; k < 3; ++k) add[k] += l[k];
+                }
+                if (!recvTextured) {
+                    const float dz =
+                        bayerDither(rg.px + 1 + i, rg.py + 1 + j);
+                    for (int k = 0; k < 3; ++k) {
+                        float v = 255.0f * add[k] * recvTint[k] + dz;
+                        if (v <= 0.0f) continue;  // stays 0, no dither noise
+                        if (v > 255.0f) v = 255.0f;
+                        const uint8_t b = (uint8_t)(v + 0.5f);
+                        out.light[texel * 3 + k] = b;
+                        if (b) objHasBake[rg.obj] = 1, out.lit[rg.obj] = 1;
+                    }
+                }
             }
         }
         // dilate the interior into the 1-texel padding ring (bilinear guard)
         auto at = [&](int x, int y) -> uint8_t& {
             return out.alpha[(size_t)(rg.py + y) * atlasSize + rg.px + x];
         };
+        auto lit = [&](int x, int y, int c) -> uint8_t& {
+            return out.light[((size_t)(rg.py + y) * atlasSize + rg.px + x) * 3 + c];
+        };
         for (int i = 0; i < rg.w; ++i) {
             const int ci = i < 1 ? 1 : (i > rg.w - 2 ? rg.w - 2 : i);
             at(i, 0) = at(ci, 1);
             at(i, rg.h - 1) = at(ci, rg.h - 2);
+            for (int c = 0; c < 3; ++c) {
+                lit(i, 0, c) = lit(ci, 1, c);
+                lit(i, rg.h - 1, c) = lit(ci, rg.h - 2, c);
+            }
         }
         for (int j = 0; j < rg.h; ++j) {
             const int cj = j < 1 ? 1 : (j > rg.h - 2 ? rg.h - 2 : j);
             at(0, j) = at(1, cj);
             at(rg.w - 1, j) = at(rg.w - 2, cj);
+            for (int c = 0; c < 3; ++c) {
+                lit(0, j, c) = lit(1, cj, c);
+                lit(rg.w - 1, j, c) = lit(rg.w - 2, cj, c);
+            }
         }
     }
 
     // Emit rects (interior only, inset half a texel) + per-object firsts.
-    // regions[] is already in object order, region idx ascending; fully-lit
-    // objects keep firstRegion = -1 (their packed space just goes unused).
+    // regions[] is already in object order, region idx ascending; objects that
+    // came out neither occluded nor lit keep firstRegion = -1 (their packed
+    // space just goes unused).
     out.rects.reserve(regions.size());
     const float inv = 1.0f / atlasSize;
-    bool anyAo = false;
+    bool anyBake = false;
     for (const Region& rg : regions) {
-        if (!objHasAo[rg.obj]) continue;
-        anyAo = true;
+        if (!objHasBake[rg.obj]) continue;
+        anyBake = true;
         if (out.firstRegion[rg.obj] < 0)
             out.firstRegion[rg.obj] = (int)out.rects.size();
         AtlasRect rc;
@@ -818,11 +1088,16 @@ SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
         rc.dv = (rg.h - 3.0f) * inv;
         out.rects.push_back(rc);
     }
-    if (!anyAo) {
+    if (!anyBake) {
         out.size = 0;
         out.alpha.clear();
+        out.light.clear();
         out.rects.clear();
+        std::fill(out.lit.begin(), out.lit.end(), (char)0);
     }
+    // An object whose region was dropped keeps neither channel.
+    for (size_t i = 0; i < out.lit.size(); ++i)
+        if (out.firstRegion[i] < 0) out.lit[i] = 0;
     return out;
 }
 

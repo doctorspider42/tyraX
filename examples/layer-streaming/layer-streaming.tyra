@@ -56,6 +56,8 @@
     "aoRadius": 2.5,
     "terrainMaterial": "",
     "bloom": 0,
+    "bloomThreshold": 0,
+    "bloomSpread": 0,
     "grain": 0,
     "dofAmount": 0,
     "dofFocus": 20,
@@ -76,7 +78,7 @@
   "scenes": [
     { "name": "main",
       "terrain": { "width": 64, "depth": 64 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "layers": [{ "name": "building-a" }, { "name": "building-b", "startLoaded": false }],
       "objects": ["13d8987f0843def9", "bfb9da98a885b378", "c6005aa20b81bb74", "3cf4c5a425bc6afe", "a040323719545a88", "681db01302b4394f", "6ebbb22bdd1215e8", "97b1791432c7c2c0", "2b747f71587cf48b", "e3fd1bfdfae99dcb", "ece99c40b16a3b7b", "3e3096f69e9785f1", "b799761606889755", "a43f21a1ea764d6e", "190c99019ba2e608", "a882923bffddd56a", "695d321d57fbda57", "b27cbc586d44e8cb", "61ede10e24d3de72", "569d3c724e567725", "7773a53d938000ac", "fb81dbcb6ef34efb", "01de5097c617273d", "b80e7220770c1a66", "2e44e1e216149b50"] }
   ],

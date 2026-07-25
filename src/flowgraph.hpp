@@ -369,7 +369,8 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "num[0] = 1 re-applies the scene's fog, 0 disables it."},
         {.key = "SetBloom", .title = "Set Bloom", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
-         .desc = "Bloom amount num[0] 0..1 (0 = off)."},
+         .desc = "Bloom amount num[0] 0..2 (0 = off, 1 = the blur fully "
+                 "re-added, above that over-added for a hot glow)."},
         {.key = "SetGrain", .title = "Set Grain", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .desc = "Film grain amount num[0] 0..1 (0 = off)."},

@@ -51,6 +51,7 @@ std::string write(const Model& m) {
         appendFixedString(out, part.texture, 64);
         appendFixedString(out, part.reflTexture, 64);
         for (int i = 0; i < 3; ++i) appendF32(out, part.kd[i]);
+        for (int i = 0; i < 3; ++i) appendF32(out, part.ke[i]);
         appendF32(out, part.reflStrength);
         appendU32(out, part.reflRounded ? 1u : 0u);
         appendMesh(out, part.verts, part.ao);

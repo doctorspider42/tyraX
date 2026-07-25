@@ -320,8 +320,13 @@ std::vector<const AoOccData*> g_aoLocal;  // pruned per object/terrain chunk
 // into g_aoSts instead of multiplying the occlusion into the vertex colors -
 // the lightmap pass samples it per pixel. The builders bump g_aoRegion in
 // their emission order (box 6 faces, sphere 1, cylinder 3, cone 2, plane 2 -
-// mirrored by aobake::bakeSceneAoAtlas on the host; keep in sync).
+// mirrored by aobake::bakeSceneLightAtlas on the host; keep in sync).
 bool g_aoAtlas = false;
+// ...and whether its LIGHT channel has content: the additive lightmap pass
+// draws only then, and only then may pushVert leave the emissive light out of
+// the vertex colors (a textured receiver keeps the per-vertex light - see
+// aobake, SceneLightAtlas::lit).
+bool g_emisAtlas = false;
 const AoAtlasRect* g_aoAtlasRects = nullptr;
 int g_aoRegion = 0;
 std::vector<Vec4>* g_aoSts = nullptr;
@@ -329,11 +334,15 @@ std::vector<Vec4>* g_aoSts = nullptr;
 // rebuildObjectGeometry) - per-vertex occlusion looks triangulated there.
 bool g_aoOff = false;
 
-/** Occlusion contribution of one occluder at a surface point (0..1). */
-float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
+/** Distance from a world point to an analytic shape's SURFACE plus the unit
+ * direction toward it. Both the occlusion and the emissive-light response are
+ * built on this one query (the host's aobake::occShapeAt is the twin, and the
+ * viewport fragment shader mirrors it as well - change one, change all three).
+ * AoOccData and EmisLightData share the shape prefix, so the template takes
+ * either. */
+template <class Shape>
+void occShapeAt(const Shape& oc, const V3& wp, float& dist, V3& toOcc) {
   const V3 rel = {wp.x - oc.pos[0], wp.y - oc.pos[1], wp.z - oc.pos[2]};
-  float dist;
-  V3 toOcc;  // direction from the point toward the occluder surface
   if (oc.sphere) {
     const float d = sqrtf(rel.x * rel.x + rel.y * rel.y + rel.z * rel.z);
     dist = d - oc.half[0];
@@ -360,6 +369,13 @@ float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
       toOcc = {0.0F, 1.0F, 0.0F};
     }
   }
+}
+
+/** Occlusion contribution of one occluder at a surface point (0..1). */
+float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
+  float dist;
+  V3 toOcc;  // direction from the point toward the occluder surface
+  occShapeAt(oc, wp, dist, toOcc);
   if (dist <= 0.0F) return 1.0F;  // touching / inside
   float fade = 1.0F - dist / SCENE_AO_RADIUS;
   if (fade <= 0.0F) return 0.0F;
@@ -417,12 +433,160 @@ void aoCollectLocal(float cx, float cy, float cz, float radius, int selfIndex) {
   }
 }
 
+/** Emissive lights (docs/emissive-materials.md): objects whose material both
+ * glows and declares a reach light the geometry around them. Baked into the
+ * vertex colors exactly like the directional and point lights - the ambient
+ * occlusion treatment in reverse, sharing its analytic shapes and its
+ * once-per-object pruning (the dcache lesson above applies unchanged: never
+ * scan the whole table per vertex). */
+std::vector<const EmisLightData*> g_emisLocal;
+// Occluders that can SHADOW those emitters - the same analytic shapes the
+// ambient occlusion uses (per-object "Cast shadow"), pruned by the EMITTER
+// reach rather than SCENE_AO_RADIUS, so it cannot share g_aoLocal. Collected
+// whether or not the project bakes occlusion.
+std::vector<const AoOccData*> g_emisBlock;
+
+/** Does the segment from `origin` along unit `dir` for `maxT` units enter the
+ * shape? Slab test for a box, quadratic for a sphere. Twin of
+ * aobake::shapeBlocksRay and of shadowHit in the viewport shader. */
+bool shapeBlocksRay(const AoOccData& oc, const V3& origin, const V3& dir,
+                    float maxT) {
+  const V3 rel = {origin.x - oc.pos[0], origin.y - oc.pos[1],
+                  origin.z - oc.pos[2]};
+  if (oc.sphere) {
+    const float b = rel.x * dir.x + rel.y * dir.y + rel.z * dir.z;
+    const float c = rel.x * rel.x + rel.y * rel.y + rel.z * rel.z -
+                    oc.half[0] * oc.half[0];
+    if (c < 0.0F) return true;   // origin inside
+    if (b > 0.0F) return false;  // behind the ray
+    const float disc = b * b - c;
+    if (disc < 0.0F) return false;
+    const float t = -b - sqrtf(disc);
+    return t >= 0.0F && t <= maxT;
+  }
+  const float* ax[3] = {oc.ax, oc.ay, oc.az};
+  float t0 = 0.0F, t1 = maxT;
+  for (int k = 0; k < 3; ++k) {
+    const float e = rel.x * ax[k][0] + rel.y * ax[k][1] + rel.z * ax[k][2];
+    const float f = dir.x * ax[k][0] + dir.y * ax[k][1] + dir.z * ax[k][2];
+    if (fabsf(f) < 0.000001F) {
+      if (e < -oc.half[k] || e > oc.half[k]) return false;  // parallel, outside
+      continue;
+    }
+    float ta = (-oc.half[k] - e) / f;
+    float tb = (oc.half[k] - e) / f;
+    if (ta > tb) {
+      const float tmp = ta;
+      ta = tb;
+      tb = tmp;
+    }
+    if (ta > t0) t0 = ta;
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+void emisCollectLocal(float cx, float cy, float cz, float radius,
+                      int selfIndex) {
+  g_emisLocal.clear();
+  const EmisLightData* tbl = SCENE_EMIS;
+  if (!tbl) return;
+  for (int i = 0; i < SCENE_EMIS_COUNT; ++i) {
+    const EmisLightData& em = tbl[i];
+    // An emitter never lights itself - its own emissive floor already holds
+    // the surface at full brightness, and a self-contribution would only
+    // wash the color out.
+    if (em.objIndex == selfIndex) continue;
+    const float dx = em.pos[0] - cx;
+    const float dy = em.pos[1] - cy;
+    const float dz = em.pos[2] - cz;
+    const float reach =
+        radius + em.range +
+        sqrtf(em.half[0] * em.half[0] + em.half[1] * em.half[1] +
+              em.half[2] * em.half[2]);
+    if (dx * dx + dy * dy + dz * dz <= reach * reach) g_emisLocal.push_back(&em);
+  }
+  // Shadow casters within reach of any surviving emitter. The receiver's own
+  // occluder is excluded (the ray starts on its surface); the emitter's own is
+  // skipped per emitter in emissiveLightAt (the ray ends on it).
+  g_emisBlock.clear();
+  const AoOccData* occ = SCENE_AO_OCC;
+  if (g_emisLocal.empty() || !occ) return;
+  float maxRange = 0.0F;
+  for (const EmisLightData* em : g_emisLocal)
+    if (em->range > maxRange) maxRange = em->range;
+  for (int i = 0; i < SCENE_AO_OCC_COUNT; ++i) {
+    const AoOccData& oc = occ[i];
+    if (oc.objIndex == selfIndex) continue;
+    const float dx = oc.pos[0] - cx;
+    const float dy = oc.pos[1] - cy;
+    const float dz = oc.pos[2] - cz;
+    const float reach =
+        radius + maxRange +
+        sqrtf(oc.half[0] * oc.half[0] + oc.half[1] * oc.half[1] +
+              oc.half[2] * oc.half[2]);
+    if (dx * dx + dy * dy + dz * dz <= reach * reach) g_emisBlock.push_back(&oc);
+  }
+}
+
+/** Light the pruned local emitters add at a surface point. Quadratic falloff
+ * from the emitter SHAPE (not its center, so a long neon strip lights evenly
+ * along its length) times N.L. Twin of aobake::emitterLightAt on the host and
+ * of emissiveLight() in the viewport shader. */
+V3 emissiveLightAt(const V3& wp, const V3& n) {
+  V3 add = {0.0F, 0.0F, 0.0F};
+  for (const EmisLightData* em : g_emisLocal) {
+    float dist;
+    V3 toEm;
+    occShapeAt(*em, wp, dist, toEm);
+    if (dist >= em->range) continue;
+    // Solids between the surface and the emitter block it outright (hard
+    // shadows - a wall throws a rectangle, not its silhouette). The bias keeps
+    // a solid resting ON this surface from shadowing it with its contact face.
+    if (!g_emisBlock.empty() && dist > 0.02F) {
+      const V3 o = {wp.x + toEm.x * 0.02F, wp.y + toEm.y * 0.02F,
+                    wp.z + toEm.z * 0.02F};
+      const float len = dist - 0.04F;
+      bool blocked = false;
+      for (const AoOccData* oc : g_emisBlock) {
+        if (oc->objIndex == em->objIndex) continue;  // the source itself
+        if (shapeBlocksRay(*oc, o, toEm, len)) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+    }
+    if (dist < 0.0F) dist = 0.0F;  // touching / inside: full strength
+    float fade = 1.0F - dist / em->range;
+    fade *= fade;
+    // Facing weight: half-Lambert SQUARED - these are AREA sources, so a plain
+    // max(0, N.L) would seam on every box corner, and a linear wrap still hits
+    // zero at a finite angle (a hard shading edge in a dark scene). Smooth
+    // everywhere, zero only at N.L = -1, side-on lands at 0.25. Twin of
+    // aobake::emitterLightAt and the viewport's emissiveLight - the occluder
+    // term above deliberately keeps its own linear 0.35 wrap.
+    float w = 0.5F + 0.5F * (n.x * toEm.x + n.y * toEm.y + n.z * toEm.z);
+    if (w <= 0.0F) continue;
+    w *= w;
+    const float k = em->bright * fade * w;
+    add.x += k * em->color[0];
+    add.y += k * em->color[1];
+    add.z += k * em->color[2];
+  }
+  return add;
+}
+
 // Material context for the primitive builders: addBox & co call pushVert
 // without material args, so rebuildObjectGeometry stages the object's
 // assigned material here before dispatching. Model parts pass theirs
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+// Emission (Ke) of the staged primitive material, null = matte. Model parts
+// pass theirs explicitly through pushVert's keArg, like kd.
+const float* g_primKe = nullptr;
 // Texture atlasing: the staged material's UV rect ("# tyra-uvrect" in the
 // baked .mtl), applied to the primitive builders' generated 0..1 UVs.
 // nullptr = identity. Model parts never use it - LeanObjLoader already
@@ -473,13 +637,16 @@ void despawnObjectThunk(int objectIndex) {
 }
 
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
+// ke: material emission (MTL Ke), null/zero = matte - see the floor below.
 // textured: this batch draws with a texture (a model part's map_Kd or a
 // primitive material's) - switches the color to modulation scale (128 = 1.0).
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
               float u, float v, const float* kdArg = nullptr,
-              bool texturedArg = false, unsigned char selfAo = 255) {
+              bool texturedArg = false, unsigned char selfAo = 255,
+              const float* keArg = nullptr) {
   const float* kd = kdArg ? kdArg : g_primKd;
+  const float* ke = keArg ? keArg : g_primKe;
   const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
@@ -492,25 +659,44 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   // is the model's baked raycast self-occlusion (255 = open). With the
   // textured mode staged, the occlusion arrives per pixel through the atlas
   // pass instead - only the ST for it is emitted here.
-  if (SCENE_AO_ENABLED && !g_aoOff) {
-    if (g_aoAtlas) {
-      if (g_aoSts) {
-        const AoAtlasRect& rc = g_aoAtlasRects[g_aoRegion];
-        g_aoSts->push_back(Vec4(rc.u0 + u * rc.du, rc.v0 + v * rc.dv, 1.0F, 0.0F));
-      }
-    } else {
-      float aoM = aoShadeMul(wp, n, true);
-      if (selfAo != 255)
-        aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
-      shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
+  // Scene lightmap: with an atlas region staged, BOTH the occlusion and the
+  // emissive light arrive per pixel through the atlas passes - only the ST is
+  // emitted here, and neither term may also land in the vertex color or it
+  // would be applied twice.
+  if (g_aoAtlas) {
+    if (g_aoSts) {
+      const AoAtlasRect& rc = g_aoAtlasRects[g_aoRegion];
+      g_aoSts->push_back(Vec4(rc.u0 + u * rc.du, rc.v0 + v * rc.dv, 1.0F, 0.0F));
     }
+  } else if (SCENE_AO_ENABLED && !g_aoOff) {
+    float aoM = aoShadeMul(wp, n, true);
+    if (selfAo != 255)
+      aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
+    shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
   }
   const V3 pl = pointLightAt(wp, n);
   shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
+  // Emissive materials nearby light this surface too - same additive slot as
+  // the point lights (both sit on top of the AO-multiplied directional term).
+  if (!g_emisAtlas) {
+    const V3 el = emissiveLightAt(wp, n);
+    shade.x += el.x, shade.y += el.y, shade.z += el.z;
+  }
   if (shade.x > 1.0F) shade.x = 1.0F;
   if (shade.y > 1.0F) shade.y = 1.0F;
   if (shade.z > 1.0F) shade.z = 1.0F;
   if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
+  // Emissive materials (MTL "Ke", docs/emissive-materials.md): a per-channel
+  // FLOOR under the finished shade, applied last - so the surface ignores the
+  // sun, ambient occlusion and point lights on the way DOWN and keeps its own
+  // color in a pitch-black scene, while a brighter lit result still wins. The
+  // object tint multiplies on top below, exactly as it does for the lit path
+  // (viewport.cpp's uEmissive is the GL twin - keep them in sync).
+  if (ke) {
+    if (shade.x < ke[0]) shade.x = ke[0];
+    if (shade.y < ke[1]) shade.y = ke[1];
+    if (shade.z < ke[2]) shade.z = ke[2];
+  }
   verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
                               : Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0). Kd may
@@ -1153,6 +1339,8 @@ void TerrainGame::init() {
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+  engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
+  engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
@@ -1659,6 +1847,17 @@ void TerrainGame::buildScene() {
   layerInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   layerInfoBag->fullClipChecks = CLIP_PRECISE;
   layerInfoBag->blendingEnabled = true;
+  // Scene-lightmap ADD pass (docs/emissive-materials.md): same shape, but the
+  // additive equation Cv = Cs*FIX/128 + Cd at full strength, and unfogged -
+  // GS fog would add the fog color through an additive blend and brighten
+  // fogged pixels (the reflection pass sets fogDisabled for the same reason).
+  lightAddInfoBag = std::make_unique<StaPipInfoBag>();
+  lightAddInfoBag->model = &model;
+  lightAddInfoBag->shadingType = TyraShadingFlat;
+  lightAddInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+  lightAddInfoBag->fullClipChecks = CLIP_PRECISE;
+  lightAddInfoBag->fogDisabled = true;
+  lightAddInfoBag->additiveBlendFix = 128;
   // The terrain mesh itself is built per chunk by loadScene(0) below
   // (resetTerrainChunks + the synchronous chunk drain).
 
@@ -1879,33 +2078,50 @@ void TerrainGame::releaseTexture(const std::string& path) {
   texCache.erase(it);
 }
 
-// Loads one custom .obj through the engine's LeanObjLoader: geometry split
-// per MTL material, map_Kd textures through the texture cache, the real
-// mesh AABB for box collision and a CollisionMesh where some scene object
-// collides in mesh mode. Called on demand by the layer streaming.
+// Loads one static model: the baked binary .tmdl (TmdlLoader - materials,
+// atlas UV rects, flat normals and texture paths all resolved at build time,
+// so this is a read plus a memcpy) or, for a path that is not a .tmdl, an
+// ASCII .obj through LeanObjLoader. Geometry is split per material, map_Kd
+// textures go through the texture cache, plus the real mesh AABB for box
+// collision and a CollisionMesh where some scene object collides in mesh
+// mode. Called on demand by the layer streaming.
 void TerrainGame::loadModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || modelLoaded[i]) return;
   modelLoaded[i] = 1;  // missing/unparseable stays empty but counts as tried
-  const std::string overrideMtl = MODEL_MTLS[i];
-  auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
+  const std::string modelPath = MODEL_PATHS[i];
+  const bool binary = modelPath.size() > 5 &&
+                      modelPath.compare(modelPath.size() - 5, 5, ".tmdl") == 0;
+  const std::string overrideMtl = binary ? std::string() : MODEL_MTLS[i];
+  auto mesh = binary ? TmdlLoader::load(modelPath)
+                     : LeanObjLoader::load(modelPath, overrideMtl);
   if (!mesh) return;  // stays empty - objects using it render nothing
   GameModel& gm = gameModels[i];
   for (int k = 0; k < 3; ++k) {
     gm.mn[k] = mesh->min[k];
     gm.mx[k] = mesh->max[k];
   }
-  // map_Kd texture names resolve relative to the file that defined them:
-  // the override .mtl when one is assigned, the model otherwise
-  std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
-  const size_t slash = dir.find_last_of('/');
-  dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  // A .tmdl stores cwd-relative texture paths; an .obj's map_Kd names resolve
+  // relative to the file that defined them (the override .mtl when one is
+  // assigned, the model otherwise).
+  std::string dir;
+  if (!binary) {
+    dir = overrideMtl.empty() ? modelPath : overrideMtl;
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  }
   for (auto& mat : mesh->materials) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
     part.vertexAo.swap(mat.vertexAo);  // baked AO sidecar (empty = none)
+    // Distance tiers (a .tmdl baked with mesh LOD on; never from an .obj)
+    for (auto& lod : mat.lods) {
+      part.lodVerts.push_back(std::vector<float>());
+      part.lodVerts.back().swap(lod.vertices);
+    }
     part.kd[0] = mat.kd[0];
     part.kd[1] = mat.kd[1];
     part.kd[2] = mat.kd[2];
+    for (int k = 0; k < 3; ++k) part.ke[k] = mat.ke[k];
     if (!mat.textureName.empty()) {
       const std::string path = dir + mat.textureName;
       part.texture = acquireTexture(path);
@@ -1961,6 +2177,7 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.kd[0] = mat.kd[0];
   gmat.kd[1] = mat.kd[1];
   gmat.kd[2] = mat.kd[2];
+  for (int k = 0; k < 3; ++k) gmat.ke[k] = mat.ke[k];
   std::string dir = MATERIAL_PATHS[i];
   const size_t slash = dir.find_last_of('/');
   dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
@@ -2935,7 +3152,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
 
-  // Experimental textured AO: swap the per-scene lightmap textures. Must
+  // Scene lightmaps: swap the per-scene textures (the terrain occlusion map
+  // and the object atlas carrying occlusion + baked emissive light). Must
   // happen before any chunk/object bake - the bag wiring reads the pointers.
   if (!aoMapTexPath.empty()) releaseTexture(aoMapTexPath);
   if (!aoAtlasTexPath.empty()) releaseTexture(aoAtlasTexPath);
@@ -2943,15 +3161,15 @@ void TerrainGame::loadScene(int sceneIndex) {
   aoAtlasTexPath.clear();
   aoMapTexture = nullptr;
   aoAtlasTexture = nullptr;
-  if (SCENE_AO_ENABLED) {
-    if (SCENE_AO_MAP_PATH[0]) {
-      aoMapTexPath = SCENE_AO_MAP_PATH;
-      aoMapTexture = acquireTexture(aoMapTexPath);
-    }
-    if (SCENE_AO_ATLAS_PATH[0]) {
-      aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
-      aoAtlasTexture = acquireTexture(aoAtlasTexPath);
-    }
+  if (SCENE_AO_ENABLED && SCENE_AO_MAP_PATH[0]) {
+    aoMapTexPath = SCENE_AO_MAP_PATH;
+    aoMapTexture = acquireTexture(aoMapTexPath);
+  }
+  // The object atlas also carries baked emissive light, so it loads whenever
+  // it exists - a scene can have glowing lamps and no ambient occlusion.
+  if (SCENE_AO_ATLAS_PATH[0]) {
+    aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
+    aoAtlasTexture = acquireTexture(aoAtlasTexPath);
   }
 
   // Size the terrain chunk pool for this scene's grid up front (independent
@@ -3052,6 +3270,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+  engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
+  engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
@@ -5143,6 +5363,11 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     part.colors.clear();
     part.sts.clear();
     part.envNormals.clear();
+    // Every resident LOD tier baked the OLD transform/shading - drop them all
+    // (a moved, recolored or Live-Link-patched object must not keep stale
+    // distant copies) and go back to showing the full mesh.
+    part.lods.clear();
+    part.shownLod = 0;
   }
 
   // primitives: the assigned material (first entry of its .mtl) supplies
@@ -5172,23 +5397,32 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     }
     aoCollectLocal(o.data.position[0], o.data.position[1], o.data.position[2],
                    aoRad, index < SCENE_OBJECT_COUNT ? index : -1);
+    // Emissive lights use the same bounding sphere and the same
+    // once-per-object pruning (see emisCollectLocal).
+    emisCollectLocal(o.data.position[0], o.data.position[1], o.data.position[2],
+                     aoRad, index < SCENE_OBJECT_COUNT ? index : -1);
   }
 
   // Authored primitives with an atlas region sample the scene lightmap per
-  // pixel; spawned clones and physics bodies (FIRST is -1 / index past the
-  // authored count) keep the per-vertex bake. Imported models get NO
-  // receive/self AO for now (g_aoOff): per-vertex occlusion on authored
-  // meshes reads as triangulated shading (owner call, 2026-07) - a proper
-  // fix needs a per-model lightmap unwrap. The .aov sidecar plumbing
-  // (aobake::modelAO + LeanObjLoader) stays for that future path.
+  // pixel - BOTH the ambient occlusion and the baked emissive light, which is
+  // why the region exists whenever either has content (the vertex bake shows
+  // a strong light gradient as the diagonal seam of every two-triangle face).
+  // Spawned clones and physics bodies (FIRST is -1 / index past the authored
+  // count) keep the per-vertex bake. Imported models get NO receive/self AO
+  // for now (g_aoOff): per-vertex occlusion on authored meshes reads as
+  // triangulated shading (owner call, 2026-07) - a proper fix needs a
+  // per-model lightmap unwrap. The .aov sidecar plumbing (aobake::modelAO +
+  // LeanObjLoader) stays for that future path.
   g_aoAtlas = false;
+  g_emisAtlas = false;
   g_aoSts = nullptr;
   g_aoOff = o.data.type == 5;
   if (partCount > 0) g.parts[0].aoSts.clear();
-  if (SCENE_AO_ENABLED && o.data.type != 5 && index < SCENE_OBJECT_COUNT &&
+  if (o.data.type != 5 && index < SCENE_OBJECT_COUNT &&
       SCENE_AO_ATLAS_FIRST && SCENE_AO_ATLAS_RECTS &&
       SCENE_AO_ATLAS_FIRST[index] >= 0) {
     g_aoAtlas = true;
+    g_emisAtlas = SCENE_AO_ATLAS_LIT && SCENE_AO_ATLAS_LIT[index] != 0;
     g_aoAtlasRects = &SCENE_AO_ATLAS_RECTS[SCENE_AO_ATLAS_FIRST[index]];
     g_aoSts = &g.parts[0].aoSts;
   }
@@ -5206,12 +5440,14 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
                  {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255);
+                 textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255,
+                 src.ke);
       }
     }
     g_envNormals = nullptr;
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
+    g_primKe = gmat ? gmat->ke : nullptr;
     g_primTextured = gmat && gmat->texture;
     g_primUvRect = g_primTextured ? gmat->uvRect : nullptr;
     g_envNormals =
@@ -5294,11 +5530,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
+    g_primKe = nullptr;
     g_primTextured = false;
     g_envNormals = nullptr;
   }
   g_bakeLocal = false;
   g_aoAtlas = false;
+  g_emisAtlas = false;
   g_aoSts = nullptr;
   g_aoOff = false;
 
@@ -5328,7 +5566,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
-    part.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+    part.baseStamp = ++g_bboxStamp;         // geometry changed - fresh boxes
+    part.bag->bboxVersion = part.baseStamp;
     // Fast-path bodies render local vertices under objMat; everything else
     // sits in world space under the shared identity. Reset on every rebuild
     // (the bag may have been created under the other mode).
@@ -5464,14 +5703,23 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.envBag.reset();
     }
 
-    // Experimental textured AO: the lightmap-atlas pass. Reuses the shared
-    // blending info bag of the terrain layer passes (identity model - only
-    // world-space static primitives ever get atlas regions) and this part's
-    // vertices/bboxVersion, like the env pass above.
-    if (!part.aoSts.empty() && part.aoSts.size() == part.vertices.size() &&
-        aoAtlasTexture && layerInfoBag) {
-      part.aoCols.assign(part.vertices.size(),
-                         Color(128.0F, 128.0F, 128.0F, 128.0F));
+    // The scene lightmap passes. ONE atlas texture, read twice - texturing is
+    // MODULATE, so the vertex color of each pass picks which of its channels
+    // that pass can see:
+    //   occlusion: BLACK vertex color -> Cs.rgb = 0 and Cs.a = the atlas
+    //     alpha, and the alpha-over blend is then an exact per-pixel multiply
+    //     (Cd * (1 - a)). Black matters - a white vertex color would drag the
+    //     baked light in RGB into the multiply.
+    //   emissive light: WHITE vertex color -> Cs.rgb = the atlas RGB, added
+    //     straight onto the frame. fogDisabled for the same reason the
+    //     reflection pass sets it: GS fog would ADD the fog color through an
+    //     additive equation and brighten fogged pixels.
+    // Both reuse this part's vertices/STs/bboxVersion, like the env pass.
+    const bool haveLightmap = !part.aoSts.empty() &&
+                              part.aoSts.size() == part.vertices.size() &&
+                              aoAtlasTexture;
+    if (haveLightmap && SCENE_AO_ENABLED && layerInfoBag) {
+      part.aoCols.assign(part.vertices.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
       if (!part.aoBag) {
         part.aoColorBag = std::make_unique<StaPipColorBag>();
         part.aoTexBag = std::make_unique<StaPipTextureBag>();
@@ -5490,7 +5738,153 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     } else {
       part.aoBag.reset();
     }
+    const bool lightmapLit =
+        SCENE_AO_ATLAS_LIT && index < SCENE_OBJECT_COUNT &&
+        SCENE_AO_ATLAS_LIT[index] != 0;
+    if (haveLightmap && lightmapLit && lightAddInfoBag) {
+      part.emisCols.assign(part.vertices.size(),
+                           Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.emisBag) {
+        part.emisColorBag = std::make_unique<StaPipColorBag>();
+        part.emisTexBag = std::make_unique<StaPipTextureBag>();
+        part.emisBag = std::make_unique<StaPipBag>();
+        part.emisBag->info = lightAddInfoBag.get();
+        part.emisBag->color = part.emisColorBag.get();
+        part.emisBag->texture = part.emisTexBag.get();
+        part.emisBag->lighting = nullptr;
+      }
+      part.emisColorBag->many = part.emisCols.data();
+      part.emisTexBag->texture = aoAtlasTexture;
+      part.emisTexBag->coordinates = part.aoSts.data();
+      part.emisBag->vertices = part.vertices.data();
+      part.emisBag->count = static_cast<u32>(part.vertices.size());
+      part.emisBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.emisBag.reset();
+    }
   }
+}
+
+// Static mesh LOD (docs/model-pipeline.md). Two object kinds keep the full
+// mesh no matter how far away they are, because something else depends on the
+// exact tier-0 buffers:
+//  - physics fast-path bodies (matrixMode) bake LOCAL-space vertices with the
+//    shading frozen at the wake pose; they are also next to the player;
+//  - objects with a texture feed, whose colors are flattened and whose STs are
+//    V-flipped after the bake - state a tier bake would not reproduce.
+// Everything else is fair game: the collider and the AABB are model-level, so
+// collision, physics extents and the split-band cull never see a tier.
+bool TerrainGame::modelLodEligible(int index) const {
+  if (objectGeometry[index].matrixMode) return false;
+  for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
+    if (OBJECT_FEEDS[fi].scene == currentScene &&
+        OBJECT_FEEDS[fi].object == index)
+      return false;
+  return true;
+}
+
+void TerrainGame::applyGeoLod(int index, int pi, int lod) {
+  ObjectGeometry& g = objectGeometry[index];
+  if (pi >= (int)g.parts.size()) return;
+  GeoPart& part = g.parts[pi];
+  if (!part.bag) return;
+  const RuntimeObject& o = runtimeObjects[index];
+  if (o.data.model < 0 || o.data.model >= (int)gameModels.size()) return;
+  const GameModel& gmdl = gameModels[o.data.model];
+  if (pi >= (int)gmdl.parts.size()) return;
+  const GameModelPart& src = gmdl.parts[pi];
+  // Clamp per part: a small part may carry fewer tiers than a big one (the
+  // bake skips meshes too small to shrink), and it then just stays detailed.
+  if (lod > (int)src.lodVerts.size()) lod = (int)src.lodVerts.size();
+  if (lod == part.shownLod) return;
+
+  if (lod == 0) {
+    part.colorBag->many = part.colors.data();
+    part.bag->vertices = part.vertices.data();
+    part.bag->count = static_cast<u32>(part.vertices.size());
+    part.bag->bboxVersion = part.baseStamp;
+    if (part.texBag) part.texBag->coordinates = part.sts.data();
+    if (part.envBag) {
+      part.envColorBag->many = part.envColors.data();
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envBag->vertices = part.vertices.data();
+      part.envBag->count = part.bag->count;
+      part.envBag->bboxVersion = part.baseStamp;
+    }
+  } else {
+    if ((int)part.lods.size() < lod) part.lods.resize(lod);
+    GeoPart::Lod& tier = part.lods[lod - 1];
+    if (tier.vertices.empty()) {
+      // First time this far away: shade the decimated vertex list exactly the
+      // way rebuildObjectGeometry shaded tier 0 (same pushVert, same staging).
+      const std::vector<float>& sv = src.lodVerts[lod - 1];
+      g_aoAtlas = false;
+      g_aoSts = nullptr;
+      g_aoOff = true;  // imported models get no receive/self AO
+      g_primKd = nullptr;
+      g_primTextured = false;
+      g_primUvRect = nullptr;
+      g_bakeLocal = false;  // fast-path bodies are excluded from LOD
+      g_envNormals = part.envBag ? &tier.envNormals : nullptr;
+      const bool textured = src.texture != nullptr;
+      for (size_t k = 0; k + 7 < sv.size(); k += 8) {
+        const float* v = &sv[k];
+        pushVert(tier.vertices, tier.colors, tier.sts, o.data,
+                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                 textured);
+      }
+      g_envNormals = nullptr;
+      g_aoOff = false;
+      if (tier.vertices.empty()) return;  // nothing to show - keep tier 0
+      if (part.envBag) {
+        tier.envColors.assign(tier.vertices.size(),
+                              Color(128.0F, 128.0F, 128.0F, 128.0F));
+        if (src.reflRounded) {
+          // "-rounded": env normals radiate from THIS tier's centroid
+          const u32 nv = static_cast<u32>(tier.vertices.size());
+          float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+          for (u32 vi = 0; vi < nv; ++vi) {
+            cx += tier.vertices[vi].x;
+            cy += tier.vertices[vi].y;
+            cz += tier.vertices[vi].z;
+          }
+          cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+          for (u32 vi = 0; vi < nv; ++vi) {
+            float dx = tier.vertices[vi].x - cx;
+            float dy = tier.vertices[vi].y - cy;
+            float dz = tier.vertices[vi].z - cz;
+            const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (l > 0.0001F)
+              dx /= l, dy /= l, dz /= l;
+            else
+              dx = 0.0F, dy = 1.0F, dz = 0.0F;
+            tier.envNormals[vi].set(dx, dy, dz, 0.0F);
+          }
+        }
+      }
+      tier.stamp = ++g_bboxStamp;
+    }
+    part.colorBag->many = tier.colors.data();
+    part.bag->vertices = tier.vertices.data();
+    part.bag->count = static_cast<u32>(tier.vertices.size());
+    part.bag->bboxVersion = tier.stamp;
+    if (part.texBag) part.texBag->coordinates = tier.sts.data();
+    if (part.envBag) {
+      part.envColorBag->many = tier.envColors.data();
+      part.envTexBag->coordinates = tier.envNormals.data();
+      part.envBag->vertices = tier.vertices.data();
+      part.envBag->count = part.bag->count;
+      part.envBag->bboxVersion = tier.stamp;
+    }
+  }
+  part.shownLod = lod;
+  // The textured-AO pass points at tier 0's vertices and its own ST array;
+  // models never get atlas regions, so it can only exist on primitives - but
+  // stay safe and drop it rather than draw a mismatched count.
+  if (part.aoBag && lod != 0) part.aoBag.reset();
+  // The highlight shells were built from the other tier's vertices.
+  g.apronVerts.clear();
+  g.hullProxyVerts.clear();
 }
 
 // --- object physics: rigid-body-lite ---------------------------------------
@@ -5672,6 +6066,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
           ? &gameMaterials[b.material]
           : nullptr;
   g_primKd = gmat ? gmat->kd : nullptr;
+  g_primKe = gmat ? gmat->ke : nullptr;  // batch members share one material
   g_primTextured = gmat && gmat->texture;
   for (size_t k = 0; k < b.members.size(); ++k) {
     RuntimeObject& o = runtimeObjects[b.members[k]];
@@ -5681,6 +6076,20 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     const bool show = o.active && o.visible;
     b.shown[k] = show ? 1 : 0;
     if (!show) continue;
+    // Per-MEMBER analytic-light pruning: pushVert reads the g_*Local lists,
+    // which are per object, so a batch that collected them once would shade
+    // every member with the first member's neighbours. (Members are always
+    // unit primitives here - same bounding sphere as rebuildObjectGeometry.)
+    {
+      const int mi = b.members[k];
+      const float sx = o.data.scale[0], sy = o.data.scale[1], sz = o.data.scale[2];
+      const float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+      const int self = mi < SCENE_OBJECT_COUNT ? mi : -1;
+      aoCollectLocal(o.data.position[0], o.data.position[1], o.data.position[2],
+                     rad, self);
+      emisCollectLocal(o.data.position[0], o.data.position[1],
+                       o.data.position[2], rad, self);
+    }
     switch (o.data.type) {
       case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
       case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
@@ -5690,6 +6099,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     }
   }
   g_primKd = nullptr;
+  g_primKe = nullptr;
   g_primTextured = false;
   if (b.vertices.empty()) {
     b.bag.reset();
@@ -6538,6 +6948,27 @@ void TerrainGame::renderScene() {
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
     // Split halves: whole objects above/below the visible band skip here.
     if (splitBandActive && objectOutsideSplitBand(i)) continue;
+    // Static mesh LOD: hard thresholds at the distance and twice it, like the
+    // animated path. The tier picked here is in effect for every OTHER view
+    // this frame too (mirrors, portals, camera feeds, probes re-submit these
+    // same bags) - the same approximation the skinned meshes make.
+    if (runtimeObjects[i].data.type == 5 && !splitSecondPass &&
+        modelLodEligible(i)) {
+      const float lodDist = runtimeObjects[i].data.meshLod < 0.0F
+                                ? MESH_LOD_DISTANCE
+                                : runtimeObjects[i].data.meshLod;
+      int tier = 0;
+      if (lodDist > 0.0F) {
+        const float dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+        const float dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+        const float dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        const float m2 = lodDist * lodDist;
+        tier = d2 > m2 * 4.0F ? 2 : (d2 > m2 ? 1 : 0);
+      }
+      for (int pi = 0; pi < (int)objectGeometry[i].parts.size(); ++pi)
+        applyGeoLod(i, pi, tier);
+    }
     // mirrors draw after the scene (copies first, then the blended glass -
     // see renderMirrors); drawing the quad here would z-write the plane and
     // reject the reflected geometry behind it. Portals blend their tinted
@@ -6571,8 +7002,12 @@ void TerrainGame::renderScene() {
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
-        // textured-AO lightmap multiplies before the additive env pass
+        // Scene lightmap: occlusion multiplies first, then the baked emissive
+        // light adds on top of the darkened surface - the same order the
+        // vertex path uses (AO scales the directional term, lights add over
+        // it), and then the additive env pass last.
         if (part.aoBag) stapip.core.render(part.aoBag.get());
+        if (part.emisBag) stapip.core.render(part.emisBag.get());
         renderEnvPass(objectGeometry[i], part);
       }
   }
@@ -8603,6 +9038,19 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         if (h > ch.maxY) ch.maxY = h;
       }
   }
+  // Emitters reaching this chunk, collected ONCE (the point-light dcache
+  // lesson: never scan the whole table per vertex). The chunk's bounding
+  // sphere spans its cells horizontally and its height extent vertically.
+  {
+    const float cw = TERRAIN_CHUNK_CELLS * stepX;
+    const float cd = TERRAIN_CHUNK_CELLS * stepZ;
+    const float chx = startX + (cx * TERRAIN_CHUNK_CELLS + TERRAIN_CHUNK_CELLS * 0.5F) * stepX;
+    const float chz = startZ + (cz * TERRAIN_CHUNK_CELLS + TERRAIN_CHUNK_CELLS * 0.5F) * stepZ;
+    const float chy = 0.5F * (ch.minY + ch.maxY);
+    const float hy = 0.5F * (ch.maxY - ch.minY);
+    emisCollectLocal(chx, chy, chz,
+                     0.5F * sqrtf(cw * cw + cd * cd) + hy, -1);
+  }
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -8614,6 +9062,10 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     // (ao_data.gen.hpp) - nothing to fold into the vertex shade here.
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    // Emissive materials pool light on the ground under them too (the local
+    // emitter list is collected once for this chunk, below).
+    const V3 el = emissiveLightAt(wp, n);
+    s.x += el.x, s.y += el.y, s.z += el.z;
     // Macro ground variation: base and layer passes both shade through here,
     // so a darker patch darkens grass and painted path together.
     if (TERRAIN_TINT_VARIATION > 0.0F) {

@@ -543,6 +543,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << " }, \"clipping\": \"" << s.clipping
       << "\", \"terrainMaterial\": \"" << s.terrainMaterial
       << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
+      << ", \"bloomThreshold\": " << fmtFloat(s.bloomThreshold)
+      << ", \"bloomSpread\": " << fmtFloat(s.bloomSpread)
       << ", \"grain\": " << fmtFloat(s.grain)
       << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
       << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
@@ -604,7 +606,15 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             }
             if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
-                if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
+                // bloom rides a whole-byte GS blend FIX, so it goes to 2x
+                if (const auto* v = pf->find("bloom")) {
+                    const float b = (float)v->numberOr(0.0);
+                    s.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
+                }
+                if (const auto* v = pf->find("bloomThreshold"))
+                    s.bloomThreshold = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("bloomSpread"))
+                    s.bloomSpread = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("dofAmount"))
                     s.dofAmount = clamp01((float)v->numberOr(0.0));
@@ -688,6 +698,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     if (s.overrides.terrainMat) r.terrainMaterial = o.terrainMaterial;
     if (s.overrides.postFx) {
         r.bloom = o.bloom;
+        r.bloomThreshold = o.bloomThreshold;
+        r.bloomSpread = o.bloomSpread;
         r.grain = o.grain;
         r.dofAmount = o.dofAmount;
         r.dofFocus = o.dofFocus;
@@ -855,6 +867,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"aoRadius\": " << fmtFloat(p.settings.aoRadius) << ",\n"
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
+         << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
+         << ",\n"
+         << "    \"bloomSpread\": " << fmtFloat(p.settings.bloomSpread) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
          << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
          << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
@@ -2432,7 +2447,14 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.aoRadius = (float)v->numberOr(2.5);
         if (st.aoRadius < 0.1f) st.aoRadius = 0.1f;
         if (st.aoRadius > 50.0f) st.aoRadius = 50.0f;
-        if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
+            const float b = (float)v->numberOr(0.0);
+            st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
+        }
+        if (const auto* v = s->find("bloomThreshold"))
+            st.bloomThreshold = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("bloomSpread"))
+            st.bloomSpread = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("dofAmount"))
             st.dofAmount = clamp01((float)v->numberOr(0.0));

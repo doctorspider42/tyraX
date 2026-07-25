@@ -745,8 +745,32 @@ private:
         float reflStrength = 0.5f;  // refl -mm gain operand, 0..1
         bool reflRounded = false;   // refl -rounded: centroid-radial env
                                     // normals (flat faces get a gradient)
+        // Emission (docs/emissive-materials.md): the surface never renders
+        // darker than the emission color, so it stays lit in total darkness.
+        // Saved as a standard "Ke r g b" = the RESOLVED emission (see
+        // matEdKe); the authored controls ride in a "# tyra-glow <strength>
+        // <r> <g> <b> <white>" hint so the split round-trips exactly, the way
+        // "# tyra-brightness" does for Kd.
+        float glow = 0.0f;  // 0 = matte; 1 = fully self-lit; up to 2 overbright
+        float glowColor[3] = {1.0f, 1.0f, 1.0f};
+        // White-hot core: added to every channel, so the surface desaturates
+        // toward white the way an overexposed emitter does on camera. The ONLY
+        // way an untextured emissive surface can read brighter - it is already
+        // at the framebuffer maximum in its own hue at glow 1.
+        float glowWhite = 0.0f;
+        // "Lights up surroundings" (docs/emissive-materials.md step 2): the
+        // emitter shape is baked into the light of the geometry around it.
+        // 0 = lights nothing.
+        float glowRange = 0.0f;
+        float glowLight = 1.0f;
         std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
     };
+    // The resolved emission of one entry: glowColor x glow with the white-hot
+    // core added on every channel, capped at the 1.99 the PS2 color byte can
+    // carry. This is what lands in "Ke" and what every renderer (game bake,
+    // viewport, material preview) consumes - one definition, so the file and
+    // the previews can never disagree.
+    static void matEdKe(const MatEdEntry& e, float out[3]);
     std::vector<MatEdEntry> matEdMats_;
     int matEdSel_ = 0;         // selected entry within the file
     int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,
