@@ -10,6 +10,227 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (170) **Emissive light is blocked by solids (no more glow through a wall).**
+  Owner spotted the obvious hole in (169): a lamp lit the ground on the far
+  side of a wall. The occluder shapes were already there - `collectOccluders`
+  reduces every *Cast shadow* object to an analytic box/sphere for the ambient
+  occlusion - so all that was missing was a segment test. `shapeBlocksRay`
+  (slab test for a box, quadratic for a sphere) drops a light contribution when
+  the segment from the lit point to the emitter's nearest surface enters an
+  occluder. Three twins as usual: host bake, generated game, viewport shader.
+  Details that matter: the caster list is pruned by the EMITTER reach, not
+  `SCENE_AO_RADIUS`, so it cannot share `g_aoLocal`; the receiver's own shape
+  is excluded at collect time (the ray starts on it) and the emitter's own per
+  emitter (it ends on it); a 0.02 bias off the surface stops a prop resting ON
+  a floor from shadowing it with its contact face. The occluder table and the
+  viewport's occluder uniforms are now emitted whenever emitters exist, not
+  only when the AO preference is on - a scene can have glowing lamps casting
+  shadows and no baked occlusion. Shadows are HARD and blocky by construction
+  (a wall throws a rectangle, not its silhouette; a detailed mesh shadows as
+  its bounding box) - documented, with *Cast shadow* as the per-object opt-out
+  for railings and grates. `examples/glow` gained `s3-shadow-wall`, a slab
+  between the lava pit and one pillar, so the example demonstrates it (the
+  opposite pillar is the unshadowed control).
+  **Verified, after first getting the measurement WRONG:** the ray/shape math
+  was unit-checked in isolation (6/6: through a box, beside it, segment too
+  short, sphere in front / beside / behind). Then three A/B "measurements" of
+  the baked atlas showed byte-identical results - because `--refresh-gen` does
+  NOT run `texbake`, so all three compared the same stale PNG against itself.
+  Redone with full `--build` on both sides: shadows off 23875 lit texels /
+  1350450 total light, shadows on 22939 / 1279260 - 1451 texels darkened, **0
+  brightened** (shadowing can only subtract), 5.3% of the light removed. In
+  PCSX2 at 49-50 FPS (EE 38%, GS 10%) the shadowed pillar is dark on its
+  pit-facing side while the unshadowed one across the pit is lit. The
+  refresh-gen/texbake trap is now written into the tyra-testing skill - it
+  silently "proves" that an asset change did nothing.
+- (169) **Emissive light goes PER PIXEL: the AO atlas becomes the scene
+  lightmap - plus two lighting-model fixes it exposed.** (167)'s baked light
+  landed on vertices, and a plain box face is two triangles, so a strong
+  gradient showed the diagonal split as a hard seam (owner spotted it
+  immediately on a pillar next to the lava pit). Measured the cheap fix first:
+  Detail 5 on the receivers kills the diagonal for ~nothing (12 -> 300 tris,
+  EE 37% -> 39%) but trades it for a visible subdivision lattice, and does not
+  help imported models. So: the atlas route, which turned out CHEAPER than
+  expected because the AO atlas already had free space. `SceneAoAtlas` ->
+  `SceneLightAtlas`, `bakeSceneAoAtlas` -> `bakeSceneLightAtlas`: ONE 256^2
+  RGBA32 image now carries **A = occlusion, RGB = emissive light**, read twice
+  by two passes - texturing is MODULATE, so the vertex color of each pass
+  selects which channels it sees (BLACK vertex color for the alpha-over
+  multiply, which is also the one-line fix that stops the light in RGB leaking
+  into the occlusion; WHITE for the additive pass, `fogDisabled` for the same
+  reason the refl pass sets it). Zero extra VRAM. The atlas is no longer gated
+  on the AO preference - a scene can have glowing lamps and no occlusion - and
+  `SCENE_AO_ATLAS_LIT` tells the game per object whether its light came from
+  the atlas, so `pushVert` never also puts it in the vertex colors. **Textured
+  receivers deliberately keep the vertex path**: a flat additive add would blow
+  out dark texels (the vertex path multiplies the texture), and texture detail
+  hides the Gouraud seam far better than a flat surface does.
+  **Two lighting-model bugs the sharper output exposed**, both mine from (167):
+  (a) the emitted light COLOR was the resolved `Ke`, which has the white-hot
+  core folded in - so a green lamp cast near-white light. It is now the
+  AUTHORED glow color (`objparser` parses it out of the `# tyra-glow` hint,
+  falling back to Ke normalized by its brightest channel for a hand-written
+  `Ke`); the white-hot core is an exposure effect on the emitter's own surface,
+  not a property of the light it emits. (b) the facing term was
+  `max(0, N.L)`, which lights one face of a box fully and its neighbour not at
+  all - a seam on the corner. Went through a linear `0.35 + 0.65*N.L` wrap
+  (matching the occluder term) and then to **half-Lambert squared**, because
+  the linear wrap still reaches zero at a finite angle and that angle reads as
+  a hard shading edge in a dark scene; the squared form is smooth everywhere,
+  zero only directly away, with a faint back-hemisphere fill where a bounce
+  would be. Atlas coverage went 13.4% -> 30.4% of lit texels on that change
+  alone. All three twins moved together (aobake / generated game / viewport
+  shader). Also corrected a **stale engine comment**: `additiveBlendFix` claims
+  it drains the pipeline with FINISH barriers "so keep it to a handful of
+  meshes" - the implementation moved the equation in-band with the mesh tags
+  and dropped the barriers long ago. It nearly steered this design away from
+  the extra pass. Verified: editor builds clean; `examples/glow` (Detail back
+  to 1) rebuilt and booted in PCSX2 software renderer at a full 50 FPS
+  (EE 45%, GS 10%), no asserts - the pillars shade smoothly with no diagonal
+  and no lattice, the neon strips cast saturated green/magenta pools instead of
+  washed-out white, and the wall gradients have no hard edge. Atlas contents
+  checked directly by decoding the baked PNG (max light RGB, lit-texel share).
+  **Follow-up on "the wall gradients still are not smooth":** zoomed the
+  framebuffer 5x instead of guessing, and it is NOT a filtering bug (the 3D
+  path defaults to TyraLinear) - it is 8-bit BANDING. A pool of light is a wide
+  LOW-amplitude ramp (~30 of 255 levels spread across half the screen), so
+  every level is a broad plateau whose bilinear-magnified edges read as
+  irregular blocks. The bake now dithers the light with an ordered 4x4 Bayer
+  pattern keyed on the ATLAS texel (sub-level, deterministic, never crawls);
+  measured on the baked PNG, non-zero plateaus dropped to median 1 texel /
+  p90 3 and the wall reads visibly smoother at 1x. What is LEFT is budget, not
+  a defect - one 256^2 atlas for the whole scene (bigger = RGBA32 VRAM the GS
+  does not have) and an 8-bit framebuffer with no dither on the blend - so the
+  doc says so plainly and points at the two real levers: a tighter emitter
+  reach (steeper ramp spends its levels over less surface) and a little film
+  grain, which is exactly what PS2 games shipped for this. NOT attempted:
+  weighting atlas texel density by how much light a region actually receives -
+  a real idea, but it wants its own measure-first pass.
+  `docs/emissive-materials.md` + the example README updated; skills updated.
+- (168) **`examples/glow` - the emissive showcase.** A first-person midnight
+  tour, one station per axis of (166)+(167), because the feature only makes
+  sense side by side: (1) two signs with IDENTICAL `Kd` where only one carries
+  `Ke` - one is full cyan, the other a dark silhouette; (2) a white-hot ladder
+  of three boxes at the same glow strength and 0 / 0.35 / 0.7 core, which also
+  demonstrates that the bright pass is PER CHANNEL (the halos go red ->
+  salmon -> white); (3) a glowing lava plate with reach 13 lighting four
+  `concrete.mtl` pillars, plus a fifth identical pillar parked at x=19, just
+  past the reach - same material, one orange one black; (4) a neon alley where
+  four strips paint separate colored pools on the walls and overlap in the
+  middle. A `bloom-pulse` Empty runs *Every 14s -> Set Bloom 0.45* in parallel
+  with *Delay 7 -> Set Bloom 1.5*, so the halo collapses and blows back out
+  unattended - a live demo of the new 0..2 bloom range (the sky-cycler pattern
+  from `examples/reflections`). Scene lighting is one nearly-off cold
+  directional (`ambient 0.06`, `diffuse 0.04`) plus fog to near-black at 70
+  units: every warm pixel in the frame is a material. Verified: Docker build
+  OK, booted in PCSX2 software renderer at a full 50 FPS (EE 40%, GS 13%) with
+  9 static batches and no warnings in `bin/log.txt`; the opening frame shows
+  all four stations at once, with the per-channel halo colors and the lit /
+  unlit pillar pair both clearly readable. README written; listed in the
+  root README's example section.
+- (167) **Glow, part 2: it actually blazes now - white-hot core, bloom spread /
+  over-add, and baked emissive LIGHT.** (166) shipped the emissive floor but
+  "even at max it doesn't really glow" was the honest verdict, and the reason
+  is structural: at glow 1 an untextured surface is ALREADY at the framebuffer
+  maximum in its own hue, so there is no brighter orange to reach. Three
+  answers, one per axis:
+  (a) **White-hot core** (Material Editor): added to every channel, so the
+  surface desaturates toward white the way an overexposed emitter does on
+  camera - the only direction left, and it pushes every channel over the bloom
+  threshold too. The `.mtl` now stores the RESOLVED emission in `Ke`
+  (`glowColor x glow + white`, capped 1.99) with the authored controls in an
+  extended `# tyra-glow <strength> <r> <g> <b> <white>` hint; the one-number
+  form from (166) and a bare hand-written `Ke` both still load
+  (`App::matEdKe` is the single definition of the resolved value, so the file
+  and the previews cannot disagree).
+  (b) **Bloom got a shape**: `bloom` now goes to 2 (its GS blend FIX is a whole
+  byte, so the blur can be over-added - the load clamp and the Set Bloom node
+  moved to 0..2 with it), and a new **Spread** setting maps 0..1 onto 1..4
+  soften rounds over the quarter-res buffer, each with DOUBLED tap offsets, so
+  the halo grows geometrically from a fringe into a corona (`setBloomSpread`,
+  4 GS sprites a round, ping-ponging low0/low1). The postfx packet grew
+  352 -> 512 qwords for the worst case; an undersized packet corrupts the GIF
+  stream, so that bound is now spelled out in the comment.
+  (c) **Baked emissive light** - the "wypalone jak AO swiatlo" step: tick
+  *Lights up surroundings* (reach + strength, `# tyra-glow-light`) and the
+  emitter's light is folded into the vertex colors of everything around it.
+  Deliberately the AO machinery in reverse: `collectOccluders` and the new
+  `aobake::collectEmitters` share one `objectShape()`, the game answers both
+  with one `occShapeAt()` distance-to-shape query (templated over AoOccData /
+  EmisLightData, which share the shape prefix), and the emitter list is pruned
+  ONCE per object / per terrain chunk - the per-vertex-table-scan dcache
+  disaster recorded above stays avoided. Falloff is quadratic from the
+  emitter's SURFACE (a long neon strip lights evenly along its length) times
+  N.L with no side-on floor, so light never leaks onto back faces; an emitter
+  never lights itself. Table lands in `ao_data.gen.hpp` (`SCENE_EMIS`), gated
+  on emitters existing, independent of the AO preference. Receivers: objects,
+  static batches AND terrain. Viewport twins for all of it (`uEmis*`, capped
+  at 8 nearest the camera; `collectEmitters` reads `.mtl` files so the viewport
+  hands in a `GlowCache` member cleared by `invalidateAssets`).
+  **Fixed in passing:** `rebuildStaticBatch` never re-pruned `g_aoLocal` per
+  member, so every member of a batch was shaded with the FIRST member's
+  occluder set - it now collects per member (and per member for the emitters,
+  which is what surfaced it). Verified: editor builds clean; the (166) scratch
+  project extended (white-hot 0.3, reach 9 / strength 1.6, bloom 1.4 /
+  threshold 0.5 / spread 0.7) refreshed, Docker-built with the engine rebuilt,
+  booted in PCSX2 software renderer at a full 50 FPS - the emitter is now a
+  white-hot core inside a wide corona, the terrain under it carries a warm
+  quadratic pool of light, and the matte box next to it (identical `Kd`, no
+  `Ke`) is lit orange on the face turned toward the emitter where before it
+  was a black silhouette; the editor viewport shows the identical picture.
+  Material Editor's Glow panel (which now also reports the project's bloom
+  setup and warns when bloom is off) still wants a human eyeball pass.
+  `docs/emissive-materials.md` rewritten around the three axes; README, docs
+  index and both skills updated.
+- (166) **Emissive ("glowing") materials + a bloom bright-pass threshold.**
+  Step 1 of the glow feature: a material can now light *itself*, so it keeps
+  its own color in a pitch-black scene. Authored in *Material Editor > Glow
+  (emissive)* (strength 0-2 + a glow color seeded from the material color,
+  "Match material color" button), stored as the standard Wavefront `Ke`
+  statement with the color x strength split riding in a `# tyra-glow` comment
+  — the `# tyra-brightness` pattern, so hand-written `Ke` from any exporter
+  still works (brightest component = strength; `Ke 0 0 0` = matte).
+  Implementation is deliberately *not* a light: `pushVert` clamps the finished
+  shade up to `Ke` as the LAST step, after Kd, AO and point lights, so the
+  emissive floor ignores darkness on the way down and a brighter lit result
+  still wins; the object tint multiplies on top and GS fog still applies. Cost
+  on the console = three compares per vertex during the one-time geometry bake
+  (spawned clones and static batches included — `g_primKe` is staged next to
+  `g_primKd` in both `rebuildObjectGeometry` and `rebuildStaticBatch`), then an
+  ordinary bag. The viewport is the GLSL twin (`uEmissive`, one-shot per draw
+  so gizmos/wires/markers can never inherit it) and so is the Material Editor
+  preview. Objects with an emissive material are dropped from the baked **AO
+  lightmap atlas** (`materialGlows` in aobake.cpp): that pass darkens per pixel
+  in a separate draw, which a floor baked into vertex colors cannot clamp back
+  up — they keep the per-vertex AO path, where the floor wins. `Ke` parsing
+  added to `objparser` (host) and `LeanObjLoader` (engine, both
+  `LeanObjMaterial` and `LeanMtlMaterial`); the asset-import and texbake `.mtl`
+  rewriters already pass unknown lines through verbatim, so nothing else moved.
+  **The halo** is the second half: the engine's bloom got a real bright pass
+  (`RendererCorePostFx::setBloomThreshold`) — one extra quarter-res sprite that
+  subtracts a flat grey from the downsampled frame through
+  `(0 - Cs)*128/128 + Cd`, which the GS clamps at zero, so everything below the
+  cut drops out of the blur entirely. Without it bloom veils the whole picture
+  (soft focus) and an emissive object does not read as glowing. Exposed as
+  `ProjectSettings::bloomThreshold` (*UI Editor > Bloom + color grading >
+  Threshold*, per-scene overridable under *Post effects*), 0 = the historical
+  whole-frame behavior, so existing projects are untouched. `flatQuad` grew
+  optional w/h for the low-res target. **Known gaps, by design for step 1:**
+  animated `.glb`/`.fbx` models ignore `Ke` (the skeletal VU1 rig has no
+  emission slot — the same reason `refl` is ignored there), terrain ignores it,
+  and an emissive material does not illuminate its surroundings — the baked
+  "emissive light" pass (the AO-style de-luxe version the feature was asked
+  for) is the queued step 2. Verified: editor builds clean; scratch project
+  (`glowtest`, near-black ambient 0.04 / diffuse 0.02, two identical-`Kd`
+  boxes differing only in `Ke`) refreshed, Docker-built with the engine
+  rebuilt, booted in PCSX2 software renderer at a full 50 FPS — the emissive
+  box renders bright orange with a clean halo while the matte twin is a barely
+  visible dark silhouette and the terrain/sky stay black (the threshold kept
+  the bloom off them, and no wrap-around artifacts, confirming the GS clamps
+  the subtract); the editor viewport shows the identical pair. The Material
+  Editor's own Glow panel still wants a human eyeball pass (no synthetic input
+  into the GUI here). New doc: `docs/emissive-materials.md`; README + editor
+  and engine skills updated.
 - (165) **Artist-authored mesh LOD meshes for static models.** Automatic
   decimation is not always what an artist wants (and the decimator refuses to
   touch small parts or cross uv seams, so some models barely shrink), so a

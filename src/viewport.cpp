@@ -197,6 +197,24 @@ uniform vec3 uFlashCol;
 uniform float uFlashInvR2;       // 1/range^2
 uniform float uFlashCut2;        // cos^2(half-angle)
 uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
+// Emission (Ke, docs/emissive-materials.md): a per-channel brightness FLOOR
+// the shaded surface never drops below, so a glowing material keeps its color
+// in a pitch-black scene. Already premultiplied by the object tint on the host,
+// so it sits in the same space as (shade * uTint) - the exact twin of the
+// generated pushVert, which floors the shade AFTER Kd, AO and point lights.
+uniform vec3 uEmissive;          // {0,0,0} = matte
+// Emissive LIGHTS: materials that also light their surroundings. Same analytic
+// box/sphere shapes as the AO occluders below (aobake::collectEmitters shares
+// objectShape with collectOccluders), so one distance-to-shape query answers
+// both. Twin of emissiveLightAt in the generated game - capped at 8 here.
+uniform int uEmisCount;
+uniform vec4 uEmisPos[8];        // xyz = center, w = 1 sphere / 0 box
+uniform vec4 uEmisAx[8];         // local X axis, w = half extent x (or radius)
+uniform vec4 uEmisAy[8];         // local Y axis, w = half extent y
+uniform vec4 uEmisAz[8];         // local Z axis, w = half extent z
+uniform vec4 uEmisCol[8];        // rgb = light color, w = brightness
+uniform float uEmisRange[8];     // world units the light reaches
+uniform int uEmisObj[8];         // scene-object index (never lights itself)
 uniform int uReflOn;             // refl pass: 0 off, 1 sphere map, 2 live sky
 uniform sampler2D uRefl;         // sphere map, texture unit 1
 uniform float uReflStrength;     // additive gain, 1.0 = full chrome
@@ -224,6 +242,102 @@ uniform sampler2D uAoHeight;     // terrain heightmap (R32F), texture unit 2
 uniform vec4 uAoHmRect;          // uv = wp.xz * zw + xy (texel centers)
 uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 out vec4 FragColor;
+
+// Distance from wp to an analytic shape's SURFACE + the unit direction toward
+// it. The single query behind both the AO response and the emissive lights -
+// the host's aobake::occShapeAt and the generated game's occShapeAt are twins.
+float shapeAt(vec3 wp, vec3 c, float isSphere, vec3 ax, vec3 ay, vec3 az,
+              vec3 half3, out vec3 dir) {
+    vec3 rel = wp - c;
+    if (isSphere > 0.5) {
+        float d = length(rel);
+        dir = d > 0.0001 ? -rel / d : vec3(0.0, 1.0, 0.0);
+        return d - half3.x;
+    }
+    vec3 l = vec3(dot(rel, ax), dot(rel, ay), dot(rel, az));
+    vec3 dv = l - clamp(l, -half3, half3);
+    float dist = length(dv);
+    if (dist > 0.0001) {
+        vec3 w = dv.x * ax + dv.y * ay + dv.z * az;
+        dir = -w / dist;
+    } else {
+        dir = vec3(0.0, 1.0, 0.0);
+    }
+    return dist;
+}
+
+// Light the emissive materials around this point add. Quadratic falloff from
+// the emitter SHAPE (so a long strip lights evenly along its length) times a
+// half-Lambert SQUARED facing weight: these are area sources, so a plain
+// max(0, N.L) seams on every box corner and a linear wrap still cuts to zero
+// at a finite angle. Smooth everywhere, zero only at N.L = -1.
+// Does the segment from `o` along unit `d` for `maxT` units enter occluder i?
+// Slab test for a box, quadratic for a sphere - the twin of
+// aobake::shapeBlocksRay and the generated game's shapeBlocksRay.
+bool shadowHit(int i, vec3 o, vec3 d, float maxT) {
+    vec3 rel = o - uAoPos[i].xyz;
+    vec3 h = vec3(uAoAx[i].w, uAoAy[i].w, uAoAz[i].w);
+    if (uAoPos[i].w > 0.5) {
+        float b = dot(rel, d);
+        float c = dot(rel, rel) - h.x * h.x;
+        if (c < 0.0) return true;
+        if (b > 0.0) return false;
+        float disc = b * b - c;
+        if (disc < 0.0) return false;
+        float t = -b - sqrt(disc);
+        return t >= 0.0 && t <= maxT;
+    }
+    vec3 e = vec3(dot(rel, uAoAx[i].xyz), dot(rel, uAoAy[i].xyz),
+                  dot(rel, uAoAz[i].xyz));
+    vec3 f = vec3(dot(d, uAoAx[i].xyz), dot(d, uAoAy[i].xyz),
+                  dot(d, uAoAz[i].xyz));
+    float t0 = 0.0, t1 = maxT;
+    for (int k = 0; k < 3; ++k) {
+        if (abs(f[k]) < 1e-6) {
+            if (e[k] < -h[k] || e[k] > h[k]) return false;
+            continue;
+        }
+        float ta = (-h[k] - e[k]) / f[k];
+        float tb = (h[k] - e[k]) / f[k];
+        if (ta > tb) { float s = ta; ta = tb; tb = s; }
+        t0 = max(t0, ta);
+        t1 = min(t1, tb);
+        if (t0 > t1) return false;
+    }
+    return true;
+}
+
+vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
+    vec3 add = vec3(0.0);
+    for (int i = 0; i < uEmisCount; ++i) {
+        if (uEmisObj[i] == selfObj) continue;
+        vec3 dir;
+        float dist = shapeAt(wp, uEmisPos[i].xyz, uEmisPos[i].w, uEmisAx[i].xyz,
+                             uEmisAy[i].xyz, uEmisAz[i].xyz,
+                             vec3(uEmisAx[i].w, uEmisAy[i].w, uEmisAz[i].w), dir);
+        if (dist >= uEmisRange[i]) continue;
+        float fade = 1.0 - max(dist, 0.0) / uEmisRange[i];
+        fade *= fade;
+        float w = 0.5 + 0.5 * dot(n, dir);
+        if (w <= 0.0) continue;
+        // Solids between here and the emitter block it (hard shadow). The bias
+        // keeps a solid resting ON this surface from shadowing it. Occluders
+        // come from the AO uniforms; uAoCount is filled whether or not the
+        // project bakes occlusion, so lamps cast shadows either way.
+        if (dist > 0.02) {
+            vec3 o = wp + dir * 0.02;
+            float len = dist - 0.04;
+            bool blocked = false;
+            for (int k = 0; k < uAoCount; ++k) {
+                if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
+                if (shadowHit(k, o, dir, len)) { blocked = true; break; }
+            }
+            if (blocked) continue;
+        }
+        add += uEmisCol[i].rgb * (uEmisCol[i].w * fade * w * w);
+    }
+    return add;
+}
 
 float aoOcclusion(vec3 wp, vec3 n) {
     float occ = 0.0;
@@ -303,6 +417,12 @@ void main() {
         }
         shade = min(shade + add, vec3(1.0));
     }
+    // Emissive materials nearby: the same additive slot as the point lights,
+    // mirroring the generated pushVert / terrain shadeAt order.
+    if (uLit != 0 && uEmisCount > 0) {
+        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        shade = min(shade + emissiveLight(vWorld, n, uAoSelfObj), vec3(1.0));
+    }
     if (uFlashOn != 0 && uLit != 0) {
         // Camera flashlight - the exact per-vertex formula the PS2 runs on
         // VU1 (CalculateTyraSpotLight): cone + distance falloff, no N.L.
@@ -313,7 +433,9 @@ void main() {
         float axial = clamp(1.0 - dist2 * uFlashInvR2, 0.0, 1.0);
         shade = min(shade + uFlashCol * (cone * axial), vec3(1.0));
     }
-    vec3 color = shade * uTint * tex;
+    // The emissive floor lands here, after every lighting term and before the
+    // fog mix - the game bakes it into the vertex color and still fogs the bag.
+    vec3 color = max(shade * uTint, uEmissive) * tex;
     if (uFogOn != 0 && uLit != 0) {
         // View-plane distance, same metric as the PS2 (clip-space W); the
         // sky is excluded like the game's fogDisabled sky dome bag.
@@ -808,6 +930,15 @@ bool Viewport::init() {
     uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
     uReflRounded_ = glGetUniformLocation(program_, "uReflRounded");
     uReflCenter_ = glGetUniformLocation(program_, "uReflCenter");
+    uEmissive_ = glGetUniformLocation(program_, "uEmissive");
+    uEmisCount_ = glGetUniformLocation(program_, "uEmisCount");
+    uEmisPos_ = glGetUniformLocation(program_, "uEmisPos");
+    uEmisAx_ = glGetUniformLocation(program_, "uEmisAx");
+    uEmisAy_ = glGetUniformLocation(program_, "uEmisAy");
+    uEmisAz_ = glGetUniformLocation(program_, "uEmisAz");
+    uEmisCol_ = glGetUniformLocation(program_, "uEmisCol");
+    uEmisRange_ = glGetUniformLocation(program_, "uEmisRange");
+    uEmisObj_ = glGetUniformLocation(program_, "uEmisObj");
     uAoOn_ = glGetUniformLocation(program_, "uAoOn");
     uAoStrength_ = glGetUniformLocation(program_, "uAoStrength");
     uAoRadius_ = glGetUniformLocation(program_, "uAoRadius");
@@ -1795,6 +1926,7 @@ void Viewport::clearTexCache() {
 void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
+    emisGlowCache_.clear();  // .mtl emission re-read on the next frame
 }
 
 uint32_t Viewport::glTexture(const std::string& relPath) {
@@ -1939,6 +2071,7 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
         MatPrevPart part;
         part.material = sub.material;
         part.kd[0] = sub.kd[0], part.kd[1] = sub.kd[1], part.kd[2] = sub.kd[2];
+        for (int i = 0; i < 3; ++i) part.ke[i] = sub.ke[i];
         if (!sub.texture.empty())
             part.texRel = (texDir / sub.texture).generic_string();
         if (!sub.refl.empty()) {
@@ -2022,6 +2155,7 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
         draw.kd[0] = m.kd[0];
         draw.kd[1] = m.kd[1];
         draw.kd[2] = m.kd[2];
+        for (int i = 0; i < 3; ++i) draw.ke[i] = m.ke[i];
         if (!m.texture.empty())
             draw.tex = glTexture((std::filesystem::path(relPath).parent_path() /
                                   m.texture)
@@ -2081,6 +2215,7 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             }
             ModelPart part;
             part.mesh = uploadMesh(interleaved);
+            for (int k = 0; k < 3; ++k) part.ke[k] = sub.ke[k];
             if (!sub.texture.empty())
                 part.tex = glTexture((modelDir / sub.texture).generic_string());
             if (!sub.refl.empty()) {
@@ -2486,6 +2621,72 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         pointLightCount = count;
     }
 
+    int emisCount = 0;  // also gates the occluder upload below
+    // Emissive lights: materials that light their surroundings
+    // (docs/emissive-materials.md), the same shapes codegen bakes into
+    // SCENE_EMIS. Reading them touches .mtl files, so the per-path cache is a
+    // member cleared by invalidateAssets(); capped at the shader's 8 nearest
+    // the camera target, like the occluders below.
+    {
+        std::vector<aobake::Emitter> ems = aobake::collectEmitters(
+            projectDir_, objects,
+            [&](const SceneObject& o, float* mn, float* mx) {
+                const ModelDraw* md = modelDraw(o.modelPath, o.materialPath);
+                if (!md) return false;
+                for (int k = 0; k < 3; ++k) mn[k] = md->mn[k], mx[k] = md->mx[k];
+                return true;
+            },
+            &emisGlowCache_);
+        ems.erase(std::remove_if(ems.begin(), ems.end(),
+                                 [&](const aobake::Emitter& em) {
+                                     return hiddenAt((size_t)em.shape.objIndex);
+                                 }),
+                  ems.end());
+        if ((int)ems.size() > 8) {
+            auto d2 = [&](const aobake::Emitter& em) {
+                const float dx = em.shape.pos[0] - target_[0];
+                const float dy = em.shape.pos[1] - target_[1];
+                const float dz = em.shape.pos[2] - target_[2];
+                return dx * dx + dy * dy + dz * dz;
+            };
+            std::partial_sort(
+                ems.begin(), ems.begin() + 8, ems.end(),
+                [&](const aobake::Emitter& a, const aobake::Emitter& b) {
+                    return d2(a) < d2(b);
+                });
+            ems.resize(8);
+        }
+        float pos[8 * 4] = {}, ax[8 * 4] = {}, ay[8 * 4] = {}, az[8 * 4] = {};
+        float col[8 * 4] = {}, range[8] = {};
+        int obj[8] = {};
+        for (size_t i = 0; i < ems.size(); ++i) {
+            const aobake::Emitter& em = ems[i];
+            for (int k = 0; k < 3; ++k) {
+                pos[i * 4 + k] = em.shape.pos[k];
+                ax[i * 4 + k] = em.shape.axis[0][k];
+                ay[i * 4 + k] = em.shape.axis[1][k];
+                az[i * 4 + k] = em.shape.axis[2][k];
+                col[i * 4 + k] = em.color[k];
+            }
+            pos[i * 4 + 3] = em.shape.sphere ? 1.0f : 0.0f;
+            ax[i * 4 + 3] = em.shape.half[0];
+            ay[i * 4 + 3] = em.shape.half[1];
+            az[i * 4 + 3] = em.shape.half[2];
+            col[i * 4 + 3] = em.bright;
+            range[i] = em.range;
+            obj[i] = em.shape.objIndex;
+        }
+        glUniform1i(uEmisCount_, (int)ems.size());
+        emisCount = (int)ems.size();
+        glUniform4fv(uEmisPos_, 8, pos);
+        glUniform4fv(uEmisAx_, 8, ax);
+        glUniform4fv(uEmisAy_, 8, ay);
+        glUniform4fv(uEmisAz_, 8, az);
+        glUniform4fv(uEmisCol_, 8, col);
+        glUniform1fv(uEmisRange_, 8, range);
+        glUniform1iv(uEmisObj_, 8, obj);
+    }
+
     // Ambient occlusion: this frame's occluder set (aobake::collectOccluders,
     // the same shapes codegen bakes into SCENE_AO_OCC), capped at the
     // shader's 32 nearest the camera target. Per draw call only the
@@ -2493,9 +2694,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     int aoSelfObj = -1;
     bool aoGroundOn = false;
     bool aoReceive = true;  // models neither receive nor self-occlude
+    // Emissive floor of the NEXT draw, already multiplied by the object tint
+    // (see the uEmissive comment in FS). One-shot: draw() consumes it and
+    // resets to zero, so every gizmo, wire, marker and overlay that does not
+    // explicitly set it stays matte.
+    float emissive[3] = {0.0f, 0.0f, 0.0f};
     {
         int aoCount = 0;
-        if (aoOn_) {
+        // Collected for ambient occlusion OR to shadow the emissive lights -
+        // the same shapes serve both, so a scene with lamps and no baked
+        // occlusion still needs them uploaded.
+        if (aoOn_ || emisCount > 0) {
             std::vector<aobake::Occluder> occs = aobake::collectOccluders(
                 objects, [&](const SceneObject& o, float* mn, float* mx) {
                     const ModelDraw* md = modelDraw(o.modelPath, o.materialPath);
@@ -2585,6 +2794,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uAoGround_, aoGroundOn ? 1 : 0);
         glUniform1i(uAoReceive_, aoReceive ? 1 : 0);
         glUniform3f(uTint_, r, g, b);
+        glUniform3f(uEmissive_, emissive[0], emissive[1], emissive[2]);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
         glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
@@ -2608,6 +2818,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glBindVertexArray(mesh.vao);
         glDrawArrays(mode, 0, mesh.vertexCount);
         if (blend) glDisable(GL_BLEND);
+        emissive[0] = emissive[1] = emissive[2] = 0.0f;  // one-shot
     };
 
     // Animated models (.glb/.fbx) draw through their own helper because the
@@ -2769,6 +2980,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                    mm[a + 4] * part.centroid[1] +
                                    mm[a + 8] * part.centroid[2] + mm[a + 12];
                     }
+                    for (int a = 0; a < 3; ++a)
+                        emissive[a] = asLines ? 0.0f
+                                              : o.color[a] * tintScale * part.ke[a];
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
                          asLines ? 0 : part.tex, lit ? &model : nullptr, false,
@@ -2783,6 +2997,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const float kr = mat ? mat->kd[0] : 1.0f;
             const float kg = mat ? mat->kd[1] : 1.0f;
             const float kb = mat ? mat->kd[2] : 1.0f;
+            for (int a = 0; a < 3; ++a)
+                emissive[a] =
+                    (asLines || !mat) ? 0.0f : o.color[a] * tintScale * mat->ke[a];
             const uint32_t tex = (asLines || !mat) ? 0 : mat->tex;
             // Decals honor their texture's alpha (cutout + blend) - matches the
             // in-game look; other primitives draw opaque.
@@ -2793,6 +3010,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             if (o.type == PrimitiveType::Decal && o.decalProject) {
                 auto it = projectedDecalMeshes_.find(o.id);
                 if (it != projectedDecalMeshes_.end() && it->second.vertexCount > 0) {
+                    // The baked conforming mesh is written unlit and flat in
+                    // the game (it never goes through pushVert), so no floor.
+                    emissive[0] = emissive[1] = emissive[2] = 0.0f;
                     draw(it->second, GL_TRIANGLES, viewProj, o.color[0] * kr * tintScale,
                          o.color[1] * kg * tintScale, o.color[2] * kb * tintScale, tex,
                          nullptr, decalAlpha);
@@ -2844,9 +3064,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(t.modelPath, t.materialPath)
                                       : nullptr;
             if (md) {
-                for (const ModelPart& part : md->parts)
+                for (const ModelPart& part : md->parts) {
+                    for (int a = 0; a < 3; ++a)
+                        emissive[a] = t.color[a] * part.ke[a];
                     draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
                          t.color[2], part.tex, &model);
+                }
                 return;
             }
             const MaterialDraw* mat =
@@ -2854,6 +3077,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const float kr = mat ? mat->kd[0] : 1.0f;
             const float kg = mat ? mat->kd[1] : 1.0f;
             const float kb = mat ? mat->kd[2] : 1.0f;
+            for (int a = 0; a < 3; ++a)
+                emissive[a] = mat ? t.color[a] * mat->ke[a] : 0.0f;
             const uint32_t tex = mat ? mat->tex : 0;
             const bool decalAlpha = t.type == PrimitiveType::Decal && tex;
             draw(*meshFor(t), GL_TRIANGLES, mvp, t.color[0] * kr, t.color[1] * kg,
@@ -3199,6 +3424,10 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     glUniform1i(uAoOn_, 0);        // no ambient occlusion either
 
     const Mat4 id = identity();
+    // Emissive floor of the NEXT draw (no object tint here - the preview shows
+    // the material on its own). One-shot, consumed by draw() - backdrop, floor
+    // and the wire overlay never glow.
+    float emissive[3] = {0.0f, 0.0f, 0.0f};
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
                     uint32_t texture, uint32_t reflTex = 0,
                     float reflStrength = 0.0f, bool reflSky = false,
@@ -3208,6 +3437,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
+        glUniform3f(uEmissive_, emissive[0], emissive[1], emissive[2]);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, 0);
         glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
@@ -3224,6 +3454,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+        emissive[0] = emissive[1] = emissive[2] = 0.0f;  // one-shot
     };
     glUniform1i(uFogOn_, 0);  // no fog in the preview scene
     // "@sky" reflective materials sample the project's sky gradient
@@ -3292,6 +3523,8 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             const float* kd = staged ? d.kd : part.kd;
             const std::string& tex = staged ? d.texRel : part.texRel;
             const std::string& refl = staged ? d.reflRel : part.reflRel;
+            const float* ke = staged ? d.ke : part.ke;
+            for (int a = 0; a < 3; ++a) emissive[a] = checker ? 0.0f : ke[a];
             if (checker)
                 draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
             else
@@ -3308,6 +3541,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                            : shape == 2 ? &cylinder_
                            : shape == 3 ? &cone_
                                         : &sphere_;
+        for (int a = 0; a < 3; ++a) emissive[a] = checker ? 0.0f : d.ke[a];
         if (checker)
             draw(*mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
         else
@@ -3480,6 +3714,8 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     glUniform1i(uFlashOn_, 0);
     glUniform1i(uReflOn_, 0);
     glUniform1f(uOpacity_, 1.0f);
+    // .tskl carries no emission slot (like refl) - the preview stays matte too
+    glUniform3f(uEmissive_, 0.0f, 0.0f, 0.0f);
 
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float bl,

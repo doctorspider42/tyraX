@@ -39,6 +39,10 @@ bool readWholeFile(const std::string& fullPath, std::string& out) {
 
 struct MtlEntry {
   float kd[3] = {1.0F, 1.0F, 1.0F};
+  // Ke: emission. TyraX reads it as a per-channel brightness FLOOR baked into
+  // the vertex colors, so the material keeps its color in a pitch-black scene
+  // (docs/emissive-materials.md). {0,0,0} = matte.
+  float ke[3] = {0.0F, 0.0F, 0.0F};
   std::string texture;
   std::string reflTexture;
   float reflStrength = 0.0F;
@@ -46,7 +50,7 @@ struct MtlEntry {
   float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};  // "# tyra-uvrect" (atlasing)
 };
 
-/** newmtl/Kd/map_Kd/refl from one .mtl buffer (map_Kd/refl: last token of the
+/** newmtl/Kd/Ke/map_Kd/refl from one .mtl buffer (map_Kd/refl: last token of the
  * line; refl's -mm gain option carries the reflection strength; the TyraX
  * "-rounded" flag switches the env pass to centroid-radial normals).
  * order (optional) records material names in file order. */
@@ -65,6 +69,9 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
     } else if (tag == "Kd" && !current.empty()) {
       MtlEntry& m = out[current];
       ss >> m.kd[0] >> m.kd[1] >> m.kd[2];
+    } else if (tag == "Ke" && !current.empty()) {
+      MtlEntry& m = out[current];
+      ss >> m.ke[0] >> m.ke[1] >> m.ke[2];
     } else if (tag == "map_Kd" && !current.empty()) {
       std::string tok, last;
       while (ss >> tok) last = tok;
@@ -129,6 +136,7 @@ std::vector<LeanMtlMaterial> LeanObjLoader::loadMtl(
     m.kd[0] = materials[name].kd[0];
     m.kd[1] = materials[name].kd[1];
     m.kd[2] = materials[name].kd[2];
+    for (int i = 0; i < 3; ++i) m.ke[i] = materials[name].ke[i];
     m.reflTextureName = materials[name].reflTexture;
     m.reflStrength = materials[name].reflStrength;
     m.reflRounded = materials[name].reflRounded;
@@ -209,6 +217,7 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
       m.kd[0] = mtl->second.kd[0];
       m.kd[1] = mtl->second.kd[1];
       m.kd[2] = mtl->second.kd[2];
+      for (int i = 0; i < 3; ++i) m.ke[i] = mtl->second.ke[i];
       m.textureName = mtl->second.texture;
       m.reflTextureName = mtl->second.reflTexture;
       m.reflStrength = mtl->second.reflStrength;

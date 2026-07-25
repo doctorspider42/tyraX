@@ -7,7 +7,8 @@ constexpr int MODEL_COUNT = 0;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
 };
-// per-model .mtl override ("" = the model's own material libraries)
+// per-model .mtl override, for the .obj fallback path only (a
+// .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
 };
