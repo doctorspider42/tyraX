@@ -24,11 +24,13 @@
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "menubake.hpp"
+#include "meshlod.hpp"
 #include "navmesh.hpp"
 #include "objparser.hpp"
 #include "project.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
+#include "tmdl.hpp"
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -148,6 +150,40 @@ static std::string animBakedTsklRel(const std::string& modelPath,
     char suf[16];
     std::snprintf(suf, sizeof(suf), "__ovr%04x", (unsigned)(h & 0xffffu));
     return base + suf + ".tskl";
+}
+
+// The .tmdl a static-model identity bakes to (res-relative), mirroring
+// animBakedTsklRel: the material override is resolved into the file at bake
+// time, so a {model, override} pair maps to its own artifact. Both the emit
+// (modelDataHeader) and the bake (bakeStaticModels) must derive the same name.
+static std::string staticBakedTmdlRel(const std::string& modelPath,
+                                      const std::string& materialPath) {
+    std::string base = modelPath;
+    if (const size_t dot = base.rfind('.'); dot != std::string::npos)
+        base = base.substr(0, dot);
+    if (materialPath.empty()) return base + ".tmdl";
+    const uint64_t h = wire::fnv1a64(materialPath.data(), materialPath.size());
+    char suf[16];
+    std::snprintf(suf, sizeof(suf), "__ovr%04x", (unsigned)(h & 0xffffu));
+    return base + suf + ".tmdl";
+}
+
+// "res/models/x.png" -> "models/x.png": the game's cwd is bin/, where the
+// Makefile copies the contents of res/.
+static std::string resToBin(std::string path) {
+    if (path.rfind("res/", 0) == 0) path = path.substr(4);
+    return path;
+}
+
+// res-relative path of a material texture token, resolved against the
+// res-relative file whose directory the token is relative to. map_Kd names
+// resolve against the .obj's directory (or the override .mtl's) - the rule
+// LeanObjLoader applies at runtime, mirrored here so the baked path matches.
+static std::string resolveTexRel(const std::string& definingRel,
+                                 const std::string& tex) {
+    const std::filesystem::path base =
+        std::filesystem::path(definingRel).parent_path();
+    return (base / tex).lexically_normal().generic_string();
 }
 
 // C string literal escaping for clip names baked into scene_data.hpp.
@@ -605,6 +641,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
+    // Distance LOD tiers of a static model part (docs/model-pipeline.md).
+    // Tier 0 is the full mesh in the arrays above; a deeper tier owns its own
+    // baked buffers, filled the first time the object renders that far away
+    // and kept afterwards - so a tier flip only re-aims the bag pointers, and
+    // each tier keeps its own frustum-bbox cache entry (the cache is keyed by
+    // vertex pointer, so distinct buffers never invalidate each other).
+    struct Lod {
+      std::vector<Tyra::Vec4> vertices;
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::vector<Tyra::Vec4> envNormals;
+      std::vector<Tyra::Color> envColors;
+      u32 stamp = 0;  // bboxVersion of these buffers
+    };
+    std::vector<Lod> lods;
+    int shownLod = 0;  // tier the bags currently point at
+    u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -671,6 +724,10 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // Decimated variants baked into the .tmdl (same layout, coarsest last);
+    // empty unless the project's mesh LOD distance is on. Shared by every
+    // instance - each object bakes its own shaded copy on demand.
+    std::vector<std::vector<float>> lodVerts;
     // baked ambient-occlusion visibility per vertex (255 = open sky), from
     // the model's .aov sidecar; empty when the project bakes no AO
     std::vector<unsigned char> vertexAo;
@@ -825,6 +882,11 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  // Static mesh LOD: points one model part's bags at distance tier `lod`
+  // (0 = the full mesh), baking that tier's shaded buffers on first use.
+  void applyGeoLod(int index, int partIndex, int lod);
+  // True when this object may swap tiers at all - see the implementation.
+  bool modelLodEligible(int index) const;
   // A moving body takes the matrix fast path unless another consumer assumes
   // world-space vertex arrays (usable highlight hull, reflective matcap
   // normals) or it is an animated model (animMat already drives those).
@@ -1349,6 +1411,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
+    // Distance LOD tiers of a static model part (docs/model-pipeline.md).
+    // Tier 0 is the full mesh in the arrays above; a deeper tier owns its own
+    // baked buffers, filled the first time the object renders that far away
+    // and kept afterwards - so a tier flip only re-aims the bag pointers, and
+    // each tier keeps its own frustum-bbox cache entry (the cache is keyed by
+    // vertex pointer, so distinct buffers never invalidate each other).
+    struct Lod {
+      std::vector<Tyra::Vec4> vertices;
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::vector<Tyra::Vec4> envNormals;
+      std::vector<Tyra::Color> envColors;
+      u32 stamp = 0;  // bboxVersion of these buffers
+    };
+    std::vector<Lod> lods;
+    int shownLod = 0;  // tier the bags currently point at
+    u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -1415,6 +1494,10 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // Decimated variants baked into the .tmdl (same layout, coarsest last);
+    // empty unless the project's mesh LOD distance is on. Shared by every
+    // instance - each object bakes its own shaded copy on demand.
+    std::vector<std::vector<float>> lodVerts;
     // baked ambient-occlusion visibility per vertex (255 = open sky), from
     // the model's .aov sidecar; empty when the project bakes no AO
     std::vector<unsigned char> vertexAo;
@@ -1569,6 +1652,11 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  // Static mesh LOD: points one model part's bags at distance tier `lod`
+  // (0 = the full mesh), baking that tier's shaded buffers on first use.
+  void applyGeoLod(int index, int partIndex, int lod);
+  // True when this object may swap tiers at all - see the implementation.
+  bool modelLodEligible(int index) const;
   // A moving body takes the matrix fast path unless another consumer assumes
   // world-space vertex arrays (usable highlight hull, reflective matcap
   // normals) or it is an animated model (animMat already drives those).
@@ -3897,30 +3985,46 @@ void TerrainGame::releaseTexture(const std::string& path) {
   texCache.erase(it);
 }
 
-// Loads one custom .obj through the engine's LeanObjLoader: geometry split
-// per MTL material, map_Kd textures through the texture cache, the real
-// mesh AABB for box collision and a CollisionMesh where some scene object
-// collides in mesh mode. Called on demand by the layer streaming.
+// Loads one static model: the baked binary .tmdl (TmdlLoader - materials,
+// atlas UV rects, flat normals and texture paths all resolved at build time,
+// so this is a read plus a memcpy) or, for a path that is not a .tmdl, an
+// ASCII .obj through LeanObjLoader. Geometry is split per material, map_Kd
+// textures go through the texture cache, plus the real mesh AABB for box
+// collision and a CollisionMesh where some scene object collides in mesh
+// mode. Called on demand by the layer streaming.
 void TerrainGame::loadModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || modelLoaded[i]) return;
   modelLoaded[i] = 1;  // missing/unparseable stays empty but counts as tried
-  const std::string overrideMtl = MODEL_MTLS[i];
-  auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
+  const std::string modelPath = MODEL_PATHS[i];
+  const bool binary = modelPath.size() > 5 &&
+                      modelPath.compare(modelPath.size() - 5, 5, ".tmdl") == 0;
+  const std::string overrideMtl = binary ? std::string() : MODEL_MTLS[i];
+  auto mesh = binary ? TmdlLoader::load(modelPath)
+                     : LeanObjLoader::load(modelPath, overrideMtl);
   if (!mesh) return;  // stays empty - objects using it render nothing
   GameModel& gm = gameModels[i];
   for (int k = 0; k < 3; ++k) {
     gm.mn[k] = mesh->min[k];
     gm.mx[k] = mesh->max[k];
   }
-  // map_Kd texture names resolve relative to the file that defined them:
-  // the override .mtl when one is assigned, the model otherwise
-  std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
-  const size_t slash = dir.find_last_of('/');
-  dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  // A .tmdl stores cwd-relative texture paths; an .obj's map_Kd names resolve
+  // relative to the file that defined them (the override .mtl when one is
+  // assigned, the model otherwise).
+  std::string dir;
+  if (!binary) {
+    dir = overrideMtl.empty() ? modelPath : overrideMtl;
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  }
   for (auto& mat : mesh->materials) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
     part.vertexAo.swap(mat.vertexAo);  // baked AO sidecar (empty = none)
+    // Distance tiers (a .tmdl baked with mesh LOD on; never from an .obj)
+    for (auto& lod : mat.lods) {
+      part.lodVerts.push_back(std::vector<float>());
+      part.lodVerts.back().swap(lod.vertices);
+    }
     part.kd[0] = mat.kd[0];
     part.kd[1] = mat.kd[1];
     part.kd[2] = mat.kd[2];
@@ -7292,6 +7396,11 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     part.colors.clear();
     part.sts.clear();
     part.envNormals.clear();
+    // Every resident LOD tier baked the OLD transform/shading - drop them all
+    // (a moved, recolored or Live-Link-patched object must not keep stale
+    // distant copies) and go back to showing the full mesh.
+    part.lods.clear();
+    part.shownLod = 0;
   }
 
   // primitives: the assigned material (first entry of its .mtl) supplies
@@ -7477,7 +7586,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
-    part.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+    part.baseStamp = ++g_bboxStamp;         // geometry changed - fresh boxes
+    part.bag->bboxVersion = part.baseStamp;
     // Fast-path bodies render local vertices under objMat; everything else
     // sits in world space under the shared identity. Reset on every rebuild
     // (the bag may have been created under the other mode).
@@ -7640,6 +7750,128 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.aoBag.reset();
     }
   }
+}
+
+// Static mesh LOD (docs/model-pipeline.md). Two object kinds keep the full
+// mesh no matter how far away they are, because something else depends on the
+// exact tier-0 buffers:
+//  - physics fast-path bodies (matrixMode) bake LOCAL-space vertices with the
+//    shading frozen at the wake pose; they are also next to the player;
+//  - objects with a texture feed, whose colors are flattened and whose STs are
+//    V-flipped after the bake - state a tier bake would not reproduce.
+// Everything else is fair game: the collider and the AABB are model-level, so
+// collision, physics extents and the split-band cull never see a tier.
+bool TerrainGame::modelLodEligible(int index) const {
+  if (objectGeometry[index].matrixMode) return false;
+  for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
+    if (OBJECT_FEEDS[fi].scene == currentScene &&
+        OBJECT_FEEDS[fi].object == index)
+      return false;
+  return true;
+}
+
+void TerrainGame::applyGeoLod(int index, int pi, int lod) {
+  ObjectGeometry& g = objectGeometry[index];
+  if (pi >= (int)g.parts.size()) return;
+  GeoPart& part = g.parts[pi];
+  if (!part.bag) return;
+  const RuntimeObject& o = runtimeObjects[index];
+  if (o.data.model < 0 || o.data.model >= (int)gameModels.size()) return;
+  const GameModel& gmdl = gameModels[o.data.model];
+  if (pi >= (int)gmdl.parts.size()) return;
+  const GameModelPart& src = gmdl.parts[pi];
+  // Clamp per part: a small part may carry fewer tiers than a big one (the
+  // bake skips meshes too small to shrink), and it then just stays detailed.
+  if (lod > (int)src.lodVerts.size()) lod = (int)src.lodVerts.size();
+  if (lod == part.shownLod) return;
+
+  if (lod == 0) {
+    part.colorBag->many = part.colors.data();
+    part.bag->vertices = part.vertices.data();
+    part.bag->count = static_cast<u32>(part.vertices.size());
+    part.bag->bboxVersion = part.baseStamp;
+    if (part.texBag) part.texBag->coordinates = part.sts.data();
+    if (part.envBag) {
+      part.envColorBag->many = part.envColors.data();
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envBag->vertices = part.vertices.data();
+      part.envBag->count = part.bag->count;
+      part.envBag->bboxVersion = part.baseStamp;
+    }
+  } else {
+    if ((int)part.lods.size() < lod) part.lods.resize(lod);
+    GeoPart::Lod& tier = part.lods[lod - 1];
+    if (tier.vertices.empty()) {
+      // First time this far away: shade the decimated vertex list exactly the
+      // way rebuildObjectGeometry shaded tier 0 (same pushVert, same staging).
+      const std::vector<float>& sv = src.lodVerts[lod - 1];
+      g_aoAtlas = false;
+      g_aoSts = nullptr;
+      g_aoOff = true;  // imported models get no receive/self AO
+      g_primKd = nullptr;
+      g_primTextured = false;
+      g_primUvRect = nullptr;
+      g_bakeLocal = false;  // fast-path bodies are excluded from LOD
+      g_envNormals = part.envBag ? &tier.envNormals : nullptr;
+      const bool textured = src.texture != nullptr;
+      for (size_t k = 0; k + 7 < sv.size(); k += 8) {
+        const float* v = &sv[k];
+        pushVert(tier.vertices, tier.colors, tier.sts, o.data,
+                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                 textured);
+      }
+      g_envNormals = nullptr;
+      g_aoOff = false;
+      if (tier.vertices.empty()) return;  // nothing to show - keep tier 0
+      if (part.envBag) {
+        tier.envColors.assign(tier.vertices.size(),
+                              Color(128.0F, 128.0F, 128.0F, 128.0F));
+        if (src.reflRounded) {
+          // "-rounded": env normals radiate from THIS tier's centroid
+          const u32 nv = static_cast<u32>(tier.vertices.size());
+          float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+          for (u32 vi = 0; vi < nv; ++vi) {
+            cx += tier.vertices[vi].x;
+            cy += tier.vertices[vi].y;
+            cz += tier.vertices[vi].z;
+          }
+          cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+          for (u32 vi = 0; vi < nv; ++vi) {
+            float dx = tier.vertices[vi].x - cx;
+            float dy = tier.vertices[vi].y - cy;
+            float dz = tier.vertices[vi].z - cz;
+            const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (l > 0.0001F)
+              dx /= l, dy /= l, dz /= l;
+            else
+              dx = 0.0F, dy = 1.0F, dz = 0.0F;
+            tier.envNormals[vi].set(dx, dy, dz, 0.0F);
+          }
+        }
+      }
+      tier.stamp = ++g_bboxStamp;
+    }
+    part.colorBag->many = tier.colors.data();
+    part.bag->vertices = tier.vertices.data();
+    part.bag->count = static_cast<u32>(tier.vertices.size());
+    part.bag->bboxVersion = tier.stamp;
+    if (part.texBag) part.texBag->coordinates = tier.sts.data();
+    if (part.envBag) {
+      part.envColorBag->many = tier.envColors.data();
+      part.envTexBag->coordinates = tier.envNormals.data();
+      part.envBag->vertices = tier.vertices.data();
+      part.envBag->count = part.bag->count;
+      part.envBag->bboxVersion = tier.stamp;
+    }
+  }
+  part.shownLod = lod;
+  // The textured-AO pass points at tier 0's vertices and its own ST array;
+  // models never get atlas regions, so it can only exist on primitives - but
+  // stay safe and drop it rather than draw a mismatched count.
+  if (part.aoBag && lod != 0) part.aoBag.reset();
+  // The highlight shells were built from the other tier's vertices.
+  g.apronVerts.clear();
+  g.hullProxyVerts.clear();
 }
 
 // --- object physics: rigid-body-lite ---------------------------------------
@@ -8687,6 +8919,27 @@ void TerrainGame::renderScene() {
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
     // Split halves: whole objects above/below the visible band skip here.
     if (splitBandActive && objectOutsideSplitBand(i)) continue;
+    // Static mesh LOD: hard thresholds at the distance and twice it, like the
+    // animated path. The tier picked here is in effect for every OTHER view
+    // this frame too (mirrors, portals, camera feeds, probes re-submit these
+    // same bags) - the same approximation the skinned meshes make.
+    if (runtimeObjects[i].data.type == 5 && !splitSecondPass &&
+        modelLodEligible(i)) {
+      const float lodDist = runtimeObjects[i].data.meshLod < 0.0F
+                                ? MESH_LOD_DISTANCE
+                                : runtimeObjects[i].data.meshLod;
+      int tier = 0;
+      if (lodDist > 0.0F) {
+        const float dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+        const float dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+        const float dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        const float m2 = lodDist * lodDist;
+        tier = d2 > m2 * 4.0F ? 2 : (d2 > m2 ? 1 : 0);
+      }
+      for (int pi = 0; pi < (int)objectGeometry[i].parts.size(); ++pi)
+        applyGeoLod(i, pi, tier);
+    }
     // mirrors draw after the scene (copies first, then the blended glass -
     // see renderMirrors); drawing the quad here would z-write the plane and
     // reject the reflected geometry behind it. Portals blend their tinted
@@ -13266,19 +13519,21 @@ static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
 // format exists precisely so a team can share a map through git; a teammate
 // without your textures sees "material file missing" on every object). Only
 // build-regenerated bakes are ignored: menus/ is fully rebuilt from the
-// .tyra at build, and .tskl/.tanm are baked from their .glb source. hud/ is
-// NOT ignored - user-imported HUD images land there next to the baked text
-// sprites, and losing imports is worse than committing regenerable bakes.
+// .tyra at build, and .tskl/.tanm/.tmdl are baked from their .glb/.obj
+// source. hud/ is NOT ignored - user-imported HUD images land there next to
+// the baked text sprites, and losing imports is worse than committing
+// regenerable bakes.
 static const char* TPL_RES_GITIGNORE =
     R"(# Authored assets (models, textures, materials, ui, audio, sfx) are
 # checked in - a pulled project must render without missing files. Only
 # build-regenerated output is ignored.
 /menus/
 
-# Baked animated-model output (.glb is the source; .tskl/.tanm are
-# regenerated from it on every build).
+# Baked model output - the .glb/.obj next to it is the source, these are
+# regenerated on every build (docs/model-pipeline.md).
 /models/*.tskl
 /models/*.tanm
+/models/*.tmdl
 )";
 
 // Multi-user collaboration hints, written once at project creation (a new game
@@ -17839,10 +18094,13 @@ static std::string liveTexScript(const Project& p) {
     return out.str();
 }
 
-// inc/model_data.gen.hpp - .obj model paths (+ optional per-object .mtl
+// inc/model_data.gen.hpp - static model paths (+ optional per-object .mtl
 // overrides) and the primitive material libraries. Nothing is baked into the
-// ELF: the game loads everything at startup through the engine's
-// LeanObjLoader, from bin/ (the Makefile copies res/ next to the ELF).
+// ELF: the game loads everything at startup from bin/ (the Makefile copies
+// res/ next to the ELF). Static models load as .tmdl - the binary format the
+// build bakes from the .obj (docs/model-pipeline.md), read by the engine's
+// TmdlLoader; the ASCII .obj path (LeanObjLoader) remains as the fallback for
+// a path that is not a .tmdl.
 static std::string modelDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     const auto keys = collectModelKeys(p);
@@ -17874,10 +18132,15 @@ static std::string modelDataHeader(const Project& p) {
     if (keys.empty()) {
         out << "    \"\",\n";
     } else {
-        for (const auto& key : keys) out << "    \"" << binPathOf(key.first) << "\",\n";
+        // the baked .tmdl (materials, atlas UV rects and bin-relative texture
+        // paths already resolved) - see bakeStaticModels
+        for (const auto& key : keys)
+            out << "    \"" << binPathOf(staticBakedTmdlRel(key.first, key.second))
+                << "\",\n";
     }
     out << "};\n"
-           "// per-model .mtl override (\"\" = the model's own material libraries)\n"
+           "// per-model .mtl override, for the .obj fallback path only (a\n"
+           "// .tmdl already carries the resolved override) - \"\" = none\n"
            "inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {\n";
     if (keys.empty()) {
         out << "    \"\",\n";
@@ -20470,6 +20733,197 @@ static std::string vscodeExtensionsJson() {
            "    \"tyrax.tyrax-flownode\"\n"
            "  ]\n"
            "}\n";
+}
+
+std::string bakedModelPath(const std::string& modelPath,
+                           const std::string& materialPath) {
+    if (modelPath.empty()) return modelPath;
+    if (isAnimatedModelPath(modelPath))
+        return animBakedTsklRel(modelPath, materialPath);
+    if (modelPath.size() > 4 && modelPath.compare(modelPath.size() - 4, 4,
+                                                  ".obj") == 0)
+        return staticBakedTmdlRel(modelPath, materialPath);
+    return modelPath;
+}
+
+std::vector<File> bakeStaticModels(const Project& p,
+                                   std::vector<std::string>* warnings) {
+    std::vector<File> files;
+    auto warn = [&](const std::string& msg) {
+        if (warnings) warnings->push_back(msg);
+    };
+    // The atlas plan is a pure function of the project + res/, and is the
+    // single source of truth shared with texbake and the boot-log line - so
+    // the UV rects folded in here are exactly the pages that shipped.
+    const texatlas::Plan atlas = texatlas::plan(p);
+
+    for (const auto& key : collectModelKeys(p)) {
+        // Distance LOD tiers ride in the .tmdl only when something uses them -
+        // every tier is more RAM per instance in the PS2's 32 MB, so an unused
+        // chain is pure waste. "Uses" = the project preference, or any object
+        // referencing this model with a per-object mesh-LOD override > 0.
+        // (Same gate as the animated bake below.)
+        const std::string& relPath = key.first;        // the .obj source
+        const std::string& materialPath = key.second;  // "" or override .mtl
+        bool lodWanted = p.settings.meshLodDistance > 0.0f;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& obj : sc.objects)
+                if (obj.meshLodOverride > 0.0f && obj.modelPath == relPath)
+                    lodWanted = true;
+        const std::string full = p.dir + "\\" + replaceAll(relPath, "/", "\\");
+        const std::string mtlFull =
+            materialPath.empty()
+                ? std::string()
+                : p.dir + "\\" + replaceAll(materialPath, "/", "\\");
+
+        objparser::Model model;
+        if (!objparser::load(full, model, mtlFull)) {
+            warn(relPath + ": cannot parse the model (nothing baked - the "
+                           "game will render nothing for it)");
+            continue;
+        }
+
+        // Artist-authored LOD meshes (Assets > the model's LOD... button):
+        // each tier is its own .obj that must keep the model's material set
+        // and be smaller than the tier before it. A tier that fails either
+        // check drops the whole custom chain back to auto-decimation, so a
+        // half-broken hand-authored chain never ships silently.
+        std::vector<objparser::Model> customTiers;
+        if (lodWanted) {
+            const auto it = p.modelLods.find(relPath);
+            if (it != p.modelLods.end() && !it->second.empty()) {
+                size_t prevCorners = (size_t)model.vertexCount();
+                for (const std::string& tierRel : it->second) {
+                    objparser::Model tier;
+                    const std::string tierFull =
+                        p.dir + "\\" + replaceAll(tierRel, "/", "\\");
+                    if (!objparser::load(tierFull, tier, mtlFull)) {
+                        warn(relPath + ": custom LOD " + tierRel +
+                             " cannot be parsed - decimating instead");
+                        customTiers.clear();
+                        break;
+                    }
+                    bool sameMaterials =
+                        tier.submeshes.size() == model.submeshes.size();
+                    for (size_t s = 0; sameMaterials && s < tier.submeshes.size();
+                         ++s)
+                        sameMaterials =
+                            tier.submeshes[s].material == model.submeshes[s].material;
+                    if (!sameMaterials) {
+                        warn(relPath + ": custom LOD " + tierRel +
+                             " has a different material set than the model "
+                             "(same usemtl names in the same order are "
+                             "required) - decimating instead");
+                        customTiers.clear();
+                        break;
+                    }
+                    const size_t corners = (size_t)tier.vertexCount();
+                    if (corners == 0 || corners >= prevCorners) {
+                        warn(relPath + ": custom LOD " + tierRel + " is not " +
+                             "smaller than the previous level (" +
+                             std::to_string(corners) + " vs " +
+                             std::to_string(prevCorners) +
+                             " vertices) - decimating instead");
+                        customTiers.clear();
+                        break;
+                    }
+                    prevCorners = corners;
+                    customTiers.push_back(std::move(tier));
+                }
+            }
+        }
+
+        // Texture tokens resolve against the file that defined them: the
+        // override .mtl when assigned, the model otherwise (LeanObjLoader's
+        // runtime rule).
+        const std::string definingRel =
+            materialPath.empty() ? relPath : materialPath;
+        // A token is looked up in the atlas plan under the directory that
+        // defines it; a library pulled in by mtllib from a subdirectory keys
+        // its members under ITS own directory (texbake), so those are tried
+        // too - a miss would ship a path whose PNG the atlas bake replaced.
+        auto findAtlas = [&](const std::string& tex) -> const texatlas::Entry* {
+            if (const texatlas::Entry* e =
+                    atlas.find(resolveTexRel(definingRel, tex)))
+                return e;
+            for (const std::string& lib : model.mtlLibs)
+                if (const texatlas::Entry* e =
+                        atlas.find(resolveTexRel(lib, tex)))
+                    return e;
+            return nullptr;
+        };
+
+        tmdl::Model out;
+        for (int i = 0; i < 3; ++i) {
+            out.min[i] = model.min[i];
+            out.max[i] = model.max[i];
+        }
+        // Atlased materials map their 0..1 UVs onto a sub-rectangle of the
+        // shared page. The runtime .obj path did this per vertex from the
+        // "# tyra-uvrect" hint; baking it in retires that hint for models.
+        auto foldUv = [](std::vector<float>& verts, float u0, float v0, float du,
+                         float dv) {
+            if (u0 == 0.0f && v0 == 0.0f && du == 1.0f && dv == 1.0f) return;
+            for (size_t v = 6; v + 1 < verts.size(); v += 8) {
+                verts[v] = u0 + verts[v] * du;
+                verts[v + 1] = v0 + verts[v + 1] * dv;
+            }
+        };
+
+        for (size_t si = 0; si < model.submeshes.size(); ++si) {
+            const objparser::Submesh& s = model.submeshes[si];
+            tmdl::Part part;
+            part.name = s.material;
+            for (int i = 0; i < 3; ++i) part.kd[i] = s.kd[i];
+            part.reflStrength = s.reflStrength;
+            part.reflRounded = s.reflRounded;
+            part.verts = s.verts;
+
+            float u0 = 0.0f, v0 = 0.0f, du = 1.0f, dv = 1.0f;
+            if (!s.texture.empty()) {
+                if (const texatlas::Entry* en = findAtlas(s.texture)) {
+                    part.texture = resToBin(en->pageRel);
+                    u0 = en->u0;
+                    v0 = en->v0;
+                    du = en->du;
+                    dv = en->dv;
+                } else {
+                    part.texture = resToBin(resolveTexRel(definingRel, s.texture));
+                }
+            }
+            // "@sky" is the engine's dynamic env map, not a file
+            if (!s.refl.empty())
+                part.reflTexture =
+                    s.refl == "@sky"
+                        ? s.refl
+                        : resToBin(resolveTexRel(definingRel, s.refl));
+
+            foldUv(part.verts, u0, v0, du, dv);
+
+            // Distance tiers: the artist's own meshes when the model has them,
+            // otherwise decimated here. Either way the UV fold is applied to
+            // every tier, so all of them sample the same atlas page rect.
+            if (!customTiers.empty()) {
+                for (const objparser::Model& tier : customTiers) {
+                    std::vector<float> verts = tier.submeshes[si].verts;
+                    foldUv(verts, u0, v0, du, dv);
+                    part.lods.push_back({std::move(verts), {}});
+                }
+            } else if (lodWanted) {
+                // Decimated AFTER the fold, so a tier's surviving corners keep
+                // the atlas rect they were baked with.
+                for (std::vector<float>& tier : meshlod::generateTiers(part.verts))
+                    part.lods.push_back({std::move(tier), {}});
+            }
+
+            out.parts.push_back(std::move(part));
+        }
+
+        files.push_back(
+            {replaceAll(staticBakedTmdlRel(relPath, materialPath), "/", "\\"),
+             tmdl::write(out)});
+    }
+    return files;
 }
 
 std::vector<File> bakeAnimAssets(const Project& p,

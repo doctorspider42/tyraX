@@ -45,7 +45,11 @@ Three flow-graph nodes (category *Scene*):
   materials, their textures) are loaded **one per frame**, then the layer's
   objects activate a few per frame. Nothing stalls: the cost is spread over
   the walk toward the area. Request it early (a corridor, an elevator, a
-  bend in the road) and the pop-in stays out of sight.
+  bend in the road) and the pop-in stays out of sight. One asset is still one
+  frame, so a heavy asset is one long frame — this is why static models ship
+  as a binary the console reads instead of parsing
+  ([model-pipeline.md](model-pipeline.md)); it cut a 9 216-vertex model's load
+  from 306 ms to 59 ms.
 - **Set Layer Loaded**, **unload** pin — the layer's objects drop out of the game the same
   frame (rendering, player collision, USE prompts, sound emitters, object
   physics and particles all stop), and every asset that no other resident

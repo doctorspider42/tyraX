@@ -161,9 +161,11 @@ private:
     // assigns it to o.materialPath and opens the Material Editor on the model.
     // Returns the new material's project-relative path, or "" on failure.
     std::string createMaterialForModel(SceneObject& o);
-    // Per-object animation/mesh LOD override rows (animated models + player
-    // avatars). Returns true when a value changed (caller commits).
-    bool drawLodOverrides(SceneObject& o);
+    // Per-object LOD override rows. `animated` adds the animation-LOD row and
+    // the model yaw offset (skeletal models + player avatars); a static .obj
+    // model only takes the mesh-LOD distance. Returns true when a value
+    // changed (caller commits).
+    bool drawLodOverrides(SceneObject& o, bool animated = true);
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
     // Project-panel section listing res/models + res/textures with the

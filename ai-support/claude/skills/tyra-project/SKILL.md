@@ -27,6 +27,7 @@ build. Two kinds of files coexist here:
 | `terrain-<scene>.heights` | Terrain heightmap | No (binary-ish; sculpted in the editor) |
 | `<name>.history` | Editor undo stack (gitignored) | No |
 | `res/models`, `res/materials`, `res/textures` | .obj/.glb models, .mtl materials, PNGs | Yes (import via editor keeps references sane) |
+| `res/models/*.tmdl`, `*.tskl` | Build output: the binary models the game loads (compiled from the .obj/.glb next to them on every build) | No - regenerated, edit the source model instead |
 | `res/audio`, `res/sfx` | Music WAVs (16-bit 22kHz stereo), sound-effect WAVs | Yes |
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
 | `flow-nodes/*.flownode` | Project-defined custom flow-graph nodes | Yes - see the tyra-scripting skill |

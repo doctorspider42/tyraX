@@ -7,6 +7,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
 - [Animated models (.glb)](animated-models.md) - authoring animations in
   Blender, importing them, clip playback, flow-graph nodes and the script
   API, PS2 memory budget, troubleshooting.
+- [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) - why
+  the game reads a binary model instead of your `.obj`, what that means for
+  your files and the disc, distance mesh LOD for static geometry, and
+  authoring your own LOD meshes instead of letting the build decimate.
 - [Object scripts (Unity-style components)](object-scripts.md) - writing
   C++ scripts and attaching them to objects, the ObjectScript lifecycle
   (`self`, onStart/onUpdate/onUsed), ScriptContext reference, Empty

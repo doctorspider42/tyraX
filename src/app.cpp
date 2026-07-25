@@ -3731,7 +3731,11 @@ std::string App::importModelAsset() {
         }
     }
 
-    modelInfoCache_.erase("res/models/" + fileName);
+    // The cache is keyed "<model>|<material override>", so erasing the bare
+    // path missed every entry of a re-imported model (its summary stayed
+    // stale until a project reload) - drop the whole map, it is cheap to
+    // refill and the Assets panel refills it the same frame.
+    modelInfoCache_.clear();
     statusMessage_ = "Imported " + fileName;
     if (!parseOk)
         statusMessage_ += " (unparseable - it will render as a placeholder box)";
@@ -4155,6 +4159,81 @@ void App::drawAssetsSection() {
                               "(overrides Preferences > Textures).");
     };
 
+    // Artist-authored mesh LOD tiers of one model: each level is another .obj
+    // in the project with the same materials and fewer triangles. Empty = the
+    // build decimates automatically (docs/model-pipeline.md). The popup keeps
+    // the list dense - clearing a level drops the ones after it, since a tier
+    // chain with a hole has no meaning.
+    auto lodPopup = [&](const std::string& assetRel, const std::string& name) {
+        const std::string pid = "lodpop" + assetRel;
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("LOD...##" + assetRel).c_str()))
+            ImGui::OpenPopup(pid.c_str());
+        auto it = project_.modelLods.find(assetRel);
+        const bool custom = it != project_.modelLods.end() && !it->second.empty();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                custom ? "Custom LOD meshes assigned - click to change"
+                       : "Distance LOD meshes for this model\n"
+                         "(default: the build decimates automatically)");
+        if (custom) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("[%d custom LOD]", (int)it->second.size());
+        }
+        if (!ImGui::BeginPopup(pid.c_str())) return;
+        ImGui::TextUnformatted(("Mesh LOD levels of " + name).c_str());
+        ImGui::TextDisabled(
+            "Level 1 shows past the mesh LOD distance, level 2 past twice it.\n"
+            "A level must use the same materials (same usemtl names, same\n"
+            "order) and fewer triangles, or the build decimates instead.\n"
+            "Leave both on (auto) to let the build do it.");
+        ImGui::Separator();
+        std::vector<std::string> tiers =
+            it != project_.modelLods.end() ? it->second : std::vector<std::string>();
+        const std::vector<std::string> models = listAssetFiles("models", ".obj");
+        bool changed = false;
+        for (int level = 0; level < 2; ++level) {
+            const std::string cur =
+                level < (int)tiers.size() ? tiers[level] : std::string();
+            const std::string label = "Level " + std::to_string(level + 1);
+            ImGui::SetNextItemWidth(scaled(260));
+            if (ImGui::BeginCombo((label + "##lod" + assetRel).c_str(),
+                                  cur.empty() ? "(auto - decimate)"
+                                              : cur.substr(cur.rfind('/') + 1).c_str())) {
+                if (ImGui::Selectable("(auto - decimate)", cur.empty())) {
+                    tiers.resize((size_t)level);  // drops the coarser levels too
+                    changed = true;
+                }
+                for (const std::string& cand : models) {
+                    const std::string candRel = "res/models/" + cand;
+                    if (candRel == assetRel) continue;  // not itself
+                    if (ImGui::Selectable(cand.c_str(), candRel == cur)) {
+                        if ((int)tiers.size() <= level) tiers.resize((size_t)level + 1);
+                        tiers[level] = candRel;
+                        changed = true;
+                    }
+                    const ModelInfo& ci = modelInfo(candRel);
+                    if (ci.ok) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(%d tris)", ci.tris);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (level == 0 && tiers.empty()) break;  // level 2 needs level 1
+        }
+        if (changed) {
+            // Drop trailing empties so "auto" never round-trips as a hole.
+            while (!tiers.empty() && tiers.back().empty()) tiers.pop_back();
+            if (tiers.empty())
+                project_.modelLods.erase(assetRel);
+            else
+                project_.modelLods[assetRel] = tiers;
+            saveAll("Saved");
+        }
+        ImGui::EndPopup();
+    };
+
     ImGui::TextDisabled("Models (res/models)");
     ImGui::SameLine();
     if (ImGui::SmallButton("Import model...")) importModelAsset();
@@ -4172,6 +4251,7 @@ void App::drawAssetsSection() {
             requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         qualityCombo("res/models/" + m);
+        lodPopup("res/models/" + m, m);
         const ModelInfo& info = modelInfo("res/models/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -5074,6 +5154,9 @@ void App::drawPropertiesWindow() {
         } else if (!o.modelPath.empty()) {
             ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
         }
+        // Static models take distance mesh LOD too (docs/model-pipeline.md),
+        // so they get the same per-object override row animated models have.
+        committed |= drawLodOverrides(o, false);
         }
     }
 
@@ -6277,7 +6360,7 @@ void App::drawMultiProperties() {
 // checkbox flips between "use the project preference" (-1, the default) and
 // an explicit per-object distance; dragging the value to 0 turns that LOD
 // off for this object entirely.
-bool App::drawLodOverrides(SceneObject& o) {
+bool App::drawLodOverrides(SceneObject& o, bool animated) {
     bool committed = false;
     auto row = [&](const char* label, float& v, float projectDefault) {
         bool ov = v >= 0.0f;
@@ -6303,8 +6386,10 @@ bool App::drawLodOverrides(SceneObject& o) {
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
     };
-    row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
+    if (animated)
+        row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+    if (!animated) return committed;  // yaw offset drives the skeletal path
 
     // Content-forward correction: a model authored facing +-X (instead of
     // the +Z the avatar drive / AI turn-to-face expect) renders turned by
@@ -17724,6 +17809,20 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
         case PendingAssetDelete::Model:
             std::filesystem::remove(full, ec);
             project_.textureQuality.erase(d.relPath);
+            // Its own custom LOD list goes, and so does any reference to it as
+            // another model's LOD level (a chain with a missing level would
+            // just warn at every build).
+            project_.modelLods.erase(d.relPath);
+            for (auto it = project_.modelLods.begin();
+                 it != project_.modelLods.end();) {
+                std::vector<std::string>& tiers = it->second;
+                for (size_t i = 0; i < tiers.size(); ++i)
+                    if (tiers[i] == d.relPath) {
+                        tiers.resize(i);  // and every coarser level after it
+                        break;
+                    }
+                it = tiers.empty() ? project_.modelLods.erase(it) : std::next(it);
+            }
             modelInfoCache_.clear();
             glbInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
@@ -19417,9 +19516,11 @@ void App::drawPreferencesModal() {
                      prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
     if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
     prefHelp(
-        "The build bakes ~50% and ~25%-vertex variants of animated models;\n"
-        "instances farther than this render the reduced meshes. Costs RAM\n"
-        "and .tskl size; the editor viewport always shows the full mesh.");
+        "The build bakes ~50% and ~25%-vertex variants of every model -\n"
+        "animated ones into the .tskl, static ones into the .tmdl; objects\n"
+        "farther than this render the reduced meshes. A static model can use\n"
+        "your own LOD meshes instead (Assets > the model's LOD... button).\n"
+        "Costs RAM and file size; the editor viewport shows the full mesh.");
 
     ImGui::Checkbox("Reflection probe: aim along the reflected ray",
                     &prefSettings_.envProbeReflected);

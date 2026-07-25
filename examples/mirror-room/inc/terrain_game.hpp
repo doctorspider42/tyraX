@@ -124,6 +124,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
+    // Distance LOD tiers of a static model part (docs/model-pipeline.md).
+    // Tier 0 is the full mesh in the arrays above; a deeper tier owns its own
+    // baked buffers, filled the first time the object renders that far away
+    // and kept afterwards - so a tier flip only re-aims the bag pointers, and
+    // each tier keeps its own frustum-bbox cache entry (the cache is keyed by
+    // vertex pointer, so distinct buffers never invalidate each other).
+    struct Lod {
+      std::vector<Tyra::Vec4> vertices;
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::vector<Tyra::Vec4> envNormals;
+      std::vector<Tyra::Color> envColors;
+      u32 stamp = 0;  // bboxVersion of these buffers
+    };
+    std::vector<Lod> lods;
+    int shownLod = 0;  // tier the bags currently point at
+    u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -190,6 +207,10 @@ class TerrainGame : public Tyra::Game {
   // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    // Decimated variants baked into the .tmdl (same layout, coarsest last);
+    // empty unless the project's mesh LOD distance is on. Shared by every
+    // instance - each object bakes its own shaded copy on demand.
+    std::vector<std::vector<float>> lodVerts;
     // baked ambient-occlusion visibility per vertex (255 = open sky), from
     // the model's .aov sidecar; empty when the project bakes no AO
     std::vector<unsigned char> vertexAo;
@@ -344,6 +365,11 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  // Static mesh LOD: points one model part's bags at distance tier `lod`
+  // (0 = the full mesh), baking that tier's shaded buffers on first use.
+  void applyGeoLod(int index, int partIndex, int lod);
+  // True when this object may swap tiers at all - see the implementation.
+  bool modelLodEligible(int index) const;
   // A moving body takes the matrix fast path unless another consumer assumes
   // world-space vertex arrays (usable highlight hull, reflective matcap
   // normals) or it is an animated model (animMat already drives those).

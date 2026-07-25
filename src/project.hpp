@@ -1573,6 +1573,15 @@ struct Project {
     // HIGHEST requested quality - e.g. everything 4-bit, but the hero model
     // pinned to "none" keeps its textures full color.
     std::map<std::string, std::string> textureQuality;
+    // Artist-authored mesh LOD variants of a static model, keyed by the
+    // model's asset path ("res/models/tree.obj") -> the tier files in order,
+    // nearest first ("res/models/tree_lod1.obj", ...). No entry (the default)
+    // = the build decimates automatically. A tier must keep the model's
+    // material set (same count, same usemtl names) and be smaller than the
+    // one before it, or the build warns and falls back to decimation.
+    // Only used when a mesh LOD distance is in play (Preferences > Rendering
+    // or a per-object override) - see docs/model-pipeline.md.
+    std::map<std::string, std::vector<std::string>> modelLods;
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
@@ -1721,6 +1730,7 @@ enum class Section {
     Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
+    ModelLods,       // "modelLods" (per-model custom LOD meshes)
     SaveData,        // "saveValues", "saveTexts"
     Gradings,        // "gradings", "defaultGrading"
     Ambience,        // "ambience", "defaultAmbience"
@@ -1731,7 +1741,10 @@ enum class Section {
     AnimEdits,       // "animClipEdits"
     Input,           // "input" (actions + binding presets)
 };
-constexpr int kSectionCount = 13;
+// 14 after this branch's Input section met main's ModelLods. Keep this equal to
+// the enum size: save() loops sections by index, so a count one short silently
+// stops writing the LAST section to the .tyra.
+constexpr int kSectionCount = 14;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);
