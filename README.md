@@ -200,7 +200,7 @@ Deep-dive guides for the bigger features live in [docs/](docs) (indexed in
 [AI-agent CLI](docs/ai-tools.md), [AI support in projects](docs/ai-support.md),
 the [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`
 files, and the [profiling](docs/profiling.md) / [VU1 clipping](docs/vu1-clipping-plan.md)
-developer notes. Per-feature example projects are listed above; the developer
+/ [GS VRAM residency](docs/gs-vram.md) developer notes. Per-feature example projects are listed above; the developer
 architecture guides live under [.claude/skills/](.claude/skills).
 
 ## Structure
