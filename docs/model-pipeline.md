@@ -41,6 +41,12 @@ open them, and the LOD levels below.
   RAM anyway. Memory use is unchanged; you trade disc space for load time.
 - **Nothing to configure.** There is no switch: a static model referenced by
   a scene object is compiled.
+- **An `.obj` carries no unit**, so the importer asks for one (the **Model
+  size** dialog, and the **Size...** button next to the model in the Assets
+  list afterwards). What it records is how many meters one unit of the file
+  measures; combined with the project's world scale that is the scale objects
+  made from the model are inserted at. The file itself is never rewritten -
+  see docs/world-scale.md.
 - A model that cannot be parsed is reported in the build log
   (`[model bake] ...`) and simply renders nothing, exactly like a missing
   animated model. The Asset Browser flags the same problem earlier.

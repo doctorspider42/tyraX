@@ -364,17 +364,17 @@ void App::rebuildAssetUsage() {
     for (const GameFont& f : project_.fonts)
         if (!f.fontPath.empty()) note(f.fontPath, 2, "font \"" + f.name + "\"");
 
-    for (const std::string& m : project_.music) note(m, 2, "Music list");
-    for (const std::string& s : project_.sounds) note(s, 2, "Sounds list");
-    for (const auto& [path, quality] : project_.textureQuality)
-        note(path, 2, "texture quality: " + quality);
-    for (const auto& [asset, tiers] : project_.modelLods) {
-        note(asset, 2, "custom LOD chain");
+    // A LOD tier is a real reference: another model's chain points at that file.
+    // What is deliberately NOT counted anywhere here is per-asset SETTINGS -
+    // texture quality, a recorded real-world size, music build options,
+    // animation clip edits, and membership of the auto-scanned music/sound
+    // lists. Those are metadata attached to the file, not somebody using it, and
+    // counting them would mean no imported asset ever reads as unused - which is
+    // exactly the question the census exists to answer. They still follow the
+    // file on a move (retargetAssetPath) and are cleaned up on a delete.
+    for (const auto& [asset, tiers] : project_.modelLods)
         for (const std::string& t : tiers)
             note(t, 2, "LOD level of " + nameOf(asset));
-    }
-    for (const AnimClipEdit& e : project_.animClipEdits)
-        note(e.model, 2, "animation edit \"" + e.clip + "\"");
 
     // The built-in sprites the generated game loads by fixed name (save menu,
     // USE prompt, loading screen, debug font). Nothing in the model points at
@@ -606,8 +606,27 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         if (!to.empty()) project_.modelLods[to] = value;
         ++hits;
     }
+    // The model's recorded real-world size (docs/world-scale.md) - a setting
+    // keyed by the asset path, so it has to travel with the file or the next
+    // object made from it comes in at scale 1.
+    if (auto it = project_.modelUnitMeters.find(from);
+        it != project_.modelUnitMeters.end()) {
+        const float value = it->second;
+        project_.modelUnitMeters.erase(it);
+        if (!to.empty()) project_.modelUnitMeters[to] = value;
+        ++hits;
+    }
     for (auto& [asset, tiers] : project_.modelLods)
         for (std::string& t : tiers) swap(t);
+
+    // Editor-side staging that names a file: the Material Editor's open .mtl and
+    // paint target (a save would otherwise recreate the file at its old path)
+    // and the pending real-world-size dialog (opened by an import, whose file
+    // this move may be relocating). Not project data, but the same rule applies.
+    swap(matEdPath_);
+    swap(matEdPaintTexRel_);
+    swap(modelSizePath_);
+    swap(animEdModel_);
 
     return hits;
 }
@@ -1631,6 +1650,8 @@ void App::drawAssetInspector(const std::string& rel) {
             }
             if (ImGui::SmallButton("Add to scene")) activateAsset(rel);
             ImGui::SameLine();
+            drawAssetSizeButton(rel);
+            ImGui::SameLine();
             drawAssetQualityCombo(rel);
             ImGui::SameLine();
             drawAssetLodButton(rel);
@@ -1653,6 +1674,8 @@ void App::drawAssetInspector(const std::string& rel) {
                                    info.error.c_str());
             }
             if (ImGui::SmallButton("Add to scene")) activateAsset(rel);
+            ImGui::SameLine();
+            drawAssetSizeButton(rel);
             ImGui::SameLine();
             if (ImGui::SmallButton("Animation Editor...")) {
                 animEdModel_ = rel;

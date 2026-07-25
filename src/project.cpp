@@ -835,6 +835,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
          << ",\n"
+         << "    \"unitsPerMeter\": " << fmtFloat(p.settings.unitsPerMeter)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
@@ -1039,6 +1041,19 @@ static void writeModelLodsSection(std::ostream& json, const Project& p) {
         for (size_t i = 0; i < tiers.size(); ++i)
             json << (i ? ", " : "") << "\"" << jsonEscape(tiers[i]) << "\"";
         json << "]";
+        first = false;
+    }
+    json << " }";
+}
+
+// Conditional as well: nothing imported with a known real-world size = no key.
+static void writeModelUnitsSection(std::ostream& json, const Project& p) {
+    if (p.modelUnitMeters.empty()) return;
+    json << "\"modelUnits\": {";
+    bool first = true;
+    for (const auto& [asset, meters] : p.modelUnitMeters) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset)
+             << "\": " << fmtFloat(meters);
         first = false;
     }
     json << " }";
@@ -1337,6 +1352,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1356,6 +1372,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::ModelUnits: return "modelUnits";
     }
     return "unknown";
 }
@@ -2091,7 +2108,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.playerCamYawRotate = v->boolOr(false);
             }
             if (const auto* v = pl->find("walkSpeed"))
-                o.playerWalkSpeed = (float)v->numberOr(0.4);
+                o.playerWalkSpeed = (float)v->numberOr(0.1);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
             if (const auto* v = pl->find("eyeHeight"))
@@ -2390,6 +2407,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.navAgentRadius = (float)v->numberOr(0.4);
             if (st.navAgentRadius < 0.0f) st.navAgentRadius = 0.0f;
         }
+        // World scale. Absent (every project saved before it existed) = 1
+        // unit per meter, which is what the importers assumed all along.
+        if (const auto* v = s->find("unitsPerMeter")) {
+            st.unitsPerMeter = (float)v->numberOr(1.0);
+            if (!(st.unitsPerMeter > 0.0001f)) st.unitsPerMeter = 1.0f;
+        }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;
@@ -2404,7 +2427,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
-        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
+        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
         // Legacy single-value key seeds both sticks; per-stick keys override.
         if (const auto* v = s->find("stickDeadzone")) {
@@ -3159,6 +3182,18 @@ static void readAnimEditsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readModelUnitsSection(const json::Value& root, Project& out) {
+    out.modelUnitMeters.clear();
+    const auto* obj = root.find("modelUnits");
+    if (!obj || obj->type != json::Value::Type::Object) return;
+    for (const auto& [asset, v] : obj->obj) {
+        const float meters = (float)v.numberOr(1.0);
+        // A non-positive size says nothing about the model and would collapse
+        // every object made from it - drop the entry instead.
+        if (meters > 0.0001f) out.modelUnitMeters[asset] = meters;
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -3177,6 +3212,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::ModelUnits: readModelUnitsSection(root, p); break;
     }
     return true;
 }
@@ -3290,6 +3326,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readTexQualitySection(root, out);
     readModelLodsSection(root, out);
+    readModelUnitsSection(root, out);
 
     readSaveDataSection(root, out);
 

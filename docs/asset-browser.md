@@ -58,16 +58,23 @@ models fills in over a moment instead of stalling.
 
 ## References: who uses this file
 
-One pass over the project records every stored asset path: object model /
-material / sound paths, terrain materials and painted layers, HUD images, menu
-images, boot splashes, loading screens, fonts, the music and sound lists,
-per-asset texture quality, LOD chains, animation clip edits and the audio flow
-nodes. The inspector lists them (with a **Select** button that jumps to the
+One pass over the project records everything that *uses* an asset: object model
+/ material / sound paths, terrain materials and painted layers, HUD images, menu
+images, boot splashes, loading screens, fonts, custom LOD tiers and the audio
+flow nodes. The inspector lists them (with a **Select** button that jumps to the
 object, switching scenes if needed), and a tile whose file nothing references
 gets a small ring in its corner - the honest answer to "can I delete this?".
 
 Materials referencing textures count too: those references live inside the
 `.mtl` file, not in the project.
+
+Per-asset **settings** deliberately do not count as a use: texture quality, the
+recorded [real-world size](world-scale.md), music build options, animation clip
+edits, and membership of the music/sound lists (which are scanned off the disk,
+not chosen). They are metadata attached to the file - counting them would mean
+no imported asset ever reads as unused, which is the one question this is here
+to answer. They still follow the file when it moves, and are cleaned up when it
+is deleted.
 
 ## Moving and renaming
 

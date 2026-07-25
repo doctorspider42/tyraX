@@ -15099,7 +15099,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 out << (si ? ", " : "") << floatLit(ps[si] ? get(*ps[si]) : dflt);
             out << "};\n";
         };
-        playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.4f);
+        // The fallbacks fill scenes that have no Player object at all; keep
+        // them on the SceneObject defaults (walk = 0.1 units per 1/50 s).
+        playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.1f);
         playerFloat("LOOK_SPEEDS", [](const SceneObject& o) { return o.playerLookSpeed; }, 1.0f);
         playerFloat("EYE_HEIGHTS", [](const SceneObject& o) { return o.playerEyeHeight; }, 1.8f);
         playerFloat("JUMP_SPEEDS", [](const SceneObject& o) { return o.playerJumpSpeed; }, 4.5f);
