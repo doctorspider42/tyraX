@@ -43,7 +43,7 @@ open them, and the LOD levels below.
   a scene object is compiled.
 - A model that cannot be parsed is reported in the build log
   (`[model bake] ...`) and simply renders nothing, exactly like a missing
-  animated model. The editor's Assets list flags the same problem earlier.
+  animated model. The Asset Browser flags the same problem earlier.
 
 ## Mesh LOD: fewer triangles far away
 
@@ -85,7 +85,8 @@ silhouette borders, and it refuses to touch meshes too small to gain
 anything - which also means some models barely shrink. When you want control,
 model the levels yourself.
 
-In the **Project panel > Assets**, each model has a **LOD...** button:
+In the **Asset Browser** (*Tools > Asset Browser*), a selected model has a
+**LOD...** button in the inspector:
 
 - **Level 1** shows past the mesh LOD distance, **Level 2** past twice it.
 - Pick any other `.obj` in the project (the list shows each candidate's
@@ -133,7 +134,7 @@ material names kept intact.
 
 **A model disappeared after a build.** Check the build log for a
 `[model bake]` line: the `.obj` failed to parse, so no `.tmdl` was written.
-The Assets list shows the same models it can read.
+The Asset Browser shows the same models it can read.
 
 **A level never seems to show.** Distances are measured from the camera to
 the object's center, in world units - the same units as object positions. A
