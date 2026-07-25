@@ -10,6 +10,112 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (179) **Walk speed: sane default, and a field you can actually type into.**
+  Third in the (177)/(178) run, same user: "przy domyslnej predkosci chodu
+  postac zapierdala jak dyliżans z gorki i z zaglem, trzeba dawac ostry
+  ulamek, zeby mialo to sens". Both halves of that are real and they are
+  different bugs.
+  The **unit** is the one that bites daily: walk speed is stored as movement
+  per 1/50 s (the generated game's step - `PP_WALK_SPEED(pi) * g_frameScale`),
+  so the whole useful range lived in the bottom few percent of a 0.05..10
+  field and every value was a fraction. Both editors (Preferences and a Player
+  object's own row) now show and edit **units per second** through one helper
+  (`walkSpeedDrag`), with the metric equivalent beside the field and the
+  stored number in the tooltip. Storage is untouched on purpose - reinterpreting
+  the saved field would have made every existing project 50x slower.
+  The **default** came down 0.4 -> 0.1, i.e. 20 -> 5 units/s. 20 units/s next
+  to a 1.8-unit eye height is 72 km/h, and (177) already established that this
+  mismatch is what quietly pushes projects into being built several times
+  larger than metric. Defaults changed together or the halves would disagree:
+  `ProjectSettings::walkSpeed`, `SceneObject::playerWalkSpeed`, both
+  `numberOr` fallbacks in project.cpp and the no-Player-object fallback in
+  `playerFloat("WALK_SPEEDS", ...)`.
+  In (177) I deliberately did NOT touch this default; the user asked for it
+  directly here, and it is safe because the value is in the project file:
+  verified that a `--new` project writes 0.1 and generates
+  `WALK_SPEED = 0.1F`, while an existing project carrying 0.4 still round-trips
+  as 0.4 through `--resave`. One trap while wiring the UI: the helper draws the
+  metric label AFTER the drag, so `IsItemDeactivatedAfterEdit()` at the call
+  site would have queried the LABEL and the Properties edit would never have
+  committed - the helper reports it through an out-param instead.
+  Examples keep their own hand-tuned speeds (0.4/0.55/0.8) - they are stored
+  values, not defaults, and codegen did not change, so nothing there drifts.
+
+- (178) **Measuring tape + an object size readout - "how big is a box,
+  really?"** Follow-up to (177), same user, immediately after: "mamy jakas
+  mozliwosc zmierzenia czegos w edytorze? Taka wstawiona kostka prymityw jaki
+  ma real life rozmiar?" The answer to the literal question is that every
+  primitive is a UNIT shape (primmesh: a 1x1x1 box about the origin), so a
+  stock box at scale 1 is one unit on a side - one metre in a metric project,
+  20 cm at 5 units/metre. Nothing in the editor said so anywhere, which is
+  the actual gap.
+  Two readouts now do: a **Size** line under the Scale row in Properties
+  (`App::objectWorldSize` - unit shape times scale, or a model's own bounds
+  times scale; flat types report their zero axis, and which axis that is
+  differs - Plane lies in XZ, decal/mirror/portal quads stand in XY), and a
+  **measuring tape** in the viewport tool row (*Measure (7)*): click two
+  points, read distance in units and metres plus the `dx dy dz` split, end
+  following the cursor until the second click.
+  The tape needed the one thing the viewport did not have: **the inverse of
+  `camRay`**. `Viewport::projectToImage` (world point -> image coords of the
+  last frame, ortho and perspective, mirroring camView's conventions exactly)
+  is what lets an app-side ImDrawList overlay sit on world geometry under any
+  projection - the same trick `materialPreviewProject` already plays for the
+  UV panel. Both tape ends land through `placementRaycast`, so the tape
+  measures the scene (object boxes + heightfield) rather than a plane through
+  the origin.
+  Two interaction traps, both hit while writing it: a tool that consumes
+  clicks has to be added to EVERY branch that also consumes them (pick,
+  rubber-band start, gizmo enable - the `!sculptMode_ && !paintMode_` chain),
+  and a pending paste already owns both the click and the same screen corner,
+  so the tape stands down while one is in flight.
+  Verified: builds, editor starts clean. The overlay itself is user-verified -
+  no input injection on this machine, so I cannot click a tape into existence;
+  the projection math is an exact algebraic inverse of camRay and shows up
+  instantly as a label sliding off the line if it is not.
+
+- (177) **World scale: imports from reality land at the size the project
+  actually uses.** User report, two symptoms that turned out to be one cause:
+  a Mixamo character imports "kurduplata" (comically small), and a phone
+  camera take needs five real metres walked to cover what looks like one metre
+  in the editor. Neither importer was wrong on its own - both assume **1 unit
+  = 1 metre** (ufbx normalizes FBX to metres, `.glb` is metres by spec,
+  `CamTakeMapping::scale` defaults to 1) - the project simply was not metric.
+  Worth writing down *why* projects drift off metric here: the stock FPP
+  settings disagree with each other. `eyeHeight` 1.8, `gravity` 9.8 and
+  `jumpSpeed` 4.5 are metric as written, but `walkSpeed` is units per 1/50 s,
+  so the default 0.4 is **20 units/s** - 72 km/h for a 1.8-unit person. Tune a
+  world until walking feels right and you land several times larger than
+  metric, which is exactly where this user was (~5 u/m). Deliberately did NOT
+  change that default: it would silently re-tune every existing project. The
+  metric readout under the new setting exposes it instead.
+  **What landed:** `ProjectSettings::unitsPerMeter` (default 1.0, so every
+  existing project and every metric project is bit-identical in behavior) as
+  the single conversion, host-side only - verified it reaches no generated
+  file. Model imports now ask for the asset's real-world size (Meters /
+  Centimeters / Inches / Custom, or "it is 1.8 m tall"), stored per asset as
+  metres-per-file-unit in a new `"modelUnits"` manifest section
+  (`Project::modelUnitMeters`, `Section::ModelUnits`, kSectionCount 13 -> 14);
+  `addModelObject` inserts at `metersPerUnit * unitsPerMeter`
+  (`Project::modelInsertScale`). Camera takes seed their scale AND their
+  decimation tolerance (a world-unit distance) from the same number, and the
+  modal prints the recording both ways ("4.80 m walked -> 24.0 units").
+  Three deliberate non-choices: the asset file is never rewritten (the size
+  lives in the manifest, so it can be corrected later and survives a
+  re-export); an asset with no recorded size inserts at scale 1, which is why
+  Tree Generator output - already authored in world units - is untouched; and
+  objects already placed keep their scale unless you tick the dialog's
+  "also rescale N object(s)" (the user explicitly did not want a scene-wide
+  rescale tool).
+  Verified: editor builds; `--new` writes the key; a hand-edited `.tyra` with
+  `unitsPerMeter: 5` plus a `modelUnits` map round-trips through `--resave`
+  with the deliberately invalid `0` entry dropped; `--refresh-gen` produces
+  generated sources that mention neither key; GUI starts clean on the scratch
+  project. The dialogs themselves have NOT been clicked through by me - no
+  input injection on this machine - so the import flow is user-verified.
+  Examples were left alone on purpose: the new keys are optional and codegen
+  is unaffected, so their committed generated files cannot drift.
+
 - (176) **The baked light was being clipped by the GS ALPHA TEST - it was never
   a resolution problem.** The user kept saying the lights looked square and
   "like the texture is just cut off", and proposed reworking the whole thing

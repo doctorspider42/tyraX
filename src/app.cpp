@@ -586,6 +586,7 @@ void App::drawUI() {
     drawNewSceneModal();
     drawDeleteSceneModal();
     drawDeleteAssetModal();
+    drawModelSizeModal();
     drawDiscardModal();
     drawLayoutModals();
     drawHostSessionModal();
@@ -1658,7 +1659,8 @@ void App::drawViewportWindow() {
 
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
-        bool objectSelected = !sculptMode_ && !paintMode_ && !pastePending_ &&
+        bool objectSelected = !sculptMode_ && !paintMode_ && !measureMode_ &&
+                              !pastePending_ &&
                               selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
@@ -1869,8 +1871,9 @@ void App::drawViewportWindow() {
             // button is not driving the camera in this scheme (only Maya's
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
-            if (!sculptMode_ && !paintMode_ && !pastePending_ && !lmbCamera &&
-                !overAxisGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            if (!sculptMode_ && !paintMode_ && !measureMode_ && !pastePending_ &&
+                !lmbCamera && !overAxisGizmo &&
+                ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
 
@@ -1890,6 +1893,40 @@ void App::drawViewportWindow() {
                     commitPastePlacement();
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) cancelPastePlacement();
+        }
+
+        // --- Measuring tape: click a point, then a second one. The end
+        // follows the cursor in between, so the readout updates live; a third
+        // click starts a new measurement. Both points land on the same
+        // surfaces a paste would rest on (object boxes + the heightfield), so
+        // the tape measures the scene, not an arbitrary plane. ---
+        // A paste in flight owns the click (and the same corner of the
+        // screen), so the tape waits until it is placed or cancelled.
+        if (measureMode_ && !pastePending_) {
+            if (imageHovered && !overAxisGizmo) {
+                const float u = (io.MousePos.x - imgPos.x) / avail.x;
+                const float v = (io.MousePos.y - imgPos.y) / avail.y;
+                float point[3];
+                const bool hit = viewport_.placementRaycast(
+                    u, v, project_.objects(), std::vector<char>(), point);
+                if (hit && measurePoints_ == 1 && measureLive_)
+                    for (int c = 0; c < 3; ++c) measureB_[c] = point[c];
+                if (hit && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                    io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
+                    if (measurePoints_ == 1) {
+                        for (int c = 0; c < 3; ++c) measureB_[c] = point[c];
+                        measurePoints_ = 2;
+                        measureLive_ = false;
+                    } else {
+                        for (int c = 0; c < 3; ++c)
+                            measureA_[c] = measureB_[c] = point[c];
+                        measurePoints_ = 1;
+                        measureLive_ = true;
+                    }
+                }
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) measurePoints_ = 0;
+            drawMeasureOverlay(imgPos, avail);
         }
 
         // Rubber-band box select: tracked until the button is released, even if
@@ -1918,7 +1955,7 @@ void App::drawViewportWindow() {
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
         if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
-            !pastePending_ && !overAxisGizmo &&
+            !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -2120,6 +2157,25 @@ void App::drawViewportWindow() {
                 "Inserted and pasted objects rest on the surface under them\n"
                 "(the terrain, or the top of the object below) instead of\n"
                 "sinking into it. End drops the selection to the floor.");
+
+        // Measuring tape: how far apart two points in the scene actually are,
+        // in units and (via the world scale) in meters.
+        ImGui::SameLine();
+        if (measureMode_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Measure (7)")) {
+            measureMode_ = !measureMode_;
+            measurePoints_ = 0;
+            if (measureMode_) sculptMode_ = paintMode_ = false;
+        }
+        if (measureMode_) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Click a point, then a second one: the distance is shown in\n"
+                "world units and in meters (Preferences > World > Units per\n"
+                "meter). Click again to start over, Esc clears, the button\n"
+                "or 7 leaves the tool.");
 
         // While a paste is in flight, say so where the eye already is.
         if (pastePending_) {
@@ -2331,6 +2387,11 @@ void App::drawViewportWindow() {
                     showTerrainEditor_ = true;
                 }
             }
+            if (ImGui::IsKeyPressed(ImGuiKey_7)) {
+                measureMode_ = !measureMode_;
+                measurePoints_ = 0;
+                if (measureMode_) sculptMode_ = paintMode_ = false;
+            }
             // Resize the brush without leaving the stroke ([ / ], 15% steps).
             if (sculptMode_ || paintMode_) {
                 if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
@@ -2360,6 +2421,98 @@ void App::drawViewportWindow() {
         }
     }
     ImGui::End();
+}
+
+// The measuring tape's own drawing: the segment between the two points with
+// its endpoints, and a readout at the midpoint. Everything is placed through
+// Viewport::projectToImage, so it tracks the image under any projection.
+void App::drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col = IM_COL32(255, 205, 90, 235);
+    auto toScreen = [&](const float w[3], ImVec2& out) {
+        float u, v;
+        if (!viewport_.projectToImage(w, u, v)) return false;
+        out = ImVec2(imgPos.x + u * avail.x, imgPos.y + v * avail.y);
+        return true;
+    };
+
+    if (measurePoints_ == 0) {
+        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
+                           "Measure: click the first point");
+        return;
+    }
+
+    ImVec2 a, b;
+    const bool aOk = toScreen(measureA_, a);
+    const bool bOk = toScreen(measureB_, b);
+    if (aOk) dl->AddCircleFilled(a, scaled(4.0f), col);
+    if (bOk && measurePoints_ >= 1) dl->AddCircleFilled(b, scaled(4.0f), col);
+    if (aOk && bOk) dl->AddLine(a, b, col, scaled(2.0f));
+
+    const float d[3] = {measureB_[0] - measureA_[0], measureB_[1] - measureA_[1],
+                        measureB_[2] - measureA_[2]};
+    const float dist = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    const float ups = project_.settings.unitsPerMeter;
+    char line1[96], line2[96];
+    std::snprintf(line1, sizeof line1, "%.3f units  =  %.3f m", dist, dist / ups);
+    // The per-axis split is what turns a measurement into a number you can
+    // type into a scale or a position field.
+    std::snprintf(line2, sizeof line2, "dx %.2f  dy %.2f  dz %.2f", d[0], d[1],
+                  d[2]);
+
+    if (aOk && bOk) {
+        const ImVec2 mid((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+        const ImVec2 s1 = ImGui::CalcTextSize(line1);
+        const ImVec2 s2 = ImGui::CalcTextSize(line2);
+        const float w = std::max(s1.x, s2.x), h = s1.y + s2.y;
+        const float pad = scaled(5.0f);
+        const ImVec2 tl(mid.x - w * 0.5f - pad, mid.y - h - scaled(14.0f));
+        dl->AddRectFilled(tl, ImVec2(tl.x + w + pad * 2, tl.y + h + pad * 2),
+                          IM_COL32(20, 20, 24, 205), scaled(3.0f));
+        dl->AddText(ImVec2(tl.x + pad, tl.y + pad), col, line1);
+        dl->AddText(ImVec2(tl.x + pad, tl.y + pad + s1.y),
+                    IM_COL32(210, 210, 215, 230), line2);
+    }
+
+    // Same numbers in the corner: the label above can end up off-screen when
+    // one end of the tape is behind the camera.
+    ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Measure: %s   (%s)%s",
+                       line1, line2,
+                       measurePoints_ == 1 ? "  - click the second point" : "");
+}
+
+bool App::objectWorldSize(const SceneObject& o, float out[3]) {
+    if (o.type == PrimitiveType::Model) {
+        float mn[3], mx[3];
+        if (!viewport_.modelLocalBounds(o, mn, mx)) return false;
+        for (int c = 0; c < 3; ++c) out[c] = (mx[c] - mn[c]) * o.scale[c];
+        return true;
+    }
+    // Every other drawn primitive is a unit shape scaled by the transform
+    // (primmesh: a 1x1x1 shape around the origin), so the scale IS the size.
+    // The flat ones have no thickness, and which axis is the flat one differs:
+    // a Plane lies in XZ, the quads (decal/mirror/portal) stand in XY.
+    switch (o.type) {
+        case PrimitiveType::Box:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::SavePoint:
+            for (int c = 0; c < 3; ++c) out[c] = o.scale[c];
+            return true;
+        case PrimitiveType::Plane:
+            out[0] = o.scale[0], out[1] = 0.0f, out[2] = o.scale[2];
+            return true;
+        case PrimitiveType::Decal:
+        case PrimitiveType::Mirror:
+        case PrimitiveType::Portal:
+            out[0] = o.scale[0], out[1] = o.scale[1], out[2] = 0.0f;
+            return true;
+        default:
+            return false;  // markers (spawn, player, light, camera, empty...)
+    }
 }
 
 bool App::drawAxisGizmo(ImVec2 imgPos, ImVec2 avail) {
@@ -4103,6 +4256,8 @@ std::string App::importModelAsset() {
                                          " more warning(s), see build log)"
                                    : "");
         glbInfoCache_.erase("res/models/" + fileName);
+        beginModelSizing("res/models/" + fileName);
+        modelSizeFresh_ = true;  // ask how big it is in the real world
         return "res/models/" + fileName;
     }
 
@@ -4211,7 +4366,214 @@ std::string App::importModelAsset() {
     if (missing > 0)
         statusMessage_ += " - " + std::to_string(missing) +
                           " referenced file(s) missing next to the .obj";
+    if (parseOk) {
+        beginModelSizing("res/models/" + fileName);
+        modelSizeFresh_ = true;  // an .obj carries no unit at all - ask
+    }
     return "res/models/" + fileName;
+}
+
+// --- model real-world size (docs/world-scale.md) ---------------------------
+
+// Defined next to the Preferences dialogs, which is where this idiom is from.
+static void prefHelp(const char* tip);
+
+// Walk speed is STORED as movement per 1/50 s - the generated game's step
+// unit - which is a miserable thing to type: every sane value is a fraction
+// down in the first few percent of the field. Both places that edit it (the
+// project default and a Player object's own) show units per SECOND and
+// convert, with the metric equivalent alongside so the number means
+// something. `ups` is the project's world scale (docs/world-scale.md).
+// Returns true while the value is being changed; `committed` (when given) is
+// OR-ed with "the edit just ended" - the drag is followed by the metric label,
+// so a caller cannot ask ImGui about the field itself afterwards.
+static bool walkSpeedDrag(const char* label, float& stored, float ups,
+                          bool* committed = nullptr) {
+    float perSec = stored * 50.0f;
+    // 0.01 .. 500 units/s: the top end is what the stored field always allowed
+    // (0.05..10 per step = 2.5..500 units/s), the bottom is a crawl - a
+    // cutscene shuffle or a metric 1.4 m/s walk both live below the old 2.5
+    // floor. Such a span cannot be dragged linearly (a step big enough to
+    // cross it makes every adjustment near 5 jump), so the drag is
+    // LOGARITHMIC: it moves by a fraction of the current value, which is the
+    // same feel at 0.5 and at 50. Ctrl+click still types an exact number.
+    const bool changed =
+        ImGui::DragFloat(label, &perSec, 0.05f, 0.01f, 500.0f, "%.2f units/s",
+                         ImGuiSliderFlags_Logarithmic);
+    if (changed) stored = perSec / 50.0f;
+    if (committed) *committed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::TextDisabled("= %.2f m/s", perSec / (ups > 0.0001f ? ups : 1.0f));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Metres from Preferences > World > Units per meter (now %.3f).\n"
+            "For reference: a person walks at 1.4 m/s, sprints at ~6 m/s;\n"
+            "most first-person games run the player at 4-6 m/s.\n"
+            "Drag adjusts proportionally (0.01 .. 500 units/s); Ctrl+click\n"
+            "types an exact value. Stored in the project as %g (movement\n"
+            "per 1/50 s).",
+            ups, stored);
+    return changed;
+}
+
+namespace {
+// Meters per file unit for the unit presets the dialog offers.
+constexpr float kUnitPresetMeters[3] = {1.0f, 0.01f, 0.0254f};
+// Which preset a stored size matches (3 = none of them, "Custom").
+int unitPresetIndex(float meters) {
+    for (int i = 0; i < 3; ++i)
+        if (std::fabs(meters - kUnitPresetMeters[i]) < 1e-6f) return i;
+    return 3;
+}
+}  // namespace
+
+void App::beginModelSizing(const std::string& relPath) {
+    modelSizePath_ = relPath;
+    modelSizeApplyExisting_ = false;
+    modelSizeFresh_ = false;  // the import path raises it after this call
+    // Re-importing over an existing file keeps its name, so the viewport's
+    // path-keyed caches would hand back the OLD geometry's bounds.
+    viewport_.invalidateAssets();
+    // What the file is authored as. modelLocalBounds covers both formats
+    // (static .obj bounds and an animated model's baked pose bounds) and is
+    // the same measurement the placement snapping uses.
+    SceneObject probe;
+    probe.type = PrimitiveType::Model;
+    probe.modelPath = relPath;
+    float mn[3] = {0.0f, 0.0f, 0.0f}, mx[3] = {0.0f, 0.0f, 0.0f};
+    modelSizeMeasured_ = viewport_.modelLocalBounds(probe, mn, mx);
+    for (int c = 0; c < 3; ++c)
+        modelSizeSrc_[c] = modelSizeMeasured_ ? mx[c] - mn[c] : 0.0f;
+    auto it = project_.modelUnitMeters.find(relPath);
+    modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
+    modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+    modelSizeOpen_ = true;
+}
+
+void App::drawModelSizeModal() {
+    if (modelSizeOpen_) {
+        ImGui::OpenPopup("Model size");
+        modelSizeOpen_ = false;
+    }
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Model size", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const float ups = project_.settings.unitsPerMeter;
+    const float srcH = modelSizeSrc_[1];
+    ImGui::TextUnformatted(
+        std::filesystem::path(modelSizePath_).filename().string().c_str());
+    if (modelSizeFresh_)
+        ImGui::TextDisabled("Imported. How big is it in the real world?");
+    ImGui::Separator();
+
+    if (!modelSizeMeasured_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
+                           "The model could not be measured - it will be\n"
+                           "inserted at scale 1 like before.");
+    } else {
+        ImGui::Text("Authored size: %.3f x %.3f x %.3f file units",
+                    modelSizeSrc_[0], modelSizeSrc_[1], modelSizeSrc_[2]);
+    }
+
+    ImGui::SetNextItemWidth(scaled(160));
+    const char* unitNames[] = {"Meters", "Centimeters", "Inches", "Custom"};
+    if (ImGui::Combo("Source units", &modelSizeUnit_, unitNames, 4) &&
+        modelSizeUnit_ < 3)
+        modelSizeMeters_ = kUnitPresetMeters[modelSizeUnit_];
+    prefHelp(
+        ".glb and .fbx always arrive in meters (the importer normalizes\n"
+        "them), so those only need this when the source itself was modeled\n"
+        "at the wrong size. An .obj carries no unit at all - this is where\n"
+        "you say what it was authored in.");
+
+    // The same number from the other end: type the height you want the thing
+    // to have in reality. Guarded - a flat model has no height to divide by.
+    if (modelSizeMeasured_ && srcH > 1e-6f) {
+        float realH = srcH * modelSizeMeters_;
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::DragFloat("Real height (m)", &realH, 0.01f, 0.001f, 10000.0f,
+                             "%.3f m")) {
+            if (realH > 0.0001f) {
+                modelSizeMeters_ = realH / srcH;
+                modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+            }
+        }
+        prefHelp("An adult human is about 1.7 m, a door 2.0 m, a car 1.5 m tall.");
+    }
+    if (modelSizeUnit_ == 3) {
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::DragFloat("Meters per file unit", &modelSizeMeters_, 0.001f,
+                             0.00001f, 10000.0f, "%.5f",
+                             ImGuiSliderFlags_Logarithmic))
+            modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+    }
+
+    const float insertScale = modelSizeMeters_ * ups;
+    ImGui::Separator();
+    ImGui::Text("World scale: %.3f units per meter", ups);
+    if (ups == 1.0f)
+        ImGui::TextDisabled("(Project Preferences > World - set it to what your\n"
+                            "own content already uses.)");
+    if (modelSizeMeasured_)
+        ImGui::Text("In the scene: %.2f x %.2f x %.2f units, object scale %.3f",
+                    modelSizeSrc_[0] * insertScale, srcH * insertScale,
+                    modelSizeSrc_[2] * insertScale, insertScale);
+    else
+        ImGui::Text("Object scale: %.3f", insertScale);
+
+    // Objects already placed keep the scale they were inserted with - resizing
+    // an asset is not supposed to move a scene under the user. Offer it, but
+    // only when it would actually change something.
+    int users = 0;
+    for (const SceneData& sc : project_.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Model && o.modelPath == modelSizePath_)
+                ++users;
+    if (users > 0) {
+        ImGui::Checkbox(("Also rescale " + std::to_string(users) +
+                         " object(s) already using this model")
+                            .c_str(),
+                        &modelSizeApplyExisting_);
+        prefHelp("Overwrites their scale with the one above - any per-object\n"
+                 "resizing you did by hand is lost.");
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
+        project_.modelUnitMeters[modelSizePath_] = modelSizeMeters_;
+        if (modelSizeApplyExisting_) {
+            for (SceneData& sc : project_.scenes)
+                for (SceneObject& o : sc.objects)
+                    if (o.type == PrimitiveType::Model &&
+                        o.modelPath == modelSizePath_)
+                        o.scale[0] = o.scale[1] = o.scale[2] = insertScale;
+            commitChange();  // object scales are an undoable scene edit
+        }
+        // The asset size itself lives in the manifest, not in a scene, so an
+        // undo snapshot would not carry it - write it out like the LOD and
+        // texture-quality overrides do. setDirty first: that is what advances
+        // the session serial, so a peer sees the section change too.
+        setDirty(true);
+        char msg[192];
+        std::snprintf(msg, sizeof msg, "%s: 1 unit = %g m, inserted at scale %g",
+                      std::filesystem::path(modelSizePath_).filename().string().c_str(),
+                      modelSizeMeters_, insertScale);
+        saveAll("Saved");
+        statusMessage_ = msg;
+        modelSizePath_.clear();
+        modelSizeFresh_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
+        modelSizePath_.clear();
+        modelSizeFresh_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 std::string App::importTextureAsset() {
@@ -4700,6 +5062,29 @@ void App::drawAssetsSection() {
         ImGui::EndPopup();
     };
 
+    // Real-world size of a model (docs/world-scale.md). Asked once at import;
+    // this is where it gets corrected afterwards - and the only place that
+    // says what scale the model will be dropped into a scene at.
+    auto sizeButton = [&](const std::string& assetRel) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("Size...##" + assetRel).c_str()))
+            beginModelSizing(assetRel);
+        auto it = project_.modelUnitMeters.find(assetRel);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                it != project_.modelUnitMeters.end()
+                    ? "Real-world size of this model - click to change"
+                    : "Real-world size of this model is not recorded:\n"
+                      "objects are inserted at scale 1 (click to set it)");
+        if (it != project_.modelUnitMeters.end()) {
+            const float ins = project_.modelInsertScale(assetRel);
+            if (ins != 1.0f) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("[x%.2f]", ins);
+            }
+        }
+    };
+
     ImGui::TextDisabled("Models (res/models)");
     ImGui::SameLine();
     if (ImGui::SmallButton("Import model...")) importModelAsset();
@@ -4716,6 +5101,7 @@ void App::drawAssetsSection() {
         if (ImGui::SmallButton(("x##delmodel" + m).c_str()))
             requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
+        sizeButton("res/models/" + m);
         qualityCombo("res/models/" + m);
         lodPopup("res/models/" + m, m);
         const ModelInfo& info = modelInfo("res/models/" + m);
@@ -4745,6 +5131,7 @@ void App::drawAssetsSection() {
         if (ImGui::SmallButton(("x##delglb" + m).c_str()))
             requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
+        sizeButton("res/models/" + m);
         const GlbInfo& info = glbInfo("res/models/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -4831,6 +5218,11 @@ void App::addModelObject(const std::string& relPath) {
     o.modelPath = relPath;
     o.color[0] = o.color[1] = o.color[2] = 0.85f;
     o.position[1] = 0.0f;
+    // Models whose real-world size is known come in at the size the project's
+    // world scale says they should be (docs/world-scale.md); everything else
+    // keeps the plain 1:1 insert it always had.
+    const float s = project_.modelInsertScale(relPath);
+    o.scale[0] = o.scale[1] = o.scale[2] = s;
 
     // unique name from the file name
     std::string base = std::filesystem::path(relPath).stem().string();
@@ -5654,6 +6046,24 @@ void App::drawPropertiesWindow() {
         o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        // How big that actually is. A primitive is a UNIT shape, so its scale
+        // is its size in world units - and the world scale turns that into
+        // something you can picture (docs/world-scale.md).
+        float size[3];
+        if (objectWorldSize(o, size)) {
+            const float ups = project_.settings.unitsPerMeter;
+            ImGui::TextDisabled("Size: %.2f x %.2f x %.2f units  =  "
+                                "%.2f x %.2f x %.2f m",
+                                size[0], size[1], size[2], size[0] / ups,
+                                size[1] / ups, size[2] / ups);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The object's real size, from its unit shape (or the\n"
+                    "model's own bounds) times the scale above. Metres come\n"
+                    "from Preferences > World > Units per meter (now %.3f).\n"
+                    "The Measure tool (7) does the same between two points.",
+                    ups);
+        }
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
@@ -6243,8 +6653,8 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Player");
         const char* modes[] = {"Walk (FPP)", "Noclip (fly)", "Third person"};
         if (ImGui::Combo("Mode", &o.playerMode, modes, 3)) committed = true;
-        ImGui::DragFloat("Walk speed", &o.playerWalkSpeed, 0.02f, 0.05f, 10.0f, "%.2f");
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        walkSpeedDrag("Walk speed", o.playerWalkSpeed,
+                      project_.settings.unitsPerMeter, &committed);
         ImGui::DragFloat("Look speed", &o.playerLookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat(o.playerMode == 2 ? "Body height" : "Eye height",
@@ -12246,6 +12656,12 @@ void App::drawCutsceneWindow() {
         seqTakeError_.clear();
         if (!loadCamTakeAuto(path, seqTake_, seqTakeError_)) seqTake_ = CamTake{};
         seqTakeMap_.yawDeg = 0.0f;
+        // A take is recorded in meters, so the project's world scale IS the
+        // mapping scale (docs/world-scale.md). The decimation tolerance is a
+        // world-unit distance, so it follows the same factor - otherwise a
+        // big-scale project decimates a path it should have kept.
+        seqTakeMap_.scale = project_.settings.unitsPerMeter;
+        seqTakeMap_.tolerance = 0.05f * project_.settings.unitsPerMeter;
         takeOriginAimFromView();  // land + aim at the current view by default
         seqTakeMap_.timeOffset = 0.0f;
         // default the target to the camera you're looking through, or the
@@ -13013,6 +13429,31 @@ void App::drawCutsceneWindow() {
             if (ImGui::DragFloat("Scale (units per meter)", &seqTakeMap_.scale, 0.02f,
                                  0.01f, 1000.0f, "%.2f"))
                 seqTakeDirty_ = true;
+            {
+                // Seeded from the project's world scale; say so, and show what
+                // the recording covers at the current setting - "5 m of walking
+                // became 5 units" is the mistake this whole readout exists for.
+                const float ups = project_.settings.unitsPerMeter;
+                if (seqTakeMap_.scale != ups) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("World scale")) {
+                        seqTakeMap_.scale = ups;
+                        seqTakeDirty_ = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Back to the project's %.3f units per meter\n"
+                                          "(Project Preferences > World).", ups);
+                }
+                float walked = 0.0f;
+                for (size_t i = 1; i < seqTake_.samples.size(); ++i) {
+                    const float* a = seqTake_.samples[i - 1].pos;
+                    const float* b = seqTake_.samples[i].pos;
+                    const float dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+                    walked += std::sqrt(dx * dx + dy * dy + dz * dz);
+                }
+                ImGui::TextDisabled("Recorded path: %.2f m walked -> %.1f units",
+                                    walked, walked * seqTakeMap_.scale);
+            }
             ImGui::SetNextItemWidth(110.0f);
             if (ImGui::DragFloat("Extra yaw", &seqTakeMap_.yawDeg, 1.0f, -360.0f,
                                  360.0f, "%.0f deg"))
@@ -18152,6 +18593,9 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                     }
                 it = tiers.empty() ? project_.modelLods.erase(it) : std::next(it);
             }
+            // Its recorded real-world size goes with it - a re-import asks
+            // again rather than inheriting the deleted file's answer.
+            project_.modelUnitMeters.erase(d.relPath);
             modelInfoCache_.clear();
             glbInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
@@ -19725,6 +20169,38 @@ void App::drawPreferencesModal() {
         "builds never carry the poller. Also toggled by the LIVE chip in\n"
         "the toolbar and Build > Live Link.");
 
+    ImGui::SeparatorText("World");
+    ImGui::DragFloat("Units per meter", &prefSettings_.unitsPerMeter, 0.05f, 0.001f,
+                     1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+    if (prefSettings_.unitsPerMeter < 0.001f) prefSettings_.unitsPerMeter = 0.001f;
+    prefHelp(
+        "How big a real-world meter is in this project's units. The engine\n"
+        "has no opinion about units, but everything imported from reality\n"
+        "does: a phone camera take records meters and a model carries them\n"
+        "too. Set this to what your own content already uses and imports\n"
+        "land at the right size instead of needing a guessed scale every\n"
+        "time. 1.0 = one unit is one meter (nothing changes). It is an\n"
+        "authoring reference only - it never reaches the game, and setting\n"
+        "it does not move anything already in a scene.\n"
+        "See docs/world-scale.md.");
+    {
+        // The same numbers in meters, which is what makes an inconsistent
+        // project visible: a metric gravity next to a walk speed the size of
+        // a highway means the world was built at a different scale than the
+        // settings assume.
+        const float ups = prefSettings_.unitsPerMeter;
+        ImGui::TextDisabled("At this scale:");
+        ImGui::SameLine();
+        ImGui::TextDisabled("eye %.2f m, walk %.1f m/s, gravity %.1f m/s^2",
+                            prefSettings_.eyeHeight / ups,
+                            prefSettings_.walkSpeed * 50.0f / ups,
+                            prefSettings_.gravity / ups);
+        prefHelp(
+            "Walk speed is units per 1/50 s, so 0.4 means 20 units/s.\n"
+            "For reference: a person is ~1.7 m tall, walks at 1.4 m/s,\n"
+            "sprints at ~6 m/s, and gravity is 9.81 m/s^2.");
+    }
+
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
     ImGui::InputInt("Depth (units)", &prefTerrain_.depth);
@@ -19732,6 +20208,10 @@ void App::drawPreferencesModal() {
                                                                                 : prefTerrain_.width;
     prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
                                                                                 : prefTerrain_.depth;
+    if (prefSettings_.unitsPerMeter != 1.0f)
+        ImGui::TextDisabled("= %.1f x %.1f m",
+                            (float)prefTerrain_.width / prefSettings_.unitsPerMeter,
+                            (float)prefTerrain_.depth / prefSettings_.unitsPerMeter);
     ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
     prefHelp("More cells = smaller triangles = fewer clipping artifacts,\n"
              "but more geometry for the PS2 to push.");
@@ -19968,7 +20448,8 @@ void App::drawPreferencesModal() {
     if (prefTemplate_ == 1) {
         ImGui::SeparatorText("FPP camera");
         ImGui::DragFloat("Eye height", &prefSettings_.eyeHeight, 0.05f, 0.2f, 50.0f, "%.2f");
-        ImGui::DragFloat("Walk speed", &prefSettings_.walkSpeed, 0.02f, 0.05f, 10.0f, "%.2f");
+        walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
+                      prefSettings_.unitsPerMeter);
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
         ImGui::SeparatorText("Orbit camera");

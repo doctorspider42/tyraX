@@ -91,10 +91,18 @@ Practical guidance:
    dialog also accepts `.obj` for static models). The file is copied to
    `res/models/`; a validation bake runs immediately and the status bar
    reports clips, vertex count, baked frames and any warnings.
-2. The Assets list shows the model as `animated: N clip(s), M verts`;
+2. A **Model size** dialog asks how big the thing is in the real world. Both
+   importers normalize to meters, so a Mixamo character arrives ~1.7 units
+   tall and the default answer is already right - unless the project works at
+   a different **world scale**, in which case this is what makes the character
+   match the world instead of standing knee-high in it. See
+   docs/world-scale.md; the **Size...** button in the Assets list changes it
+   later.
+3. The Assets list shows the model as `animated: N clip(s), M verts`;
    hover for the clip names and warnings.
-3. **Add object > Model >** *your file* `(animated)`, or pick the file in
-   an existing model object's **Model** combo.
+4. **Add object > Model >** *your file* `(animated)`, or pick the file in
+   an existing model object's **Model** combo. The object is created at the
+   scale the recorded size implies.
 
 The viewport plays the object's start clip immediately. The preview samples
 clips at 12 fps and lerps between the samples (the console interpolates the
