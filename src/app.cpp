@@ -11958,26 +11958,62 @@ void App::stopPhoneCam() {
     statusMessage_ = "Phone camera link stopped";
 }
 
+// The Camera entity the phone starts from, or nullptr when the target is "free
+// camera shots" (then the editor's own viewpoint is the start).
+const SceneObject* App::phoneStartCamera() const {
+    if (phoneRecTarget_.empty()) return nullptr;
+    for (const SceneObject& o : project_.objects())
+        if (o.name == phoneRecTarget_ && o.type == PrimitiveType::Camera) return &o;
+    return nullptr;  // stale name (renamed/deleted): fall back to the view
+}
+
+// Puts the phone camera back at its start and aims it there. With a Camera entity
+// selected THAT is the start - the pose it was placed at, aim and tilt included -
+// so recentring returns to where you put the camera in the scene, not to wherever
+// the editor's orbit camera happens to be. Without one, the editor's viewpoint is
+// the start (currentCamera() deliberately reads the ORBIT camera, ignoring the
+// override the phone itself installed, so it means "the vantage point I framed").
 void App::phoneCamRecenter() {
     if (!phoneHasPose_) return;
-    // The orbit camera, deliberately: currentCamera() ignores the override the
-    // phone itself installed, so "recentre" always means "come back to the
-    // vantage point I framed in the viewport", however far the phone wandered.
-    float eye[3], at[3];
-    viewport_.currentCamera(eye, at);
+    float eye[3], at[3], targetRoll = 0.0f;
+    if (const SceneObject* cam = phoneStartCamera()) {
+        float fwd[3], eu[3];
+        seqCameraForward(cam->rotation, fwd);
+        seqCameraUpFromEuler(cam->rotation, eu);
+        for (int c = 0; c < 3; ++c) {
+            eye[c] = cam->position[c];
+            at[c] = cam->position[c] + fwd[c];
+        }
+        // Start tilted exactly as the camera was placed, so the phone's own lean
+        // is measured from there rather than from level.
+        targetRoll = seqRollFromUp(fwd, eu);
+    } else {
+        viewport_.currentCamera(eye, at);
+    }
     for (int c = 0; c < 3; ++c) {
         phoneMap_.origin[c] = eye[c];
         phoneMap_.anchor[c] = phonePose_.pos[c];
     }
     phoneMap_.hasAnchor = true;
-    // However you happen to be holding the phone counts as level from now on.
-    phoneMap_.anchorRoll = camSampleRollDeg(phonePose_);
+    // However you happen to be holding the phone now maps to the start's tilt.
+    phoneMap_.anchorRoll = camSampleRollDeg(phonePose_) - targetRoll;
     const float viewYaw =
         std::atan2(at[0] - eye[0], at[2] - eye[2]) * 180.0f / 3.14159265f;
     float y = viewYaw - camSampleYawDeg(phonePose_);
     while (y > 180.0f) y -= 360.0f;
     while (y < -180.0f) y += 360.0f;
     phoneMap_.yawDeg = y;
+}
+
+// Picks the Camera entity to view from / record into, and immediately jumps there.
+// One selection on purpose: "I want the view from cam-1" and "the recording goes
+// into cam-1" are the same intent, and two controls would only let them disagree.
+void App::selectPhoneCamera(const std::string& name) {
+    if (phoneRec_) return;  // never move the target out from under a recording
+    phoneRecTarget_ = name;
+    phoneCamRecenter();
+    statusMessage_ = name.empty() ? "Phone camera: free shots from the editor view"
+                                  : "Phone camera starts from \"" + name + "\"";
 }
 
 // Flies the mapping's start point along the CURRENT view basis, so a nudge the
@@ -12116,6 +12152,9 @@ void App::phoneCamTick() {
             case phonecam::Event::Type::MoveStart:
                 movePhoneStart(e.vec);
                 break;
+            case phonecam::Event::Type::SelectCamera:
+                selectPhoneCamera(e.text);
+                break;
             case phonecam::Event::Type::Error:
                 statusMessage_ = "Phone camera link: " + e.text;
                 break;
@@ -12164,6 +12203,8 @@ void App::phoneCamTick() {
             selectedSequence_ < (int)project_.sequences.size())
             st.sequence = project_.sequences[selectedSequence_].name;
         st.target = phoneRecTarget_;
+        for (const SceneObject& o : project_.objects())
+            if (o.type == PrimitiveType::Camera) st.cameras.push_back(o.name);
         st.density = phoneDensityMode_ == 0 ? projectFrameRate()
                      : phoneDensityMode_ == 1 ? phoneDensity_
                                               : 0.0f;
@@ -12279,6 +12320,42 @@ void App::drawPhoneCamWindow() {
 
     // --- mapping ------------------------------------------------------------
     ImGui::SeparatorText("Camera");
+    // Which Camera entity the phone views from AND records into - one control,
+    // because they are one intent. Picking one jumps the phone to where that
+    // camera was placed, and Recentre returns there.
+    {
+        const std::string label =
+            phoneRecTarget_.empty() ? "Free shots (from the editor view)"
+                                    : phoneRecTarget_;
+        ImGui::BeginDisabled(phoneRec_);
+        ImGui::SetNextItemWidth(scaled(230.0f));
+        if (ImGui::BeginCombo("View from", label.c_str())) {
+            if (ImGui::Selectable("Free shots (from the editor view)",
+                                  phoneRecTarget_.empty()))
+                selectPhoneCamera(std::string());
+            bool any = false;
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) any = true;
+            if (any) ImGui::Separator();
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera)
+                    if (ImGui::Selectable(o.name.c_str(), phoneRecTarget_ == o.name))
+                        selectPhoneCamera(o.name);
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                phoneRec_ ? "Locked while recording."
+                          : "The phone starts from this camera's placed pose -\n"
+                            "position, aim and tilt - and Recentre returns there.\n"
+                            "The recording goes into the same camera's track.\n"
+                            "Also selectable on the phone.");
+        if (!phoneRecTarget_.empty() && !phoneStartCamera())
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
+                               "\"%s\" is not in this scene - using the editor view.",
+                               phoneRecTarget_.c_str());
+    }
     if (ImGui::Checkbox("Drive the viewport camera", &phoneDrive_)) {
         if (!phoneDrive_) phoneCamPushed_ = false;
     }
@@ -12295,9 +12372,14 @@ void App::drawPhoneCamWindow() {
     ImGui::SameLine(0.0f, scaled(14.0f));
     if (ImGui::Button("Recentre")) phoneCamRecenter();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Put the phone camera back at the editor's own camera and\n"
-                          "aim it where the viewport is looking. Everything the\n"
-                          "phone does is relative to this point.");
+        ImGui::SetTooltip(phoneRecTarget_.empty()
+                              ? "Back to the editor's own camera, aimed where the\n"
+                                "viewport is looking. Everything the phone does\n"
+                                "is relative to this point."
+                              : "Back to where the selected camera was PLACED -\n"
+                                "its position, aim and tilt. Everything the phone\n"
+                                "does is relative to that pose, and Move only\n"
+                                "offsets from it.");
     // The start point, editable directly: Recentre snaps it to the viewport
     // camera, but a shot often wants an exact spot - and the phone can fly it
     // too (its Move mode), which writes the same three numbers.

@@ -51,9 +51,10 @@ trustworthy:
 1. *Tools > Phone Camera* → **Start link**. The window lists this machine's LAN
    addresses (`192.168.1.20:7798`) and a 6-digit **pairing code**.
 2. Type both into the app (or the browser test client) and connect.
-3. The first pose that arrives **recentres** automatically: the phone is anchored
-   at the editor camera's position and aimed where the viewport was looking. So
-   frame the shot roughly in the viewport first, then pick the phone up.
+3. The first pose that arrives **recentres** automatically — onto the selected
+   Camera entity's placed pose, or, for free shots, onto the editor camera aimed
+   where the viewport was looking. So either place a Camera where the shot starts,
+   or frame it roughly in the viewport, then pick the phone up.
 
 Settings are machine-global (`editor.ini`, not the `.tyra`): port, pairing code,
 and the stream's size / frame rate / JPEG quality. Which port is free and how
@@ -78,27 +79,46 @@ while you take the viewport back.
 | Control | What it does |
 |---|---|
 | **Scale** (u/m) | Game units per real metre. At 1, walking a metre moves the camera one unit. Raise it to cover more map from the same room — a 3 m living room at scale 8 is a 24-unit crane move. |
-| **Recentre** | Anchors on the current pose: the camera jumps back to the editor's own viewpoint and re-aims along the viewport view. Everything the phone does is relative to this. Also on the phone. |
-| **Start point** (XYZ) | Where the phone's motion starts from, editable directly when a shot wants an exact spot. *From view* moves it to the editor camera without touching the aim. |
+| **View from** | The Camera entity the shot starts from *and* records into — see below. *Free shots* = start from the editor's own viewpoint. |
+| **Recentre** | Back to the start: the selected camera's placed pose (position, aim and tilt), or the editor's viewpoint for free shots. Everything the phone does is relative to it. Also on the phone. |
+| **Start point** (XYZ) | The resolved start position, editable directly when a shot wants an exact spot that no camera sits at. *From view* moves it to the editor camera without touching the aim; Recentre discards it. |
 | **Yaw** | Which way the phone's forward points in the scene. Recentre sets it; you can trim it by hand. |
 
-Recentre reads the **orbit** camera, not the override the phone installed — so
-it always means "come back to the vantage point I framed", however far the phone
-wandered.
+For free shots, Recentre reads the **orbit** camera, not the override the phone
+installed — so it means "come back to the vantage point I framed", however far the
+phone wandered. With a Camera entity selected it reads that entity instead, which
+does not move as you film.
 
-### Choosing where a shot starts, from the phone
+### Shooting from a camera you placed
 
-Walking with the phone only covers the room you are standing in, so the app has a
-**Move** mode: while it is on, dragging the viewfinder flies the shot's *start
-point* across the map (with **Up** / **Down** for height) instead of doing
-nothing. The phone sends incremental deltas in the **camera's own**
+**View from** (in the window, and on the phone) picks which **Camera entity** the
+shot starts from. Choosing one puts the phone at that camera's *placed* pose —
+position, aim **and** tilt — and **Recentre returns to exactly that pose**, not to
+wherever the editor's orbit camera happens to be. That is normally what you want:
+you already decided where the camera goes when you put it in the scene.
+
+It is **one selection for both viewing and recording**: "the view from `cam-1`"
+and "the recording into `cam-1`" are the same intent, and two controls would only
+let them disagree. It is locked while a recording runs. *Free shots* means no
+entity: the start is the editor's own viewpoint and the recording writes the
+camera lane.
+
+The phone offers the same list, because choosing the viewpoint belongs where the
+operator is standing — the editor sends every Camera entity in the active scene in
+its `status`.
+
+### Offsetting from it — the Move mode
+
+For when no camera sits where you want, the app's **Move** mode turns dragging the
+viewfinder into flying the start point across the map (**Up** / **Down** for
+height). The phone sends incremental deltas in the **camera's own**
 right/up/forward frame — it cannot know how the scene is oriented, so the editor
 resolves them against the live view basis, which is why "drag left" means left as
 seen on the phone's screen.
 
 Moving the start point slides the camera **bodily**: the anchor is deliberately
 left alone, so the phone's own motion stays relative to wherever the origin ends
-up. Recentre still snaps everything back to the editor's viewpoint.
+up. **Recentre undoes the offset** and returns to the selected camera.
 
 ### Devices without world tracking
 
@@ -184,6 +204,7 @@ in `src/wire.cpp` as `wire::makeWebSocketTransport()`, behind the same
 | `hello` | `proto` (1), `code`, `name`, `model`, `client`, `sixdof` |
 | `pose` | `ts` (seconds, the phone's own clock), `p` `[x,y,z]` metres, `q` `[x,y,z,w]`, optional `fov` (degrees) |
 | `cmd` | `cmd`: `record` \| `stop` \| `recenter` |
+| `startcam` | `name` — which Camera entity to view from and record into (`""` = free shots). The editor jumps the view to that camera's placed pose. |
 | `origin` | `d` `[right, up, forward]` — slide the shot's start point by this delta, in the **camera's** frame, scene units (the phone does not know the scene's orientation) |
 | `cfg` | `maxw`, `maxh`, `fps`, `quality` |
 | `bye` | — |
@@ -195,7 +216,7 @@ in `src/wire.cpp` as `wire::makeWebSocketTransport()`, behind the same
 | `welcome` | `proto`, `editor`, `project` |
 | `deny` | `reason` (wrong code, protocol mismatch, another device) — the socket then closes |
 | `frame` | `w`, `h`, `seq` + the JPEG in the binary trailer |
-| `status` | `rec`, `time`, `keys`, `seq`, `target`, `dens`, `driving` — sent only when something changes |
+| `status` | `rec`, `time`, `keys`, `seq`, `target` (the selected camera), `cams` (every Camera entity in the scene, so the phone can offer the choice), `dens`, `driving` — sent only when something changes |
 | `bye` | `reason` |
 
 Poses carry the phone's own timestamps, so network jitter does not distort the

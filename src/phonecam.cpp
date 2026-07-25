@@ -154,16 +154,21 @@ void Link::pushPreview(int w, int h, const unsigned char* rgb) {
 }
 
 void Link::setStatus(const Status& s) {
+    std::string cams;
+    for (size_t i = 0; i < s.cameras.size(); ++i)
+        cams += (i ? ",\"" : "\"") + jsonEscape(s.cameras[i]) + "\"";
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "{\"t\":\"status\",\"rec\":%s,\"time\":%.3f,\"keys\":%d,"
-                  "\"seq\":\"%s\",\"target\":\"%s\",\"dens\":%.2f,\"driving\":%s}",
+                  "\"seq\":\"%s\",\"target\":\"%s\",\"dens\":%.2f,\"driving\":%s,"
+                  "\"cams\":[",
                   s.recording ? "true" : "false", s.time, s.keys,
                   jsonEscape(s.sequence).c_str(), jsonEscape(s.target).c_str(),
                   s.density, s.driving ? "true" : "false");
+    const std::string json = std::string(buf) + cams + "]}";
     std::lock_guard<std::mutex> lk(mutex_);
-    if (statusJson_ == buf) return;  // only changes go on the wire
-    statusJson_ = buf;
+    if (statusJson_ == json) return;  // only changes go on the wire
+    statusJson_ = json;
     statusPending_ = true;
 }
 
@@ -351,6 +356,14 @@ void Link::workerMain() {
                 ev.type = Event::Type::Command;
                 ev.text = msg.find("cmd") ? msg.find("cmd")->stringOr("") : "";
                 if (!ev.text.empty()) pushEvent(std::move(ev));
+                continue;
+            }
+            if (type == "startcam") {
+                Event ev;
+                ev.type = Event::Type::SelectCamera;
+                if (const json::Value* v = msg.find("name"))
+                    ev.text = v->stringOr("");
+                pushEvent(std::move(ev));
                 continue;
             }
             if (type == "origin") {

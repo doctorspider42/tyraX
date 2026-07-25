@@ -438,6 +438,11 @@ private:
     // editor view - the take importer's "From view", live. Nothing else may
     // move the anchor: it is what keeps the phone's motion relative.
     void phoneCamRecenter();
+    // The Camera entity the phone views from and records into (nullptr = free
+    // shots, started from the editor's own viewpoint). ONE selection for both:
+    // "the view from cam-1" and "the recording into cam-1" are one intent.
+    const SceneObject* phoneStartCamera() const;
+    void selectPhoneCamera(const std::string& name);
     // Slides the mapping's start point along the current view basis (a delta in
     // right/up/forward, scene units) - the phone's "fly the start point" mode.
     void movePhoneStart(const float delta[3]);

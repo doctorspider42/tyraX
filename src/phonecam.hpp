@@ -73,6 +73,8 @@ struct Event {
         Command,       // the phone pressed a button; text = the command below
         MoveStart,     // fly the start point; `vec` = a delta in the camera's
                        // own right/up/forward frame, scene units
+        SelectCamera,  // the phone picked which Camera entity to view from and
+                       // record into; text = its name ("" = free shots)
         Error,         // the link died; text = why (state() is Error)
     };
     Type type = Type::Error;
@@ -108,6 +110,9 @@ struct Status {
     std::string target;     // Camera entity name, "" = free camera shots
     float density = 0.0f;   // keyframes per second
     bool driving = false;   // is the pose actually moving the editor camera?
+    // Every Camera entity in the active scene, so the phone can offer the
+    // choice itself - picking the viewpoint belongs where the operator is.
+    std::vector<std::string> cameras;
 };
 
 class Link {
