@@ -557,6 +557,7 @@ void App::drawUI() {
     drawTerrainWindow();
     drawUiEditorWindow();
     drawFontManagerWindow();
+    drawTreeGeneratorWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
@@ -905,6 +906,11 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Tree Generator...")) {
+                showTreeGenerator_ = true;
+                treePreviewDirty_ = true;
+            }
             ImGui::EndMenu();
         }
 
@@ -2296,6 +2302,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "loading") return &showLoadingEditor_;
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
+    if (key == "tree") return &showTreeGenerator_;
     return nullptr;
 }
 
@@ -2305,7 +2312,7 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
-    "anim"};
+    "anim",     "tree"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -7724,9 +7731,7 @@ const App::HudTexture* App::hudTexture(const std::string& relPath) {
         GLuint tex = 0;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glUploadTexRgba(w, h, pixels);
         stbi_image_free(pixels);
         entry = {tex, w, h};
     }
@@ -7746,10 +7751,7 @@ const App::HudTexture* App::builtinUseTexture() {
     if (!pixels) return nullptr;
     glGenTextures(1, &builtinUseTex_.tex);
     glBindTexture(GL_TEXTURE_2D, builtinUseTex_.tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 pixels);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glUploadTexRgba(w, h, pixels);
     stbi_image_free(pixels);
     builtinUseTex_.w = w;
     builtinUseTex_.h = h;
@@ -7777,10 +7779,7 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
     if (!menubake::bakeTextRGBA(t, project_, rgba, w, h)) return nullptr;
     if (!entry.tex) glGenTextures(1, &entry.tex);
     glBindTexture(GL_TEXTURE_2D, entry.tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 rgba.data());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glUploadTexRgba(w, h, rgba.data());
     entry.key = key;
     entry.hud = {entry.tex, w, h};
     return &entry.hud;
@@ -8109,6 +8108,300 @@ void App::drawFontManagerWindow() {
 
     if (changed) commitChange();
     ImGui::End();
+}
+
+void App::rebuildTreePreview() {
+    treeMesh_ = treegen::generate(treeParams_);
+    treeBarkTex_ = treegen::bakeBarkTexture(treeParams_);
+    treeLeafTex_ = treegen::bakeLeafTexture(treeParams_);
+    ++treePreviewVersion_;
+    treePreviewDirty_ = false;
+}
+
+// Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a
+// live turntable preview, then bake it into res/models/trees as an ordinary
+// Model object. Deterministic in the seed, so the same knobs always give the
+// same tree - "5 oak variants" is 5 seeds, not a mesh library.
+void App::drawTreeGeneratorWindow() {
+    if (!showTreeGenerator_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(880.0f), scaled(560.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Tree Generator", &showTreeGenerator_)) {
+        ImGui::End();
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    treegen::Params& p = treeParams_;
+    bool dirty = false;  // a parameter changed this frame
+
+    // ---- left: parameter panel ------------------------------------------
+    ImGui::BeginChild("treeparams", ImVec2(scaled(320.0f), 0), true);
+
+    const std::vector<treegen::Preset>& presets = treegen::presets();
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::BeginCombo("Preset", presets[treePreset_].name)) {
+        for (int i = 0; i < (int)presets.size(); ++i)
+            if (ImGui::Selectable(presets[i].name, treePreset_ == i)) {
+                treePreset_ = i;
+                const uint32_t keepSeed = p.seed;
+                p = presets[i].params;
+                p.seed = keepSeed;  // a preset is a shape, not a seed
+                dirty = true;
+            }
+        ImGui::EndCombo();
+    }
+
+    // Seed row: editable value + a dice that rolls a fresh one.
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    int seed = (int)p.seed;
+    if (ImGui::InputInt("Seed", &seed)) {
+        p.seed = (uint32_t)(seed < 0 ? 0 : seed);
+        dirty = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Roll")) {
+        // xorshift the current seed for a new-but-reproducible value
+        uint32_t s = p.seed ? p.seed : 0x1234567u;
+        s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+        p.seed = s;
+        dirty = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Roll a new random seed (shape stays, layout varies)");
+
+    if (ImGui::CollapsingHeader("Trunk", ImGuiTreeNodeFlags_DefaultOpen)) {
+        dirty |= ImGui::SliderFloat("Height", &p.height, 0.5f, 20.0f, "%.1f");
+        // Thickness and leaf size are FRACTIONS of height (shown as percent),
+        // so Height scales the whole tree instead of stretching it thinner.
+        float thickPct = p.thickness * 100.0f;
+        if (ImGui::SliderFloat("Thickness", &thickPct, 0.5f, 15.0f, "%.1f%% of h")) {
+            p.thickness = thickPct * 0.01f;
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Trunk base radius as a share of height (= %.2f units)",
+                              p.thickness * p.height);
+        dirty |= ImGui::SliderFloat("Root flare", &p.flare, 1.0f, 3.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Taper", &p.taper, 0.1f, 0.95f, "%.2f");
+        dirty |= ImGui::SliderFloat("Gnarliness", &p.gnarliness, 0.0f, 0.5f, "%.2f");
+        dirty |= ImGui::SliderFloat("Upward pull", &p.sweep, -0.3f, 0.5f, "%.2f");
+    }
+
+    if (ImGui::CollapsingHeader("Branches", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const char* kCrown[] = {"Spread (broadleaf)", "Conical (conifer)"};
+        dirty |= ImGui::Combo("Crown", &p.crown, kCrown, 2);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Spread: branches spiral up every parent, the shape emerges.\n"
+                "Conical: the trunk runs to the apex and carries whorls of\n"
+                "boughs that shorten toward the top - a spruce/fir habit.");
+        dirty |= ImGui::SliderInt("Levels", &p.levels, 1, 4);
+        if (p.crown == 1) {
+            dirty |= ImGui::SliderInt("Whorls", &p.whorls, 2, 20);
+            dirty |= ImGui::SliderInt("Per whorl", &p.children[0], 1, 8);
+            for (int i = 1; i + 1 < p.levels && i < 3; ++i) {
+                ImGui::PushID(i);
+                char lbl[32];
+                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
+                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
+                ImGui::PopID();
+            }
+        } else {
+            for (int i = 0; i + 1 < p.levels && i < 3; ++i) {
+                ImGui::PushID(i);
+                char lbl[32];
+                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
+                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
+                ImGui::PopID();
+            }
+        }
+        dirty |= ImGui::SliderFloat("Branch angle", &p.branchAngle, 5.0f, 90.0f, "%.0f");
+        if (p.crown == 1 && ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Conical: the tilt at mid-trunk. Lower whorls droop past it,\n"
+                "the ones near the apex sweep up.");
+        dirty |= ImGui::SliderFloat("Angle jitter", &p.angleJitter, 0.0f, 30.0f, "%.0f");
+        dirty |= ImGui::SliderFloat("Length ratio", &p.lengthRatio, 0.2f, 0.95f, "%.2f");
+        if (p.crown != 1)
+            dirty |= ImGui::SliderFloat("Length taper", &p.lengthTaper, 0.0f, 0.9f, "%.2f");
+        dirty |= ImGui::SliderFloat("Radius ratio", &p.radiusRatio, 0.2f, 0.9f, "%.2f");
+        dirty |= ImGui::SliderFloat("Spawn start", &p.spawnStart, 0.0f, 0.8f, "%.2f");
+    }
+
+    if (ImGui::CollapsingHeader("Leaves", ImGuiTreeNodeFlags_DefaultOpen)) {
+        dirty |= ImGui::SliderInt("Count", &p.leafCount, 0, 600);
+        float leafPct = p.leafSize * 100.0f;
+        if (ImGui::SliderFloat("Size", &leafPct, 1.0f, 30.0f, "%.1f%% of h")) {
+            p.leafSize = leafPct * 0.01f;
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Leaf card width as a share of height (= %.2f units)",
+                              p.leafSize * p.height);
+        dirty |= ImGui::SliderFloat("Aspect", &p.leafAspect, 0.5f, 2.5f, "%.2f");
+        dirty |= ImGui::SliderInt("On outer levels", &p.leafLevels, 1, 4);
+        const char* kLeaf[] = {"Broadleaf", "Needles", "Single leaf"};
+        dirty |= ImGui::Combo("Foliage", &p.leafStyle, kLeaf, 3);
+    }
+
+    if (ImGui::CollapsingHeader("Appearance")) {
+        const char* kBark[] = {"Rough", "Birch", "Plates"};
+        dirty |= ImGui::Combo("Bark", &p.barkStyle, kBark, 3);
+        dirty |= ImGui::ColorEdit3("Bark light", p.barkColor,
+                                   ImGuiColorEditFlags_NoInputs);
+        dirty |= ImGui::ColorEdit3("Bark dark", p.barkColor2,
+                                   ImGuiColorEditFlags_NoInputs);
+        dirty |= ImGui::ColorEdit3("Leaf light", p.leafColor,
+                                   ImGuiColorEditFlags_NoInputs);
+        dirty |= ImGui::ColorEdit3("Leaf dark", p.leafColor2,
+                                   ImGuiColorEditFlags_NoInputs);
+    }
+
+    if (ImGui::CollapsingHeader("Detail (poly budget)")) {
+        dirty |= ImGui::SliderInt("Trunk sides", &p.sides, 3, 12);
+        dirty |= ImGui::SliderInt("Twig sides", &p.sidesMin, 3, 12);
+        dirty |= ImGui::SliderInt("Trunk rings", &p.rings, 1, 12);
+        dirty |= ImGui::SliderInt("Twig rings", &p.ringsMin, 1, 12);
+    }
+
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // ---- right: preview + actions ---------------------------------------
+    ImGui::BeginGroup();
+
+    // Triangle budget readout - the PS2 stays happy well under a couple
+    // thousand tris per tree; warn (not block) past a soft ceiling.
+    const int tris = treeMesh_.triangles();
+    const int barkT = treeMesh_.barkTriangles();
+    const int leafT = treeMesh_.leafTriangles();
+    ImVec4 col = tris > 3000   ? ImVec4(1.0f, 0.45f, 0.35f, 1.0f)
+                 : tris > 1800 ? ImVec4(1.0f, 0.8f, 0.3f, 1.0f)
+                               : ImVec4(0.55f, 0.85f, 0.55f, 1.0f);
+    ImGui::TextColored(col, "%d triangles", tris);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%d bark + %d leaves)", barkT, leafT);
+    if (tris > 3000) {
+        ImGui::SameLine();
+        ImGui::TextColored(col, "- heavy for PS2, trim detail/leaves");
+    }
+
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float footer = scaled(96.0f);
+    const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
+    const int ph = (int)(avail.y - footer) < 1 ? 1 : (int)(avail.y - footer);
+
+    if (treeGenSpin_) {
+        treeGenAngle_ += io.DeltaTime * 22.0f;
+        if (treeGenAngle_ > 360.0f) treeGenAngle_ -= 360.0f;
+    }
+
+    Viewport::TreePreviewDesc desc;
+    desc.version = treePreviewVersion_;
+    desc.bark = &treeMesh_.bark;
+    desc.leaves = &treeMesh_.leaves;
+    desc.barkRgba = treeBarkTex_.rgba.data();
+    desc.barkW = treeBarkTex_.w;
+    desc.barkH = treeBarkTex_.h;
+    if (!treeMesh_.leaves.empty()) {
+        desc.leafRgba = treeLeafTex_.rgba.data();
+        desc.leafW = treeLeafTex_.w;
+        desc.leafH = treeLeafTex_.h;
+    }
+    for (int i = 0; i < 3; ++i)
+        desc.center[i] = (treeMesh_.min[i] + treeMesh_.max[i]) * 0.5f;
+    desc.minY = treeMesh_.min[1];
+    const float dx = treeMesh_.max[0] - treeMesh_.min[0];
+    const float dy = treeMesh_.max[1] - treeMesh_.min[1];
+    const float dz = treeMesh_.max[2] - treeMesh_.min[2];
+    desc.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (desc.radius < 0.01f) desc.radius = 0.01f;
+    desc.angleDeg = treeGenAngle_;
+    desc.pitchDeg = treeGenPitch_;
+    desc.zoom = treeGenZoom_;
+    desc.displayMode = treeGenDisplayMode_;
+
+    const uint32_t tex = viewport_.renderTreePreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph),
+                     ImVec2(0, 1), ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##tree_prev_in", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft |
+                                   ImGuiButtonFlags_MouseButtonRight);
+        const bool hovered = ImGui::IsItemHovered();
+        const bool active = ImGui::IsItemActive();
+        if (hovered && io.MouseWheel != 0.0f) {
+            treeGenZoom_ *= std::pow(1.15f, io.MouseWheel);
+            treeGenZoom_ = treeGenZoom_ < 0.2f ? 0.2f
+                           : treeGenZoom_ > 12.0f ? 12.0f
+                                                  : treeGenZoom_;
+        }
+        if (active && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            treeGenAngle_ += io.MouseDelta.x * 0.5f;
+            treeGenPitch_ += io.MouseDelta.y * 0.4f;
+            treeGenPitch_ = treeGenPitch_ < -30.0f ? -30.0f
+                            : treeGenPitch_ > 85.0f ? 85.0f
+                                                    : treeGenPitch_;
+            treeGenSpin_ = false;  // grabbing the camera stops the turntable
+        }
+    }
+
+    // footer: view toggles + name + add-to-scene
+    ImGui::Checkbox("Spin", &treeGenSpin_);
+    ImGui::SameLine();
+    bool wire = treeGenDisplayMode_ == 1;
+    if (ImGui::Checkbox("Wireframe", &wire)) treeGenDisplayMode_ = wire ? 1 : 0;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset view")) {
+        treeGenAngle_ = 40.0f;
+        treeGenPitch_ = 18.0f;
+        treeGenZoom_ = 1.0f;
+    }
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    ImGui::InputText("Name", treeName_, sizeof(treeName_));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(treeMesh_.bark.empty());
+    if (ImGui::Button("Add to scene")) addTreeToScene();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Bake .obj + .mtl + textures into res/models/trees\n"
+                          "and drop a Model object into the current scene.");
+    ImGui::EndGroup();
+
+    if (dirty) treePreviewDirty_ = true;
+    if (treePreviewDirty_) rebuildTreePreview();
+
+    ImGui::End();
+}
+
+// "Add to scene" from the Tree Generator: bakes the current tree's assets and
+// inserts a Model object pointing at them (addModelObject does the naming +
+// commit). A name clash reuses a numbered variant so re-adding never clobbers.
+void App::addTreeToScene() {
+    std::string base = sanitizeAssetName(treeName_);
+    if (base.empty()) base = "tree";
+    // Distinct asset file name per generated tree so two trees in a project
+    // don't share (and overwrite) each other's .obj/textures.
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2;
+         fs::exists(fs::path(project_.dir) / "res" / "models" / "trees" /
+                    (name + ".obj"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string objRel, err;
+    if (!treegen::writeAssets(project_.dir, name, treeParams_, treeMesh_,
+                              treeBarkTex_, treeLeafTex_, &objRel, &err)) {
+        statusMessage_ = "Tree export failed: " + err;
+        return;
+    }
+    addModelObject(objRel);        // creates the Model object + commitChange()
+    statusMessage_ = "Added tree '" + name + "' (" +
+                     std::to_string(treeMesh_.triangles()) + " tris)";
 }
 
 // Picks one of the project's Font Manager entries by name. An empty reference
@@ -8553,11 +8846,44 @@ void App::drawUiEditorWindow() {
     ImGui::BeginChild("##ui_props", ImVec2(0, 0));
     if (uiFxSel_ == 1) {
         ImGui::SeparatorText("Bloom + color grading");
-        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 1.0f, "%.2f");
+        // The re-add FIX is a whole byte, so bloom can go to 2x - the extra
+        // headroom is what a hot glow needs once the threshold has eaten part
+        // of the emitter's energy.
+        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 2.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How much of the blur is added back. Above 1.0\n"
+                              "the blur is over-added - blown-out, hot glow.");
         ImGui::TextDisabled(
             "GS framebuffer trick - no pixel shaders on the PS2. Quarter-res\n"
             "blur re-added over the frame (soft glow).");
+        // Bright pass: without it the whole picture glows (soft focus); with
+        // it only what is brighter than the cut blooms, which is what makes an
+        // emissive material read as a glowing object.
+        ImGui::SliderFloat("Threshold", &project_.settings.bloomThreshold, 0.0f,
+                           1.0f,
+                           project_.settings.bloomThreshold <= 0.0f
+                               ? "off - whole frame"
+                               : "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Only pixels BRIGHTER than this contribute to the glow (the\n"
+                "GS subtracts it from the downsampled frame and clamps at 0).\n"
+                "0 = the classic soft-focus bloom over everything. Raise it to\n"
+                "~0.6 and the halo collapses onto emissive materials (Material\n"
+                "Editor > Glow), the sky and specular hits.");
+        ImGui::SliderFloat("Spread", &project_.settings.bloomSpread, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How far the glow reaches. Extra blur rounds over the\n"
+                "quarter-res buffer, each with doubled tap offsets, so the\n"
+                "halo grows from a tight fringe to a wide corona. Costs 4\n"
+                "extra GS sprites per round and no EE time - but a very wide\n"
+                "glow over a busy frame reads as haze, so tune it with the\n"
+                "threshold.");
         ImGui::Spacing();
         ImGui::TextWrapped(
             "Stack entries above this layer draw crisp on top of the bloom - "
@@ -8750,12 +9076,7 @@ void App::drawUiEditorWindow() {
                 if (menubake::bakeTextRGBA(t, project_, rgba, w, h)) {
                     if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
                     glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                                 GL_UNSIGNED_BYTE, rgba.data());
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                                    GL_LINEAR);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                                    GL_LINEAR);
+                    glUploadTexRgba(w, h, rgba.data());
                     textPreviewW_ = w;
                     textPreviewH_ = h;
                 }
@@ -12320,11 +12641,19 @@ void App::drawCutsceneWindow() {
 // Materials are the project's plain Wavefront .mtl asset files - the same
 // files objects reference via materialPath and the PS2 runtime parses with
 // LeanObjLoader. The editor reads/writes the subset the whole pipeline
-// understands (newmtl / Kd / map_Kd / refl) plus a "# tyra-brightness" hint
-// line so the color x brightness split survives a round trip (both multiply
-// into the written Kd; every parser ignores comments). Unrecognized lines of
-// hand-imported files are preserved verbatim. Edits are saved straight to
-// disk on commit - assets are not project data, so no undo (same as imports).
+// understands (newmtl / Kd / Ke / map_Kd / refl) plus "# tyra-brightness" and
+// "# tyra-glow" hint lines so the color x strength splits survive a round trip
+// (each pair multiplies into the written Kd / Ke; every parser ignores
+// comments). Unrecognized lines of hand-imported files are preserved verbatim.
+// Edits are saved straight to disk on commit - assets are not project data, so
+// no undo (same as imports).
+
+void App::matEdKe(const MatEdEntry& e, float out[3]) {
+    for (int i = 0; i < 3; ++i) {
+        const float v = e.glowColor[i] * e.glow + e.glowWhite;
+        out[i] = v < 0.0f ? 0.0f : v > 1.99f ? 1.99f : v;
+    }
+}
 
 bool App::loadMaterialFile(const std::string& relPath) {
     matEdMats_.clear();
@@ -12333,7 +12662,14 @@ bool App::loadMaterialFile(const std::string& relPath) {
     std::ifstream in(std::filesystem::path(project_.dir) / relPath);
     if (!in) return false;
 
-    std::vector<char> gotHint;
+    std::vector<char> gotHint;      // "# tyra-brightness" seen (Kd split)
+    std::vector<char> gotKe;        // an "Ke" statement seen (emission)
+    // "# tyra-glow" seen: 0 none, 1 strength only (legacy - split Ke),
+    // 2 strength + authored color (+ optional white-hot; nothing to split)
+    std::vector<char> gotGlowHint;
+    // The raw "Ke" of each entry, kept OUT of the staged color so the hint
+    // line and the statement cannot clobber each other whatever their order.
+    std::vector<std::array<float, 3>> keRaw;
     std::string line;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -12374,12 +12710,19 @@ bool App::loadMaterialFile(const std::string& relPath) {
             ss >> e.name;
             matEdMats_.push_back(std::move(e));
             gotHint.push_back(0);
+            gotKe.push_back(0);
+            gotGlowHint.push_back(0);
+            keRaw.push_back({0.0f, 0.0f, 0.0f});
             continue;
         }
         if (matEdMats_.empty()) continue;  // stray header lines
         MatEdEntry& e = matEdMats_.back();
         if (tag == "Kd") {
             ss >> e.color[0] >> e.color[1] >> e.color[2];
+        } else if (tag == "Ke") {
+            std::array<float, 3>& k = keRaw.back();
+            ss >> k[0] >> k[1] >> k[2];
+            gotKe.back() = 1;
         } else if (tag == "map_Kd") {
             std::vector<std::string> toks;  // "<options> filename"; filename last
             for (std::string t; ss >> t;) toks.push_back(t);
@@ -12419,6 +12762,21 @@ bool App::loadMaterialFile(const std::string& relPath) {
             if (what == "tyra-brightness") {
                 ss >> e.brightness;
                 gotHint.back() = 1;
+            } else if (what == "tyra-glow") {
+                // "<strength> [r g b] [white]" - the authored controls behind
+                // the resolved Ke. The 1-number form is the original layout
+                // (color recovered by dividing Ke, no white-hot core).
+                ss >> e.glow;
+                float r, g, b;
+                if (ss >> r >> g >> b) {
+                    e.glowColor[0] = r, e.glowColor[1] = g, e.glowColor[2] = b;
+                    gotGlowHint.back() = 2;  // color authored too - no split
+                    ss >> e.glowWhite;       // absent = 0 (leaves the default)
+                } else {
+                    gotGlowHint.back() = 1;
+                }
+            } else if (what == "tyra-glow-light") {
+                ss >> e.glowRange >> e.glowLight;
             }
             // other comments are dropped - saveMaterialFile rewrites its own
         } else if (!tag.empty()) {
@@ -12430,6 +12788,9 @@ bool App::loadMaterialFile(const std::string& relPath) {
         e.name = std::filesystem::path(relPath).stem().string();
         matEdMats_.push_back(std::move(e));
         gotHint.push_back(1);
+        gotKe.push_back(0);
+        gotGlowHint.push_back(0);
+        keRaw.push_back({0.0f, 0.0f, 0.0f});
     }
 
     // The file's Kd = color x brightness; split them back for the UI. Without
@@ -12448,6 +12809,36 @@ bool App::loadMaterialFile(const std::string& relPath) {
             c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
         }
         e.brightness = b;
+
+        // Emission. The full hint (form 2) carries the authored controls, so
+        // nothing has to be recovered from Ke. Otherwise the split is the same
+        // ambiguity as Kd/brightness: the brightest Ke component is the
+        // strength (so "Ke 1 1 1" reads as a full white glow), which renders
+        // identically either way.
+        if (!gotKe[i]) {
+            e.glow = 0.0f;
+            e.glowWhite = 0.0f;
+            e.glowColor[0] = e.glowColor[1] = e.glowColor[2] = 1.0f;
+            continue;
+        }
+        if (gotGlowHint[i] == 2) {
+            e.glow = e.glow < 0.0f ? 0.0f : (e.glow > 2.0f ? 2.0f : e.glow);
+            e.glowWhite = e.glowWhite < 0.0f ? 0.0f
+                          : (e.glowWhite > 1.0f ? 1.0f : e.glowWhite);
+            for (float& c : e.glowColor)
+                c = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+            continue;
+        }
+        const std::array<float, 3>& k = keRaw[i];
+        float g = gotGlowHint[i] == 1 ? e.glow
+                                      : std::max(k[0], std::max(k[1], k[2]));
+        g = g < 0.0f ? 0.0f : g > 2.0f ? 2.0f : g;
+        for (int c = 0; c < 3; ++c) {
+            float v = g > 0.01f ? k[c] / g : 1.0f;
+            e.glowColor[c] = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+        }
+        e.glow = g;
+        e.glowWhite = 0.0f;
     }
     matEdPrevMats_ = matEdMats_;  // undo baseline for the first edit
     return true;
@@ -12494,6 +12885,26 @@ void App::saveMaterialFile() {
         };
         std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f", kd(0), kd(1), kd(2));
         out << buf << "\n";
+        // Emission, written only when the material glows so untouched files
+        // stay clean. The hint carries the authored controls, "Ke" the
+        // resolved emission every renderer reads (matEdKe caps it at the 1.99
+        // the PS2 color byte can carry, where 128 = 1.0 modulating a texture).
+        if (e.glow > 0.0f || e.glowWhite > 0.0f) {
+            std::snprintf(buf, sizeof(buf), "# tyra-glow %.4g %.4g %.4g %.4g %.4g",
+                          e.glow, e.glowColor[0], e.glowColor[1], e.glowColor[2],
+                          e.glowWhite);
+            out << buf << "\n";
+            if (e.glowRange > 0.0f) {
+                std::snprintf(buf, sizeof(buf), "# tyra-glow-light %.4g %.4g",
+                              e.glowRange, e.glowLight);
+                out << buf << "\n";
+            }
+            float ke[3];
+            matEdKe(e, ke);
+            std::snprintf(buf, sizeof(buf), "Ke %.4f %.4f %.4f", ke[0], ke[1],
+                          ke[2]);
+            out << buf << "\n";
+        }
         if (!e.texture.empty()) {
             // -s tiling (repeats per world unit) matters only for terrain; skip
             // it at the default 1 to keep files clean. Wavefront: "-s u v w".
@@ -15122,6 +15533,107 @@ void App::drawMaterialEditorWindow() {
         }
     }
 
+    // --- Glow (Ke): emission. Not a light - a brightness FLOOR baked into the
+    // vertex colors, so the surface keeps its own color in a pitch-black scene
+    // (docs/emissive-materials.md). Pair it with the bloom threshold in the UI
+    // Editor screen stack to get the halo around it.
+    ImGui::SeparatorText("Glow (emissive)");
+    {
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        const float before = e.glow;
+        ImGui::SliderFloat("Glow", &e.glow, 0.0f, 2.0f,
+                           e.glow <= 0.0f ? "off" : "%.2f");
+        // Raising it the first time: start from the material's own color, which
+        // is what "it glows in its own color" means to the eye.
+        if (before <= 0.0f && e.glow > 0.0f)
+            for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Self-illumination. The surface never renders darker than\n"
+                "glow color x this - at 1.0 it shows its full color even in\n"
+                "complete darkness, ignoring the sun, point lights and baked\n"
+                "AO. Above 1.0 only bites on textured materials (the PS2\n"
+                "color byte modulates the texture up to 2x).");
+        if (e.glow > 0.0f || e.glowWhite > 0.0f) {
+            ImGui::ColorEdit3("Glow color", e.glowColor);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Button("Match material color", ImVec2(scaled(180), 0))) {
+                for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+                committed = true;
+            }
+
+            // The one control that can make an ALREADY saturated surface read
+            // brighter: an untextured emitter is at the framebuffer maximum in
+            // its own hue at glow 1, so "more" can only mean "whiter".
+            ImGui::SetNextItemWidth(scaled(180.0f));
+            ImGui::SliderFloat("White-hot core", &e.glowWhite, 0.0f, 1.0f,
+                               e.glowWhite <= 0.0f ? "off" : "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Blows the surface out toward white, the way an\n"
+                    "overexposed emitter looks on camera. This is what makes\n"
+                    "a glow read as HOT: at full strength a colored surface\n"
+                    "is already at the maximum the framebuffer can hold in\n"
+                    "its own hue, so the only way up is desaturating. It also\n"
+                    "pushes every channel over the bloom threshold, which\n"
+                    "widens and brightens the halo.");
+
+            // Step 2: the emitter bakes light into the geometry around it.
+            bool lights = e.glowRange > 0.0f;
+            if (ImGui::Checkbox("Lights up surroundings", &lights)) {
+                e.glowRange = lights ? 4.0f : 0.0f;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes this material's light into the walls, floor and\n"
+                    "props around it at scene load - the ambient-occlusion\n"
+                    "treatment, in reverse. Free at runtime (it lands in the\n"
+                    "same vertex colors), and the editor viewport previews it.\n"
+                    "Static: the pool of light does not follow a moving\n"
+                    "object, and animated models do not receive it.");
+            if (e.glowRange > 0.0f) {
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                ImGui::DragFloat("Light reach", &e.glowRange, 0.1f, 0.2f, 60.0f,
+                                 "%.1f units");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                ImGui::SliderFloat("Light strength", &e.glowLight, 0.0f, 3.0f,
+                                   "%.2f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How bright the pool of light is at the emitter's\n"
+                        "surface. The light color is the glow color (white-hot\n"
+                        "core included), the falloff is quadratic to the reach.");
+            }
+
+            ImGui::TextDisabled(
+                "Baked into the vertex colors at scene load - free on the\n"
+                "console.");
+            // The halo is the bloom's job, and a glow with bloom off is the
+            // single most common "why doesn't it glow?" - say so where the
+            // slider is, not only in the docs.
+            if (project_.settings.bloom <= 0.0f)
+                ImGui::TextColored(
+                    ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                    "No halo: Bloom is 0. Raise Bloom (and its Threshold)\n"
+                    "in UI Editor > the screen stack > Bloom.");
+            else if (project_.settings.bloomThreshold <= 0.0f)
+                ImGui::TextDisabled(
+                    "Bloom has no Threshold - the halo spreads over the whole\n"
+                    "frame. Raise it in UI Editor > Bloom to focus the glow.");
+            else
+                ImGui::TextDisabled(
+                    "Halo: Bloom %.2f, threshold %.2f, spread %.2f\n"
+                    "(UI Editor > the screen stack > Bloom).",
+                    project_.settings.bloom, project_.settings.bloomThreshold,
+                    project_.settings.bloomSpread);
+        }
+    }
+
     // --- Bake maps (docs/material-baking.md) ---------------------------------
     matEdBakeSection(e.name,
                      e.texture.empty()
@@ -15717,6 +16229,7 @@ void App::drawMaterialEditorWindow() {
         // --- the preview image + mouse interaction ---------------------------
         Viewport::MatPreviewDesc desc;
         desc.kd[0] = kd[0], desc.kd[1] = kd[1], desc.kd[2] = kd[2];
+        matEdKe(sel, desc.ke);
         desc.texRel = texRel;
         desc.reflRel = reflRel;
         desc.reflStrength = sel.refl.empty() ? 0.0f : sel.reflStrength;
@@ -15734,6 +16247,7 @@ void App::drawMaterialEditorWindow() {
             // raw-map view: the baked map replaces the material's look
             desc.texRel = "@matbake-view";
             desc.kd[0] = desc.kd[1] = desc.kd[2] = 1.0f;
+            desc.ke[0] = desc.ke[1] = desc.ke[2] = 0.0f;
             desc.reflRel.clear();
             desc.reflStrength = 0.0f;
             desc.reflSky = false;
@@ -16736,10 +17250,7 @@ void App::drawMenusWindow() {
                 menubake::overlayValuePreview(m, project_, current, rgba, w, h);
                 if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
                 glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                             GL_UNSIGNED_BYTE, rgba.data());
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glUploadTexRgba(w, h, rgba.data());
                 menuPreviewW_ = w;
                 menuPreviewH_ = h;
                 const menubake::PanelLayout lay =
@@ -19601,7 +20112,11 @@ void App::drawScenePreferencesModal() {
     });
 
     category("Post effects", ov.postFx, [&] {
-        ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Bloom threshold", &s.bloomThreshold, 0.0f, 1.0f,
+                           s.bloomThreshold <= 0.0f ? "off - whole frame"
+                                                    : "%.2f");
+        ImGui::SliderFloat("Bloom spread", &s.bloomSpread, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");

@@ -34,6 +34,13 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw
   low-level GS-blit body, positioned in the UI Editor screen stack with numeric
   parameters, and how to copy an effect to another project.
+- [Emissive materials (glow)](emissive-materials.md) - making a material light
+  itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
+  floor baked into the vertex colors (free at runtime), the white-hot core (why
+  "more glow" past full strength can only mean whiter), the bloom
+  **bright-pass threshold** and **spread** that turn the frame-wide soft glow
+  into a halo, and **baked emissive light** - the emitter lighting the terrain,
+  walls and props around it, the ambient-occlusion machinery in reverse.
 - [Materials: model preview, duplication and texture painting](material-painting.md) -
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern

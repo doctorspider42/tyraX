@@ -29,20 +29,39 @@ static const AoOccData S0_AO_OCC[8] = {
 static const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC};
 static const int SCENE_AO_OCC_COUNTS[] = {8};
 
+struct EmisLightData {
+  float pos[3];
+  float ax[3], ay[3], az[3];
+  float half[3];
+  int sphere;
+  int objIndex;
+  float color[3];
+  float range, bright;
+};
+
+
+static const EmisLightData* const SCENE_EMIS_TABLES[] = {nullptr};
+static const int SCENE_EMIS_COUNTS[] = {0};
+
 struct AoAtlasRect {
   float u0, v0, du, dv;
 };
 static const AoAtlasRect S0_AO_RECTS[32] = {{0.769531F, 0.457031F, 0.125F, 0.03125F}, {0.660156F, 0.308594F, 0.125F, 0.03125F}, {0.808594F, 0.308594F, 0.03125F, 0.03125F}, {0.863281F, 0.308594F, 0.03125F, 0.03125F}, {0.441406F, 0.308594F, 0.03125F, 0.125F}, {0.496094F, 0.308594F, 0.03125F, 0.125F}, {0.0117188F, 0.457031F, 0.125F, 0.03125F}, {0.160156F, 0.457031F, 0.125F, 0.03125F}, {0.308594F, 0.457031F, 0.03125F, 0.03125F}, {0.714844F, 0.457031F, 0.03125F, 0.03125F}, {0.550781F, 0.308594F, 0.03125F, 0.125F}, {0.386719F, 0.308594F, 0.03125F, 0.125F}, {0.214844F, 0.511719F, 0.125F, 0.03125F}, {0.0664062F, 0.511719F, 0.125F, 0.03125F}, {0.0117188F, 0.511719F, 0.03125F, 0.03125F}, {0.917969F, 0.457031F, 0.03125F, 0.03125F}, {0.667969F, 0.0117188F, 0.03125F, 0.125F}, {0.332031F, 0.308594F, 0.03125F, 0.125F}, {0.566406F, 0.457031F, 0.125F, 0.03125F}, {0.417969F, 0.457031F, 0.125F, 0.03125F}, {0.363281F, 0.457031F, 0.03125F, 0.03125F}, {0.605469F, 0.308594F, 0.03125F, 0.03125F}, {0.277344F, 0.308594F, 0.03125F, 0.125F}, {0.222656F, 0.308594F, 0.03125F, 0.125F}, {0.0117188F, 0.308594F, 0.1875F, 0.125F}, {0.722656F, 0.0117188F, 0.1875F, 0.125F}, {0.363281F, 0.511719F, 0.140625F, 0.0078125F}, {0.527344F, 0.511719F, 0.140625F, 0.0078125F}, {0.0429688F, 0.0117188F, 0.0078125F, 0.273438F}, {0.0117188F, 0.0117188F, 0.0078125F, 0.273438F}, {0.371094F, 0.0117188F, 0.273438F, 0.140625F}, {0.0742188F, 0.0117188F, 0.273438F, 0.140625F}};
 static const int S0_AO_FIRST[8] = {-1, 0, 6, 12, 18, 24, 25, 26};
+static const unsigned char S0_AO_LIT[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS};
 static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
+static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};
 static const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png"};
 static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
 #define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]
+#define SCENE_EMIS SCENE_EMIS_TABLES[g_activeScene]
+#define SCENE_EMIS_COUNT SCENE_EMIS_COUNTS[g_activeScene]
 #define SCENE_AO_ATLAS_RECTS SCENE_AO_ATLAS_RECTS_T[g_activeScene]
 #define SCENE_AO_ATLAS_FIRST SCENE_AO_ATLAS_FIRSTS_T[g_activeScene]
+#define SCENE_AO_ATLAS_LIT SCENE_AO_ATLAS_LITS_T[g_activeScene]
 #define SCENE_AO_ATLAS_PATH SCENE_AO_ATLAS_PATHS[g_activeScene]
 #define SCENE_AO_MAP_PATH SCENE_AO_MAP_PATHS[g_activeScene]

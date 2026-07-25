@@ -1,0 +1,1 @@
+{ "id": "glowex0210hot", "name": "s2-white-hot-0", "type": "box", "position": [-4, 1.8, -8], "rotation": [0, 0, 0], "scale": [1.6, 1.6, 0.4], "color": [1, 1, 1], "physics": false, "material": "res/materials/hot-0.mtl" }

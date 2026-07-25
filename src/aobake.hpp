@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -49,6 +50,67 @@ using ModelAabbFn =
 std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
                                        const ModelAabbFn& modelAabb);
 
+// One emissive light source: an object whose material both glows (Ke) and
+// declares a reach ("# tyra-glow-light" - Material Editor > Glow > Lights up
+// surroundings). docs/emissive-materials.md. Geometrically identical to an
+// Occluder - the SAME analytic box/sphere - because the response is the same
+// distance-to-shape query; only the formula on top differs (light added
+// instead of occlusion subtracted).
+struct Emitter {
+    Occluder shape;
+    float color[3] = {1, 1, 1};  // the material's emission color (Ke, clamped)
+    float range = 0.0f;          // world units the light reaches
+    float bright = 1.0f;         // brightness at the emitter's surface
+};
+
+// The emission an object's assigned .mtl declares (its FIRST material - the
+// entry primitives take their surface from).
+struct MaterialGlow {
+    float ke[3] = {0, 0, 0};  // Ke, the emission floor
+    float color[3] = {1, 1, 1};  // the AUTHORED glow color - what it lights
+                                 // the room with (Ke carries the white-hot
+                                 // core, which is exposure, not hue)
+    float kd[3] = {1, 1, 1};  // Kd - the lightmap bake folds it into the light
+    bool textured = false;    // has a map_Kd (see the lightmap light channel)
+    float range = 0.0f;       // "# tyra-glow-light" reach, 0 = lights nothing
+    float light = 1.0f;       // ...and its strength
+    bool glows() const { return ke[0] > 0.0f || ke[1] > 0.0f || ke[2] > 0.0f; }
+};
+// Per-path cache of the above. collectEmitters READS .mtl files, so the
+// viewport (which rebuilds its emitter set every frame) must hand in the same
+// instance every time and clear it when materials change on disk; one-shot
+// callers like codegen can pass nullptr.
+using GlowCache = std::map<std::string, MaterialGlow>;
+
+// Emissive-light emitters of a scene, in object order. Unlike occluders these
+// ignore castShadow (a glowing sign that casts no shadow still lights the wall
+// behind it) but need the material, hence projectDir for path resolution. An
+// object whose material has no Ke or no reach contributes nothing.
+std::vector<Emitter> collectEmitters(const std::string& projectDir,
+                                     const std::vector<SceneObject>& objects,
+                                     const ModelAabbFn& modelAabb,
+                                     GlowCache* cache = nullptr);
+
+// Host reference of the emissive-light response at a surface point: the
+// per-channel light this emitter adds. Twin of emissiveLightAt in the
+// generated game (templates.cpp) and emissiveLight in the viewport fragment
+// shader - change one, change all three.
+// blockers (optional): occluders that SHADOW this emitter - the light is
+// dropped entirely when the segment from wp to the emitter's nearest surface
+// point hits one. Pass the same shapes collectOccluders returns; the receiver's
+// own occluder must already be out of the list (the ray starts on it) and the
+// emitter's own is skipped here (it ends on it). Hard shadows from analytic
+// boxes/spheres - a wall throws a rectangle, not its silhouette.
+void emitterLightAt(const Emitter& em, const float wp[3], const float n[3],
+                    float outRgb[3],
+                    const std::vector<const Occluder*>* blockers = nullptr);
+
+// True when the segment from `origin` along unit `dir` for `maxT` units enters
+// the shape. Twin of emisShadowed in the generated game and shadowHit in the
+// viewport shader.
+bool shapeBlocksRay(const Occluder& oc, const float origin[3],
+                    const float dir[3], float maxT);
+
 // Host reference of the occluder response formula at a surface point
 // (0..1 occlusion; range = aoRadius). The generated game (aoOccluderAt in
 // templates.cpp, per vertex at load) and the viewport fragment shader
@@ -81,20 +143,39 @@ struct AtlasRect {
     float u0 = 0, v0 = 0, du = 0, dv = 0;
 };
 
-// Per-scene AO lightmap atlas for the primitives (box/sphere/cylinder/cone/
+// Per-scene LIGHTMAP atlas for the primitives (box/sphere/cylinder/cone/
 // plane/save point - types whose generated UV layout is known analytically).
 // Regions follow the generated builders' emission order exactly: box 6 faces
 // (+X,-X,+Y,-Y,+Z,-Z), sphere 1, cylinder 3 (side, +Y cap, -Y cap), cone 2
 // (side, base), plane 2 (top, bottom). Deterministic - codegen emits the
 // rects and texbake writes the pixels from two independent calls.
-struct SceneAoAtlas {
+//
+// ONE RGBA32 image carries both bakes, because both are per-texel functions of
+// the same surface point and the GS can read the same texture twice:
+//   A   = ambient occlusion -> an alpha-over pass with BLACK vertex colors,
+//         which is an exact per-pixel multiply (Cd * (1 - a));
+//   RGB = baked emissive light -> an additive pass with WHITE vertex colors
+//         (texturing is MODULATE, so the vertex color picks which channels of
+//         the shared texture that pass sees).
+// Going per texel is what kills the Gouraud artifacts: baked light lands on
+// vertices otherwise, and a two-triangle box face shows the diagonal split as
+// a hard seam under any strong gradient (docs/emissive-materials.md).
+struct SceneLightAtlas {
     int size = 0;                  // atlas dimension, 0 = no atlas
     std::vector<uint8_t> alpha;    // size*size occlusion alpha
+    std::vector<uint8_t> light;    // size*size*3 emissive light, framebuffer
+                                   // units (the additive pass adds it raw)
     std::vector<int> firstRegion;  // per authored object, -1 = not in atlas
+    // Per authored object: its light channel has content, so the game must
+    // draw the additive pass for it AND leave the emissive light out of its
+    // vertex colors. 0 for a TEXTURED receiver even when emitters reach it -
+    // a flat add would blow out dark texels (the vertex path multiplies the
+    // texture instead), so those keep the per-vertex light.
+    std::vector<char> lit;
     std::vector<AtlasRect> rects;  // flat regions, builder order
 };
-SceneAoAtlas bakeSceneAoAtlas(const Project& p, const SceneData& sc,
-                              const ModelAabbFn& modelAabb);
+SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
+                                    const ModelAabbFn& modelAabb);
 
 // Terrain self-occlusion: an 8-direction horizon scan over the heightmap
 // (w x d vertex grid, row-major [z*w+x], cell size stepX/stepZ world units).

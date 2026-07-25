@@ -93,7 +93,7 @@ std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
   u32 version = 0, partCount = 0;
   auto mesh = std::make_unique<LeanObjMesh>();
   if (!in.bytes(magic, 4) || memcmp(magic, "TMDL", 4) != 0 ||
-      !in.u32le(&version) || version < 1 || version > 1) {
+      !in.u32le(&version) || version < 1 || version > 2) {
     TYRA_WARN("TmdlLoader: bad header in ", relativePath.c_str());
     return nullptr;
   }
@@ -113,8 +113,18 @@ std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
     if (!in.fixedString(&mat.name, 32) ||
         !in.fixedString(&mat.textureName, 64) ||
         !in.fixedString(&mat.reflTextureName, 64) ||
-        !in.bytes(mat.kd, sizeof(mat.kd)) || !in.f32le(&mat.reflStrength) ||
-        !in.u32le(&flags) || !readMesh(in, &mat.vertices, &mat.vertexAo) ||
+        !in.bytes(mat.kd, sizeof(mat.kd))) {
+      TYRA_WARN("TmdlLoader: malformed part in ", relativePath.c_str());
+      return nullptr;
+    }
+    // Ke (emissive materials) arrived with version 2; a v1 file has no such
+    // field and its parts stay matte, which is exactly what they were.
+    if (version >= 2 && !in.bytes(mat.ke, sizeof(mat.ke))) {
+      TYRA_WARN("TmdlLoader: malformed part in ", relativePath.c_str());
+      return nullptr;
+    }
+    if (!in.f32le(&mat.reflStrength) || !in.u32le(&flags) ||
+        !readMesh(in, &mat.vertices, &mat.vertexAo) ||
         !in.u32le(&lodCount) || lodCount > kMaxLods) {
       TYRA_WARN("TmdlLoader: malformed part in ", relativePath.c_str());
       return nullptr;
