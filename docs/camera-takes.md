@@ -40,7 +40,8 @@ All loaders convert into the **ARKit world-tracking convention**:
 
 This matches the game world's axes, so mapping into the scene is only
 scale + yaw + origin placement. Note the PS2 camera key stores eye + look-at
-only — **phone roll is dropped** at bake time.
+plus a **roll** (the Dutch angle), so the device's tilt about its lens axis is
+recorded too — see [phone-camera.md](phone-camera.md#roll-the-dutch-angle).
 
 ## Canonical CSV format (app-agnostic)
 

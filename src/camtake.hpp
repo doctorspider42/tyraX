@@ -72,6 +72,15 @@ struct CamTakeMapping {
     // deliberately exclusive - a density that is then decimated away is not a
     // density.
     float keyRate = 0.0f;
+    // Roll (the Dutch angle - rotation about the lens axis). `anchorRoll` is
+    // subtracted from every sample's measured roll, so Recentre makes whatever
+    // way you are holding the phone count as level; `rollScale` then damps what
+    // is left - 1 keeps the tilt as filmed, 0 pins the horizon level and throws
+    // hand tremble away. Roll is invariant under `yawDeg` (a rotation about
+    // world +Y turns the view and the up vector together), so it needs no
+    // mapping of its own beyond these two.
+    float anchorRoll = 0.0f;
+    float rollScale = 1.0f;
 };
 
 struct CamTakeBakeStats {
@@ -86,16 +95,24 @@ struct CamTakeBakeStats {
 // map.origin (map.anchor when map.hasAnchor, else the take's first sample).
 // Shared so the live phone-camera view and the baked keys cannot drift apart -
 // what you frame through the phone is what the keys record.
+// `outRoll` (optional) receives the mapped Dutch angle in degrees.
 void mapCamSample(const CamTakeSample& s, const CamTakeMapping& map,
-                  const float anchor[3], float outEye[3], float outTarget[3]);
+                  const float anchor[3], float outEye[3], float outTarget[3],
+                  float* outRoll = nullptr);
+
+// The sample's own roll in degrees - how far the device is tilted about its lens
+// axis relative to the horizon - before anchorRoll/rollScale are applied. Used
+// to capture the anchor roll at Recentre.
+float camSampleRollDeg(const CamTakeSample& s);
 
 // The anchor bakeCamTake will use for this (take, mapping) pair.
 void camTakeAnchor(const CamTake& take, const CamTakeMapping& map, float out[3]);
 
 // Bakes a take into free camera keys (empty `camera` binding, linear easing).
 // The look-at target is placed kCamTakeLookDist meters in front of the eye
-// along the sample's view direction; phone roll has no representation in a
-// SeqCameraKey and is dropped. Keys are decimated with time-parameterized
+// along the sample's view direction, and the device's tilt about that axis lands
+// in SeqCameraKey::roll (damped by CamTakeMapping::rollScale, zeroed against
+// anchorRoll). Keys are decimated with time-parameterized
 // Ramer-Douglas-Peucker on the (eye, target) curve: a sample is kept only if
 // dropping it would move the interpolated eye or target by more than
 // `tolerance` game units (the PS2 runtime lerps eye/target exactly like the

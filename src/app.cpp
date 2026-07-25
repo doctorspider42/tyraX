@@ -1535,7 +1535,8 @@ void App::drawViewportWindow() {
         // playhead flying the same lane would fight them for it.
         phoneCamPushed_ = false;
         if (phoneDrive_ && phoneHasPose_ && phoneCam_.connected()) {
-            viewport_.setCameraOverride(phoneEye_, phoneTarget_, phoneFov_);
+            viewport_.setCameraOverride(phoneEye_, phoneTarget_, phoneFov_,
+                                        phoneRoll_);
             phoneCamPushed_ = true;
         }
         // Look-through camera ("View:" overlay / camera Properties): render
@@ -1556,7 +1557,12 @@ void App::drawViewportWindow() {
                 float fwd[3], at[3];
                 seqCameraForward(cam->rotation, fwd);
                 for (int c = 0; c < 3; ++c) at[c] = cam->position[c] + fwd[c];
-                viewport_.setCameraOverride(cam->position, at, cam->cameraFov);
+                // Look through it exactly as the game would, tilt included - a
+                // rolled Camera entity should look rolled here too.
+                float eu[3];
+                seqCameraUpFromEuler(cam->rotation, eu);
+                viewport_.setCameraOverride(cam->position, at, cam->cameraFov,
+                                            seqRollFromUp(fwd, eu));
             } else {
                 viewport_.clearCameraOverride();
             }
@@ -11831,7 +11837,17 @@ float App::applyCamTake(Sequence& s, bool replace, const CamTake& take,
         for (int c = 0; c < 3; ++c) o.position[c] = k.eye[c];
         const float dir[3] = {k.target[0] - k.eye[0], k.target[1] - k.eye[1],
                               k.target[2] - k.eye[2]};
-        seqEulerFromForward(dir, o.rotation);
+        // Carry the recorded roll: a Camera entity has no separate roll channel,
+        // so the tilt has to live inside its Euler. seqEulerFromBasis inverts the
+        // entity's own Rz*Ry*Rx, so the baked rotation reproduces the filmed
+        // basis exactly - lens direction AND lean.
+        if (k.roll != 0.0f) {
+            float up[3];
+            seqCameraUp(dir, k.roll, up);
+            seqEulerFromBasis(dir, up, o.rotation);
+        } else {
+            seqEulerFromForward(dir, o.rotation);
+        }
         if (i > 0)
             for (int c = 0; c < 3; ++c) {
                 while (o.rotation[c] - prevRot[c] > 180.0f) o.rotation[c] -= 360.0f;
@@ -11954,6 +11970,8 @@ void App::phoneCamRecenter() {
         phoneMap_.anchor[c] = phonePose_.pos[c];
     }
     phoneMap_.hasAnchor = true;
+    // However you happen to be holding the phone counts as level from now on.
+    phoneMap_.anchorRoll = camSampleRollDeg(phonePose_);
     const float viewYaw =
         std::atan2(at[0] - eye[0], at[2] - eye[2]) * 180.0f / 3.14159265f;
     float y = viewYaw - camSampleYawDeg(phonePose_);
@@ -12098,7 +12116,8 @@ void App::phoneCamTick() {
     if (phoneHasPose_) {
         float anchor[3];
         camTakeAnchor(phoneTake_, phoneMap_, anchor);
-        mapCamSample(phonePose_, phoneMap_, anchor, phoneEye_, phoneTarget_);
+        mapCamSample(phonePose_, phoneMap_, anchor, phoneEye_, phoneTarget_,
+                     &phoneRoll_);
         phoneFov_ = phonePose_.fovDeg > 1.0f ? phonePose_.fovDeg : 60.0f;
     }
 
@@ -12260,6 +12279,16 @@ void App::drawPhoneCamWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Which way the phone's forward points in the scene.\n"
                           "Recentre sets this from the viewport view.");
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::SliderFloat("Tilt", &phoneMap_.rollScale, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How much of the phone's own tilt about the lens axis\n"
+                          "reaches the shot (the Dutch angle). 1 films the lean\n"
+                          "as held, 0 pins the horizon level and throws hand\n"
+                          "tremble away. Recentre makes the way you are holding\n"
+                          "it right now count as level.");
+    ImGui::SameLine();
+    ImGui::Text("roll %.1f deg", phoneRoll_);
 
     // --- preview stream -----------------------------------------------------
     ImGui::SeparatorText("Preview stream");
@@ -12418,7 +12447,7 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
                       return a.time < b.time;
                   });
         const int n = (int)ck.size();
-        auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+        auto shot = [&](int i, float eye[3], float at[3], float& fov, float& roll) {
             const SeqCameraKey& k = ck[i];
             const SceneObject* cam = nullptr;
             if (!k.camera.empty())
@@ -12435,35 +12464,47 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
                     at[c] = cam->position[c] + fwd[c];
                 }
                 fov = cam->cameraFov;
+                // A bound shot's tilt is the entity's own orientation, turned
+                // into the same scalar channel free shots interpolate - exactly
+                // what the generated player's rollOf does.
+                float eu[3];
+                seqCameraUpFromEuler(cam->rotation, eu);
+                roll = seqRollFromUp(fwd, eu);
             } else {
                 for (int c = 0; c < 3; ++c) eye[c] = k.eye[c], at[c] = k.target[c];
                 fov = k.fov;
+                roll = k.roll;
             }
         };
         int i = 0;
         while (i < n - 1 && t >= ck[i + 1].time) ++i;
-        float e0[3], a0[3], f0, shake;
-        shot(i, e0, a0, f0);
+        float e0[3], a0[3], f0, r0, shake;
+        shot(i, e0, a0, f0, r0);
         shake = ck[i].shake;
         if (t > ck[i].time && i < n - 1) {
             const float span = ck[i + 1].time - ck[i].time;
             const float u = span > 1e-6f ? (t - ck[i].time) / span : 0.0f;
             const float w = seqEase(ck[i].easing, u);
-            float e1[3], a1[3], f1;
-            shot(i + 1, e1, a1, f1);
+            float e1[3], a1[3], f1, r1;
+            shot(i + 1, e1, a1, f1, r1);
             for (int c = 0; c < 3; ++c) {
                 e0[c] += (e1[c] - e0[c]) * w;
                 a0[c] += (a1[c] - a0[c]) * w;
             }
             f0 += (f1 - f0) * w;
             shake += (ck[i + 1].shake - shake) * w;
+            // Short way round, like the generated player.
+            float dr = r1 - r0;
+            while (dr > 180.0f) dr -= 360.0f;
+            while (dr < -180.0f) dr += 360.0f;
+            r0 += dr * w;
         }
         if (shake > 0.0f) {
             float off[3];
             seqShakeOffset(t, shake, off);
             for (int c = 0; c < 3; ++c) e0[c] += off[c], a0[c] += off[c];
         }
-        viewport_.setCameraOverride(e0, a0, f0);
+        viewport_.setCameraOverride(e0, a0, f0, r0);
         seqCameraPushed_ = true;
     } else if (seqCameraPushed_) {
         viewport_.clearCameraOverride();
@@ -13423,6 +13464,19 @@ void App::drawCutsceneWindow() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Handheld camera shake amplitude in world units\n"
                               "(interpolates between shots; 0 = steady).");
+        // Roll only means something for a free shot: a bound one takes its whole
+        // basis from the Camera entity's orientation.
+        if (k.camera.empty()) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(100.0f));
+            if (ImGui::DragFloat("Roll", &k.roll, 0.5f, -180.0f, 180.0f, "%.1f deg")) {}
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Dutch angle - rotation about the view axis\n"
+                                  "(interpolates between shots; 0 = level\n"
+                                  "horizon). A shot bound to a Camera entity\n"
+                                  "tilts with that entity instead.");
+        }
 
         // Every shot films from a Camera entity. (Legacy free shots from older
         // projects still play - their stored eye/look-at is the fallback - but

@@ -1180,6 +1180,13 @@ Viewport::CamView Viewport::camView(int width, int height) const {
         fwd = normalize(sub(tgt, e));
         fovDeg = camFov_;
         c.eye[0] = e.x, c.eye[1] = e.y, c.eye[2] = e.z;
+        // Roll: the up hint IS the rolled up. seqCameraUp returns a vector
+        // perpendicular to fwd, and the basis below re-derives up from it
+        // unchanged, so this lands exactly the tilt the console will render.
+        const float f3[3] = {fwd.x, fwd.y, fwd.z};
+        float rolled[3];
+        seqCameraUp(f3, camRoll_, rolled);
+        upHint = {rolled[0], rolled[1], rolled[2]};
     } else {
         const Vec3 e{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
                      tgt.y + distance_ * std::sin(pitch_),

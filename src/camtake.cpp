@@ -367,8 +367,21 @@ bool loadCamTakeAuto(const std::string& path, CamTake& out, std::string& error) 
 
 // --- take -> keys --------------------------------------------------------------
 
+float camSampleRollDeg(const CamTakeSample& s) {
+    // The device's own axes in world space: it looks down local -Z with local +Y
+    // up, so its tilt about the lens is the angle between that up and the level
+    // up for the same view direction.
+    const float minusZ[3] = {0.0f, 0.0f, -1.0f};
+    const float plusY[3] = {0.0f, 1.0f, 0.0f};
+    float fwd[3], up[3];
+    quatRotate(s.quat, minusZ, fwd);
+    quatRotate(s.quat, plusY, up);
+    return seqRollFromUp(fwd, up);
+}
+
 void mapCamSample(const CamTakeSample& s, const CamTakeMapping& map,
-                  const float anchor[3], float outEye[3], float outTarget[3]) {
+                  const float anchor[3], float outEye[3], float outTarget[3],
+                  float* outRoll) {
     const float yaw = map.yawDeg * kPi / 180.0f;
     const float cy = std::cos(yaw), sy = std::sin(yaw);
     auto yawRot = [&](const float v[3], float o[3]) {
@@ -387,6 +400,12 @@ void mapCamSample(const CamTakeSample& s, const CamTakeMapping& map,
     yawRot(fwd, fwdY);
     for (int c = 0; c < 3; ++c)
         outTarget[c] = outEye[c] + fwdY[c] * (kCamTakeLookDist * map.scale);
+    if (outRoll) {
+        float r = (camSampleRollDeg(s) - map.anchorRoll) * map.rollScale;
+        while (r > 180.0f) r -= 360.0f;
+        while (r < -180.0f) r += 360.0f;
+        *outRoll = r;
+    }
 }
 
 void camTakeAnchor(const CamTake& take, const CamTakeMapping& map, float out[3]) {
@@ -412,6 +431,7 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
         float t;
         float eye[3];
         float at[3];
+        float roll;
     };
     std::vector<Pt> pts(n);
     const CamTakeSample& first = take.samples[0];
@@ -423,7 +443,14 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
         const CamTakeSample& s = take.samples[i];
         Pt& p = pts[i];
         p.t = (float)(s.t - first.t) + map.timeOffset;
-        mapCamSample(s, map, anchor, p.eye, p.at);
+        mapCamSample(s, map, anchor, p.eye, p.at, &p.roll);
+        // Unwrap against the previous sample: roll comes back in (-180, 180], so
+        // a tilt drifting across the wrap would otherwise make the interpolation
+        // spin the long way round - the same trap the Euler bake hits.
+        if (i > 0) {
+            while (p.roll - pts[i - 1].roll > 180.0f) p.roll -= 360.0f;
+            while (p.roll - pts[i - 1].roll < -180.0f) p.roll += 360.0f;
+        }
         if (s.fovDeg > 0.0f) {
             fovSum += s.fovDeg;
             ++fovCount;
@@ -457,6 +484,7 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
                 p.eye[c] = pts[i].eye[c] + (pts[i + 1].eye[c] - pts[i].eye[c]) * u;
                 p.at[c] = pts[i].at[c] + (pts[i + 1].at[c] - pts[i].at[c]) * u;
             }
+            p.roll = pts[i].roll + (pts[i + 1].roll - pts[i].roll) * u;
             res.push_back(p);
         };
         // Times come from the STEP INDEX, never from an accumulator: `t += step`
@@ -527,6 +555,7 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
         }
         k.fov = fov;
         k.shake = 0.0f;
+        k.roll = pts[i].roll;
         k.easing = 0;
         k.camera.clear();
         keys.push_back(std::move(k));

@@ -337,10 +337,16 @@ public:
     // Cutscene Director camera-track preview: override the orbit camera with an
     // explicit eye + look-at target + vertical FOV (degrees) for the next
     // render() calls; clearCameraOverride() restores the orbit camera.
-    void setCameraOverride(const float eye[3], const float target[3], float fovDeg) {
+    // `rollDeg` rotates the view about its own axis (the Dutch angle) - the
+    // basis comes from seqCameraUp, the same function the generated PS2 player
+    // and the camera-take bake use, so the preview cannot tilt differently from
+    // the console.
+    void setCameraOverride(const float eye[3], const float target[3], float fovDeg,
+                           float rollDeg = 0.0f) {
         camOverride_ = true;
         for (int i = 0; i < 3; ++i) camEye_[i] = eye[i], camTarget_[i] = target[i];
         camFov_ = fovDeg;
+        camRoll_ = rollDeg;
     }
     void clearCameraOverride() { camOverride_ = false; }
 
@@ -453,6 +459,7 @@ private:
     float camEye_[3] = {0.0f, 0.0f, 0.0f};
     float camTarget_[3] = {0.0f, 0.0f, 0.0f};
     float camFov_ = 50.0f;
+    float camRoll_ = 0.0f;  // Dutch angle of the override camera, degrees
     // Camera entities not to draw (previewing through them) - see setHiddenCameras
     std::vector<std::string> hiddenCams_;
     bool camHidden(const std::string& name) const {

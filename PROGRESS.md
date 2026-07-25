@@ -10,6 +10,65 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (175) **Camera roll: Dutch angles from the phone's own tilt, all the way to the
+  console.** Asked for as a "tiny fix" alongside locking the phone app to
+  landscape; landscape was tiny, this was not - it runs model -> serialization ->
+  codegen -> PS2 runtime -> **engine** -> viewport -> UI.
+  **The engine turned out to be the easy part.** `CameraInfo3D` already carried an
+  `up` field and `Renderer3DFrustumPlanes` already culled against it - only the
+  view matrix dropped it, hardcoding world +Y inside a VU0 block whose cross
+  products are dead code (it computes `$vf8`/`$vf9` and then stores `$vf6`). So:
+  a `M4x4::lookAt` overload taking an up vector (plain C++ - once per frame, not
+  per vertex) and `RendererCore3D::update` passing `cameraInfo.up`. It defaults to
+  `(0,1,0)`, so every existing caller is bit-identical. Reading `setCamera`'s
+  assembly closed the last unknown: it derives `right = cross(up, vz)` then
+  `up' = cross(vz, right)`, which for a perpendicular up returns it verbatim (the
+  sign of `vz` cancels) - it never hardcodes world up, so a rolled up genuinely
+  rolls the camera.
+  **The design correction that mattered.** I first assumed a Camera entity's
+  `rotation.z` WAS a lens-axis roll and wrote that in a comment. It is not: the
+  Euler is applied `Rz*Ry*Rx`, so Z rotates about the WORLD axis last. Measured:
+  on a camera pitched 40 deg, `rotation.z = 90` swings where it points by **54
+  deg**; they coincide only for an unpitched camera. So free shots get an explicit
+  `SeqCameraKey::roll` and a BOUND shot takes its whole basis from the entity's
+  orientation (`seqCameraUpFromEuler`) with no separate channel - and a phone
+  recording into an entity folds its roll into the entity's Euler through
+  `seqEulerFromBasis`. A harness assertion now pins that distinction; the first
+  version asserted the equivalence I had wrongly expected, and failed, which is
+  how the mistake surfaced.
+  **`seqCameraUp` is a three-way twin** (host bake, viewport `camView`, the
+  generated player's `upFor`), like the other analytic-bake twins. Roll 0
+  reproduces the old hardcoded `(0,1,0)` exactly, so an unrolled cutscene renders
+  as before. Roll interpolates as a plain scalar channel and takes the short way
+  round at +-180 in both the preview and the player; the camera-take bake unwraps
+  it per sample for the same reason the Euler bake does.
+  **Phone side:** the app is landscape-only now (you hold it like a camera), the
+  measured tilt is zeroed against `anchorRoll` at **Recentre** - so whichever way
+  you hold it counts as level - and damped by a **Tilt** slider from "as held" to
+  "horizon pinned level", which also throws hand tremble away.
+  **Verified** in four layers. The sequence-math harness: up always unit and
+  perpendicular, roll 0 gravity-aligned with no lean on a pitched view and exactly
+  `(0,1,0)` on a level one, `seqRollFromUp` inverting `seqCameraUp` to 0.0000 deg
+  over a spread including straight-up/down, the Euler matrix's lens column
+  agreeing with `seqCameraForward`, and basis -> Euler -> basis round-tripping to
+  8e-7 including gimbal lock. A GL harness reading the **real view matrix** the
+  viewport renders with: 20 combinations of view direction x roll (incl. near
+  straight down and rolls past +-90) match `seqCameraUp` to **1.19e-07** - that is
+  the twin invariant proved against what actually draws, not against pixels. A
+  **Docker PS2 build**: `libtyra.a` rebuilt (m4x4.o, renderer_core_3d.o),
+  `sequences.gen.cpp` compiled with the new `CamKey`, ELF linked - the only way to
+  compile engine code at all. Plus rendered stills showing the horizon tilting the
+  right way and by the right amount.
+  *A probe lesson worth keeping:* my first visual check measured the sky/terrain
+  boundary angle and disagreed with the requested roll at 40 deg. The feature was
+  fine - the probe was measuring the finite ground plane's **edge** across only
+  two fixed columns, one of which the boundary had left. Reading the camera basis
+  out of the view matrix is the right measurement; fitting pixels was measuring
+  the scenery.
+  **Not verified: a PCSX2 pixel shot of a rolled horizon** - that needs a flow
+  graph to trigger the cutscene, which this scratch project has none of. The data
+  and the render path are verified as far as they can be without booting.
+
 - (174) **Phone camera: the phone as a live viewfinder that records cutscene
   camera moves.** The other half of the camera-takes story (152): instead of
   importing a finished ARKit recording, the editor **hosts a link on the LAN**,

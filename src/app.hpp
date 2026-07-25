@@ -846,6 +846,7 @@ private:
     float phoneEye_[3] = {0.0f, 0.0f, 0.0f};
     float phoneTarget_[3] = {0.0f, 0.0f, -1.0f};
     float phoneFov_ = 60.0f;
+    float phoneRoll_ = 0.0f;  // live Dutch angle, degrees (see phoneMap_)
     bool phoneCamPushed_ = false;  // camera override handed to the viewport?
     double phonePreviewAt_ = 0.0;  // ImGui time of the last streamed frame
     // Recording. The buffer is a plain CamTake, so everything downstream is the

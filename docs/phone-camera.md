@@ -186,9 +186,51 @@ Poses carry the phone's own timestamps, so network jitter does not distort the
 recorded timing. The pose space is the **canonical take space** of
 [camera takes](camera-takes.md) — ARKit's world convention, unconverted: Y up,
 metres, camera looking down its local −Z. ARKit defines those local axes for a
-device held landscape-right, so a portrait phone reports a 90° roll; that is
-harmless, because a camera keyframe stores eye + look-at only and rolling about
-the view axis does not move −Z. Roll is dropped, deliberately.
+device held landscape-right, so how the phone is held shows up as a roll — which
+is now a recorded channel rather than something discarded, and **Recentre makes
+whatever way you are holding it count as level**, so it needs no thought.
+
+## Roll (the Dutch angle)
+
+Tilting the phone about its lens axis tilts the shot, and the tilt is recorded.
+The app is landscape-only for this reason: you hold it like a camera and its lean
+is part of the framing.
+
+- **Tilt** (Phone Camera window) scales how much of the measured tilt reaches the
+  shot: **1** films the lean as held, **0** pins the horizon level and throws hand
+  tremble away. In between damps it.
+- **Recentre** captures the current tilt as the zero, so the grip you are using
+  is "level" from then on — the same way it anchors position and yaw.
+- The window shows the live `roll` in degrees next to the slider.
+
+Where the tilt ends up depends on the recording target, and the two are not the
+same mechanism:
+
+| Target | Where the roll lives |
+|---|---|
+| **Free camera shots** | `SeqCameraKey::roll`, a real lens-axis roll, editable per key in the Director (the *Roll* field next to *Shake*) |
+| **A Camera entity** | folded into that entity's **rotation** track, because an entity has no separate roll channel — `seqEulerFromBasis` inverts its `Rz*Ry*Rx` so the baked Euler reproduces the filmed basis exactly, lean included |
+
+> **Do not read a Camera entity's `rotation.z` as a lens-axis roll.** The Euler is
+> applied `Rz*Ry*Rx`, so Z rotates about the *world* axis, last: on a camera
+> pitched 40°, `rotation.z = 90` swings where it points by **54°**. The two
+> coincide only for an unpitched camera. That is why a bound shot derives its up
+> vector from the entity's whole orientation instead.
+
+### How it reaches the console
+
+A camera keyframe now carries an up vector's worth of information, and three
+places must agree on it — `seqCameraUp` in `src/sequence.hpp` is the single
+source, mirrored into the editor viewport's basis and into the generated PS2
+player. Roll 0 reproduces world up exactly, so a cutscene without roll renders
+bit-identically to before roll existed.
+
+On the engine side `CameraInfo3D` already had an `up` field and
+`Renderer3DFrustumPlanes` already culled against it — only the view matrix
+dropped it, hardcoding world +Y inside a VU0 block. `M4x4::lookAt` gained an
+up-vector overload (plain C++: once per frame, not per vertex) and
+`RendererCore3D::update` passes `cameraInfo.up`. It defaults to `(0,1,0)`, so
+every existing caller is unaffected.
 
 ### Field of view
 
