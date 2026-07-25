@@ -10,6 +10,73 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (166) **GS VRAM: a real residency manager (order-independent free +
+  coldest-first eviction), after measuring what the old one actually cost.**
+  Upstream's allocator was a bump pointer whose `free(address)` was literally
+  `pointer = address`, and `useTexture` deallocated the ENTIRE resident set the
+  moment one texture didn't fit. Measured first, per the brief.
+  **What the measurement said** (new `VRAMSTAT` counters in
+  `RendererCoreTexture` - binds/hits/uploads/re-uploads/evictions/free-VRAM
+  low-water, logged from `endFrame` on every evicting frame plus every 120
+  frames; counters always compiled, logging debug-only since `TYRA_LOG` is a
+  no-op under NDEBUG):
+  (a) **A realistic scene never flushes.** `examples/showcase` - a whole
+  village with streaming layers, particles, post-fx - holds **6 texture
+  allocations and 0.87 MB of the ~1.08 MB heap free**, 0 evictions, 0
+  re-uploads, forever. 4-bit palettization is doing all the work. So the
+  headline claim ("the ceiling under per-model lightmaps") is real only for
+  full-colour textures: one 256² 32bpp texture is 24% of the heap and a 512²
+  is 93% of it.
+  (b) **But it does not fall off a cliff gracefully.** A fixture just over
+  budget (3×256² + 3×128² 32bpp, fixed camera so visibility is deterministic)
+  re-uploaded **9-10 textures every frame** - the whole working set, because
+  one over-budget bind dumped everything.
+  (c) **And `free()` was memory-unsafe, not just wasteful.** Freeing anything
+  but the newest allocation rewinds the pointer under still-live textures.
+  Streaming layers hit this on every unload: a fixture that unloads a 3-object
+  layer at t=6 s and reloads it at t=10 s logged 3 out-of-order frees, free
+  space "gained" 0.11 MB out of nowhere, and on screen **two surviving boxes
+  started drawing another box's texture**. This, not the flush count, is the
+  reason the work was worth doing.
+  **What was built.** `RendererCoreGSVRam` now splits VRAM into a *permanent
+  region* (bump, filled by `allocateBuffer()` at init: frame/z buffers,
+  post-fx scratch, noise, env-map + camera-feed targets, never released - and
+  `free()` simply doesn't know those addresses, so nothing can reclaim them)
+  and a *texture heap* above it managed by a coalescing best-fit free list, so
+  `free()` is order independent. `RendererCoreTexture::makeRoomFor()` evicts
+  one allocation at a time until the newcomer fits, victim chosen in two tiers
+  (`pickVictim`): stale entries first (not bound this frame *or* the one
+  before - LRU, ties to the bigger block), and when everything resident is in
+  the live working set, the **most recently bound** one instead. That MRU tier
+  is not a detail: with plain LRU a scene that re-binds in the same order every
+  frame evicts exactly what it needs next, and the entire set cycles. The
+  two-frame window matters for the same reason - "not bound yet this frame" is
+  the tail of last frame's scan, not cold data. Both were measured, not
+  assumed (single-tier LRU: 7-8 re-uploads/frame on the pathological fixture;
+  a one-frame window: 8; the shipped policy: 3 on the realistic one).
+  `RendererCoreTextureBuffers` gained a `lastUsedSeq` stamp for this.
+  **Verified** (Layer 3 throughout - engine code only compiles in Docker;
+  PCSX2 software renderer, PAL, same fixture and same fixed camera on both
+  sides of every A/B, eviction policy isolated from the allocator with a
+  temporary compile switch so the comparison is like-for-like):
+  re-uploads/frame **9-10 -> 3** on the just-over-budget scene, output pixel
+  identical, 5.51 -> 5.33 ms EE frame time with vsync off and PCSX2's GS
+  thread (where emulated PATH3 transfers land) 39% -> 23%. The streaming
+  fixture now round-trips exactly (free space 0.406 -> 0.617 -> 0.406 MB,
+  largest free block unchanged at 416 KB, i.e. no fragmentation) and the
+  post-reload frame is pixel-identical to the pre-unload one - the wrong-texture
+  corruption is gone. `examples/showcase` is **byte-identical** before and
+  after on every counter (bind/hit/up/res/freeMB at f=120..720), which is the
+  point: realistic projects see no change at all. `examples/reflections`
+  re-checked because the env map binds through `vramResident` - reflections
+  still render, 50 FPS. Deliberate over-subscription (6×256² 32bpp, ~2.4× the
+  heap) degrades rather than breaks: 10 -> 8 re-uploads/frame, scene still
+  correct at 195 FPS uncapped. Honest limit: nothing fixes a working set that
+  is 2.4× VRAM; the answer there stays palettization/atlasing. Not yet tested
+  on real PS2 hardware. Docs: new [docs/gs-vram.md](docs/gs-vram.md) (budget
+  table, what a texture really costs, the policy, the `VRAMSTAT` fields, the
+  numbers) + docs/README + README + the `tyra-engine-dev` skill.
+
 - (165) **Artist-authored mesh LOD meshes for static models.** Automatic
   decimation is not always what an artist wants (and the decimator refuses to
   touch small parts or cross uv seams, so some models barely shrink), so a
