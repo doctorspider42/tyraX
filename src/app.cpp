@@ -116,6 +116,13 @@ struct EditorConfig {
     int phoneCamPort = (int)phonecam::kDefaultPort;
     std::string phoneCamCode;      // 6 digits; generated on first use
     bool phoneCamRequireCode = true;
+    // TV safe-area guides (docs/safe-areas.md) - a viewing aid like axisGizmo,
+    // so it belongs to the installation, not to the project.
+    bool safeAreaOn = false;
+    bool safeFrame = true, safeAction = true, safeTitle = true;
+    bool safeCentre = false, safeBothRegions = false;
+    int safeAspect = 0;  // 0 follow project, 1 = 4:3, 2 = 16:9
+    float safeOpacity = 0.55f;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -170,6 +177,16 @@ static EditorConfig loadEditorConfig() {
         else if (match("phoneCamMaxH", v)) cfg.phoneCam.maxHeight = toI(v, cfg.phoneCam.maxHeight);
         else if (match("phoneCamFps", v)) cfg.phoneCam.fps = toI(v, cfg.phoneCam.fps);
         else if (match("phoneCamQuality", v)) cfg.phoneCam.quality = toI(v, cfg.phoneCam.quality);
+        else if (match("safeAreaOn", v)) cfg.safeAreaOn = toI(v, 0) != 0;
+        else if (match("safeFrame", v)) cfg.safeFrame = toI(v, 1) != 0;
+        else if (match("safeAction", v)) cfg.safeAction = toI(v, 1) != 0;
+        else if (match("safeTitle", v)) cfg.safeTitle = toI(v, 1) != 0;
+        else if (match("safeCentre", v)) cfg.safeCentre = toI(v, 0) != 0;
+        else if (match("safeBothRegions", v)) cfg.safeBothRegions = toI(v, 0) != 0;
+        else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
+        else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
+        else if (match("phoneCamSmoothing", v))
+            cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
     }
     if (cfg.phoneCamPort < 1024 || cfg.phoneCamPort > 65535)
         cfg.phoneCamPort = (int)phonecam::kDefaultPort;
@@ -212,7 +229,16 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "phoneCamMaxW=" << cfg.phoneCam.maxWidth << "\n"
       << "phoneCamMaxH=" << cfg.phoneCam.maxHeight << "\n"
       << "phoneCamFps=" << cfg.phoneCam.fps << "\n"
-      << "phoneCamQuality=" << cfg.phoneCam.quality << "\n";
+      << "phoneCamQuality=" << cfg.phoneCam.quality << "\n"
+      << "safeAreaOn=" << (cfg.safeAreaOn ? 1 : 0) << "\n"
+      << "safeFrame=" << (cfg.safeFrame ? 1 : 0) << "\n"
+      << "safeAction=" << (cfg.safeAction ? 1 : 0) << "\n"
+      << "safeTitle=" << (cfg.safeTitle ? 1 : 0) << "\n"
+      << "safeCentre=" << (cfg.safeCentre ? 1 : 0) << "\n"
+      << "safeBothRegions=" << (cfg.safeBothRegions ? 1 : 0) << "\n"
+      << "safeAspect=" << cfg.safeAspect << "\n"
+      << "safeOpacity=" << cfg.safeOpacity << "\n"
+      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -431,6 +457,14 @@ int App::run(const std::string& initialProjectDir) {
         phoneCamPort_ = cfg.phoneCamPort;
         phoneCamCode_ = cfg.phoneCamCode;
         phoneCamRequireCode_ = cfg.phoneCamRequireCode;
+        showSafeArea_ = cfg.safeAreaOn;
+        safeArea_.frame = cfg.safeFrame;
+        safeArea_.action = cfg.safeAction;
+        safeArea_.title = cfg.safeTitle;
+        safeArea_.centre = cfg.safeCentre;
+        safeArea_.bothRegions = cfg.safeBothRegions;
+        safeArea_.aspect = cfg.safeAspect;
+        safeArea_.opacity = cfg.safeOpacity;
     }
     applyUiScale();
 
@@ -720,7 +754,10 @@ void App::saveGlobalConfig() {
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
                       matEdSplit_, placementSnap_, showAxisGizmo_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
-                      phoneCamRequireCode_});
+                      phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
+                      safeArea_.action, safeArea_.title, safeArea_.centre,
+                      safeArea_.bothRegions, safeArea_.aspect,
+                      safeArea_.opacity});
 }
 
 void App::setUiScale(float userScale) {
@@ -1624,10 +1661,14 @@ void App::drawViewportWindow() {
                                   IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
         }
 
+        // TV safe-area guides, over the image like the cutscene bars.
+        drawSafeAreaOverlay(imgPos, avail);
+
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
         // would otherwise fall through and change the selection.
-        const bool overAxisGizmo = drawAxisGizmo(imgPos, avail);
+        const bool overAxisGizmo = drawAxisGizmo(imgPos, avail) |
+                                   drawViewportGear(imgPos, avail);
 
         // --- Terrain sculpting / painting brush (shared raycast + ring) ---
         const bool brushMode = sculptMode_ || paintMode_;
@@ -2420,6 +2461,186 @@ void App::drawViewportWindow() {
         }
     }
     ImGui::End();
+}
+
+// --- TV safe areas -----------------------------------------------------------
+// A CRT does not show the whole picture: the tube is scanned past the edges of
+// the visible glass ("overscan"), and how much varies per set. The broadcast
+// convention that survived it is two insets - action safe at 90% (nothing
+// important outside) and title safe at 80% (text inside) - which is what these
+// guides draw. PAL and NTSC share those fractions; where they genuinely differ
+// is the PICTURE HEIGHT, and only when this project targets full-height PAL
+// (see `bothRegions` below).
+void App::drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size) {
+    if (!showSafeArea_ || size.x < 32.0f || size.y < 32.0f) return;
+    const SafeAreaCfg& c = safeArea_;
+    if (!c.frame && !c.action && !c.title && !c.centre && !c.bothRegions) return;
+
+    // The console outputs a fixed aspect regardless of how the viewport is
+    // docked, so the guides must be drawn inside THAT rectangle - fitted into
+    // the image like a TV picture inside a wider monitor.
+    const bool wide = c.aspect == 0 ? project_.settings.widescreen : (c.aspect == 2);
+    const float tvAspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float w = size.x, h = size.x / tvAspect;
+    if (h > size.y) {
+        h = size.y;
+        w = size.y * tvAspect;
+    }
+    const ImVec2 tl(pos.x + (size.x - w) * 0.5f, pos.y + (size.y - h) * 0.5f);
+    const ImVec2 br(tl.x + w, tl.y + h);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float a = c.opacity < 0.0f ? 0.0f : (c.opacity > 1.0f ? 1.0f : c.opacity);
+    auto col = [&](int r, int g, int b, float mul) {
+        return IM_COL32(r, g, b, (int)(255.0f * a * mul));
+    };
+    auto inset = [&](float keep) {
+        const float ix = w * (1.0f - keep) * 0.5f, iy = h * (1.0f - keep) * 0.5f;
+        return std::pair<ImVec2, ImVec2>{ImVec2(tl.x + ix, tl.y + iy),
+                                        ImVec2(br.x - ix, br.y - iy)};
+    };
+
+    // Everything outside the console's picture is not going to be on the TV at
+    // all - dim it so the framing that matters reads clearly.
+    if (c.frame && (w < size.x - 1.0f || h < size.y - 1.0f)) {
+        const ImU32 shade = col(0, 0, 0, 0.55f);
+        if (tl.y > pos.y) dl->AddRectFilled(pos, ImVec2(pos.x + size.x, tl.y), shade);
+        if (br.y < pos.y + size.y)
+            dl->AddRectFilled(ImVec2(pos.x, br.y), ImVec2(pos.x + size.x, pos.y + size.y), shade);
+        if (tl.x > pos.x) dl->AddRectFilled(ImVec2(pos.x, tl.y), ImVec2(tl.x, br.y), shade);
+        if (br.x < pos.x + size.x)
+            dl->AddRectFilled(ImVec2(br.x, tl.y), ImVec2(pos.x + size.x, br.y), shade);
+    }
+    if (c.frame) {
+        dl->AddRect(tl, br, col(255, 255, 255, 0.85f), 0.0f, 0, scaled(1.5f));
+        const char* lbl = wide ? "16:9" : "4:3";
+        dl->AddText(ImVec2(tl.x + scaled(5.0f), tl.y + scaled(3.0f)),
+                    col(255, 255, 255, 0.8f), lbl);
+    }
+    // PAL's full-height frame shows 512 rendered lines where NTSC shows 448, so
+    // the SAME scene reveals more at the top and bottom in Europe. Only draw the
+    // difference when the project actually asks for it - otherwise both regions
+    // get the identical letterboxed picture and a second rectangle would be a
+    // lie. See ProjectSettings::palFullHeight.
+    if (c.bothRegions && project_.settings.palFullHeight &&
+        project_.settings.displayMode == "interlaced") {
+        const float ntscFrac = 448.0f / 512.0f;
+        const auto [nt, nb] = inset(1.0f);
+        const float iy = h * (1.0f - ntscFrac) * 0.5f;
+        dl->AddRect(ImVec2(nt.x, nt.y + iy), ImVec2(nb.x, nb.y - iy),
+                    col(120, 200, 255, 0.9f), 0.0f, 0, scaled(1.5f));
+        dl->AddText(ImVec2(nt.x + scaled(5.0f), nt.y + iy + scaled(3.0f)),
+                    col(120, 200, 255, 0.9f), "NTSC picture");
+    }
+    if (c.action) {
+        const auto [p0, p1] = inset(0.90f);
+        dl->AddRect(p0, p1, col(255, 210, 90, 0.9f), 0.0f, 0, scaled(1.0f));
+        dl->AddText(ImVec2(p0.x + scaled(4.0f), p0.y + scaled(2.0f)),
+                    col(255, 210, 90, 0.85f), "action 90%");
+    }
+    if (c.title) {
+        const auto [p0, p1] = inset(0.80f);
+        dl->AddRect(p0, p1, col(120, 235, 140, 0.9f), 0.0f, 0, scaled(1.0f));
+        dl->AddText(ImVec2(p0.x + scaled(4.0f), p0.y + scaled(2.0f)),
+                    col(120, 235, 140, 0.85f), "title 80%");
+    }
+    if (c.centre) {
+        const ImU32 gc = col(255, 255, 255, 0.35f);
+        const float cx = (tl.x + br.x) * 0.5f, cy = (tl.y + br.y) * 0.5f;
+        const float arm = scaled(11.0f);
+        dl->AddLine(ImVec2(cx - arm, cy), ImVec2(cx + arm, cy), gc, scaled(1.0f));
+        dl->AddLine(ImVec2(cx, cy - arm), ImVec2(cx, cy + arm), gc, scaled(1.0f));
+        for (int i = 1; i <= 2; ++i) {  // rule of thirds
+            const float x = tl.x + w * (i / 3.0f), y = tl.y + h * (i / 3.0f);
+            dl->AddLine(ImVec2(x, tl.y), ImVec2(x, br.y), gc, scaled(1.0f));
+            dl->AddLine(ImVec2(tl.x, y), ImVec2(br.x, y), gc, scaled(1.0f));
+        }
+    }
+}
+
+// The viewport's gear: overlay/guide switches live here rather than on the
+// toolbar, so they cost no screen space until wanted.
+bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
+    const float pad = scaled(8.0f);
+    const float btn = scaled(22.0f);
+    if (size.x < btn * 4.0f || size.y < btn * 4.0f) return false;
+    ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, pos.y + size.y - btn - pad));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.35f));
+    const bool clicked = ImGui::Button("##viewgear", ImVec2(btn, btn));
+    ImGui::PopStyleColor();
+    const bool hovered = ImGui::IsItemHovered();
+    // A gear glyph is not in the default font, so draw one: a ring plus teeth.
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 c(pos.x + pad + btn * 0.5f, pos.y + size.y - btn * 0.5f - pad);
+        const ImU32 col = IM_COL32(235, 235, 235, hovered ? 255 : 190);
+        const float r = btn * 0.26f;
+        dl->AddCircle(c, r, col, 12, scaled(1.6f));
+        for (int i = 0; i < 6; ++i) {
+            const float t = (float)i / 6.0f * 6.2831853f;
+            const float cx = std::cos(t), sy = std::sin(t);
+            dl->AddLine(ImVec2(c.x + cx * r, c.y + sy * r),
+                        ImVec2(c.x + cx * (r + btn * 0.14f), c.y + sy * (r + btn * 0.14f)),
+                        col, scaled(1.6f));
+        }
+    }
+    if (hovered) ImGui::SetTooltip("Viewport guides (TV safe areas)");
+    if (clicked) ImGui::OpenPopup("##viewguides");
+    if (ImGui::BeginPopup("##viewguides")) {
+        ImGui::SeparatorText("TV safe areas");
+        ImGui::Checkbox("Show guides", &showSafeArea_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A television crops the edges of the picture\n"
+                              "(overscan). These are the broadcast insets that\n"
+                              "survived it - keep anything important inside.");
+        ImGui::BeginDisabled(!showSafeArea_);
+        ImGui::Checkbox("Picture frame", &safeArea_.frame);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The rectangle the console actually outputs, with\n"
+                              "everything outside it dimmed. The viewport is\n"
+                              "whatever shape you docked it; the TV is not.");
+        ImGui::Checkbox("Action safe (90%)", &safeArea_.action);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Nothing important - a character, a pickup, the\n"
+                              "crosshair - outside this.");
+        ImGui::Checkbox("Title safe (80%)", &safeArea_.title);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Text and HUD readouts inside this, or a set with\n"
+                              "heavy overscan clips them.");
+        ImGui::Checkbox("Centre + thirds", &safeArea_.centre);
+        static const char* kAspects[] = {"Follow project", "4:3", "16:9"};
+        ImGui::SetNextItemWidth(scaled(140.0f));
+        ImGui::Combo("Aspect", &safeArea_.aspect, kAspects, 3);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Follow project reads Preferences > Widescreen.\n"
+                              "Force the other one to check how the same shot\n"
+                              "frames there without changing the project.");
+        // Only meaningful when the two regions really do show different amounts
+        // of picture, which in this engine means region-following interlaced
+        // output with the PAL-picture preference on.
+        const bool palDiff = project_.settings.palFullHeight &&
+                             project_.settings.displayMode == "interlaced";
+        ImGui::BeginDisabled(!palDiff);
+        ImGui::Checkbox("NTSC picture inside PAL", &safeArea_.bothRegions);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                palDiff ? "This project boots full-height PAL on a PAL console:\n"
+                          "512 rendered lines against NTSC's 448, so Europe sees\n"
+                          "MORE at the top and bottom. The inner box is what an\n"
+                          "NTSC set shows."
+                        : "Only differs when the project targets full-height PAL\n"
+                          "(Preferences > PAL picture, with the region-following\n"
+                          "interlaced mode). Otherwise both regions get the same\n"
+                          "letterboxed picture and a second box would be a lie.");
+        ImGui::SetNextItemWidth(scaled(140.0f));
+        ImGui::SliderFloat("Opacity", &safeArea_.opacity, 0.1f, 1.0f, "%.2f");
+        ImGui::EndDisabled();
+        if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return true;
+    }
+    return hovered;
 }
 
 bool App::drawAxisGizmo(ImVec2 imgPos, ImVec2 avail) {
@@ -12438,6 +12659,22 @@ void App::drawPhoneCamWindow() {
     ImGui::SetNextItemWidth(scaled(140.0f));
     if (ImGui::SliderInt("JPEG quality", &phoneCamPrefs_.quality, 20, 90))
         prefsChanged = true;
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    if (ImGui::SliderInt("Smoothing", &phoneCamPrefs_.smoothing, 0,
+                         phonecam::kMaxSmoothing,
+                         phoneCamPrefs_.smoothing == 0 ? "%d (lowest latency)" : "%d"))
+        prefsChanged = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Frames allowed in flight beyond the one being sent.\n"
+            "0 is the least delay but the most stutter: one hitch in\n"
+            "encoding or on the Wi-Fi costs a whole frame interval,\n"
+            "because the next grab window is missed. 1-2 keeps the\n"
+            "cadence even for that many frames of delay (~%.0f ms each\n"
+            "at %d fps). The oldest frame is dropped when full, so the\n"
+            "delay never grows past this.",
+            1000.0f / (float)(phoneCamPrefs_.fps > 0 ? phoneCamPrefs_.fps : 15),
+            phoneCamPrefs_.fps);
     if (prefsChanged) {
         phoneCam_.setPreviewDefaults(phoneCamPrefs_);
         saveGlobalConfig();

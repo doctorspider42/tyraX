@@ -63,7 +63,16 @@ struct PreviewPrefs {
     int maxHeight = 480;
     int fps = 15;         // frames per second cap
     int quality = 60;     // JPEG quality, 1..100
+    // How many EXTRA frames may be in flight (0..kMaxSmoothing). 0 is the
+    // lowest-latency setting: one frame at a time, and any hitch in encoding or
+    // on the Wi-Fi costs a whole frame interval because the next grab window is
+    // missed - which reads as stutter even though the average rate is fine.
+    // Raising it buys an even cadence at the cost of that many frames of delay
+    // (about 1/fps each), which is the trade a viewfinder can usually afford.
+    int smoothing = 1;
 };
+// A deeper queue only adds latency; two extra frames already covers a hiccup.
+constexpr int kMaxSmoothing = 3;
 
 // Surfaced to the main thread, drained once per frame.
 struct Event {
@@ -187,12 +196,15 @@ class Link {
     std::deque<Event> events_;
     std::deque<CamTakeSample> poses_;
     PreviewPrefs preview_;
-    // Pending preview frame (newest wins) + the status the worker still has to
-    // send. `previewSeq_` only exists so the worker can tell a fresh frame from
-    // the one it already sent.
-    std::vector<unsigned char> previewRgb_;
-    int previewW_ = 0, previewH_ = 0;
-    bool previewPending_ = false;
+    // Preview frames waiting to be encoded and sent, oldest first. Bounded by
+    // PreviewPrefs::smoothing + 1: when full the OLDEST is dropped, so latency
+    // stays capped while the worker always has something to send (an empty queue
+    // is what produced the stutter - see the smoothing field).
+    struct PendingFrame {
+        std::vector<unsigned char> rgb;
+        int w = 0, h = 0;
+    };
+    std::deque<PendingFrame> previewQueue_;
     std::string statusJson_;
     bool statusPending_ = false;
     bool dropRequested_ = false;  // UI asked to drop the device (see disconnectDevice)

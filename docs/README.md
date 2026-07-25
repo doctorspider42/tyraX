@@ -80,6 +80,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
   Player / Flee From Player / Stop AI / On Player Seen) with the classic
   guard wiring, plus the deliberate era-appropriate limitations.
+- [TV safe areas](safe-areas.md) - the viewport guides (behind the gear) for
+  framing something a television will not crop: the console's picture rectangle,
+  action- and title-safe insets, and the one case where PAL really does show more
+  than NTSC.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

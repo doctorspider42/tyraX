@@ -174,6 +174,22 @@ that density, and the PS2 lerps between keys the same way the resampler does.
 | Max size | 480 | Long-edge cap. The viewport aspect is preserved (never cropped). |
 | fps | 15 | Frames per second cap. |
 | JPEG quality | 60 | 1–100. |
+| Smoothing | 1 | Frames allowed in flight beyond the one being sent — see below. |
+
+**Smoothing** bounds how far the stream may run behind: at 0 exactly one frame is
+in flight, and because the grab gate only reopens once that frame has been *sent*,
+any hitch in encoding or on the Wi-Fi costs a whole grab window. Raising it lets
+the editor keep grabbing on its own cadence, at the cost of that many frames of
+delay (~1/fps each); the oldest queued frame is dropped when full, so the delay
+never grows past the setting.
+
+Be honest about what it cannot do, which a simulation of the producer/consumer
+timings made clear: **buffering on the editor side cannot hide a stall in the
+sender.** While a send is stuck no frame reaches the phone however many are
+queued, so the worst gap between frames is the stall itself. If the picture
+hitches, the levers that actually bite are a lower **fps**, a smaller **Max
+size**, and lower **quality** — less to encode, less to push, less for the phone
+to decode.
 
 The phone may override all three (it knows its screen and its Wi-Fi); its request
 wins. A frame is only grabbed when the previous one has reached the OS, and the

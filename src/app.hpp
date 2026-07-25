@@ -87,6 +87,33 @@ private:
     // Machine-global (editor.ini): the gizmo sits where HUD authoring wants
     // the corner, so it can be turned off (View > Projection > Axis gizmo).
     bool showAxisGizmo_ = true;
+
+    // --- TV safe-area overlay (docs/safe-areas.md) --------------------------
+    // Guides for framing something a real television will not crop: the picture
+    // rectangle the console outputs, plus the classic action- and title-safe
+    // insets. Machine-global (editor.ini) like the axis gizmo - a viewing aid,
+    // not project data. All of it hides behind the viewport's gear so it cannot
+    // clutter the image by default.
+    struct SafeAreaCfg {
+        bool frame = true;       // the 4:3 / 16:9 picture rectangle
+        bool action = true;      // 90% - nothing important outside this
+        bool title = true;       // 80% - text belongs inside this
+        bool centre = false;     // centre cross + thirds
+        bool bothRegions = false;  // NTSC's shorter picture inside PAL's
+        // 0 = follow the project (its widescreen setting), 1 = force 4:3,
+        // 2 = force 16:9. Forcing is for checking the other case without
+        // touching the project.
+        int aspect = 0;
+        float opacity = 0.55f;
+    };
+    SafeAreaCfg safeArea_;
+    bool showSafeArea_ = false;  // the master switch (the gear's first item)
+    // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
+    void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);
+    // The gear button + its popup, drawn in the viewport's corner. Returns true
+    // when the cursor is over it, so a click there does not fall through to the
+    // scene the way the axis gizmo's veto works.
+    bool drawViewportGear(const ImVec2& pos, const ImVec2& size);
     void drawProjectWindow();
     void drawPropertiesWindow();
     // Properties panel body when more than one object is selected: only the

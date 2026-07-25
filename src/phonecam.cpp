@@ -81,7 +81,7 @@ void Link::start(Config cfg) {
         device_ = DeviceInfo{};
         events_.clear();
         poses_.clear();
-        previewPending_ = false;
+        previewQueue_.clear();
         statusPending_ = false;
         statusJson_.clear();
         dropRequested_ = false;
@@ -145,12 +145,18 @@ void Link::setPreviewDefaults(const PreviewPrefs& p) {
 void Link::pushPreview(int w, int h, const unsigned char* rgb) {
     if (w <= 0 || h <= 0 || !rgb) return;
     std::lock_guard<std::mutex> lk(mutex_);
-    previewRgb_.assign(rgb, rgb + (size_t)w * h * 3);
-    previewW_ = w;
-    previewH_ = h;
-    previewPending_ = true;
-    // Consumed by the worker; until then the caller must not grab again.
-    previewWanted_.store(false);
+    const size_t cap = (size_t)std::clamp(preview_.smoothing, 0, kMaxSmoothing) + 1;
+    // Drop the OLDEST when full: latency stays bounded by the queue depth while
+    // the freshest frame is always the one that survives.
+    while (previewQueue_.size() >= cap) previewQueue_.pop_front();
+    PendingFrame f;
+    f.rgb.assign(rgb, rgb + (size_t)w * h * 3);
+    f.w = w;
+    f.h = h;
+    previewQueue_.push_back(std::move(f));
+    // Room left? Then the caller may grab again on its own cadence instead of
+    // waiting for the worker - which is what keeps the delivery even.
+    previewWanted_.store(previewQueue_.size() < cap);
 }
 
 void Link::setStatus(const Status& s) {
@@ -437,12 +443,12 @@ void Link::workerMain() {
         int w = 0, h = 0, quality = 60;
         {
             std::lock_guard<std::mutex> lk(mutex_);
-            if (previewPending_) {
-                rgb.swap(previewRgb_);
-                w = previewW_;
-                h = previewH_;
+            if (!previewQueue_.empty()) {
+                rgb.swap(previewQueue_.front().rgb);
+                w = previewQueue_.front().w;
+                h = previewQueue_.front().h;
+                previewQueue_.pop_front();
                 quality = preview_.quality;
-                previewPending_ = false;
             }
         }
         if (!rgb.empty() && w > 0 && h > 0) {
@@ -465,7 +471,16 @@ void Link::workerMain() {
             }
         }
 
-        previewWanted_.store(tp->sendBacklog(peer) < kSendBacklogLimit);
+        // Ask for another grab while the socket is keeping up AND the queue has
+        // room. Both gates matter: the backlog one stops a weak link ballooning
+        // memory, the queue one is what paces the grabs evenly.
+        {
+            std::lock_guard<std::mutex> lk(mutex_);
+            const size_t cap =
+                (size_t)std::clamp(preview_.smoothing, 0, kMaxSmoothing) + 1;
+            previewWanted_.store(tp->sendBacklog(peer) < kSendBacklogLimit &&
+                                 previewQueue_.size() < cap);
+        }
     }
 
     if (peer >= 0) {
