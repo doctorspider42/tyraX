@@ -10,6 +10,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (181) **`examples/character-generator`** - the demo for (177)-(180). Four
+  people built by the generator, deliberately spread across its axes (male
+  1.82 m muscular / female 1.66 m / older heavy-set / a 1.28 m child), all on
+  the same 23-bone rig with the same four clips. **You play one of them**: the
+  Player object's model is `hero.glb` and its locomotion clips are named
+  `idle`/`walk`/`run`/`jump`, which is all the setup a generated character
+  needs to be a working third-person avatar. The other three are ordinary
+  Model objects autoplaying their first clip. Generated at Detail: Low and
+  128² textures - four characters share one ~1.33 MB GS VRAM budget - and the
+  scene holds **50 FPS with 15 resident textures and no eviction**.
+  It also surfaced a real gap: `res/.gitignore`'s bake rules were anchored to
+  `/models/`, and the Character Generator is the first thing that writes into
+  `models/characters/` - so an unfixed project would have committed a megabyte
+  of `.tskl` per character plus the textures the bake unpacks from a `.glb`
+  that already embeds them. The template now ignores `*.tskl`/`*.tanm`/`*.tmdl`
+  at ANY depth plus `/models/characters/*.png`, with a `refreshGenerated`
+  migration for existing projects (the same shape as the `.tmdl` one). The
+  example commits 2.3 MB, of which 1.8 MB is the four authored `.glb` files.
+
 - (180) **Mixamo retargeting for generated characters**
   (docs/character-generator.md). *Import clips...* in the Character Generator
   retargets any `.glb`/`.fbx` animation library whose bones carry Mixamo names

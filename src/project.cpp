@@ -3831,6 +3831,31 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
+    // Migration: the bake rules used to be anchored to /models/, but the
+    // Character Generator writes into models/characters/ - so an older
+    // project would start tracking a megabyte of .tskl per character, plus
+    // the textures the bake unpacks from the .glb that already embeds them.
+    {
+        const fs::path ignore = fs::path(p.dir) / "res" / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            if (content.str().find("/models/characters/*.png") == std::string::npos) {
+                std::string text = content.str();
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked model output at ANY depth, and the Character "
+                    "Generator's\n# folder - only the .glb is a source there, and it "
+                    "EMBEDS its\n# textures (docs/character-generator.md).\n"
+                    "*.tskl\n*.tanm\n*.tmdl\n/models/characters/*.png\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
+        }
+    }
+
     // Migration: generated script sources used to live in src/scripts/ next
     // to the user's own scripts - confusing in the Scripts panel, and now
     // that they are written to src/gen/ a leftover copy would be compiled

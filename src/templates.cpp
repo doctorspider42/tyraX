@@ -13708,10 +13708,17 @@ static const char* TPL_RES_GITIGNORE =
 /menus/
 
 # Baked model output - the .glb/.obj next to it is the source, these are
-# regenerated on every build (docs/model-pipeline.md).
-/models/*.tskl
-/models/*.tanm
-/models/*.tmdl
+# regenerated on every build (docs/model-pipeline.md). Matched at ANY depth:
+# the Character Generator writes into models/characters/, and a rule anchored
+# to /models/ would quietly commit a megabyte of bake per character.
+*.tskl
+*.tanm
+*.tmdl
+
+# The Character Generator's folder: only the .glb is a source there, and it
+# EMBEDS its textures - the loose PNGs beside it are unpacked from the .glb by
+# the bake (docs/character-generator.md).
+/models/characters/*.png
 )";
 
 // Multi-user collaboration hints, written once at project creation (a new game
