@@ -107,12 +107,25 @@ Each finished feature lands as its own commit.
   the take's real last sample, `ease: 0` throughout, free shots, `cameraEnabled`
   auto-set, 3.89 units of eye travel and 4.43 of look-at pan. The dopesheet
   filled live while the move was happening.
-  **Not verified: the iOS app itself** - it needs a Mac to build and there isn't
-  one here. The editor side, the protocol and the stream are proven; the app is
-  written and its README says plainly that it is unbuilt, along with the three
-  sideload routes (Xcode + free Apple ID, 7-day expiry; an ad-hoc `.ipa` via
-  EAS; Sideloadly/AltStore). The one behaviour a browser cannot stand in for is
-  real ARKit tracking quality.
+  **The iOS app now compiles** - its CI archives it on a macOS runner, Swift
+  ARKit module included, and uploads a 3.7 MB unsigned `.ipa` (scheme `TyraXCam`,
+  559 JS modules bundled into the app target). That was the biggest unknown, and
+  it took four fixes found by actually running things rather than assuming:
+  `expo export` needs `expo-asset` as a direct dependency (not hoisted);
+  `expo-modules-autolinking search -p ios` silently skips **apple-only** modules
+  because the SDK 52 platform key is `apple`, so my own module looked unlinked;
+  its `--json` output flattens the config, so the first version of the
+  "is the module linked" assertion passed vacuously; and CI caught the real one -
+  archiving `.workspace.schemes[0]` builds **boost**, not the app (CocoaPods adds
+  a scheme per pod and it sorts first), which xcodebuild reports as success while
+  leaving an archive with no `.app` in it.
+  **Still not verified: the app RUNNING on a device.** Nobody has installed it
+  yet, so real ARKit tracking quality - how it behaves when you actually walk
+  around a room, and whether the 1 u/m default scale feels right - is the one
+  thing neither the browser client nor a compiler can stand in for. The app's
+  README says so plainly and lists the three sideload routes (the CI `.ipa` +
+  Sideloadly/AltStore with a free Apple ID; Xcode with a free Apple ID, 7-day
+  expiry; an ad-hoc `.ipa` via EAS).
   *Judgement worth recording:* the phone deliberately wins the camera over both
   the cutscene preview and the look-through camera while it drives. A playhead
   flying the same lane would fight the person holding the device, and there is
