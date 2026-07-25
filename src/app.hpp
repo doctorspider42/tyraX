@@ -13,6 +13,7 @@
 #include "history.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
+#include "placement.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 #include "session.hpp"
@@ -71,6 +72,20 @@ private:
     // clips at high scale (a 180 px combo can't hold 2.5x-tall glyphs).
     float scaled(float px) const { return px * uiScaleApplied_; }
     void drawViewportWindow();
+    // Switch the viewport camera projection (View menu, the viewport's "Proj:"
+    // button, the axis gizmo, the numpad shortcuts). Editor state: it rides
+    // into the .tyra on the next save like the gizmo mode, not a project edit.
+    void setViewProjection(Viewport::Projection p);
+    // Axis-view gizmo in the viewport's top-right corner (the Blender/Maya
+    // navigation widget): the three world axes as labelled balls that rotate
+    // with the camera; clicking one snaps to that orthographic axis view, and
+    // clicking the hub toggles perspective. Drawn with ImDrawList over the
+    // rendered image. Returns true while the cursor is over the widget, so the
+    // caller can keep that click from also picking/deselecting objects.
+    bool drawAxisGizmo(ImVec2 imgPos, ImVec2 avail);
+    // Machine-global (editor.ini): the gizmo sits where HUD authoring wants
+    // the corner, so it can be turned off (View > Projection > Axis gizmo).
+    bool showAxisGizmo_ = true;
     void drawProjectWindow();
     void drawPropertiesWindow();
     // Properties panel body when more than one object is selected: only the
@@ -402,6 +417,46 @@ private:
     void drawSessionWindow();
     void copyObject();
     void pasteObject();
+
+    // --- Collision-aware placement (docs/object-placement.md) --------------
+    // Inserted and pasted objects rest ON the surface under them (terrain or
+    // another object's top) instead of sinking into it. placementSnap_ is a
+    // machine-global editor setting (editor.ini) like the navigation scheme -
+    // a workflow preference, not project data.
+    bool placementSnap_ = true;
+    // The two callbacks the placement math needs. Both read the viewport's
+    // caches: it owns the parsed models and the terrain heightfield, and it
+    // samples heights with the same bilinear filter the game does.
+    aobake::ModelAabbFn placementModelAabb();
+    placement::HeightFn placementHeight() const;
+    // Objects the placement math must ignore: everything on a hidden layer,
+    // plus any explicitly listed index (the object being placed itself).
+    std::vector<char> placementSkip(const std::vector<int>& extra = {}) const;
+    // Rests the just-appended object (project_.objects().back()) on the
+    // surface under it. No-op when the snap preference is off.
+    void snapInsertedObject();
+    // "Drop to floor" (End): rest every selected object on the first surface
+    // BELOW it, whatever the insert-snap preference says. One undo step.
+    void dropSelectionToFloor();
+
+    // --- Deferred paste (docs/object-placement.md) -------------------------
+    // Ctrl+V does not drop the copies where they lie: it stages them here and
+    // they follow the cursor across the viewport (snapped onto whatever is
+    // under it) until a left click - or a second Ctrl+V - commits them. Esc
+    // cancels. pastePending_ is what makes the staged objects render.
+    bool pastePending_ = false;
+    std::vector<SceneObject> pasteStaged_;  // the copies being positioned
+    bool pasteMoved_ = false;               // the cursor has positioned them
+    // Scene objects + the staged copies, the list the viewport renders while
+    // a paste is pending (member so it isn't reallocated every frame).
+    std::vector<SceneObject> pasteRenderScratch_;
+    // Fill pasteStaged_ from the clipboard and start following the cursor.
+    void beginPastePlacement();
+    // Move the staged copies so their anchor sits at `point`, snapping the
+    // group onto the surface under it when the preference is on.
+    void movePasteStaged(const float point[3]);
+    void commitPastePlacement();  // insert them into the scene
+    void cancelPastePlacement();
 
     // Selection set helpers. selectedObject_ stays the "primary" (anchor) of
     // the set - always selection_.back() (or -1) - so the many single-select

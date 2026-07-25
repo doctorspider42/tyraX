@@ -26,6 +26,30 @@ public:
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
 
+    // Camera projection (docs/orthographic-views.md). Perspective is the
+    // classic free orbit camera; the ortho modes render with a parallel
+    // projection (no foreshortening, so equal sizes read equal anywhere on
+    // screen) and the six axis modes additionally lock the camera onto that
+    // world axis - the Top/Front/Side views of a CAD or level editor.
+    // Orbiting out of an axis view keeps the parallel projection and falls
+    // back to Ortho (free), so a drag never feels dead.
+    enum class Projection {
+        Perspective = 0,
+        Ortho = 1,        // parallel, free orbit direction
+        OrthoTop = 2,     // looks down -Y (+X right, +Z down)
+        OrthoBottom = 3,  // looks up +Y
+        OrthoFront = 4,   // looks along -Z (+X right, +Y up)
+        OrthoBack = 5,    // looks along +Z
+        OrthoRight = 6,   // looks along -X (from +X)
+        OrthoLeft = 7,    // looks along +X (from -X)
+    };
+    static constexpr int kProjectionCount = 8;
+    void setProjection(Projection p) { projection_ = p; }
+    Projection projection() const { return projection_; }
+    bool orthographic() const { return projection_ != Projection::Perspective; }
+    // Display name of a projection mode ("Perspective", "Top", ...).
+    static const char* projectionName(Projection p);
+
     bool init();  // requires a current GL context
     void shutdown();
 
@@ -44,6 +68,21 @@ public:
     // Casts a ray through normalized image coords onto the terrain surface.
     // Returns false when the ray misses; used by the sculpting brush.
     bool terrainRaycast(float u, float v, float& outX, float& outZ) const;
+
+    // Casts a ray through normalized image coords at the whole scene (object
+    // boxes + the terrain heightfield) and returns the closest hit point in
+    // world space. `skip` (optional, parallel to objects) excludes indices
+    // from the test - the objects being placed must not catch their own ray.
+    // Objects on hidden layers are excluded like they are for picking.
+    // Returns false when the ray leaves the scene without hitting anything.
+    bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
+                          const std::vector<char>& skip, float outPoint[3]) const;
+
+    // Local-space AABB of what an object DRAWS as a model: static .obj bounds
+    // (GL-free, cached) or an animated model's baked pose bounds. False for
+    // non-model objects and unreadable files. The aobake::ModelAabbFn the app
+    // hands to the placement snapping and the occluder collection.
+    bool modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]);
 
     float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
 
@@ -372,6 +411,31 @@ private:
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
+    Projection projection_ = Projection::Perspective;
+    // The camera a render() draws with: eye + orthonormal basis plus the
+    // projection extents. ONE source for render(), pick(), the terrain
+    // raycast and the placement raycast - those used to rebuild the same
+    // hardcoded 50-degree perspective ray by hand, so they disagreed with the
+    // image as soon as the projection was ortho or a Camera entity's FOV.
+    struct CamView {
+        float eye[3] = {0.0f, 0.0f, 0.0f};
+        float fwd[3] = {0.0f, 0.0f, -1.0f};
+        float right[3] = {1.0f, 0.0f, 0.0f};
+        float up[3] = {0.0f, 1.0f, 0.0f};
+        bool ortho = false;
+        float tanHalf = 0.4663f;  // perspective: tan(vertical fov / 2)
+        float halfH = 1.0f;       // ortho: half the visible height (world units)
+        float aspect = 1.0f;
+    };
+    CamView camView(int width, int height) const;
+    // Ray through normalized image coords (u, v in [0,1], origin top-left).
+    // The ortho ray starts a full scene depth behind the eye plane so nothing
+    // visible can sit behind the ray origin (a parallel projection draws what
+    // is behind the camera too - see the symmetric depth range).
+    void camRay(const CamView& c, float u, float v, float o[3], float d[3]) const;
+    // Half the depth range the projection spans - far plane / ortho z extent.
+    float sceneDepth() const;
+
     // Cutscene camera-track preview override (see setCameraOverride)
     bool camOverride_ = false;
     float camEye_[3] = {0.0f, 0.0f, 0.0f};

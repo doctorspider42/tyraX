@@ -56,6 +56,19 @@ Mat4 perspective(float fovyRad, float aspect, float zNear, float zFar) {
     return r;
 }
 
+// Parallel projection over a symmetric slab. zNear is passed NEGATIVE by the
+// caller (the depth range straddles the eye) so an axis view keeps drawing
+// what is behind the camera plane - a Top view must not hide the ceiling it
+// is looking through.
+Mat4 orthoProj(float halfW, float halfH, float zNear, float zFar) {
+    Mat4 r = identity();
+    r.m[0] = 1.0f / halfW;
+    r.m[5] = 1.0f / halfH;
+    r.m[10] = -2.0f / (zFar - zNear);
+    r.m[14] = -(zFar + zNear) / (zFar - zNear);
+    return r;
+}
+
 Mat4 translation(float x, float y, float z) {
     Mat4 r = identity();
     r.m[12] = x;
@@ -1118,29 +1131,116 @@ float Viewport::terrainHeight(float x, float z) const {
     return top * (1 - fz) + bottom * fz;
 }
 
+const char* Viewport::projectionName(Projection p) {
+    switch (p) {
+        case Projection::Ortho: return "Ortho";
+        case Projection::OrthoTop: return "Top";
+        case Projection::OrthoBottom: return "Bottom";
+        case Projection::OrthoFront: return "Front";
+        case Projection::OrthoBack: return "Back";
+        case Projection::OrthoRight: return "Right";
+        case Projection::OrthoLeft: return "Left";
+        case Projection::Perspective:
+        default: return "Perspective";
+    }
+}
+
+float Viewport::sceneDepth() const {
+    const float diag =
+        (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
+    return diag * 10.0f + 100.0f;
+}
+
+Viewport::CamView Viewport::camView(int width, int height) const {
+    CamView c;
+    c.aspect = (float)(width > 0 ? width : 1) / (float)(height > 0 ? height : 1);
+
+    // Axis views look straight down a world axis; the up vector is chosen so
+    // the horizontal screen axis stays the natural one (+X right, except from
+    // behind / from -X where it flips, as a real back / left elevation does).
+    static const float kAxisFwd[6][3] = {{0, -1, 0}, {0, 1, 0},  {0, 0, -1},
+                                         {0, 0, 1},  {-1, 0, 0}, {1, 0, 0}};
+    static const float kAxisUp[6][3] = {{0, 0, -1}, {0, 0, 1}, {0, 1, 0},
+                                        {0, 1, 0},  {0, 1, 0}, {0, 1, 0}};
+
+    Vec3 tgt{target_[0], target_[1], target_[2]};
+    Vec3 fwd, upHint{0, 1, 0};
+    float fovDeg = 50.0f;
+    const int axis = (int)projection_ - (int)Projection::OrthoTop;
+    if (axis >= 0 && axis < 6 && !camOverride_) {
+        fwd = {kAxisFwd[axis][0], kAxisFwd[axis][1], kAxisFwd[axis][2]};
+        upHint = {kAxisUp[axis][0], kAxisUp[axis][1], kAxisUp[axis][2]};
+    } else if (camOverride_) {
+        // Cutscene / look-through camera: its own eye, aim and FOV.
+        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
+        const Vec3 e{camEye_[0], camEye_[1], camEye_[2]};
+        fwd = normalize(sub(tgt, e));
+        fovDeg = camFov_;
+        c.eye[0] = e.x, c.eye[1] = e.y, c.eye[2] = e.z;
+    } else {
+        const Vec3 e{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
+                     tgt.y + distance_ * std::sin(pitch_),
+                     tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+        fwd = normalize(sub(tgt, e));
+    }
+    if (!camOverride_) {
+        // eye = target pulled back along the view direction
+        c.eye[0] = tgt.x - fwd.x * distance_;
+        c.eye[1] = tgt.y - fwd.y * distance_;
+        c.eye[2] = tgt.z - fwd.z * distance_;
+    }
+    const Vec3 right = normalize(cross(fwd, upHint));
+    const Vec3 up = cross(right, fwd);
+    c.fwd[0] = fwd.x, c.fwd[1] = fwd.y, c.fwd[2] = fwd.z;
+    c.right[0] = right.x, c.right[1] = right.y, c.right[2] = right.z;
+    c.up[0] = up.x, c.up[1] = up.y, c.up[2] = up.z;
+    c.tanHalf = std::tan(fovDeg * kPi / 180.0f * 0.5f);
+    // A parallel projection has no FOV: frame the same amount at the pivot
+    // plane the perspective camera did, so switching modes keeps the framing
+    // and the wheel keeps zooming through distance_.
+    c.ortho = orthographic() && !camOverride_;
+    c.halfH = distance_ * c.tanHalf;
+    return c;
+}
+
+void Viewport::camRay(const CamView& c, float u, float v, float o[3],
+                      float d[3]) const {
+    const float ndcX = u * 2.0f - 1.0f;
+    const float ndcY = 1.0f - v * 2.0f;
+    if (c.ortho) {
+        const float sx = ndcX * c.halfH * c.aspect, sy = ndcY * c.halfH;
+        const float back = sceneDepth();  // start behind everything on screen
+        for (int k = 0; k < 3; ++k) {
+            const float* e = c.eye;
+            o[k] = e[k] + c.right[k] * sx + c.up[k] * sy - c.fwd[k] * back;
+            d[k] = c.fwd[k];
+        }
+        return;
+    }
+    const float sx = ndcX * c.tanHalf * c.aspect, sy = ndcY * c.tanHalf;
+    Vec3 dir{c.fwd[0] + c.right[0] * sx + c.up[0] * sy,
+             c.fwd[1] + c.right[1] * sx + c.up[1] * sy,
+             c.fwd[2] + c.right[2] * sx + c.up[2] * sy};
+    dir = normalize(dir);
+    for (int k = 0; k < 3; ++k) o[k] = c.eye[k];
+    d[0] = dir.x, d[1] = dir.y, d[2] = dir.z;
+}
+
 bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
 
-    // Same camera ray construction as pick()
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
-    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   tgt.y + distance_ * std::sin(pitch_),
-                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub(tgt, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
-    const float aspect = (float)fbWidth_ / (float)fbHeight_;
-    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
-    const float ndcX = u * 2.0f - 1.0f;
-    const float ndcY = 1.0f - v * 2.0f;
-    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
-                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
-                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+    const CamView cam = camView(fbWidth_, fbHeight_);
+    float ro[3], rd[3];
+    camRay(cam, u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
 
     // Raymarch the heightfield: find the first step below the surface, then
     // refine by bisection.
-    const float maxDist = distance_ * 4.0f;
-    const int steps = 400;
+    const float maxDist = distance_ * 4.0f + (cam.ortho ? sceneDepth() : 0.0f);
+    // Half a world unit per step, so the ortho ray's much longer run (it
+    // starts a full scene depth behind the eye) can't tunnel through a ridge.
+    const int steps = (int)std::min(4000.0f, std::max(400.0f, maxDist * 2.0f));
     const float dt = maxDist / steps;
     float prevT = 0.0f;
     float prevDelta = eye.y - terrainHeight(eye.x, eye.z);
@@ -1739,21 +1839,11 @@ float rayUnitBox(Vec3 o, Vec3 d) {
 int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return -1;
 
-    // Camera ray through the pixel (same camera setup as render())
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
-    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   tgt.y + distance_ * std::sin(pitch_),
-                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub(tgt, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
-    const float aspect = (float)fbWidth_ / (float)fbHeight_;
-    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
-    const float ndcX = u * 2.0f - 1.0f;
-    const float ndcY = 1.0f - v * 2.0f;
-    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
-                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
-                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+    // Camera ray through the pixel (the same camera render() drew with)
+    float ro[3], rd[3];
+    camRay(camView(fbWidth_, fbHeight_), u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
 
     int best = -1;
     float bestT = 1e9f;
@@ -1774,6 +1864,69 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
         }
     }
     return best;
+}
+
+bool Viewport::placementRaycast(float u, float v,
+                                const std::vector<SceneObject>& objects,
+                                const std::vector<char>& skip,
+                                float outPoint[3]) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+
+    const CamView cam = camView(fbWidth_, fbHeight_);
+    float ro[3], rd[3];
+    camRay(cam, u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
+
+    // Nearest object box along the ray (the same unit-box test picking uses,
+    // so what the cursor rests on is what a click would select).
+    float bestT = 1e9f;
+    bool hit = false;
+    for (size_t i = 0; i < objects.size(); ++i) {
+        if (hiddenAt(i)) continue;
+        if (i < skip.size() && skip[i]) continue;
+        const SceneObject& o = objects[i];
+        Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
+                                o.rotation);
+        Vec3 ld = rotateInverse(dir, o.rotation);
+        lo = {lo.x / o.scale[0], lo.y / o.scale[1], lo.z / o.scale[2]};
+        ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
+        const float t = rayUnitBox(lo, ld);
+        if (t > 0.0f && t < bestT) {
+            bestT = t;
+            hit = true;
+        }
+    }
+
+    // ...and the terrain, which wins when it is closer. terrainRaycast only
+    // reports x/z, so the height comes from the same bilinear sampler.
+    float tx = 0.0f, tz = 0.0f;
+    if (terrainRaycast(u, v, tx, tz)) {
+        const float ty = terrainHeight(tx, tz);
+        const float dx = tx - eye.x, dy = ty - eye.y, dz = tz - eye.z;
+        const float t = dx * dir.x + dy * dir.y + dz * dir.z;
+        if (t > 0.0f && (!hit || t < bestT)) {
+            outPoint[0] = tx, outPoint[1] = ty, outPoint[2] = tz;
+            return true;
+        }
+    }
+    if (hit) {
+        for (int k = 0; k < 3; ++k) outPoint[k] = ro[k] + rd[k] * bestT;
+        return true;
+    }
+
+    // Nothing under the cursor: fall back to the horizontal plane through the
+    // orbit pivot, so dragging into open sky still gives a sensible spot.
+    if (std::fabs(dir.y) > 1e-4f) {
+        const float t = (target_[1] - eye.y) / dir.y;
+        if (t > 0.0f) {
+            outPoint[0] = eye.x + dir.x * t;
+            outPoint[1] = target_[1];
+            outPoint[2] = eye.z + dir.z * t;
+            return true;
+        }
+    }
+    return false;
 }
 
 void Viewport::setLighting(const float* dir, float ambient, float diffuse,
@@ -2253,6 +2406,18 @@ bool Viewport::modelBounds(const std::string& relPath,
     return true;
 }
 
+bool Viewport::modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]) {
+    if (o.type != PrimitiveType::Model || o.modelPath.empty()) return false;
+    if (!isAnimatedModelPath(o.modelPath))
+        return modelBounds(o.modelPath, o.materialPath, mn, mx);
+    // Animated models carry their own baked AABB (frame 0, all parts); the
+    // bake is cached, so asking per frame costs a map lookup.
+    const AnimModelDraw* d = animModelDraw(o.modelPath, o.materialPath);
+    if (!d || !d->ok) return false;
+    for (int k = 0; k < 3; ++k) mn[k] = d->baked.min[k], mx[k] = d->baked.max[k];
+    return true;
+}
+
 const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
                                                const std::string& materialRel) {
     if (relPath.empty()) return nullptr;
@@ -2489,6 +2654,16 @@ void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradien
 }
 
 void Viewport::orbit(float dx, float dy) {
+    if (projection_ > Projection::Ortho) {
+        // Dragging out of a locked axis view: seed the orbit angles from the
+        // axis the camera was on so the image continues from where it is
+        // instead of snapping back to a stale yaw/pitch, and drop only the
+        // direction lock - the parallel projection stays.
+        const CamView c = camView(fbWidth_, fbHeight_);
+        pitch_ = std::asin(std::max(-1.0f, std::min(1.0f, -c.fwd[1])));
+        yaw_ = std::atan2(-c.fwd[2], -c.fwd[0]);
+        projection_ = Projection::Ortho;
+    }
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;
     if (pitch_ < 0.05f) pitch_ = 0.05f;
@@ -2525,23 +2700,27 @@ void Viewport::resetView() {
 void Viewport::pan(float dx, float dy) {
     // Slide the orbit target in the view plane; speed scales with distance
     // so a pixel of drag covers the same fraction of the screen at any zoom.
-    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   distance_ * std::sin(pitch_),
-                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
+    // The basis comes from the shared CamView, so panning follows the image
+    // in the locked axis views too.
+    const CamView c = camView(fbWidth_, fbHeight_);
     const float s = distance_ * 0.0016f;
-    target_[0] += (-right.x * dx + up.x * dy) * s;
-    target_[1] += (-right.y * dx + up.y * dy) * s;
-    target_[2] += (-right.z * dx + up.z * dy) * s;
+    for (int k = 0; k < 3; ++k)
+        target_[k] += (-c.right[k] * dx + c.up[k] * dy) * s;
 }
 
 void Viewport::fly(float forward, float strafe, float dt) {
     // WASD: move the orbit target on the horizontal plane along the camera
     // heading. Speed scales with zoom so travel feels constant on screen.
     if (forward == 0.0f && strafe == 0.0f) return;
-    const Vec3 fwdH{-std::cos(yaw_), 0.0f, -std::sin(yaw_)};  // toward the scene
+    const CamView c = camView(fbWidth_, fbHeight_);
+    // Heading = the view direction flattened onto the ground. Looking straight
+    // down (Top / Bottom view) leaves nothing to flatten, so the screen-up
+    // vector takes over - "forward" then walks up the image, as it looks.
+    Vec3 fwdH{c.fwd[0], 0.0f, c.fwd[2]};
+    if (fwdH.x * fwdH.x + fwdH.z * fwdH.z < 1e-6f) fwdH = {c.up[0], 0.0f, c.up[2]};
+    const float len = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
+    if (len < 1e-6f) return;
+    fwdH = {fwdH.x / len, 0.0f, fwdH.z / len};
     const Vec3 rightH{-fwdH.z, 0.0f, fwdH.x};
     const float s = distance_ * 0.9f * dt;
     target_[0] += (fwdH.x * forward + rightH.x * strafe) * s;
@@ -2599,22 +2778,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         skyQuad_ = uploadMesh(q);
     }
 
-    Vec3 tgt{target_[0], target_[1], target_[2]};
-    Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-             tgt.y + distance_ * std::sin(pitch_),
-             tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    float fovDeg = 50.0f;
-    // Cutscene Director camera-track preview: fly the preview camera along the
-    // sequence's keyframed eye/look-at (the same values the PS2 runtime uses).
-    if (camOverride_) {
-        eye = {camEye_[0], camEye_[1], camEye_[2]};
-        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
-        fovDeg = camFov_;
-    }
-    Mat4 view = lookAt(eye, tgt, {0, 1, 0});
+    // Camera: the shared CamView (it also resolves the axis views and the
+    // Cutscene Director / look-through camera override) so the image, the
+    // gizmo, picking and the placement raycast all agree.
+    const CamView cam = camView(width, height);
+    const Vec3 eye{cam.eye[0], cam.eye[1], cam.eye[2]};
+    const Vec3 camFwd{cam.fwd[0], cam.fwd[1], cam.fwd[2]};
+    const Vec3 tgt{eye.x + camFwd.x, eye.y + camFwd.y, eye.z + camFwd.z};
+    Mat4 view = lookAt(eye, tgt, {cam.up[0], cam.up[1], cam.up[2]});
     float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
-    Mat4 proj = perspective(fovDeg * kPi / 180.0f, (float)width / (float)height, 0.1f,
-                            diag * 10.0f + 100.0f);
+    const float depth = sceneDepth();
+    // The ortho depth range straddles the eye (see orthoProj): a parallel
+    // axis view is a slab through the scene, not a half-space in front of a
+    // point, so geometry behind the camera plane keeps drawing.
+    Mat4 proj = cam.ortho
+                    ? orthoProj(cam.halfH * cam.aspect, cam.halfH, -depth, depth)
+                    : perspective(2.0f * std::atan(cam.tanHalf), cam.aspect, 0.1f,
+                                  depth);
     Mat4 viewProj = mul(proj, view);
     for (int i = 0; i < 16; ++i) {
         viewM_[i] = view.m[i];
@@ -2645,9 +2825,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // GS hardware fog preview: same coefficient the VU1 computes in-game.
     {
-        Vec3 fwd{tgt.x - eye.x, tgt.y - eye.y, tgt.z - eye.z};
-        float len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
-        if (len > 1e-5f) fwd = {fwd.x / len, fwd.y / len, fwd.z / len};
+        const Vec3 fwd = camFwd;
         glUniform1i(uFogOn_, fogOn_ ? 1 : 0);
         glUniform3f(uFogColor_, fogColor_[0], fogColor_[1], fogColor_[2]);
         glUniform1f(uFogStart_, fogStart_);
@@ -3371,10 +3549,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Particle emitters last - alpha blended over the scene (same order as
     // the generated game's renderScene()).
-    {
-        const Vec3 fwd = normalize(sub(tgt, eye));
-        drawEmitterPreviews(objects, viewProj.m, &eye.x, &fwd.x);
-    }
+    drawEmitterPreviews(objects, viewProj.m, &eye.x, &camFwd.x);
 
     glBindVertexArray(0);
 
