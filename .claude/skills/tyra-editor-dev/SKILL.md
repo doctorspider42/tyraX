@@ -408,10 +408,13 @@ non-RGBA formats (the R32F heightmap) do the same two steps inline.
 ./build.ps1 -Clean   # nuke build/ first
 ```
 
-First run auto-clones `vendor/` deps via `setup.ps1` (imgui docking, glfw 3.4,
-imguizmo, imnodes, stb — all git-ignored; `vendor/tyra` is versioned, see
-tyra-engine-dev). Toolchain: `scoop install mingw cmake ninja`; build.ps1 finds
-scoop's mingw even off-PATH. Single CMake target `tyrax-editor`, statically
+Missing `vendor/` deps are fetched by `setup.ps1` (imgui docking, glfw 3.4,
+imguizmo, imnodes, stb, ufbx — all git-ignored; `vendor/tyra` is versioned, see
+tyra-engine-dev), and build.ps1 runs it whenever something is absent. **The
+dependency list lives only in `deps.ps1`**, which both scripts read — add a new
+third-party library there and nowhere else, or the build guard won't know about
+it (see tyra-testing for the failure that caused). Toolchain:
+`scoop install mingw cmake ninja`; build.ps1 finds scoop's mingw even off-PATH. Single CMake target `tyrax-editor`, statically
 linked (MinGW `-static`), console subsystem on purpose (logs stay visible).
 
 For how to test what you built — headless CLI, codegen checks without Docker,

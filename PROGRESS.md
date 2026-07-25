@@ -9072,3 +9072,32 @@ Each finished feature lands as its own commit.
   already killed (the crash happened in a pre-pass too). The change stands on
   its own merit - reading an AABB should not upload a model as a side effect -
   and now says so instead.
+
+- (102) **Build: one dependency list, so a missing vendor/ clone can never
+  reach cmake again** (user report: a fresh worktree died with `Cannot find
+  source file: vendor/ufbx/ufbx.c` + `No SOURCES given to target`). The
+  dependency set lived in TWO places: `setup.ps1` cloned seven directories,
+  while `build.ps1` guarded only the original four (imgui/glfw/imguizmo/
+  imnodes) - so stb, ufbx and tyra were never checked. Every dependency added
+  after that guard was written (ufbx came with the FBX importer, #119) was
+  invisible to it, and any worktree created before the addition walked
+  straight into a cmake error that reads like a corrupt checkout rather than
+  "run setup". PROGRESS (1545) records the same trap firing once already.
+  Now `deps.ps1` holds the single list (`$VendorDeps` + `$StbHeaders` +
+  `$Ps2Tools`), dot-sourced by both scripts: setup fetches from it, build
+  probes every entry marked `Build` and runs setup itself when one is
+  missing, then re-probes and fails loudly with the offending path if the
+  fetch didn't help. Probes are **files the build actually compiles**
+  (`vendor/ufbx/ufbx.c`, `vendor/imgui/imgui.cpp`, ...), not directories, so
+  an interrupted clone counts as missing instead of passing the guard.
+  Two smaller fixes rode along: `vendor/tyra` is in-tree (its engine sources
+  are versioned here), so cloning into it always failed with a `fatal:
+  destination path already exists` that looked like a real error - it now
+  reports as present; and native tools run through `Invoke-Native`, because
+  git and tar write progress to stderr and Windows PowerShell turns that into
+  a terminating error under `$ErrorActionPreference='Stop'` **only when the
+  caller captured the stream** (build.ps1 piped into a log, CI) - the exit
+  code is what actually decides.
+  Verified both directions: renaming `vendor/ufbx/ufbx.c` away makes build.ps1
+  stop before cmake with the explicit path, and deleting the whole directory
+  makes it re-clone and build clean through to `tyrax-editor.exe`.

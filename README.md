@@ -208,7 +208,7 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `ai-support/` — source markdown for the AI assistant guides installed into projects (embedded into the exe at build time; see [docs/ai-support.md](docs/ai-support.md)).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
-- `vendor/` (rest) — editor dependencies (not versioned; see `setup.ps1`).
+- `vendor/` (rest) — editor dependencies (not versioned; fetched by `setup.ps1` from the single list in `deps.ps1`, which `build.ps1` also checks before configuring — add a new dependency there and nothing else needs to know).
 - `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1`), a [custom ps2link with USB keyboard+mouse](tools/ps2link-usbhid/README.md) (`ps2link-usbhid`, for playing kbd/mouse over the F6 network deploy on real hardware), and the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
 
 ## Credits
@@ -236,5 +236,6 @@ This project stands on the shoulders of the PS2 homebrew community:
   (MIT), [GLFW](https://www.glfw.org/) (zlib/libpng),
   [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) (MIT),
   [imnodes](https://github.com/Nelarius/imnodes) (MIT),
-  [stb](https://github.com/nothings/stb) (public domain / MIT).
+  [stb](https://github.com/nothings/stb) (public domain / MIT),
+  [ufbx](https://github.com/ufbx/ufbx) (MIT).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.

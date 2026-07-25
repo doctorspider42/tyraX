@@ -23,13 +23,31 @@ PROGRESS.md about which layer you reached (the existing entries distinguish
 ## Layer 0 — build the editor
 
 ```powershell
-./build.ps1          # → build/tyrax-editor.exe (auto-clones vendor deps on first run)
+./build.ps1          # → build/tyrax-editor.exe (fetches missing vendor deps itself)
 ./build.ps1 -Run     # build + launch the GUI
 ./build.ps1 -Clean   # full rebuild
 ```
 
 Needs `scoop install mingw cmake ninja`. This is also the compile check for
 everything under `src/` — warnings matter, the build is expected to be clean.
+
+**Third-party dependencies live in exactly one list: `deps.ps1`.** `setup.ps1`
+fetches from it and `build.ps1` probes it before configuring, so adding a
+dependency there is all it takes — the build guard picks it up for free and
+`git clone`s it on the next build. Add one anywhere else and you recreate the
+bug this arrangement exists to prevent: the two lists used to drift, and a
+worktree that predated a new dependency reached cmake with the sources
+missing.
+
+So when a build dies with **`Cannot find source file: vendor/<something>`**
+(usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
+corrupt checkout — that path simply isn't on disk yet. `./build.ps1` normally
+fixes it by itself; run `./setup.ps1` directly if you want the fetch without a
+build. The same applies after merging a branch that added a dependency: the
+merge brings the CMake reference, not the clone. Probes are real source files,
+so a half-finished clone reports as missing rather than sneaking through —
+delete the directory and re-run setup when the guard says a probe is still
+absent after a fetch.
 
 ## Layer 1 — headless CLI (no GUI needed)
 
