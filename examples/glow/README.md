@@ -56,8 +56,10 @@ far right pillar. The light does not pass through it: the pillar behind it is
 dark on the side that faces the pit, and the ground carries the wall's shadow.
 Untick the wall's *Cast shadow* in Properties and the shadow disappears (that
 flag is shared with the ambient occlusion). Shadows come from the analytic
-box/sphere each object reduces to, so they are hard and rectangular — a wall
-throws a rectangle, not its silhouette.
+box/sphere each object reduces to, so the *shape* is rectangular — a wall
+throws a rectangle, not its silhouette — but the **edge is soft**: the plate is
+an area source, so the pillar catches the part of it that reaches around the
+wall, and the band widens the further the surface is from the caster.
 
 All of it is baked at build. There is no runtime light here at all.
 
