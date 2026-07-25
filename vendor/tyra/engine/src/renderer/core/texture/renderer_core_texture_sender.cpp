@@ -31,7 +31,7 @@ RendererCoreTextureBuffers RendererCoreTextureSender::allocate(
   if (texClut != nullptr && texClut->width > 0) {
     clut = allocateTextureClut(t_texture);
   }
-  return {t_texture->id, core, clut};
+  return {t_texture->id, core, clut, 0};
 }
 
 float RendererCoreTextureSender::getSizeInMB(texbuffer_t* texBuffer) {

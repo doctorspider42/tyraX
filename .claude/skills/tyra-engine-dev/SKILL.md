@@ -303,6 +303,20 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
   `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
   clean log. Count the qwords after every PACK_GIFTAG edit.
+- **ps2sdk's `ATEST_KEEP_*` constants name what is PRESERVED, not what is
+  written** (`ps2sdk/ee/include/draw_tests.h`): `ATEST_KEEP_ZBUFFER` = 1 =
+  GS FB_ONLY (colour written, z untouched), `ATEST_KEEP_FRAMEBUFFER` = 2 =
+  ZB_ONLY (z written, colour untouched), `ATEST_KEEP_ALL` = 0 = write
+  nothing. Reading them the other way round is easy and expensive: upstream's
+  alpha test passed `ATEST_KEEP_FRAMEBUFFER` on the standard path, so every
+  fully transparent texel of a cutout texture stamped the z buffer while
+  drawing no colour — foliage, grates and decals silently occluded whatever
+  was drawn behind them later, which looks like a sorting or texture bug
+  rather than an AFAIL one. Cutout wants `ATEST_KEEP_ALL` (both pipelines
+  now use it; `PipelineZTest_TestOnly` deliberately keeps FB_ONLY for its
+  depth-tested-no-z-write trick). Symptom to recognise: transparency itself
+  works, but geometry behind a transparent area is missing, cut along the
+  straight edges of the quad in front of it.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.
@@ -358,11 +372,39 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   (three 512-line buffers), leaving ~1 MB for textures.
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
   (TyraX fork) switches the scan mode / widescreen between frames.
-  A mode change resets the whole VRAM bump allocator (`vram.reset()`),
+  A mode change resets the whole VRAM allocator (`vram.reset()`),
   rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
   texture allocation (they lazily re-upload) — never call it mid-frame.
+  It is also the ONLY caller allowed to `allocateBuffer()` after init.
   The projection aspect lives in `RendererSettings::updateGeometry`
   (fixed 4:3-baseline look; widescreen scales it anamorphically).
+- **GS VRAM is two regions, and `free()` is order-independent** (TyraX fork —
+  full write-up in [docs/gs-vram.md](../../../docs/gs-vram.md)).
+  `allocateBuffer()` (page-aligned) fills a **permanent** bump region at the
+  bottom — both frame buffers, z, post-fx scratch, noise, the env-map and
+  camera-feed targets — that is never released; `allocate()` (block-aligned)
+  serves textures from a **coalescing best-fit free list** above it. `free()`
+  ignores addresses the heap never handed out, which is what protects the
+  permanent region — do not "fix" that into an assert. Upstream's `free()` was
+  `pointer = address` (a stack pop), so freeing anything but the newest
+  allocation handed out the memory of still-live textures: streaming-layer
+  unloads reproduced it as surviving objects rendering another object's
+  texture. Budget after the init buffers is **~1.08 MB** (~1 MB in
+  `Pal576i`), and every allocation costs ~8 KB of padding on top of its
+  pixels — a 256×256 32bpp texture is 24% of the heap, a 512×512 is 93%.
+  When a texture does not fit, `RendererCoreTexture::makeRoomFor()` evicts
+  coldest-first (`pickVictim`: stale entries by LRU; when the whole resident
+  set is in this frame's working set, the MOST recently bound one — plain LRU
+  makes a per-frame texture scan cycle its entire set). Textures that must
+  never be evicted are not "pinned" — they are not in the list at all: give
+  them their own `texbuffer_t` through `Texture::vramResident`, the way
+  `RendererCoreEnvMap` does. To see what a scene actually does, build with the
+  **debug** profile and grep the game's `bin/log.txt` for `VRAMSTAT`
+  (binds/hits/uploads/**re-uploads**/evictions/resident/free MB/largest free
+  block, per frame); `reup` per frame is the number that matters, each one is
+  a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
+  0.87 MB free and never evicts anything — if you are chasing a VRAM problem
+  in a palettized project, measure before assuming there is one.
 - **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
   (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
   presents a frame each iteration is paced to 50/60 Hz, but a loop that draws

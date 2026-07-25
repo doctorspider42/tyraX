@@ -16,6 +16,7 @@
 #include "project.hpp"
 #include "runner.hpp"
 #include "session.hpp"
+#include "treegen.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -241,6 +242,16 @@ private:
     // fontPath changed. Only the Font Manager resolves real files.
     bool fontSourceCombo(std::string& fontPath);
     void drawFontManagerWindow();
+    // Tools > Tree Generator: procedural low-poly tree authoring with a live
+    // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
+    // into res/models/trees and drops a Model object in - see treegen.hpp.
+    void drawTreeGeneratorWindow();
+    // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
+    // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
+    void rebuildTreePreview();
+    // "Add to scene": bakes the current tree's assets into res/models/trees
+    // and inserts a Model object pointing at them.
+    void addTreeToScene();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -585,6 +596,21 @@ private:
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
+
+    // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
+    // rebuilt into these on any param change; treePreviewVersion_ tells the
+    // viewport when to re-upload. treeName_ is the asset base name.
+    bool showTreeGenerator_ = false;
+    treegen::Params treeParams_;
+    int treePreset_ = 0;
+    treegen::Mesh treeMesh_;
+    treegen::Image treeBarkTex_, treeLeafTex_;
+    uint64_t treePreviewVersion_ = 0;
+    bool treePreviewDirty_ = true;
+    char treeName_[64] = "tree";
+    float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
+    bool treeGenSpin_ = true;
+    int treeGenDisplayMode_ = 0;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;

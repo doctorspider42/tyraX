@@ -1,9 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "aobake.hpp"
@@ -174,6 +176,29 @@ public:
     };
     uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
 
+    // Tree Generator live preview (Tools > Tree Generator): generated
+    // geometry + in-memory textures straight from treegen - nothing touches
+    // disk or the shared asset caches, so slider drags stay instant. Renders
+    // into its OWN framebuffer (only the gradient/checker backdrop meshes are
+    // shared); meshes and textures re-upload only when `version` changes.
+    struct TreePreviewDesc {
+        uint64_t version = 0;
+        const std::vector<float>* bark = nullptr;    // pos3+normal3+uv2 tris
+        const std::vector<float>* leaves = nullptr;  // same layout, drawn
+                                                     // with alpha cutout
+        const unsigned char* barkRgba = nullptr;     // RGBA texture pixels
+        int barkW = 0, barkH = 0;
+        const unsigned char* leafRgba = nullptr;
+        int leafW = 0, leafH = 0;
+        float center[3] = {0, 0, 0};  // mesh AABB center (camera pivot)
+        float minY = 0.0f;            // AABB bottom (floor placement)
+        float radius = 1.0f;          // AABB half-diagonal (framing)
+        float angleDeg = 40.0f;       // turntable yaw
+        float pitchDeg = 18.0f;       // camera elevation
+        float zoom = 1.0f;
+        int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
+    };
+    uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals
@@ -442,6 +467,11 @@ private:
     struct ModelPart {
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
+        // map_Kd carries transparency: draw this part cutout + blended, the
+        // way the console's static pipeline alpha-tests every texture. Leaf
+        // cards are the everyday case (Tree Generator); without it their
+        // transparent margin renders as the PNG's black RGB.
+        bool alpha = false;
         float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
@@ -459,6 +489,12 @@ private:
     const ModelDraw* modelDraw(const std::string& relPath,
                                const std::string& materialRel);
     void clearModelCache();
+    // GL-free model AABB lookup (objparser only), cached; the AO occluder
+    // collection uses this so reading bounds never triggers a GL upload.
+    // Value: (loaded?, {minXYZ, maxXYZ}).
+    std::map<std::string, std::pair<bool, std::array<float, 6>>> modelBoundsCache_;
+    bool modelBounds(const std::string& relPath, const std::string& materialRel,
+                     float mn[3], float mx[3]);
 
     // Animated .glb models: the baked clips stay CPU-side and each part owns
     // a dynamic VBO that is re-lerped per frame for the playback preview
@@ -510,7 +546,12 @@ private:
     aobake::GlowCache emisGlowCache_;
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
+    // Which of those images actually carry transparency (any texel below
+    // fully opaque), filled as they load - the cutout/blend decision, so a
+    // draw site never has to re-read the file.
+    std::map<std::string, bool> texAlpha_;
     uint32_t glTexture(const std::string& relPath);
+    bool texHasAlpha(const std::string& relPath) const;
     void clearTexCache();
 
     // Live particle-emitter preview. The simulation mirrors the generated
@@ -554,10 +595,26 @@ private:
 
     // Material Editor preview target + fixed backdrop meshes
     void ensurePreviewFramebuffer(int width, int height);
+    void ensurePreviewBackdrop();  // lazily builds prevBg_ / prevFloor_
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
     Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
     uint32_t uvCheckerTex_ = 0;  // generated UV-checker (displayMode 2)
+
+    // Tree Generator preview target. Its OWN framebuffer, not the Material
+    // Editor's: both tools can be open at once, they size their previews
+    // independently, and both draw within a single UI frame - sharing one
+    // target would thrash its size and make each show the other's image.
+    void ensureTreeFramebuffer(int width, int height);
+    uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
+    int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Tree Generator preview geometry + textures (see renderTreePreview);
+    // rebuilt only when the desc version changes.
+    Mesh treePrevBark_, treePrevLeaves_;
+    uint32_t treePrevBarkTex_ = 0, treePrevLeafTex_ = 0;
+    uint64_t treePrevVersion_ = 0;
+    bool treePrevHasVersion_ = false;
 
     // Model shown in the material preview. Unlike modelCache_ the part Kd is
     // NOT baked into the vertex colors (it rides the tint uniform instead) so

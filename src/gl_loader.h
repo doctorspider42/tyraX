@@ -93,6 +93,7 @@ typedef ptrdiff_t GLintptr;
     X(void, BindTexture, GLenum, GLuint) \
     X(void, ActiveTexture, GLenum) \
     X(void, TexImage2D, GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) \
+    X(void, TexSubImage2D, GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void*) \
     X(void, TexParameteri, GLenum, GLenum, GLint) \
     X(void, DrawArrays, GLenum, GLint, GLsizei) \
     X(void, DrawElements, GLenum, GLsizei, GLenum, const void*) \
@@ -147,3 +148,15 @@ TYRA_GL_FUNCS(TYRA_GL_DECLARE)
 
 // Loads all pointers via glfwGetProcAddress. Returns false if any is missing.
 bool glInit();
+
+// Fills the currently bound GL_TEXTURE_2D with RGBA8 pixels (pass nullptr to
+// only allocate) and sets the editor's standard LINEAR/REPEAT sampling.
+//
+// It deliberately allocates the level empty and then fills it with
+// glTexSubImage2D instead of handing the pixels straight to glTexImage2D:
+// the single-call form segfaults inside the AMD GL driver (atio6axx.dll,
+// 0xc0000005 at a fixed offset) on at least one setup, reproducibly and with
+// entirely valid arguments - 128x128 RGBA8, power-of-two, non-null data. The
+// allocate-then-fill path does not fault. **Route every RGBA texture upload
+// through here** rather than calling glTexImage2D with data directly.
+void glUploadTexRgba(int width, int height, const void* rgba);

@@ -84,6 +84,7 @@ add_executable(tyrax-editor
     src/texatlas.cpp
     src/texbake.cpp
     src/tmdl.cpp
+    src/treegen.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp
