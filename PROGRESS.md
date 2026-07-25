@@ -10,6 +10,78 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (173) **Authoring ergonomics: orthographic/axis views, collision-aware
+  placement, and a paste that follows the cursor.** Three requested editor
+  features, one commit each in spirit but one branch in practice - they share
+  the viewport's camera/ray plumbing.
+  **(a) Orthographic projection on a chosen axis.** `Viewport::Projection` is
+  now perspective / free ortho / the six locked axis views (Top, Bottom,
+  Front, Back, Right, Left), persisted per project as `editor.viewProjection`.
+  The front door is a **Blender-style axis gizmo** in the viewport's top-right
+  corner (`App::drawAxisGizmo`): the three world axes as coloured balls that
+  turn with the camera (positive ends stemmed and lettered, negative ends
+  hollow), click one to snap to that ortho view, click the hub to toggle
+  perspective. Drawn straight into the window's `ImDrawList` from the view
+  matrix's columns - no GL, no extra pass - and painter-sorted by view-space
+  z so the axis facing the camera is on top and wins the hover. It handles its
+  own hit test (nearest ball, front-most first) instead of an `InvisibleButton`
+  and returns "cursor is over me", which the pick / rubber-band / paste-commit
+  branches consult - otherwise every click on the widget would also clear the
+  selection, the way the pre-existing corner buttons quietly do. Backed by
+  three other entry points on the same setting: the `Proj:` button, *View >
+  Projection* and the numpad (`5` toggles, `1`/`3`/`7` + `Ctrl` pick a side -
+  the number ROW stays on the transform tools). The enabling refactor was
+  collapsing four hand-rolled cameras into one: `camView()` + `camRay()` now
+  resolve eye/basis/extents once (including the Cutscene/look-through
+  override), and `render()`, `pick()`, `terrainRaycast()` and the new
+  `placementRaycast()` all consume them. Before this, three of those four
+  rebuilt a **hardcoded 50-degree perspective ray**, so they already disagreed
+  with the image while looking through a Camera entity with a different FOV -
+  a latent bug the ortho work would have multiplied by six. Two deliberate
+  choices: the ortho depth range **straddles the eye** (a parallel view is a
+  slab through the scene - a Top view must not hide the roof it looks
+  through), and orbiting a locked axis view **seeds yaw/pitch from that axis
+  and drops to free ortho** instead of ignoring the drag or teleporting to a
+  stale angle. `pan`/`fly` read the same basis, so flying in a Top view walks
+  up the image (no view direction left to flatten onto the ground).
+  **(b) Surface snapping.** New host-only `placement.cpp` (the
+  decalproj/navmesh pattern): world AABB per object (rotation and real model
+  bounds included), `isSupport()` for what counts as a surface, and
+  `restOffsetY` - the offset that rests an object on the highest support under
+  its *footprint* (terrain sampled corners+center, plus overlapping objects'
+  tops). One `ceilingY` argument carries the whole behavioral difference
+  between "insert on top of whatever is there" (`FLT_MAX` - three boxes added
+  in one spot stack) and the `End` drop-to-floor ("nothing may lift it").
+  Wired into every add path, the paste, and *Scene > Drop to floor*; toggled by
+  *Surface snap* in the tool row / *View > Placement* (machine setting in
+  `editor.ini`, on by default). Explicitly NOT a collision solver - no sweep,
+  no penetration resolve; gizmo dragging stays free.
+  **(c) Deferred paste.** `Ctrl+V` stages the copies instead of inserting
+  them: they follow the cursor (outlined, surface-snapped, rendered from a
+  scratch list so the scene model is untouched), and a left click *or* a
+  second `Ctrl+V` commits them; `Esc` discards with no undo step. A group
+  moves as one rigid arrangement, lifted by the largest offset any member
+  needs. Pasting without ever passing over the viewport falls back to the old
+  one-unit diagonal offset. The staged set is dropped on a scene switch and on
+  project attach.
+  **Verified.** Layer 0 (clean build) plus: a scratchpad host harness over
+  `placement.cpp` covering all 11 placement rules (flat ground, sloped ground,
+  insert-inside-a-table → on top, beside/flush footprints, drop-to-floor
+  ceiling, skip list, lights and `collisionMode == 2` not being surfaces, a
+  45-degree box resting on its corner at half a diagonal, group offset, model
+  bounds with feet at the origin) - all pass; `--resave` round-trip of the new
+  `editor.viewProjection` key; and window screenshots of the editor rendering
+  `examples/showcase` in the **Top** view (terrain a perfect square, gizmo and
+  overlays correct) and `examples/script-demo` in the **Front** view (terrain
+  edge-on as a line, the box sitting on it), against a perspective capture of
+  the same project as the baseline. The axis gizmo was screenshotted zoomed in
+  (stems, letters, hollow negative ends, the hub) and the capture happened to
+  catch a live hover - white ring plus the "Top view - orthographic along the
+  +Y axis" tooltip - so the hit test and tooltip path are covered too. **Still needs a hands-on pass**: the
+  interactive paste flow and the insert snap are mouse-driven, and synthetic
+  input is off-limits on this machine - the math and the wiring are covered,
+  the *feel* (does the copy land where you expect, is the numpad muscle memory
+  right) is a human check.
 - (172) **The GROUND goes per pixel too: baked emissive light + its shadows
   move onto the terrain lightmap.** (169) fixed the props and left the biggest
   surface in the frame behind. `examples/glow` measures it: *Terrain detail* 32
