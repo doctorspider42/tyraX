@@ -78,12 +78,27 @@ while you take the viewport back.
 | Control | What it does |
 |---|---|
 | **Scale** (u/m) | Game units per real metre. At 1, walking a metre moves the camera one unit. Raise it to cover more map from the same room — a 3 m living room at scale 8 is a 24-unit crane move. |
-| **Recentre** | Anchors on the current pose: the camera jumps back to the editor's own viewpoint and re-aims along the viewport view. Everything the phone does is relative to this. Also on the phone, and bindable there. |
+| **Recentre** | Anchors on the current pose: the camera jumps back to the editor's own viewpoint and re-aims along the viewport view. Everything the phone does is relative to this. Also on the phone. |
+| **Start point** (XYZ) | Where the phone's motion starts from, editable directly when a shot wants an exact spot. *From view* moves it to the editor camera without touching the aim. |
 | **Yaw** | Which way the phone's forward points in the scene. Recentre sets it; you can trim it by hand. |
 
 Recentre reads the **orbit** camera, not the override the phone installed — so
 it always means "come back to the vantage point I framed", however far the phone
 wandered.
+
+### Choosing where a shot starts, from the phone
+
+Walking with the phone only covers the room you are standing in, so the app has a
+**Move** mode: while it is on, dragging the viewfinder flies the shot's *start
+point* across the map (with **Up** / **Down** for height) instead of doing
+nothing. The phone sends incremental deltas in the **camera's own**
+right/up/forward frame — it cannot know how the scene is oriented, so the editor
+resolves them against the live view basis, which is why "drag left" means left as
+seen on the phone's screen.
+
+Moving the start point slides the camera **bodily**: the anchor is deliberately
+left alone, so the phone's own motion stays relative to wherever the origin ends
+up. Recentre still snaps everything back to the editor's viewpoint.
 
 ### Devices without world tracking
 
@@ -169,6 +184,7 @@ in `src/wire.cpp` as `wire::makeWebSocketTransport()`, behind the same
 | `hello` | `proto` (1), `code`, `name`, `model`, `client`, `sixdof` |
 | `pose` | `ts` (seconds, the phone's own clock), `p` `[x,y,z]` metres, `q` `[x,y,z,w]`, optional `fov` (degrees) |
 | `cmd` | `cmd`: `record` \| `stop` \| `recenter` |
+| `origin` | `d` `[right, up, forward]` — slide the shot's start point by this delta, in the **camera's** frame, scene units (the phone does not know the scene's orientation) |
 | `cfg` | `maxw`, `maxh`, `fps`, `quality` |
 | `bye` | — |
 
