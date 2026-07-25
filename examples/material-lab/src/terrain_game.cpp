@@ -3121,7 +3121,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   aoAtlasTexPath.clear();
   aoMapTexture = nullptr;
   aoAtlasTexture = nullptr;
-  if (SCENE_AO_ENABLED && SCENE_AO_MAP_PATH[0]) {
+  // The terrain map carries occlusion in its alpha AND baked emissive light in
+  // its RGB, so - like the object atlas - it loads whenever either exists.
+  if ((SCENE_AO_ENABLED || SCENE_TERRAIN_LIT) && SCENE_AO_MAP_PATH[0]) {
     aoMapTexPath = SCENE_AO_MAP_PATH;
     aoMapTexture = acquireTexture(aoMapTexPath);
   }
@@ -9023,9 +9025,13 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
     // Emissive materials pool light on the ground under them too (the local
-    // emitter list is collected once for this chunk, below).
-    const V3 el = emissiveLightAt(wp, n);
-    s.x += el.x, s.y += el.y, s.z += el.z;
+    // emitter list is collected once for this chunk, below). With a terrain
+    // lightmap the SAME light arrives per pixel through the additive map pass,
+    // so adding it here as well would double it.
+    if (!SCENE_TERRAIN_LIT) {
+      const V3 el = emissiveLightAt(wp, n);
+      s.x += el.x, s.y += el.y, s.z += el.z;
+    }
     // Macro ground variation: base and layer passes both shade through here,
     // so a darker patch darkens grass and painted path together.
     if (TERRAIN_TINT_VARIATION > 0.0F) {
@@ -9183,12 +9189,15 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     }
   }
 
-  // Textured-AO map pass STs: the chunk's world XZ normalized over the
-  // terrain extent - one map covers the whole terrain, sampled per pixel.
+  // Terrain lightmap STs: the chunk's world XZ normalized over the terrain
+  // extent - one map covers the whole terrain, sampled per pixel. Both the
+  // occlusion pass and the light pass read them.
   ch.aoSts.clear();
-  if (SCENE_AO_ENABLED && aoMapTexture) {
+  if ((SCENE_AO_ENABLED || SCENE_TERRAIN_LIT) && aoMapTexture) {
     ch.aoSts.reserve(ch.vertices.size());
-    ch.aoCols.assign(ch.vertices.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
+    ch.aoCols.assign(ch.vertices.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
+    ch.emisCols.assign(ch.vertices.size(),
+                       Color(128.0F, 128.0F, 128.0F, 128.0F));
     const float invW = 1.0F / TERRAIN_WIDTH, invD = 1.0F / TERRAIN_DEPTH;
     for (const Vec4& v : ch.vertices)
       ch.aoSts.push_back(
@@ -9241,9 +9250,9 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.bag->bboxVersion = ++g_bboxStamp;
   }
 
-  // Textured-AO map pass bag: the AO map alpha-blended over base + layers
-  // (black texture + alpha-over = per-pixel darkening).
-  if (!ch.aoSts.empty() && aoMapTexture && layerInfoBag) {
+  // Occlusion pass: the map alpha-blended over base + layers (black vertex
+  // color + alpha-over = per-pixel darkening).
+  if (!ch.aoSts.empty() && aoMapTexture && layerInfoBag && SCENE_AO_ENABLED) {
     if (!ch.aoBag) {
       ch.aoColorBag = std::make_unique<StaPipColorBag>();
       ch.aoBag = std::make_unique<StaPipBag>();
@@ -9260,6 +9269,28 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.aoBag->bboxVersion = ++g_bboxStamp;
   } else {
     ch.aoBag.reset();
+  }
+  // Emissive-light pass: the SAME map, white vertex color, additive and
+  // unfogged (docs/emissive-materials.md). This is what takes the light pools
+  // off the heightmap's vertices - the grid is one vertex every terrain cell,
+  // far too coarse for a gradient this wide.
+  if (!ch.aoSts.empty() && aoMapTexture && lightAddInfoBag && SCENE_TERRAIN_LIT) {
+    if (!ch.emisBag) {
+      ch.emisColorBag = std::make_unique<StaPipColorBag>();
+      ch.emisBag = std::make_unique<StaPipBag>();
+      ch.emisBag->lighting = nullptr;
+    }
+    ch.emisBag->info = lightAddInfoBag.get();
+    ch.emisColorBag->many = ch.emisCols.data();
+    ch.emisBag->color = ch.emisColorBag.get();
+    ch.emisBag->vertices = ch.vertices.data();
+    ch.emisBag->count = static_cast<u32>(ch.vertices.size());
+    ch.emisTexBag.texture = aoMapTexture;
+    ch.emisTexBag.coordinates = ch.aoSts.data();
+    ch.emisBag->texture = &ch.emisTexBag;
+    ch.emisBag->bboxVersion = ++g_bboxStamp;
+  } else {
+    ch.emisBag.reset();
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.
@@ -9547,8 +9578,10 @@ void TerrainGame::renderTerrain() {
     // adjacent also keeps the texture cache warm per chunk).
     for (TerrainChunk::LayerPass& lp : ch.layerPasses)
       if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
-    // Textured AO: the map pass darkens base + layers per pixel, last.
+    // Terrain lightmap, last: the occlusion pass darkens base + layers per
+    // pixel, then the light pass adds the baked pools on top.
     if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
+    if (ch.emisBag && ch.emisBag->count > 0) stapip.core.render(ch.emisBag.get());
   }
 }
 

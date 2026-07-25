@@ -61,11 +61,11 @@ throws a rectangle, not its silhouette — but the **edge is soft**: the plate i
 an area source, so the pillar catches the part of it that reaches around the
 wall, and the band widens the further the surface is from the caster.
 
-That softening lands on the pillars (primitives, per texel through the scene
-lightmap) and not on the ground under them: **terrain is on the per-vertex
-path, which keeps a single hard shadow ray** — look at the pit's edge and you
-can see the 2-unit terrain grid stepping through it. The reason is in
-[docs/emissive-materials.md](../../docs/emissive-materials.md).
+The **ground** carries it per texel too. Its light used to land on the heightmap
+vertices — one every 2 world units here — so the pool was a handful of huge flat
+facets with the triangle split showing through. It now rides the terrain map's
+RGB channels at 4 texels per world unit, 8× finer, and the pool has a real
+gradient. See [docs/emissive-materials.md](../../docs/emissive-materials.md).
 
 All of it is baked into vertex colors at scene load. There is no runtime light
 here at all.

@@ -578,14 +578,23 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
-    // Experimental textured AO: the terrain AO map blended over the base
-    // (and the layers). Shares the chunk's vertices; own extent-normalized
-    // STs, flat 128 colors (the map's alpha carries the darkening).
+    // The terrain lightmap, read TWICE over the base (and the layers) from one
+    // texture, exactly like the primitive atlas: the vertex color of each pass
+    // picks the channels it can see. Shares the chunk's vertices and one set of
+    // extent-normalized STs.
+    //   aoCols  = BLACK -> only the map's ALPHA survives, and alpha-over is
+    //             then an exact per-pixel multiply. Black is load-bearing: a
+    //             white vertex color would drag the light in RGB into it.
+    //   emisCols = WHITE -> the map's RGB, added straight onto the frame.
     std::vector<Tyra::Vec4> aoSts;
     std::vector<Tyra::Color> aoCols;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
+    std::vector<Tyra::Color> emisCols;
+    std::unique_ptr<Tyra::StaPipBag> emisBag;
+    std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
+    Tyra::StaPipTextureBag emisTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -1358,14 +1367,23 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
-    // Experimental textured AO: the terrain AO map blended over the base
-    // (and the layers). Shares the chunk's vertices; own extent-normalized
-    // STs, flat 128 colors (the map's alpha carries the darkening).
+    // The terrain lightmap, read TWICE over the base (and the layers) from one
+    // texture, exactly like the primitive atlas: the vertex color of each pass
+    // picks the channels it can see. Shares the chunk's vertices and one set of
+    // extent-normalized STs.
+    //   aoCols  = BLACK -> only the map's ALPHA survives, and alpha-over is
+    //             then an exact per-pixel multiply. Black is load-bearing: a
+    //             white vertex color would drag the light in RGB into it.
+    //   emisCols = WHITE -> the map's RGB, added straight onto the frame.
     std::vector<Tyra::Vec4> aoSts;
     std::vector<Tyra::Color> aoCols;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
+    std::vector<Tyra::Color> emisCols;
+    std::unique_ptr<Tyra::StaPipBag> emisBag;
+    std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
+    Tyra::StaPipTextureBag emisTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -2617,12 +2635,14 @@ void emisCollectLocal(float cx, float cy, float cz, float radius,
  *
  * The divergence is written down in docs/emissive-materials.md and it is a
  * resolution argument, not a laziness one: this path bakes into VERTEX colors,
- * whose own spatial resolution is a terrain grid cell or a box face's four
- * corners - far coarser than the penumbra it would resolve. It also runs on the
+ * whose own spatial resolution is a box face's four corners or a terrain grid
+ * cell - far coarser than the penumbra it would resolve. It also runs on the
  * EE at scene load and on every runtime spawn/rebuild: measured on examples/glow
  * in PCSX2, taking this loop to 8 rays cost +200 ms of scene load (1160 -> 1360),
  * and the same multiplier lands mid-frame on every spawn and static-batch
- * rebuild. The per-texel atlas pays neither price - it bakes on the host. */
+ * rebuild. The per-texel bakes pay neither price - they run on the host. What
+ * is left here: imported models, spawned clones, physics bodies, textured
+ * receivers, and terrain that is textured (SCENE_TERRAIN_LIT off). */
 V3 emissiveLightAt(const V3& wp, const V3& n) {
   V3 add = {0.0F, 0.0F, 0.0F};
   for (const EmisLightData* em : g_emisLocal) {
@@ -5204,7 +5224,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   aoAtlasTexPath.clear();
   aoMapTexture = nullptr;
   aoAtlasTexture = nullptr;
-  if (SCENE_AO_ENABLED && SCENE_AO_MAP_PATH[0]) {
+  // The terrain map carries occlusion in its alpha AND baked emissive light in
+  // its RGB, so - like the object atlas - it loads whenever either exists.
+  if ((SCENE_AO_ENABLED || SCENE_TERRAIN_LIT) && SCENE_AO_MAP_PATH[0]) {
     aoMapTexPath = SCENE_AO_MAP_PATH;
     aoMapTexture = acquireTexture(aoMapTexPath);
   }
@@ -11106,9 +11128,13 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
     // Emissive materials pool light on the ground under them too (the local
-    // emitter list is collected once for this chunk, below).
-    const V3 el = emissiveLightAt(wp, n);
-    s.x += el.x, s.y += el.y, s.z += el.z;
+    // emitter list is collected once for this chunk, below). With a terrain
+    // lightmap the SAME light arrives per pixel through the additive map pass,
+    // so adding it here as well would double it.
+    if (!SCENE_TERRAIN_LIT) {
+      const V3 el = emissiveLightAt(wp, n);
+      s.x += el.x, s.y += el.y, s.z += el.z;
+    }
     // Macro ground variation: base and layer passes both shade through here,
     // so a darker patch darkens grass and painted path together.
     if (TERRAIN_TINT_VARIATION > 0.0F) {
@@ -11266,12 +11292,15 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     }
   }
 
-  // Textured-AO map pass STs: the chunk's world XZ normalized over the
-  // terrain extent - one map covers the whole terrain, sampled per pixel.
+  // Terrain lightmap STs: the chunk's world XZ normalized over the terrain
+  // extent - one map covers the whole terrain, sampled per pixel. Both the
+  // occlusion pass and the light pass read them.
   ch.aoSts.clear();
-  if (SCENE_AO_ENABLED && aoMapTexture) {
+  if ((SCENE_AO_ENABLED || SCENE_TERRAIN_LIT) && aoMapTexture) {
     ch.aoSts.reserve(ch.vertices.size());
-    ch.aoCols.assign(ch.vertices.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
+    ch.aoCols.assign(ch.vertices.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
+    ch.emisCols.assign(ch.vertices.size(),
+                       Color(128.0F, 128.0F, 128.0F, 128.0F));
     const float invW = 1.0F / TERRAIN_WIDTH, invD = 1.0F / TERRAIN_DEPTH;
     for (const Vec4& v : ch.vertices)
       ch.aoSts.push_back(
@@ -11324,9 +11353,9 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.bag->bboxVersion = ++g_bboxStamp;
   }
 
-  // Textured-AO map pass bag: the AO map alpha-blended over base + layers
-  // (black texture + alpha-over = per-pixel darkening).
-  if (!ch.aoSts.empty() && aoMapTexture && layerInfoBag) {
+  // Occlusion pass: the map alpha-blended over base + layers (black vertex
+  // color + alpha-over = per-pixel darkening).
+  if (!ch.aoSts.empty() && aoMapTexture && layerInfoBag && SCENE_AO_ENABLED) {
     if (!ch.aoBag) {
       ch.aoColorBag = std::make_unique<StaPipColorBag>();
       ch.aoBag = std::make_unique<StaPipBag>();
@@ -11343,6 +11372,28 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.aoBag->bboxVersion = ++g_bboxStamp;
   } else {
     ch.aoBag.reset();
+  }
+  // Emissive-light pass: the SAME map, white vertex color, additive and
+  // unfogged (docs/emissive-materials.md). This is what takes the light pools
+  // off the heightmap's vertices - the grid is one vertex every terrain cell,
+  // far too coarse for a gradient this wide.
+  if (!ch.aoSts.empty() && aoMapTexture && lightAddInfoBag && SCENE_TERRAIN_LIT) {
+    if (!ch.emisBag) {
+      ch.emisColorBag = std::make_unique<StaPipColorBag>();
+      ch.emisBag = std::make_unique<StaPipBag>();
+      ch.emisBag->lighting = nullptr;
+    }
+    ch.emisBag->info = lightAddInfoBag.get();
+    ch.emisColorBag->many = ch.emisCols.data();
+    ch.emisBag->color = ch.emisColorBag.get();
+    ch.emisBag->vertices = ch.vertices.data();
+    ch.emisBag->count = static_cast<u32>(ch.vertices.size());
+    ch.emisTexBag.texture = aoMapTexture;
+    ch.emisTexBag.coordinates = ch.aoSts.data();
+    ch.emisBag->texture = &ch.emisTexBag;
+    ch.emisBag->bboxVersion = ++g_bboxStamp;
+  } else {
+    ch.emisBag.reset();
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.
@@ -11630,8 +11681,10 @@ void TerrainGame::renderTerrain() {
     // adjacent also keeps the texture cache warm per chunk).
     for (TerrainChunk::LayerPass& lp : ch.layerPasses)
       if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
-    // Textured AO: the map pass darkens base + layers per pixel, last.
+    // Terrain lightmap, last: the occlusion pass darkens base + layers per
+    // pixel, then the light pass adds the baked pools on top.
     if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
+    if (ch.emisBag && ch.emisBag->count > 0) stapip.core.render(ch.emisBag.get());
   }
 }
 )";
@@ -13945,6 +13998,9 @@ static std::string aoDataHeader(const Project& p) {
     };
     std::vector<bool> hasAtlas(sceneCount, false);
     std::vector<bool> hasMap(sceneCount, false);
+    // Per scene: the terrain map's RGB has baked light, so the game draws the
+    // additive terrain pass AND must leave that light out of the vertex bake.
+    std::vector<bool> terrainLit(sceneCount, false);
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
         const ProjectSettings srs = project::resolvedSettings(p, sc);
@@ -13977,15 +14033,20 @@ static std::string aoDataHeader(const Project& p) {
                 out << (r ? ", " : "") << (atlas.lit[r] ? 1 : 0);
             out << "};\n";
         }
-        // the terrain map only ships when it has any content (texbake skips
-        // an all-open map the same way - one deterministic bake, two callers)
-        if (!srs.aoEnabled) continue;
+        // The terrain map carries occlusion (alpha) AND emissive light (RGB),
+        // so like the atlas it is not AO-gated - it ships whenever either has
+        // content (texbake skips an empty one the same way: one deterministic
+        // bake, two callers).
+        const aobake::TerrainLightInput tli =
+            aobake::terrainLightInput(p, sc, aabbFn);
+        if (!srs.aoEnabled && tli.emitters.empty()) continue;
         const aobake::AoImage map = aobake::terrainAOMap(
             sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
             (float)sc.terrain.depth,
             aobake::collectOccluders(sc.objects, aabbFn), srs.aoRadius,
-            srs.aoStrength);
+            srs.aoEnabled ? srs.aoStrength : 0.0f, &tli.emitters, tli.tint);
         hasMap[si] = map.size > 0;
+        terrainLit[si] = map.size > 0 && !map.light.empty();
     }
     out << "static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {";
     for (int si = 0; si < sceneCount; ++si)
@@ -14018,7 +14079,12 @@ static std::string aoDataHeader(const Project& p) {
             << (hasMap[si] ? ("\"aomap/scene" + std::to_string(si) + ".png\"")
                            : "\"\"");
     out << "};\n"
+           "static const unsigned char SCENE_TERRAIN_LITS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << (terrainLit[si] ? 1 : 0);
+    out << "};\n"
            "}  // namespace\n\n"
+           "#define SCENE_TERRAIN_LIT SCENE_TERRAIN_LITS[g_activeScene]\n"
            "#define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]\n"
            "#define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]\n"
            "#define SCENE_EMIS SCENE_EMIS_TABLES[g_activeScene]\n"

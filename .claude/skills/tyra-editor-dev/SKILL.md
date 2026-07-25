@@ -432,11 +432,23 @@ non-RGBA formats (the R32F heightmap) do the same two steps inline.
   (measured: 8 rays = +200 ms of EE scene load on examples/glow, and the vertex
   grid cannot resolve a penumbra anyway) - the ONE place these three twins
   diverge, written down in docs/emissive-materials.md.
-- **Atlas region sizing is importance-weighted**: a 4×4 probe grid per region
-  estimates the signal it will carry and the texel density scales with
-  `sqrt(peak)`, then a bisection raises the density until the image is full.
-  The atlas DIMENSION still comes from the unweighted area on purpose - VRAM
-  must not move when the weighting does.
+- **Atlas region sizing is importance-weighted, per AXIS**: a 6×6 probe grid
+  per region gives both the peak signal (sets the region's AREA, density
+  `sqrt(peak)`) and the signal's gradient along each of its two axes (splits
+  that area between them - a long wall's height needs density its length does
+  not). A bisection then raises the density until the image is full. The atlas
+  DIMENSION still comes from the unweighted area on purpose - VRAM must not
+  move when the weighting does. Measured dead end: simply RAISING the old flat
+  128-texel per-axis cap made things worse (it packs badly and spends the win
+  on the flat axis); the cap was not the problem, isotropic density was.
+- **The terrain takes the same treatment through the terrain AO map**, whose
+  RGB channels carry the light while the alpha keeps the occlusion
+  (`SCENE_TERRAIN_LIT` gates the extra additive chunk pass AND tells the vertex
+  bake to leave the light out - miss the second half and it lands twice). Two
+  traps: the occlusion pass's vertex color MUST be black once RGB is populated
+  (white drags the light into the multiply), and a TEXTURED terrain has to stay
+  on the vertex path for the same reason textured receivers do (a flat add
+  blows out dark texels).
 - **Facing terms**: `max(0, N.L)` is wrong for anything standing in for an
   AREA source - it lights one face of a box fully and its neighbour not at all,
   seaming on the corner. The occluder bake uses a linear wrap

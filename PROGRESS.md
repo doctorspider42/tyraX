@@ -10,6 +10,55 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (173) **Baked light per texel on the GROUND too, and a texel budget that
+  follows the gradient - not just the peak.** Follow-up to (172), from the user
+  looking at station 4 of `examples/glow` and saying the lights were still
+  square. They were, in two different ways, and only one of them was the atlas.
+  **(a) The ground was never in the atlas at all.** Terrain takes its emissive
+  light on the heightmap vertices - one every terrain cell, **2 world units** in
+  that scene - so a light pool was a handful of enormous Gouraud facets with the
+  diagonal triangle split showing straight through. It now rides the terrain AO
+  map, which was already a resident RGBA32 texture with **nothing in its RGB**:
+  `A` = occlusion, `RGB` = light, read by the same two passes the primitive
+  atlas uses. 256² over a 64×64 terrain = **4 texels per world unit against 0.5
+  vertices per world unit, 8× finer**, for **zero extra VRAM** (the texture was
+  already loaded) and one more blended pass per visible chunk. Two traps paid
+  for in advance: the occlusion pass's vertex color had to flip from white to
+  **black** (harmless while RGB was empty, but a white vertex color drags the
+  light into what is supposed to be an exact per-pixel multiply), and
+  `SCENE_TERRAIN_LIT` has to gate BOTH the new pass and the `emissiveLightAt`
+  call in the chunk shader, or the light lands twice. A **textured** terrain
+  stays on the vertex path, the same exclusion textured receivers already have -
+  a flat additive pass blows out a texture's dark texels.
+  **(b) Texel density is now per AXIS.** The obvious fix for the alley wall -
+  raise the flat 128-texel per-region cap that was binding on its long axis -
+  was tried first and **measured worse**: 42528 → 32722 texels in use, and the
+  worst-direction step on the lit face got bigger, because huge regions pack
+  badly and the extra resolution went onto the axis with no gradient on it. The
+  cap was not the problem; isotropic density was. The 6×6 pre-pass now also
+  measures how fast the signal moves along each of the region's two axes and
+  splits the area it earned between them (area still ∝ peak; only the aspect
+  moves, clamped to 2×).
+  **Numbers** (`examples/glow`, host harness, same 256² atlas). Blockiness is
+  the mean step between neighbouring texels in the region's *worse* direction:
+  the lit alley wall `s4-wall-left` r0 went **5.70 → 2.53 → 2.26** across
+  (original → (172) → now) at **6.0×6.0 → 13.8×7.1 → 15.6×7.8** texels per world
+  unit; `s3-shadow-wall` r1 **7.80 → 3.20 → 2.99**. Note the last step also uses
+  FEWER texels than (172) did (39068 vs 42528) - the win is spending them on the
+  right axis, not spending more.
+  **Verified in PCSX2** (software renderer, PAL): **50 FPS holds** with the
+  extra terrain pass (EE 37%, GS 8%). Before/after from a frozen camera show the
+  ground's flat olive facets replaced by a continuous falloff. Only `glow` has
+  a lit terrain among the examples (`SCENE_TERRAIN_LITS = {1}`, every other
+  example `{0}`), so nothing else changes behaviour.
+  *Testing lesson, cost me a bogus A/B:* freezing the camera with
+  `walkSpeed`/`lookSpeed` 0 is **not enough** when the project has
+  *Keyboard & mouse controls* on - PCSX2 binds the host pointer to an emulated
+  USB mouse and any cursor movement turns the view. The first comparison
+  reported "53% of pixels brighter"; with `keyboardMouse` off in the fixture the
+  same pair is 6.3% brighter / 10.1% darker, mean **−1.35** - a redistribution,
+  not a brightening. Turn the preference off in any screenshot fixture.
+
 - (172) **Scene lightmap: soft shadows from area emitters, and a texel budget
   that follows the light.** Two independent improvements to the existing bake
   (`aobake.cpp` + its two twins), both measured rather than eyeballed.

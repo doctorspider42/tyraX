@@ -62,14 +62,23 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
-    // Experimental textured AO: the terrain AO map blended over the base
-    // (and the layers). Shares the chunk's vertices; own extent-normalized
-    // STs, flat 128 colors (the map's alpha carries the darkening).
+    // The terrain lightmap, read TWICE over the base (and the layers) from one
+    // texture, exactly like the primitive atlas: the vertex color of each pass
+    // picks the channels it can see. Shares the chunk's vertices and one set of
+    // extent-normalized STs.
+    //   aoCols  = BLACK -> only the map's ALPHA survives, and alpha-over is
+    //             then an exact per-pixel multiply. Black is load-bearing: a
+    //             white vertex color would drag the light in RGB into it.
+    //   emisCols = WHITE -> the map's RGB, added straight onto the frame.
     std::vector<Tyra::Vec4> aoSts;
     std::vector<Tyra::Color> aoCols;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
+    std::vector<Tyra::Color> emisCols;
+    std::unique_ptr<Tyra::StaPipBag> emisBag;
+    std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
+    Tyra::StaPipTextureBag emisTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal

@@ -41,8 +41,10 @@ static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {nullptr};
 static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {nullptr};
 static const char* const SCENE_AO_ATLAS_PATHS[] = {""};
 static const char* const SCENE_AO_MAP_PATHS[] = {""};
+static const unsigned char SCENE_TERRAIN_LITS[] = {0};
 }  // namespace
 
+#define SCENE_TERRAIN_LIT SCENE_TERRAIN_LITS[g_activeScene]
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
 #define SCENE_AO_OCC_COUNT SCENE_AO_OCC_COUNTS[g_activeScene]
 #define SCENE_EMIS SCENE_EMIS_TABLES[g_activeScene]

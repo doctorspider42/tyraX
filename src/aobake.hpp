@@ -147,21 +147,47 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
 
 // --- the AO textures (how the bake ships) -----------------------------------
 
-// A square, power-of-two occlusion image; alpha = strength * occlusion
-// (255 = darken fully). Written as a black RGBA PNG whose alpha the GS
-// alpha-over blend turns into an exact per-pixel multiply (Cd * (1 - a)).
+// A square, power-of-two terrain image. alpha = strength * occlusion (255 =
+// darken fully), read by an alpha-over pass which is then an exact per-pixel
+// multiply (Cd * (1 - a)). RGB = baked emissive light in framebuffer units,
+// read by a second, ADDITIVE pass - the same two-passes-one-texture trick the
+// primitive atlas uses (SceneLightAtlas), and the reason the terrain no longer
+// has to carry the light on its heightmap-resolution vertices.
 struct AoImage {
     int size = 0;  // 0 = nothing to bake
     std::vector<uint8_t> alpha;
+    std::vector<uint8_t> light;  // size*size*3, empty = no light channel
 };
 
 // Terrain AO map covering the full terrain extent: per-texel heightmap
 // self-occlusion (the same horizon scan as terrainAO, on bilinear heights)
 // plus the occluder contact term.
+// strength 0 bakes no alpha (the AO preference is off) but still produces the
+// image when `emitters` has content - the light channel is not AO-gated, just
+// as the primitive atlas isn't. `occs` doubles as the shadow-caster list for
+// that light; `recvTint` is the terrain material's Kd, folded in because the
+// additive pass adds a flat color and cannot pick the surface up on its own.
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs, float radiusWorld,
-                     float strength);
+                     float strength,
+                     const std::vector<Emitter>* emitters = nullptr,
+                     const float* recvTint = nullptr);
+
+// Whether a scene's terrain may take its emissive light PER TEXEL, and with
+// what surface tint. Resolved identically by texbake and by codegen - the
+// deterministic-bake rule: two callers, one answer.
+// Empty `emitters` means the terrain keeps the per-vertex path. That happens
+// when there are no emitters at all, or when the terrain is TEXTURED: the
+// additive pass adds a flat color, which would blow out a texture's dark
+// texels, while the vertex path multiplies the texture instead (the same
+// deliberate exclusion the atlas makes for textured receivers).
+struct TerrainLightInput {
+    std::vector<Emitter> emitters;
+    float tint[3] = {1, 1, 1};
+};
+TerrainLightInput terrainLightInput(const Project& p, const SceneData& sc,
+                                    const ModelAabbFn& modelAabb);
 
 // One atlas region: normalized UV rect (inset by half a texel against
 // bilinear bleed). A primitive's base-texture UVs map into it 1:1.

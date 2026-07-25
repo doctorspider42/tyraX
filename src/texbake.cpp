@@ -591,18 +591,22 @@ std::string bake(const Project& p,
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             const SceneData& sc = p.scenes[si];
             const ProjectSettings srs = project::resolvedSettings(p, sc);
-            // The terrain map is occlusion only; the object atlas also carries
-            // baked emissive light, so it is NOT gated on the AO preference.
-            if (srs.aoEnabled) {
+            // Both images carry occlusion in the alpha AND baked emissive
+            // light in the RGB, so neither is gated on the AO preference -
+            // a scene can have glowing lamps and no ambient occlusion.
+            const aobake::TerrainLightInput tli =
+                aobake::terrainLightInput(p, sc, aabbFn);
+            if (srs.aoEnabled || !tli.emitters.empty()) {
                 const aobake::AoImage map = aobake::terrainAOMap(
                     sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                     (float)sc.terrain.depth,
                     aobake::collectOccluders(sc.objects, aabbFn), srs.aoRadius,
-                    srs.aoStrength);
+                    srs.aoEnabled ? srs.aoStrength : 0.0f, &tli.emitters,
+                    tli.tint);
                 if (map.size > 0 &&
                     writeAlphaPng(
                         baked / "aomap" / ("scene" + std::to_string(si) + ".png"),
-                        map.size, map.alpha))
+                        map.size, map.alpha, map.light))
                     ++aoTexCount;
             }
             const aobake::SceneLightAtlas atlas =

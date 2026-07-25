@@ -694,12 +694,31 @@ int pow2Up(int v) {
 
 }  // namespace
 
+TerrainLightInput terrainLightInput(const Project& p, const SceneData& sc,
+                                    const ModelAabbFn& modelAabb) {
+    TerrainLightInput out;
+    const ProjectSettings rs = project::resolvedSettings(p, sc);
+    GlowCache cache;
+    const MaterialGlow& base = materialGlow(p.dir, rs.terrainMaterial, cache);
+    // A textured ground keeps the vertex bake - see the header.
+    if (base.textured) return out;
+    for (const TerrainLayer& l : sc.terrainLayers)
+        if (materialGlow(p.dir, l.material, cache).textured) return out;
+    for (int k = 0; k < 3; ++k) out.tint[k] = base.kd[k];
+    out.emitters = collectEmitters(p.dir, sc.objects, modelAabb);
+    return out;
+}
+
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs, float radiusWorld,
-                     float strength) {
+                     float strength,
+                     const std::vector<Emitter>* emitters,
+                     const float* recvTint) {
     AoImage out;
-    if (width <= 0 || depth <= 0 || strength <= 0.0f) return out;
+    const bool aoOn = strength > 0.0f;
+    const bool lightOn = emitters && !emitters->empty();
+    if (width <= 0 || depth <= 0 || (!aoOn && !lightOn)) return out;
     const bool hasHeights = w >= 2 && d >= 2 && (int)heights.size() == w * d;
     // ~4 texels per terrain unit, power of two. Capped at 256: the maps ship
     // as RGBA32 (see texbake - the engine's palettized alpha path can't carry
@@ -709,6 +728,18 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     if (size > 256) size = 256;
     out.size = size;
     out.alpha.assign((size_t)size * size, 0);
+    if (lightOn) out.light.assign((size_t)size * size * 3, 0);
+    const float tint[3] = {recvTint ? recvTint[0] : 1.0f,
+                           recvTint ? recvTint[1] : 1.0f,
+                           recvTint ? recvTint[2] : 1.0f};
+    // Every Cast-shadow solid in the scene can block that light. The terrain
+    // is not an object, so there is no receiver shape to exclude here; the
+    // emitter's own is skipped inside emitterLightAt.
+    std::vector<const Occluder*> blockers;
+    if (lightOn) {
+        blockers.reserve(occs.size());
+        for (const Occluder& oc : occs) blockers.push_back(&oc);
+    }
 
     const float stepX = hasHeights ? width / (w - 1) : width;
     const float stepZ = hasHeights ? depth / (d - 1) : depth;
@@ -763,15 +794,37 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 }
             }
             const float wp[3] = {x, h0, z};
-            for (const Occluder& oc : occs)
-                occ += occluderOcclusionAt(oc, wp, n, radiusWorld);
-            if (occ > 1.0f) occ = 1.0f;
-            const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
-            out.alpha[(size_t)j * size + i] = a;
-            any |= (a != 0);
+            if (aoOn) {
+                for (const Occluder& oc : occs)
+                    occ += occluderOcclusionAt(oc, wp, n, radiusWorld);
+                if (occ > 1.0f) occ = 1.0f;
+                const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
+                out.alpha[(size_t)j * size + i] = a;
+                any |= (a != 0);
+            }
+            // Emissive light, folded with the ground's own Kd and dithered the
+            // same way the atlas dithers it - a light pool is a wide,
+            // low-amplitude ramp and 8 bits alone turn it into plateaus.
+            if (lightOn) {
+                float add[3] = {0, 0, 0};
+                for (const Emitter& em : *emitters) {
+                    float l[3];
+                    emitterLightAt(em, wp, n, l, &blockers);
+                    for (int k = 0; k < 3; ++k) add[k] += l[k];
+                }
+                const float dz = bayerDither(i, j);
+                for (int k = 0; k < 3; ++k) {
+                    float v = 255.0f * add[k] * tint[k] + dz;
+                    if (v <= 0.0f) continue;  // stays 0, no dither noise
+                    if (v > 255.0f) v = 255.0f;
+                    const uint8_t b = (uint8_t)(v + 0.5f);
+                    out.light[((size_t)j * size + i) * 3 + k] = b;
+                    any |= (b != 0);
+                }
+            }
         }
     }
-    if (!any) out.size = 0, out.alpha.clear();
+    if (!any) out.size = 0, out.alpha.clear(), out.light.clear();
     return out;
 }
 
@@ -919,7 +972,7 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         int obj, idx;
         int px, py, w, h;
         float su, sv;
-        float weight;
+        float wu, wv;  // per-AXIS density weights (see the pre-pass)
     };
     std::vector<Region> regions;
     GlowCache glowCache;
@@ -937,7 +990,7 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         // per-vertex path, where the floor wins.
         if (materialGlow(p.dir, o.materialPath, glowCache).glows()) continue;
         for (int r = 0; r < rc; ++r) {
-            Region rg{oi, r, 0, 0, 0, 0, 0.0f, 0.0f, 1.0f};
+            Region rg{oi, r, 0, 0, 0, 0, 0.0f, 0.0f, 1.0f, 1.0f};
             regionWorldSize(o.type, r, o.scale, rg.su, rg.sv);
             regions.push_back(rg);
         }
@@ -1051,10 +1104,11 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     // A coarse probe grid says how strong a signal each region can actually
     // carry, and the texel density is scaled by its square root, so the AREA a
     // region gets is proportional to what it receives.
-    constexpr int kProbe = 4;             // kProbe^2 probes per region
+    constexpr int kProbe = 6;             // kProbe^2 probes per region
     constexpr float kMinWeight = 0.12f;   // floor: a region never disappears
     {
         int lastObj = -1;
+        std::vector<float> sig((size_t)kProbe * kProbe, 0.0f);
         for (Region& rg : regions) {
             if (rg.obj != lastObj) prepareObject(lastObj = rg.obj);
             const SceneObject& o = sc.objects[rg.obj];
@@ -1064,32 +1118,68 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                     float wp[3], n[3];
                     surfaceAt(o, rg.idx, (i + 0.5f) / kProbe, (j + 0.5f) / kProbe,
                               wp, n);
-                    float sig = 0.0f;
-                    if (aoOn) sig = rs.aoStrength * occlusionAt(wp, n);
+                    float s = 0.0f;
+                    if (aoOn) s = rs.aoStrength * occlusionAt(wp, n);
                     if (!recvTextured && !localEm.empty()) {
                         float add[3];
                         lightAt(wp, n, add);
                         for (int k = 0; k < 3; ++k) {
                             const float lv = add[k] * recvTint[k];
-                            if (lv > sig) sig = lv;
+                            if (lv > s) s = lv;
                         }
                     }
-                    if (sig > peak) peak = sig;
+                    sig[(size_t)j * kProbe + i] = s;
+                    if (s > peak) peak = s;
                 }
             if (peak > 1.0f) peak = 1.0f;
-            rg.weight = peak > 0.002f ? std::max(kMinWeight, std::sqrt(peak))
-                                      : kMinWeight;
+            const float w = peak > 0.002f ? std::max(kMinWeight, std::sqrt(peak))
+                                          : kMinWeight;
+            // How fast the signal moves ALONG each axis, per world unit. A
+            // region's two axes rarely deserve the same density: an alley wall
+            // 18 units long and 5 high carries a steep ramp up its height and a
+            // lazy one down its length, and spending texels uniformly wastes
+            // them on the lazy axis. Sizing by area alone (or capping both axes
+            // at one number) got this backwards - measured.
+            float du = 0.0f, dv = 0.0f;
+            for (int j = 0; j < kProbe; ++j)
+                for (int i = 0; i + 1 < kProbe; ++i)
+                    du += std::fabs(sig[(size_t)j * kProbe + i + 1] -
+                                    sig[(size_t)j * kProbe + i]);
+            for (int j = 0; j + 1 < kProbe; ++j)
+                for (int i = 0; i < kProbe; ++i)
+                    dv += std::fabs(sig[(size_t)(j + 1) * kProbe + i] -
+                                    sig[(size_t)j * kProbe + i]);
+            const float spanU = std::max(rg.su, 0.001f) / kProbe;
+            const float spanV = std::max(rg.sv, 0.001f) / kProbe;
+            const float gu = du / (kProbe * (kProbe - 1)) / spanU + 1e-5f;
+            const float gv = dv / (kProbe * (kProbe - 1)) / spanV + 1e-5f;
+            // Shift density toward the steeper axis while KEEPING the area the
+            // peak earned (wu * wv is w^2 either way), and clamp the shift so a
+            // near-flat axis never collapses.
+            float k = std::sqrt(std::sqrt(gu / gv));
+            if (k < 0.5f) k = 0.5f;
+            if (k > 2.0f) k = 2.0f;
+            rg.wu = w * k;
+            rg.wv = w / k;
         }
     }
 
     // --- sizing + packing ---------------------------------------------------
     constexpr float kTpu = 6.0f;  // texels per world unit at density 1
+    // Interior cap per region dimension. 128 while ESTIMATING the atlas
+    // dimension, so that estimate matches what it has always been; once the
+    // dimension is fixed the only real limit is the image itself (+2 padding).
+    // The old flat 128 bit hardest exactly where it hurt most - a long alley
+    // wall would sit at half the density along its length while its short axis
+    // had room to spare.
+    int dimCap = 128;
     auto sizeAll = [&](float g, bool weighted) {
         long long area = 0;
         for (Region& rg : regions) {
-            const float d = g * (weighted ? rg.weight : 1.0f);
-            rg.w = std::min(128, std::max(2, (int)(rg.su * kTpu * d + 0.5f))) + 2;
-            rg.h = std::min(128, std::max(2, (int)(rg.sv * kTpu * d + 0.5f))) + 2;
+            const float du = g * (weighted ? rg.wu : 1.0f);
+            const float dv = g * (weighted ? rg.wv : 1.0f);
+            rg.w = std::min(dimCap, std::max(2, (int)(rg.su * kTpu * du + 0.5f))) + 2;
+            rg.h = std::min(dimCap, std::max(2, (int)(rg.sv * kTpu * dv + 0.5f))) + 2;
             area += (long long)rg.w * rg.h;
         }
         return area;
@@ -1123,6 +1213,7 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         pow2Up((int)std::ceil(std::sqrt((double)sizeAll(1.0f, false) * 1.35)));
     if (atlasSize < 64) atlasSize = 64;
     if (atlasSize > 256) atlasSize = 256;
+    dimCap = atlasSize - 2;  // a region + its padding ring must still fit
     // Largest weighted density that still packs, by a fixed-step bisection
     // (deterministic, and it uses the whole image instead of leaving the ~60%
     // a power-of-two round-up used to waste).
