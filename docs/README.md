@@ -55,6 +55,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   **bright-pass threshold** and **spread** that turn the frame-wide soft glow
   into a halo, and **baked emissive light** - the emitter lighting the terrain,
   walls and props around it, the ambient-occlusion machinery in reverse.
+- [Asset Browser](asset-browser.md) - the file manager over the project's
+  `res/` tree: folders, thumbnails, type filters and search, the reference
+  census that says who uses an asset (and which ones nothing does), moving
+  files with their references following, drag & drop into the scene, safe
+  renames, and why a texture never moves away from its material.
 - [Materials: model preview, duplication and texture painting](material-painting.md) -
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern

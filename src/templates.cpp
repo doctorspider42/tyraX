@@ -20362,7 +20362,7 @@ std::vector<File> bakeStaticModels(const Project& p,
             continue;
         }
 
-        // Artist-authored LOD meshes (Assets > the model's LOD... button):
+        // Artist-authored LOD meshes (the Asset Browser's LOD... button):
         // each tier is its own .obj that must keep the model's material set
         // and be smaller than the tier before it. A tier that fails either
         // check drops the whole custom chain back to auto-decimation, so a

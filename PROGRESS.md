@@ -9871,3 +9871,93 @@ Each finished feature lands as its own commit.
   worth keeping: a size control must not change what it is sizing, and an
   absolute epsilon inside a parametric generator is a shape parameter in
   disguise.
+- (105) **Asset Browser: res/ as a browsable, reference-aware asset library**
+  (user: the Project panel's asset list was "a mega crude list", the ask was
+  folders, moving, deleting and filtering by type). New window
+  (*Tools > Asset Browser*, `src/assetbrowser.cpp` - App:: methods in their own
+  TU, the save_assets.cpp precedent): folder tree, thumbnail grid or detail
+  list, type chips carrying the count in the current scope, name search, a
+  recursive scope toggle, and an inspector with each type's own controls (the
+  texture-quality combo, the LOD popup and - after merging main's world-scale
+  work - the *Size...* dialog moved out of the old flat list into
+  `drawAssetQualityCombo`/`drawAssetLodButton`/`drawAssetSizeButton`). The
+  Project panel's Assets section is now a summary plus the import buttons.
+  Two things carry the feature, and neither is UI. **The reference census**
+  (`rebuildAssetUsage`): one flat pass over the model recording everything that
+  *uses* an asset - object model/material/sound, terrain material and painted
+  layers, HUD/menu/splash/loading images, fonts, custom LOD tiers, audio flow
+  nodes - which is what lets the inspector list *who uses this file* (with a
+  Select button that jumps to the object, switching scenes), badge the ones
+  nothing references, and warn per file before a delete. It is keyed off
+  `modelEditSerial_`, so it costs one pass per edit, not per frame. Per-asset
+  **settings** are deliberately NOT uses (texture quality, the recorded
+  real-world size, music build options, clip edits, membership of the
+  disk-scanned audio lists): they are metadata on the file, and counting them
+  would mean no imported asset ever reads as unused - which is the one question
+  the census exists to answer. They still travel with the file and are cleaned
+  up on delete, which is a different list (`retargetAssetPath`).
+  **The sibling invariant** is the part that took the thinking: a Wavefront
+  reference (`mtllib`, `map_Kd`, `refl`) is a bare file name resolved next to
+  the file that named it, and the PS2 loads from a flat ISO9660/host path with
+  no `..` - so "move this texture into res/textures" is not a file operation,
+  it is a broken material. The move therefore takes a transitively closed
+  dependency group along (`assetWavefrontDeps`), **copies** a dependency that
+  files left behind still need (both folders keep resolving; the status line
+  says how many), and **refuses with the reason** instead of half-applying a
+  move that would still break something. A rename inside one folder has no such
+  problem, so there the siblings that name the file are rewritten instead
+  (`rewriteWavefrontRef` - last token only, so `-s 2 2` / `-mm 0 0.5` survive),
+  and the `.mtl` a model exclusively owns is renamed with it (`tree.obj` +
+  `tree.mtl` -> `oak.obj` + `oak.mtl`, how every import writes them); a shared
+  library keeps its name and the model gets an explicit `mtllib` line, because
+  the implicit `<stem>.mtl` sibling rule would otherwise leave it materialless.
+  Everything else follows from those: sidecars (`.uvs`, `<tex>.layers/`) travel
+  with their asset, the baked `.tmdl` is deleted for the next build to redo, a
+  WAV moved between `res/audio` and `res/sfx` changes role and swaps lists, and
+  build-written files (menu panels, text sprites, glyph atlases, `.tmdl`) are
+  hidden behind a *Generated* toggle and read-only here.
+  Also: drag a model onto the **viewport** and it lands where the cursor points
+  (the placement raycast, so it rests on what is under it), and `Viewport::assetThumb`
+  renders a 128² preview per asset once into a dedicated framebuffer and copies
+  it into its own texture (`glCopyTexImage2D`, a few new thumbnails per frame) -
+  a material rides a sphere, an image is its own thumbnail, everything else gets
+  a colored plate with its extension.
+  **A new field that stores an asset path now has two obligations**:
+  `retargetAssetPath` (or move/rename silently breaks it) and
+  `rebuildAssetUsage` when it is a real reference rather than a per-asset
+  setting (or the asset reads as unused). Written into the tyra-editor-dev skill
+  next to the other chain rules - and immediately exercised by merging main's
+  world-scale work, whose `modelUnitMeters` map is keyed by asset path: it joined
+  the retarget list (a moved model keeps its recorded real-world size) and stayed
+  out of the census (a size is a setting, not a use). That merge also moved
+  main's *Size...* button into the browser's inspector, since the flat list it
+  lived on is gone. `retargetAssetPath` additionally repoints the editor's own
+  staged paths - the Material Editor's open `.mtl` and paint target, the pending
+  size dialog, the Animation Editor's model - because a save through a stale one
+  would recreate the file at its old location.
+  *Verified* with a throwaway host harness (the pattern from 104, and the reason
+  the logic is host-only): standard headers, then `#define private public`, then
+  link the harness against `build/`'s object files minus `main.cpp` - no window,
+  no GL context, `ImGui::CreateContext()` alone is enough for the one
+  `GetTime()` call. On a copy of `examples/material-lab` seeded with a
+  `models/props` subfolder, a stray texture and both WAV roles it showed: the
+  scan (30 files, 8 folders, kinds right, `.layers` sidecars not listed as
+  assets); the census (`pillar.mtl` project=4 from four objects, `canvas.png`
+  wavefront=1 from its .mtl, `ground.png` unreferenced); dependency resolution
+  in both directions; and then the operations - the texture move refused with
+  *"altar.png is referenced by altar.mtl, which would stop finding it"*, the
+  model move landing `.obj` + `.mtl` + `.png` in the new folder with `mtllib
+  altar.mtl` / `map_Kd altar.png` still bare and the object's `modelPath`
+  retargeted, the rename producing `statue.obj` + `statue.mtl` + a rewritten
+  mtllib line, a folder rename retargeting everything inside, the paint-layer
+  sidecar riding along through both, the WAV leaving `music` and joining
+  `sounds`, and a referenced material's delete clearing the objects' paths with
+  no dangling reference left. The ImGui half was checked by running a **Debug
+  build (IM_ASSERT active)** with the window open for 15 s - no assertion, so
+  the Begin/End, child, table, popup, ID and drag-drop pairs are balanced - and
+  the window's presence proven from the layout dump the editor saved
+  (`[Window][Asset Browser] Size=2880,1800` = the 960x600 default at this
+  machine's 3x DPI scale, so `scaled()` is applied). **The look is unverified**:
+  this machine is still in the white-window state from 101/PROGRESS notes (the
+  AMD GL present quirk reproduces on baseline builds), so screenshots capture
+  nothing - the visual pass needs a human.

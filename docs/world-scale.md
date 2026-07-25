@@ -85,8 +85,9 @@ the same 5 m/s) rather than rebuilding the world.
 
 A model asset can carry **how many meters one unit of the file measures**
 (`Project::modelUnitMeters`, the `"modelUnits"` manifest section). The editor
-asks for it right after an import, and the **Size...** button next to every
-model in *Project > Assets* changes it afterwards:
+asks for it right after an import, and the **Size...** button in the
+[Asset Browser](asset-browser.md)'s inspector (select a model) changes it
+afterwards:
 
 - **Source units** — Meters / Centimeters / Inches / Custom. `.glb` and `.fbx`
   always arrive in meters (the importers normalize them), so those only need

@@ -571,6 +571,7 @@ void App::drawUI() {
     drawTerrainWindow();
     drawUiEditorWindow();
     drawFontManagerWindow();
+    drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
@@ -973,6 +974,11 @@ void App::drawMenuBar() {
         }
 
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
+            if (ImGui::MenuItem("Asset Browser...")) {
+                showAssetBrowser_ = true;
+                scanAssetTree();
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
@@ -1541,6 +1547,19 @@ void App::drawViewportWindow() {
         const ImVec2 imgPos = ImGui::GetItemRectMin();
         const bool imageHovered = ImGui::IsItemHovered();
         ImGuiIO& io = ImGui::GetIO();
+
+        // A model dragged out of the Asset Browser lands where the cursor points
+        // (docs/asset-browser.md). Only the model payload is accepted, so
+        // dragging a texture over the viewport shows no drop target at all.
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* pl =
+                    ImGui::AcceptDragDropPayload("TYRAX_ASSET_MODEL")) {
+                const std::string rel((const char*)pl->Data);
+                dropAssetIntoScene(rel, (io.MousePos.x - imgPos.x) / avail.x,
+                                   (io.MousePos.y - imgPos.y) / avail.y);
+            }
+            ImGui::EndDragDropTarget();
+        }
 
         // Cutscene Director: widescreen bars + fade-to-black overlay, drawn
         // over the viewport image with the same coverage the PS2 composites.
@@ -2785,6 +2804,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "assets") return &showAssetBrowser_;
     return nullptr;
 }
 
@@ -2794,7 +2814,7 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
-    "anim",     "tree"};
+    "anim",     "tree",     "assets"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -4956,211 +4976,152 @@ bool App::drawTerrainMaterialCombo(const char* label, std::string& matPath) {
     return changed;
 }
 
-// Project-wide asset lists (models + textures), mirrored straight from res/
-// on every draw - hand-dropped files show up without any bookkeeping. The
-// Import... buttons are the only file dialogs; everything else picks from
-// these lists.
-void App::drawAssetsSection() {
-    if (!ImGui::CollapsingHeader("Assets")) return;
+// Per-asset texture-quality override of Preferences > Textures. Textures
+// shared by several assets take the highest requested quality. Drawn by the
+// Asset Browser's inspector (and reachable wherever an asset row needs it).
+void App::drawAssetQualityCombo(const std::string& assetRel) {
+    auto it = project_.textureQuality.find(assetRel);
+    int cur = it == project_.textureQuality.end() ? 0
+              : it->second == "none"              ? 1
+              : it->second == "8bit"              ? 2
+                                                  : 3;
+    const char* labels[] = {"(project)", "Full", "8-bit", "4-bit"};
+    ImGui::SetNextItemWidth(scaled(90));
+    if (ImGui::Combo(("##tq" + assetRel).c_str(), &cur, labels, 4)) {
+        if (cur == 0)
+            project_.textureQuality.erase(assetRel);
+        else
+            project_.textureQuality[assetRel] =
+                cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
+        saveAll("Saved");
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Texture quality of this asset's textures\n"
+                          "(overrides Preferences > Textures).");
+}
 
-    // Per-asset texture-quality override of Preferences > Textures. Textures
-    // shared by several assets take the highest requested quality.
-    auto qualityCombo = [&](const std::string& assetRel) {
-        auto it = project_.textureQuality.find(assetRel);
-        int cur = it == project_.textureQuality.end() ? 0
-                  : it->second == "none"              ? 1
-                  : it->second == "8bit"              ? 2
-                                                      : 3;
-        const char* labels[] = {"(project)", "Full", "8-bit", "4-bit"};
+// Artist-authored mesh LOD tiers of one model: each level is another .obj
+// in the project with the same materials and fewer triangles. Empty = the
+// build decimates automatically (docs/model-pipeline.md). The popup keeps
+// the list dense - clearing a level drops the ones after it, since a tier
+// chain with a hole has no meaning.
+void App::drawAssetLodButton(const std::string& assetRel) {
+    const std::string name = std::filesystem::path(assetRel).filename().string();
+    const std::string pid = "lodpop" + assetRel;
+    if (ImGui::SmallButton(("LOD...##" + assetRel).c_str()))
+        ImGui::OpenPopup(pid.c_str());
+    auto it = project_.modelLods.find(assetRel);
+    const bool custom = it != project_.modelLods.end() && !it->second.empty();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(custom ? "Custom LOD meshes assigned - click to change"
+                                 : "Distance LOD meshes for this model\n"
+                                   "(default: the build decimates automatically)");
+    if (custom) {
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(90.0f);
-        if (ImGui::Combo(("##tq" + assetRel).c_str(), &cur, labels, 4)) {
-            if (cur == 0)
-                project_.textureQuality.erase(assetRel);
-            else
-                project_.textureQuality[assetRel] =
-                    cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
-            saveAll("Saved");
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Texture quality of this asset's textures\n"
-                              "(overrides Preferences > Textures).");
-    };
-
-    // Artist-authored mesh LOD tiers of one model: each level is another .obj
-    // in the project with the same materials and fewer triangles. Empty = the
-    // build decimates automatically (docs/model-pipeline.md). The popup keeps
-    // the list dense - clearing a level drops the ones after it, since a tier
-    // chain with a hole has no meaning.
-    auto lodPopup = [&](const std::string& assetRel, const std::string& name) {
-        const std::string pid = "lodpop" + assetRel;
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("LOD...##" + assetRel).c_str()))
-            ImGui::OpenPopup(pid.c_str());
-        auto it = project_.modelLods.find(assetRel);
-        const bool custom = it != project_.modelLods.end() && !it->second.empty();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                custom ? "Custom LOD meshes assigned - click to change"
-                       : "Distance LOD meshes for this model\n"
-                         "(default: the build decimates automatically)");
-        if (custom) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("[%d custom LOD]", (int)it->second.size());
-        }
-        if (!ImGui::BeginPopup(pid.c_str())) return;
-        ImGui::TextUnformatted(("Mesh LOD levels of " + name).c_str());
-        ImGui::TextDisabled(
-            "Level 1 shows past the mesh LOD distance, level 2 past twice it.\n"
-            "A level must use the same materials (same usemtl names, same\n"
-            "order) and fewer triangles, or the build decimates instead.\n"
-            "Leave both on (auto) to let the build do it.");
-        ImGui::Separator();
-        std::vector<std::string> tiers =
-            it != project_.modelLods.end() ? it->second : std::vector<std::string>();
-        const std::vector<std::string> models = listAssetFiles("models", ".obj");
-        bool changed = false;
-        for (int level = 0; level < 2; ++level) {
-            const std::string cur =
-                level < (int)tiers.size() ? tiers[level] : std::string();
-            const std::string label = "Level " + std::to_string(level + 1);
-            ImGui::SetNextItemWidth(scaled(260));
-            if (ImGui::BeginCombo((label + "##lod" + assetRel).c_str(),
-                                  cur.empty() ? "(auto - decimate)"
-                                              : cur.substr(cur.rfind('/') + 1).c_str())) {
-                if (ImGui::Selectable("(auto - decimate)", cur.empty())) {
-                    tiers.resize((size_t)level);  // drops the coarser levels too
+        ImGui::TextDisabled("[%d custom LOD]", (int)it->second.size());
+    }
+    if (!ImGui::BeginPopup(pid.c_str())) return;
+    ImGui::TextUnformatted(("Mesh LOD levels of " + name).c_str());
+    ImGui::TextDisabled(
+        "Level 1 shows past the mesh LOD distance, level 2 past twice it.\n"
+        "A level must use the same materials (same usemtl names, same\n"
+        "order) and fewer triangles, or the build decimates instead.\n"
+        "Leave both on (auto) to let the build do it.");
+    ImGui::Separator();
+    std::vector<std::string> tiers =
+        it != project_.modelLods.end() ? it->second : std::vector<std::string>();
+    const std::vector<std::string> models = listAssetFiles("models", ".obj");
+    bool changed = false;
+    for (int level = 0; level < 2; ++level) {
+        const std::string cur =
+            level < (int)tiers.size() ? tiers[level] : std::string();
+        const std::string label = "Level " + std::to_string(level + 1);
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::BeginCombo((label + "##lod" + assetRel).c_str(),
+                              cur.empty() ? "(auto - decimate)"
+                                          : cur.substr(cur.rfind('/') + 1).c_str())) {
+            if (ImGui::Selectable("(auto - decimate)", cur.empty())) {
+                tiers.resize((size_t)level);  // drops the coarser levels too
+                changed = true;
+            }
+            for (const std::string& cand : models) {
+                const std::string candRel = "res/models/" + cand;
+                if (candRel == assetRel) continue;  // not itself
+                if (ImGui::Selectable(cand.c_str(), candRel == cur)) {
+                    if ((int)tiers.size() <= level) tiers.resize((size_t)level + 1);
+                    tiers[level] = candRel;
                     changed = true;
                 }
-                for (const std::string& cand : models) {
-                    const std::string candRel = "res/models/" + cand;
-                    if (candRel == assetRel) continue;  // not itself
-                    if (ImGui::Selectable(cand.c_str(), candRel == cur)) {
-                        if ((int)tiers.size() <= level) tiers.resize((size_t)level + 1);
-                        tiers[level] = candRel;
-                        changed = true;
-                    }
-                    const ModelInfo& ci = modelInfo(candRel);
-                    if (ci.ok) {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(%d tris)", ci.tris);
-                    }
+                const ModelInfo& ci = modelInfo(candRel);
+                if (ci.ok) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%d tris)", ci.tris);
                 }
-                ImGui::EndCombo();
             }
-            if (level == 0 && tiers.empty()) break;  // level 2 needs level 1
+            ImGui::EndCombo();
         }
-        if (changed) {
-            // Drop trailing empties so "auto" never round-trips as a hole.
-            while (!tiers.empty() && tiers.back().empty()) tiers.pop_back();
-            if (tiers.empty())
-                project_.modelLods.erase(assetRel);
-            else
-                project_.modelLods[assetRel] = tiers;
-            saveAll("Saved");
-        }
-        ImGui::EndPopup();
-    };
+        if (level == 0 && tiers.empty()) break;  // level 2 needs level 1
+    }
+    if (changed) {
+        // Drop trailing empties so "auto" never round-trips as a hole.
+        while (!tiers.empty() && tiers.back().empty()) tiers.pop_back();
+        if (tiers.empty())
+            project_.modelLods.erase(assetRel);
+        else
+            project_.modelLods[assetRel] = tiers;
+        saveAll("Saved");
+    }
+    ImGui::EndPopup();
+}
 
-    // Real-world size of a model (docs/world-scale.md). Asked once at import;
-    // this is where it gets corrected afterwards - and the only place that
-    // says what scale the model will be dropped into a scene at.
-    auto sizeButton = [&](const std::string& assetRel) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("Size...##" + assetRel).c_str()))
-            beginModelSizing(assetRel);
-        auto it = project_.modelUnitMeters.find(assetRel);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                it != project_.modelUnitMeters.end()
-                    ? "Real-world size of this model - click to change"
-                    : "Real-world size of this model is not recorded:\n"
-                      "objects are inserted at scale 1 (click to set it)");
-        if (it != project_.modelUnitMeters.end()) {
-            const float ins = project_.modelInsertScale(assetRel);
-            if (ins != 1.0f) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("[x%.2f]", ins);
-            }
+// Real-world size of a model (docs/world-scale.md). Asked once at import; this
+// is where it gets corrected afterwards - and the only place that says what
+// scale the model will be dropped into a scene at. Drawn by the Asset Browser's
+// inspector, next to the texture-quality and LOD controls.
+void App::drawAssetSizeButton(const std::string& assetRel) {
+    if (ImGui::SmallButton(("Size...##" + assetRel).c_str()))
+        beginModelSizing(assetRel);
+    auto it = project_.modelUnitMeters.find(assetRel);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(it != project_.modelUnitMeters.end()
+                              ? "Real-world size of this model - click to change"
+                              : "Real-world size of this model is not recorded:\n"
+                                "objects are inserted at scale 1 (click to set it)");
+    if (it != project_.modelUnitMeters.end()) {
+        const float ins = project_.modelInsertScale(assetRel);
+        if (ins != 1.0f) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("[x%.2f]", ins);
         }
-    };
+    }
+}
 
-    ImGui::TextDisabled("Models (res/models)");
+// Assets used to be a flat bullet list of res/models + res/materials with the
+// per-asset controls crammed onto each row. They live in the Asset Browser now
+// (Tools > Asset Browser, docs/asset-browser.md) - folders, thumbnails, type
+// filters, reference-safe moves. What stays here is the summary an artist wants
+// while working in the Project panel, plus the import entry points.
+void App::drawAssetsSection() {
+    if (!ImGui::CollapsingHeader("Assets", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+    if (ImGui::Button("Browse assets...")) {
+        showAssetBrowser_ = true;
+        scanAssetTree();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Asset Browser: folders, thumbnails, filters,\n"
+                          "drag & drop into the scene, safe move/rename/delete.");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Import model...")) importModelAsset();
+    if (ImGui::SmallButton("Import model...")) {
+        importModelAsset();
+        assetsChanged();
+    }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
                           ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
                           "clips play on the PS2 skeletal runtime)");
-    const std::vector<std::string> models = listAssetFiles("models", ".obj");
-    for (const std::string& m : models) {
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(m.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("x##delmodel" + m).c_str()))
-            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
-        sizeButton("res/models/" + m);
-        qualityCombo("res/models/" + m);
-        lodPopup("res/models/" + m, m);
-        const ModelInfo& info = modelInfo("res/models/" + m);
-        if (info.ok) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%d tris, %d mat)", info.tris,
-                                (int)info.materials.size());
-            if (info.anyMissing) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    for (const ModelInfo::MaterialLine& line : info.materials)
-                        if (line.missing)
-                            ImGui::TextUnformatted((line.text + " - not found next to the .obj").c_str());
-                    ImGui::EndTooltip();
-                }
-            }
-        }
-    }
-    const std::vector<std::string> animModels = listAnimatedModelFiles();
-    for (const std::string& m : animModels) {
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(m.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("x##delglb" + m).c_str()))
-            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
-        sizeButton("res/models/" + m);
-        const GlbInfo& info = glbInfo("res/models/" + m);
-        if (info.ok) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(animated: %d clip(s), %d verts)",
-                                (int)info.clips.size(), info.vertexCount);
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                for (const std::string& c : effectiveClips("res/models/" + m))
-                    ImGui::TextUnformatted(c.c_str());
-                for (const std::string& w : info.warnings)
-                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", w.c_str());
-                ImGui::EndTooltip();
-            }
-            if (!info.warnings.empty()) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "warnings");
-            }
-        } else {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "unusable: %s",
-                               info.error.c_str());
-        }
-    }
-    if (models.empty() && animModels.empty())
-        ImGui::TextDisabled("  none - Import or drop .obj/.glb/.fbx files there.");
-
-    ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
-    if (ImGui::SmallButton("New...")) {
+    if (ImGui::SmallButton("New material...")) {
         showMaterialEditor_ = true;
         openNewMaterialPopup_ = true;
         matEdNewError_.clear();
@@ -5168,56 +5129,40 @@ void App::drawAssetsSection() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Create a material in the Material Editor\n"
                           "(color, brightness, texture - live preview).");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Import .mtl...")) importMaterialAsset();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Universal material libraries: assign one to many\n"
-                          "objects (primitives use the first material, models\n"
-                          "override their own mtl). Textures are copied along.");
-    const std::vector<std::string> materials = listAssetFiles("materials", ".mtl");
-    for (const std::string& m : materials) {
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(m.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("Edit##mat" + m).c_str()))
-            openMaterialEditor("res/materials/" + m);
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("x##delmat" + m).c_str()))
-            requestAssetDelete(PendingAssetDelete::Material, "res/materials/" + m, m);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this material from the project");
-        qualityCombo("res/materials/" + m);
-        const ModelInfo& info = materialInfo("res/materials/" + m);
-        if (info.ok) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%d material(s))", (int)info.materials.size());
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                for (const ModelInfo::MaterialLine& line : info.materials)
-                    ImGui::TextUnformatted(
-                        (line.text + (line.missing ? " - texture MISSING" : ""))
-                            .c_str());
-                ImGui::EndTooltip();
-            }
-            if (info.anyMissing) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
-            }
+
+    // One line per type, counted straight off the res/ tree.
+    if (assetScanTime_ < 0.0) scanAssetTree();
+    int models = 0, anims = 0, materials = 0, textures = 0, other = 0;
+    for (const AssetItem& item : assetItems_) {
+        if (item.generated) continue;
+        switch (item.kind) {
+            case AssetKind::Model: ++models; break;
+            case AssetKind::AnimModel: ++anims; break;
+            case AssetKind::Material: ++materials; break;
+            case AssetKind::Texture: ++textures; break;
+            case AssetKind::Music:
+            case AssetKind::Sound:
+            case AssetKind::Font: break;  // their own panel sections below
+            default: ++other; break;
         }
     }
-    if (materials.empty())
-        ImGui::TextDisabled("  none - Import or drop .mtl files there.");
+    ImGui::TextDisabled("%d model(s), %d animated, %d material(s), %d texture(s)",
+                        models, anims, materials, textures);
+    if (models + anims + materials + textures + other == 0)
+        ImGui::TextDisabled("res/ is empty - import a model or drop files into it.");
 }
 
 // Creates a scene object for a model that is already inside the project
 // (res/models/...) - the "no-copy" path used by the From-project menu and
 // after an import has placed the files.
-void App::addModelObject(const std::string& relPath) {
+void App::addModelObject(const std::string& relPath, const float* at) {
     SceneObject o;
     o.type = PrimitiveType::Model;
     o.modelPath = relPath;
     o.color[0] = o.color[1] = o.color[2] = 0.85f;
     o.position[1] = 0.0f;
+    if (at)
+        for (int i = 0; i < 3; ++i) o.position[i] = at[i];
     // Models whose real-world size is known come in at the size the project's
     // world scale says they should be (docs/world-scale.md); everything else
     // keeps the plain 1:1 insert it always had.
@@ -20328,7 +20273,7 @@ void App::drawPreferencesModal() {
         "The build bakes ~50% and ~25%-vertex variants of every model -\n"
         "animated ones into the .tskl, static ones into the .tmdl; objects\n"
         "farther than this render the reduced meshes. A static model can use\n"
-        "your own LOD meshes instead (Assets > the model's LOD... button).\n"
+        "your own LOD meshes instead (the Asset Browser's LOD... button).\n"
         "Costs RAM and file size; the editor viewport shows the full mesh.");
 
     ImGui::Checkbox("Reflection probe: aim along the reflected ray",
@@ -20351,7 +20296,7 @@ void App::drawPreferencesModal() {
 
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
-    // model/material overrides live in the Assets section.
+    // model/material overrides live in the Asset Browser's inspector.
     int quantMode = prefSettings_.textureQuant == "none" ? 0
                     : prefSettings_.textureQuant == "8bit" ? 1
                                                            : 2;
@@ -20364,7 +20309,7 @@ void App::drawPreferencesModal() {
             quantMode == 0 ? "none" : quantMode == 1 ? "8bit" : "4bit";
     prefHelp(
         "Quantized at build (sources in res/ stay untouched). Override per\n"
-        "model/material in the Assets section - e.g. keep the hero's textures\n"
+        "model/material in the Asset Browser - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
     ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
@@ -20380,7 +20325,7 @@ void App::drawPreferencesModal() {
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
              "if any, tiles across it - set the tiling on the material's\n"
-             "texture in the Material Editor. Import .mtl in the Assets section.");
+             "texture in the Material Editor. Import .mtl in Project > Assets.");
 
     ImGui::SeparatorText("AI navigation");
     ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
