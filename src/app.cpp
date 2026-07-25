@@ -16,6 +16,7 @@
 #include <sstream>
 
 #include "aisupport.hpp"
+#include "animedit.hpp"
 #include "decalproj.hpp"
 #include "gl_loader.h"
 #include "fbxparser.hpp"
@@ -558,6 +559,7 @@ void App::drawUI() {
     drawFontManagerWindow();
     drawTreeGeneratorWindow();
     drawLoadingScreenWindow();
+    drawAnimEditorWindow();
     drawSessionWindow();
     drawNewProjectModal();
     drawPreferencesModal();
@@ -900,6 +902,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
+            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
@@ -1389,6 +1392,10 @@ void App::drawViewportWindow() {
                 hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
             viewport_.setHiddenMask(std::move(hidden));
         }
+        // Non-destructive clip edits + the project's animation-fps ratio, so
+        // the scene preview retimes and trims exactly like the build bakes.
+        viewport_.setAnimEdits(project_.animClipEdits,
+                               animedit::projectTimeScale(project_.settings));
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
         const std::vector<SceneObject>& renderObjects = cutscenePosedObjects();
@@ -2294,6 +2301,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "ambience") return &showAmbienceEditor_;
     if (key == "loading") return &showLoadingEditor_;
     if (key == "disc") return &showDiscLayout_;
+    if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
     return nullptr;
 }
@@ -2302,8 +2310,9 @@ bool* App::showFlagForKey(const std::string& key) {
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
 static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "terrain",  "ui",   "fonts", "menus",
-    "grading",  "ambience", "loading",  "disc", "tree"};
+    "cutscene", "material", "terrain", "ui",      "fonts",
+    "menus",    "grading",  "ambience", "loading", "disc",
+    "anim",     "tree"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -3726,7 +3735,11 @@ std::string App::importModelAsset() {
         }
     }
 
-    modelInfoCache_.erase("res/models/" + fileName);
+    // The cache is keyed "<model>|<material override>", so erasing the bare
+    // path missed every entry of a re-imported model (its summary stayed
+    // stale until a project reload) - drop the whole map, it is cheap to
+    // refill and the Assets panel refills it the same frame.
+    modelInfoCache_.clear();
     statusMessage_ = "Imported " + fileName;
     if (!parseOk)
         statusMessage_ += " (unparseable - it will render as a placeholder box)";
@@ -3931,6 +3944,18 @@ const App::ModelInfo& App::modelInfo(const std::string& relPath,
 }
 
 // Summary of an animated .glb (clip names + stats for the properties panel).
+// The clip names of a model as the GAME sees them: the Animation Editor's
+// renames applied over the file's own names. Every clip name the UI shows or
+// stores in a reference is an effective name, so the pickers below can compare
+// straight against SceneObject::animClip and friends. Cheap (a handful of
+// clips); the GlbInfo cache stays keyed on the file alone.
+std::vector<std::string> App::effectiveClips(const std::string& relPath) {
+    std::vector<std::string> out;
+    for (const std::string& c : glbInfo(relPath).clips)
+        out.push_back(animedit::effectiveName(project_, relPath, c));
+    return out;
+}
+
 const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     auto it = glbInfoCache_.find(relPath);
     if (it != glbInfoCache_.end()) return it->second;
@@ -4138,6 +4163,81 @@ void App::drawAssetsSection() {
                               "(overrides Preferences > Textures).");
     };
 
+    // Artist-authored mesh LOD tiers of one model: each level is another .obj
+    // in the project with the same materials and fewer triangles. Empty = the
+    // build decimates automatically (docs/model-pipeline.md). The popup keeps
+    // the list dense - clearing a level drops the ones after it, since a tier
+    // chain with a hole has no meaning.
+    auto lodPopup = [&](const std::string& assetRel, const std::string& name) {
+        const std::string pid = "lodpop" + assetRel;
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("LOD...##" + assetRel).c_str()))
+            ImGui::OpenPopup(pid.c_str());
+        auto it = project_.modelLods.find(assetRel);
+        const bool custom = it != project_.modelLods.end() && !it->second.empty();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                custom ? "Custom LOD meshes assigned - click to change"
+                       : "Distance LOD meshes for this model\n"
+                         "(default: the build decimates automatically)");
+        if (custom) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("[%d custom LOD]", (int)it->second.size());
+        }
+        if (!ImGui::BeginPopup(pid.c_str())) return;
+        ImGui::TextUnformatted(("Mesh LOD levels of " + name).c_str());
+        ImGui::TextDisabled(
+            "Level 1 shows past the mesh LOD distance, level 2 past twice it.\n"
+            "A level must use the same materials (same usemtl names, same\n"
+            "order) and fewer triangles, or the build decimates instead.\n"
+            "Leave both on (auto) to let the build do it.");
+        ImGui::Separator();
+        std::vector<std::string> tiers =
+            it != project_.modelLods.end() ? it->second : std::vector<std::string>();
+        const std::vector<std::string> models = listAssetFiles("models", ".obj");
+        bool changed = false;
+        for (int level = 0; level < 2; ++level) {
+            const std::string cur =
+                level < (int)tiers.size() ? tiers[level] : std::string();
+            const std::string label = "Level " + std::to_string(level + 1);
+            ImGui::SetNextItemWidth(scaled(260));
+            if (ImGui::BeginCombo((label + "##lod" + assetRel).c_str(),
+                                  cur.empty() ? "(auto - decimate)"
+                                              : cur.substr(cur.rfind('/') + 1).c_str())) {
+                if (ImGui::Selectable("(auto - decimate)", cur.empty())) {
+                    tiers.resize((size_t)level);  // drops the coarser levels too
+                    changed = true;
+                }
+                for (const std::string& cand : models) {
+                    const std::string candRel = "res/models/" + cand;
+                    if (candRel == assetRel) continue;  // not itself
+                    if (ImGui::Selectable(cand.c_str(), candRel == cur)) {
+                        if ((int)tiers.size() <= level) tiers.resize((size_t)level + 1);
+                        tiers[level] = candRel;
+                        changed = true;
+                    }
+                    const ModelInfo& ci = modelInfo(candRel);
+                    if (ci.ok) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(%d tris)", ci.tris);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (level == 0 && tiers.empty()) break;  // level 2 needs level 1
+        }
+        if (changed) {
+            // Drop trailing empties so "auto" never round-trips as a hole.
+            while (!tiers.empty() && tiers.back().empty()) tiers.pop_back();
+            if (tiers.empty())
+                project_.modelLods.erase(assetRel);
+            else
+                project_.modelLods[assetRel] = tiers;
+            saveAll("Saved");
+        }
+        ImGui::EndPopup();
+    };
+
     ImGui::TextDisabled("Models (res/models)");
     ImGui::SameLine();
     if (ImGui::SmallButton("Import model...")) importModelAsset();
@@ -4155,6 +4255,7 @@ void App::drawAssetsSection() {
             requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         qualityCombo("res/models/" + m);
+        lodPopup("res/models/" + m, m);
         const ModelInfo& info = modelInfo("res/models/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -4189,7 +4290,7 @@ void App::drawAssetsSection() {
                                 (int)info.clips.size(), info.vertexCount);
             if (ImGui::IsItemHovered()) {
                 ImGui::BeginTooltip();
-                for (const std::string& c : info.clips)
+                for (const std::string& c : effectiveClips("res/models/" + m))
                     ImGui::TextUnformatted(c.c_str());
                 for (const std::string& w : info.warnings)
                     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", w.c_str());
@@ -4993,19 +5094,31 @@ void App::drawPropertiesWindow() {
                 // authored in the modelling tool and the Material picker below
                 // is how you override/edit them - see drawMaterialCombo.)
                 ImGui::SeparatorText("Animation");
+                // Clip references store EFFECTIVE names (the Animation
+                // Editor's renames), which is what the .tskl carries and the
+                // game resolves against.
+                const std::vector<std::string> clips =
+                    effectiveClips(o.modelPath);
                 const std::string clipLabel =
                     o.animClip.empty()
-                        ? (info.clips.empty() ? "<none>"
-                                              : info.clips.front() + " (first)")
+                        ? (clips.empty() ? "<none>" : clips.front() + " (first)")
                         : o.animClip;
                 if (ImGui::BeginCombo("Start clip", clipLabel.c_str())) {
-                    for (const std::string& c : info.clips) {
+                    for (const std::string& c : clips) {
                         const bool selected =
                             c == o.animClip ||
-                            (o.animClip.empty() && c == info.clips.front());
+                            (o.animClip.empty() && c == clips.front());
                         if (ImGui::Selectable(c.c_str(), selected) &&
                             o.animClip != c) {
                             o.animClip = c;
+                            // Seed Loop from the clip's "Loop by default"
+                            // (Tools > Animation Editor) - picking a one-shot
+                            // like a door opening should not silently loop.
+                            if (const AnimClipEdit* e = animedit::findEdit(
+                                    project_, o.modelPath,
+                                    animedit::sourceName(project_, o.modelPath,
+                                                         c)))
+                                o.animLoop = e->loop;
                             committed = true;
                         }
                     }
@@ -5045,6 +5158,9 @@ void App::drawPropertiesWindow() {
         } else if (!o.modelPath.empty()) {
             ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
         }
+        // Static models take distance mesh LOD too (docs/model-pipeline.md),
+        // so they get the same per-object override row animated models have.
+        committed |= drawLodOverrides(o, false);
         }
     }
 
@@ -5752,15 +5868,18 @@ void App::drawPropertiesWindow() {
                                         (int)info.clips.size());
                     // Locomotion clip mapping. Idle/Walk are required (fall back
                     // to the first clip); Run/Jump are optional (<none>).
+                    // Effective (post-rename) names, like every other clip ref.
+                    const std::vector<std::string> clips =
+                        effectiveClips(o.modelPath);
                     auto clipCombo = [&](const char* label, std::string& clip,
                                          bool optional) {
                         const std::string cur =
-                            clip.empty() ? (optional ? "<none>"
-                                                     : (info.clips.empty()
-                                                            ? "<none>"
-                                                            : info.clips.front() +
-                                                                  " (first)"))
-                                         : clip;
+                            clip.empty()
+                                ? (optional ? "<none>"
+                                            : (clips.empty()
+                                                   ? "<none>"
+                                                   : clips.front() + " (first)"))
+                                : clip;
                         if (ImGui::BeginCombo(label, cur.c_str())) {
                             if (optional && ImGui::Selectable("<none>", clip.empty())) {
                                 if (!clip.empty()) {
@@ -5768,7 +5887,7 @@ void App::drawPropertiesWindow() {
                                     committed = true;
                                 }
                             }
-                            for (const std::string& c : info.clips) {
+                            for (const std::string& c : clips) {
                                 if (ImGui::Selectable(c.c_str(), c == clip) &&
                                     clip != c) {
                                     clip = c;
@@ -6245,7 +6364,7 @@ void App::drawMultiProperties() {
 // checkbox flips between "use the project preference" (-1, the default) and
 // an explicit per-object distance; dragging the value to 0 turns that LOD
 // off for this object entirely.
-bool App::drawLodOverrides(SceneObject& o) {
+bool App::drawLodOverrides(SceneObject& o, bool animated) {
     bool committed = false;
     auto row = [&](const char* label, float& v, float projectDefault) {
         bool ov = v >= 0.0f;
@@ -6271,8 +6390,10 @@ bool App::drawLodOverrides(SceneObject& o) {
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
     };
-    row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
+    if (animated)
+        row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+    if (!animated) return committed;  // yaw offset drives the skeletal path
 
     // Content-forward correction: a model authored facing +-X (instead of
     // the +Z the avatar drive / AI turn-to-face expect) renders turned by
@@ -6680,16 +6801,17 @@ void App::drawFlowGraphWindow() {
             bool picker = false;
             if (target >= 0 && target < (int)project_.objects().size() &&
                 isAnimatedModelPath(project_.objects()[target].modelPath)) {
-                const GlbInfo& info = glbInfo(project_.objects()[target].modelPath);
-                if (info.ok && !info.clips.empty()) {
+                const std::string& mp = project_.objects()[target].modelPath;
+                const GlbInfo& info = glbInfo(mp);
+                const std::vector<std::string> clips = effectiveClips(mp);
+                if (info.ok && !clips.empty()) {
                     picker = true;
                     const std::string label =
-                        n.str.empty() ? info.clips.front() + " (first)" : n.str;
+                        n.str.empty() ? clips.front() + " (first)" : n.str;
                     if (ImGui::BeginCombo("Clip", label.c_str())) {
-                        for (const std::string& c : info.clips) {
+                        for (const std::string& c : clips) {
                             const bool selected =
-                                c == n.str ||
-                                (n.str.empty() && c == info.clips.front());
+                                c == n.str || (n.str.empty() && c == clips.front());
                             if (ImGui::Selectable(c.c_str(), selected) &&
                                 n.str != c) {
                                 n.str = c;
@@ -9238,6 +9360,376 @@ bool App::drawSplashSection() {
     ImGui::EndChild();  // props
     ImGui::EndChild();  // body
     return changed;
+}
+
+// --- Tools > Animation Editor ----------------------------------------------
+// Non-destructive clip editing (docs/animated-models.md). Nothing here writes
+// the source .glb/.fbx: every control edits an AnimClipEdit row, which the
+// build folds into the .tskl (animedit::applyClipEdits) and the viewport
+// preview applies to the placed objects. Project-wide data like the presets
+// and sequences - saved through saveAll, outside undo.
+
+AnimClipEdit& App::animEditFor(const std::string& model,
+                               const std::string& clip) {
+    for (AnimClipEdit& e : project_.animClipEdits)
+        if (e.model == model && e.clip == clip) return e;
+    AnimClipEdit e;
+    e.model = model;
+    e.clip = clip;
+    project_.animClipEdits.push_back(std::move(e));
+    return project_.animClipEdits.back();
+}
+
+void App::pruneAnimEdits() {
+    auto& v = project_.animClipEdits;
+    v.erase(std::remove_if(v.begin(), v.end(),
+                           [](const AnimClipEdit& e) { return e.isDefault(); }),
+            v.end());
+}
+
+void App::renameAnimClipRefs(const std::string& model, const std::string& from,
+                             const std::string& to) {
+    if (from == to || from.empty()) return;
+    auto swap = [&](std::string& s) {
+        if (s == from) s = to;
+    };
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects) {
+            if (o.modelPath != model) continue;
+            swap(o.animClip);
+            swap(o.playerIdleClip);
+            swap(o.playerWalkClip);
+            swap(o.playerRunClip);
+            swap(o.playerJumpClip);
+            // Animation nodes in this object's own graph default to "self",
+            // so their Clip param names a clip of THIS model. A node whose
+            // target is wired in from elsewhere cannot be resolved from here
+            // - the panel says so next to the field.
+            for (FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "Animation") swap(n.str);
+        }
+}
+
+void App::drawAnimEditorWindow() {
+    if (!showAnimEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(scaled(920), scaled(620)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Animation Editor", &showAnimEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    // Dimmed "(?)" on the current line (the Preferences idiom - prefHelp is
+    // defined further down the file, next to the dialog that introduced it).
+    auto helpMarker = [](const char* tip) {
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    };
+
+    bool changed = false;
+    // listAnimatedModelFiles returns names relative to res/models; every other
+    // API here (glbInfo, the viewport cache, AnimClipEdit::model) speaks
+    // project-relative paths, which is also what SceneObject::modelPath holds.
+    std::vector<std::string> models;
+    for (const std::string& m : listAnimatedModelFiles())
+        models.push_back("res/models/" + m);
+    if (models.empty()) {
+        ImGui::TextDisabled(
+            "No animated models in this project.\n\n"
+            "Project > Assets > Import model... and pick a .glb or .fbx.");
+        ImGui::End();
+        return;
+    }
+    if (animEdModel_.empty() ||
+        std::find(models.begin(), models.end(), animEdModel_) == models.end()) {
+        animEdModel_ = models.front();
+        animEdClip_.clear();
+    }
+
+    // --- header: model picker + the project-wide fps ratio ------------------
+    ImGui::SetNextItemWidth(scaled(280));
+    if (ImGui::BeginCombo("Model", animEdModel_.c_str())) {
+        for (const std::string& m : models)
+            if (ImGui::Selectable(m.c_str(), m == animEdModel_) &&
+                m != animEdModel_) {
+                animEdModel_ = m;
+                animEdClip_.clear();
+                animEdTime_ = 0.0f;
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    const float projScale = animedit::projectTimeScale(project_.settings);
+    if (std::fabs(projScale - 1.0f) > 0.001f)
+        ImGui::TextDisabled("project fps: %.0f -> %.0f (%.3fx)",
+                            project_.settings.animSourceFps,
+                            project_.settings.animPlayFps, projScale);
+    else
+        ImGui::TextDisabled("project fps: 1:1");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Project > Preferences > Rendering > Animation fps.\n"
+            "Multiplies every clip of every model; the per-clip time\n"
+            "scale below stacks on top of it.");
+
+    const GlbInfo& info = glbInfo(animEdModel_);
+    if (!info.ok) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Unusable model: %s",
+                           info.error.c_str());
+        ImGui::End();
+        return;
+    }
+    if (info.clips.empty()) {
+        ImGui::TextDisabled("This model has no animation clips.");
+        ImGui::End();
+        return;
+    }
+    if (animEdClip_.empty() ||
+        std::find(info.clips.begin(), info.clips.end(), animEdClip_) ==
+            info.clips.end()) {
+        animEdClip_ = info.clips.front();
+        animEdTime_ = 0.0f;
+        snprintf(animEdRename_, sizeof(animEdRename_), "%s",
+                 animedit::effectiveName(project_, animEdModel_, animEdClip_)
+                     .c_str());
+    }
+
+    const AnimClipEdit* cur =
+        animedit::findEdit(project_, animEdModel_, animEdClip_);
+    const float srcDur =
+        viewport_.animClipDuration(animEdModel_, std::string(), animEdClip_);
+    float trimA = 0.0f, trimB = srcDur;
+    animedit::trimWindow(cur, srcDur, trimA, trimB);
+    const float clipScale =
+        projScale * ((cur && cur->timeScale > 0.001f) ? cur->timeScale : 1.0f);
+    const float outDur = clipScale > 0.001f ? (trimB - trimA) / clipScale : 0.0f;
+
+    ImGui::Separator();
+
+    // --- left: the model's clips -------------------------------------------
+    ImGui::BeginChild("##ae_clips", ImVec2(scaled(210), -scaled(4)),
+                      ImGuiChildFlags_Borders);
+    for (const std::string& c : info.clips) {
+        const AnimClipEdit* e = animedit::findEdit(project_, animEdModel_, c);
+        std::string label = animedit::effectiveName(project_, animEdModel_, c);
+        if (e && !e->isDefault()) label += "  *";
+        if (ImGui::Selectable(label.c_str(), c == animEdClip_) &&
+            c != animEdClip_) {
+            animEdClip_ = c;
+            animEdTime_ = 0.0f;
+            snprintf(animEdRename_, sizeof(animEdRename_), "%s",
+                     animedit::effectiveName(project_, animEdModel_, c).c_str());
+        }
+        if (ImGui::IsItemHovered() && e && !e->rename.empty())
+            ImGui::SetTooltip("source clip: %s", c.c_str());
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginChild("##ae_right", ImVec2(0, -scaled(4)));
+
+    // --- live preview -------------------------------------------------------
+    {
+        const double now = ImGui::GetTime();
+        const float dt =
+            animEdClock_ > 0.0 ? (float)(now - animEdClock_) : 0.0f;
+        animEdClock_ = now;
+        if (animEdPlaying_ && outDur > 0.0001f) {
+            // The playhead runs in OUTPUT seconds - what the game will show -
+            // so the timeline length is the retimed length and dragging Time
+            // scale visibly speeds the preview up.
+            animEdTime_ = std::fmod(animEdTime_ + dt, outDur);
+        }
+        if (outDur > 0.0001f)
+            animEdTime_ = std::clamp(animEdTime_, 0.0f, outDur);
+        else
+            animEdTime_ = 0.0f;
+
+        Viewport::AnimPreviewDesc d;
+        d.modelRel = animEdModel_;
+        d.clip = animEdClip_;
+        d.trimStart = trimA;
+        d.trimEnd = trimB;
+        // Source seconds inside the trimmed window: the preview poses by
+        // source time, the playhead counts output time.
+        d.time = animEdTime_ * clipScale;
+        d.angleDeg = animEdYaw_;
+        d.pitchDeg = animEdPitch_;
+        d.zoom = animEdZoom_;
+        d.wireframe = animEdWireframe_;
+        const int pw = (int)std::max(scaled(240), ImGui::GetContentRegionAvail().x);
+        const int ph = (int)scaled(300);
+        const uint32_t tex = viewport_.renderAnimPreview(pw, ph, d);
+        if (tex) {
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            ImGui::Image((ImTextureID)(intptr_t)tex,
+                         ImVec2((float)pw, (float)ph), ImVec2(0, 1),
+                         ImVec2(1, 0));
+            // Drag to orbit, wheel to dolly - the Material Editor's gesture.
+            if (ImGui::IsItemHovered()) {
+                const float wheel = ImGui::GetIO().MouseWheel;
+                if (wheel != 0.0f)
+                    animEdZoom_ = std::clamp(animEdZoom_ * (1.0f + wheel * 0.1f),
+                                             0.1f, 8.0f);
+            }
+            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                const ImVec2 dlt = ImGui::GetIO().MouseDelta;
+                animEdYaw_ += dlt.x * 0.4f;
+                animEdPitch_ = std::clamp(animEdPitch_ - dlt.y * 0.3f, -30.0f, 85.0f);
+            }
+            (void)origin;
+        }
+    }
+
+    // --- transport + timeline ----------------------------------------------
+    if (ImGui::Button(animEdPlaying_ ? "Pause" : "Play", ImVec2(scaled(70), 0)))
+        animEdPlaying_ = !animEdPlaying_;
+    ImGui::SameLine();
+    if (ImGui::Button("|<", ImVec2(scaled(34), 0))) animEdTime_ = 0.0f;
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-scaled(150));
+    if (ImGui::SliderFloat("##ae_time", &animEdTime_, 0.0f,
+                           outDur > 0.0001f ? outDur : 1.0f, "%.3f s"))
+        animEdPlaying_ = false;
+    ImGui::SameLine();
+    ImGui::Checkbox("Wireframe", &animEdWireframe_);
+
+    // --- the edit itself ----------------------------------------------------
+    ImGui::SeparatorText("Clip");
+    ImGui::TextDisabled("source: %s", animEdClip_.c_str());
+
+    ImGui::SetNextItemWidth(scaled(240));
+    ImGui::InputText("Name in game", animEdRename_, sizeof(animEdRename_));
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        std::string want = animEdRename_;
+        // Trim blanks: a name of spaces would be impossible to type into a
+        // flow node's Clip field.
+        while (!want.empty() && want.front() == ' ') want.erase(want.begin());
+        while (!want.empty() && want.back() == ' ') want.pop_back();
+        const std::string before =
+            animedit::effectiveName(project_, animEdModel_, animEdClip_);
+        // Empty (or back to the source name) means "no rename" - drop the
+        // field rather than storing a redundant one.
+        const std::string after = want.empty() ? animEdClip_ : want;
+        bool clash = false;
+        for (const std::string& c : info.clips)
+            if (c != animEdClip_ &&
+                animedit::effectiveName(project_, animEdModel_, c) == after)
+                clash = true;
+        if (clash) {
+            statusMessage_ =
+                "A clip of this model is already called \"" + after + "\"";
+            snprintf(animEdRename_, sizeof(animEdRename_), "%s", before.c_str());
+        } else if (after != before) {
+            AnimClipEdit& e = animEditFor(animEdModel_, animEdClip_);
+            e.rename = (after == animEdClip_) ? std::string() : after;
+            renameAnimClipRefs(animEdModel_, before, after);
+            pruneAnimEdits();
+            changed = true;
+            snprintf(animEdRename_, sizeof(animEdRename_), "%s", after.c_str());
+        }
+    }
+    ImGui::SameLine();
+    helpMarker(
+        "The name the game (and every script / flow node) uses for this clip.\n"
+        "Empty = the name authored in the file. Renaming retargets the clip\n"
+        "references of objects using this model, including Animation nodes in\n"
+        "their own graphs; a node that drives another object through an\n"
+        "object link keeps its text and may need updating by hand.");
+
+    float timeScale = cur ? cur->timeScale : 1.0f;
+    ImGui::SetNextItemWidth(scaled(240));
+    if (ImGui::DragFloat("Time scale", &timeScale, 0.01f, 0.05f, 10.0f,
+                         "%.2fx")) {
+        timeScale = std::clamp(timeScale, 0.05f, 10.0f);
+        animEditFor(animEdModel_, animEdClip_).timeScale = timeScale;
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        pruneAnimEdits();
+        changed = true;
+    }
+    ImGui::SameLine();
+    helpMarker(
+        "Playback speed of THIS clip, on top of the project's animation fps.\n"
+        "2.00x plays it twice as fast (half as long). The object's own Speed\n"
+        "property and a flow node's Speed param multiply on top at runtime.");
+
+    if (srcDur > 0.0001f) {
+        float a = trimA, b = trimB;
+        ImGui::SetNextItemWidth(scaled(240));
+        if (ImGui::SliderFloat("Trim start", &a, 0.0f, srcDur, "%.3f s")) {
+            a = std::clamp(a, 0.0f, std::max(0.0f, b - 0.01f));
+            animEditFor(animEdModel_, animEdClip_).trimStart = a;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            pruneAnimEdits();
+            changed = true;
+        }
+        ImGui::SetNextItemWidth(scaled(240));
+        if (ImGui::SliderFloat("Trim end", &b, 0.0f, srcDur, "%.3f s")) {
+            b = std::clamp(b, a + 0.01f, srcDur);
+            // The stored 0 means "to the end", which keeps following a
+            // re-exported longer clip - only store a real cut.
+            animEditFor(animEdModel_, animEdClip_).trimEnd =
+                (b >= srcDur - 1e-4f) ? 0.0f : b;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            pruneAnimEdits();
+            changed = true;
+        }
+        ImGui::SameLine();
+        helpMarker(
+            "Cut the clip down to a range of the SOURCE animation (seconds as\n"
+            "authored, so changing the speed never moves these handles). The\n"
+            "trimmed clip is rebased to start at 0 and gets interpolated\n"
+            "boundary poses, so it starts and ends exactly where you cut.");
+    }
+
+    bool loop = cur ? cur->loop : true;
+    if (ImGui::Checkbox("Loop by default", &loop)) {
+        animEditFor(animEdModel_, animEdClip_).loop = loop;
+        pruneAnimEdits();
+        changed = true;
+    }
+    ImGui::SameLine();
+    helpMarker(
+        "Seeds the Loop checkbox of objects that pick this clip as their\n"
+        "Start clip. Objects already placed keep whatever they were set to,\n"
+        "and a flow node's own Loop param always wins at runtime.");
+
+    ImGui::Spacing();
+    if (srcDur > 0.0001f)
+        ImGui::TextDisabled("authored %.3f s  ->  ships as %.3f s  (%.2fx)",
+                            srcDur, outDur, clipScale);
+    else
+        ImGui::TextDisabled("static clip (no motion to retime)");
+
+    if (cur && !cur->isDefault()) {
+        if (ImGui::Button("Reset this clip")) {
+            const std::string before =
+                animedit::effectiveName(project_, animEdModel_, animEdClip_);
+            renameAnimClipRefs(animEdModel_, before, animEdClip_);
+            auto& v = project_.animClipEdits;
+            v.erase(std::remove_if(v.begin(), v.end(),
+                                   [&](const AnimClipEdit& e) {
+                                       return e.model == animEdModel_ &&
+                                              e.clip == animEdClip_;
+                                   }),
+                    v.end());
+            snprintf(animEdRename_, sizeof(animEdRename_), "%s",
+                     animEdClip_.c_str());
+            animEdTime_ = 0.0f;
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(back to exactly what the file contains)");
+    }
+
+    ImGui::EndChild();  // ae_right
+
+    if (changed) saveAll("Saved");
+    ImGui::End();
 }
 
 void App::drawLoadingScreenWindow() {
@@ -16917,6 +17409,20 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
         case PendingAssetDelete::Model:
             std::filesystem::remove(full, ec);
             project_.textureQuality.erase(d.relPath);
+            // Its own custom LOD list goes, and so does any reference to it as
+            // another model's LOD level (a chain with a missing level would
+            // just warn at every build).
+            project_.modelLods.erase(d.relPath);
+            for (auto it = project_.modelLods.begin();
+                 it != project_.modelLods.end();) {
+                std::vector<std::string>& tiers = it->second;
+                for (size_t i = 0; i < tiers.size(); ++i)
+                    if (tiers[i] == d.relPath) {
+                        tiers.resize(i);  // and every coarser level after it
+                        break;
+                    }
+                it = tiers.empty() ? project_.modelLods.erase(it) : std::next(it);
+            }
             modelInfoCache_.clear();
             glbInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
@@ -18558,6 +19064,44 @@ void App::drawPreferencesModal() {
         prefSettings_.clipping =
             clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
 
+    // Animation frame rate. glTF/FBX carry keyframe times in seconds and no
+    // fps at all, so a clip exported from a scene running at one rate but
+    // authored for another is silently the wrong length. These two numbers
+    // are the ratio the build applies to every clip.
+    {
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("##animSrcFps", &prefSettings_.animSourceFps, 0.25f,
+                         1.0f, 240.0f, "%.0f fps");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("exported ->");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("##animPlayFps", &prefSettings_.animPlayFps, 0.25f,
+                         1.0f, 240.0f, "%.0f fps");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Animation fps");
+        prefSettings_.animSourceFps =
+            std::clamp(prefSettings_.animSourceFps, 1.0f, 240.0f);
+        prefSettings_.animPlayFps =
+            std::clamp(prefSettings_.animPlayFps, 1.0f, 240.0f);
+        const float ratio =
+            prefSettings_.animPlayFps / prefSettings_.animSourceFps;
+        if (std::fabs(ratio - 1.0f) > 0.001f)
+            ImGui::TextDisabled("    every clip plays %.3fx %s", ratio,
+                                ratio > 1.0f ? "faster" : "slower");
+        else
+            ImGui::TextDisabled("    clips play at their authored length");
+        prefHelp(
+            "glTF and FBX store keyframe times in SECONDS, never an fps - so\n"
+            "a clip animated for 30 fps but exported from a 24 fps Blender\n"
+            "scene arrives 25% too long and plays visibly too slow.\n"
+            "Left: the fps the clips were exported at. Right: the fps they\n"
+            "should play at. The build scales every clip's keyframe times by\n"
+            "the ratio; the source files are never modified. Equal values\n"
+            "(the default) change nothing. Per-clip overrides live in\n"
+            "Tools > Animation Editor.");
+    }
+
     ImGui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
                      0.5f, 0.0f, 2000.0f,
                      prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
@@ -18572,9 +19116,11 @@ void App::drawPreferencesModal() {
                      prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
     if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
     prefHelp(
-        "The build bakes ~50% and ~25%-vertex variants of animated models;\n"
-        "instances farther than this render the reduced meshes. Costs RAM\n"
-        "and .tskl size; the editor viewport always shows the full mesh.");
+        "The build bakes ~50% and ~25%-vertex variants of every model -\n"
+        "animated ones into the .tskl, static ones into the .tmdl; objects\n"
+        "farther than this render the reduced meshes. A static model can use\n"
+        "your own LOD meshes instead (Assets > the model's LOD... button).\n"
+        "Costs RAM and file size; the editor viewport shows the full mesh.");
 
     ImGui::Checkbox("Reflection probe: aim along the reflected ray",
                     &prefSettings_.envProbeReflected);

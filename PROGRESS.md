@@ -10,6 +10,100 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (165) **Artist-authored mesh LOD meshes for static models.** Automatic
+  decimation is not always what an artist wants (and the decimator refuses to
+  touch small parts or cross uv seams, so some models barely shrink), so a
+  model can now name its own levels: a new `modelLods` manifest section maps a
+  model asset path to its tier files, and the bake folds those meshes into the
+  `.tmdl` instead of decimating. Each level is validated - the same material
+  set (same `usemtl` names, same order) and strictly fewer vertices than the
+  level before it - and a failure warns with the reason and drops the WHOLE
+  custom chain back to decimation, so a half-broken hand-authored chain never
+  ships silently. Tier `.obj` files stay out of the bake (their geometry lives
+  in the model's `.tmdl`). UI: a *LOD...* button per model in Assets picks the
+  levels (candidate triangle counts shown, "(auto - decimate)" the default);
+  clearing a level clears the coarser one; deleting a model drops it from
+  every other model's chain. The per-object *Override mesh LOD* row now shows
+  for static models too (without the animation-LOD row / yaw offset, which are
+  skeletal-only). Also fixed a pre-existing staleness bug next door: the
+  model-import path erased `modelInfoCache_` by the bare asset path while the
+  cache is keyed `"<model>|<material override>"`, so a re-imported model kept
+  its old triangle/material summary until a project reload. **Verified:**
+  `--refresh-gen` + `--resave` round-trip on a scratch project - the custom
+  chain lands at exactly the authored sizes (9216 -> 2304 -> 576 corners, vs
+  4368/1938 from the decimator), a mismatched material set warns and falls
+  back, the tier `.obj` files never reach `bin/`; in PCSX2 the 12-instance
+  scene renders at 6.5 ms/frame with the hand-authored levels (11.5 ms with
+  decimated, 27.1 ms with none). Docs: new docs/model-pipeline.md +
+  animated-models.md / texture-atlasing.md / streaming-layers.md / README.
+- (164) **Static mesh LOD: distance levels for `.obj` models.** Mesh LOD
+  existed only for animated models because the `.tskl` had somewhere to put
+  the decimated variants; now the `.tmdl` carries them and static objects
+  switch on distance the same way skinned instances do (same hard `d` / `2d`
+  thresholds, picked in `renderScene` next to `beyondDrawDistance`, which
+  already needs the distance). The welding/quadric-collapse machinery moved
+  out of `glbparser.cpp`'s anonymous namespace into `src/meshlod.{hpp,cpp}`
+  with the tier policy (ratios, size floor, shrink slack) shared, so both
+  bakes decimate to the same shape. **The trap that cost the first attempt:**
+  a static mesh must NOT weld on normals. This pipeline derives a flat normal
+  per face (`vn` is ignored), so every corner of a position carries a
+  different normal, every position looks like a uv/normal seam twin, the
+  collapse's position-twin lock fires on all of them and nothing decimates -
+  the first version produced byte-identical "tiers". Static tiers weld by
+  position+uv and recompute face normals afterwards, which is what flat
+  shading wants anyway; the animated path still welds on normals (authored
+  smooth normals are real data). Runtime: `GeoPart` grows per-tier baked
+  buffers, shaded the first time an object renders that far away and kept, so
+  a flip only re-aims bag pointers and each tier keeps its own frustum-bbox
+  cache entry (that cache is keyed by vertex pointer). Invariants: collider
+  and AABB stay model-level (collision never changes with camera distance), a
+  rebuild drops every resident tier (a moved or Live-Link-patched object must
+  not keep stale distant copies), highlight shells are invalidated on a flip,
+  and physics fast-path bodies + texture-feed objects keep the full mesh since
+  both depend on post-bake edits to the tier-0 buffers. **Verified** (PCSX2 SW
+  renderer, PAL, COP0 around `renderScene`): 12 instances of a 9216-vertex
+  model at 8 units went 27.1 ms -> 11.5 ms per frame, a hard 25 FPS -> a
+  steady 50, VU 23% -> 15%; tiers came out at 4368 (47%) and 1938 (21%)
+  corners and the `.tmdl` grows 295 KB -> 497 KB when they are baked (the gate
+  keeps them out entirely when no distance is set). The refactor left the
+  animated path bit-identical: `two-players`' `cat.tskl` bakes to the same
+  SHA-256 before and after.
+- (163) **Static models ship as a binary `.tmdl` - the EE stopped parsing
+  `.obj`.** Static models were parsed as ASCII on a 300 MHz EE on every load:
+  a `std::istringstream` per line, iostream float parsing, a `sqrtf` normal
+  per face, a `std::map` lookup per `usemtl`, output vectors grown without a
+  known count - and with streaming layers loading one asset per frame, that
+  whole parse lands inside one frame. Everything it computed is a pure
+  function of build-time inputs, so `templates::bakeStaticModels` (called from
+  `refreshGenerated` next to the animated bake, so `--refresh-gen` produces it
+  with no Docker and no GUI) resolves it once into `src/tmdl.hpp`'s format:
+  triangulation, flat normals, the V flip, material assignment including a
+  per-object `.mtl` override, texture-atlas UV rects folded into the UVs, and
+  bin-relative texture paths. The PS2 side is a sequential read plus a memcpy
+  per part, because the stored layout is exactly the interleaved 8 floats
+  `GameModelPart::verts` already holds. Conventions copied wholesale from
+  `.tskl` (4-byte magic, `u32` version accepted as a range, packed
+  little-endian, fixed NUL-padded strings, bounds-checked sequential reader,
+  soft-fail with `TYRA_WARN`); the engine's new `TmdlLoader` returns the same
+  `LeanObjMesh` the `.obj` loader does, so the game keeps ONE geometry path
+  and `LeanObjLoader` stays as the fallback. `texbake` stops mirroring an
+  `.obj` whose `.tmdl` was baked, the Runner sweeps a superseded `.obj` out of
+  `bin/` (the copy-back has no `--delete`, so a project built earlier would
+  keep shipping the ASCII copy), and ISO export now claims the ARTIFACT name
+  for the scene load group - static `.obj` as `.tmdl`, animated `.glb` as
+  `.tskl` (the latter had the same pre-existing gap, landing every animated
+  model in the "other" group). **Verified** (PCSX2 SW renderer, host: boot,
+  COP0 Count around the load, 9216-vertex model): the loader call went
+  286.4 ms -> 39.2 ms (7.3x), the whole `loadModelAsset` 306 ms -> 59 ms.
+  Equivalence was checked by loading BOTH formats in one run and comparing on
+  the console: positions and UVs are bit-identical (the atlas rect fold
+  included), normals differ by at most 146 ulp because the cross product now
+  runs on the host FPU instead of the EE's non-IEEE one - which also makes the
+  console's normals match the editor viewport's. Two plan assumptions died
+  here: the disc gets BIGGER (168 KB of indexed ASCII -> 295 KB of flat
+  triangle list; RAM is unchanged, the `.obj` path built the same arrays), and
+  screen-level pixel A/B is meaningless in these scenes - the orbit camera is
+  at a different phase in every run. Design doc: docs/static-model-format-plan.md.
 - (120) **Scripts panel cleanup: `src/scripts/` is exclusively the user's;
   generated sources moved to `src/gen/`; subfolders supported.** The Scripts
   list used to show the six engine-generated `*.gen.cpp` files (flow_graph,
@@ -50,6 +144,81 @@ Each finished feature lands as its own commit.
   the file in VS Code (the tree accumulates the `src\scripts\`-relative
   prefix for the path). Verified: editor builds clean. Pure editor UI, no
   codegen or generated-project change.
+- (163) **Animation editor: non-destructive clip retiming/trim/rename +
+  a project-wide animation fps.** Reported as "animations exported from
+  Blender play too slow in game". Not an NTSC/PAL or a wall-clock bug:
+  glTF and FBX store keyframe times in **seconds and no frame rate at
+  all**, so a clip animated for 30 fps but exported from a 24 fps Blender
+  scene simply *is* 25% too long in the file, and there is nothing for the
+  importer to detect it by. Two layers of fix, both baked at build time so
+  the console pays nothing and the source assets are never rewritten:
+  (a) **`ProjectSettings::animSourceFps` / `animPlayFps`** (Preferences >
+  Rendering, "exported -> should play at") give one project-wide speed
+  ratio; equal values (the 24/24 default) are an exact no-op, so existing
+  projects are untouched.
+  (b) **`Project::animClipEdits`** - one `AnimClipEdit` per touched
+  (model, SOURCE clip): rename, time scale, trim window, default loop.
+  New `animedit.cpp` folds both into the parsed `glbparser::Skel` right
+  before `writeTskl` in `bakeAnimAssets` - trim (interpolated boundary
+  keys, rebased to 0) -> scale times -> rename. New manifest section
+  (`Section::AnimEdits`, `kSectionCount` 11 -> 12) so it also travels the
+  collaboration wire; the section is conditional, so an untouched project
+  emits nothing.
+  **Tools > Animation Editor** drives it: model picker, clip list, live
+  animated preview (`Viewport::renderAnimPreview` + the new
+  `uploadAnimPose` worker shared with the scene preview) with its own
+  playhead, and the four fields. The scene viewport applies the same
+  numbers via `Viewport::setAnimEdits` (pushed per frame by the app, the
+  nav-overlay/decal pattern), so a placed object previews what will ship.
+  Clip *references* (`SceneObject::animClip`, the Player locomotion
+  clips, the Animation node's Clip param) store the EFFECTIVE name, so
+  `App::effectiveClips` feeds every picker and `renameAnimClipRefs`
+  retargets on rename - a node driving another object through an object
+  link can't be resolved from there and is called out in the tooltip.
+  Clip edits are build-time, so they also join `liveLinkContextHash`: the
+  LIVE chip flips to amber (rebuild) instead of pretending a retimed clip
+  reached the running game.
+  Verified: exact numbers out of the baked binary. A scratch project with
+  `wobbler.glb` (2 clips, 2.000 s each) baked, then fps 24->30 plus
+  `Wiggle` timeScale 2, trim 0.5-1.5 s, rename "WiggleFast": a `.tskl`
+  reader shows `WiggleFast` at **0.4000 s** (1.0 s trimmed / 2.5x, 68 -> 36
+  keys) and `Twist` at **1.6000 s** (2.0 / 1.25, keys untouched) - both
+  exactly the predicted values. `.tyra` round-trip through `--resave` is
+  byte-identical; `--refresh-gen` on `examples/object-spawning` (an
+  animated model, no edits) rewrites the `.tskl` byte-identically, i.e.
+  the default ratio really is a no-op. Full Docker build of the scratch
+  project = `Build OK`, boots in PCSX2 at a steady 50 FPS with the model
+  rendering and no assert in `bin/log.txt`. The panel itself was eyeballed
+  from a screenshot with the project's values loaded (list, preview,
+  transport, "authored 2.000 s -> ships as 0.400 s (2.50x)"). All 17
+  example projects resaved for the two new settings keys (which also
+  picked up pre-existing drift: `textureAtlas`, `keyboardMouse*`,
+  `camStyle`/`camPitch`/`camYaw`/`camRotate`). `examples/endless-scroller`
+  could not be resaved - it has no `.tyra` at all on main, only committed
+  build leftovers; left alone, flagged separately.
+- (164) **Fix: animated models were tinted and point-lit in the editor
+  only.** Found while investigating (163) - the user's third-person avatar
+  had a blue face in the editor and looked right in game. The viewport
+  multiplied `SceneObject::color` into every animated part and let the
+  scene point lights add on top; the console does neither (a `SkelInstance`
+  folds only the `.tskl` part color into its `litColors`, and point lights
+  are baked into static vertex colors - which `docs/animated-models.md`
+  already promised under "Point lights don't light the model"). The fpp
+  project template gives its Player a cyan marker color `(0.15, 0.9, 0.9)`,
+  so switching that Player to third person previewed the whole avatar cyan.
+  All three animated draw sites (scene pass, mirror reflection, mirror
+  player avatar) now go through one `drawAnimParts()` helper drawing with
+  the neutral shade tint and suppressing the point-light uniform for the
+  duration. The properties table's **Color** row claimed the opposite of
+  what the runtime does - corrected. Verified: editor builds clean, and the
+  divergence was confirmed by reading both sides (`viewport.cpp` uTint /
+  `uLightCount` vs `templates.cpp` `setupAnimObject`, where `o.data.color`
+  appears nowhere in the animated path while the static path at
+  `pushVert` does fold it in). Flashlight and fog on animated parts are
+  the same class of editor-only extra but were left alone - unlike the
+  tint and point lights, whether the StaPip animated bags get them on the
+  console is not settled, and guessing would trade one divergence for
+  another.
 - (151) **Edit an animated model's materials: create an override from its
   built-ins, and preview/paint it on the model in the Material Editor.** (150)
   let an animated `.glb`/`.fbx` take a Material (.mtl) override, but you still

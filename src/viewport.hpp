@@ -176,9 +176,9 @@ public:
 
     // Tree Generator live preview (Tools > Tree Generator): generated
     // geometry + in-memory textures straight from treegen - nothing touches
-    // disk or the shared asset caches, so slider drags stay instant. Shares
-    // the Material Editor preview framebuffer/backdrop; meshes and textures
-    // re-upload only when `version` changes.
+    // disk or the shared asset caches, so slider drags stay instant. Renders
+    // into its OWN framebuffer (only the gradient/checker backdrop meshes are
+    // shared); meshes and textures re-upload only when `version` changes.
     struct TreePreviewDesc {
         uint64_t version = 0;
         const std::vector<float>* bark = nullptr;    // pos3+normal3+uv2 tris
@@ -197,6 +197,43 @@ public:
         int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
     };
     uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
+    // Non-destructive animation-clip edits (Tools > Animation Editor). The app
+    // owns the Project, so it pushes the list plus the project's fps ratio in
+    // once per frame - the same pattern the nav overlay and projected decals
+    // use. Both the scene preview and the Animation Editor preview apply them.
+    void setAnimEdits(std::vector<AnimClipEdit> edits, float projectScale) {
+        animEdits_ = std::move(edits);
+        animProjectScale_ = projectScale > 0.001f ? projectScale : 1.0f;
+    }
+
+    // Animation Editor live preview: one animated model on a checker floor,
+    // posed at an explicit time so the panel owns play/pause/scrub. Times are
+    // SOURCE seconds (see animedit.hpp); the trim window is applied here, so
+    // dragging a trim handle moves the preview immediately - before anything
+    // is committed to the project.
+    struct AnimPreviewDesc {
+        std::string modelRel;     // project-relative .glb/.fbx
+        std::string materialRel;  // .mtl override ("" = the model's own)
+        std::string clip;         // SOURCE clip name ("" = the first clip)
+        float time = 0.0f;        // seconds into the TRIMMED clip
+        float trimStart = 0.0f;   // source seconds
+        float trimEnd = 0.0f;     // source seconds, 0 = to the end
+        float angleDeg = 40.0f;   // turntable yaw
+        float pitchDeg = 15.0f;   // camera elevation
+        float zoom = 1.0f;        // dolly multiplier
+        bool wireframe = false;   // overlay the triangles
+    };
+    uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
+
+    // Source clip names of an animated model, in file order. Empty when the
+    // file is missing or unusable. (The Animation Editor's clip list.)
+    std::vector<std::string> animClipNames(const std::string& modelRel,
+                                           const std::string& materialRel);
+    // Duration in SOURCE seconds of one clip; 0 when unknown. Derived from
+    // the preview bake, so it matches the frames the preview steps through.
+    float animClipDuration(const std::string& modelRel,
+                           const std::string& materialRel,
+                           const std::string& clip);
 
     // Raycast of the LAST renderMaterialPreview frame: image coords (u, v in
     // [0,1], origin top-left) -> the hit surface's texture UV. paintable is
@@ -466,7 +503,19 @@ private:
                                  const std::string& materialRel);
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
+    // Uploads one explicit pose: `frame` is a fractional index into the whole
+    // baked frame list, wrapped inside [first, first + count). The shared
+    // worker behind updateAnimPose and the Animation Editor preview.
+    void uploadAnimPose(AnimModelDraw& draw, int firstFrame, int frameCount,
+                        float frame);
     double animClock_ = 0.0;  // preview time in seconds (advanced per render)
+    // Non-destructive clip edits pushed in by the app (it owns the Project).
+    // The preview applies the same trim/retime the build bakes, so a placed
+    // object plays exactly what will ship.
+    std::vector<AnimClipEdit> animEdits_;
+    float animProjectScale_ = 1.0f;  // project fps ratio (animedit.hpp)
+    const AnimClipEdit* animEditFor(const std::string& modelRel,
+                                    const std::string& sourceClip) const;
 
     // Primitive materials: first entry of an assigned .mtl (Kd tint + map_Kd)
     struct MaterialDraw {

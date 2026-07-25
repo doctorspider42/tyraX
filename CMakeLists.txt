@@ -57,6 +57,7 @@ add_executable(tyrax-editor
     src/main.cpp
     src/aigen.cpp
     src/aisupport.cpp
+    src/animedit.cpp
     src/aobake.cpp
     src/app.cpp
     src/camtake.cpp
@@ -70,6 +71,7 @@ add_executable(tyrax-editor
     src/iso9660.cpp
     src/isoexport.cpp
     src/menubake.cpp
+    src/meshlod.cpp
     src/pcsx2_config.cpp
     src/pngquant.cpp
     src/primmesh.cpp
@@ -81,6 +83,7 @@ add_executable(tyrax-editor
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
+    src/tmdl.cpp
     src/treegen.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp

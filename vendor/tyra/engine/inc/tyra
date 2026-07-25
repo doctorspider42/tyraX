@@ -18,6 +18,7 @@
 #include "./loaders/3d/obj_loader/obj_loader.hpp"
 #include "./loaders/3d/obj_loader/lean_obj_loader.hpp"
 #include "./loaders/3d/tanm_loader/tanm_loader.hpp"
+#include "./loaders/3d/tmdl_loader/tmdl_loader.hpp"
 #include "./loaders/3d/tskl_loader/tskl_loader.hpp"
 #include "./loaders/texture/png_loader.hpp"
 #include "./packet2/packet2_tyra_utils.hpp"

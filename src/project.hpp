@@ -595,6 +595,18 @@ struct ProjectSettings {
     // (cull-only). Projects saved before the vu1 default keep their value.
     std::string clipping = "vu1";
 
+    // Animation frame rate. glTF and FBX store keyframe times in SECONDS,
+    // never an fps, so a clip authored as N frames for F fps but exported
+    // from a scene running at S fps arrives S/F times too long - the
+    // classic "Blender scene is 24 fps, the animation was made for 30"
+    // mismatch, which plays back visibly too slow on the console. These two
+    // numbers say what the source fps was and what it should have been; the
+    // build scales every clip's keyframe times by animSourceFps /
+    // animPlayFps at bake time, so nothing is destroyed and the .glb is
+    // never touched. Equal values (the default) = no scaling at all.
+    float animSourceFps = 24.0f;  // fps the clips were exported at
+    float animPlayFps = 24.0f;    // fps they should play at
+
     // Animation LOD: animated-model instances farther than this from the
     // camera refresh their pose/skinning every 2nd frame (every 4th beyond
     // twice the distance), staggered across objects so the cost spreads.
@@ -773,6 +785,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.animSourceFps == b.animSourceFps &&
+           a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
@@ -1306,6 +1320,38 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
     return a.name == b.name && a.value == b.value;
 }
 
+// One non-destructive edit of one animation clip of one model asset
+// (Tools > Animation Editor). The source file is never rewritten: these
+// numbers are folded into the clip on its way into the .tskl at build time,
+// and the editor's preview applies the identical math (animedit.hpp).
+//
+// Order of operations, both here and in the preview: trim in SOURCE seconds,
+// then rebase the trimmed range to start at 0, then scale time. The clip the
+// game sees is `rename` (when set) with duration
+// (trimEnd - trimStart) / (timeScale * project fps ratio).
+struct AnimClipEdit {
+    std::string model;   // project-relative asset, e.g. "res/models/hero.glb"
+    std::string clip;    // source clip name, as authored in the file
+    std::string rename;  // "" = keep the source name
+    float timeScale = 1.0f;   // >1 plays faster; on top of the project fps ratio
+    float trimStart = 0.0f;   // seconds into the source clip; 0 = from the start
+    float trimEnd = 0.0f;     // seconds into the source clip; 0 = to the end
+    bool loop = true;         // default Loop for objects that pick this clip
+
+    // True when this entry changes nothing - the Animation Editor drops such
+    // entries on save so an untouched project keeps an empty list.
+    bool isDefault() const {
+        return rename.empty() && timeScale == 1.0f && trimStart == 0.0f &&
+               trimEnd == 0.0f && loop;
+    }
+};
+
+inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
+    return a.model == b.model && a.clip == b.clip && a.rename == b.rename &&
+           a.timeScale == b.timeScale && a.trimStart == b.trimStart &&
+           a.trimEnd == b.trimEnd && a.loop == b.loop;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -1407,6 +1453,15 @@ struct Project {
     // HIGHEST requested quality - e.g. everything 4-bit, but the hero model
     // pinned to "none" keeps its textures full color.
     std::map<std::string, std::string> textureQuality;
+    // Artist-authored mesh LOD variants of a static model, keyed by the
+    // model's asset path ("res/models/tree.obj") -> the tier files in order,
+    // nearest first ("res/models/tree_lod1.obj", ...). No entry (the default)
+    // = the build decimates automatically. A tier must keep the model's
+    // material set (same count, same usemtl names) and be smaller than the
+    // one before it, or the build warns and falls back to decimation.
+    // Only used when a mesh LOD distance is in play (Preferences > Rendering
+    // or a per-object override) - see docs/model-pipeline.md.
+    std::map<std::string, std::vector<std::string>> modelLods;
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
@@ -1438,6 +1493,16 @@ struct Project {
     // the preset collections above they persist through save() but are not part
     // of undo/redo. The Play/Stop Sequence flow nodes drive them at runtime.
     std::vector<Sequence> sequences;
+
+    // Non-destructive animation-clip edits (Tools > Animation Editor). One
+    // entry per (model, source clip) the user has touched; clips with no
+    // entry bake exactly as authored. The source .glb/.fbx is never
+    // modified - the edits are applied to the parsed skeleton on the way
+    // into the .tskl at build time (animedit::applyClipEdits), and the
+    // viewport preview applies the same numbers, so what you scrub is what
+    // ships. Like the preset collections above these persist through save()
+    // but are not part of undo/redo.
+    std::vector<AnimClipEdit> animClipEdits;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
@@ -1522,6 +1587,7 @@ enum class Section {
     Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
+    ModelLods,       // "modelLods" (per-model custom LOD meshes)
     SaveData,        // "saveValues", "saveTexts"
     Gradings,        // "gradings", "defaultGrading"
     Ambience,        // "ambience", "defaultAmbience"
@@ -1529,8 +1595,9 @@ enum class Section {
     Splash,          // "splashScreens"
     Sequences,       // "sequences"
     Menus,           // "menus"
+    AnimEdits,       // "animClipEdits"
 };
-constexpr int kSectionCount = 11;
+constexpr int kSectionCount = 13;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

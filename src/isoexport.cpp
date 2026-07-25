@@ -9,6 +9,7 @@
 
 #include "iso9660.hpp"
 #include "menubake.hpp"
+#include "templates.hpp"  // bakedModelPath - bin/ holds artifacts, not sources
 
 namespace fs = std::filesystem;
 
@@ -101,7 +102,17 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
         if (!terrainTex.empty()) take(binPathOf(terrainTex), group);
         for (const SceneObject& o : s.objects) {
             if (!o.materialPath.empty()) take(binPathOf(o.materialPath), group);
-            if (!o.modelPath.empty()) take(binPathOf(o.modelPath), group);
+            // Models ship as build artifacts - a static .obj as its baked
+            // .tmdl, an animated .glb as its .tskl - so the scene group has to
+            // claim the artifact name. The source name is still tried: a
+            // project whose bake was skipped keeps working (and it costs
+            // nothing when the file is not in bin/).
+            if (!o.modelPath.empty()) {
+                take(binPathOf(templates::bakedModelPath(o.modelPath,
+                                                         o.materialPath)),
+                     group);
+                take(binPathOf(o.modelPath), group);
+            }
         }
     }
     for (const std::string& m : p.music) take(binPathOf(m), "music");

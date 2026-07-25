@@ -812,6 +812,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
          << ",\n"
+         << "    \"animSourceFps\": " << fmtFloat(p.settings.animSourceFps)
+         << ",\n"
+         << "    \"animPlayFps\": " << fmtFloat(p.settings.animPlayFps) << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
          << "    \"envProbeReflected\": "
@@ -1006,6 +1009,21 @@ static void writeTexQualitySection(std::ostream& json, const Project& p) {
     for (const auto& [asset, q] : p.textureQuality) {
         json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": \"" << q
              << "\"";
+        first = false;
+    }
+    json << " }";
+}
+
+// Also conditional: no custom LOD meshes = no key at all.
+static void writeModelLodsSection(std::ostream& json, const Project& p) {
+    if (p.modelLods.empty()) return;
+    json << "\"modelLods\": {";
+    bool first = true;
+    for (const auto& [asset, tiers] : p.modelLods) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": [";
+        for (size_t i = 0; i < tiers.size(); ++i)
+            json << (i ? ", " : "") << "\"" << jsonEscape(tiers[i]) << "\"";
+        json << "]";
         first = false;
     }
     json << " }";
@@ -1262,6 +1280,30 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
     json << (p.menus.empty() ? "]" : "\n  ]");
 }
 
+// Non-destructive clip edits (Tools > Animation Editor). Conditional: an
+// untouched project emits nothing, so the key only appears once the user has
+// actually changed a clip.
+static void writeAnimEditsSection(std::ostream& json, const Project& p) {
+    if (p.animClipEdits.empty()) return;
+    json << "\"animClipEdits\": [";
+    for (size_t i = 0; i < p.animClipEdits.size(); ++i) {
+        const AnimClipEdit& e = p.animClipEdits[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"model\": \""
+             << jsonEscape(e.model) << "\", \"clip\": \"" << jsonEscape(e.clip)
+             << "\"";
+        if (!e.rename.empty())
+            json << ", \"rename\": \"" << jsonEscape(e.rename) << "\"";
+        if (e.timeScale != 1.0f)
+            json << ", \"timeScale\": " << fmtFloat(e.timeScale);
+        if (e.trimStart != 0.0f)
+            json << ", \"trimStart\": " << fmtFloat(e.trimStart);
+        if (e.trimEnd != 0.0f) json << ", \"trimEnd\": " << fmtFloat(e.trimEnd);
+        if (!e.loop) json << ", \"loop\": false";
+        json << " }";
+    }
+    json << "\n  ]";
+}
+
 // The wire form of one section: its manifest keys, no wrapping braces. Empty
 // for a conditional section with nothing to emit (TexQuality with no entries).
 static std::string sectionBody(const Project& p, Section s) {
@@ -1271,6 +1313,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Hud: writeHudSection(ss, p); break;
         case Section::Audio: writeAudioSection(ss, p); break;
         case Section::TexQuality: writeTexQualitySection(ss, p); break;
+        case Section::ModelLods: writeModelLodsSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -1278,6 +1321,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Splash: writeSplashSection(ss, p); break;
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
+        case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1288,6 +1332,7 @@ const char* sectionName(Section s) {
         case Section::Hud: return "hud";
         case Section::Audio: return "audio";
         case Section::TexQuality: return "texQuality";
+        case Section::ModelLods: return "modelLods";
         case Section::SaveData: return "saveData";
         case Section::Gradings: return "gradings";
         case Section::Ambience: return "ambience";
@@ -1295,6 +1340,7 @@ const char* sectionName(Section s) {
         case Section::Splash: return "splash";
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
+        case Section::AnimEdits: return "animEdits";
     }
     return "unknown";
 }
@@ -2301,6 +2347,16 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.meshLodDistance = (float)v->numberOr(0.0);
             if (st.meshLodDistance < 0.0f) st.meshLodDistance = 0.0f;
         }
+        // Absent on projects authored before the animation-fps setting: both
+        // default to 24, i.e. a ratio of 1, so they keep playing unchanged.
+        if (const auto* v = s->find("animSourceFps"))
+            st.animSourceFps = (float)v->numberOr(24.0);
+        if (const auto* v = s->find("animPlayFps"))
+            st.animPlayFps = (float)v->numberOr(24.0);
+        if (st.animSourceFps < 1.0f) st.animSourceFps = 1.0f;
+        if (st.animSourceFps > 240.0f) st.animSourceFps = 240.0f;
+        if (st.animPlayFps < 1.0f) st.animPlayFps = 1.0f;
+        if (st.animPlayFps > 240.0f) st.animPlayFps = 240.0f;
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
         if (const auto* v = s->find("envProbeReflected"))
@@ -2598,6 +2654,22 @@ static void readTexQualitySection(const json::Value& root, Project& out) {
             const std::string q = v.stringOr("");
             if (q == "none" || q == "8bit" || q == "4bit")
                 out.textureQuality[asset] = q;
+        }
+    }
+}
+
+static void readModelLodsSection(const json::Value& root, Project& out) {
+    out.modelLods.clear();
+    if (const auto* ml = root.find("modelLods");
+        ml && ml->type == json::Value::Type::Object) {
+        for (const auto& [asset, v] : ml->obj) {
+            if (v.type != json::Value::Type::Array) continue;
+            std::vector<std::string> tiers;
+            for (const auto& t : v.arr) {
+                const std::string path = t.stringOr("");
+                if (!path.empty()) tiers.push_back(path);
+            }
+            if (!tiers.empty()) out.modelLods[asset] = tiers;
         }
     }
 }
@@ -3035,6 +3107,35 @@ static void readMenusSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readAnimEditsSection(const json::Value& root, Project& out) {
+    out.animClipEdits.clear();
+    const auto* arr = root.find("animClipEdits");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const auto& je : arr->arr) {
+        AnimClipEdit e;
+        if (const auto* v = je.find("model")) e.model = v->stringOr("");
+        if (const auto* v = je.find("clip")) e.clip = v->stringOr("");
+        if (const auto* v = je.find("rename")) e.rename = v->stringOr("");
+        if (const auto* v = je.find("timeScale"))
+            e.timeScale = (float)v->numberOr(1.0);
+        if (const auto* v = je.find("trimStart"))
+            e.trimStart = (float)v->numberOr(0.0);
+        if (const auto* v = je.find("trimEnd"))
+            e.trimEnd = (float)v->numberOr(0.0);
+        if (const auto* v = je.find("loop")) e.loop = v->boolOr(true);
+        // Same clamp the Animation Editor enforces; a hand-edited file can
+        // otherwise stall a clip (0x) or make it unplayably fast.
+        if (e.timeScale < 0.05f) e.timeScale = 0.05f;
+        if (e.timeScale > 10.0f) e.timeScale = 10.0f;
+        if (e.trimStart < 0.0f) e.trimStart = 0.0f;
+        if (e.trimEnd < 0.0f) e.trimEnd = 0.0f;
+        // An entry with no model or clip addresses nothing - drop it rather
+        // than keep a row the Animation Editor could never show.
+        if (e.model.empty() || e.clip.empty()) continue;
+        out.animClipEdits.push_back(std::move(e));
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -3044,6 +3145,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Hud: readHudSection(root, p); break;
         case Section::Audio: readAudioSection(root, p); break;
         case Section::TexQuality: readTexQualitySection(root, p); break;
+        case Section::ModelLods: readModelLodsSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -3051,6 +3153,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Splash: readSplashSection(root, p); break;
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
+        case Section::AnimEdits: readAnimEditsSection(root, p); break;
     }
     return true;
 }
@@ -3163,6 +3266,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAudioSection(root, out);
 
     readTexQualitySection(root, out);
+    readModelLodsSection(root, out);
 
     readSaveDataSection(root, out);
 
@@ -3175,6 +3279,8 @@ std::string load(Project& out, const std::string& projectDir) {
     readSplashSection(root, out);
 
     readSequencesSection(root, out);
+
+    readAnimEditsSection(root, out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
@@ -3570,6 +3676,15 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMixF(h, l.streamRadius);
         }
     }
+    // Animation clip edits are baked into the .tskl at build time, so a
+    // retimed/trimmed/renamed clip cannot reach a running game - the LIVE
+    // chip must flip to "rebuild" instead of silently streaming edits the
+    // console will not show.
+    fnvMixF(h, p.settings.animSourceFps), fnvMixF(h, p.settings.animPlayFps);
+    for (const AnimClipEdit& e : p.animClipEdits) {
+        fnvMixS(h, e.model), fnvMixS(h, e.clip), fnvMixS(h, e.rename);
+        fnvMixF(h, e.timeScale), fnvMixF(h, e.trimStart), fnvMixF(h, e.trimEnd);
+    }
     return h;
 }
 
@@ -3666,6 +3781,31 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
+    // Migration: res/.gitignore is written at project creation only (the user
+    // may have added rules), but static models now bake to res/models/*.tmdl -
+    // a few hundred KB per model, regenerated on every build. A project made
+    // before that would start tracking them, so append the rule if it is
+    // missing. Same shape as the .tskl/.tanm rules already in the file.
+    {
+        const fs::path ignore = fs::path(p.dir) / "res" / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            if (content.str().find("/models/*.tmdl") == std::string::npos) {
+                std::string text = content.str();
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked static-model output (the .obj next to it is the "
+                    "source;\n# regenerated on every build - "
+                    "docs/model-pipeline.md).\n/models/*.tmdl\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
+        }
+    }
+
     // Migration: generated script sources used to live in src/scripts/ next
     // to the user's own scripts - confusing in the Scripts panel, and now
     // that they are written to src/gen/ a leftover copy would be compiled
@@ -3690,6 +3830,20 @@ std::string refreshGenerated(const Project& p) {
         }
         for (const auto& w : warnings)
             printf("[anim bake] %s\n", w.c_str());
+    }
+
+    // Static models: re-bake every referenced .obj into its .tmdl (the binary
+    // format the PS2 loads - docs/model-pipeline.md). Same soft-fail rule as
+    // the animated bake above.
+    {
+        std::vector<std::string> warnings;
+        for (const auto& f : templates::bakeStaticModels(p, &warnings)) {
+            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+                !err.empty())
+                return err;
+        }
+        for (const auto& w : warnings)
+            printf("[model bake] %s\n", w.c_str());
     }
 
     // Built-in HUD assets shipped into every project, written only when

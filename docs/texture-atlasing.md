@@ -51,10 +51,13 @@ disagree within a build:
   `.mtl`**: `map_Kd` points at the page and a `# tyra-uvrect u0 v0 du dv`
   hint line follows. Sources in `res/` are never touched — the editor
   viewport keeps reading the originals.
-- The engine's **LeanObjLoader** parses the hint: model vertex UVs are
-  multiplied through the rect at load, and `loadMtl` exposes it so the
-  generated game's **primitive builders** remap their generated STs the
-  same way (one multiply in `pushVert`).
+- For **static models** the rect never reaches the console: the model bake
+  multiplies it into the vertex UVs it writes to the `.tmdl`, per LOD level
+  as well (see [model-pipeline.md](model-pipeline.md)). The hint line still
+  goes into the baked `.mtl` for the material's other consumers, and the
+  engine's `LeanObjLoader` still applies it on the fallback `.obj` path.
+- `loadMtl` exposes the rect so the generated game's **primitive builders**
+  remap their generated STs the same way (one multiply in `pushVert`).
 
 Pages quantize **as one image**: a palettized project gets a shared
 **256-color CLUT per page** (the era-authentic trade — sharing a palette is

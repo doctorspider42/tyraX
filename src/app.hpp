@@ -162,9 +162,11 @@ private:
     // assigns it to o.materialPath and opens the Material Editor on the model.
     // Returns the new material's project-relative path, or "" on failure.
     std::string createMaterialForModel(SceneObject& o);
-    // Per-object animation/mesh LOD override rows (animated models + player
-    // avatars). Returns true when a value changed (caller commits).
-    bool drawLodOverrides(SceneObject& o);
+    // Per-object LOD override rows. `animated` adds the animation-LOD row and
+    // the model yaw offset (skeletal models + player avatars); a static .obj
+    // model only takes the mesh-LOD distance. Returns true when a value
+    // changed (caller commits).
+    bool drawLodOverrides(SceneObject& o, bool animated = true);
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
     // Project-panel section listing res/models + res/textures with the
@@ -211,6 +213,9 @@ private:
     };
     std::map<std::string, GlbInfo> glbInfoCache_;
     const GlbInfo& glbInfo(const std::string& relPath);
+    // glbInfo(relPath).clips with the Animation Editor's renames applied -
+    // the names the game resolves and every reference stores.
+    std::vector<std::string> effectiveClips(const std::string& relPath);
     // Summary of a standalone .mtl (material lines + missing-texture flags)
     const ModelInfo& materialInfo(const std::string& relPath);
     // Terrain-material picker (project-wide + per-scene overrides). Lists the
@@ -247,6 +252,20 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
+    // every control writes an AnimClipEdit, never the source .glb/.fbx.
+    void drawAnimEditorWindow();
+    // The edit row for (model, source clip), creating it on first touch.
+    AnimClipEdit& animEditFor(const std::string& model, const std::string& clip);
+    // Drops entries that no longer change anything (isDefault) so an undone
+    // edit leaves no trace in the .tyra. Call after every edit commit.
+    void pruneAnimEdits();
+    // Retargets every reference to a clip of `model` after a rename:
+    // SceneObject::animClip, the Player locomotion clips and the Animation /
+    // On Animation Finished flow-node params. References store EFFECTIVE
+    // names, so a rename that did not remap would silently break playback.
+    void renameAnimClipRefs(const std::string& model, const std::string& from,
+                            const std::string& to);
     // A Font Manager entry pointing at `relPath` ("res/fonts/x.ttf"), creating
     // one named after the file stem if none exists. Returns the entry's name -
     // what a `font` reference stores. Used by the TTF import paths.
@@ -608,6 +627,22 @@ private:
     unsigned textPreviewTex_ = 0;
     int textPreviewW_ = 0, textPreviewH_ = 0;
     std::string textPreviewKey_;
+
+    // Animation Editor (Tools > Animation Editor): non-destructive per-clip
+    // retiming/trim/rename of an animated model's clips. animSel* address the
+    // model + SOURCE clip being edited; the staged values are read straight
+    // out of project_.animClipEdits (edits commit through saveAll like the
+    // other project-wide editors), and the panel owns its own playhead so
+    // the preview keeps running while a field is being dragged.
+    bool showAnimEditor_ = false;
+    std::string animEdModel_;   // project-relative .glb/.fbx being edited
+    std::string animEdClip_;    // SOURCE clip name ("" = none selected)
+    float animEdTime_ = 0.0f;   // playhead, seconds into the TRIMMED clip
+    bool animEdPlaying_ = true;
+    bool animEdWireframe_ = false;
+    float animEdYaw_ = 40.0f, animEdPitch_ = 15.0f, animEdZoom_ = 1.0f;
+    double animEdClock_ = 0.0;  // wall clock of the previous frame
+    char animEdRename_[64] = {};  // rename field buffer for the selected clip
 
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)

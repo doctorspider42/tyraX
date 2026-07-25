@@ -19,6 +19,25 @@ std::vector<File> generate(const Project& p);
 // Compiles the project flow graph into a C++ script (flow_graph.gen.cpp).
 std::string flowGraphScript(const Project& p);
 
+// The build artifact a model asset actually ships as: the baked .tmdl for a
+// static .obj, the baked .tskl for an animated .glb/.fbx, or the path itself
+// when it is neither. `materialPath` is the object's .mtl override ("" = none)
+// - it is resolved into the artifact, so it changes the file name. Callers
+// that reason about shipped files (ISO load ordering) need this rather than
+// the source path.
+std::string bakedModelPath(const std::string& modelPath,
+                           const std::string& materialPath);
+
+// Bakes every static model (.obj) referenced by the project into the binary
+// .tmdl the game loads (res/models/<stem>.tmdl, or <stem>__ovr<hash>.tmdl for
+// a per-object .mtl override) - see src/tmdl.hpp and docs/model-pipeline.md.
+// Materials, atlas UV rects, flat normals and bin-relative texture paths are
+// resolved at bake time, so the PS2 side is a sequential read plus a memcpy.
+// A model that cannot be parsed is reported in `warnings` and skipped (the
+// game warns and renders nothing for it - the same soft-fail as .tskl).
+std::vector<File> bakeStaticModels(const Project& p,
+                                   std::vector<std::string>* warnings = nullptr);
+
 // Bakes every animated model (.glb) referenced by the project into the
 // .tanm morph-frame binaries + extracted PNG textures the game loads
 // (res/models/<stem>.tanm, res/models/<stem>_<image>.png). Bake failures

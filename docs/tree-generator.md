@@ -50,8 +50,12 @@ gets 6 sides, twigs get 3, and detail lands where it reads.
 
 The six presets land at **437–943 triangles** each (measured, see PROGRESS).
 The window shows a live triangle count, green under 1800, amber past it, red
-past 3000 with a nudge to trim — advisory, never blocking (the importer's own
-≤3000-tri guidance for models still applies).
+past 3000 with a nudge to trim — advisory, never blocking.
+
+A generated tree is an ordinary static model, so it rides the `.tmdl` pipeline
+like any other: the build compiles it to binary and can bake distance **mesh
+LOD** tiers for it (see [model-pipeline.md](model-pipeline.md)). Keeping the
+source mesh light still pays — LOD thins the distant draw, not the near one.
 
 Practical ceiling is **instance count, not tree cost**: models don't join static
 batching (only primitives do), so every tree is its own draw bag. A dozen or two
