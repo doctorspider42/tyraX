@@ -74,10 +74,10 @@ Each finished feature lands as its own commit.
   fired because the 1 s trigger re-arms it - visible as a node with 0 hits
   next to neighbours at 45, which is exactly what this feature is for.
   **Not verified here**: the editor-side panel and graph overlay could not be
-  screenshot-checked - this machine's session has no GPU-backed GL (PCSX2's
-  own log lists "Microsoft Basic Render Driver"), so the editor window renders
-  blank; a main-branch build does the same, so it is the session, not a
-  regression. The panel/overlay code compiles clean and its data comes from
+  screenshot-checked - this machine is in the known white-window state (the
+  editor draws its title bar and nothing else; entry 101's notes and the
+  earlier sessions blame an AMD GL present quirk). Confirmed not a regression
+  by capturing a main-branch build side by side: same blank window. The panel/overlay code compiles clean and its data comes from
   the same snapshots verified above, but a human should still eyeball the
   glow/timeline once. ps2link (real hardware) uses identical code paths on a
   25-frame cadence; untested.

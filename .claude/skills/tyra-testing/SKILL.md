@@ -258,11 +258,13 @@ Notes:
   was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
   editor and the probe must not both drive `livedbg.cmd` at once (the editor
   rewrites it whenever it goes missing or its state changes).
-- **The editor GUI needs a GPU-backed GL context.** On a session without one
-  (PCSX2's log naming "Microsoft Basic Render Driver" is the tell) the editor
-  window comes up **blank white** and no screenshot harness can help - verify
-  with a main-branch build before blaming a change, and say so in PROGRESS
-  rather than claiming a visual check that did not happen.
+- **The editor window sometimes renders WHITE on this machine** (title bar
+  only, capture is blank) - a GL present quirk, not a code regression. The
+  check that settles it costs 30 seconds: capture
+  `D:	yra-editoruild	yrax-editor.exe` (the main-repo baseline binary)
+  the same way. If that is blank too, GUI visual verification is unavailable
+  for this session: say so in PROGRESS rather than claiming a visual check
+  that did not happen.
 - **Audio**: EE-side logs are invisible, so use the Windows WASAPI session peak
   meter on the PCSX2 process (e.g. via `AudioMeterInformation`) — silence vs
   bursts at expected times proved music/sfx features before; a by-ear speaker
