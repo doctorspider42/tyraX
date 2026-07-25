@@ -1831,6 +1831,7 @@ void Viewport::clearTexCache() {
     for (auto& [path, tex] : texCache_)
         if (tex) glDeleteTextures(1, &tex);
     texCache_.clear();
+    texAlpha_.clear();  // re-derived when the images reload
 }
 
 void Viewport::invalidateAssets() {
@@ -1844,16 +1845,33 @@ uint32_t Viewport::glTexture(const std::string& relPath) {
     if (it != texCache_.end()) return it->second;
 
     GLuint tex = 0;
+    bool hasAlpha = false;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
     int w = 0, h = 0, comp = 0;
     if (unsigned char* pixels = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
+        // comp is the FILE's channel count, so a 3-channel source is opaque by
+        // definition and needs no scan; anything with an alpha channel is only
+        // really transparent if some texel says so (plenty of RGBA PNGs are
+        // fully opaque and should keep the cheaper opaque path).
+        if (comp == 4)
+            for (size_t i = 3, n = (size_t)w * h * 4; i < n; i += 4)
+                if (pixels[i] < 255) {
+                    hasAlpha = true;
+                    break;
+                }
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
         glUploadTexRgba(w, h, pixels);
         stbi_image_free(pixels);
     }
     texCache_[relPath] = tex;  // 0 is cached too (missing/unreadable)
+    texAlpha_[relPath] = hasAlpha;
     return tex;
+}
+
+bool Viewport::texHasAlpha(const std::string& relPath) const {
+    auto it = texAlpha_.find(relPath);
+    return it != texAlpha_.end() && it->second;
 }
 
 void Viewport::clearModelCache() {
@@ -2142,8 +2160,11 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             }
             ModelPart part;
             part.mesh = uploadMesh(interleaved);
-            if (!sub.texture.empty())
-                part.tex = glTexture((modelDir / sub.texture).generic_string());
+            if (!sub.texture.empty()) {
+                const std::string texRel = (modelDir / sub.texture).generic_string();
+                part.tex = glTexture(texRel);
+                part.alpha = part.tex && texHasAlpha(texRel);
+            }
             if (!sub.refl.empty()) {
                 if (sub.refl == "@sky")
                     part.reflSky = true;
@@ -2816,7 +2837,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(o.modelPath, o.materialPath)
                                       : nullptr;
             if (md) {
+                // Opaque parts first, cutout ones (leaf cards) after, so a
+                // blended part never darkens a trunk it was authored in front
+                // of - the same order the tree preview draws in.
+                for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
                 for (const ModelPart& part : md->parts) {
+                    const bool cutout = part.alpha && !asLines;
+                    if ((int)cutout != alphaPass) continue;
                     // rounded env normals radiate from the part centroid -
                     // transform it to world space with the object matrix
                     float c[3] = {0, 0, 0};
@@ -2829,7 +2856,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     }
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
-                         asLines ? 0 : part.tex, lit ? &model : nullptr, false,
+                         asLines ? 0 : part.tex, lit ? &model : nullptr, cutout,
                          1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
                          asLines ? false : part.reflSky, part.reflRounded, c);
                 }
@@ -2902,9 +2929,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(t.modelPath, t.materialPath)
                                       : nullptr;
             if (md) {
-                for (const ModelPart& part : md->parts)
-                    draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
-                         t.color[2], part.tex, &model);
+                for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
+                    for (const ModelPart& part : md->parts) {
+                        if ((int)part.alpha != alphaPass) continue;
+                        draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
+                             t.color[2], part.tex, &model, part.alpha);
+                    }
                 return;
             }
             const MaterialDraw* mat =
@@ -3259,13 +3289,15 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                     uint32_t texture, uint32_t reflTex = 0,
                     float reflStrength = 0.0f, bool reflSky = false,
                     bool reflRounded = false,
-                    const float* reflCenter = nullptr) {
+                    const float* reflCenter = nullptr, bool alpha = false) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
-        glUniform1i(uAlpha_, 0);
+        // cutout materials (leaf cards) discard their transparent texels here
+        // too, or painting one shows the PNG's black margin instead
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
         glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
         if (reflTex || reflSky) {
             glUniform1f(uReflStrength_, reflStrength);
@@ -3355,7 +3387,8 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                      glTexture(refl),
                      staged ? d.reflStrength : part.reflStrength,
                      staged ? d.reflSky : part.reflSky,
-                     staged ? d.reflRounded : part.reflRounded, part.centroid);
+                     staged ? d.reflRounded : part.reflRounded, part.centroid,
+                     texHasAlpha(tex));
         }
     } else {
         // unit shapes sit at the origin - that's the rounded-normal centre
@@ -3369,7 +3402,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         else
             draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
                  glTexture(d.texRel), glTexture(d.reflRel), d.reflStrength,
-                 d.reflSky, d.reflRounded, origin);
+                 d.reflSky, d.reflRounded, origin, texHasAlpha(d.texRel));
     }
     if (d.displayMode == 1) {
         glDisable(GL_POLYGON_OFFSET_FILL);

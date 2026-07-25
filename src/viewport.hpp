@@ -461,6 +461,11 @@ private:
     struct ModelPart {
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
+        // map_Kd carries transparency: draw this part cutout + blended, the
+        // way the console's static pipeline alpha-tests every texture. Leaf
+        // cards are the everyday case (Tree Generator); without it their
+        // transparent margin renders as the PNG's black RGB.
+        bool alpha = false;
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
         bool reflSky = false;      // refl "@sky" - live sky gradient
@@ -530,7 +535,12 @@ private:
     const MaterialDraw* materialDraw(const std::string& relPath);
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
+    // Which of those images actually carry transparency (any texel below
+    // fully opaque), filled as they load - the cutout/blend decision, so a
+    // draw site never has to re-read the file.
+    std::map<std::string, bool> texAlpha_;
     uint32_t glTexture(const std::string& relPath);
+    bool texHasAlpha(const std::string& relPath) const;
     void clearTexCache();
 
     // Live particle-emitter preview. The simulation mirrors the generated

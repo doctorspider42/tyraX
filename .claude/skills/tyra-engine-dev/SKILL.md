@@ -290,6 +290,20 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
   `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
   clean log. Count the qwords after every PACK_GIFTAG edit.
+- **ps2sdk's `ATEST_KEEP_*` constants name what is PRESERVED, not what is
+  written** (`ps2sdk/ee/include/draw_tests.h`): `ATEST_KEEP_ZBUFFER` = 1 =
+  GS FB_ONLY (colour written, z untouched), `ATEST_KEEP_FRAMEBUFFER` = 2 =
+  ZB_ONLY (z written, colour untouched), `ATEST_KEEP_ALL` = 0 = write
+  nothing. Reading them the other way round is easy and expensive: upstream's
+  alpha test passed `ATEST_KEEP_FRAMEBUFFER` on the standard path, so every
+  fully transparent texel of a cutout texture stamped the z buffer while
+  drawing no colour — foliage, grates and decals silently occluded whatever
+  was drawn behind them later, which looks like a sorting or texture bug
+  rather than an AFAIL one. Cutout wants `ATEST_KEEP_ALL` (both pipelines
+  now use it; `PipelineZTest_TestOnly` deliberately keeps FB_ONLY for its
+  depth-tested-no-z-write trick). Symptom to recognise: transparency itself
+  works, but geometry behind a transparent area is missing, cut along the
+  straight edges of the quad in front of it.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.

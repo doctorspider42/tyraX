@@ -9101,3 +9101,40 @@ Each finished feature lands as its own commit.
   Verified both directions: renaming `vendor/ufbx/ufbx.c` away makes build.ps1
   stop before cmake with the explicit path, and deleting the whole directory
   makes it re-clone and build clean through to `tyrax-editor.exe`.
+
+- (103) **Fix: alpha-cutout foliage - black cards in the editor, z-stamping
+  transparent texels on the PS2** (user report on the Tree Generator: "in the
+  editor the leaves have a black background instead of alpha, and in the game
+  they have alpha but you can't see other leaves through them"). Two
+  independent bugs that happened to land on the same asset.
+  *Editor:* `Viewport::modelDraw` recorded a part's texture but nothing about
+  its transparency, and the scene pass drew every model part with
+  `alpha = false` - the shader's cutout discard was reserved for decals. A
+  leaf card is 13 395 of 16 384 texels at alpha 0, 12 302 of them pure black
+  RGB, so ignoring alpha renders exactly the black rectangle the user saw.
+  `glTexture()` now records whether an image carries any non-opaque texel
+  (only when the FILE has an alpha channel - an opaque RGBA PNG keeps the
+  cheap path), `ModelPart::alpha` reads it, and the scene, the mirror
+  reflections and the Material Editor preview all draw cutout parts with the
+  discard on. Opaque parts draw first, cutout after, the order the tree
+  preview already used.
+  *Engine:* the static pipeline's standard alpha test was
+  `GS_SET_TEST(..., ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_FRAMEBUFFER, ...)`
+  - and that ps2sdk constant reads backwards: `ATEST_KEEP_FRAMEBUFFER` is
+  **2 = ZB_ONLY**, "keep the framebuffer, update z" (`ATEST_KEEP_ZBUFFER` is
+  1 = FB_ONLY - the pair names what is PRESERVED, not what is written; the
+  header is `ps2sdk/ee/include/draw_tests.h`). So every fully transparent
+  texel drew no colour and still stamped the z buffer, and the invisible part
+  of a cutout card occluded whatever was drawn behind it later - leaves cut
+  along the straight edges of the card in front of them, holes of sky inside
+  the canopy. `ATEST_KEEP_ALL` (0) writes neither buffer, which is what a
+  cutout means; opaque geometry carries alpha 0x80 and never fails the test,
+  so nothing else moves. Fixed in both twins (stapip + dynpip).
+  Verified: editor screenshot of the trees project shows terrain through the
+  foliage with no black cards; on the PS2 side, built and booted the same
+  project in PCSX2 (software renderer, 50 FPS) with the engine line reverted
+  and restored - the upstream build shows leaves amputated along invisible
+  card boundaries, the fixed one a properly layered canopy. A pixel A/B was
+  not possible: the FPP camera lands in a different pose each boot (the known
+  per-run camera problem in tyra-testing), so the comparison is on the leaf
+  artefact, not on identical frames.
