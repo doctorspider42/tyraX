@@ -441,6 +441,20 @@ non-RGBA formats (the R32F heightmap) do the same two steps inline.
   move when the weighting does. Measured dead end: simply RAISING the old flat
   128-texel per-axis cap made things worse (it packs badly and spends the win
   on the flat axis); the cap was not the problem, isotropic density was.
+- **A lightmap texel's ALPHA MUST NEVER BE 0** (`aobake::kMinLightmapAlpha`).
+  StaPip draws with the GS alpha test set to "pass only when alpha != 0" - the
+  cutout rule that makes foliage and decals work
+  (`stapip_qbuffer_renderer.cpp`). Both lightmap passes sample the SAME
+  texture, so a texel whose occlusion is zero fails that test and takes the
+  ADDITIVE LIGHT pass down with it: baked light silently clipped to wherever
+  the AO happened to be non-zero, as hard texel-aligned holes. This looks
+  exactly like "the lightmap is too low-res" and is not - if a bake looks
+  cut off, dump the alpha channel before touching resolution. The engine's PNG
+  loader scales alpha 0..255 -> 0..128 by integer division, so the floor has to
+  be 2, not 1.
+- **Per-texel bakes average over the texel footprint** (`kSuper`), because a
+  fixture close to a wall throws a sub-texel-sharp penumbra and point-sampling
+  it aliases into a staircase. Host-side cost only.
 - **The terrain takes the same treatment through the terrain AO map**, whose
   RGB channels carry the light while the alpha keeps the occlusion
   (`SCENE_TERRAIN_LIT` gates the extra additive chunk pass AND tells the vertex

@@ -10,6 +10,54 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (174) **The baked light was being clipped by the GS ALPHA TEST - it was never
+  a resolution problem.** The user kept saying the lights looked square and
+  "like the texture is just cut off", and proposed reworking the whole thing
+  onto per-object textures. Measured before rewriting anything, and the
+  measurement said the architecture was fine and something else was broken.
+  **The forensics** (worth keeping - each step killed a hypothesis):
+  the atlas region for the lit alley wall has **every one of its 10920 texels
+  lit** and no hard edge anywhere in RGB or in alpha, so the "the lightmap cuts
+  off" reading could not be about the data. A **1-texel checkerboard written
+  over the entire atlas** then showed the wall correctly checkered *except* the
+  same black V-shaped notch and isolated square - a hole that survives whatever
+  is in the texture is a hole in the RASTERISATION, not the bake. It also
+  measured the two things I would otherwise have guessed at: the atlas IS
+  bilinearly filtered (the checker renders as a smooth dot pattern, not hard
+  squares) and one texel is ~6 GS pixels wide at that distance. Dumping the
+  region's **alpha == 0 mask** produced exactly the notch, pixel for pixel.
+  **The bug:** StaPip sets the GS alpha test to `ATEST_METHOD_NOTEQUAL` against
+  0 - the cutout rule that makes foliage and decals work. The scene lightmap
+  carries occlusion in `A` and light in `RGB` and is read by two passes over
+  the same texture, so **any texel with zero occlusion failed the alpha test
+  and discarded the additive LIGHT pass with it**. Baked light was silently
+  clipped to wherever the ambient occlusion happened to be non-zero. It has
+  been that way since the atlas landed; it reads as blockiness because the
+  clip follows the texel grid, which is why nobody chased it to the alpha
+  channel.
+  **The fix is one line:** floor every lightmap texel's alpha at 2
+  (`aobake::kMinLightmapAlpha`). Not 1 - the engine's PNG loader scales alpha
+  0..255 to 0..128 by integer division, so 1 lands back on 0. Two costs 1/128
+  of darkening, under one framebuffer level. No engine change, no format
+  change, no VRAM, no extra pass.
+  **Result** (PCSX2, software renderer, frozen camera, bloom held fixed so the
+  pulser cannot confound it): the notch, the isolated square and the whole
+  blocky lit/unlit boundary are gone, and the wall is one continuous gradient.
+  **26.4% of the frame gained light** (up to +30 levels) and nothing lost more
+  than 4. 50 FPS unchanged.
+  Also landed here: per-texel bakes now average over the texel's **footprint**
+  (a 4×4 sub-sample grid, `kSuper`) instead of point-sampling its centre. A
+  fixture 0.3 units off a wall throws a penumbra far under one texel, and a
+  point sample of that aliases into the staircase bilinear then reconstructs.
+  Worth 17% off the worst-direction step on the softest edges
+  (`s3-pillar-lit-3` r3: 2.18 → 1.82) for host bake time only.
+  **The rework was not needed, and the numbers say it would not have helped:**
+  a per-object 128² texture is 16384 texels for a whole object, and that wall
+  already gets 14080 from the shared atlas. The only real lever on texel count
+  would be bits per texel (the atlas is RGBA32 because the *occlusion* needs a
+  smooth alpha), and that is a much bigger change to reach for once the actual
+  bug is fixed.
+
 - (173) **Baked light per texel on the GROUND too, and a texel budget that
   follows the gradient - not just the peak.** Follow-up to (172), from the user
   looking at station 4 of `examples/glow` and saying the lights were still

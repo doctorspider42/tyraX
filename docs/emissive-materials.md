@@ -182,7 +182,23 @@ per-texel image the ambient occlusion already used:
   pass selects the channels it can see: a **black**-vertex alpha-over pass
   (an exact per-pixel multiply) and a **white**-vertex additive pass;
 - the additive pass is `fogDisabled` — GS fog would add the fog color through
-  an additive equation and brighten fogged pixels.
+  an additive equation and brighten fogged pixels;
+- **every texel's alpha is floored at 2.** StaPip draws with the GS alpha test
+  set to *pass only when alpha ≠ 0* — the cutout rule that makes foliage and
+  decals work. Both passes read the same texture, so a texel whose *occlusion*
+  is zero used to fail that test and take the additive **light** pass down with
+  it. The baked light was being clipped to wherever the ambient occlusion
+  happened to be non-zero, punching hard, texel-aligned holes into lit
+  surfaces; the floor costs 1/128 of darkening, under one framebuffer level.
+  Any future pass that shares a texture with a cutout-style one inherits this
+  trap.
+
+Each texel is the **mean over its own footprint** (a 4×4 sub-sample grid), not
+a point sample at its centre. Shadow edges here are very nearly hard — a neon
+fixture 0.3 units off a wall throws a penumbra of centimetres, well under one
+texel — and point-sampling one writes a full-amplitude step between neighbouring
+texels that bilinear filtering then reconstructs as a staircase. The cost is
+host-side bake time only; the console draws exactly what it drew before.
 
 Regions are **not** all sized alike. A pre-pass probes each one on a 6×6 grid
 and asks two questions: how strong a signal it can carry (light received,

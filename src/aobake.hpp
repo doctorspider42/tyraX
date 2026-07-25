@@ -104,6 +104,16 @@ std::vector<Emitter> collectEmitters(const std::string& projectDir,
 constexpr int kEmisShadowSamples = 8;
 constexpr int kEmisShadowSamplesVertex = 1;
 
+// Sub-samples per texel per axis in the per-texel bakes. A texel is the mean
+// over its own footprint, not a point sample at its centre: shadow edges here
+// are very nearly hard (a fixture 0.3 units off a wall throws a penumbra of
+// centimetres, far under one texel), and point-sampling one writes a
+// full-amplitude step between neighbouring texels that bilinear filtering then
+// reconstructs as a visible staircase. Averaging band-limits the edge to what
+// the grid can carry. Host-side cost only - the bake is kSuper^2 times the
+// samples, the console draws exactly what it drew before.
+constexpr int kSuper = 4;
+
 // Deterministic Vogel-disk offsets for rays 1..N-1, in units of the emitter's
 // projected half-extent perpendicular to the ray. No RNG - the same bake twice
 // is the same bytes twice. Every offset is distinct in BOTH axes, which is what
@@ -146,6 +156,18 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
                           const float n[3], float range);
 
 // --- the AO textures (how the bake ships) -----------------------------------
+
+// Alpha floor for every texel of a lightmap image. NOT cosmetic: StaPip draws
+// with the GS alpha test set to "pass only when alpha != 0" (the cutout rule
+// that makes foliage and decals work - stapip_qbuffer_renderer.cpp). Both
+// lightmap passes sample the SAME texture, so a texel whose OCCLUSION is zero
+// used to fail that test and throw the additive LIGHT pass away with it: the
+// baked light was silently clipped to wherever the ambient occlusion happened
+// to be non-zero, punching hard, texel-aligned holes into every lit surface.
+// The engine's PNG loader scales alpha 0..255 -> 0..128 by integer division,
+// so 1 would still land on 0; 2 is the smallest value that survives, and it
+// darkens by 1/128 - under one framebuffer level.
+constexpr uint8_t kMinLightmapAlpha = 2;
 
 // A square, power-of-two terrain image. alpha = strength * occlusion (255 =
 // darken fully), read by an alpha-over pass which is then an exact per-pixel

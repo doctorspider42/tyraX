@@ -794,9 +794,27 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 }
             }
             const float wp[3] = {x, h0, z};
+            // Sub-sample positions inside this texel's footprint. The horizon
+            // scan above stays a single sample - it is a slow function of
+            // position and the scan is expensive - but the OCCLUDER contact
+            // term and the emissive light both carry near-hard edges, and a
+            // point sample of those aliases into the staircase bilinear then
+            // reconstructs (see kSuper).
+            const float sxStep = width / size, szStep = depth / size;
+            const float invS = 1.0f / (kSuper * kSuper);
             if (aoOn) {
-                for (const Occluder& oc : occs)
-                    occ += occluderOcclusionAt(oc, wp, n, radiusWorld);
+                float occAcc = 0.0f;
+                for (int sy = 0; sy < kSuper; ++sy)
+                    for (int sx = 0; sx < kSuper; ++sx) {
+                        const float px =
+                            x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
+                        const float pz =
+                            z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
+                        const float p[3] = {px, h0, pz};
+                        for (const Occluder& oc : occs)
+                            occAcc += occluderOcclusionAt(oc, p, n, radiusWorld);
+                    }
+                occ += occAcc * invS;
                 if (occ > 1.0f) occ = 1.0f;
                 const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
                 out.alpha[(size_t)j * size + i] = a;
@@ -807,11 +825,19 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             // low-amplitude ramp and 8 bits alone turn it into plateaus.
             if (lightOn) {
                 float add[3] = {0, 0, 0};
-                for (const Emitter& em : *emitters) {
-                    float l[3];
-                    emitterLightAt(em, wp, n, l, &blockers);
-                    for (int k = 0; k < 3; ++k) add[k] += l[k];
-                }
+                for (int sy = 0; sy < kSuper; ++sy)
+                    for (int sx = 0; sx < kSuper; ++sx) {
+                        const float px =
+                            x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
+                        const float pz =
+                            z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
+                        const float p[3] = {px, h0, pz};
+                        for (const Emitter& em : *emitters) {
+                            float l[3];
+                            emitterLightAt(em, p, n, l, &blockers);
+                            for (int k = 0; k < 3; ++k) add[k] += l[k] * invS;
+                        }
+                    }
                 const float dz = bayerDither(i, j);
                 for (int k = 0; k < 3; ++k) {
                     float v = 255.0f * add[k] * tint[k] + dz;
@@ -824,7 +850,15 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             }
         }
     }
-    if (!any) out.size = 0, out.alpha.clear(), out.light.clear();
+    if (!any) {
+        out.size = 0, out.alpha.clear(), out.light.clear();
+    } else {
+        // Alpha floor - see kMinLightmapAlpha. Without it the additive light
+        // pass is thrown away by the GS alpha test wherever this map has no
+        // occlusion, which is most of an open field.
+        for (uint8_t& a : out.alpha)
+            if (a < kMinLightmapAlpha) a = kMinLightmapAlpha;
+    }
     return out;
 }
 
@@ -1250,15 +1284,35 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         const int iw = rg.w - 2, ih = rg.h - 2;
         for (int j = 0; j < ih; ++j) {
             for (int i = 0; i < iw; ++i) {
-                const float u = (i + 0.5f) / iw;
-                const float v = (j + 0.5f) / ih;
-                float wp[3], n[3];
-                surfaceAt(o, rg.idx, u, v, wp, n);
+                // Each texel is the AVERAGE over its own footprint, not a
+                // point sample at its centre. A shadow edge is very nearly
+                // hard here - a neon strip 0.3 units off a wall casts a
+                // penumbra of a few centimetres, well under one texel - and
+                // point-sampling it writes a full-amplitude step between
+                // neighbouring texels. Bilinear then reconstructs that step as
+                // a one-texel ramp, which is exactly the staircase you see on
+                // a wall. Averaging band-limits the edge to what the texel
+                // grid can actually carry, so the reconstruction is smooth.
+                float occAcc = 0.0f, addAcc[3] = {0, 0, 0};
+                for (int sy = 0; sy < kSuper; ++sy)
+                    for (int sx = 0; sx < kSuper; ++sx) {
+                        const float u = (i + (sx + 0.5f) / kSuper) / iw;
+                        const float v = (j + (sy + 0.5f) / kSuper) / ih;
+                        float wp[3], n[3];
+                        surfaceAt(o, rg.idx, u, v, wp, n);
+                        if (aoOn) occAcc += occlusionAt(wp, n);
+                        if (!recvTextured && !localEm.empty()) {
+                            float add[3];
+                            lightAt(wp, n, add);
+                            for (int k = 0; k < 3; ++k) addAcc[k] += add[k];
+                        }
+                    }
+                const float invS = 1.0f / (kSuper * kSuper);
                 const size_t texel =
                     (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
                 if (aoOn) {
                     const uint8_t a = (uint8_t)(255.0f * rs.aoStrength *
-                                                    occlusionAt(wp, n) +
+                                                    occAcc * invS +
                                                 0.5f);
                     out.alpha[texel] = a;
                     if (a) objHasBake[rg.obj] = 1;
@@ -1267,11 +1321,9 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                 // scaled to framebuffer units (255 = full white) - the
                 // additive pass adds these bytes straight onto the frame.
                 if (!recvTextured) {
-                    float add[3];
-                    lightAt(wp, n, add);
                     const float dz = bayerDither(rg.px + 1 + i, rg.py + 1 + j);
                     for (int k = 0; k < 3; ++k) {
-                        float v = 255.0f * add[k] * recvTint[k] + dz;
+                        float v = 255.0f * addAcc[k] * invS * recvTint[k] + dz;
                         if (v <= 0.0f) continue;  // stays 0, no dither noise
                         if (v > 255.0f) v = 255.0f;
                         const uint8_t b = (uint8_t)(v + 0.5f);
@@ -1333,6 +1385,11 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         out.light.clear();
         out.rects.clear();
         std::fill(out.lit.begin(), out.lit.end(), (char)0);
+    } else {
+        // Alpha floor - see kMinLightmapAlpha. Applied AFTER the content
+        // decisions above, which key on "alpha != 0" meaning "has occlusion".
+        for (uint8_t& a : out.alpha)
+            if (a < kMinLightmapAlpha) a = kMinLightmapAlpha;
     }
     // An object whose region was dropped keeps neither channel.
     for (size_t i = 0; i < out.lit.size(); ++i)

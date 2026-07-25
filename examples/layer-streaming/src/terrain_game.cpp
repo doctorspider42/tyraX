@@ -540,12 +540,14 @@ void emisCollectLocal(float cx, float cy, float cz, float radius,
  *
  * The divergence is written down in docs/emissive-materials.md and it is a
  * resolution argument, not a laziness one: this path bakes into VERTEX colors,
- * whose own spatial resolution is a terrain grid cell or a box face's four
- * corners - far coarser than the penumbra it would resolve. It also runs on the
+ * whose own spatial resolution is a box face's four corners or a terrain grid
+ * cell - far coarser than the penumbra it would resolve. It also runs on the
  * EE at scene load and on every runtime spawn/rebuild: measured on examples/glow
  * in PCSX2, taking this loop to 8 rays cost +200 ms of scene load (1160 -> 1360),
  * and the same multiplier lands mid-frame on every spawn and static-batch
- * rebuild. The per-texel atlas pays neither price - it bakes on the host. */
+ * rebuild. The per-texel bakes pay neither price - they run on the host. What
+ * is left here: imported models, spawned clones, physics bodies, textured
+ * receivers, and terrain that is textured (SCENE_TERRAIN_LIT off). */
 V3 emissiveLightAt(const V3& wp, const V3& n) {
   V3 add = {0.0F, 0.0F, 0.0F};
   for (const EmisLightData* em : g_emisLocal) {
