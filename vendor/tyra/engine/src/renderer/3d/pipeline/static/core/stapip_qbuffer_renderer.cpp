@@ -17,6 +17,7 @@
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
 #include "packet2/packet2_tyra_utils.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
 
 // #define TYRA_QBUFF_RENDERER_VERBOSE_LOG 1
 
@@ -716,9 +717,29 @@ void StaPipQBufferRenderer::sendPacket() {
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
+  // TyraX: the VU1 packet tap (docs/devkit.md). Null in any build whose devkit
+  // layer does not exist, so this is one load + branch per bag flush and the
+  // capture code is not linked at all.
+  if (g_vuPacketHook)
+    g_vuPacketHook(currentPacket->base, packet2_get_qw_count(currentPacket),
+                   "");  // the program is in the packet's MSCAL address
+
   // dma_wait_fast(); // This have no impact on performance
 
   dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+
+  // TyraX: with a VU1 memory hook installed (a devkit capture is in flight),
+  // wait for the transfer AND for VU1 to finish its microprogram, then hand the
+  // whole of VU1 data memory over. This stalls the pipeline on purpose - it runs
+  // for the one frame a capture was armed for, never otherwise.
+  if (g_vuMemHook) {
+    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    // VIF1_STAT: VPS (bits 0-1) = VIF status, VEW (bit 2) = waiting for VU1.
+    volatile u32* const vif1Stat = (volatile u32*)0x10003c00;
+    for (int spin = 0; spin < 2000000 && (*vif1Stat & 0x7) != 0; ++spin) {
+    }
+    g_vuMemHook((const void*)0x1100c000, 1024 * 16);
+  }
 
   // Switch packet, so we can proceed during DMA transfer
   context = !context;

@@ -9,6 +9,29 @@ distance LOD levels the format carries.
 (Animated `.glb`/`.fbx` models have had their own binary format, `.tskl`, all
 along - see [animated-models.md](animated-models.md).)
 
+## How big is this model, really?
+
+Selecting a static model shows three numbers in *Properties*:
+
+```
+4281 triangles, 12843 vertices (3351 unique positions)
+```
+
+They are not the same measurement, and the gap is the interesting part:
+
+- **unique positions** is the `v` count - what the modelling tool told you;
+- **vertices** is what actually reaches VU1: three per triangle, with a corner
+  split wherever its normal, UV or material differs. This is the number the
+  pipeline cuts into VU1-sized chunks (*Debugger > Stats* reports how big a
+  chunk is - it is the VU1 buffer's capacity for that vertex layout, e.g. 108),
+  and the number a frame's vertex budget is spent in.
+
+A model whose vertex count is far above `3 x positions` is paying for split
+corners - hard edges and material boundaries everywhere. The cottage above is
+1.28x, which is ordinary; a smooth-shaded sphere would be near 1.0x.
+
+Animated `.glb` models report their own vertex count in the same place.
+
 ## Why the game stopped reading .obj
 
 An `.obj` is text. Reading one on the PS2 meant parsing ASCII on a 300 MHz
