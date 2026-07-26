@@ -10,6 +10,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (187) **The phone-side sender: the live link actually streams** (tyrax-mocap
+  v1.0.4). (184) and (185) built the editor's half - the transport, the window,
+  the per-frame retarget - against a feed nothing was producing yet. The app now
+  produces it: a LIVE LINK row (editor address + the six-digit pairing code,
+  remembered between launches), and the generated character copies the performer
+  as they move. The loop this closes is the one the owner named - record,
+  AirDrop, import, discover it was wrong, repeat.
+  **Rotations only, and that is the whole design of the wire.** Bone lengths do
+  not change during a take, so the rest pose sent once at connect (`bodyrest`)
+  covers the translations; a frame is 4 floats a joint instead of a 4x4 matrix,
+  ~1.5 KB against the file format's 5.8 KB, which is what makes 30 Hz over Wi-Fi
+  unremarkable. The editor drops any `body` that arrives before `bodyrest` - not
+  as a safety check but because there is genuinely nothing to say which rotation
+  belongs to which joint, and nothing to take the retarget's delta against.
+  **The split follows tyrax-cam**: Swift packs the frame and hands it to
+  JavaScript as base64 (the RN bridge carries no binary), JavaScript owns the
+  WebSocket. Same server, same port, same handshake as the camera app - `body:
+  true` at hello is the only thing that distinguishes them, which is why neither
+  app needed a second listener.
+  **One bug caught by reading the editor instead of testing against it**: the
+  client waited for an `ok` that `phonecam.cpp` never sends - the handshake
+  answers `welcome`. It would have connected and then sat there silently, which
+  is the failure mode a protocol in two repositories produces.
+  *Unverified*: the phone half needs the device. CI builds it; whether ARKit's
+  packed rotations land right on a real performer is the owner's next test.
+
 - (186) **Two retarget bugs the first real phone take exposed.** A 9.5-second
   ARKit recording from the owner's iPhone came out, in his words, completely
   broken: the character flew off the top of the screen and its arms were folded

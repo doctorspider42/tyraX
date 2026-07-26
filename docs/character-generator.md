@@ -290,6 +290,61 @@ camera. Gross body motion reads well; feet slide, depth wobbles, and
 self-occlusion breaks the solve. At 1500 triangles seen from five metres that
 is the right fidelity tier. For a close-up cutscene it is not.
 
+## Tools > Mocap: a performer drives a character
+
+Record, AirDrop, import, discover it was wrong, repeat is a bad loop. *Tools >
+Mocap* closes it: pick an animated model, pick a source, and the character is
+posed **as frames arrive**, in the window's own preview - the Character
+Generator's multi-part path, so clothes and hair come along.
+
+Two sources, and the distinction matters less than it looks:
+
+- **A `.tmocap` file**, played back. Scrub it, loop it, watch the retarget.
+- **The live phone link.** Start *Tools > Phone Camera*'s link, type its address
+  and six-digit code into the app's LIVE LINK row, and the performer moves the
+  character in the editor with about a frame of lag.
+
+The file source is not a mock of the live one - it *is* the live one with a
+different feed. Both end in the same `mocapApplyFrame` → `charanim::applyLive`,
+and a streaming feature that only runs when a phone is in the room is a feature
+nobody can debug. (The equivalence is measured, not asserted: posing through
+`applyLive` frame by frame and posing through the clip path agree to 0.48 µm.)
+
+**Record** writes a `.tmocap`, and only from the live source - a file is already
+a take. It buffers the **source** frames rather than the retargeted pose,
+because a take is reusable on any character and a baked pose is not; the result
+imports through *Import clips...* like anything else. **Recentre** re-zeroes the
+root, for when tracking is lost and regained and the performer has wandered.
+
+### What the wire carries
+
+Only rotations, at 30 Hz - about 1.5 KB a frame for 91 joints, a quarter of what
+the file format costs, because bone lengths do not change during a take. The
+skeleton and its rest pose are sent **once** at connect (`bodyrest`), and a
+`body` frame arriving before it is dropped: there is nothing to say which
+rotation belongs to which joint, and nothing to take the retarget's delta
+against. The phone joins the same server, port and handshake `tyrax-cam` uses;
+`body: true` at hello is how `src/phonecam.cpp` tells the two apps apart. The
+layout is written down in the phone repo's `PROTOCOL.md`.
+
+### Two things real data broke that Mixamo clips never did
+
+Both were found by importing an actual take and looking at it, which is the
+argument for having the live window at all:
+
+- **The performer's height was measured by adding up local Y offsets.** ARKit
+  expresses a bone's offset in its parent's *rotated* frame, so the thigh-to-shin
+  offset reads `(0.42, 0, 0)` - along the bone, not down. A 1.71 m performer
+  measured 0.13 m, the hips translation came back thirteen times too big, and the
+  character flew off the top of the screen. Composing the full transform is not
+  pedantry here.
+- **The two rigs rest differently.** ARKit rests in a true T-pose; the generated
+  rig rests in an A-pose with the arm already 40° down. A delta measured from one
+  rest pose applied to a body resting somewhere else turned "arms hanging at your
+  sides" into arms folded across the chest. `charanim` now computes a per-bone
+  `restFix` from the two bind directions. Mixamo libraries never showed it
+  because their arms are never straight down.
+
 ## What is not here yet
 
 - **Face detail.** The 96 macro targets carry the face's overall character;
@@ -304,7 +359,9 @@ is the right fidelity tier. For a close-up cutscene it is not.
 | `src/mhdata.cpp` | readers for the CC0 data (base mesh, targets, proxies, rig, weights). Host-only, no GL. |
 | `src/chargen.cpp` | `Params` → `glbparser::Skel`: macro blend, proxy fit, rig, weight transfer, skin bake. Host-only, no GL, no `Project`. |
 | `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, retargeting from an imported library, and host linear-blend skinning for the preview. Host-only, no GL. |
-| `src/mocap.cpp` | reads `.tmocap` phone takes into a source `Skel` (ARKit joint names renamed to the rig's). Host-only, no GL. |
+| `src/mocap.cpp` | reads `.tmocap` phone takes into a source `Skel` (ARKit joint names renamed to the rig's), and writes them - `buildSource` is shared by the file and live-link paths. Host-only, no GL. |
+| `src/phonecam.cpp` | the link the phone joins: `bodyrest` / `body` messages into `bodySkeleton()` and `drainBodyFrames()`, alongside the camera app's own traffic. |
+| `src/app.cpp` (mocap window) | `drawMocapWindow` / `mocapRebind` / `mocapApplyFrame` - both sources end in the same `charanim::applyLive`. |
 | `src/gltfwrite.cpp` | `Skel` → `.glb` bytes; the exact inverse of `glbparser::parseSkel`. |
 | `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer (`charFbo_`), sharing `drawToolPreview` with the Tree Generator. |
