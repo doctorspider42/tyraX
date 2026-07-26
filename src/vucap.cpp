@@ -71,9 +71,18 @@ const std::vector<float>* Capture::vertices() const {
     return &unpacks[vertexUnpack].floats;
 }
 
+float Mesh::extent() const {
+    float e = 0.0f;
+    for (int a = 0; a < 3; ++a) {
+        const float d = hi[a] - lo[a];
+        if (d > e) e = d;
+    }
+    return e;
+}
+
 const std::vector<float>* Capture::verticesOf(int i) const {
-    if (i < 0 || i >= (int)vertexUnpacks.size()) return nullptr;
-    const int u = vertexUnpacks[i];
+    if (i < 0 || i >= (int)meshes.size()) return nullptr;
+    const int u = meshes[i].unpack;
     if (u < 0 || u >= (int)unpacks.size()) return nullptr;
     return &unpacks[u].floats;
 }
@@ -105,11 +114,23 @@ int Capture::outputVerts() const {
     return n;
 }
 
-int Capture::clipDelta() const {
+int Capture::inputTris() const {
+    if (meshes.empty()) return triangleCount();
+    int n = 0;
+    for (const Mesh& m : meshes) n += m.tris;
+    return n;
+}
+
+int Capture::outputTris() const {
     int out = 0;
     for (const GifPacket& g : gifs)
         if (g.hasGeometry) out += (int)g.verts.size() / 3;
-    return out - triangleCount();
+    return out;
+}
+
+int Capture::clipDelta() const {
+    const int last = meshes.empty() ? triangleCount() : meshes.back().tris;
+    return outputTris() - last;
 }
 
 namespace {
@@ -323,6 +344,76 @@ static void decodeVuMem(Capture& out) {
                 (float)((out.yFlipped ? syDown : syUp) / compared);
         }
     }
+
+    // --- what looks wrong ---------------------------------------------------
+    // The GS draws a renderWidth x renderHeight window centred on 2048 of the
+    // 4096-unit plane (RendererCoreGS sets XYOFFSET = 2048 - size/2), and
+    // GsVertex::px() reports that plane. So "is this vertex on screen" is a
+    // range check - the single most useful thing to ask of a staged packet.
+    if (out.renderWidth > 0 && out.renderHeight > 0) {
+        out.hasWindow = true;
+        out.winX0 = 2048.0f - out.renderWidth * 0.5f;
+        out.winX1 = 2048.0f + out.renderWidth * 0.5f;
+        out.winY0 = 2048.0f - out.renderHeight * 0.5f;
+        out.winY1 = 2048.0f + out.renderHeight * 0.5f;
+    }
+    // Scoped to ONE packet on purpose. VU1 data memory is not cleared between
+    // runs, so a scan of all 1024 quadwords also turns up whatever earlier
+    // meshes (and earlier frames) left lying there - counting every vertex it
+    // finds produces confident nonsense like "60 of 60 vertices are off
+    // screen". The biggest geometry packet is the one this run staged, and it
+    // is the same packet the host reference is diffed against.
+    if (big && !big->verts.empty()) {
+        const bool blends = (big->prim & (1u << 6)) != 0;  // +ABE
+        out.gsX0 = out.gsX1 = big->verts[0].px();
+        out.gsY0 = out.gsY1 = big->verts[0].py();
+        for (const GsVertex& v : big->verts) {
+            ++out.gsVerts;
+            if (out.hasWindow &&
+                (v.px() < out.winX0 || v.px() > out.winX1 ||
+                 v.py() < out.winY0 || v.py() > out.winY1))
+                ++out.gsOffWindow;
+            if (v.a == 0 && !blends) ++out.gsZeroAlpha;
+            if (v.px() < out.gsX0) out.gsX0 = v.px();
+            if (v.px() > out.gsX1) out.gsX1 = v.px();
+            if (v.py() < out.gsY0) out.gsY0 = v.py();
+            if (v.py() > out.gsY1) out.gsY1 = v.py();
+        }
+        out.packetOffscreen =
+            out.hasWindow &&
+            (out.gsX1 < out.winX0 || out.gsX0 > out.winX1 ||
+             out.gsY1 < out.winY0 || out.gsY0 > out.winY1);
+        // The classic PS2 smear: a vertex whose W went to (or past) zero comes
+        // out the far side of the plane and drags its triangle across the
+        // screen. It cannot be spotted per vertex - the packed field is 16 bits
+        // and has already wrapped - so the tell is the triangle's SIZE. The
+        // threshold is deliberately near the size of the whole 4096-unit plane:
+        // a terrain quad at the camera legitimately spans several screens (the
+        // guard band exists for exactly that), and a warning that fires on
+        // ordinary geometry is worse than no warning at all.
+        if ((big->prim & 7) == 3)  // TRIANGLE list
+            for (size_t t = 0; t + 2 < big->verts.size(); t += 3) {
+                float x0 = big->verts[t].px(), x1 = x0, y0 = big->verts[t].py(),
+                      y1 = y0;
+                for (size_t k = 1; k < 3; ++k) {
+                    const float x = big->verts[t + k].px(),
+                                y = big->verts[t + k].py();
+                    x0 = x < x0 ? x : x0;
+                    x1 = x > x1 ? x : x1;
+                    y0 = y < y0 ? y : y0;
+                    y1 = y > y1 ? y : y1;
+                }
+                if (x1 - x0 > 3500.0f || y1 - y0 > 3500.0f) ++out.hugeTris;
+            }
+    }
+    // Only when the flush carried ONE mesh. The reference transforms the
+    // largest mesh's vertices with the MVP left in VU1 memory - the LAST mesh's
+    // - so on a multi-mesh flush "behind the camera" would be an artefact of
+    // pairing the wrong matrix with the wrong vertices. Silence beats a
+    // confident wrong answer.
+    if (out.meshes.size() <= 1)
+        for (const RefVertex& r : out.reference)
+            if (r.behind) ++out.behindVerts;
 }
 bool load(const std::string& path, Capture& out) {
     out = Capture();
@@ -338,16 +429,32 @@ bool load(const std::string& path, Capture& out) {
         return false;
     }
     const uint32_t ver = rd32(&b[4]);
-    if (ver != 1u && ver != 2u && ver != 3u) {
+    if (ver < 1u || ver > 4u) {
         out.error = "unknown capture version";
         return false;
     }
+    out.version = ver;
     out.frame = rd32(&b[8]);
     const uint32_t packed = rd32(&b[12]);
     out.qw = (int)(ver == 1 ? packed : (packed & 0xFFFF));
     const int blockCount = ver == 1 ? 0 : (int)(packed >> 16);
-    const unsigned char* p = b.data() + 16;
-    size_t bytes = b.size() - 16;
+    // v4 doubled the header: which bag flush of the frame this is, how many the
+    // frame sent, and the resolution the game is actually rendering at (decided
+    // at runtime, so the editor cannot know it from the project settings).
+    size_t headerSize = 16;
+    if (ver >= 4u) {
+        headerSize = 32;
+        if (b.size() < headerSize) {
+            out.error = "truncated capture header";
+            return false;
+        }
+        out.flushIndex = (int)rd32(&b[16]);
+        out.flushCount = (int)rd32(&b[20]);
+        out.renderWidth = (int)rd32(&b[24]);
+        out.renderHeight = (int)rd32(&b[28]);
+    }
+    const unsigned char* p = b.data() + headerSize;
+    size_t bytes = b.size() - headerSize;
     if ((size_t)out.qw * 16 > bytes) out.qw = (int)(bytes / 16);
 
     // v2: after the chain come `blockCount` index entries (chain quadword,
@@ -377,6 +484,13 @@ bool load(const std::string& path, Capture& out) {
     // it (the tag is one quadword, and the data arrived as a block above).
     int at = 0;
     char line[192];
+    // Which microprogram each block is run UNDER is not in the UNPACK: it is the
+    // MSCAL/MSCNT that follows the mesh's blocks. MSCAL names an entry address,
+    // MSCNT re-runs the last one - so the unpacks queue up here and are stamped
+    // when the call arrives. A chain with two different MSCAL addresses ran two
+    // programs, which is worth seeing.
+    int lastProgram = -1;
+    std::vector<size_t> pending;
     while (at < out.qw) {
         const unsigned char* q = p + (size_t)at * 16;
         const uint32_t w0 = rd32(q), w1 = rd32(q + 4);
@@ -426,10 +540,18 @@ bool load(const std::string& path, Capture& out) {
                               u.useTops ? " (+TOPS)" : "",
                               payload ? "" : " [payload not captured]");
                 out.steps.push_back({(uint32_t)at, line});
+                pending.push_back(out.unpacks.size());
                 out.unpacks.push_back(std::move(u));
             } else {
                 const std::string name = vifName(cmd);
-                if (cmd == 0x14 || cmd == 0x15) out.mscal.push_back((int)imm);
+                if (cmd == 0x14 || cmd == 0x15) {  // MSCAL / MSCALF
+                    out.mscal.push_back((int)imm);
+                    lastProgram = (int)imm;
+                }
+                if (cmd == 0x14 || cmd == 0x15 || cmd == 0x17) {  // ...or MSCNT
+                    for (size_t ui : pending) out.unpacks[ui].program = lastProgram;
+                    pending.clear();
+                }
                 std::snprintf(line, sizeof(line), "  VIF %-10s num=%d imm=%u",
                               name.empty() ? "?" : name.c_str(), (int)num,
                               (unsigned)imm);
@@ -453,15 +575,44 @@ bool load(const std::string& path, Capture& out) {
         bool positions = true;
         for (size_t k = 0; k < items && positions; ++k)
             positions = u.floats[k * 4 + 3] == 1.0f;
-        if (positions) out.vertexUnpacks.push_back((int)i);
+        if (!positions) continue;
+        Mesh m;
+        m.unpack = (int)i;
+        m.verts = (int)items;
+        m.tris = (int)items / 3;
+        m.program = u.program;
+        for (int a = 0; a < 3; ++a) {
+            m.lo[a] = u.floats[a];
+            m.hi[a] = u.floats[a];
+        }
+        for (size_t k = 0; k < items; ++k)
+            for (int a = 0; a < 3; ++a) {
+                const float v = u.floats[k * 4 + a];
+                if (v < m.lo[a]) m.lo[a] = v;
+                if (v > m.hi[a]) m.hi[a] = v;
+            }
+        // A triangle with no area draws nothing and costs the same as one that
+        // does - a duplicated index or a collapsed strip shows up here.
+        for (size_t t = 0; t + 2 < items; t += 3) {
+            const float* A = &u.floats[t * 4];
+            const float* B = &u.floats[(t + 1) * 4];
+            const float* C = &u.floats[(t + 2) * 4];
+            const float ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2];
+            const float vx = C[0] - A[0], vy = C[1] - A[1], vz = C[2] - A[2];
+            const float cx = uy * vz - uz * vy, cy = uz * vx - ux * vz,
+                        cz = ux * vy - uy * vx;
+            if (cx * cx + cy * cy + cz * cz < 1e-12f) ++m.degenerate;
+        }
+        out.degenerateTris += m.degenerate;
+        out.meshes.push_back(m);
     }
     // The one the header counts and the host reference is diffed against stays
     // the largest stream, so the numbers below mean what they always did.
     size_t best = 0;
-    for (int i : out.vertexUnpacks)
-        if (out.unpacks[i].floats.size() > best) {
-            best = out.unpacks[i].floats.size();
-            out.vertexUnpack = i;
+    for (const Mesh& m : out.meshes)
+        if (out.unpacks[m.unpack].floats.size() > best) {
+            best = out.unpacks[m.unpack].floats.size();
+            out.vertexUnpack = m.unpack;
         }
     if (out.vertexUnpack < 0)  // nothing looked like positions: old rule
         for (size_t i = 0; i < out.unpacks.size(); ++i) {

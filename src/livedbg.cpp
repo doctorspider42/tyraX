@@ -188,7 +188,8 @@ bool Command::sameStateAs(const Command& o) const {
     return halt == o.halt && stepUntilFire == o.stepUntilFire &&
            stepFrames == o.stepFrames && breakpoints == o.breakpoints &&
            fire == o.fire && fireAndRun == o.fireAndRun &&
-           captureVu == o.captureVu && watchObjects == o.watchObjects;
+           captureVu == o.captureVu && vuFlush == o.vuFlush &&
+           watchObjects == o.watchObjects;
 }
 
 std::vector<unsigned char> encodeCommand(const Command& c) {
@@ -197,8 +198,16 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     put32(v, kCmdMagic);
     put32(v, kCmdVersion);
     put32(v, c.seq);
-    put32(v, (c.halt ? 1u : 0u) | (c.stepUntilFire ? 2u : 0u) |
-                 (c.fireAndRun ? 4u : 0u) | (c.captureVu ? 8u : 0u));
+    // Bits 0-3 are the switches; a capture with a named flush index sets bit 4
+    // and carries the index in bits 8-23 (see Command::vuFlush). Spare bits
+    // rather than a longer header: a game built before this reads the switches
+    // it knows and ignores the rest, so no version bump is needed on either
+    // side.
+    uint32_t flags = (c.halt ? 1u : 0u) | (c.stepUntilFire ? 2u : 0u) |
+                     (c.fireAndRun ? 4u : 0u) | (c.captureVu ? 8u : 0u);
+    if (c.captureVu && c.vuFlush >= 0)
+        flags |= 16u | ((uint32_t)(c.vuFlush & 0xFFFF) << 8);
+    put32(v, flags);
     put32(v, (uint32_t)(int32_t)c.stepFrames);
     put32(v, (uint32_t)(int32_t)c.breakpoints.size());
     put32(v, (uint32_t)(int32_t)c.fire.size());

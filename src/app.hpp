@@ -1742,6 +1742,8 @@ private:
     bool dbgVuCapWaiting_ = false;  // a capture was asked for, none arrived yet
     float dbgVuYaw_ = 0.6f, dbgVuPitch_ = 0.35f, dbgVuZoom_ = 1.0f;
     int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
+    bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
+    int dbgVuFlushWanted_ = 0;    // ...which one
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();

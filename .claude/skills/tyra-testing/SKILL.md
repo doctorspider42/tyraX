@@ -265,13 +265,20 @@ Notes:
   That CLI is how the decoder is verified without the GUI - a healthy capture
   shows `UNPACK V4_32 -> VU1 addr 0` for the scales, referenced `num=21` blocks
   for the double-buffered vertex data, and model-space positions with w=1.0. It
-  also lists the **position streams (meshes)** in the flush - a bag flush carries
-  a dozen, and the GUI draws one of them at a time. **A project with no runnable
-  flow-graph node generates no devkit layer at all**, so a scratch fixture needs
-  a graph (`--apply-graph`) before it can capture anything - `live_debug.gen.cpp`
-  being a 220-byte comment is the tell. Consecutive captures of the same draw are
-  byte-identical in LENGTH (same bag, fixed 16 KiB memory tail); tell them apart
-  by mtime or the frame in the header, never by size. If
+  also lists the **meshes** in the flush (a bag flush carries a dozen; the GUI
+  draws one at a time), which **bag flush of the frame** the capture is, the live
+  render resolution, and the findings the panel paints amber. **A project with no
+  runnable flow-graph node generates no devkit layer at all**, so a scratch
+  fixture needs a graph (`--apply-graph`) before it can capture anything -
+  `live_debug.gen.cpp` being a 220-byte comment is the tell. Consecutive captures
+  of the same draw are byte-identical in LENGTH (same bag, fixed 16 KiB memory
+  tail); tell them apart by mtime or the frame in the header, never by size. A
+  scripted probe selects the flush the same way the panel does: flags bit 3 arms
+  a capture, bit 4 means "index in bits 8-23", and without bit 4 each capture
+  walks to the next flush (that is how PROGRESS 197 was verified). **Delete
+  `livedbg.cmd` before booting a fixture** - a leftover command is applied at
+  boot and eats the first capture, which reads exactly like an off-by-one in the
+  walk. If
   you see tags like `refe qwc=32789` or float garbage, the walker lost sync (see
   the by-reference rule in tyra-engine-dev).
 - **Symbolize an address from a running/crashed game**: `tyrax-editor

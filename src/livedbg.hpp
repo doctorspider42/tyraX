@@ -118,6 +118,12 @@ struct Command {
     // Ask the game to hand over the next VU1 DMA chain (docs/devkit.md). The
     // game grabs one packet and writes bin/vucap.bin; one-shot, like `fire`.
     bool captureVu = false;
+    // WHICH flush of the frame to grab. A frame sends one chain per bag flush,
+    // always in the same order, so without this every capture inspects the same
+    // draw. -1 = let the game walk them, one per capture (the default); >= 0 =
+    // that index every time. Rides in the flags word, so a game built before
+    // this existed simply keeps grabbing the first flush.
+    int vuFlush = -1;
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once

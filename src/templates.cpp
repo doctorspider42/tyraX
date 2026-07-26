@@ -19853,10 +19853,20 @@ int lastScene = 0;  // for the crash report
 // VU1 packet capture state (the buffer + the tap live further down).
 bool vuCapArmed = false;   // set by a command, cleared once one is grabbed
 bool vuCapPending = false;  // captured, not yet written
+// WHICH flush of the frame to grab. A frame sends one chain per bag flush and
+// they are always sent in the same order, so grabbing "the next one" forever
+// means always inspecting the same draw. The editor can name an index; with
+// none named the capture walks the frame, one flush per click, wrapping at the
+// last frame's flush count.
+int vuCapWant = 0;          // flush index to grab
+bool vuCapExplicit = false;  // the editor named it (do not auto-advance)
+int vuFlushCount = 0;       // flushes seen so far THIS frame
+int vuFlushPrevFrame = 0;   // flushes the last complete frame sent
+int vuCapTookIndex = 0;     // which one the pending capture actually is
 void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
-void writeVuCapture();  // both defined below
+void writeVuCapture(ScriptContext& ctx);  // both defined below
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
 int pollCooldown = 1;
@@ -19940,7 +19950,18 @@ void pollCommand() {
   const bool halt = (flags & 1U) != 0;
   stepUntilFire = (flags & 2U) != 0;
   fireAndRun = (flags & 4U) != 0;
-  if ((flags & 8U) != 0) vuCapArmed = true;  // capture one VU1 packet
+  // Capture one VU1 packet. Bit 4 = the editor named a flush index (bits 8-23);
+  // without it the capture walks the frame one flush per arm, wrapping when it
+  // runs past what the last complete frame sent. Old editors set neither, which
+  // leaves the index at 0 - the behaviour they expect.
+  if ((flags & 8U) != 0) {
+    vuCapArmed = true;
+    vuCapExplicit = (flags & 16U) != 0;
+    if (vuCapExplicit)
+      vuCapWant = (int)((flags >> 8) & 0xFFFFU);
+    else if (vuFlushPrevFrame > 0 && vuCapWant >= vuFlushPrevFrame)
+      vuCapWant = 0;
+  }
   stepFrames = steps;
   haltRequested = halt;
   if (!halt) breakKey = -1;
@@ -20034,7 +20055,18 @@ void tickImpl(ScriptContext& ctx) {
     vuHooked = true;
     Tyra::g_vuPacketHook = &vuPacketTap;
   }
-  if (vuCapPending) writeVuCapture();
+  // The tick runs once per frame, so a frame's worth of bag flushes has just
+  // gone by: bank the total (that is what "flush 3 of 13" and the capture's
+  // wrap-around are counted against) and start over.
+  if (vuFlushCount > 0) vuFlushPrevFrame = vuFlushCount;
+  // Still armed after a whole frame? Then the index asked for is past what this
+  // frame sends (the count moves with streaming) - wrap rather than wait for a
+  // flush that may never come. The written capture reports the index actually
+  // taken, so this never lies about what you are looking at.
+  if (vuCapArmed && vuFlushCount > 0 && vuCapWant >= vuFlushCount)
+    vuCapWant = 0;
+  vuFlushCount = 0;
+  if (vuCapPending) writeVuCapture(ctx);
   forcedCount = 0;  // force-fires live for exactly one frame
 
   // Over ps2link every fopen is a network round-trip, so poll sparsely there.
@@ -20123,7 +20155,16 @@ bool vuCapHaveMem = false;
 
 void vuPacketTap(const void* data, unsigned int qwc, const char* name) {
   (void)name;
+  // Counted for EVERY flush, armed or not: this is both the index the editor
+  // selects with and the "how many draws does a frame send" figure it reports.
+  const int flushIndex = vuFlushCount++;
   if (!vuCapArmed || vuCapPending) return;
+  // EXACTLY the wanted index, not "the first one at or past it": arming happens
+  // mid-frame, so a >= test grabs whatever is left of the frame and the walk
+  // drifts forward a flush at a time. Waiting for the real index costs at most
+  // one frame (the counter restarts every frame) and makes "flush 3" mean it.
+  if (flushIndex != vuCapWant) return;
+  vuCapTookIndex = flushIndex;
   int qw = (int)qwc;
   if (qw <= 0) return;
   if (qw > VU_CAP_MAX_QW) qw = VU_CAP_MAX_QW;
@@ -20165,6 +20206,7 @@ void vuPacketTap(const void* data, unsigned int qwc, const char* name) {
   vuCapBlockQwTotal = (int)((dst - vuCapBlockBuf) / 16);
 
   vuCapArmed = false;
+  if (!vuCapExplicit) ++vuCapWant;  // the next click walks to the next draw
   // Ask for VU1 memory as well: the next send stalls once and hands over what
   // the microprogram left - the GIF packet it staged included.
   vuCapHaveMem = false;
@@ -20180,19 +20222,34 @@ void vuMemTap(const void* mem, unsigned int bytes) {
   Tyra::g_vuMemHook = nullptr;  // one snapshot: the stall ends here
 }
 
-void writeVuCapture() {
+void writeVuCapture(ScriptContext& ctx) {
   // Hold the write until the VU1 memory snapshot landed (it happens on the
   // next send, one or two frames later at most).
   if (!vuCapHaveMem) return;
   vuCapPending = false;
   FILE* f = fopen(Tyra::FileUtils::fromCwd("vucap.bin").c_str(), "wb");
   if (!f) return;
-  // Header: magic "TXVU", version 2, frame, chain quadwords, block count.
-  unsigned char h[16];
+  // Header: magic "TXVU", version 4, frame, chain quadwords, block count, then
+  // (v4) which flush of the frame this is, how many the last complete frame
+  // sent, and the RENDER RESOLUTION - without it the editor cannot say whether
+  // a staged GS vertex lands inside the drawing window, because the resolution
+  // is decided at runtime (display mode + console region), not at build time.
+  unsigned char h[32];
   memcpy(h + 0, "TXVU", 4);
-  put32(h + 4, 3U);
+  put32(h + 4, 4U);
   put32(h + 8, frameNo);
   put32(h + 12, (unsigned int)((vuCapQw & 0xFFFF) | (vuCapBlocks << 16)));
+  put32(h + 16, (unsigned int)vuCapTookIndex);
+  put32(h + 20, (unsigned int)vuFlushPrevFrame);
+  unsigned int rw = 0, rh = 0;
+  if (ctx.engine) {
+    const Tyra::RendererSettings& rs =
+        ctx.engine->renderer.core.getSettings();
+    rw = (unsigned int)rs.getWidth();
+    rh = (unsigned int)rs.getRenderHeightF();
+  }
+  put32(h + 24, rw);
+  put32(h + 28, rh);
   fwrite(h, 1, sizeof(h), f);
   fwrite(vuCapBuf, 1, (size_t)vuCapQw * 16, f);
   // Then one index entry per referenced block, followed by all block data.
@@ -20207,7 +20264,8 @@ void writeVuCapture() {
   // arrays as VU1 saw them, and the GIF packet the program staged.
   fwrite(vuCapMem, 1, sizeof(vuCapMem), f);
   fclose(f);
-  TYRA_LOG("VU capture: ", vuCapQw, " qw chain + ", vuCapBlocks,
+  TYRA_LOG("VU capture: flush ", vuCapTookIndex, "/", vuFlushPrevFrame, ", ",
+           vuCapQw, " qw chain + ", vuCapBlocks,
            " referenced block(s) written to vucap.bin");
 }
 

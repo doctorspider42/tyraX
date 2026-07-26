@@ -21510,6 +21510,76 @@ void App::liveLogicTick() {
         liveLogicLastPayload_ = std::move(body);
 }
 
+// The VU tab's verdict block: the handful of questions worth asking of every
+// capture, answered before the user has to read a single hex value. All of it
+// comes out of the decode (src/vucap.cpp); nothing here is a guess about the
+// scene - a finding either counts vertices or it is not printed.
+static void dbgVuDrawFindings(const vucap::Capture& c) {
+    if (!c.hasVuMem) return;
+    const int inTris = c.inputTris();
+    const int outTris = c.outputTris();
+    ImGui::Separator();
+    ImGui::Text("input: %d mesh(es), %d triangles   ->   staged in VU1: "
+                "%d packet(s), %d triangles",
+                (int)c.meshes.size(), inTris, (int)c.gifs.size(), outTris);
+    ImGui::TextDisabled(
+        "VU1 memory is never cleared, so that count includes what earlier runs "
+        "left. The checks below read the BIGGEST geometry packet (%d vertices) "
+        "- this run's output.",
+        c.gsVerts);
+
+    const ImU32 warn = IM_COL32(240, 190, 90, 255);
+    int findings = 0;
+    auto say = [&](const char* fmt, ...) {
+        ++findings;
+        va_list ap;
+        va_start(ap, fmt);
+        ImGui::PushStyleColor(ImGuiCol_Text, warn);
+        ImGui::TextV(fmt, ap);
+        ImGui::PopStyleColor();
+        va_end(ap);
+    };
+    if (c.hasWindow && c.gsVerts)
+        ImGui::TextDisabled(
+            "packet on screen: x %.0f..%.0f, y %.0f..%.0f  vs  window x "
+            "%.0f..%.0f, y %.0f..%.0f  (%d vertex/vertices outside it, which is "
+            "ordinary - the GS scissors them)",
+            c.gsX0, c.gsX1, c.gsY0, c.gsY1, c.winX0, c.winX1, c.winY0, c.winY1,
+            c.gsOffWindow);
+    if (c.packetOffscreen)
+        say("! that packet misses the drawing window entirely - nothing of it "
+            "can appear on screen");
+    if (c.hugeTris)
+        say("! %d staged triangle(s) span nearly the whole GS plane - the "
+            "classic sign of a vertex at or behind w = 0",
+            c.hugeTris);
+    if (c.behindVerts)
+        say("! %d input vertex/vertices have clip w <= 0 (behind the camera)",
+            c.behindVerts);
+    else if (c.meshes.size() > 1)
+        ImGui::TextDisabled(
+            "(the w <= 0 and host-reference checks need a single-mesh flush: "
+            "VU1 memory keeps only the LAST mesh's MVP - pin a flush that "
+            "carries one mesh to get them)");
+    if (c.degenerateTris)
+        say("! %d input triangle(s) have no area - they cost a transform and "
+            "draw nothing",
+            c.degenerateTris);
+    if (c.gsZeroAlpha)
+        say("! %d staged vertices are fully transparent in a packet with no "
+            "+ABE - check the material",
+            c.gsZeroAlpha);
+    if (!findings)
+        ImGui::TextDisabled(
+            "Nothing obviously wrong: the staged packet reaches the drawing "
+            "window, no triangle is degenerate and nothing is behind w = 0.");
+    if (!c.hasWindow)
+        ImGui::TextDisabled(
+            "(The on-screen check needs a capture from a game built after this "
+            "panel grew it - rebuild to get it.)");
+    ImGui::Separator();
+}
+
 // Tools > Debugger (F9). The state of the running game's logic: what fired,
 // what the variables hold, where it is stopped - plus the transport controls
 // and the breakpoint list. The graph itself is the other half of this UI (the
@@ -22050,17 +22120,33 @@ void App::drawDebuggerWindow() {
     if (ImGui::BeginTabItem("VU")) {
         if (!live) dbgVuCapWaiting_ = false;  // nobody left to answer
         ImGui::BeginDisabled(!live);
-        if (ImGui::Button("Capture next VU1 packet")) {
+        if (ImGui::Button("Capture VU1 packet")) {
             dbgCmd_.captureVu = true;
+            dbgCmd_.vuFlush = dbgVuPinFlush_ ? dbgVuFlushWanted_ : -1;
             dbgCmdWritten_ = false;
             dbgVuCapWaiting_ = true;
         }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
-                "Asks the game for the next DMA chain it sends to VU1: the "
-                "scales, the\nGIF tag, the matrices and the vertex stream, "
-                "exactly as packed.");
+                "Asks the game for one DMA chain it sends to VU1: the scales, "
+                "the\nGIF tag, the matrices and the vertex stream, exactly as "
+                "packed.\nA frame sends one chain per bag flush - unpinned, "
+                "each click\nwalks to the next one.");
+        // A frame sends the same draws in the same order, so "the next packet"
+        // forever means the same picture forever. Unpinned the game advances one
+        // flush per click; pinned it re-grabs the same draw, which is what you
+        // want when watching ONE thing change over time.
+        ImGui::SameLine();
+        ImGui::Checkbox("pin flush", &dbgVuPinFlush_);
+        if (dbgVuPinFlush_) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(90.0f));
+            const int maxFlush =
+                dbgVuCap_.flushCount > 0 ? dbgVuCap_.flushCount - 1 : 63;
+            ImGui::SliderInt("##vuflush", &dbgVuFlushWanted_, 0, maxFlush,
+                             "flush %d");
+        }
         // Two captures of the same draw look alike; say plainly whether what is
         // on screen is the answer to the last click or still the previous one.
         if (dbgVuCapWaiting_) {
@@ -22072,32 +22158,56 @@ void App::drawDebuggerWindow() {
                 "No capture yet. %s",
                 dbgVuCap_.error.empty() ? "" : dbgVuCap_.error.c_str());
         } else {
-            ImGui::Text("frame %u  |  %d quadwords  |  %d unpack(s)  |  %d mesh(es)",
-                        dbgVuCap_.frame, dbgVuCap_.qw,
-                        (int)dbgVuCap_.unpacks.size(),
-                        (int)dbgVuCap_.vertexUnpacks.size());
-            if (!dbgVuCap_.mscal.empty()) {
+            if (dbgVuCap_.flushIndex >= 0)
+                ImGui::Text("frame %u  |  flush %d of %d  |  %d quadwords  |  "
+                            "%d mesh(es)",
+                            dbgVuCap_.frame, dbgVuCap_.flushIndex,
+                            dbgVuCap_.flushCount, dbgVuCap_.qw,
+                            (int)dbgVuCap_.meshes.size());
+            else
+                ImGui::Text("frame %u  |  %d quadwords  |  %d unpack(s)  |  "
+                            "%d mesh(es)",
+                            dbgVuCap_.frame, dbgVuCap_.qw,
+                            (int)dbgVuCap_.unpacks.size(),
+                            (int)dbgVuCap_.meshes.size());
+            {
                 std::string progs;
                 for (size_t i = 0; i < dbgVuCap_.mscal.size(); ++i)
                     progs += (i ? ", " : "") + std::to_string(dbgVuCap_.mscal[i]);
-                ImGui::TextDisabled("microprogram start address(es): %s",
-                                    progs.c_str());
+                std::string res;
+                if (dbgVuCap_.renderWidth > 0)
+                    res = "  |  rendering at " +
+                          std::to_string(dbgVuCap_.renderWidth) + "x" +
+                          std::to_string(dbgVuCap_.renderHeight);
+                ImGui::TextDisabled("microprogram entry: %s%s",
+                                    progs.empty() ? "-" : progs.c_str(),
+                                    res.c_str());
             }
+
+            dbgVuDrawFindings(dbgVuCap_);
 
             // One flush is a whole bag: a dozen meshes, each with its own
             // position stream. Pick which one the preview draws - they cannot
             // be drawn together, every mesh being in its OWN model space.
-            const int meshes = (int)dbgVuCap_.vertexUnpacks.size();
+            const int meshes = (int)dbgVuCap_.meshes.size();
             dbgVuMesh_ = meshes ? ImClamp(dbgVuMesh_, 0, meshes - 1) : 0;
             if (meshes > 1) {
                 ImGui::SetNextItemWidth(scaled(180.0f));
                 ImGui::SliderInt("##vumesh", &dbgVuMesh_, 0, meshes - 1,
                                  "mesh %d");
                 ImGui::SameLine();
-                const vucap::Unpack& mu =
-                    dbgVuCap_.unpacks[dbgVuCap_.vertexUnpacks[dbgVuMesh_]];
-                ImGui::TextDisabled("of %d in this flush - %d verts, VU1 addr %u",
-                                    meshes, mu.count, mu.vuAddr);
+                const vucap::Mesh& m = dbgVuCap_.meshes[dbgVuMesh_];
+                std::string tail;
+                // A chain that only ever says MSCNT re-runs the program the
+                // PREVIOUS chain loaded - it is not in this capture at all.
+                tail += m.program >= 0
+                            ? "  program @" + std::to_string(m.program)
+                            : std::string("  program carried over (MSCNT)");
+                if (m.degenerate)
+                    tail += "  " + std::to_string(m.degenerate) + " degenerate";
+                ImGui::TextDisabled(
+                    "of %d - %d verts, %d tris, %.1f units across%s", meshes,
+                    m.verts, m.tris, m.extent(), tail.c_str());
             }
 
             // The wireframe: the captured positions are model space, so this is

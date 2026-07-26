@@ -578,6 +578,10 @@ static int dumpVuCapFromCli(int argc, char** argv) {
     }
     std::printf("frame %u, %d quadwords, %d unpacks, %d triangles\n", cap.frame,
                 cap.qw, (int)cap.unpacks.size(), cap.triangleCount());
+    if (cap.flushIndex >= 0)
+        std::printf("bag flush %d of %d this frame; rendering at %dx%d\n",
+                    cap.flushIndex, cap.flushCount, cap.renderWidth,
+                    cap.renderHeight);
     for (int a : cap.mscal) std::printf("microprogram start: %d\n", a);
     for (const vucap::Step& st : cap.steps)
         std::printf("[%4u] %s\n", st.offsetQw, st.text.c_str());
@@ -588,12 +592,19 @@ static int dumpVuCapFromCli(int argc, char** argv) {
     }
     // One flush carries a whole bag, so the chain holds one position stream per
     // mesh - list them all, not just the biggest (that is what the GUI draws).
-    std::printf("position streams (meshes) in this flush: %zu\n",
-                cap.vertexUnpacks.size());
-    for (size_t m = 0; m < cap.vertexUnpacks.size(); ++m) {
-        const vucap::Unpack& u = cap.unpacks[cap.vertexUnpacks[m]];
-        std::printf("  mesh %zu: unpack %d, %d verts (%d triangles) -> VU1 %u\n",
-                    m, cap.vertexUnpacks[m], u.count, u.count / 3, u.vuAddr);
+    std::printf("meshes in this flush: %zu\n", cap.meshes.size());
+    for (size_t i = 0; i < cap.meshes.size(); ++i) {
+        const vucap::Mesh& m = cap.meshes[i];
+        char prog[48];
+        if (m.program >= 0)
+            std::snprintf(prog, sizeof(prog), "program @%d", m.program);
+        else
+            std::snprintf(prog, sizeof(prog), "program carried over (MSCNT)");
+        std::printf("  mesh %zu: %d verts (%d tris), %.1f units across, %s, "
+                    "unpack %d -> VU1 %u%s\n",
+                    i, m.verts, m.tris, m.extent(), prog, m.unpack,
+                    cap.unpacks[m.unpack].vuAddr,
+                    m.degenerate ? " [DEGENERATE TRIANGLES]" : "");
     }
     if (const std::vector<float>* v = cap.vertices()) {
         std::printf("largest vertex stream: %zu vertices (%d triangles)\n",
@@ -647,8 +658,42 @@ static int dumpVuCapFromCli(int argc, char** argv) {
                 }
                 }
             }
-        std::printf("clip accounting: %d triangles in -> %d out (delta %+d)\n",
-                    cap.triangleCount(), cap.outputVerts() / 3, cap.clipDelta());
+        std::printf("input: %d mesh(es), %d triangles; staged in VU1: %d "
+                    "triangles (the LAST run(s) only - the output area is "
+                    "double buffered), last mesh %d tris, delta %+d\n",
+                    (int)cap.meshes.size(), cap.inputTris(), cap.outputTris(),
+                    cap.meshes.empty() ? 0 : cap.meshes.back().tris,
+                    cap.clipDelta());
+        // The findings the GUI paints amber, in the same words.
+        if (cap.hasWindow) {
+            std::printf("drawing window: x %.0f..%.0f, y %.0f..%.0f (GS plane "
+                        "units, %dx%d centred on 2048)\n",
+                        cap.winX0, cap.winX1, cap.winY0, cap.winY1,
+                        cap.renderWidth, cap.renderHeight);
+            std::printf("biggest staged packet spans x %.0f..%.0f, y "
+                        "%.0f..%.0f (%d of %d vertices outside the window - "
+                        "ordinary, the GS scissors them)\n",
+                        cap.gsX0, cap.gsX1, cap.gsY0, cap.gsY1, cap.gsOffWindow,
+                        cap.gsVerts);
+            if (cap.packetOffscreen)
+                std::printf("! that packet MISSES the drawing window entirely "
+                            "- none of it can appear on screen\n");
+        }
+        if (cap.hugeTris)
+            std::printf("! %d staged triangle(s) span nearly the whole GS "
+                        "plane (vertex at or behind w = 0?)\n",
+                        cap.hugeTris);
+        if (cap.behindVerts)
+            std::printf("! %d input vertices have clip w <= 0 (behind the "
+                        "camera)\n",
+                        cap.behindVerts);
+        if (cap.degenerateTris)
+            std::printf("! %d input triangle(s) have no area\n",
+                        cap.degenerateTris);
+        if (cap.gsZeroAlpha)
+            std::printf("! %d staged vertices are fully transparent in a "
+                        "packet with no +ABE\n",
+                        cap.gsZeroAlpha);
         std::printf(
             "note: one flush can carry SEVERAL meshes, and the MVP in VU1 "
             "memory is the LAST one uploaded - so the host reference is exact "

@@ -164,8 +164,8 @@ output goes straight to the GS. But its **input** is ours - every vertex the
 static pipeline draws leaves the EE as one DMA chain built by
 `StaPipQBufferRenderer::sendPacket()`. The devkit taps exactly that.
 
-*Debugger > VU > "Capture next VU1 packet"* asks the game for the next chain; it
-lands as `bin/vucap.bin` and the editor decodes it:
+*Debugger > VU > "Capture VU1 packet"* asks the game for one chain; it lands as
+`bin/vucap.bin` and the editor decodes it:
 
 - the **chain itself**, tag by tag and VIF code by VIF code - `STCYCL`, the
   `UNPACK`s with their VU1 destination addresses, `FLUSH`, and the `MSCAL` that
@@ -175,39 +175,77 @@ lands as `bin/vucap.bin` and the editor decodes it:
 - and a **wireframe** of the vertex stream - drag to orbit, wheel to zoom -
   drawn from the exact numbers that went to VU1, in model space, as packed.
 
-**One flush is a whole bag, not a mesh.** The chain above carries a dozen
-position streams - one per mesh the bag flushed - and each is in its OWN model
-space, so they cannot be drawn together. The panel lists them (`N mesh(es)`) and
-the slider picks which one the wireframe shows; `--dump-vucap` prints the same
-list. Positions are told apart from the same-sized ST/Q array that follows them
-by their w component: the pipeline packs `(x, y, z, 1.0)` and nothing else in
-the chain has a constant 1.0 there.
+### Which draw am I looking at?
 
-**Two captures in a row look identical, and that is not a bug** - the model-space
-geometry of a given mesh does not depend on the camera. What moves between
-captures is the frame number, the MVP, and the staged GS vertices. (It *was* a
-bug for a while on the editor side: the panel re-read `vucap.bin` only when its
-SIZE changed, and a second capture of the same draw is the same length down to
-the byte - so the panel showed the first capture forever while the game happily
-overwrote the file. It keys on the timestamp now, and says "waiting for the
-game..." until the answer to your click actually lands.)
+A frame sends **one chain per bag flush**, always in the same order, so "the next
+packet" forever means the same picture forever. The capture therefore carries an
+index, and the button walks it: click, click, click and you step through the
+frame's draws (`flush 3 of 9` in the header). Tick **pin flush** to hold one
+index instead - that is the mode for watching a single draw change over time.
+The index is exact, not "the first one after arming": arming happens mid-frame,
+so the game waits for the real flush number, which costs at most a frame. If the
+index runs past what a frame sends (the count moves with streaming) it wraps to
+0, and the file always reports the index actually taken.
+
+The request rides in spare bits of `livedbg.cmd`'s flags word (bit 4 = "an index
+follows in bits 8-23"), so a game built before this simply keeps grabbing the
+first flush.
+
+**One flush is a whole bag, not a mesh.** The chain carries a dozen position
+streams - one per mesh the bag flushed - and each is in its OWN model space, so
+they cannot be drawn together. The panel lists them (`N mesh(es)`) with vertex
+and triangle counts, model-space size, degenerate-triangle count and the
+microprogram each runs under; the slider picks which one the wireframe shows and
+`--dump-vucap` prints the same list. Positions are told apart from the
+same-sized ST/Q array that follows them by their w component: the pipeline packs
+`(x, y, z, 1.0)` and nothing else in the chain has a constant 1.0 there. A mesh
+can read `program carried over (MSCNT)`: that chain never says `MSCAL`, because
+the program was already loaded by an earlier one.
+
+**Two captures of the same draw look identical, and that is not a bug** - the
+model-space geometry of a mesh does not depend on the camera. What moves is the
+frame number, the MVP, and the staged GS vertices. (It *was* a bug for a while
+on the editor side: the panel re-read `vucap.bin` only when its SIZE changed, and
+a second capture of the same draw is the same length down to the byte - so the
+panel showed the first capture forever while the game happily overwrote the file.
+It keys on the timestamp now, and says "waiting for the game..." until the answer
+to your click actually lands.)
 
 A real capture from a terrain chunk reads:
 
 ```
 frame 1669, 73 quadwords, 36 unpacks, 7 triangles
-microprogram start: 176
-[   0] DMAtag cnt  qwc=2 (inline)
+bag flush 1 of 9 this frame; rendering at 512x448
+[   0] DMAtag cnt  qwc=2 (inline)          <- the mesh's constants
 [   0]   VIF UNPACK V4_32   num=2  -> VU1 addr 0 (+TOPS)
-[   3] DMAtag ref  qwc=21 (data by reference)
+[   3] DMAtag ref  qwc=21 (data by reference)   <- POSITIONS
 [   3]   VIF UNPACK V4_32   num=21 -> VU1 addr 2 (+TOPS)
-[   5]   VIF MSCAL      num=0 imm=176
-position streams (meshes) in this flush: 12
-  mesh 0: unpack 1, 21 verts (7 triangles) -> VU1 2
+[   4] DMAtag ref  qwc=21 (data by reference)   <- ST/Q, right after them
+[   4]   VIF UNPACK V4_32   num=21 -> VU1 addr 23 (+TOPS)
+[   5]   VIF MSCAL      num=0 imm=176       <- load and run; later meshes MSCNT
+meshes in this flush: 12
+  mesh 0: 21 verts (7 tris), 116.7 units across, program @176, unpack 1 -> VU1 2
   ...
-largest vertex stream: 21 vertices (7 triangles)
-  v0  95.827 -5.757 0.000 1.000
 ```
+
+Reading the chain is mostly reading its **repeat**: the same three-block pattern
+per mesh, ending in a program call. Three things are worth knowing.
+
+- **`ref` vs `cnt`** - `ref` is a single-quadword tag pointing at data elsewhere;
+  `cnt` carries it inline. (See the bottom of this section - getting that wrong
+  is how a decoder starts reading vertex data as DMA tags.)
+- **`+TOPS`** - the address is relative to the buffer VU1 is currently filling
+  (double buffering), which is why every mesh writes to "addr 2" and nothing
+  collides. The second array's address is `2 + vertex count`, so `addr 23` for a
+  21-vertex mesh - a free sanity check.
+- **`MSCAL` once, then `MSCNT`** - the program is loaded once and re-run. Several
+  DIFFERENT `MSCAL` addresses in one chain means the bag switched microprograms
+  (a textured and an untextured variant, say), which is worth noticing.
+
+The wireframe answers four questions and no more, but answers them exactly: did
+this mesh reach VU1 at all, is it the geometry you think it is, is its scale
+sane (hundreds of units where you expect single digits usually means a wrong
+model unit), and are its triangles degenerate.
 
 ### ...and what VU1 left behind
 
@@ -238,6 +276,46 @@ gif 1 @VU1 23: TRIANGLE +ABE nloop=21 nreg=2 [RGBAQ, XYZF2] EOP
    out v0  x=1242.3 y=1205.9 z=2655319  rgba 132,60,149,0
 ```
 
+How to read one of those vertices:
+
+- **x / y** are already divided by 16 (the GS packs 12.4 fixed point), in the
+  4096-unit **primitive** plane. The visible window is
+  `[2048 - width/2, 2048 + width/2]` on each axis, because `RendererCoreGS` sets
+  `XYOFFSET = 2048 - size/2` - for 512x448 that is x 1792..2304, y 1824..2272.
+  The capture carries the live resolution (it is decided at runtime, from the
+  display mode and the console region), so the panel prints those bounds for
+  you. **Vertices outside them are ordinary** - a triangle crossing the screen
+  edge has two, and the GS scissors it. What is not ordinary is the whole packet
+  missing the window, which is the finding the panel actually raises.
+- **z** is 24-bit and the test is `GREATER_EQUAL`: bigger is closer. Read it
+  comparatively.
+- **rgba**: `a = 128` is 1.0. `a = 0` in a packet without `+ABE` draws nothing.
+- **PRIM** flags are spelled out (`+TEX`, `+FOG`, `+ABE`, `+AA1`): no `+TEX` on
+  something you textured is a diagnosis in itself.
+
+### The findings block
+
+Above the chain the panel prints what the decode can say for certain, in amber
+when it is a finding: a packet that misses the drawing window entirely, triangles
+spanning nearly the whole 4096-unit plane (the classic sign of a vertex at or
+behind `w = 0` - the threshold is deliberately huge, because near-camera terrain
+legitimately covers several screens), input triangles with no area, vertices that
+are fully transparent in a packet that does not blend, and - only on a
+single-mesh flush, see below - input vertices behind the camera.
+
+Two scoping rules keep those numbers honest, and both were learned by watching
+the first version lie:
+
+- **VU1 data memory is never cleared**, so a scan of all 1024 quadwords also
+  finds packets earlier meshes and earlier frames left behind. The per-vertex
+  checks read the BIGGEST geometry packet only - this run's output - and the
+  panel says so rather than counting leftovers ("60 of 60 vertices are off
+  screen" was a decoder artefact, not a bug in the game).
+- **The `w <= 0` check needs a single-mesh flush.** The host reference
+  transforms the largest mesh's vertices with the MVP left in VU1 memory, which
+  belongs to the LAST mesh - on a multi-mesh flush that pairing is meaningless,
+  so the finding is withheld instead of guessed.
+
 ### The host reference is a hint, not a verdict
 
 The editor also runs the same transform itself (`clip = MVP * v`,
@@ -254,8 +332,29 @@ object-data chain (the MVP upload) together with the qbuffer chain, and capture 
 single-bag flush, so exactly one mesh is in play.
 
 Headless: `tyrax-editor --dump-vucap <projectDir>` prints the whole decode -
-chain, memory, staged GIF packets, the reference and its caveat - which is how
-all of this is tested without the GUI.
+chain, memory, staged GIF packets, the findings, the reference and its caveat -
+which is how all of this is tested without the GUI.
+
+### Where to look first
+
+| Symptom | Order to check |
+|---|---|
+| An object does not appear | is it in the mesh list at all? -> did a geometry packet come out? -> does that packet reach the drawing window? -> alpha / `+ABE` -> z |
+| Giant smeared triangles | the "spans nearly the whole plane" finding, then the `w <= 0` count on a pinned single-mesh flush |
+| Colours wrong | `rgba` in the staged packet, the `REGS` list, missing `+TEX` |
+| Frame is slow | meshes per flush, flushes per frame, input triangles vs staged, how many distinct `MSCAL` addresses |
+
+### What it cannot tell you
+
+- **Only the static pipeline.** The tap sits in `StaPipQBufferRenderer`;
+  animated models go through DynPip and never appear here.
+- **No object names.** A mesh is `mesh 3` - the bag carries geometry, not
+  identity. Mapping meshes back to scene objects would need the game's render
+  loop to label each submission, which is not plumbed today.
+- **One flush per capture**, and the VU1 memory snapshot costs a pipeline stall
+  for that one frame (on purpose - the hook uninstalls itself immediately).
+- **The MVP in memory is the last one uploaded**, which is what makes the host
+  reference a hint rather than a verdict (above).
 
 **The one thing that made this non-trivial**: the pipeline sends vertex arrays
 **by reference** - a `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at
