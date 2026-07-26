@@ -88,6 +88,8 @@ add_executable(tyrax-editor
     src/tmdl.cpp
     src/treegen.cpp
     src/uvunwrap.cpp
+    src/weapongen.cpp
+    src/weaponedit.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp

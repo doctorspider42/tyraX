@@ -410,6 +410,32 @@ struct SceneObject {
     // pure logic while the mesh renders turned. Applies to animated models.
     float modelYawOffset = 0.0f;
 
+    // --- Combat (docs/weapons.md) ----------------------------------------
+    // `damageable` is the master switch: without it the object is scenery
+    // that bullets pass their impact effect over and nothing else. With it
+    // the object carries `health` hit points, fires the On Damaged / On
+    // Killed triggers, and does `deathAction` when it runs out.
+    bool damageable = false;
+    float health = 100.0f;  // hit points at scene start (and after a respawn)
+    // What happens the moment health reaches 0. 2 (stay) is for objects whose
+    // death is entirely scripted - the trigger fires and the object is left
+    // exactly as it was, still at 0 health (heal it to bring it back).
+    int deathAction = 0;  // 0 hide, 1 despawn, 2 stay, 3 knock over (physics)
+    // Which impact burst a hit on THIS object throws, overriding the
+    // weapon's own impact effect. 0 = the weapon decides.
+    int hitFx = 0;  // 0 weapon default, 1 sparks, 2 blood, 3 dust, 4 none
+    // Weapons this object carries (Project::weapons names; renames remap).
+    // On a Player object this is the starting inventory - the first entry is
+    // equipped at spawn. On anything else, entry 0 is the weapon the Fire
+    // Weapon node (and auto-fire below) shoots with.
+    std::vector<std::string> weapons;
+    // NPC auto-fire: while the player is within this distance, inside
+    // `autoFireFov` degrees of the object's facing and in terrain
+    // line-of-sight, the object fires weapons[0] at them on its own cadence.
+    // 0 = never (the object only shoots when a flow graph tells it to).
+    float autoFireRange = 0.0f;
+    float autoFireFov = 60.0f;  // vision cone half-angle, degrees
+
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
@@ -505,6 +531,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
+           a.damageable == b.damageable && a.health == b.health &&
+           a.deathAction == b.deathAction && a.hitFx == b.hitFx &&
+           a.weapons == b.weapons && a.autoFireRange == b.autoFireRange &&
+           a.autoFireFov == b.autoFireFov &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
 }
 
@@ -1388,6 +1418,162 @@ inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
            a.trimEnd == b.trimEnd && a.loop == b.loop;
 }
 
+// One particle BURST thrown by a weapon: the muzzle flash, the impact, the
+// spray off a body. Distinct from a scene Emitter object, which owns a
+// permanent pool and runs forever - a burst is a one-shot fired at an
+// arbitrary world point from a small shared runtime pool, so a firefight
+// costs a fixed amount of memory no matter how many shots are in the air.
+// The simulation lives in the generated weapons.gen.cpp; the editor's Weapon
+// Editor previews it with the same numbers. See docs/weapons.md.
+struct WeaponFx {
+    // 0 none, 1 flash (a short bright puff that does not travel),
+    // 2 sparks (radial, pulled down), 3 smoke (slow lazy rise),
+    // 4 blood (wet spray, heavy), 5 debris (chunks that fall and stay put).
+    int kind = 0;
+    float color[3] = {1.0f, 0.82f, 0.35f};
+    // Base particle size in world units - the quad's HALF extent, like
+    // SceneObject::emitterSize. Small numbers here: a muzzle flash lives one
+    // unit from the eye, where 0.1 already fills a quarter of the screen.
+    float size = 0.05f;
+    int count = 8;       // particles in one burst (1..32)
+    float life = 0.25f;  // seconds until the burst is gone
+    float speed = 4.0f;  // initial speed, units/s (0 = the burst hangs)
+};
+
+// Starting effects for a NEW weapon. A weapon whose three effect slots are
+// all "none" is a weapon that shoots invisible bullets, which is nobody's
+// intent - so a fresh definition arrives already looking like a gun.
+inline WeaponFx defaultMuzzleFx() {
+    WeaponFx f;
+    f.kind = 1;  // flash
+    f.color[0] = 1.0f, f.color[1] = 0.85f, f.color[2] = 0.40f;
+    f.size = 0.045f, f.count = 5, f.life = 0.07f, f.speed = 1.5f;
+    return f;
+}
+inline WeaponFx defaultImpactFx() {
+    WeaponFx f;
+    f.kind = 2;  // sparks
+    f.color[0] = 1.0f, f.color[1] = 0.80f, f.color[2] = 0.45f;
+    f.size = 0.035f, f.count = 8, f.life = 0.35f, f.speed = 5.0f;
+    return f;
+}
+inline WeaponFx defaultBloodFx() {
+    WeaponFx f;
+    f.kind = 4;  // blood
+    f.color[0] = 0.55f, f.color[1] = 0.05f, f.color[2] = 0.05f;
+    f.size = 0.055f, f.count = 8, f.life = 0.5f, f.speed = 3.5f;
+    return f;
+}
+
+inline bool operator==(const WeaponFx& a, const WeaponFx& b) {
+    return a.kind == b.kind && a.color[0] == b.color[0] &&
+           a.color[1] == b.color[1] && a.color[2] == b.color[2] &&
+           a.size == b.size && a.count == b.count && a.life == b.life &&
+           a.speed == b.speed;
+}
+
+// A weapon (Tools > Weapon Editor). Project-wide like fonts and menus: scenes
+// don't own weapons, objects REFERENCE them by name through
+// SceneObject::weapons (a Player's starting inventory, an NPC's armament).
+//
+// Three kinds, and the kind decides which half of the struct matters:
+//  - Hitscan firearm: the shot arrives the frame it is fired (a ray against
+//    object bounding spheres + the terrain). What every PS2-era gun was.
+//  - Projectile firearm: a visible body of matter flies out, drops under
+//    gravity and damages what it touches - grenade launchers, plasma, arrows.
+//  - Melee: an arc swept in front of the attacker; everything damageable
+//    inside the cone and within reach is hit once per swing.
+//
+// The viewmodel is deliberately a SCENE OBJECT (by name, renames remap) and
+// not a separate asset path: the weapon in your hands is then an ordinary
+// object you place, light, material and see in the viewport, and every
+// existing pipeline (models, LODs, materials, streaming) applies to it for
+// free. While equipped the game pins it in front of the camera; the rest of
+// the time it is hidden.
+struct WeaponDef {
+    std::string name = "Weapon";
+    int kind = 0;  // 0 hitscan firearm, 1 projectile firearm, 2 melee
+
+    // --- Damage
+    float damage = 25.0f;   // hit points per hit (per PELLET on a shotgun)
+    float range = 60.0f;    // hitscan/melee reach; projectile flight range
+    float falloff = 0.0f;   // 0..1 of the damage lost at maximum range
+    float impulse = 0.0f;   // physics impulse (units/s) pushed into a body hit
+
+    // --- Firing
+    float fireRate = 4.0f;  // shots per second (the cooldown between shots)
+    bool automatic = false; // hold the fire button, vs one shot per press
+    float spread = 1.0f;    // cone half-angle of the shot, degrees
+    int pellets = 1;        // rays per shot: 1 = a bullet, 8 = buckshot
+    float recoil = 1.0f;    // view kick per shot, degrees (decays back)
+    float rumble = 0.3f;    // pad vibration per shot, 0..1 (0 = none)
+
+    // --- Ammo. magSize 0 = the weapon has no magazine at all (melee, and
+    // guns that should never reload); reserve -1 = bottomless spare ammo.
+    int magSize = 12;
+    int reserve = 60;
+    float reloadTime = 1.2f;
+
+    // --- Projectile (kind 1)
+    float projSpeed = 40.0f;
+    float projGravity = 9.8f;  // units/s^2; 0 = flies dead straight
+    float projSize = 0.15f;
+    float projColor[3] = {1.0f, 0.7f, 0.2f};
+    float blastRadius = 0.0f;  // > 0 = the impact damages everything in range
+
+    // --- Melee (kind 2)
+    float meleeArc = 70.0f;   // swing half-angle around the aim, degrees
+    float swingTime = 0.35f;  // seconds of swing (also the viewmodel arc)
+
+    // --- Viewmodel (a scene object; "" = an invisible weapon)
+    std::string viewModel;
+    // Camera-space offset: X right, Y up, Z forward. The default sits the
+    // weapon low-right like every FPS since Wolfenstein.
+    float viewOffset[3] = {0.22f, -0.18f, 0.55f};
+    float viewScale = 1.0f;
+    float viewRot[3] = {0.0f, 0.0f, 0.0f};  // degrees, applied in the camera frame
+    // Where the shot leaves the weapon, in the same camera-space frame -
+    // the muzzle flash and the tracer start here.
+    float muzzleOffset[3] = {0.22f, -0.1f, 1.0f};
+
+    // --- Effects
+    WeaponFx muzzleFx = defaultMuzzleFx();  // at the muzzle as the shot leaves
+    WeaponFx impactFx = defaultImpactFx();  // where the shot lands (scenery)
+    WeaponFx bloodFx = defaultBloodFx();    // where it lands on something alive
+    bool tracer = false;                          // a streak muzzle -> hit
+    float tracerColor[3] = {1.0f, 0.9f, 0.5f};
+
+    // --- Sounds (Project::sounds entries; "" = silent)
+    std::string fireSound;
+    std::string reloadSound;
+    std::string emptySound;   // played when the trigger is pulled dry
+    std::string impactSound;  // played at the hit point
+};
+
+inline bool operator==(const WeaponDef& a, const WeaponDef& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && a.kind == b.kind && a.damage == b.damage &&
+           a.range == b.range && a.falloff == b.falloff &&
+           a.impulse == b.impulse && a.fireRate == b.fireRate &&
+           a.automatic == b.automatic && a.spread == b.spread &&
+           a.pellets == b.pellets && a.recoil == b.recoil &&
+           a.rumble == b.rumble && a.magSize == b.magSize &&
+           a.reserve == b.reserve && a.reloadTime == b.reloadTime &&
+           a.projSpeed == b.projSpeed && a.projGravity == b.projGravity &&
+           a.projSize == b.projSize && eq3(a.projColor, b.projColor) &&
+           a.blastRadius == b.blastRadius && a.meleeArc == b.meleeArc &&
+           a.swingTime == b.swingTime && a.viewModel == b.viewModel &&
+           eq3(a.viewOffset, b.viewOffset) && a.viewScale == b.viewScale &&
+           eq3(a.viewRot, b.viewRot) && eq3(a.muzzleOffset, b.muzzleOffset) &&
+           a.muzzleFx == b.muzzleFx && a.impactFx == b.impactFx &&
+           a.bloodFx == b.bloodFx && a.tracer == b.tracer &&
+           eq3(a.tracerColor, b.tracerColor) && a.fireSound == b.fireSound &&
+           a.reloadSound == b.reloadSound && a.emptySound == b.emptySound &&
+           a.impactSound == b.impactSound;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -1551,6 +1737,28 @@ struct Project {
     // of undo/redo. The Play/Stop Sequence flow nodes drive them at runtime.
     std::vector<Sequence> sequences;
 
+    // Weapons (Tools > Weapon Editor): project-wide definitions objects
+    // reference by name through SceneObject::weapons. Like the preset
+    // collections above they persist through save() but are not part of
+    // undo/redo. Empty = the project has no combat and every weapon table,
+    // runtime file and flow node compiles out of the game entirely.
+    std::vector<WeaponDef> weapons;
+
+    // Weapon by name; nullptr when the name is empty or dangling (unlike
+    // fonts there is no fallback entry - a dangling weapon reference is a
+    // real authoring mistake and the codegen reports it).
+    const WeaponDef* findWeapon(const std::string& n) const {
+        if (n.empty()) return nullptr;
+        for (const WeaponDef& w : weapons)
+            if (w.name == n) return &w;
+        return nullptr;
+    }
+    int weaponIndex(const std::string& n) const {
+        for (size_t i = 0; i < weapons.size(); ++i)
+            if (weapons[i].name == n) return (int)i;
+        return -1;
+    }
+
     // Non-destructive animation-clip edits (Tools > Animation Editor). One
     // entry per (model, source clip) the user has touched; clips with no
     // entry bake exactly as authored. The source .glb/.fbx is never
@@ -1657,8 +1865,9 @@ enum class Section {
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
     ModelUnits,      // "modelUnits" (per-model real-world size)
+    Weapons,         // "weapons" (Tools > Weapon Editor)
 };
-constexpr int kSectionCount = 14;
+constexpr int kSectionCount = 15;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

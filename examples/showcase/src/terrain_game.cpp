@@ -635,6 +635,20 @@ int spawnObjectThunk(int templateIndex, float x, float y, float z, float yaw) {
 void despawnObjectThunk(int objectIndex) {
   if (g_animGame) g_animGame->despawnObjectAt(objectIndex);
 }
+// One-shot particle burst (ScriptContext::spawnFx) - see updateFxBursts.
+void spawnFxThunk(int kind, const float* pos, const float* dir,
+                  const float* color, float size, int count, float life,
+                  float speed) {
+  if (g_animGame)
+    g_animGame->spawnFxBurst(kind, pos, dir, color, size, count, life, speed);
+}
+// ScriptContext::playSound - the game's own sample table, so scripts share
+// the one copy the boot sequence already loaded into SPU RAM.
+int g_sfxRotateCh = 0;
+void playSoundThunk(int soundIndex, int volume, int channel) {
+  if (!g_animGame) return;
+  g_animGame->playSoundIndex(soundIndex, volume, channel);
+}
 
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
 // ke: material emission (MTL Ke), null/zero = matte - see the floor below.
@@ -1625,6 +1639,7 @@ void TerrainGame::loop() {
   // crosses (owner).
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
+  updateFxBursts();
   updateSoundEmitters();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
@@ -1825,6 +1840,8 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.spawnFx = &spawnFxThunk;
+  scriptCtx.playSound = &playSoundThunk;
 
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
@@ -3405,6 +3422,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
 
   buildParticles();
+  buildFxPool();  // one-shot burst pool (weapons, scripts)
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently).
@@ -3764,6 +3782,213 @@ void TerrainGame::updateParticles() {
     ps.bag->count = (u32)n;
   }
 }
+
+// ScriptContext::playSound: a one-shot from the table the game loaded at
+// boot. Channel -1 rotates through the shared channels so rapid fire does
+// not cut its own previous shot off.
+void TerrainGame::playSoundIndex(int soundIndex, int volume, int channel) {
+  if (soundIndex < 0 || soundIndex >= (int)sndSamples.size()) return;
+  if (!sndSamples[soundIndex]) return;
+  if (volume < 0) volume = 0;
+  if (volume > 100) volume = 100;
+  s8 ch;
+  if (channel >= 0) {
+    ch = (s8)(channel > 23 ? 23 : channel);
+  } else {
+    ch = (s8)g_sfxRotateCh;
+    g_sfxRotateCh = (g_sfxRotateCh + 1) % 16;  // 16-23 belong to the emitters
+  }
+  engine->audio.adpcm.setVolume(volume * scriptCtx.sfxVolume / 100, ch);
+  engine->audio.adpcm.tryPlay(sndSamples[soundIndex], ch);
+}
+
+// --- One-shot particle bursts (ScriptContext::spawnFx) ------------------
+// The same VU1 billboard machinery as the emitters above, but the pool is
+// not owned by any object: a burst is fired at a world point, lives out its
+// seconds and frees its slots. See docs/weapons.md.
+void TerrainGame::buildFxPool() {
+  if (fx.bag) {
+    // Already built (a scene switch): just retire whatever was in the air.
+    for (int i = 0; i < FX_MAX; ++i) fx.life[i] = 0.0F;
+    fx.bag->count = 0;
+    return;
+  }
+  fx.pos.assign(FX_MAX, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+  fx.vel.assign(FX_MAX, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+  fx.life.assign(FX_MAX, 0.0F);
+  fx.maxLife.assign(FX_MAX, 1.0F);
+  fx.params.assign(FX_MAX, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+  fx.cols.assign(FX_MAX, Color(0.0F, 0.0F, 0.0F, 0.0F));
+  fx.base.assign(FX_MAX, Vec4(1.0F, 1.0F, 1.0F, 0.1F));
+  fx.kind.assign(FX_MAX, 0);
+  fx.infoBag = std::make_unique<StaPipInfoBag>();
+  fx.infoBag->model = &model;
+  fx.infoBag->shadingType = TyraShadingGouraud;
+  fx.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+  fx.infoBag->fullClipChecks = false;
+  fx.colorBag = std::make_unique<StaPipColorBag>();
+  fx.colorBag->many = fx.cols.data();
+  fx.billboardBag = std::make_unique<StaPipBillboardBag>();
+  fx.texBag = std::make_unique<StaPipTextureBag>();
+  fx.texBag->texture = nullptr;  // untextured: flat quads, tinted per particle
+  fx.texBag->coordinates = fx.params.data();
+  fx.bag = std::make_unique<StaPipBag>();
+  fx.bag->info = fx.infoBag.get();
+  fx.bag->color = fx.colorBag.get();
+  fx.bag->lighting = nullptr;
+  fx.bag->billboard = fx.billboardBag.get();
+  fx.bag->texture = fx.texBag.get();
+  fx.bag->vertices = fx.pos.data();
+  fx.bag->count = 0;
+}
+
+void TerrainGame::spawnFxBurst(int kind, const float* p, const float* dir,
+                               const float* color, float size, int count,
+                               float life, float speed) {
+  if (!fx.bag || kind <= 0 || count <= 0) return;
+  if (count > FX_MAX) count = FX_MAX;
+  if (life < 0.02F) life = 0.02F;
+  float dx = dir ? dir[0] : 0.0F, dy = dir ? dir[1] : 1.0F,
+        dz = dir ? dir[2] : 0.0F;
+  // Kind 6 (beam) carries the WHOLE segment in `dir` - the particles are laid
+  // along it instead of being launched down it, which is what makes a tracer
+  // a streak rather than a puff.
+  const float seg = sqrtf(dx * dx + dy * dy + dz * dz);
+  if (kind != 6) {
+    if (seg > 0.0001F) dx /= seg, dy /= seg, dz /= seg;
+    else dx = 0.0F, dy = 1.0F, dz = 0.0F;
+  }
+  // An orthonormal basis around the aim - the spread cone and the beam's
+  // jitter both ride on it.
+  const V3 aim = {dx, dy, dz};
+  const V3 seed = fabsf(aim.y) < 0.9F ? V3{0.0F, 1.0F, 0.0F} : V3{1.0F, 0.0F, 0.0F};
+  V3 t1 = {seed.y * aim.z - seed.z * aim.y, seed.z * aim.x - seed.x * aim.z,
+           seed.x * aim.y - seed.y * aim.x};
+  const float tl = sqrtf(t1.x * t1.x + t1.y * t1.y + t1.z * t1.z);
+  if (tl > 0.0001F) t1.x /= tl, t1.y /= tl, t1.z /= tl;
+  const V3 t2 = {aim.y * t1.z - aim.z * t1.y, aim.z * t1.x - aim.x * t1.z,
+                 aim.x * t1.y - aim.y * t1.x};
+
+  for (int n = 0; n < count; ++n) {
+    const int i = fx.cursor;
+    fx.cursor = (fx.cursor + 1) % FX_MAX;
+    const float r1 = prand(fx.rng), r2 = prand(fx.rng), r3 = prand(fx.rng);
+    fx.kind[i] = (unsigned char)kind;
+    fx.base[i] = Vec4(color ? color[0] : 1.0F, color ? color[1] : 1.0F,
+                      color ? color[2] : 1.0F, size);
+    if (kind == 6) {
+      // Evenly along the segment, with a hair of jitter so a long tracer
+      // does not read as a dotted line of identical squares.
+      const float t = count > 1 ? (float)n / (float)(count - 1) : 0.5F;
+      const float j = size * 0.35F;
+      fx.pos[i] = Vec4(p[0] + dx * t + (r1 - 0.5F) * j,
+                       p[1] + dy * t + (r2 - 0.5F) * j,
+                       p[2] + dz * t + (r3 - 0.5F) * j, 1.0F);
+      fx.vel[i] = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+      // The tail fades first: a streak with a bright head reads as motion.
+      fx.maxLife[i] = life * (0.45F + 0.55F * t);
+    } else {
+      fx.pos[i] = Vec4(p[0], p[1], p[2], 1.0F);
+      // Cone around the aim: flashes hug it, sparks/blood/debris spray wide.
+      const float wide = (kind == 1) ? 0.15F : (kind == 3 ? 0.5F : 0.9F);
+      const float a = 2.0F * PI * r3;
+      const float s = wide * r1;
+      const float spd = speed * (0.35F + 0.9F * r2);
+      fx.vel[i] = Vec4((aim.x + (t1.x * cosf(a) + t2.x * sinf(a)) * s) * spd,
+                       (aim.y + (t1.y * cosf(a) + t2.y * sinf(a)) * s) * spd,
+                       (aim.z + (t1.z * cosf(a) + t2.z * sinf(a)) * s) * spd,
+                       0.0F);
+      fx.maxLife[i] = life * (0.65F + 0.7F * r2);
+    }
+    fx.life[i] = fx.maxLife[i];
+  }
+}
+
+void TerrainGame::updateFxBursts() {
+  if (!fx.bag) return;
+  if (g_gameplayPaused) return;  // frozen behind a menu, like the emitters
+  const float dt = g_frameDt;
+
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  fx.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+  fx.billboardBag->up = Vec4(-rz * fwd.y, rz * fwd.x - rx * fwd.z, rx * fwd.y,
+                             0.0F);
+
+  int last = -1;
+  for (int i = 0; i < FX_MAX; ++i) {
+    if (fx.life[i] <= 0.0F) {
+      fx.cols[i] = Color(0.0F, 0.0F, 0.0F, 0.0F);  // alpha 0 = invisible quad
+      continue;
+    }
+    fx.life[i] -= dt;
+    if (fx.life[i] <= 0.0F) {
+      fx.life[i] = 0.0F;
+      fx.cols[i] = Color(0.0F, 0.0F, 0.0F, 0.0F);
+      continue;
+    }
+    const int k = fx.kind[i];
+    // Per-kind physics. Gravity numbers are deliberately not GRAVITY: these
+    // are visual weights (a spark arcs harder than a blood drop looks), not
+    // a simulation the player can stand on.
+    if (k == 2) fx.vel[i].y -= 16.0F * dt;
+    else if (k == 4) fx.vel[i].y -= 22.0F * dt;
+    else if (k == 5) fx.vel[i].y -= 26.0F * dt;
+    else if (k == 3) {
+      fx.vel[i].y += 0.9F * dt;  // smoke lifts
+      const float damp = 1.0F - 1.6F * dt;
+      fx.vel[i].x *= damp, fx.vel[i].y *= damp, fx.vel[i].z *= damp;
+    }
+    fx.pos[i].x += fx.vel[i].x * dt;
+    fx.pos[i].y += fx.vel[i].y * dt;
+    fx.pos[i].z += fx.vel[i].z * dt;
+    // Heavy debris and blood stop at the ground instead of sinking through it.
+    if ((k == 4 || k == 5) &&
+        fx.pos[i].y < terrainHeightAt(fx.pos[i].x, fx.pos[i].z)) {
+      fx.pos[i].y = terrainHeightAt(fx.pos[i].x, fx.pos[i].z) + 0.01F;
+      fx.vel[i] = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+    }
+
+    const float t = fx.life[i] / fx.maxLife[i];  // 1 -> 0 over the life
+    const Vec4& b = fx.base[i];
+    float size = b.w, alpha, cr = b.x * 128.0F, cg = b.y * 128.0F,
+          cb = b.z * 128.0F;
+    if (k == 1) {  // muzzle flash: born big and bright, gone in a blink
+      size *= 0.6F + 1.5F * t;
+      alpha = 128.0F * t;
+    } else if (k == 2) {  // sparks: thin, cooling from white toward the tint
+      size *= 0.5F + 0.7F * t;
+      alpha = 128.0F * t;
+      const float hot = t * t;
+      cr += (128.0F - cr) * hot, cg += (128.0F - cg) * hot,
+          cb += (128.0F - cb) * hot;
+    } else if (k == 3) {  // smoke: grows while it thins out
+      size *= 1.8F - t;
+      alpha = 52.0F * t;
+    } else if (k == 4) {  // blood: keeps its size, darkens as it dries
+      alpha = 118.0F * (t > 0.6F ? 1.0F : t / 0.6F);
+      cr *= 0.5F + 0.5F * t, cg *= 0.5F + 0.5F * t, cb *= 0.5F + 0.5F * t;
+    } else if (k == 6) {  // tracer streak: full brightness, sudden end
+      alpha = 128.0F * (t > 0.5F ? 1.0F : t * 2.0F);
+    } else {  // debris chunks
+      size *= 0.7F + 0.5F * t;
+      alpha = 128.0F * (t > 0.35F ? 1.0F : t / 0.35F);
+    }
+    fx.params[i] = Vec4(size, 0.0F, 0.0F, size);
+    fx.cols[i] = Color(cr, cg, cb, alpha);
+    last = i;
+  }
+  // Submitting the whole pool every frame would pay VU1 for 128 invisible
+  // quads; the highest live slot is a free upper bound (dead slots below it
+  // are alpha 0 and the GS alpha test discards them).
+  fx.bag->count = (u32)(last + 1);
+}
+
 // Picks the nearest usable object the camera is close to and looking at
 // (thresholds in controls.hpp). BTN_USE on it -> scriptCtx.usedObject for
 // one frame, which fires the flow graph "On Used" trigger.
@@ -4954,9 +5179,16 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       if (pi == 0)
         P.pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
 #endif
+      // Weapon recoil (docs/weapons.md): the weapon runtime writes the frame's
+      // view kick in degrees and owns the whole kick-and-settle curve, so this
+      // is a plain add. Player 1 only - a weapon has one aim.
+      if (pi == 0 && scriptCtx.viewKickPitch != 0.0F)
+        P.pitch += scriptCtx.viewKickPitch * (PI / 180.0F);
       if (P.pitch > 1.35F) P.pitch = 1.35F;
       if (P.pitch < -1.35F) P.pitch = -1.35F;
     }
+    if (pi == 0 && scriptCtx.viewKickYaw != 0.0F)
+      P.yaw += scriptCtx.viewKickYaw * (PI / 180.0F);
   }
 
   const float fx = sinf(P.yaw);
@@ -7087,6 +7319,9 @@ void TerrainGame::renderScene() {
   }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  // One-shot bursts share the emitters' slot in the frame: after the
+  // scene, before the HUD, so they blend over solid geometry.
+  if (fx.bag && fx.bag->count > 0) stapip.core.render(fx.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
 }
 

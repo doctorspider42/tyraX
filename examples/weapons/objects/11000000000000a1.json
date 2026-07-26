@@ -1,0 +1,1 @@
+{ "id": "11000000000000a1", "name": "spawn", "type": "empty", "position": [0, 0, -14], "rotation": [0, 0, 0], "scale": [0.5, 0.5, 0.5], "color": [0.4, 0.9, 0.5], "physics": false, "collision": "none" }

@@ -240,6 +240,36 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+
+  // One-shot particle BURST at a world point (docs/weapons.md). Unlike an
+  // Emitter object - which owns a permanent pool and runs forever - a burst
+  // is fired, lives out its seconds and is gone, so muzzle flashes, bullet
+  // impacts, blood and tracers all come out of ONE fixed pool and a firefight
+  // costs the same memory as a quiet room. The weapon runtime is the main
+  // customer, but any script may call it.
+  //   kind:  1 flash, 2 sparks, 3 smoke, 4 blood, 5 debris,
+  //          6 beam (a streak: `dir` is the WHOLE segment, not a direction)
+  //   pos:   3 floats, world space (the beam's start)
+  //   dir:   3 floats, the burst's aim (normalized for 1..5)
+  //   color: 3 floats 0..1; size = base particle size in world units
+  //   count: particles (clamped to the pool); life = seconds; speed = units/s
+  // Set by the game.
+  void (*spawnFx)(int kind, const float* pos, const float* dir,
+                  const float* color, float size, int count, float life,
+                  float speed) = nullptr;
+
+  // Plays a sound effect by SND_PATHS index (-1 = silent) at volume 0..100
+  // on `channel`, or channel -1 to auto-rotate the shared 0..23 channels.
+  // Uses the samples the game already loaded at boot, so a script never pays
+  // SPU RAM for a second copy of a sound. Set by the game.
+  void (*playSound)(int soundIndex, int volume, int channel) = nullptr;
+
+  // Weapon recoil (docs/weapons.md): the view kick to apply THIS frame, in
+  // degrees. Player 1's walker adds it to the camera pitch/yaw before
+  // building the frame camera. The producer writes it fresh every frame
+  // (including 0) - the walker never clears it, so two producers would fight.
+  float viewKickPitch = 0.0F;
+  float viewKickYaw = 0.0F;
 };
 
 /** Inputs and outputs of a custom flow-graph node (see flow_nodes.hpp).

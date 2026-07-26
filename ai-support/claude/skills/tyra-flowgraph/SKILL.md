@@ -69,7 +69,15 @@ over guessing from this file.
   guarded automatically.
 - Names in `str` must match the project exactly - get them from
   `"{TYRAX_EXE}" --dump <projectDir>` (objects, scenes, layers, music, sounds,
-  save values/texts, menus, texts, gradings, ambiences, sequences).
+  save values/texts, menus, texts, gradings, ambiences, sequences, weapons).
+- The **Combat** nodes follow the Animation node's split, not the object
+  actions': `str` names the **WEAPON** and the target object comes from an
+  object link or self. So arming the player means putting a Give Weapon node
+  on the scene's **Player object** (or wiring that object in) - a weapon is
+  carried by an object, there is no separate player inventory. The three
+  Combat triggers (On Damaged / On Killed / On Weapon Fired) fire the frame
+  AFTER the event and are one-shot per event, so they can safely drive
+  counters.
 
 ## AI generation
 

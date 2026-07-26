@@ -1,0 +1,1 @@
+{ "id": "11000000000000b2", "name": "vm-shotgun", "type": "model", "position": [0, 1.2, -13], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/weapons/shotgun.obj" }

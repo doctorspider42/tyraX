@@ -12,6 +12,13 @@
 #define BTN_FLY_DOWN Square  // noclip: descend
 #define BTN_THROW Circle     // throw a carried pickable object ("Can throw")
 
+// Weapons (docs/weapons.md). Only meaningful in a project that defines
+// weapons; the runtime compiles out entirely otherwise, so these bindings
+// cost nothing in a project without combat.
+#define BTN_FIRE R1          // fire / swing the equipped weapon
+#define BTN_RELOAD Triangle  // reload the equipped weapon
+#define BTN_WEAPON_NEXT L1   // cycle to the next weapon in the inventory
+
 // "Use" interaction (objects marked usable in the editor)
 constexpr float USE_DISTANCE = 4.0F;   // max distance to the object surface
 constexpr float USE_LOOK_DOT = 0.92F;  // how directly you must look (cos angle)
@@ -77,6 +84,11 @@ inline void applyKeyboardMouseInput(Tyra::Engine* engine) {
   held.DpadLeft |= key(0x50);
   held.DpadRight |= key(0x4F);
   const Tyra::MouseState& m = km.getMouse();
+  // The mouse's left button also pulls the trigger (docs/weapons.md) - a
+  // shooter played with a mouse is unusable otherwise. It keeps driving
+  // MOUSE_LEFT_BTN as well; USE needs the player close AND looking at a
+  // usable object, so the two never both fire on the same click by accident.
+  held.BTN_FIRE |= (m.buttons & 1) != 0;
   held.MOUSE_LEFT_BTN |= (m.buttons & 1) != 0;
   held.MOUSE_RIGHT_BTN |= (m.buttons & 2) != 0;
   held.MOUSE_MIDDLE_BTN |= (m.buttons & 4) != 0;

@@ -19,6 +19,7 @@
 #include "runner.hpp"
 #include "session.hpp"
 #include "treegen.hpp"
+#include "weapongen.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -454,6 +455,20 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Weapon Editor (docs/weapons.md). Its own TU (weaponedit.cpp),
+    // the assetbrowser.cpp precedent: a self-contained subsystem that would
+    // otherwise bury app.cpp's panel section.
+    void drawWeaponEditorWindow();
+    // Weapon reference picker (flow-node params). "" is a legal value on the
+    // nodes that read it as "the equipped weapon" / "any weapon", so the
+    // combo always offers it. Returns true when the reference changed.
+    bool weaponCombo(const char* label, std::string& weaponRef, bool allowEmpty);
+    // Retargets every reference to a weapon after a rename: object loadouts
+    // and the Combat flow-node params (both store the NAME).
+    void renameWeaponRefs(const std::string& from, const std::string& to);
+    // Generates the current weapongen model into res/models/weapons and drops
+    // a Model object into the scene, wired up as this weapon's viewmodel.
+    void addWeaponModelToScene(int weaponIndex);
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -868,6 +883,15 @@ private:
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
     int treeGenDisplayMode_ = 0;
+    // Weapon Editor (Tools > Weapon Editor, docs/weapons.md). weaponGen_ is
+    // the model generator's live parameter set for the selected weapon - the
+    // "Generate model" side of the window, which writes an .obj into
+    // res/models/weapons and wires it up as the viewmodel.
+    bool showWeaponEditor_ = false;
+    int weaponSel_ = -1;
+    weapongen::Params weaponGen_;
+    char weaponModelName_[64] = "pistol";
+
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;

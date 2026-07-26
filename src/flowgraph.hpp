@@ -104,6 +104,7 @@ enum class FlowParamKind {
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
+    WeaponName,  // name of a Project::weapons entry (Tools > Weapon Editor)
 };
 
 struct FlowNodeType {
@@ -307,6 +308,108 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "num[2] (LOS) = 1 also terrain line-of-sight (hills hide "
                  "the player; objects do not block). Its bool output is the "
                  "live 'seen right now' condition for the logic gates."},
+        // Combat (docs/weapons.md). Weapons are project-wide definitions
+        // (Tools > Weapon Editor) that OBJECTS carry: the scene's Player
+        // object is the player's inventory, an NPC's is its armament. So the
+        // target of every node here is an object - from an object link, or
+        // self - and `str` names the WEAPON, exactly like the Animation node
+        // where str is the clip and the object comes from the link.
+        {.key = "GiveWeapon", .title = "Give Weapon", .category = "Combat",
+         .strKind = FlowParamKind::WeaponName, .numCount = 1,
+         .numLabels = {"Ammo"}, .idIn = true, .idOut = true,
+         .desc = "Adds the weapon named str to the target's inventory and "
+                 "equips it if the target had nothing. num[0] Ammo = spare "
+                 "rounds granted (-1 = the weapon's own Reserve). Giving a "
+                 "weapon the target already carries only tops up the spare "
+                 "ammo. Target the scene's Player object to arm the player. "
+                 "NOTE: str holds the WEAPON name; the target comes from an "
+                 "object link or defaults to self."},
+        {.key = "EquipWeapon", .title = "Equip Weapon", .category = "Combat",
+         .strKind = FlowParamKind::WeaponName, .idIn = true, .idOut = true,
+         .execInCount = 2, .execInLabels = {"equip", "next"},
+         .desc = "Draws one of the weapons the target already carries. "
+                 "'equip' selects the weapon named str (nothing happens if it "
+                 "is not carried); 'next' cycles to the next carried weapon, "
+                 "the same thing the pad's weapon button does. Either way an "
+                 "in-progress reload or swing is cut short."},
+        {.key = "FireWeapon", .title = "Fire Weapon", .category = "Combat",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "The target fires its equipped weapon once, RIGHT NOW - the "
+                 "fire rate and the magazine are deliberately ignored, so a "
+                 "scripted gunshot goes off on the frame the graph says so. "
+                 "The player shoots down the view ray; anyone else shoots at "
+                 "the player."},
+        {.key = "ReloadWeapon", .title = "Reload Weapon", .category = "Combat",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "Starts a reload of the target's equipped weapon (no effect "
+                 "when the magazine is full, the spare ammo is gone, or a "
+                 "reload is already running)."},
+        {.key = "SetAmmo", .title = "Set Ammo", .category = "Combat",
+         .strKind = FlowParamKind::WeaponName, .numCount = 2,
+         .numLabels = {"Magazine", "Reserve"}, .idIn = true, .idOut = true,
+         .desc = "Sets the target's ammunition for the weapon named str (str "
+                 "\"\" = whatever it has equipped). num[0] Magazine and num[1] "
+                 "Reserve, each < 0 = leave alone; Reserve -1 sets bottomless "
+                 "spare ammo. The magazine is capped at the weapon's size."},
+        {.key = "ApplyDamage", .title = "Apply Damage", .category = "Combat",
+         .strKind = FlowParamKind::ObjectName, .numCount = 1,
+         .numLabels = {"Amount"}, .idIn = true, .idOut = true,
+         .execInCount = 4, .execInLabels = {"damage", "heal", "kill", "set"},
+         .desc = "Changes the target's health (the object must be marked "
+                 "Damageable). 'damage' subtracts num[0] and can kill; 'heal' "
+                 "adds it, and healing something dead revives it; 'kill' drops "
+                 "it to zero whatever its health was; 'set' assigns num[0] "
+                 "outright. Killing fires On Killed and runs the object's "
+                 "Death action."},
+        {.key = "OnDamaged", .title = "On Damaged", .category = "Combat",
+         .trigger = true, .strKind = FlowParamKind::ObjectName, .idIn = true,
+         .idOut = true, .boolOut = true,
+         .desc = "Fires the frame after the target takes damage from any "
+                 "source (a shot, a blast, an Apply Damage node). Also usable "
+                 "as a bool source."},
+        {.key = "OnKilled", .title = "On Killed", .category = "Combat",
+         .trigger = true, .strKind = FlowParamKind::ObjectName, .idIn = true,
+         .idOut = true, .boolOut = true,
+         .desc = "Fires the frame after the target's health reaches zero. The "
+                 "object's own Death action (hide / despawn / stay / knock "
+                 "over) has already run - except on the Player object, whose "
+                 "death is entirely yours to script from here."},
+        {.key = "OnWeaponFired", .title = "On Weapon Fired",
+         .category = "Combat", .trigger = true,
+         .strKind = FlowParamKind::WeaponName, .boolOut = true,
+         .desc = "Fires the frame after the weapon named str is fired by "
+                 "ANYONE (str \"\" = any weapon) - for shell casings, alarms, "
+                 "a counter of shots taken. Also usable as a bool source."},
+        {.key = "HasWeapon", .title = "Has Weapon", .category = "Combat",
+         .strKind = FlowParamKind::WeaponName, .idIn = true, .idOut = true,
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: does the target carry the weapon named str "
+                 "(str \"\" = carries anything at all)?"},
+        {.key = "AmmoAtLeast", .title = "Ammo At Least", .category = "Combat",
+         .strKind = FlowParamKind::WeaponName, .numCount = 1,
+         .numLabels = {"Rounds"}, .idIn = true, .idOut = true, .pure = true,
+         .boolOut = true,
+         .desc = "Pure bool: the target's magazine for the weapon named str "
+                 "(str \"\" = the equipped one) holds at least num[0] rounds."},
+        {.key = "HealthAtLeast", .title = "Health At Least",
+         .category = "Combat", .strKind = FlowParamKind::ObjectName,
+         .numCount = 1, .numLabels = {"Health"}, .idIn = true, .idOut = true,
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: the target's health is at least num[0]. A dead "
+                 "target reads 0, so 'Health At Least 1' is 'is alive'."},
+        {.key = "GetAmmoText", .title = "Get Ammo As Text",
+         .category = "Combat", .strKind = FlowParamKind::WeaponName,
+         .numCount = 1, .numLabels = {"Mode"}, .idIn = true, .idOut = true,
+         .pure = true, .textOut = true,
+         .desc = "Pure text of the target's ammunition for the weapon named "
+                 "str (str \"\" = the equipped one). num[0] Mode: 0 = rounds "
+                 "in the magazine, 1 = spare rounds, 2 = \"mag / spare\". Wire "
+                 "it into a Display Text node for an ammo counter."},
+        {.key = "GetHealthText", .title = "Get Health As Text",
+         .category = "Combat", .strKind = FlowParamKind::ObjectName,
+         .idIn = true, .idOut = true, .pure = true, .textOut = true,
+         .desc = "Pure text of the target's current health - wire it into a "
+                 "Display Text node for a health readout."},
         {.key = "TeleportPlayer", .title = "Spawn Player At",
          .category = "Player", .strKind = FlowParamKind::ObjectName,
          .idIn = true, .idOut = true, .posIn = true,

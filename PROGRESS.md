@@ -10,6 +10,70 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (180) **Weapons and combat: firearms, melee, damage, particle effects and
+  enemies that shoot back.** The user asked for "feature epoki" - guns and
+  blades, configurable damage, particle effects, and models the licence lets
+  us ship. Full guide: `docs/weapons.md`, demo: `examples/weapons`.
+  The design decision the whole feature hangs on is that **a weapon is not an
+  entity**. A `WeaponDef` is a project-wide definition (like a font or a
+  menu); OBJECTS carry weapons by name, so the Player object IS the player's
+  inventory and an armed guard is an ordinary object with a loadout plus one
+  number (*Auto-fire range*). Two things fall out of that for free: nothing in
+  the engine needed an "actor" concept, and **the weapon in your hands is also
+  just a scene object** - the runtime pins it in front of the camera while
+  equipped and hides it otherwise, so it lights, materials, LODs and previews
+  through every pipeline that already exists. No attachment system, no
+  parenting, no viewmodel asset type.
+  Three kinds (hitscan / projectile / melee) with damage + falloff, fire rate,
+  automatic, spread, pellets, recoil, rumble, magazine/reserve/reload, physics
+  impulse, blast radius and swing arc. Recoil is a **spring whose per-frame
+  DELTA** goes to `ScriptContext::viewKickPitch` - modelling it as a delta
+  rather than a remembered angle is what lets the player fight it with the
+  stick instead of having their aim snapped back.
+  **Effects** are one shared 128-particle burst pool (`FX_MAX`) on the same
+  VU1 billboard path as the emitters, exposed to every script as
+  `ctx.spawnFx` - muzzle flash, impact, blood, tracer streaks and the
+  projectile's own body/trail all come out of it, so a firefight costs the
+  same memory as a quiet room. Which burst a hit throws is decided by the
+  TARGET, not the weapon (a body bleeds where a wall sparks), overridable per
+  object. Also added `ctx.playSound` so scripts share the sample table the
+  boot sequence already loaded instead of paying SPU RAM for a second copy.
+  **Models**: `src/weapongen.cpp`, a treegen-shaped procedural generator
+  (pistol/revolver/SMG/rifle/shotgun/knife/sword/axe/crowbar, 48-190
+  triangles, three flat-Kd materials, no textures). Deterministic in its
+  Params, built from exactly two primitives (a tapered prism and a
+  cone/cylinder). Its **+Z-is-the-muzzle, origin-at-the-grip convention is
+  load-bearing** - the runtime aims the model down the view ray assuming it.
+  Written because every free gun model online carries a licence the project
+  would then have to carry.
+  Fourteen Combat flow nodes, gated codegen (a project with no weapons, no
+  damageable objects and no Combat nodes generates a one-line comment
+  instead of the runtime), and combat objects + viewmodels excluded from
+  static batching (a dying object gets hidden/despawned/handed to physics; a
+  viewmodel is re-posed every frame - neither survives a merged bag).
+  Verified end to end in PCSX2 at a locked 50 FPS with a scratch fixture
+  (`%TEMP%\tyra-editor-test\gunrange`: three weapons, an armed player firing
+  on an `Every N Seconds` trigger since the pad path cannot be scripted, three
+  damageable targets and an auto-firing turret): the viewmodel renders in
+  hand, *Get Ammo As Text* -> *Display Text* draws "AMMO 12 / 60", a target
+  took 60 -> 0 and **toppled under physics** (Death = Knock over), and the
+  turret walked the player 100 -> 79.6 -> 38.8 -> 18.4 -> 0. That 20.4-per-hit
+  figure is the falloff formula exactly (22 damage, 0.3 falloff, 19.6 of 80
+  units), which is a stronger check than the screenshot.
+  Two real bugs the console found, both worth remembering: **(a)** a Player
+  object is a MARKER (type 6) and the hitscan skips markers, so every NPC
+  bullet sailed straight through the player - the ray now takes an explicit
+  `testPlayer` flag and tests a body sphere hung below the eye; **(b)** in
+  FPP/noclip the Player OBJECT never leaves its spawn point (the camera is the
+  player - the same trap `navPlayerPos` documents), so blast radius and melee
+  sweeps measured against the spawn until `wpnActorPos` was introduced.
+  Also: burst `size` is a HALF extent like `emitterSize`, and the first
+  muzzle-flash default (0.16) filled a quarter of the screen because a flash
+  lives one unit from the eye - the defaults are ~0.05 now.
+  Still needs a hands-on pad test by a human: R1 fire / Triangle reload / L1
+  weapon switch, the recoil feel and the melee swing arc were exercised
+  through the flow-graph path only.
+
 - (179) **Walk speed: sane default, and a field you can actually type into.**
   Third in the (177)/(178) run, same user: "przy domyslnej predkosci chodu
   postac zapierdala jak dyliżans z gorki i z zaglem, trzeba dawac ostry

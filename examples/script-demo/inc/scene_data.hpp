@@ -71,14 +71,20 @@ struct SceneObjectData {
   int batchStatic; // 1 = may merge into a combined static batch bag
                    // (build-time verdict: non-moving primitive with
                    // no physics/logic/graph refs/save-state/layer)
+  int damageable;  // 1 = takes weapon damage (docs/weapons.md);
+                   // 0 = scenery, bullets only leave an impact
+  float health;    // hit points at scene start (damageable only)
+  int deathAct;    // at 0 hp: 0 hide, 1 despawn, 2 stay, 3 knock over
+  int hitFx;       // impact burst override: 0 = the weapon decides,
+                   // 1 sparks, 2 blood, 3 dust, 4 none
 };
 
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[2] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, 0, 100.0F, 0, 0},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1, 0, 100.0F, 0, 0},  // box-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {2};
@@ -209,7 +215,7 @@ inline const char* SND_PATHS[1] = {""};
 
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {-1};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.4F};
+constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
@@ -229,7 +235,7 @@ constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.4F};
+constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
 constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};

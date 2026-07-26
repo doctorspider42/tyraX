@@ -83,6 +83,8 @@ Two sibling skills cover the rest of the system:
 | `matbake.cpp/.hpp` | ~900 | **UV-space raytraced map baker** for the Material Editor (docs/material-baking.md). Host-only, no GL. Conservative UV rasterization → per-texel surface samples, flat binned-SAH BVH, cosine golden-spiral hemisphere rays (seeded per-texel rotation - deterministic, bit-identical at any core count); one pass yields AO + bent normal + thickness + curvature + position + OS-normal maps; optional high-poly cage projection along smoothed low normals; flood dilate. `matbake::Baker` = progressive worker-thread bake (growing rounds, snapshot()/version() polling, gbuffer+BVH cache keyed by MeshInput::signature so sampling-only slider drags re-bake nearly free). Distinct from `aobake` (scene/terrain occlusion): this bakes ONE model's own surface detail into its texture. |
 | `decalproj.cpp/.hpp` | ~230 | **Projected-decal geometry** (host-only, no GL). `project(Project, SceneData, decal)` clips the receiver triangles (terrain + overlapping objects, auto) against the decal's oriented unit-cube projector, computes projected UVs and a surface-normal offset, and returns a world-space triangle list. Used by the viewport (live preview) AND codegen (`decalDataHeader` bakes it into `inc/decal_data.gen.hpp`); the game just draws it — **no projection/clipping on the PS2 EE**. See PROGRESS (99). |
 | `placement.cpp/.hpp` | ~140 | **Collision-aware object placement** (docs/object-placement.md). Host-only, no GL - the decalproj/navmesh pattern. `worldAabb` (rotated+scaled unit primitive, or a model's own bounds via the shared `aobake::ModelAabbFn`), `isSupport` (which types are something to rest ON: solid primitives/save points/models with `collisionMode != 2`) and `restOffsetY`/`restOffsetYGroup` - the vertical offset that rests an object on the highest surface under its FOOTPRINT (terrain sampled at corners+center, plus overlapping objects' AABB tops). The `ceilingY` argument is the whole behavioral switch: `FLT_MAX` = insert/paste ("stack on whatever is under it"), the object's own underside = the `End` drop-to-floor ("nothing may lift it"). Deliberately NOT a collision solver - no sweep, no penetration resolve. Callers: `App::snapInsertedObject` (every add path), `App::movePasteStaged`, `App::dropSelectionToFloor`; the two callbacks come from the viewport (`Viewport::modelLocalBounds`, `Viewport::terrainHeight`), so the editor snaps against the same bilinear heightfield the game walks on. Harness-testable like treegen/stochtile (a 40-line host `main()` + `placement.cpp` covers every rule). |
+| `weapongen.cpp/.hpp` | ~600 | **Procedural weapon models** (docs/weapons.md, Tools > Weapon Editor > Generate a model). Host-only, no GL, no `Project` dependency - the treegen pattern: pure functions over a `Params` struct, harness-testable in 40 lines. Every weapon is built from exactly TWO primitives - `prism` (a box along Z whose cross-section may differ at each end: box, wedge, blade, tapered stock) and `tube` (cone/cylinder: barrels, drums, hafts) - each placed by center + two rotations, which keeps the file free of matrix code. Flat-shaded, three flat-`Kd` materials, **no textures at all** (a weapon is small on screen and a texture per gun is VRAM the effects want more). **The orientation convention is load-bearing**: +Z is the muzzle/blade, +Y up, and the ORIGIN IS THE GRIP - the runtime aims the model down the view ray assuming exactly that, so a new kind that breaks it renders sideways in the player's hands. Deterministic in `Params` (wear only ever SHRINKS a part, so a worn weapon stays inside the silhouette its length implies). |
+| `weaponedit.cpp` | ~470 | **Weapon Editor** (Tools > Weapon Editor, docs/weapons.md) - App:: methods declared in app.hpp, own TU like assetbrowser.cpp. Weapons are project-wide (`Project::weapons`), edited through `saveAll` and NOT on the undo stack, like fonts/menus/sequences. Also owns `weaponCombo` (the flow-node picker - `allowEmpty` is not cosmetic: several Combat nodes read "" as "the equipped weapon"/"any weapon"), `renameWeaponRefs` (a weapon name is referenced from object loadouts AND `WeaponName` node params - both must follow a rename) and `addWeaponModelToScene` (weapongen -> `.obj` -> a Model object -> the weapon's `viewModel`, one click). |
 | `navmesh.cpp/.hpp` | ~160 | **NavMesh bake** (host-only, no GL — the decalproj pattern). `bake(Project, SceneData)` rasterizes a scene into a walkable-cell grid (terrain slope on the game's own bilinear heightmap + `collidePlayer`-box-mode blockers inflated by the agent radius; capped 128×128). Used by codegen (`navDataHeader` → `inc/nav_data.gen.hpp`, gated on AI nodes existing) AND the viewport nav overlay (`App::updateNavOverlay`, signature-cached). The generated `src/gen/navigation.gen.cpp` runs A* over the bitmap on the EE and ticks all AI agents (Patrol/Chase/Flee flow nodes set agent state; one state per object). See `docs/navigation-ai.md` + PROGRESS (108). |
 | `history.hpp` | 59 | Undo/redo snapshot stack. |
 | `gl_loader.h/.cpp` | 137 | Minimal hand-rolled GL 3.3 loader (only what the viewport needs). |
@@ -236,6 +238,33 @@ per-player Player-object property must be added to the paired table emitter
 `ProjectSettings::multiplayer` ("off"/"shared"/"split") + `p2JoinOnStart`
 gate everything; menu bind 7 = Player count (edge-triggered +
 `syncPlayerCountMenuValue` write-back).
+
+**Weapons / combat work** (docs/weapons.md): a `WeaponDef` is project-wide
+(`Project::weapons`, `Section::Weapons`, edited via `saveAll` — NOT undo);
+objects reference weapons BY NAME (`SceneObject::weapons`), so a weapon
+rename must go through `App::renameWeaponRefs` (loadouts + `WeaponName` node
+params) and an object rename must carry `WeaponDef::viewModel`. The runtime
+is `src/gen/weapons.gen.cpp` — one global `Script`, the NavAiScript pattern —
+and all three generated files collapse to a comment unless `combatEnabled(p)`
+(weapons OR damageable objects OR a Combat node exists). Two traps the
+console taught: a **Player object is a marker (type 6)**, which every ray
+skip-list rightly ignores, so anything that must be able to hit the PLAYER
+needs the explicit body-sphere test (`wpnRay(..., testPlayer)`); and in
+FPP/noclip the **Player object never leaves its spawn point** (the camera is
+the player — the same trap `navPlayerPos` documents), so read a combat
+actor's position through `wpnActorPos`, never `data.position`. Combat and
+viewmodel objects are excluded from static batching, and a burst effect's
+`size` is a HALF extent (a muzzle flash lives ~1 unit from the eye, where
+0.1 already fills a quarter of the screen).
+
+**One-shot particle bursts** are a general engine facility, not a weapon
+detail: `ScriptContext::spawnFx(kind, pos, dir, color, size, count, life,
+speed)` throws a burst from ONE shared 128-particle pool (`TerrainGame::fx`,
+built next to `buildParticles`, ticked next to `updateParticles`, submitted
+right after the emitter bags). Kind 6 is a beam whose `dir` is the WHOLE
+segment. `ScriptContext::playSound(index, volume, channel)` is its audio
+counterpart — it reuses the sample table the boot sequence already loaded,
+so a script never pays SPU RAM for a second copy of a sound.
 
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog

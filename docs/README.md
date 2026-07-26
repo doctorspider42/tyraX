@@ -90,6 +90,13 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
   Player / Flee From Player / Stop AI / On Player Seen) with the classic
   guard wiring, plus the deliberate era-appropriate limitations.
+- [Weapons and combat](weapons.md) - firearms (hitscan and projectile) and
+  melee with configurable damage, ammunition, recoil and blast radius; the
+  shared one-shot particle-burst pool behind muzzle flashes, impacts, blood
+  and tracers (and `ctx.spawnFx`, open to any script); the viewmodel-is-a-
+  scene-object decision; per-object health, death actions and NPC auto-fire;
+  the fourteen Combat flow nodes and their trigger timing; the procedural
+  weapon-model generator; and exactly what a project without combat pays.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

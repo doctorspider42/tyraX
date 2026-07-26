@@ -447,6 +447,22 @@ std::string objectJson(const SceneObject& o) {
             json += (i ? ", \"" : "\"") + jsonEscape(o.scripts[i]) + "\"";
         json += "]";
     }
+    // Combat (docs/weapons.md). Written only when the object actually takes
+    // part in it, so a project without weapons round-trips byte-identically.
+    if (o.damageable) {
+        json += ", \"combat\": { \"health\": " + fmtFloat(o.health) +
+                ", \"death\": " + std::to_string(o.deathAction) +
+                ", \"hitFx\": " + std::to_string(o.hitFx) + " }";
+    }
+    if (!o.weapons.empty()) {
+        json += ", \"weapons\": [";
+        for (size_t i = 0; i < o.weapons.size(); ++i)
+            json += (i ? ", \"" : "\"") + jsonEscape(o.weapons[i]) + "\"";
+        json += "]";
+        if (o.autoFireRange > 0.0f)
+            json += ", \"autoFire\": [" + fmtFloat(o.autoFireRange) + ", " +
+                    fmtFloat(o.autoFireFov) + "]";
+    }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
 }
@@ -1334,6 +1350,61 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
+// Weapons (Tools > Weapon Editor). Conditional: a project with no weapons
+// emits nothing at all, so nothing about the file format changes for the
+// projects that predate combat.
+static void writeWeaponFx(std::ostream& json, const char* key, const WeaponFx& f) {
+    json << ",\n      \"" << key << "\": { \"kind\": " << f.kind << ", \"color\": "
+         << fmtVec3(f.color) << ", \"size\": " << fmtFloat(f.size)
+         << ", \"count\": " << f.count << ", \"life\": " << fmtFloat(f.life)
+         << ", \"speed\": " << fmtFloat(f.speed) << " }";
+}
+
+static void writeWeaponsSection(std::ostream& json, const Project& p) {
+    if (p.weapons.empty()) return;
+    json << "\"weapons\": [";
+    for (size_t i = 0; i < p.weapons.size(); ++i) {
+        const WeaponDef& w = p.weapons[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(w.name) << "\", \"kind\": " << w.kind
+             << ", \"damage\": " << fmtFloat(w.damage)
+             << ", \"range\": " << fmtFloat(w.range)
+             << ", \"falloff\": " << fmtFloat(w.falloff)
+             << ", \"impulse\": " << fmtFloat(w.impulse)
+             << ", \"fireRate\": " << fmtFloat(w.fireRate)
+             << ", \"automatic\": " << (w.automatic ? "true" : "false")
+             << ", \"spread\": " << fmtFloat(w.spread)
+             << ", \"pellets\": " << w.pellets
+             << ", \"recoil\": " << fmtFloat(w.recoil)
+             << ", \"rumble\": " << fmtFloat(w.rumble)
+             << ",\n      \"magSize\": " << w.magSize
+             << ", \"reserve\": " << w.reserve
+             << ", \"reloadTime\": " << fmtFloat(w.reloadTime)
+             << ", \"projSpeed\": " << fmtFloat(w.projSpeed)
+             << ", \"projGravity\": " << fmtFloat(w.projGravity)
+             << ", \"projSize\": " << fmtFloat(w.projSize)
+             << ", \"projColor\": " << fmtVec3(w.projColor)
+             << ", \"blastRadius\": " << fmtFloat(w.blastRadius)
+             << ", \"meleeArc\": " << fmtFloat(w.meleeArc)
+             << ", \"swingTime\": " << fmtFloat(w.swingTime)
+             << ",\n      \"viewModel\": \"" << jsonEscape(w.viewModel)
+             << "\", \"viewOffset\": " << fmtVec3(w.viewOffset)
+             << ", \"viewScale\": " << fmtFloat(w.viewScale)
+             << ", \"viewRot\": " << fmtVec3(w.viewRot)
+             << ", \"muzzleOffset\": " << fmtVec3(w.muzzleOffset)
+             << ", \"tracer\": " << (w.tracer ? "true" : "false")
+             << ", \"tracerColor\": " << fmtVec3(w.tracerColor);
+        writeWeaponFx(json, "muzzleFx", w.muzzleFx);
+        writeWeaponFx(json, "impactFx", w.impactFx);
+        writeWeaponFx(json, "bloodFx", w.bloodFx);
+        json << ",\n      \"fireSound\": \"" << jsonEscape(w.fireSound)
+             << "\", \"reloadSound\": \"" << jsonEscape(w.reloadSound)
+             << "\", \"emptySound\": \"" << jsonEscape(w.emptySound)
+             << "\", \"impactSound\": \"" << jsonEscape(w.impactSound) << "\" }";
+    }
+    json << "\n  ]";
+}
+
 // The wire form of one section: its manifest keys, no wrapping braces. Empty
 // for a conditional section with nothing to emit (TexQuality with no entries).
 static std::string sectionBody(const Project& p, Section s) {
@@ -1353,6 +1424,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
+        case Section::Weapons: writeWeaponsSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1373,6 +1445,7 @@ const char* sectionName(Section s) {
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
         case Section::ModelUnits: return "modelUnits";
+        case Section::Weapons: return "weapons";
     }
     return "unknown";
 }
@@ -2262,6 +2335,33 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             for (const auto& s : sc->arr)
                 if (s.type == json::Value::Type::String && !s.str.empty())
                     o.scripts.push_back(s.str);
+        }
+        if (const auto* cb = jo.find("combat")) {
+            o.damageable = true;
+            if (const auto* v = cb->find("health"))
+                o.health = (float)v->numberOr(100.0);
+            if (const auto* v = cb->find("death")) {
+                o.deathAction = (int)v->numberOr(0.0);
+                if (o.deathAction < 0 || o.deathAction > 3) o.deathAction = 0;
+            }
+            if (const auto* v = cb->find("hitFx")) {
+                o.hitFx = (int)v->numberOr(0.0);
+                if (o.hitFx < 0 || o.hitFx > 4) o.hitFx = 0;
+            }
+        }
+        if (const auto* wp = jo.find("weapons");
+            wp && wp->type == json::Value::Type::Array) {
+            for (const auto& s : wp->arr)
+                if (s.type == json::Value::Type::String && !s.str.empty())
+                    o.weapons.push_back(s.str);
+        }
+        if (const auto* af = jo.find("autoFire");
+            af && af->type == json::Value::Type::Array && af->arr.size() >= 2) {
+            o.autoFireRange = (float)af->arr[0].numberOr(0.0);
+            o.autoFireFov = (float)af->arr[1].numberOr(60.0);
+            if (o.autoFireRange < 0.0f) o.autoFireRange = 0.0f;
+            if (o.autoFireFov < 1.0f) o.autoFireFov = 1.0f;
+            if (o.autoFireFov > 180.0f) o.autoFireFov = 180.0f;
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));
@@ -3194,6 +3294,82 @@ static void readModelUnitsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readWeaponFx(const json::Value& parent, const char* key, WeaponFx& f) {
+    const auto* o = parent.find(key);
+    if (!o || o->type != json::Value::Type::Object) return;
+    if (const auto* v = o->find("kind")) f.kind = (int)v->numberOr(0.0);
+    if (f.kind < 0 || f.kind > 5) f.kind = 0;
+    if (const auto* v = o->find("color")) readVec3(v, f.color);
+    if (const auto* v = o->find("size")) f.size = (float)v->numberOr(0.12);
+    if (const auto* v = o->find("count")) f.count = (int)v->numberOr(8.0);
+    if (f.count < 1) f.count = 1;
+    if (f.count > 32) f.count = 32;
+    if (const auto* v = o->find("life")) f.life = (float)v->numberOr(0.25);
+    if (f.life < 0.02f) f.life = 0.02f;
+    if (const auto* v = o->find("speed")) f.speed = (float)v->numberOr(4.0);
+}
+
+static void readWeaponsSection(const json::Value& root, Project& out) {
+    out.weapons.clear();
+    const auto* arr = root.find("weapons");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const auto& jw : arr->arr) {
+        WeaponDef w;
+        if (const auto* v = jw.find("name")) w.name = v->stringOr("Weapon");
+        if (w.name.empty()) continue;  // a nameless weapon can't be referenced
+        if (const auto* v = jw.find("kind")) w.kind = (int)v->numberOr(0.0);
+        if (w.kind < 0 || w.kind > 2) w.kind = 0;
+        if (const auto* v = jw.find("damage")) w.damage = (float)v->numberOr(25.0);
+        if (const auto* v = jw.find("range")) w.range = (float)v->numberOr(60.0);
+        if (const auto* v = jw.find("falloff")) w.falloff = (float)v->numberOr(0.0);
+        if (const auto* v = jw.find("impulse")) w.impulse = (float)v->numberOr(0.0);
+        if (const auto* v = jw.find("fireRate")) w.fireRate = (float)v->numberOr(4.0);
+        if (w.fireRate < 0.05f) w.fireRate = 0.05f;
+        if (const auto* v = jw.find("automatic")) w.automatic = v->boolOr(false);
+        if (const auto* v = jw.find("spread")) w.spread = (float)v->numberOr(1.0);
+        if (const auto* v = jw.find("pellets")) w.pellets = (int)v->numberOr(1.0);
+        if (w.pellets < 1) w.pellets = 1;
+        if (w.pellets > 16) w.pellets = 16;
+        if (const auto* v = jw.find("recoil")) w.recoil = (float)v->numberOr(1.0);
+        if (const auto* v = jw.find("rumble")) w.rumble = (float)v->numberOr(0.3);
+        if (const auto* v = jw.find("magSize")) w.magSize = (int)v->numberOr(12.0);
+        if (w.magSize < 0) w.magSize = 0;
+        if (const auto* v = jw.find("reserve")) w.reserve = (int)v->numberOr(60.0);
+        if (const auto* v = jw.find("reloadTime"))
+            w.reloadTime = (float)v->numberOr(1.2);
+        if (const auto* v = jw.find("projSpeed"))
+            w.projSpeed = (float)v->numberOr(40.0);
+        if (const auto* v = jw.find("projGravity"))
+            w.projGravity = (float)v->numberOr(9.8);
+        if (const auto* v = jw.find("projSize"))
+            w.projSize = (float)v->numberOr(0.15);
+        if (const auto* v = jw.find("projColor")) readVec3(v, w.projColor);
+        if (const auto* v = jw.find("blastRadius"))
+            w.blastRadius = (float)v->numberOr(0.0);
+        if (const auto* v = jw.find("meleeArc"))
+            w.meleeArc = (float)v->numberOr(70.0);
+        if (const auto* v = jw.find("swingTime"))
+            w.swingTime = (float)v->numberOr(0.35);
+        if (w.swingTime < 0.05f) w.swingTime = 0.05f;
+        if (const auto* v = jw.find("viewModel")) w.viewModel = v->stringOr("");
+        if (const auto* v = jw.find("viewOffset")) readVec3(v, w.viewOffset);
+        if (const auto* v = jw.find("viewScale"))
+            w.viewScale = (float)v->numberOr(1.0);
+        if (const auto* v = jw.find("viewRot")) readVec3(v, w.viewRot);
+        if (const auto* v = jw.find("muzzleOffset")) readVec3(v, w.muzzleOffset);
+        if (const auto* v = jw.find("tracer")) w.tracer = v->boolOr(false);
+        if (const auto* v = jw.find("tracerColor")) readVec3(v, w.tracerColor);
+        readWeaponFx(jw, "muzzleFx", w.muzzleFx);
+        readWeaponFx(jw, "impactFx", w.impactFx);
+        readWeaponFx(jw, "bloodFx", w.bloodFx);
+        if (const auto* v = jw.find("fireSound")) w.fireSound = v->stringOr("");
+        if (const auto* v = jw.find("reloadSound")) w.reloadSound = v->stringOr("");
+        if (const auto* v = jw.find("emptySound")) w.emptySound = v->stringOr("");
+        if (const auto* v = jw.find("impactSound")) w.impactSound = v->stringOr("");
+        out.weapons.push_back(std::move(w));
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -3213,6 +3389,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
         case Section::ModelUnits: readModelUnitsSection(root, p); break;
+        case Section::Weapons: readWeaponsSection(root, p); break;
     }
     return true;
 }
@@ -3394,6 +3571,7 @@ std::string load(Project& out, const std::string& projectDir) {
         out.defaultAmbience = -1;
 
     readMenusSection(root, out);
+    readWeaponsSection(root, out);
 
     loadHeights(out);
     ensureHeightmap(out);
@@ -3693,6 +3871,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     for (const auto& n : o.portalObjects) fnvMixS(h, n);
     fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0) |
                   (o.portalViewAll ? 4 : 0));
+    // Combat: health/damageable/death ride in SceneObjectData, the loadout in
+    // the baked OBJECT_WEAPONS side table (docs/weapons.md).
+    fnvMix(h, (o.damageable ? 1 : 0) | ((uint64_t)o.deathAction << 1) |
+                  ((uint64_t)o.hitFx << 4));
+    fnvMixF(h, o.health);
+    for (const auto& n : o.weapons) fnvMixS(h, n);
+    fnvMixF(h, o.autoFireRange), fnvMixF(h, o.autoFireFov);
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
     // vertex colors. Folding them into the recipe makes any live edit of
@@ -3801,6 +3986,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
             f.relativePath == "src\\gen\\navigation.gen.cpp" ||
+            f.relativePath == "inc\\weapon_data.gen.hpp" ||
+            f.relativePath == "inc\\scripts\\weapons.gen.hpp" ||
+            f.relativePath == "src\\gen\\weapons.gen.cpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||

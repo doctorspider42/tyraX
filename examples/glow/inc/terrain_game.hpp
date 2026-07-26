@@ -293,6 +293,13 @@ class TerrainGame : public Tyra::Game {
   // despawnObject): clone an authored object into the spawn pool / free it.
   int spawnObjectAt(int templateIndex, float x, float y, float z, float yaw);
   void despawnObjectAt(int index);
+  // One-shot particle burst (ScriptContext::spawnFx) and a one-shot sound
+  // from the table loaded at boot (ScriptContext::playSound) - both reached
+  // from the free-function thunks in the game cpp, so both must be public.
+  void spawnFxBurst(int kind, const float* pos, const float* dir,
+                    const float* color, float size, int count, float life,
+                    float speed);
+  void playSoundIndex(int soundIndex, int volume, int channel);
 
  private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's
@@ -677,6 +684,33 @@ class TerrainGame : public Tyra::Game {
   std::vector<ParticleSystem> particles;
   void buildParticles();
   void updateParticles();
+
+  // One-shot particle bursts (ScriptContext::spawnFx, docs/weapons.md). ONE
+  // pool for the whole game: a burst has no owner, it is fired at a world
+  // point and dies. Slots are handed out round-robin and a burst fired into a
+  // full pool steals the stalest ones - a muzzle flash that silently does not
+  // appear reads as a bug, so dropping is never the right answer. Shares the
+  // VU1 billboard path with the emitters above (one submit per frame).
+  static constexpr int FX_MAX = 128;
+  struct FxPool {
+    std::vector<Tyra::Vec4> pos, vel;
+    std::vector<float> life, maxLife;
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;
+    // Authored per particle: (r, g, b, size) - the per-frame simulation
+    // derives the live color/alpha/size from these and the life fraction.
+    std::vector<Tyra::Vec4> base;
+    std::vector<unsigned char> kind;
+    unsigned int rng = 9781u;
+    int cursor = 0;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+  } fx;
+  void buildFxPool();
+  void updateFxBursts();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
