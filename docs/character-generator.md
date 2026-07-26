@@ -548,6 +548,17 @@ Frame-to-frame tracking earns its keep at the noisy end: at 0.5% noise it takes
 the mean from 11.1° to 7.7°, the worst case from 95.7° to 49.5°, and **jitter
 from 15.8° to 6.8°** - which is the part you see.
 
+**When it does not work, find out which thing is broken before fixing any of
+them.** Three faults look identical on a character - Vision detecting nothing,
+Vision detecting while the geometry is wrong, and geometry right with an axis
+convention flipped - and each is a different scale of work. *What Vision is
+seeing* in the Mocap window shows the raw numbers: whether a face or a hand was
+found at all, the palm's size as a percentage of the frame (below a few per
+cent the landmarks are noise and the solve is guessing), the angles Vision
+reported, and the angles the solver produced from them. *Log every frame to a
+file* writes `vision-log.jsonl` in the project folder for going over a session
+afterwards rather than reading it off a screen.
+
 What it needs is size in frame. A face across the room is plenty; a hand at four
 metres is about ninety pixels. Step closer and the wrists come alive. The Mocap
 window shows how many joints Vision is actually driving, and hovering that

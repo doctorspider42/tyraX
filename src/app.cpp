@@ -10412,6 +10412,60 @@ void App::mocapZero() {
     mocapVisionTracker_.reset();
 }
 
+// Euler angles out of a quaternion, degrees - for SHOWING a rotation, not for
+// computing with one. Reading "yaw 40, pitch -5" tells an operator whether a
+// head turned; reading four quaternion components tells nobody anything.
+static void eulerDegrees(const float* q, float* out) {
+    const float x = q[0], y = q[1], z = q[2], w = q[3];
+    const float sinp = 2.0f * (w * x - y * z);
+    out[1] = std::asin(sinp > 1 ? 1 : (sinp < -1 ? -1 : sinp)) * 57.2957795f;   // pitch
+    out[0] = std::atan2(2.0f * (w * y + x * z), 1 - 2 * (x * x + y * y)) * 57.2957795f;
+    out[2] = std::atan2(2.0f * (w * z + x * y), 1 - 2 * (x * x + z * z)) * 57.2957795f;
+}
+
+// What the solve actually produced for the three joints Vision drives, in
+// degrees, straight off the frame it just wrote.
+void App::mocapReadVisionResult() {
+    const char* want[3] = {"head_joint", "left_hand_joint", "right_hand_joint"};
+    float* dst[3] = {mocapVisionSolvedHead_, mocapVisionSolvedWrist_[0],
+                     mocapVisionSolvedWrist_[1]};
+    for (int i = 0; i < 3; ++i) {
+        for (size_t j = 0; j < mocapLiveJoints_.size(); ++j) {
+            if (mocapLiveJoints_[j] != want[i]) continue;
+            if ((j + 1) * 4 <= mocapFrameRot_.size())
+                eulerDegrees(&mocapFrameRot_[j * 4], dst[i]);
+            break;
+        }
+    }
+}
+
+// One line per frame, appended. A session read off a screen is a session
+// nobody can go back over; a file can be looked at afterwards, by somebody who
+// was not in the room.
+void App::mocapLogVisionFrame(float t) {
+    if (mocapVisionLogPath_.empty()) return;
+    std::ofstream f(mocapVisionLogPath_, std::ios::app);
+    if (!f) return;
+    const phonecam::BodyFrame& v = mocapVisionLast_;
+    f << "{\"t\":" << t << ",\"driven\":" << mocapVisionDriven_
+      << ",\"aspect\":" << v.imageAspect;
+    if (v.haveCameraRot)
+        f << ",\"cam\":[" << v.cameraRot[0] << "," << v.cameraRot[1] << ","
+          << v.cameraRot[2] << "," << v.cameraRot[3] << "]";
+    if (v.haveFace)
+        f << ",\"face\":[" << v.face[0] << "," << v.face[1] << "," << v.face[2] << "]";
+    const phonecam::BodyFrame::HandObs* hands[2] = {&v.handLeft, &v.handRight};
+    const char* names[2] = {"hl", "hr"};
+    for (int i = 0; i < 2; ++i) {
+        if (!hands[i]->have) continue;
+        f << ",\"" << names[i] << "\":[" << hands[i]->confidence;
+        for (int k = 0; k < 10; ++k) f << "," << hands[i]->pts[k];
+        f << "],\"" << names[i] << "thumb\":" << (hands[i]->haveThumb ? 1 : 0);
+    }
+    f << ",\"solvedHead\":[" << mocapVisionSolvedHead_[0] << ","
+      << mocapVisionSolvedHead_[1] << "," << mocapVisionSolvedHead_[2] << "]}\n";
+}
+
 // Arm the capture. Nobody can press a button and be in a T-pose at the same
 // instant, so with a delay set this fires later and the operator gets to walk
 // into frame - which is the only way one person can do this alone.
@@ -10576,10 +10630,14 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
             convert(in[side]->pts + 8, out[side]->thumbMcp);
         }
         mocapVisionNotes_.clear();
+        mocapVisionLast_ = *vision;
+        mocapHaveVisionLast_ = true;
         mocapVisionDriven_ = visionpose::applyToFrame(
             obs, mocapLiveJoints_, mocapLiveParents_, mocapLiveRestRot_.data(),
             visionpose::Limits(), mocapFrameRot_.data(), &mocapVisionTracker_,
             &mocapVisionNotes_);
+        mocapReadVisionResult();
+        if (mocapVisionLog_) mocapLogVisionFrame(t);
     }
 
     charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_, t);
@@ -10771,6 +10829,60 @@ void App::drawMocapWindow() {
                 for (const std::string& n : mocapVisionNotes_) ImGui::TextUnformatted(n.c_str());
                 ImGui::EndTooltip();
             }
+        }
+        // The numbers, because three very different faults look identical on a
+        // character: Vision finding nothing, Vision found and the geometry
+        // wrong, geometry right and an axis convention flipped. Each is a
+        // different week of work and only these tell them apart.
+        if (mocapVision_ && ImGui::TreeNode("What Vision is seeing")) {
+            const phonecam::BodyFrame& v = mocapVisionLast_;
+            if (!mocapHaveVisionLast_) {
+                ImGui::TextDisabled("no frame carrying Vision data yet");
+            } else {
+                ImGui::Text("camera pose: %s", v.haveCameraRot ? "yes" : "MISSING");
+                ImGui::Text("image aspect: %.3f", v.imageAspect);
+                if (v.haveFace)
+                    ImGui::Text("face seen: yaw %.0f  pitch %.0f  roll %.0f",
+                                v.face[0] * 57.29578f, v.face[1] * 57.29578f,
+                                v.face[2] * 57.29578f);
+                else
+                    ImGui::TextDisabled("face: not detected");
+                ImGui::Text("head solved: yaw %.0f  pitch %.0f  roll %.0f",
+                            mocapVisionSolvedHead_[0], mocapVisionSolvedHead_[1],
+                            mocapVisionSolvedHead_[2]);
+                const phonecam::BodyFrame::HandObs* hands[2] = {&v.handLeft, &v.handRight};
+                const char* side[2] = {"left ", "right"};
+                for (int i = 0; i < 2; ++i) {
+                    if (!hands[i]->have) {
+                        ImGui::TextDisabled("%s hand: not detected", side[i]);
+                        continue;
+                    }
+                    // The palm's size on screen decides whether any of this can
+                    // work: below a few per cent of the frame the landmarks are
+                    // noise and the solve is guessing.
+                    const float dx = hands[i]->pts[4] - hands[i]->pts[0];
+                    const float dy = hands[i]->pts[5] - hands[i]->pts[1];
+                    const float span = std::sqrt(dx * dx + dy * dy) * 100.0f;
+                    ImGui::Text("%s hand: conf %.2f  palm %.1f%% of frame  thumb %s",
+                                side[i], hands[i]->confidence, span,
+                                hands[i]->haveThumb ? "yes" : "no");
+                    ImGui::Text("      solved: bend %.0f  dev %.0f  twist %.0f",
+                                mocapVisionSolvedWrist_[i][1], mocapVisionSolvedWrist_[i][2],
+                                mocapVisionSolvedWrist_[i][0]);
+                }
+            }
+            if (ImGui::Checkbox("Log every frame to a file", &mocapVisionLog_) &&
+                mocapVisionLog_) {
+                mocapVisionLogPath_ =
+                    (std::filesystem::path(project_.dir) / "vision-log.jsonl").string();
+                std::ofstream(mocapVisionLogPath_, std::ios::trunc);
+                mocapNote_ = "logging to " + mocapVisionLogPath_;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Writes vision-log.jsonl in the project folder - one\n"
+                                  "line per frame, raw. A session read off a screen is\n"
+                                  "gone; a file can be gone over afterwards.");
+            ImGui::TreePop();
         }
     }
 

@@ -523,6 +523,8 @@ private:
     void mocapStopRecording();
     // The two a performer triggers from the phone as well as from here.
     void mocapZero();
+    void mocapReadVisionResult();
+    void mocapLogVisionFrame(float t);
     void mocapArmCalibration();
     void mocapCalibrateFromPhone();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
@@ -1071,6 +1073,19 @@ private:
     std::vector<float> mocapLiveRestRot_;
     std::vector<std::string> mocapVisionNotes_;
     int mocapVisionDriven_ = 0;
+    // The last raw observation, kept purely so the window can SHOW it. Three
+    // very different faults look identical on a character - Vision finding
+    // nothing, Vision found and the geometry wrong, geometry right and an axis
+    // convention flipped - and each is a different month of work. Numbers on
+    // screen tell them apart in a minute.
+    phonecam::BodyFrame mocapVisionLast_;
+    bool mocapHaveVisionLast_ = false;
+    float mocapVisionSolvedHead_[3] = {0, 0, 0};   // yaw, pitch, roll, degrees
+    float mocapVisionSolvedWrist_[2][3] = {{0, 0, 0}, {0, 0, 0}};
+    // Appends every observation to a file so a session can be picked apart
+    // offline instead of read off a screen.
+    bool mocapVisionLog_ = false;
+    std::string mocapVisionLogPath_;
     std::vector<float> mocapFrameRot_;  // scratch: source rotations + the heading
     std::string mocapTake_;           // the file being played back
     float mocapTime_ = 0.0f;
