@@ -302,7 +302,10 @@ Two sources, and the distinction matters less than it looks:
 - **A `.tmocap` file**, played back. Scrub it, loop it, watch the retarget.
 - **The live phone link.** Start *Tools > Phone Camera*'s link, type its address
   and six-digit code into the app's LIVE LINK row, and the performer moves the
-  character in the editor with about a frame of lag.
+  character in the editor with about a frame of lag. The window binds to the
+  phone's skeleton **the moment it arrives** - a phone connects, reconnects or is
+  swapped for another one at times nothing announces, so *Rebind* is there for
+  when you change the character, not for getting started.
 
 The file source is not a mock of the live one - it *is* the live one with a
 different feed. Both end in the same `mocapApplyFrame` → `charanim::applyLive`,

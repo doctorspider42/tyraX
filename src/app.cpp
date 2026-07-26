@@ -10174,6 +10174,10 @@ void App::mocapRebind() {
             mocapNote_ = "waiting for the phone's skeleton";
             return;
         }
+        // Claimed before it is used, not after: a skeleton this build REJECTS
+        // has still been dealt with, and leaving it unclaimed would retry - and
+        // reprint - the same failure every frame.
+        mocapLiveSkelSeq_ = phoneCam_.bodySkeletonSeq();
         if (!mocap::buildSource(sk.joints, sk.parents, sk.restPos.data(), sk.restRot.data(),
                                 liveRig, err)) {
             mocapNote_ = "live skeleton: " + err;
@@ -10441,6 +10445,14 @@ void App::drawMocapWindow() {
             }
             mocapApplyFrame(rot.data(), hips, haveHips, mocapTime_);
         } else if (mocapSourceKind_ == 2) {
+            // A phone that connects (or reconnects, or is a different phone)
+            // sends its skeleton whenever it feels like it, which is usually
+            // after the source was picked. Binding on sight is the difference
+            // between the window working and the window needing a button
+            // pressed at a moment nothing announces.
+            if (phoneCam_.hasBodySkeleton() &&
+                phoneCam_.bodySkeletonSeq() != mocapLiveSkelSeq_)
+                mocapRebind();
             // Every frame that arrived since the last UI frame: the newest is
             // the live pose, and a recording keeps all of them so no motion is
             // lost between two repaints.

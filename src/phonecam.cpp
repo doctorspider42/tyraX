@@ -394,6 +394,7 @@ void Link::workerMain() {
                     bodyFrames_.clear();   // a new skeleton invalidates old frames
                 }
                 hasBody_.store(true);
+                bodySeq_.fetch_add(1);
                 continue;
             }
             if (type == "body") {

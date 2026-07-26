@@ -195,6 +195,10 @@ class Link {
     // for a camera-only client, which is how the UI tells them apart.
     BodySkeleton bodySkeleton() const;
     bool hasBodySkeleton() const { return hasBody_.load(); }
+    // Bumped every time a skeleton arrives. A consumer that has bound to one
+    // watches this rather than hasBodySkeleton(), because a phone reconnecting
+    // (or a different phone) sends a NEW skeleton while the flag never drops.
+    uint64_t bodySkeletonSeq() const { return bodySeq_.load(); }
     // Body frames received since the last call, oldest first - the newest is
     // the live pose, and a recording appends the whole batch so no motion is
     // lost between two UI frames.
@@ -240,6 +244,7 @@ class Link {
     BodySkeleton bodySkel_;
     std::deque<BodyFrame> bodyFrames_;
     std::atomic<bool> hasBody_{false};
+    std::atomic<uint64_t> bodySeq_{0};
     std::atomic<uint64_t> bodyCount_{0};
     PreviewPrefs preview_;
     // Preview frames waiting to be encoded and sent, oldest first. Bounded by

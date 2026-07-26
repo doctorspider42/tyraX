@@ -1020,6 +1020,7 @@ private:
     charanim::LiveRetarget mocapBind_;
     glbparser::Skel mocapSource_;     // file playback: the take as a source rig
     int mocapSourceKind_ = 0;         // 0 none, 1 file, 2 live link
+    uint64_t mocapLiveSkelSeq_ = 0;   // the phone skeleton mocapBind_ was built from
     std::string mocapTake_;           // the file being played back
     float mocapTime_ = 0.0f;
     bool mocapPlaying_ = false;

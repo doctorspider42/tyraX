@@ -33,6 +33,14 @@ Each finished feature lands as its own commit.
   client waited for an `ok` that `phonecam.cpp` never sends - the handshake
   answers `welcome`. It would have connected and then sat there silently, which
   is the failure mode a protocol in two repositories produces.
+  **The editor gained one thing the phone half exposed**: the Mocap window now
+  binds to the live skeleton *on sight* (`phonecam::bodySkeletonSeq`, bumped per
+  `bodyrest`) instead of waiting for the Rebind button. Picking the live source
+  before the phone connects is the NORMAL order, and a window whose only
+  feedback was "waiting for the phone's skeleton" - forever, because nothing
+  retried - would have read as broken. The sequence is claimed before the build
+  that might reject it, so a malformed skeleton fails once rather than every
+  frame.
   *Unverified*: the phone half needs the device. CI builds it; whether ARKit's
   packed rotations land right on a real performer is the owner's next test.
 
