@@ -113,12 +113,25 @@ private:
     };
     SafeAreaCfg safeArea_;
     bool showSafeArea_ = false;  // the master switch (the gear's first item)
+    // PS2 output mode (docs/ps2-viewport.md), machine-global like the safe
+    // areas. `ps2ViewportOutput` resolves the project's display settings into
+    // the GS geometry the viewport renders at - the host twin of the engine's
+    // RendererSettings::updateGeometry, so a new display mode is one entry in
+    // both places.
+    bool viewportPs2_ = false;
+    Viewport::Ps2Output ps2ViewportOutput() const;
     // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
     void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);
-    // The gear button + its popup, drawn in the viewport's corner. Returns true
-    // when the cursor is over it, so a click there does not fall through to the
-    // scene the way the axis gizmo's veto works.
+    // The gear button + its popup, drawn at the left end of the viewport's
+    // bottom button row. Returns true when the cursor is over it, so a click
+    // there does not fall through to the scene the way the axis gizmo's veto
+    // works.
     bool drawViewportGear(const ImVec2& pos, const ImVec2& size);
+    // Horizontal space the gear occupies, inset included: where the rest of the
+    // bottom-left row starts. ONE definition because the gear and the row are
+    // drawn by different code - they used to pick their corner independently
+    // and the gear landed on top of "Center view".
+    float viewportGearSpan() const;
     void drawProjectWindow();
     void drawPropertiesWindow();
     // Properties panel body when more than one object is selected: only the

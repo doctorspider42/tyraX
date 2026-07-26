@@ -573,6 +573,45 @@ void main() {
 }
 )";
 
+// PS2 output presentation pass (docs/ps2-viewport.md): the finished GS
+// framebuffer scaled into the panel the way a television shows it - point
+// sampled (the GS image is the image; anything smoother would be the
+// editor inventing detail the console never draws) and fitted into the
+// display window's 4:3 / 16:9 rectangle, which is what makes the GS pixels
+// come out non-square. Everything outside that rectangle is not part of the
+// signal at all, so it is drawn as the void it is.
+// Reuses GRADE_VS for the fullscreen triangle.
+const char* PS2_FS = R"(#version 330 core
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec2 uBox;      // fraction of the panel the picture covers
+uniform vec2 uTexel;    // 1 / GS framebuffer size
+uniform float uFlicker; // 1 = GS flicker filter (blend with the line above)
+out vec4 FragColor;
+void main() {
+    // Panel -> picture, both centred, so the letterbox is a pure scale.
+    vec2 uv = (vUV - 0.5) / uBox + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        FragColor = vec4(0.055, 0.055, 0.06, 1.0);
+        return;
+    }
+    // Snap to the GS pixel grid: one texel of the framebuffer covers a block
+    // of panel pixels, edges included.
+    vec2 texel = (floor(uv / uTexel) + 0.5) * uTexel;
+    vec3 c = texture(uSrc, texel).rgb;
+    if (uFlicker > 0.5) {
+        // Two read circuits one line apart, blended half and half: the
+        // console's own softening of interlace flicker, and the reason a
+        // one-pixel horizontal line on a PS2 looks grey rather than white.
+        // (Which of the two neighbours we average with is a half-line of
+        // vertical offset - it does not survive the scale-up.)
+        vec2 up = vec2(texel.x, texel.y + uTexel.y);
+        c = mix(c, texture(uSrc, clamp(up, vec2(0.0), vec2(1.0))).rgb, 0.5);
+    }
+    FragColor = vec4(c, 1.0);
+}
+)";
+
 // Particle-preview shader: unlit, per-vertex RGBA (alpha-blended quads),
 // optional texture modulation - matches how the PS2 draws emitter quads.
 const char* PART_VS = R"(#version 330 core
@@ -1052,6 +1091,28 @@ bool Viewport::init() {
     uGradeMixAmt_ = glGetUniformLocation(gradeProgram_, "uMixAmt");
     glGenVertexArrays(1, &gradeVao_);  // empty VAO; vertices from gl_VertexID
 
+    // PS2 output presentation program (shares GRADE_VS and gradeVao_)
+    GLuint qvs = compile(GL_VERTEX_SHADER, GRADE_VS);
+    GLuint qfs = compile(GL_FRAGMENT_SHADER, PS2_FS);
+    if (!qvs || !qfs) return false;
+    ps2Program_ = glCreateProgram();
+    glAttachShader(ps2Program_, qvs);
+    glAttachShader(ps2Program_, qfs);
+    glLinkProgram(ps2Program_);
+    glDeleteShader(qvs);
+    glDeleteShader(qfs);
+    glGetProgramiv(ps2Program_, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(ps2Program_, sizeof(log), nullptr, log);
+        std::fprintf(stderr, "PS2 output program link error: %s\n", log);
+        return false;
+    }
+    uPs2Src_ = glGetUniformLocation(ps2Program_, "uSrc");
+    uPs2Box_ = glGetUniformLocation(ps2Program_, "uBox");
+    uPs2Texel_ = glGetUniformLocation(ps2Program_, "uTexel");
+    uPs2Flicker_ = glGetUniformLocation(ps2Program_, "uFlicker");
+
     // Particle-preview program + shared dynamic buffer (pos3 + rgba4 + uv2)
     GLuint pvs = compile(GL_VERTEX_SHADER, PART_VS);
     GLuint pfs = compile(GL_FRAGMENT_SHADER, PART_FS);
@@ -1149,6 +1210,9 @@ void Viewport::shutdown() {
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
+    if (ps2Program_) glDeleteProgram(ps2Program_);
+    if (outFbo_) glDeleteFramebuffers(1, &outFbo_);
+    if (outTex_) glDeleteTextures(1, &outTex_);
     if (grabFbo_) glDeleteFramebuffers(1, &grabFbo_);
     if (grabTex_) glDeleteTextures(1, &grabTex_);
 }
@@ -1213,9 +1277,31 @@ float Viewport::sceneDepth() const {
     return diag * 10.0f + 100.0f;
 }
 
+// The display window fitted into the panel, as a fraction of the panel per
+// axis. The same fit the safe-area overlay uses (App::drawSafeAreaOverlay) -
+// they draw the same rectangle and must not drift apart.
+void Viewport::ps2LetterBox(float& sx, float& sy) const {
+    sx = sy = 1.0f;
+    if (!ps2_.on || outW_ < 1 || outH_ < 1 || ps2_.tvAspect <= 0.0f) return;
+    const float panel = (float)outW_ / (float)outH_;
+    if (panel > ps2_.tvAspect)
+        sx = ps2_.tvAspect / panel;  // pillarbox: bars left and right
+    else
+        sy = panel / ps2_.tvAspect;  // letterbox: bars above and below
+}
+
 Viewport::CamView Viewport::camView(int width, int height) const {
     CamView c;
     c.aspect = (float)(width > 0 ? width : 1) / (float)(height > 0 ? height : 1);
+    // PS2 output mode: the console's frustum, not the panel's. The aspect is
+    // the engine's own (Tyra keeps the stock 512/448 as its 4:3 baseline, so
+    // the picture is horizontally stretched on the TV rather than rendered
+    // pre-widened) and the picture no longer fills the viewport, so image
+    // coords have to travel through the letterbox.
+    if (ps2_.on) {
+        c.aspect = ps2_.projAspect;
+        ps2LetterBox(c.boxSx, c.boxSy);
+    }
 
     // Axis views look straight down a world axis; the up vector is chosen so
     // the horizontal screen axis stays the natural one (+X right, except from
@@ -1274,8 +1360,11 @@ Viewport::CamView Viewport::camView(int width, int height) const {
 
 void Viewport::camRay(const CamView& c, float u, float v, float o[3],
                       float d[3]) const {
-    const float ndcX = u * 2.0f - 1.0f;
-    const float ndcY = 1.0f - v * 2.0f;
+    // (u, v) are panel coords; the letterbox scale takes them onto the
+    // picture. Outside the picture the ray simply leaves the frustum, which is
+    // what a click on the bars should do.
+    const float ndcX = (u * 2.0f - 1.0f) / (c.boxSx > 1e-6f ? c.boxSx : 1.0f);
+    const float ndcY = (1.0f - v * 2.0f) / (c.boxSy > 1e-6f ? c.boxSy : 1.0f);
     if (c.ortho) {
         const float sx = ndcX * c.halfH * c.aspect, sy = ndcY * c.halfH;
         const float back = sceneDepth();  // start behind everything on screen
@@ -1316,8 +1405,10 @@ bool Viewport::projectToImage(const float world[3], float& outU,
         ndcX = x / (z * c.tanHalf * c.aspect);
         ndcY = y / (z * c.tanHalf);
     }
-    outU = (ndcX + 1.0f) * 0.5f;
-    outV = (1.0f - ndcY) * 0.5f;
+    // Back out to PANEL coords - the inverse of camRay's letterbox division,
+    // so an overlay drawn at these coords sits on the picture.
+    outU = (ndcX * c.boxSx + 1.0f) * 0.5f;
+    outV = (1.0f - ndcY * c.boxSy) * 0.5f;
     return true;
 }
 
@@ -1801,6 +1892,27 @@ void Viewport::ensureFramebuffer(int width, int height) {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gradeTex_, 0);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::fprintf(stderr, "grading framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// PS2 output mode only: the panel-sized target the GS image is presented into
+// (no depth - it is one fullscreen triangle). Separate from fbo_, which is the
+// GS-sized RENDER target in that mode.
+void Viewport::ensureOutputFramebuffer(int width, int height) {
+    if (outFbo_ && width == outW_ && height == outH_) return;
+    outW_ = width;
+    outH_ = height;
+    if (!outFbo_) glGenFramebuffers(1, &outFbo_);
+    if (!outTex_) glGenTextures(1, &outTex_);
+    glBindTexture(GL_TEXTURE_2D, outTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, outFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, outTex_, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "PS2 output framebuffer incomplete\n");
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -2839,6 +2951,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                           const std::vector<int>& selection, int primary) {
     if (width < 1) width = 1;
     if (height < 1) height = 1;
+    // PS2 output mode: the scene is rasterized at the GS framebuffer size and
+    // scaled into the panel afterwards. `width`/`height` are the RENDER size
+    // from here on (they are by value on purpose) so every pixel-sized thing
+    // in this function follows without knowing about the mode; the panel size
+    // lives in outW_/outH_.
+    const bool ps2 = ps2_.on && ps2_.bufW > 0 && ps2_.bufH > 0;
+    if (ps2) {
+        ensureOutputFramebuffer(width, height);
+        width = ps2_.bufW;
+        height = ps2_.bufH;
+    }
     ensureFramebuffer(width, height);
 
     // Preview clock for animated models (wall time; the editor redraws
@@ -2908,6 +3031,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         viewM_[i] = view.m[i];
         projM_[i] = proj.m[i];
     }
+    // The exposed projection is in PANEL space: the gizmo draws over the whole
+    // viewport rect, so it needs the letterbox `proj` itself must not have (it
+    // renders into the GS buffer, where the picture IS the image). Scaling
+    // clip x/y = scaling rows 0 and 1, which are strided by 4 here.
+    if (ps2 && (cam.boxSx < 1.0f || cam.boxSy < 1.0f))
+        for (int i = 0; i < 4; ++i) {
+            projM_[i * 4 + 0] *= cam.boxSx;
+            projM_[i * 4 + 1] *= cam.boxSy;
+        }
 
     glUseProgram(program_);
     // uOpacity persists across draws (the sky/outline sites below don't set
@@ -3688,7 +3820,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     glBindVertexArray(0);
 
     // Color grading preview: full-screen pass colorTex_ -> gradeTex_ with
-    // the PS2 GS math (see GRADE_FS). Skipped entirely when neutral.
+    // the PS2 GS math (see GRADE_FS). Skipped entirely when neutral. In the
+    // PS2 output mode this runs at GS resolution, before the presentation
+    // pass - the same order the console grades in (sprites over the finished
+    // framebuffer, then scan-out).
+    uint32_t sceneTex = colorTex_;
     if (gradingOn_ && gradeProgram_) {
         glBindFramebuffer(GL_FRAMEBUFFER, gradeFbo_);
         glViewport(0, 0, width, height);
@@ -3715,12 +3851,43 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glEnable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         lastImageFbo_ = gradeFbo_;
-        return gradeTex_;
+        sceneTex = gradeTex_;
+    } else {
+        lastImageFbo_ = fbo_;
+    }
+    lastImageW_ = width;
+    lastImageH_ = height;
+
+    if (!ps2) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return sceneTex;
     }
 
+    // Scan-out: the GS framebuffer into the panel, point sampled and fitted
+    // into the display window (see PS2_FS). The result is panel-sized, so the
+    // app draws it 1:1 and every overlay above it keeps its coordinates.
+    glBindFramebuffer(GL_FRAMEBUFFER, outFbo_);
+    glViewport(0, 0, outW_, outH_);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(ps2Program_);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, sceneTex);
+    glUniform1i(uPs2Src_, 0);
+    float bsx = 1.0f, bsy = 1.0f;
+    ps2LetterBox(bsx, bsy);
+    glUniform2f(uPs2Box_, bsx, bsy);
+    glUniform2f(uPs2Texel_, 1.0f / (float)width, 1.0f / (float)height);
+    glUniform1f(uPs2Flicker_, ps2_.flicker ? 1.0f : 0.0f);
+    glBindVertexArray(gradeVao_);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glEnable(GL_DEPTH_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    lastImageFbo_ = fbo_;
-    return colorTex_;
+    // The phone viewfinder streams what the editor shows, bars and all.
+    lastImageFbo_ = outFbo_;
+    lastImageW_ = outW_;
+    lastImageH_ = outH_;
+    return outTex_;
 }
 
 // --- Phone camera readback -------------------------------------------------------
@@ -3745,23 +3912,26 @@ void Viewport::ensureGrabFramebuffer(int width, int height) {
 
 bool Viewport::grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
                               int& outW, int& outH) {
-    if (!lastImageFbo_ || fbWidth_ <= 0 || fbHeight_ <= 0) return false;
+    if (!lastImageFbo_ || lastImageW_ <= 0 || lastImageH_ <= 0) return false;
     if (maxW < 16) maxW = 16;
     if (maxH < 16) maxH = 16;
-    // Fit the viewport aspect inside the cap so the phone sees the same
-    // framing (letterboxing, if any, is the app's business - never a crop).
-    const float scale = std::min((float)maxW / (float)fbWidth_,
-                                 (float)maxH / (float)fbHeight_);
-    int w = scale < 1.0f ? (int)(fbWidth_ * scale + 0.5f) : fbWidth_;
-    int h = scale < 1.0f ? (int)(fbHeight_ * scale + 0.5f) : fbHeight_;
+    // Fit the aspect of the image that was RENDERED inside the cap so the
+    // phone sees the same framing (letterboxing, if any, is the app's business
+    // - never a crop). That image is the panel in the PS2 output mode and the
+    // GS buffer's shape everywhere else, which is why the size travels with
+    // lastImageFbo_ instead of being read off fbWidth_/fbHeight_.
+    const float scale = std::min((float)maxW / (float)lastImageW_,
+                                 (float)maxH / (float)lastImageH_);
+    int w = scale < 1.0f ? (int)(lastImageW_ * scale + 0.5f) : lastImageW_;
+    int h = scale < 1.0f ? (int)(lastImageH_ * scale + 0.5f) : lastImageH_;
     w = std::max(w, 16);
     h = std::max(h, 16);
     ensureGrabFramebuffer(w, h);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, lastImageFbo_);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, grabFbo_);
-    glBlitFramebuffer(0, 0, fbWidth_, fbHeight_, 0, 0, w, h, GL_COLOR_BUFFER_BIT,
-                      GL_LINEAR);
+    glBlitFramebuffer(0, 0, lastImageW_, lastImageH_, 0, 0, w, h,
+                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, grabFbo_);
     // Tightly packed rows - the JPEG encoder wants w*3 stride, and the default
