@@ -5393,7 +5393,7 @@ void TerrainGame::setupProjShadows() {
                         ? (int)projCasters.size()
                         : Tyra::RendererCoreShadowMap::slots;
   // 5x5 cells of 2 triangles = 150 vertices per receiver patch.
-  constexpr int kCells = 5;
+  constexpr int kCells = 4;
   for (int s = 0; s < slots; ++s) {
     projShadows.emplace_back();
     ProjShadow& b = projShadows.back();
@@ -5523,13 +5523,24 @@ void TerrainGame::renderProjShadows() {
 
   // Receiver patches: centered where the sun ray through the caster center
   // meets the ground, sized by the caster radius + the slant stretch.
-  constexpr int kCells = 5;
+  // 4x4 cells = 96 vertices - the same single-VU1-package size as the light
+  // pools, which never exhibited the multi-package drop the 5x5 (150-vert)
+  // patch showed on the pad walks.
+  constexpr int kCells = 4;
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
     const float gy = terrainHeightAt(scx[s], scz[s]);
     const float t = (scy[s] - gy) / syd;
     const float gx = scx[s] - sxd * t, gz = scz[s] - szd * t;
-    const float half = srad[s] * 1.9F + t * 0.35F;
+    // Patch size: proportional to the caster, with the slant stretch CAPPED
+    // at 3.5x its radius. Uncapped (1.9x + 0.35*t) a 3-unit monolith under a
+    // low sun grew a ~14-unit carpet - the camera then stands INSIDE the
+    // quad, so its triangles straddle the near plane every frame, which is
+    // exactly where big triangles are fragile (and it looked wrong anyway).
+    // The cost is a cropped shadow tip at very low sun angles.
+    float half = srad[s] * 1.6F + t * 0.25F;
+    const float halfCap = srad[s] * 3.5F;
+    if (half > halfCap) half = halfCap;
 
     int v = 0;
     for (int iz = 0; iz < kCells; ++iz) {

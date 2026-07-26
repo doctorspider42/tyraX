@@ -4063,7 +4063,7 @@ void TerrainGame::setupProjShadows() {
                         ? (int)projCasters.size()
                         : Tyra::RendererCoreShadowMap::slots;
   // 5x5 cells of 2 triangles = 150 vertices per receiver patch.
-  constexpr int kCells = 5;
+  constexpr int kCells = 4;
   for (int s = 0; s < slots; ++s) {
     projShadows.emplace_back();
     ProjShadow& b = projShadows.back();
@@ -4087,7 +4087,7 @@ void TerrainGame::setupProjShadows() {
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
     b.bag->color = b.colorBag.get();
-    b.bag->texture = b.texBag.get();
+    b.bag->texture = nullptr;  // SHADOW-DEBUG: untextured solid patch
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
   }
@@ -4193,7 +4193,10 @@ void TerrainGame::renderProjShadows() {
 
   // Receiver patches: centered where the sun ray through the caster center
   // meets the ground, sized by the caster radius + the slant stretch.
-  constexpr int kCells = 5;
+  // 4x4 cells = 96 vertices - the same single-VU1-package size as the light
+  // pools, which never exhibited the multi-package drop the 5x5 (150-vert)
+  // patch showed on the pad walks.
+  constexpr int kCells = 4;
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
     const float gy = terrainHeightAt(scx[s], scz[s]);
@@ -4227,7 +4230,7 @@ void TerrainGame::renderProjShadows() {
         v += 6;
       }
     }
-    b.color.a = 55.0F * sfade[s];
+    b.color.set(255.0F, 0.0F, 0.0F, 100.0F);  // SHADOW-DEBUG: solid red
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
   }
