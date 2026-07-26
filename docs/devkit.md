@@ -335,6 +335,46 @@ Headless: `tyrax-editor --dump-vucap <projectDir>` prints the whole decode -
 chain, memory, staged GIF packets, the findings, the reference and its caveat -
 which is how all of this is tested without the GUI.
 
+### Finding the live project in the first place
+
+Every devkit channel lives in one project's `bin/`, and projects live wherever
+the user put them - so "look at the last capture" first needs "which project?".
+
+```bash
+tyrax-editor --debug-state            # every project this machine knows
+tyrax-editor --debug-state <dir>      # just this one
+```
+
+It lists each project's `livedbg.bin`, `vucap.bin`, `log.txt` and `crash.txt`
+with **how old** they are, decoding the headers inline (`frame 661, flush 2/9,
+16 mesh(es)`), and names the freshest artifact on the machine.
+
+Candidates come from three places, best first:
+
+1. **Running editors.** Every editor publishes a pointer to what it has open -
+   one file per process, `<pid>.ini` under
+   `%LOCALAPPDATA%\tyra-editor\sessions\` (`$XDG_STATE_HOME/tyra-editor/
+   sessions/` elsewhere), carrying the project, the build profile, whether the
+   game is live or halted and at which frame, and the transport (`pcsx2` or
+   `ps2link`). A file per pid is what makes several editors at once work, which
+   they do here: parallel worktrees, a second instance to join a collaboration
+   session. Liveness is the **heartbeat**, refreshed every few seconds, not a
+   pid probe - it means the same thing on every platform and does not lie after
+   pid reuse. A session that stopped beating is listed as `stale` rather than
+   dropped: a crashed editor's last known project is information.
+2. **`editor.ini`'s recent-project list**, rewritten the moment a project is
+   opened - so entry 0 is the last one opened.
+3. **A scan of the default projects folder**, which catches projects made by
+   `--new` and never opened in the GUI.
+
+A game running right now beats all of it, and on an emulator it is a process
+query rather than a file one: `pcsx2-qt.exe`'s command line carries `-elf
+<projectDir>\bin\<name>.elf`. **On real hardware there is no such process** -
+which is exactly why the session pointer records the transport. A ps2link
+deploy is served by a `ps2client` the editor spawns, so closing the editor
+freezes every devkit file mid-session while the console keeps running; the cure
+is a redeploy, not a retry.
+
 ### Where to look first
 
 | Symptom | Order to check |

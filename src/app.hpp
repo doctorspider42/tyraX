@@ -175,6 +175,11 @@ private:
     void drawPreferencesModal();          // project-wide defaults (Project menu)
     void drawEditorPreferencesModal();    // machine-global settings (Edit menu)
     void saveGlobalConfig();              // write editor.ini from the App members
+    // devsession.hpp: "this editor has that project open, and here is what the
+    // game is doing" - so nobody has to search the disk for the live project.
+    void publishDevSession();
+    double devSessionNext_ = 0.0;      // throttle
+    long long devSessionStarted_ = 0;  // epoch seconds, first publish
     void drawNavigationModal();  // global viewport-navigation settings
     void drawScenePreferencesModal();
     void openScenePreferences();  // stage the active scene into scenePref* + open

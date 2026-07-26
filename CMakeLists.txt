@@ -62,6 +62,7 @@ add_executable(tyrax-editor
     src/app.cpp
     src/assetbrowser.cpp
     src/camtake.cpp
+    src/devsession.cpp
     src/flownode.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp

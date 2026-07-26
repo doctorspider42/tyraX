@@ -10,6 +10,71 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (199) **Session pointers: a running editor says what it has open.** 198 could
+  only guess from `editor.ini`, and the owner's own machine broke it twice over
+  in one sitting: their project lives in `F:\Tyra-Projects` (not the default
+  folder the scan knows), and it never reached the recent list at all despite
+  being open - unreproduced afterwards, since a fresh open registers correctly.
+  So the editor now publishes the answer instead: `devsession.hpp`, one file per
+  process under `%LOCALAPPDATA%\tyra-editor\sessions\<pid>.ini`
+  (`$XDG_STATE_HOME/tyra-editor/sessions/` off Windows - the XDG state dir, this
+  being state rather than config or cache), refreshed every ~4 s and deleted on
+  exit. It carries the open project, scene, build profile, the live-layer
+  switches, what the editor believes the GAME is doing (live / halted / frame),
+  and the **transport**.
+  Three design points, each a deliberate rejection of the obvious thing:
+  **a file per pid, not one shared file** - several editors run at once here
+  (parallel worktrees, a second instance for a collaboration session), and per
+  pid means no locking, no merge, no last-writer-wins; **the heartbeat, not a
+  pid probe**, decides liveness - asking the OS whether a pid is alive differs
+  per platform and lies after pid reuse, while "touched 4 seconds ago" means the
+  same everywhere; **stale sessions are listed, not hidden** - a crashed
+  editor's last known project is information. `--debug-state` reads sessions
+  first, then the recent list, then the folder scan.
+  **Why the transport is in there**: on ps2link the host file server is a
+  `ps2client` the RUNNER spawns, so closing the editor freezes every devkit file
+  mid-session - the console keeps running and answering pings while
+  `livedbg.bin` stops advancing and commands are never read. That is exactly how
+  this session's attempt to walk 37 bag flushes on the owner's real PS2 died,
+  and it looked like a hang until the transport explained it.
+  *Verified* two ways: a harness linking `devsession.cpp.obj` covers three
+  instances coexisting, field round-trips, a 5-minute-old heartbeat reading as
+  stale but still listed, a day-old one being reaped, and `retire` removing
+  every pointer; then the real thing - the editor launched on the owner's
+  project reported `pid 18148 LIVE F:\Tyra-Projects\debugger, heartbeat 3s ago,
+  profile debug, over ps2link`, with the transport picked up from the
+  `bin/ps2link.run` marker. Linux paths are written but **untested**: the editor
+  is a Windows build today, so that half is compile-shaped, not proven.
+
+- (198) **`--debug-state`: which project is this machine actually debugging?**
+  Owner's question, and it was a fair one: asked about "the last VU capture" of
+  the scene they had open, the honest answer was that finding it meant guessing
+  at paths - a search of the obvious folders in this session turned up nothing,
+  because projects live wherever the user put them. The editor already knows:
+  `editor.ini`'s recent list is rewritten the moment a project is OPENED, so
+  entry 0 is the last one. The new CLI reads it (plus a scan of the default
+  projects folder, which catches projects made by `--new` and never opened in
+  the GUI - that gap is real, the fixtures in this branch are all like that) and
+  prints each project's devkit artifacts with **how old** they are, decoding the
+  headers inline: `vucap.bin` as "frame 661, flush 2/9, 16 mesh(es), 94 tris in,
+  512x448", `livedbg.bin` as "frame 1111, scene 0, HALTED". The last line names
+  the freshest artifact on the machine, which is the answer nine times in ten.
+  `--debug-state <dir>` reports one project when the path is known.
+  **Ages, not timestamps** - no timezone, no format, and "71m ago" answers the
+  real question ("is this from this session?") in a way "2026-07-26 20:44" does
+  not. The two bits of editor.ini this needs are exposed through a 20-line
+  `src/editorcfg.hpp`, defined in app.cpp, so the config parser stays the only
+  thing that knows the file's shape and the CLI pulls in no GUI.
+  *Verified* by running it: it lists the project opened last, the two in
+  `~/TyraProjects` that were never opened here, and a `--debug-state <dir>` on
+  this branch's PCSX2 fixture decodes its capture header. Written up in the
+  tyra-testing skill (with the rule that a running game's process command line
+  beats every file, and that neither the editor nor PCSX2 may be killed by name
+  - the owner may be sitting in front of one). **Found the hard way while
+  building it**: the owner had the editor open, so the link step failed with
+  "cannot open output file tyrax-editor.exe: Permission denied" - the check
+  binary was linked under another name instead of killing their session.
+
 - (197) **Making the VU capture actually answer questions** (owner, after 196:
   "the meshes in there do not tell me much"). They did not: the panel showed one
   model-space wireframe out of a dozen, always from the same draw, and left every

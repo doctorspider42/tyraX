@@ -22,6 +22,11 @@ struct Unpack {
     std::string format;       // "V4_32", "V4_8", ...
     bool useTops = false;     // addressed relative to the double-buffer base
     int program = -1;         // MSCAL entry address this block is run under
+    /** Why this block is NOT counted as a mesh's positions, when it is not.
+     * Empty on a position stream. The mesh list is a HEURISTIC over the chain
+     * (see load()), and a heuristic that silently drops a stream looks exactly
+     * like "the pipeline never sent my model" - so it says why instead. */
+    std::string posNote;
     std::vector<float> floats;      // payload read as floats (V4_32 only)
     std::vector<uint32_t> words;    // payload raw
 };

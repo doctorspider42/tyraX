@@ -245,6 +245,82 @@ Notes:
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
   GS load.
+- **What is the OWNER debugging right now?** When the user asks about "my
+  scene", "the last capture", "why does my model look like that", do NOT guess
+  at project paths — their projects live wherever they put them, and a blind
+  `Get-ChildItem -Recurse` over the disk finds nothing useful. Ask the machine:
+
+  ```powershell
+  build\tyrax-editor.exe --debug-state
+  ```
+
+  It prints, per project, the live devkit artifacts in `bin/` with **how old**
+  each is, and decodes the interesting ones inline — `vucap.bin` as
+  *"frame 661, flush 2/9, 16 mesh(es), 94 tris in, 512x448"*, `livedbg.bin` as
+  *"frame 1111, scene 0, HALTED"*. The last line names the freshest artifact on
+  the whole machine, which is almost always the thing being talked about. Then
+  go in with `--dump-vucap <thatDir>` (or read `bin/log.txt`).
+
+  Where the list comes from, and its limits:
+  - **Running editors publish themselves** (`devsession.hpp`): one small file
+    per process under `%LOCALAPPDATA%\tyra-editor\sessions\<pid>.ini`
+    (`$XDG_STATE_HOME/tyra-editor/sessions/` off Windows), carrying the open
+    project, the build profile, whether the game is live/halted and at which
+    frame, and **which transport** — `pcsx2` or `ps2link`. A file per pid, so
+    several editors at once each get a line. Liveness is the **heartbeat**
+    (refreshed every ~4 s), not a pid probe: a session that stopped beating is
+    shown as `stale` rather than hidden, because a crashed editor's last known
+    project is information. This is the source that works when nothing else
+    does — a project opened for the first time, or a game on real hardware with
+    no local emulator process to find.
+  - **`editor.ini`'s recent-project list** (`%LOCALAPPDATA%\tyra-editor\editor.ini`,
+    machine-global, shared by every build and worktree). It is rewritten the
+    moment a project is **opened**, so entry 0 is the last one opened — but a
+    project created by `--new` and never opened in the GUI is not in it, and it
+    has been seen to miss a project that WAS open (unreproduced; the session
+    pointer is the reason that no longer matters).
+  - **the default projects folder** (`~/TyraProjects` unless Preferences moved
+    it), scanned for the projects the list misses.
+  - Anything else needs the path: `--debug-state <projectDir>` reports one
+    project directly.
+
+  **A running game beats all of it** — that is a process query, not a file one:
+
+  ```powershell
+  Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'" | Select-Object CommandLine
+  ```
+
+  The `-elf` path is `<projectDir>\bin\<name>.elf`. Same trick for
+  `tyrax-editor.exe`: its command line carries the project it was opened on,
+  and its `MainWindowTitle` reads `TyraX - <project>`. And **never kill either
+  process by name** — the owner may be sitting in front of one (a link step
+  failing with *"cannot open output file tyrax-editor.exe: Permission denied"*
+  means exactly that; ask them to close it, or link a check binary under
+  another name).
+
+  **On a real PS2 there is no game process to find, and the channel dies with
+  the editor.** A ps2link deploy is served by a `ps2client.exe` that the RUNNER
+  spawns (`src/runner.cpp`), so closing the editor takes the file server with
+  it: the console keeps running but every devkit file freezes at its last
+  write, and commands written to `livedbg.cmd` are never seen. Symptom:
+  `livedbg.bin` stops advancing while the console still answers `ping`. The fix
+  is a redeploy (*Run on PS2*, F6), not a retry — and it is why
+  `--debug-state` reports the transport.
+
+  That leaves a bind for **scripted** hardware debugging: a probe needs the file
+  server alive, but the editor that hosts it also drives `livedbg.cmd`, and two
+  writers on that file is a known hazard. Break it by hosting the server
+  yourself — the same two commands the runner issues, with `cwd = <project>/bin`
+  so the game's `host:` maps there:
+
+  ```bash
+  tools/ps2client/bin/ps2client.exe -h <ps2-ip> -t 10 reset
+  tools/ps2client/bin/ps2client.exe -h <ps2-ip> execee host:<name>.elf
+  ```
+
+  The `execee` process IS the file server and must stay running for the whole
+  session. Use the **main checkout's** copy: a worktree path is a different
+  binary to Windows Firewall and pops a prompt nobody is watching.
 - **Flow-graph logic, without a pad or a screenshot**: a debug build with the
   *Live Debugger* preference on (docs/live-debugger.md) writes
   `bin/livedbg.bin` every 6 frames - per-node hit counters, a ring of recent

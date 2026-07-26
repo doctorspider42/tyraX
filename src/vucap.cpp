@@ -568,14 +568,31 @@ bool load(const std::string& path, Capture& out) {
     // positions as (x, y, z, 1.0) and nothing else in the chain has a constant
     // 1.0 there. Everything that passes is a mesh of its own, in send order.
     for (size_t i = 0; i < out.unpacks.size(); ++i) {
-        const Unpack& u = out.unpacks[i];
-        if (u.format.rfind("V4_32", 0) != 0) continue;
+        Unpack& u = out.unpacks[i];
+        if (u.format.rfind("V4_32", 0) != 0) {
+            u.posNote = "not V4_32";
+            continue;
+        }
         const size_t items = u.floats.size() / 4;
-        if (items < 3 || items % 3 != 0) continue;
-        bool positions = true;
-        for (size_t k = 0; k < items && positions; ++k)
-            positions = u.floats[k * 4 + 3] == 1.0f;
-        if (!positions) continue;
+        if (items < 3) {
+            u.posNote = "fewer than 3 items";
+            continue;
+        }
+        size_t badW = 0;
+        for (size_t k = 0; k < items; ++k)
+            if (u.floats[k * 4 + 3] != 1.0f) ++badW;
+        if (badW) {
+            char b[64];
+            std::snprintf(b, sizeof(b), "w != 1.0 on %zu of %zu items", badW,
+                          items);
+            u.posNote = b;
+            continue;
+        }
+        // A count that is not a multiple of 3 is NOT a rejection: a mesh sent
+        // as a strip or a fan is a perfectly real mesh, and dropping it would
+        // hide geometry from the list. The triangle figure below is the
+        // triangle-LIST reading, which is what this pipeline sends today.
+        if (items % 3 != 0) u.posNote = "not a triangle list (strip or fan?)";
         Mesh m;
         m.unpack = (int)i;
         m.verts = (int)items;

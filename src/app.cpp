@@ -18,6 +18,8 @@
 #include "aisupport.hpp"
 #include "animedit.hpp"
 #include "decalproj.hpp"
+#include "devsession.hpp"
+#include "editorcfg.hpp"
 #include "gl_loader.h"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
@@ -287,6 +289,58 @@ static std::string defaultNewProjectLocation(const std::string& configured) {
         return std::string(home) + "\\TyraProjects";
     return "";
 }
+
+// Publish this editor's session pointer (devsession.hpp) - what a person or a
+// tool needs to answer "which project is live?" without searching the disk.
+// Throttled: the contents change slowly, and the point of the heartbeat is
+// liveness, not resolution.
+void App::publishDevSession() {
+    const double now = ImGui::GetTime();
+    if (now < devSessionNext_) return;
+    devSessionNext_ = now + 4.0;
+    devsession::Info i;
+    i.pid = devsession::selfPid();
+    if (!devSessionStarted_)
+        devSessionStarted_ = std::chrono::duration_cast<std::chrono::seconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+    i.started = devSessionStarted_;
+    i.heartbeat = 0;  // devsession stamps it
+    if (hasProject_) {
+        i.project = project_.dir;
+        i.name = project_.name;
+        i.scene = project_.scenes.empty() ? "" : project_.active().name;
+        i.profile = project_.settings.buildProfile;
+        i.liveDebug = project_.settings.liveDebug;
+        i.liveLink = project_.settings.liveLink;
+        // How the game is reached. The runner drops bin/ps2link.run for a
+        // console deploy and removes it for an emulator build, so the marker
+        // is the honest answer - and it matters: over ps2link the host file
+        // server is a child of THIS editor, so closing the editor freezes
+        // every devkit file mid-session.
+        std::error_code ec;
+        i.transport = std::filesystem::exists(
+                          std::filesystem::path(project_.dir) / "bin" / "ps2link.run", ec)
+                          ? "ps2link"
+                          : "pcsx2";
+    }
+    i.gameLive = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    i.gameHalted = dbgState_ == DbgState::Halted;
+    i.gameFrame = dbgSnap_.frame;
+    devsession::publish(i);
+}
+
+// The three bits of editor.ini the CLI needs (editorcfg.hpp). Defined here so
+// the parser above stays the only one that knows the file's shape.
+namespace editorcfg {
+std::string configPath() { return editorConfigPath().string(); }
+std::vector<std::string> recentProjects() {
+    return loadEditorConfig().recentProjects;
+}
+std::string defaultProjectsDir() {
+    return defaultNewProjectLocation(loadEditorConfig().defaultProjectsDir);
+}
+}  // namespace editorcfg
 
 static std::string wideToUtf8(const wchar_t* path) {
     std::string result;
@@ -575,6 +629,8 @@ int App::run(const std::string& initialProjectDir) {
         // the user saves the project (Save / Ctrl+S). io.WantSaveIniSettings
         // is left for the next explicit saveProject() to pick up.
 
+        publishDevSession();  // "this editor has that project open" (throttled)
+
         ImGui::Render();
         int w, h;
         glfwGetFramebufferSize(window_, &w, &h);
@@ -588,6 +644,7 @@ int App::run(const std::string& initialProjectDir) {
 
     // No save on exit: the user chose to discard (or had nothing unsaved).
 
+    devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
     ImNodes::DestroyContext();
     ImGui_ImplOpenGL3_Shutdown();

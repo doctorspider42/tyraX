@@ -124,6 +124,7 @@ tyrax-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp]
 tyrax-editor.exe --build <projectDir> [--run]
 tyrax-editor.exe --resave <projectDir>        # load + save (runs format migrations)
 tyrax-editor.exe --refresh-gen <projectDir>   # regenerate game sources (no Docker)
+tyrax-editor.exe --debug-state [dir]          # which project is being debugged, and how fresh its devkit files are
 tyrax-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
 ```
 
