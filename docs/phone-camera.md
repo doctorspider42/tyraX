@@ -78,7 +78,7 @@ while you take the viewport back.
 
 | Control | What it does |
 |---|---|
-| **Scale** (u/m) | Game units per real metre. At 1, walking a metre moves the camera one unit. Raise it to cover more map from the same room — a 3 m living room at scale 8 is a 24-unit crane move. |
+| **Scale** (u/m) | Game units per real metre. Seeded from the project's **world scale** ([world-scale.md](world-scale.md)) when a phone connects, so a metre walked lands at the size the rest of your content is at. Raise it to cover more map from the same room — a 3 m living room at scale 8 is a 24-unit crane move; the **World scale** button next to it snaps back. |
 | **View from** | The Camera entity the shot starts from *and* records into — see below. *Free shots* = start from the editor's own viewpoint. |
 | **Recentre** | Back to the start: the selected camera's placed pose (position, aim and tilt), or the editor's viewpoint for free shots. Everything the phone does is relative to it. Also on the phone. |
 | **Start point** (XYZ) | The resolved start position, editable directly when a shot wants an exact spot that no camera sits at. *From view* moves it to the editor camera without touching the aim; Recentre discards it. |
@@ -142,7 +142,8 @@ of walking, because the position it receives never changes. Everything else work
   - *Custom rate* — keys per second. The default 10/s is a good starting point.
   - *Optimize (tolerance)* — no fixed rate at all: keep only the keys the PS2's
     own linear interpolation cannot reproduce within an error bound in world
-    units. The smallest table, and the same decimator a file import uses.
+    units. The smallest table, and the same decimator a file import uses. The
+    bound is a distance, so it is seeded scaled by the world scale as well.
 - **Start at playhead** — recorded keys begin at the playhead rather than at
   t = 0, so a move can be dropped after an existing shot.
 - **Record** / **Stop** — also the phone's own buttons.

@@ -60,6 +60,7 @@ add_executable(tyrax-editor
     src/animedit.cpp
     src/aobake.cpp
     src/app.cpp
+    src/assetbrowser.cpp
     src/camtake.cpp
     src/flownode.cpp
     src/fbxparser.cpp

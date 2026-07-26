@@ -78,6 +78,14 @@ public:
     bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
                           const std::vector<char>& skip, float outPoint[3]) const;
 
+    // Inverse of camRay: a world point -> normalized image coords (u, v in
+    // [0,1], origin top-left) of the LAST rendered frame. False when the point
+    // is behind a perspective camera. App-side ImDrawList overlays that have
+    // to sit on world geometry (the measuring tape) place themselves with
+    // this, so they agree with the image under every projection instead of
+    // rebuilding a camera of their own.
+    bool projectToImage(const float world[3], float& outU, float& outV) const;
+
     // Local-space AABB of what an object DRAWS as a model: static .obj bounds
     // (GL-free, cached) or an animated model's baked pose bounds. False for
     // non-model objects and unreadable files. The aobake::ModelAabbFn the app
@@ -277,6 +285,18 @@ public:
         bool wireframe = false;   // overlay the triangles
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
+
+    // Asset Browser thumbnails (docs/asset-browser.md): one square preview of
+    // an asset file, rendered ONCE into a dedicated framebuffer and copied into
+    // its own small GL texture - a grid of hundreds then costs nothing to draw.
+    // Handles static .obj, animated .glb/.fbx (first pose) and .mtl libraries
+    // (a sphere wearing the first material); an image file needs no render and
+    // returns the shared texture. `render` false only reports what is already
+    // baked (0 = nothing yet), which is how the browser budgets the number of
+    // new thumbnails a single frame may pay for. Failed assets are remembered
+    // as 0 so an unreadable file is not retried every frame.
+    uint32_t assetThumb(const std::string& relPath, bool render);
+    static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
 
     // Source clip names of an animated model, in file order. Empty when the
     // file is missing or unusable. (The Animation Editor's clip list.)
@@ -701,6 +721,16 @@ private:
     void ensureTreeFramebuffer(int width, int height);
     uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
     int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for
+    // the same reason the tree preview has one - the browser bakes thumbnails
+    // in the middle of a frame in which the Material Editor may be drawing its
+    // own preview. Baked images live in thumbCache_ (one texture per asset, an
+    // entry with value 0 = tried and unusable), dropped by invalidateAssets.
+    void ensureThumbFramebuffer();
+    uint32_t thumbFbo_ = 0, thumbColor_ = 0, thumbDepth_ = 0;
+    std::map<std::string, uint32_t> thumbCache_;
+    void clearThumbCache();
 
     // Tree Generator preview geometry + textures (see renderTreePreview);
     // rebuilt only when the desc version changes.
