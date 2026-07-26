@@ -28,6 +28,12 @@ formulas), including a `Cast shadow` toggle taking effect immediately.
 | Primitive lightmap atlas | Host, at build (`aobake::bakeSceneAoAtlas`: per-scene shelf-packed regions mirroring the builders' UV layouts - box 6 faces, sphere 1, cylinder 3, cone 2, plane 2) | `.res-baked/aoatlas/scene<N>.png` (≤256×256) + the matching UV rects in `inc/ao_data.gen.hpp`; each covered object draws one extra blended pass |
 | Occluder shapes | Host (`aobake::collectOccluders`: every solid `Cast shadow` object reduced to an oriented box / sphere; model AABBs from a fast `v`-line scan) | `inc/ao_data.gen.hpp` occluder tables - also consumed per vertex on the EE by the fallback below |
 
+**Alpha is floored at 2, never 0** (`aobake::kMinLightmapAlpha`). StaPip's GS
+alpha test passes only where alpha != 0 - the cutout rule for foliage and
+decals - and the emissive-light pass reads the SAME texture, so a texel with
+zero occlusion used to discard the light pass with it. See
+docs/emissive-materials.md.
+
 Both images are **RGBA PNGs whose alpha is the occlusion** - the GS alpha-over
 blend `(Cs-Cd)*As/128 + Cd` with a BLACK vertex color collapses to
 `Cd*(1-As/128)`, an exact per-pixel multiply. They ship as full RGBA32 on
@@ -44,6 +50,14 @@ the alpha channel has content.
 
 Codegen and `texbake` call the **same deterministic bake**, so the pixels and
 the emitted UV rects cannot drift.
+
+Regions are sized by **importance**, not by world area alone: a 4×4 probe grid
+per region estimates the occlusion (and emissive light) it will carry, the texel
+density scales with the square root of that peak, and a bisection then raises
+the density globally until the image is full. Faces that receive nothing shrink
+to a floor size instead of eating the budget. The atlas *dimension* still comes
+from the unweighted area, so this never changes VRAM - it only moves texels to
+where the gradient is. See docs/emissive-materials.md for the numbers.
 
 ## Who casts, who receives
 

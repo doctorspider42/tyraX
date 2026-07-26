@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <utility>
 
 #include <filesystem>
@@ -53,6 +54,19 @@ Mat4 perspective(float fovyRad, float aspect, float zNear, float zFar) {
     r.m[10] = (zFar + zNear) / (zNear - zFar);
     r.m[11] = -1.0f;
     r.m[14] = (2.0f * zFar * zNear) / (zNear - zFar);
+    return r;
+}
+
+// Parallel projection over a symmetric slab. zNear is passed NEGATIVE by the
+// caller (the depth range straddles the eye) so an axis view keeps drawing
+// what is behind the camera plane - a Top view must not hide the ceiling it
+// is looking through.
+Mat4 orthoProj(float halfW, float halfH, float zNear, float zFar) {
+    Mat4 r = identity();
+    r.m[0] = 1.0f / halfW;
+    r.m[5] = 1.0f / halfH;
+    r.m[10] = -2.0f / (zFar - zNear);
+    r.m[14] = -(zFar + zNear) / (zFar - zNear);
     return r;
 }
 
@@ -266,11 +280,6 @@ float shapeAt(vec3 wp, vec3 c, float isSphere, vec3 ax, vec3 ay, vec3 az,
     return dist;
 }
 
-// Light the emissive materials around this point add. Quadratic falloff from
-// the emitter SHAPE (so a long strip lights evenly along its length) times a
-// half-Lambert SQUARED facing weight: these are area sources, so a plain
-// max(0, N.L) seams on every box corner and a linear wrap still cuts to zero
-// at a finite angle. Smooth everywhere, zero only at N.L = -1.
 // Does the segment from `o` along unit `d` for `maxT` units enter occluder i?
 // Slab test for a box, quadratic for a sphere - the twin of
 // aobake::shapeBlocksRay and the generated game's shapeBlocksRay.
@@ -307,6 +316,71 @@ bool shadowHit(int i, vec3 o, vec3 d, float maxT) {
     return true;
 }
 
+// Deterministic Vogel-disk offsets for the soft-shadow rays, in units of the
+// emitter's projected half-extent. Twin of aobake::kEmisShadowDisk - the same
+// seven numbers bake the scene lightmap, so the preview and the shipped atlas
+// draw the same penumbra.
+const vec2 kEmisShadowDisk[7] = vec2[7](
+    vec2( 0.267261,  0.000000), vec2(-0.341335,  0.312691),
+    vec2( 0.052247, -0.595326), vec2( 0.430231,  0.561160),
+    vec2(-0.789527, -0.139656), vec2( 0.747909, -0.475759),
+    vec2(-0.250161,  0.930586));
+
+// Fraction of the emitter that is visible from wp. Ray 0 goes to its nearest
+// surface point (what a hard shadow test uses); the rest spread over the
+// shape's silhouette, so the shadow edge becomes a penumbra that widens with
+// distance from the caster. Rays aimed below the surface's horizon are left out
+// of the vote - the facing term already accounts for those. Twin of
+// aobake::emitterVisibility.
+float emisVisibility(int i, vec3 wp, vec3 n, vec3 dir, float dist, int selfObj) {
+    vec3 o = wp + dir * 0.02;
+    int hits = 0, votes = 1;
+    bool blocked = false;
+    for (int k = 0; k < uAoCount; ++k) {
+        if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
+        if (shadowHit(k, o, dir, dist - 0.04)) { blocked = true; break; }
+    }
+    if (!blocked) ++hits;
+    // basis around ray 0, seeded from the world axis least aligned with it
+    vec3 a = abs(dir);
+    vec3 up = (a.x <= a.y && a.x <= a.z) ? vec3(1.0, 0.0, 0.0)
+            : (a.y <= a.z)              ? vec3(0.0, 1.0, 0.0)
+                                        : vec3(0.0, 0.0, 1.0);
+    vec3 t = normalize(cross(dir, up));
+    vec3 b = cross(dir, t);
+    // half-extents of the silhouette along t and b (box support function)
+    vec3 h = vec3(uEmisAx[i].w, uEmisAy[i].w, uEmisAz[i].w);
+    float rt = h.x, rb = h.x;
+    if (uEmisPos[i].w <= 0.5) {
+        rt = dot(h, abs(vec3(dot(uEmisAx[i].xyz, t), dot(uEmisAy[i].xyz, t),
+                             dot(uEmisAz[i].xyz, t))));
+        rb = dot(h, abs(vec3(dot(uEmisAx[i].xyz, b), dot(uEmisAy[i].xyz, b),
+                             dot(uEmisAz[i].xyz, b))));
+    }
+    for (int s = 0; s < 7; ++s) {
+        vec3 sp = uEmisPos[i].xyz + t * (kEmisShadowDisk[s].x * rt) +
+                  b * (kEmisShadowDisk[s].y * rb);
+        vec3 d = sp - o;
+        float len = length(d);
+        if (len <= 0.04) continue;
+        d /= len;
+        if (dot(n, d) <= 0.0) continue;
+        ++votes;
+        blocked = false;
+        for (int k = 0; k < uAoCount; ++k) {
+            if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
+            if (shadowHit(k, o, d, len - 0.02)) { blocked = true; break; }
+        }
+        if (!blocked) ++hits;
+    }
+    return float(hits) / float(votes);
+}
+
+// Light the emissive materials around this point add. Quadratic falloff from
+// the emitter SHAPE (so a long strip lights evenly along its length) times a
+// half-Lambert SQUARED facing weight: these are area sources, so a plain
+// max(0, N.L) seams on every box corner and a linear wrap still cuts to zero
+// at a finite angle. Smooth everywhere, zero only at N.L = -1.
 vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
     vec3 add = vec3(0.0);
     for (int i = 0; i < uEmisCount; ++i) {
@@ -320,21 +394,16 @@ vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
         fade *= fade;
         float w = 0.5 + 0.5 * dot(n, dir);
         if (w <= 0.0) continue;
-        // Solids between here and the emitter block it (hard shadow). The bias
-        // keeps a solid resting ON this surface from shadowing it. Occluders
-        // come from the AO uniforms; uAoCount is filled whether or not the
-        // project bakes occlusion, so lamps cast shadows either way.
-        if (dist > 0.02) {
-            vec3 o = wp + dir * 0.02;
-            float len = dist - 0.04;
-            bool blocked = false;
-            for (int k = 0; k < uAoCount; ++k) {
-                if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
-                if (shadowHit(k, o, dir, len)) { blocked = true; break; }
-            }
-            if (blocked) continue;
+        // Solids between here and the emitter block it. The origin bias keeps a
+        // solid resting ON this surface from shadowing it. Occluders come from
+        // the AO uniforms; uAoCount is filled whether or not the project bakes
+        // occlusion, so lamps cast shadows either way.
+        float vis = 1.0;
+        if (dist > 0.02 && uAoCount > 0) {
+            vis = emisVisibility(i, wp, n, dir, dist, selfObj);
+            if (vis <= 0.0) continue;
         }
-        add += uEmisCol[i].rgb * (uEmisCol[i].w * fade * w * w);
+        add += uEmisCol[i].rgb * (uEmisCol[i].w * fade * w * w * vis);
     }
     return add;
 }
@@ -1063,6 +1132,10 @@ void Viewport::shutdown() {
     if (treePrevLeafTex_) glDeleteTextures(1, &treePrevLeafTex_);
     clearModelCache();
     clearTexCache();
+    clearThumbCache();
+    if (thumbFbo_) glDeleteFramebuffers(1, &thumbFbo_);
+    if (thumbColor_) glDeleteTextures(1, &thumbColor_);
+    if (thumbDepth_) glDeleteRenderbuffers(1, &thumbDepth_);
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
@@ -1076,6 +1149,8 @@ void Viewport::shutdown() {
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
+    if (grabFbo_) glDeleteFramebuffers(1, &grabFbo_);
+    if (grabTex_) glDeleteTextures(1, &grabTex_);
 }
 
 void Viewport::setGrading(bool enabled, const CompiledGrading& g) {
@@ -1118,29 +1193,149 @@ float Viewport::terrainHeight(float x, float z) const {
     return top * (1 - fz) + bottom * fz;
 }
 
+const char* Viewport::projectionName(Projection p) {
+    switch (p) {
+        case Projection::Ortho: return "Ortho";
+        case Projection::OrthoTop: return "Top";
+        case Projection::OrthoBottom: return "Bottom";
+        case Projection::OrthoFront: return "Front";
+        case Projection::OrthoBack: return "Back";
+        case Projection::OrthoRight: return "Right";
+        case Projection::OrthoLeft: return "Left";
+        case Projection::Perspective:
+        default: return "Perspective";
+    }
+}
+
+float Viewport::sceneDepth() const {
+    const float diag =
+        (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
+    return diag * 10.0f + 100.0f;
+}
+
+Viewport::CamView Viewport::camView(int width, int height) const {
+    CamView c;
+    c.aspect = (float)(width > 0 ? width : 1) / (float)(height > 0 ? height : 1);
+
+    // Axis views look straight down a world axis; the up vector is chosen so
+    // the horizontal screen axis stays the natural one (+X right, except from
+    // behind / from -X where it flips, as a real back / left elevation does).
+    static const float kAxisFwd[6][3] = {{0, -1, 0}, {0, 1, 0},  {0, 0, -1},
+                                         {0, 0, 1},  {-1, 0, 0}, {1, 0, 0}};
+    static const float kAxisUp[6][3] = {{0, 0, -1}, {0, 0, 1}, {0, 1, 0},
+                                        {0, 1, 0},  {0, 1, 0}, {0, 1, 0}};
+
+    Vec3 tgt{target_[0], target_[1], target_[2]};
+    Vec3 fwd, upHint{0, 1, 0};
+    float fovDeg = 50.0f;
+    const int axis = (int)projection_ - (int)Projection::OrthoTop;
+    if (axis >= 0 && axis < 6 && !camOverride_) {
+        fwd = {kAxisFwd[axis][0], kAxisFwd[axis][1], kAxisFwd[axis][2]};
+        upHint = {kAxisUp[axis][0], kAxisUp[axis][1], kAxisUp[axis][2]};
+    } else if (camOverride_) {
+        // Cutscene / look-through camera: its own eye, aim and FOV.
+        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
+        const Vec3 e{camEye_[0], camEye_[1], camEye_[2]};
+        fwd = normalize(sub(tgt, e));
+        fovDeg = camFov_;
+        c.eye[0] = e.x, c.eye[1] = e.y, c.eye[2] = e.z;
+        // Roll: the up hint IS the rolled up. seqCameraUp returns a vector
+        // perpendicular to fwd, and the basis below re-derives up from it
+        // unchanged, so this lands exactly the tilt the console will render.
+        const float f3[3] = {fwd.x, fwd.y, fwd.z};
+        float rolled[3];
+        seqCameraUp(f3, camRoll_, rolled);
+        upHint = {rolled[0], rolled[1], rolled[2]};
+    } else {
+        const Vec3 e{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
+                     tgt.y + distance_ * std::sin(pitch_),
+                     tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+        fwd = normalize(sub(tgt, e));
+    }
+    if (!camOverride_) {
+        // eye = target pulled back along the view direction
+        c.eye[0] = tgt.x - fwd.x * distance_;
+        c.eye[1] = tgt.y - fwd.y * distance_;
+        c.eye[2] = tgt.z - fwd.z * distance_;
+    }
+    const Vec3 right = normalize(cross(fwd, upHint));
+    const Vec3 up = cross(right, fwd);
+    c.fwd[0] = fwd.x, c.fwd[1] = fwd.y, c.fwd[2] = fwd.z;
+    c.right[0] = right.x, c.right[1] = right.y, c.right[2] = right.z;
+    c.up[0] = up.x, c.up[1] = up.y, c.up[2] = up.z;
+    c.tanHalf = std::tan(fovDeg * kPi / 180.0f * 0.5f);
+    // A parallel projection has no FOV: frame the same amount at the pivot
+    // plane the perspective camera did, so switching modes keeps the framing
+    // and the wheel keeps zooming through distance_.
+    c.ortho = orthographic() && !camOverride_;
+    c.halfH = distance_ * c.tanHalf;
+    return c;
+}
+
+void Viewport::camRay(const CamView& c, float u, float v, float o[3],
+                      float d[3]) const {
+    const float ndcX = u * 2.0f - 1.0f;
+    const float ndcY = 1.0f - v * 2.0f;
+    if (c.ortho) {
+        const float sx = ndcX * c.halfH * c.aspect, sy = ndcY * c.halfH;
+        const float back = sceneDepth();  // start behind everything on screen
+        for (int k = 0; k < 3; ++k) {
+            const float* e = c.eye;
+            o[k] = e[k] + c.right[k] * sx + c.up[k] * sy - c.fwd[k] * back;
+            d[k] = c.fwd[k];
+        }
+        return;
+    }
+    const float sx = ndcX * c.tanHalf * c.aspect, sy = ndcY * c.tanHalf;
+    Vec3 dir{c.fwd[0] + c.right[0] * sx + c.up[0] * sy,
+             c.fwd[1] + c.right[1] * sx + c.up[1] * sy,
+             c.fwd[2] + c.right[2] * sx + c.up[2] * sy};
+    dir = normalize(dir);
+    for (int k = 0; k < 3; ++k) o[k] = c.eye[k];
+    d[0] = dir.x, d[1] = dir.y, d[2] = dir.z;
+}
+
+bool Viewport::projectToImage(const float world[3], float& outU,
+                              float& outV) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+    const CamView c = camView(fbWidth_, fbHeight_);
+    const float d[3] = {world[0] - c.eye[0], world[1] - c.eye[1],
+                        world[2] - c.eye[2]};
+    const float x = d[0] * c.right[0] + d[1] * c.right[1] + d[2] * c.right[2];
+    const float y = d[0] * c.up[0] + d[1] * c.up[1] + d[2] * c.up[2];
+    const float z = d[0] * c.fwd[0] + d[1] * c.fwd[1] + d[2] * c.fwd[2];
+    float ndcX, ndcY;
+    if (c.ortho) {
+        // A parallel view draws what is behind the camera too (the depth range
+        // straddles the eye), so depth does not gate the projection here.
+        if (c.halfH < 1e-6f) return false;
+        ndcX = x / (c.halfH * c.aspect);
+        ndcY = y / c.halfH;
+    } else {
+        if (z <= 1e-4f) return false;  // behind the eye / on the plane
+        ndcX = x / (z * c.tanHalf * c.aspect);
+        ndcY = y / (z * c.tanHalf);
+    }
+    outU = (ndcX + 1.0f) * 0.5f;
+    outV = (1.0f - ndcY) * 0.5f;
+    return true;
+}
+
 bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
 
-    // Same camera ray construction as pick()
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
-    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   tgt.y + distance_ * std::sin(pitch_),
-                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub(tgt, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
-    const float aspect = (float)fbWidth_ / (float)fbHeight_;
-    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
-    const float ndcX = u * 2.0f - 1.0f;
-    const float ndcY = 1.0f - v * 2.0f;
-    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
-                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
-                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+    const CamView cam = camView(fbWidth_, fbHeight_);
+    float ro[3], rd[3];
+    camRay(cam, u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
 
     // Raymarch the heightfield: find the first step below the surface, then
     // refine by bisection.
-    const float maxDist = distance_ * 4.0f;
-    const int steps = 400;
+    const float maxDist = distance_ * 4.0f + (cam.ortho ? sceneDepth() : 0.0f);
+    // Half a world unit per step, so the ortho ray's much longer run (it
+    // starts a full scene depth behind the eye) can't tunnel through a ridge.
+    const int steps = (int)std::min(4000.0f, std::max(400.0f, maxDist * 2.0f));
     const float dt = maxDist / steps;
     float prevT = 0.0f;
     float prevDelta = eye.y - terrainHeight(eye.x, eye.z);
@@ -1739,21 +1934,11 @@ float rayUnitBox(Vec3 o, Vec3 d) {
 int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return -1;
 
-    // Camera ray through the pixel (same camera setup as render())
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
-    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   tgt.y + distance_ * std::sin(pitch_),
-                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub(tgt, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
-    const float aspect = (float)fbWidth_ / (float)fbHeight_;
-    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
-    const float ndcX = u * 2.0f - 1.0f;
-    const float ndcY = 1.0f - v * 2.0f;
-    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
-                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
-                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+    // Camera ray through the pixel (the same camera render() drew with)
+    float ro[3], rd[3];
+    camRay(camView(fbWidth_, fbHeight_), u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
 
     // Areas are picked only when the click hits nothing else: an area big
     // enough to enclose a room has its front face closer to the camera than
@@ -1785,6 +1970,69 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
         }
     }
     return best >= 0 ? best : bestArea;
+}
+
+bool Viewport::placementRaycast(float u, float v,
+                                const std::vector<SceneObject>& objects,
+                                const std::vector<char>& skip,
+                                float outPoint[3]) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+
+    const CamView cam = camView(fbWidth_, fbHeight_);
+    float ro[3], rd[3];
+    camRay(cam, u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
+
+    // Nearest object box along the ray (the same unit-box test picking uses,
+    // so what the cursor rests on is what a click would select).
+    float bestT = 1e9f;
+    bool hit = false;
+    for (size_t i = 0; i < objects.size(); ++i) {
+        if (hiddenAt(i)) continue;
+        if (i < skip.size() && skip[i]) continue;
+        const SceneObject& o = objects[i];
+        Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
+                                o.rotation);
+        Vec3 ld = rotateInverse(dir, o.rotation);
+        lo = {lo.x / o.scale[0], lo.y / o.scale[1], lo.z / o.scale[2]};
+        ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
+        const float t = rayUnitBox(lo, ld);
+        if (t > 0.0f && t < bestT) {
+            bestT = t;
+            hit = true;
+        }
+    }
+
+    // ...and the terrain, which wins when it is closer. terrainRaycast only
+    // reports x/z, so the height comes from the same bilinear sampler.
+    float tx = 0.0f, tz = 0.0f;
+    if (terrainRaycast(u, v, tx, tz)) {
+        const float ty = terrainHeight(tx, tz);
+        const float dx = tx - eye.x, dy = ty - eye.y, dz = tz - eye.z;
+        const float t = dx * dir.x + dy * dir.y + dz * dir.z;
+        if (t > 0.0f && (!hit || t < bestT)) {
+            outPoint[0] = tx, outPoint[1] = ty, outPoint[2] = tz;
+            return true;
+        }
+    }
+    if (hit) {
+        for (int k = 0; k < 3; ++k) outPoint[k] = ro[k] + rd[k] * bestT;
+        return true;
+    }
+
+    // Nothing under the cursor: fall back to the horizontal plane through the
+    // orbit pivot, so dragging into open sky still gives a sensible spot.
+    if (std::fabs(dir.y) > 1e-4f) {
+        const float t = (target_[1] - eye.y) / dir.y;
+        if (t > 0.0f) {
+            outPoint[0] = eye.x + dir.x * t;
+            outPoint[1] = target_[1];
+            outPoint[2] = eye.z + dir.z * t;
+            return true;
+        }
+    }
+    return false;
 }
 
 void Viewport::setLighting(const float* dir, float ambient, float diffuse,
@@ -1851,6 +2099,7 @@ void Viewport::setProjectDir(const std::string& dir) {
     projectDir_ = dir;
     clearModelCache();
     clearTexCache();
+    clearThumbCache();  // another project's files, same relative paths
 }
 
 void Viewport::setProjectedDecals(
@@ -1979,6 +2228,7 @@ void Viewport::clearTexCache() {
 void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
+    clearThumbCache();  // browser thumbnails are baked from those caches
     emisGlowCache_.clear();  // .mtl emission re-read on the next frame
 }
 
@@ -2264,6 +2514,18 @@ bool Viewport::modelBounds(const std::string& relPath,
     return true;
 }
 
+bool Viewport::modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]) {
+    if (o.type != PrimitiveType::Model || o.modelPath.empty()) return false;
+    if (!isAnimatedModelPath(o.modelPath))
+        return modelBounds(o.modelPath, o.materialPath, mn, mx);
+    // Animated models carry their own baked AABB (frame 0, all parts); the
+    // bake is cached, so asking per frame costs a map lookup.
+    const AnimModelDraw* d = animModelDraw(o.modelPath, o.materialPath);
+    if (!d || !d->ok) return false;
+    for (int k = 0; k < 3; ++k) mn[k] = d->baked.min[k], mx[k] = d->baked.max[k];
+    return true;
+}
+
 const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
                                                const std::string& materialRel) {
     if (relPath.empty()) return nullptr;
@@ -2500,6 +2762,16 @@ void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradien
 }
 
 void Viewport::orbit(float dx, float dy) {
+    if (projection_ > Projection::Ortho) {
+        // Dragging out of a locked axis view: seed the orbit angles from the
+        // axis the camera was on so the image continues from where it is
+        // instead of snapping back to a stale yaw/pitch, and drop only the
+        // direction lock - the parallel projection stays.
+        const CamView c = camView(fbWidth_, fbHeight_);
+        pitch_ = std::asin(std::max(-1.0f, std::min(1.0f, -c.fwd[1])));
+        yaw_ = std::atan2(-c.fwd[2], -c.fwd[0]);
+        projection_ = Projection::Ortho;
+    }
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;
     if (pitch_ < 0.05f) pitch_ = 0.05f;
@@ -2536,23 +2808,27 @@ void Viewport::resetView() {
 void Viewport::pan(float dx, float dy) {
     // Slide the orbit target in the view plane; speed scales with distance
     // so a pixel of drag covers the same fraction of the screen at any zoom.
-    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   distance_ * std::sin(pitch_),
-                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
+    // The basis comes from the shared CamView, so panning follows the image
+    // in the locked axis views too.
+    const CamView c = camView(fbWidth_, fbHeight_);
     const float s = distance_ * 0.0016f;
-    target_[0] += (-right.x * dx + up.x * dy) * s;
-    target_[1] += (-right.y * dx + up.y * dy) * s;
-    target_[2] += (-right.z * dx + up.z * dy) * s;
+    for (int k = 0; k < 3; ++k)
+        target_[k] += (-c.right[k] * dx + c.up[k] * dy) * s;
 }
 
 void Viewport::fly(float forward, float strafe, float dt) {
     // WASD: move the orbit target on the horizontal plane along the camera
     // heading. Speed scales with zoom so travel feels constant on screen.
     if (forward == 0.0f && strafe == 0.0f) return;
-    const Vec3 fwdH{-std::cos(yaw_), 0.0f, -std::sin(yaw_)};  // toward the scene
+    const CamView c = camView(fbWidth_, fbHeight_);
+    // Heading = the view direction flattened onto the ground. Looking straight
+    // down (Top / Bottom view) leaves nothing to flatten, so the screen-up
+    // vector takes over - "forward" then walks up the image, as it looks.
+    Vec3 fwdH{c.fwd[0], 0.0f, c.fwd[2]};
+    if (fwdH.x * fwdH.x + fwdH.z * fwdH.z < 1e-6f) fwdH = {c.up[0], 0.0f, c.up[2]};
+    const float len = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
+    if (len < 1e-6f) return;
+    fwdH = {fwdH.x / len, 0.0f, fwdH.z / len};
     const Vec3 rightH{-fwdH.z, 0.0f, fwdH.x};
     const float s = distance_ * 0.9f * dt;
     target_[0] += (fwdH.x * forward + rightH.x * strafe) * s;
@@ -2610,22 +2886,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         skyQuad_ = uploadMesh(q);
     }
 
-    Vec3 tgt{target_[0], target_[1], target_[2]};
-    Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-             tgt.y + distance_ * std::sin(pitch_),
-             tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    float fovDeg = 50.0f;
-    // Cutscene Director camera-track preview: fly the preview camera along the
-    // sequence's keyframed eye/look-at (the same values the PS2 runtime uses).
-    if (camOverride_) {
-        eye = {camEye_[0], camEye_[1], camEye_[2]};
-        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
-        fovDeg = camFov_;
-    }
-    Mat4 view = lookAt(eye, tgt, {0, 1, 0});
+    // Camera: the shared CamView (it also resolves the axis views and the
+    // Cutscene Director / look-through camera override) so the image, the
+    // gizmo, picking and the placement raycast all agree.
+    const CamView cam = camView(width, height);
+    const Vec3 eye{cam.eye[0], cam.eye[1], cam.eye[2]};
+    const Vec3 camFwd{cam.fwd[0], cam.fwd[1], cam.fwd[2]};
+    const Vec3 tgt{eye.x + camFwd.x, eye.y + camFwd.y, eye.z + camFwd.z};
+    Mat4 view = lookAt(eye, tgt, {cam.up[0], cam.up[1], cam.up[2]});
     float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
-    Mat4 proj = perspective(fovDeg * kPi / 180.0f, (float)width / (float)height, 0.1f,
-                            diag * 10.0f + 100.0f);
+    const float depth = sceneDepth();
+    // The ortho depth range straddles the eye (see orthoProj): a parallel
+    // axis view is a slab through the scene, not a half-space in front of a
+    // point, so geometry behind the camera plane keeps drawing.
+    Mat4 proj = cam.ortho
+                    ? orthoProj(cam.halfH * cam.aspect, cam.halfH, -depth, depth)
+                    : perspective(2.0f * std::atan(cam.tanHalf), cam.aspect, 0.1f,
+                                  depth);
     Mat4 viewProj = mul(proj, view);
     for (int i = 0; i < 16; ++i) {
         viewM_[i] = view.m[i];
@@ -2656,9 +2933,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // GS hardware fog preview: same coefficient the VU1 computes in-game.
     {
-        Vec3 fwd{tgt.x - eye.x, tgt.y - eye.y, tgt.z - eye.z};
-        float len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
-        if (len > 1e-5f) fwd = {fwd.x / len, fwd.y / len, fwd.z / len};
+        const Vec3 fwd = camFwd;
         glUniform1i(uFogOn_, fogOn_ ? 1 : 0);
         glUniform3f(uFogColor_, fogColor_[0], fogColor_[1], fogColor_[2]);
         glUniform1f(uFogStart_, fogStart_);
@@ -3408,10 +3683,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Particle emitters last - alpha blended over the scene (same order as
     // the generated game's renderScene()).
-    {
-        const Vec3 fwd = normalize(sub(tgt, eye));
-        drawEmitterPreviews(objects, viewProj.m, &eye.x, &fwd.x);
-    }
+    drawEmitterPreviews(objects, viewProj.m, &eye.x, &camFwd.x);
 
     glBindVertexArray(0);
 
@@ -3442,11 +3714,73 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        lastImageFbo_ = gradeFbo_;
         return gradeTex_;
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    lastImageFbo_ = fbo_;
     return colorTex_;
+}
+
+// --- Phone camera readback -------------------------------------------------------
+
+void Viewport::ensureGrabFramebuffer(int width, int height) {
+    if (grabFbo_ && width == grabW_ && height == grabH_) return;
+    grabW_ = width;
+    grabH_ = height;
+    if (!grabFbo_) glGenFramebuffers(1, &grabFbo_);
+    if (!grabTex_) glGenTextures(1, &grabTex_);
+    glBindTexture(GL_TEXTURE_2D, grabTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, grabFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, grabTex_, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "phone-camera grab framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+bool Viewport::grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
+                              int& outW, int& outH) {
+    if (!lastImageFbo_ || fbWidth_ <= 0 || fbHeight_ <= 0) return false;
+    if (maxW < 16) maxW = 16;
+    if (maxH < 16) maxH = 16;
+    // Fit the viewport aspect inside the cap so the phone sees the same
+    // framing (letterboxing, if any, is the app's business - never a crop).
+    const float scale = std::min((float)maxW / (float)fbWidth_,
+                                 (float)maxH / (float)fbHeight_);
+    int w = scale < 1.0f ? (int)(fbWidth_ * scale + 0.5f) : fbWidth_;
+    int h = scale < 1.0f ? (int)(fbHeight_ * scale + 0.5f) : fbHeight_;
+    w = std::max(w, 16);
+    h = std::max(h, 16);
+    ensureGrabFramebuffer(w, h);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, lastImageFbo_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, grabFbo_);
+    glBlitFramebuffer(0, 0, fbWidth_, fbHeight_, 0, 0, w, h, GL_COLOR_BUFFER_BIT,
+                      GL_LINEAR);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, grabFbo_);
+    // Tightly packed rows - the JPEG encoder wants w*3 stride, and the default
+    // 4-byte pack alignment would pad every odd width.
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    std::vector<unsigned char> rows((size_t)w * h * 3);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, rows.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+    // GL hands back bottom-up rows; everything downstream (JPEG, the phone)
+    // is top-down.
+    outRgb.resize(rows.size());
+    const size_t stride = (size_t)w * 3;
+    for (int y = 0; y < h; ++y)
+        std::memcpy(outRgb.data() + (size_t)y * stride,
+                    rows.data() + (size_t)(h - 1 - y) * stride, stride);
+    outW = w;
+    outH = h;
+    return true;
 }
 
 // Material Editor live preview: gradient backdrop, checker floor and one unit
@@ -4050,6 +4384,195 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     // The scene pass re-poses every visible instance from its own clock, so
     // hijacking the shared VBOs for this preview cannot desync anything.
     return prevTex_;
+}
+
+void Viewport::ensureThumbFramebuffer() {
+    const int s = kAssetThumbSize;
+    if (thumbFbo_) return;
+    glGenFramebuffers(1, &thumbFbo_);
+    glGenTextures(1, &thumbColor_);
+    glGenRenderbuffers(1, &thumbDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, thumbColor_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, s, s, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, thumbDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, s, s);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           thumbColor_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, thumbDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "asset thumbnail framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Viewport::clearThumbCache() {
+    for (auto& [path, tex] : thumbCache_)
+        if (tex) glDeleteTextures(1, &tex);
+    thumbCache_.clear();
+}
+
+uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
+    if (!program_ || relPath.empty()) return 0;
+
+    std::string ext = std::filesystem::path(relPath).extension().string();
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+
+    // Images are their own thumbnail: the shared texture cache already holds
+    // exactly the pixels the scene samples, so nothing is rendered or copied.
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
+        ext == ".bmp") {
+        auto it = texCache_.find(relPath);
+        if (it != texCache_.end()) return it->second;
+        return render ? glTexture(relPath) : 0;
+    }
+
+    const bool isObj = ext == ".obj";
+    const bool isAnim = ext == ".glb" || ext == ".fbx";
+    const bool isMtl = ext == ".mtl";
+    if (!isObj && !isAnim && !isMtl) return 0;
+
+    auto cached = thumbCache_.find(relPath);
+    if (cached != thumbCache_.end()) return cached->second;
+    if (!render) return 0;
+
+    // Collect what to draw first: an unreadable file caches a 0 and never
+    // touches the framebuffer.
+    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
+    if (isObj && (!model || model->parts.empty())) model = nullptr;
+    if (isAnim && anim && !anim->ok) anim = nullptr;
+    if (!model && !anim && !material) {
+        thumbCache_[relPath] = 0;
+        return 0;
+    }
+    if (anim) uploadAnimPose(*anim, 0, anim->baked.frameCount, 0.0f);
+
+    const int s = kAssetThumbSize;
+    ensureThumbFramebuffer();
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    glViewport(0, 0, s, s);
+    // Transparent background: the tile shows the browser's own panel color
+    // behind the asset, so a grid reads as one surface instead of 200 boxes.
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(program_);
+    glUniform1i(uLightCount_, 0);
+    glUniform1i(uAoOn_, 0);
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uFlashOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);
+    glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+    glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
+                    uint32_t texture, const float* ke, uint32_t reflTex,
+                    float reflStrength, bool reflSky, bool alpha) {
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uAoSelfObj_, -1);
+        glUniform1i(uAoGround_, 0);
+        glUniform1i(uAoReceive_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform3f(uEmissive_, ke ? ke[0] : 0.0f, ke ? ke[1] : 0.0f,
+                    ke ? ke[2] : 0.0f);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+
+    // Frame the asset's own bounds; a material rides the unit sphere.
+    Vec3 center{0.0f, 0.0f, 0.0f};
+    float radius = 0.72f;
+    if (model) {
+        center = {(model->mn[0] + model->mx[0]) * 0.5f,
+                  (model->mn[1] + model->mx[1]) * 0.5f,
+                  (model->mn[2] + model->mx[2]) * 0.5f};
+        const float ex = model->mx[0] - model->mn[0],
+                    ey = model->mx[1] - model->mn[1],
+                    ez = model->mx[2] - model->mn[2];
+        radius = 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez);
+    } else if (anim) {
+        const glbparser::Baked& b = anim->baked;
+        center = {(b.min[0] + b.max[0]) * 0.5f, (b.min[1] + b.max[1]) * 0.5f,
+                  (b.min[2] + b.max[2]) * 0.5f};
+        const float ex = b.max[0] - b.min[0], ey = b.max[1] - b.min[1],
+                    ez = b.max[2] - b.min[2];
+        radius = 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez);
+    }
+    if (radius < 0.05f) radius = 0.05f;
+
+    const float dist = radius * 2.35f;
+    const float pitch = 22.0f * kPi / 180.0f, yaw = 35.0f * kPi / 180.0f;
+    const Vec3 eye{center.x + dist * std::cos(pitch) * std::cos(yaw),
+                   center.y + dist * std::sin(pitch),
+                   center.z + dist * std::cos(pitch) * std::sin(yaw)};
+    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // The matcap path derives its camera basis from the fog uniforms.
+        const Vec3 f = normalize(sub(center, eye));
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, f.x, f.y, f.z);
+    }
+    const Mat4 proj = perspective(45.0f * kPi / 180.0f, 1.0f,
+                                  std::max(0.01f, dist * 0.01f),
+                                  dist + radius * 4.0f + 50.0f);
+    const Mat4 viewProj = mul(proj, view);
+
+    if (model) {
+        for (const ModelPart& part : model->parts)
+            draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, part.tex, part.ke,
+                 part.reflTex, part.reflStrength, part.reflSky, part.alpha);
+    } else if (anim) {
+        for (const AnimModelDraw::Part& part : anim->parts)
+            draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, part.tex, nullptr, 0,
+                 0.0f, false, false);
+    } else {
+        draw(sphere_, viewProj, material->kd[0], material->kd[1],
+             material->kd[2], material->tex, material->ke, material->reflTex,
+             material->reflStrength, material->reflSky, false);
+    }
+
+    glBindVertexArray(0);
+
+    // Framebuffer -> the asset's own texture. The FBO is still bound for
+    // reading, so this is a pure GPU copy of the square just drawn.
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 0, 0, s, s, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    thumbCache_[relPath] = tex;
+    return tex;
 }
 
 // Ray/triangle sweep over the CPU copy of the last material-preview geometry.

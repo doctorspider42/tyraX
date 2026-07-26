@@ -110,6 +110,22 @@ class Transport {
 // The LAN transport: raw TCP (Winsock2, WSAPoll, TCP_NODELAY).
 std::unique_ptr<Transport> makeTcpTransport();
 
+// The phone/browser transport: an RFC 6455 WebSocket SERVER carrying the exact
+// same Frames, so a React Native app (WebSocket is built into RN) or a plain
+// browser page can speak this protocol without a native socket module. One
+// WebSocket *binary* message = one encodeFrame() payload, so a JS client only
+// has to write the 8-byte header (see docs/phone-camera.md).
+//
+// Two deliberate differences from the TCP transport:
+//   - Connected is emitted after the HTTP upgrade succeeds, not on accept, so
+//     a peer is announced only once it can actually carry frames (send()
+//     before that returns false).
+//   - `httpPage`, when non-empty, is served as text/html to an ordinary GET on
+//     the same port and the connection is then closed without ever becoming a
+//     peer - that is the built-in browser test client.
+// connect() is not supported (host role only) and returns an error.
+std::unique_ptr<Transport> makeWebSocketTransport(std::string httpPage = {});
+
 // Local IPv4 addresses (for "hosting on <ip>:<port>" UI), loopback excluded.
 std::vector<std::string> localIPv4();
 

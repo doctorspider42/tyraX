@@ -847,6 +847,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
          << ",\n"
+         << "    \"unitsPerMeter\": " << fmtFloat(p.settings.unitsPerMeter)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
@@ -1056,6 +1058,19 @@ static void writeModelLodsSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// Conditional as well: nothing imported with a known real-world size = no key.
+static void writeModelUnitsSection(std::ostream& json, const Project& p) {
+    if (p.modelUnitMeters.empty()) return;
+    json << "\"modelUnits\": {";
+    bool first = true;
+    for (const auto& [asset, meters] : p.modelUnitMeters) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset)
+             << "\": " << fmtFloat(meters);
+        first = false;
+    }
+    json << " }";
+}
+
 static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << "\"saveValues\": [";
     for (size_t i = 0; i < p.saveValues.size(); ++i)
@@ -1223,6 +1238,7 @@ static void writeSequencesSection(std::ostream& json, const Project& p) {
                  << ", \"eye\": " << fmtVec3(k.eye) << ", \"target\": " << fmtVec3(k.target)
                  << ", \"fov\": " << fmtFloat(k.fov)
                  << (k.shake > 0.0f ? ", \"shake\": " + fmtFloat(k.shake) : "")
+                 << (k.roll != 0.0f ? ", \"roll\": " + fmtFloat(k.roll) : "")
                  << (k.camera.empty() ? "" : ", \"camera\": \"" + jsonEscape(k.camera) + "\"")
                  << ", \"ease\": " << k.easing << " }";
         }
@@ -1349,6 +1365,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1368,6 +1385,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::ModelUnits: return "modelUnits";
     }
     return "unknown";
 }
@@ -1400,7 +1418,8 @@ static std::string manifestJson(const Project& p) {
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
-         << ", \"viewMode\": " << p.viewMode << " }";
+         << ", \"viewMode\": " << p.viewMode
+         << ", \"viewProjection\": " << p.viewProjection << " }";
     // emulatorPath / ps2LinkIp used to live here but are now machine-global
     // editor settings (editor.ini), no longer written per-project. The reader
     // still accepts them to migrate older projects into the global config.
@@ -2251,7 +2270,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.playerCamYawRotate = v->boolOr(false);
             }
             if (const auto* v = pl->find("walkSpeed"))
-                o.playerWalkSpeed = (float)v->numberOr(0.4);
+                o.playerWalkSpeed = (float)v->numberOr(0.1);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
             if (const auto* v = pl->find("eyeHeight"))
@@ -2553,6 +2572,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.navAgentRadius = (float)v->numberOr(0.4);
             if (st.navAgentRadius < 0.0f) st.navAgentRadius = 0.0f;
         }
+        // World scale. Absent (every project saved before it existed) = 1
+        // unit per meter, which is what the importers assumed all along.
+        if (const auto* v = s->find("unitsPerMeter")) {
+            st.unitsPerMeter = (float)v->numberOr(1.0);
+            if (!(st.unitsPerMeter > 0.0001f)) st.unitsPerMeter = 1.0f;
+        }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;
@@ -2567,7 +2592,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
-        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
+        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
         // Legacy single-value key seeds both sticks; per-stick keys override.
         if (const auto* v = s->find("stickDeadzone")) {
@@ -3155,6 +3180,7 @@ static void readSequencesSection(const json::Value& root, Project& out) {
                     readVec3(jck.find("target"), k.target);
                     if (const auto* v = jck.find("fov")) k.fov = (float)v->numberOr(60.0);
                     if (const auto* v = jck.find("shake")) k.shake = (float)v->numberOr(0.0);
+                    if (const auto* v = jck.find("roll")) k.roll = (float)v->numberOr(0.0);
                     if (const auto* v = jck.find("camera")) k.camera = v->stringOr("");
                     if (const auto* v = jck.find("ease")) k.easing = (int)v->numberOr(1.0);
                     s.cameraKeys.push_back(k);
@@ -3322,6 +3348,18 @@ static void readAnimEditsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readModelUnitsSection(const json::Value& root, Project& out) {
+    out.modelUnitMeters.clear();
+    const auto* obj = root.find("modelUnits");
+    if (!obj || obj->type != json::Value::Type::Object) return;
+    for (const auto& [asset, v] : obj->obj) {
+        const float meters = (float)v.numberOr(1.0);
+        // A non-positive size says nothing about the model and would collapse
+        // every object made from it - drop the entry instead.
+        if (meters > 0.0001f) out.modelUnitMeters[asset] = meters;
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -3340,6 +3378,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::ModelUnits: readModelUnitsSection(root, p); break;
     }
     return true;
 }
@@ -3453,6 +3492,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readTexQualitySection(root, out);
     readModelLodsSection(root, out);
+    readModelUnitsSection(root, out);
 
     readSaveDataSection(root, out);
 
@@ -3544,6 +3584,8 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmoSpace"))
             out.gizmoSpace = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+        if (const auto* v = ed->find("viewProjection"))
+            out.viewProjection = (int)v->numberOr(0);
         // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
         // (editor.ini). Still read so the editor can migrate an older project's
         // values into the global config on first open (see App::attachProject);

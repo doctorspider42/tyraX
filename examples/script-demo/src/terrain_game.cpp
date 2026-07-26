@@ -1706,6 +1706,9 @@ void TerrainGame::loop() {
   if (scriptCtx.cameraOverride) {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
+    cameraUp = scriptCtx.cameraUp;
+  } else {
+    cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -1732,7 +1735,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
-  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     // Split screen (two players): the scene renders twice, top half from
@@ -1753,7 +1756,7 @@ void TerrainGame::loop() {
       const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
       cameraPosition = players[1].camPos;
       cameraLookAt = players[1].camLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       core.splitView.begin(1);
       splitSecondPass = true;  // reuse this frame's anim poses/skins
       renderScene();
@@ -1761,7 +1764,7 @@ void TerrainGame::loop() {
       core.splitView.end();
       cameraPosition = savedPos;
       cameraLookAt = savedLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
       renderScene();
@@ -6911,7 +6914,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag) stapip.core.render(part.bag.get());
     }
-    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
   }
 
@@ -7633,7 +7636,7 @@ void TerrainGame::renderCameraFeed() {
     for (int i = 0; i < (int)liveCaught.size(); ++i)
       renderFeedObject(liveCaught[i]);
   }
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.camFeed.end();
 }
 
@@ -7782,7 +7785,7 @@ void TerrainGame::renderObjectProbe(int index) {
     for (GeoPart& part : objectGeometry[ri].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
 }
 
@@ -8257,7 +8260,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     co.dirty = true;  // main pass rebuilds at the real (near) position
   }
   portalExitPlaneOn = false;
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
                      (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
   return true;

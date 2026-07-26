@@ -26,6 +26,30 @@ public:
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
 
+    // Camera projection (docs/orthographic-views.md). Perspective is the
+    // classic free orbit camera; the ortho modes render with a parallel
+    // projection (no foreshortening, so equal sizes read equal anywhere on
+    // screen) and the six axis modes additionally lock the camera onto that
+    // world axis - the Top/Front/Side views of a CAD or level editor.
+    // Orbiting out of an axis view keeps the parallel projection and falls
+    // back to Ortho (free), so a drag never feels dead.
+    enum class Projection {
+        Perspective = 0,
+        Ortho = 1,        // parallel, free orbit direction
+        OrthoTop = 2,     // looks down -Y (+X right, +Z down)
+        OrthoBottom = 3,  // looks up +Y
+        OrthoFront = 4,   // looks along -Z (+X right, +Y up)
+        OrthoBack = 5,    // looks along +Z
+        OrthoRight = 6,   // looks along -X (from +X)
+        OrthoLeft = 7,    // looks along +X (from -X)
+    };
+    static constexpr int kProjectionCount = 8;
+    void setProjection(Projection p) { projection_ = p; }
+    Projection projection() const { return projection_; }
+    bool orthographic() const { return projection_ != Projection::Perspective; }
+    // Display name of a projection mode ("Perspective", "Top", ...).
+    static const char* projectionName(Projection p);
+
     bool init();  // requires a current GL context
     void shutdown();
 
@@ -44,6 +68,29 @@ public:
     // Casts a ray through normalized image coords onto the terrain surface.
     // Returns false when the ray misses; used by the sculpting brush.
     bool terrainRaycast(float u, float v, float& outX, float& outZ) const;
+
+    // Casts a ray through normalized image coords at the whole scene (object
+    // boxes + the terrain heightfield) and returns the closest hit point in
+    // world space. `skip` (optional, parallel to objects) excludes indices
+    // from the test - the objects being placed must not catch their own ray.
+    // Objects on hidden layers are excluded like they are for picking.
+    // Returns false when the ray leaves the scene without hitting anything.
+    bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
+                          const std::vector<char>& skip, float outPoint[3]) const;
+
+    // Inverse of camRay: a world point -> normalized image coords (u, v in
+    // [0,1], origin top-left) of the LAST rendered frame. False when the point
+    // is behind a perspective camera. App-side ImDrawList overlays that have
+    // to sit on world geometry (the measuring tape) place themselves with
+    // this, so they agree with the image under every projection instead of
+    // rebuilding a camera of their own.
+    bool projectToImage(const float world[3], float& outU, float& outV) const;
+
+    // Local-space AABB of what an object DRAWS as a model: static .obj bounds
+    // (GL-free, cached) or an animated model's baked pose bounds. False for
+    // non-model objects and unreadable files. The aobake::ModelAabbFn the app
+    // hands to the placement snapping and the occluder collection.
+    bool modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]);
 
     float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
 
@@ -141,6 +188,18 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     const std::vector<int>& selection, int primary);
 
+    // Phone camera link (docs/phone-camera.md): reads the image the LAST
+    // render() produced back into packed RGB for JPEG streaming to the
+    // companion app - so the phone sees exactly the frame the editor viewport
+    // shows, grading included, without a second scene pass. The image is
+    // downscaled on the GPU (a blit into a small dedicated target, which is
+    // also all that gets read back, so a 1600x900 viewport does not stall the
+    // frame) and row-flipped into top-down order on the way out.
+    // maxW/maxH cap the long edges; the source aspect is preserved. False when
+    // nothing has been rendered yet.
+    bool grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
+                        int& outW, int& outH);
+
     // Collaboration presence: other participants' selections in the ACTIVE
     // scene, outlined in each peer's color under the local selection (local
     // amber always reads on top). The app resolves object ids to indices per
@@ -227,6 +286,18 @@ public:
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
 
+    // Asset Browser thumbnails (docs/asset-browser.md): one square preview of
+    // an asset file, rendered ONCE into a dedicated framebuffer and copied into
+    // its own small GL texture - a grid of hundreds then costs nothing to draw.
+    // Handles static .obj, animated .glb/.fbx (first pose) and .mtl libraries
+    // (a sphere wearing the first material); an image file needs no render and
+    // returns the shared texture. `render` false only reports what is already
+    // baked (0 = nothing yet), which is how the browser budgets the number of
+    // new thumbnails a single frame may pay for. Failed assets are remembered
+    // as 0 so an unreadable file is not retried every frame.
+    uint32_t assetThumb(const std::string& relPath, bool render);
+    static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
+
     // Source clip names of an animated model, in file order. Empty when the
     // file is missing or unusable. (The Animation Editor's clip list.)
     std::vector<std::string> animClipNames(const std::string& modelRel,
@@ -286,10 +357,16 @@ public:
     // Cutscene Director camera-track preview: override the orbit camera with an
     // explicit eye + look-at target + vertical FOV (degrees) for the next
     // render() calls; clearCameraOverride() restores the orbit camera.
-    void setCameraOverride(const float eye[3], const float target[3], float fovDeg) {
+    // `rollDeg` rotates the view about its own axis (the Dutch angle) - the
+    // basis comes from seqCameraUp, the same function the generated PS2 player
+    // and the camera-take bake use, so the preview cannot tilt differently from
+    // the console.
+    void setCameraOverride(const float eye[3], const float target[3], float fovDeg,
+                           float rollDeg = 0.0f) {
         camOverride_ = true;
         for (int i = 0; i < 3; ++i) camEye_[i] = eye[i], camTarget_[i] = target[i];
         camFov_ = fovDeg;
+        camRoll_ = rollDeg;
     }
     void clearCameraOverride() { camOverride_ = false; }
 
@@ -372,11 +449,37 @@ private:
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
+    Projection projection_ = Projection::Perspective;
+    // The camera a render() draws with: eye + orthonormal basis plus the
+    // projection extents. ONE source for render(), pick(), the terrain
+    // raycast and the placement raycast - those used to rebuild the same
+    // hardcoded 50-degree perspective ray by hand, so they disagreed with the
+    // image as soon as the projection was ortho or a Camera entity's FOV.
+    struct CamView {
+        float eye[3] = {0.0f, 0.0f, 0.0f};
+        float fwd[3] = {0.0f, 0.0f, -1.0f};
+        float right[3] = {1.0f, 0.0f, 0.0f};
+        float up[3] = {0.0f, 1.0f, 0.0f};
+        bool ortho = false;
+        float tanHalf = 0.4663f;  // perspective: tan(vertical fov / 2)
+        float halfH = 1.0f;       // ortho: half the visible height (world units)
+        float aspect = 1.0f;
+    };
+    CamView camView(int width, int height) const;
+    // Ray through normalized image coords (u, v in [0,1], origin top-left).
+    // The ortho ray starts a full scene depth behind the eye plane so nothing
+    // visible can sit behind the ray origin (a parallel projection draws what
+    // is behind the camera too - see the symmetric depth range).
+    void camRay(const CamView& c, float u, float v, float o[3], float d[3]) const;
+    // Half the depth range the projection spans - far plane / ortho z extent.
+    float sceneDepth() const;
+
     // Cutscene camera-track preview override (see setCameraOverride)
     bool camOverride_ = false;
     float camEye_[3] = {0.0f, 0.0f, 0.0f};
     float camTarget_[3] = {0.0f, 0.0f, 0.0f};
     float camFov_ = 50.0f;
+    float camRoll_ = 0.0f;  // Dutch angle of the override camera, degrees
     // Camera entities not to draw (previewing through them) - see setHiddenCameras
     std::vector<std::string> hiddenCams_;
     bool camHidden(const std::string& name) const {
@@ -592,6 +695,16 @@ private:
 
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
+    // Which framebuffer holds the image the last render() returned (fbo_, or
+    // gradeFbo_ when the grading pass ran) - the source grabPreviewRgb blits
+    // from, so the phone sees the graded picture too. 0 = nothing rendered yet.
+    uint32_t lastImageFbo_ = 0;
+
+    // Phone-camera readback target: a small RGBA8 framebuffer the viewport
+    // image is blitted (and thus downscaled) into before glReadPixels.
+    void ensureGrabFramebuffer(int width, int height);
+    uint32_t grabFbo_ = 0, grabTex_ = 0;
+    int grabW_ = 0, grabH_ = 0;
 
     // Material Editor preview target + fixed backdrop meshes
     void ensurePreviewFramebuffer(int width, int height);
@@ -608,6 +721,16 @@ private:
     void ensureTreeFramebuffer(int width, int height);
     uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
     int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for
+    // the same reason the tree preview has one - the browser bakes thumbnails
+    // in the middle of a frame in which the Material Editor may be drawing its
+    // own preview. Baked images live in thumbCache_ (one texture per asset, an
+    // entry with value 0 = tried and unusable), dropped by invalidateAssets.
+    void ensureThumbFramebuffer();
+    uint32_t thumbFbo_ = 0, thumbColor_ = 0, thumbDepth_ = 0;
+    std::map<std::string, uint32_t> thumbCache_;
+    void clearThumbCache();
 
     // Tree Generator preview geometry + textures (see renderTreePreview);
     // rebuilt only when the desc version changes.
