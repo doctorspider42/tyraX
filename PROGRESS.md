@@ -10,6 +10,51 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (188) **The editor had no icon on Linux.** On Windows the icon is a resource
+  inside the .exe (`resources/app.rc`, named `GLFW_ICON` so GLFW's Win32
+  backend picks it up for the window too), and there is no equivalent anywhere
+  else - the Linux port simply inherited a blank window and a generic launcher
+  tile. The fix has three parts because **X11 and Wayland get their icon from
+  completely different places**, and only one of them involves the application
+  at all:
+  - `resources/icon.png` is baked into the binary by a new
+    `cmake/embed_icon.cmake` (`icon_gen.hpp`, the `ai-support` embed pattern) -
+    the image is needed at runtime, and shipping a loose PNG next to the binary
+    would break the moment someone moves it.
+  - **X11**: decode it with stb_image and `glfwSetWindowIcon` (`applyWindowIcon`
+    in app.cpp).
+  - **Wayland**: there is no icon protocol at all. The compositor matches the
+    surface's **app id** against the installed `.desktop` files and takes the
+    icon from there, so no amount of application-side code can do it -
+    `glfwSetWindowIcon` returns `GLFW_FEATURE_UNAVAILABLE`, which is why the
+    call is skipped on `GLFW_PLATFORM_WAYLAND` rather than left to spam the
+    error callback. So the editor now registers itself:
+    `platform::installDesktopEntry` writes
+    `~/.local/share/applications/tyrax-editor.desktop` plus the icon into
+    `hicolor/256x256/apps/`, and `GLFW_WAYLAND_APP_ID` /
+    `GLFW_X11_CLASS_NAME` / `GLFW_X11_INSTANCE_NAME` are hinted to the same
+    `kAppId` string. All four names have to agree or the desktop cannot connect
+    the running window to its icon, which is why the id is one constant. The
+    entry is written before `glfwInit` (a compositor resolves the icon once, at
+    map time), rewritten only when its bytes change, and `Exec=` is re-stamped
+    from `exePath()` so moving the binary fixes itself. No-op on Windows.
+  - `Exec=` is quoted by the **desktop-entry** rules (double quotes, backslash
+    before `"` `\` `$` `` ` ``), not `shQuote`'s shell single quotes - a
+    single-quoted path is taken literally there.
+  Verified on Ubuntu/GNOME, both backends. Wayland: `WAYLAND_DEBUG=1` shows
+  `xdg_toplevel.set_app_id("tyrax-editor")`, and the other half of the chain
+  checked through GTK itself - `Gio.DesktopAppInfo.new('tyrax-editor.desktop')`
+  resolves to *TyraX* with the right `Exec`, and an icon-theme lookup of
+  `tyrax-editor` at 256 px returns the installed
+  `~/.local/share/icons/hicolor/256x256/apps/tyrax-editor.png`. X11 (forced
+  with `XDG_SESSION_TYPE=x11`): the window's `WM_CLASS` is
+  `"tyrax-editor", "tyrax-editor"` and `_NET_WM_ICON` starts `256, 256`, i.e.
+  the real image (note `xprop` prints a big CARDINAL array as *empty* - a GTK
+  app looks identical, so read the first two fields with a format spec instead
+  of concluding the property is unset). GNOME blocks
+  `org.gnome.Shell.Screenshot`/`Introspect` for unsandboxed callers, so the
+  "icon is visibly in the dash" half stays a human check.
+
 - (186) **Input follow-ups from review: the un-bindable Triangle, a USE prompt
   that says which button, and a leaner controls scaffold.**
   (a) **Fix: Triangle could never be rebound.** Capture mode checked the `back`

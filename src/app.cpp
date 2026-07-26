@@ -46,6 +46,8 @@
 #include <ImGuizmo.h>
 #include <imnodes.h>
 
+#include "icon_gen.hpp"  // kIconPng (built from resources/icon.png)
+
 #include "platform.hpp"
 
 // ---------------------------------------------------------------------------
@@ -368,12 +370,50 @@ static uintmax_t estimateAdpcmBytes(uintmax_t wavFileBytes) {
     return wavFileBytes * 2 / 7;
 }
 
+// The editor's desktop identity. It is one string on purpose: the window's
+// Wayland app id, its X11 WM_CLASS, and the basename of the .desktop file and
+// the icon platform::installDesktopEntry writes all have to agree, or the
+// desktop cannot connect the running window to its icon.
+static constexpr const char* kAppId = "tyrax-editor";
+
+// Window/taskbar icon from the baked-in resources/icon.png.
+//
+// Windows needs nothing here - GLFW's Win32 backend loads the GLFW_ICON
+// resource out of the .exe into the window class (resources/app.rc). On X11
+// this is what puts the icon on the window; on Wayland there is no protocol
+// for it at all, so GLFW reports GLFW_FEATURE_UNAVAILABLE and the icon comes
+// from the desktop entry instead - checking the platform first keeps that
+// expected case out of the error callback.
+static void applyWindowIcon(GLFWwindow* window) {
+#ifndef _WIN32
+    if (!window || glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) return;
+    int w = 0, h = 0, comp = 0;
+    stbi_uc* pixels = stbi_load_from_memory(appicon::kIconPng,
+                                            (int)appicon::kIconPngSize, &w, &h, &comp, 4);
+    if (!pixels) return;
+    const GLFWimage image{w, h, pixels};
+    glfwSetWindowIcon(window, 1, &image);
+    stbi_image_free(pixels);
+#else
+    (void)window;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 
 int App::run(const std::string& initialProjectDir) {
     glfwSetErrorCallback([](int code, const char* msg) {
         std::fprintf(stderr, "GLFW error %d: %s\n", code, msg);
     });
+
+    // The desktop entry has to exist before the window does: a Wayland
+    // compositor resolves the icon by matching the surface's app id against
+    // the installed .desktop files, and it looks exactly once, at map time.
+    // No-op on Windows (the icon is a resource inside the .exe).
+    platform::installDesktopEntry(
+        kAppId, "TyraX", "Edit PS2 scenes and flow graphs, then build and run the game",
+        appicon::kIconPng, appicon::kIconPngSize);
+
     if (!glfwInit()) return 1;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -381,6 +421,12 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    // What the desktop matches the window against to find the entry above -
+    // the app id on Wayland, the WM_CLASS pair on X11. Both hints are accepted
+    // (and ignored) by the Win32 backend, so no #ifdef is needed.
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID, kAppId);
+    glfwWindowHintString(GLFW_X11_CLASS_NAME, kAppId);
+    glfwWindowHintString(GLFW_X11_INSTANCE_NAME, kAppId);
 
     // Size is the restore-size when the user un-maximizes.
     window_ = glfwCreateWindow(1600, 900, "TyraX", nullptr, nullptr);
@@ -389,6 +435,7 @@ int App::run(const std::string& initialProjectDir) {
         glfwTerminate();
         return 1;
     }
+    applyWindowIcon(window_);
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1);
 

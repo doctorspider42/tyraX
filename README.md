@@ -34,6 +34,8 @@ Both build scripts handle the rest: clone the `vendor/` dependencies on first ru
 
 Everything the two platforms disagree about — spawning child processes, native file dialogs, where the machine-global config lives, which system fonts exist, how to reveal a file in the file manager — lives behind [`src/platform.hpp`](src/platform.hpp). Projects are portable between the two: the `.tyra` format is identical, and a font referenced by a name this OS doesn't have falls back instead of failing the bake.
 
+On Linux the editor registers itself with the desktop on every start — `~/.local/share/applications/tyrax-editor.desktop` plus its icon under `~/.local/share/icons/hicolor/` — so the window, the dock and the app grid all show the TyraX icon and `Exec=` keeps pointing at wherever the binary currently is. That entry is not a nicety: under Wayland there is no protocol for an application to set its own window icon, the compositor resolves it from the `.desktop` file matching the window's app id. (Windows takes its icon from a resource inside the .exe and installs nothing.)
+
 Then in the editor:
 
 1. `File > New Project` (`Ctrl+N`) — pick a name, location and the flat terrain size, hit **Create**.

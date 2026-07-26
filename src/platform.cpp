@@ -649,6 +649,78 @@ void revealInFileManager(const std::string& path) {
 #endif
 }
 
+void installDesktopEntry(const std::string& appId, const std::string& appName,
+                         const std::string& comment, const unsigned char* iconPng,
+                         std::size_t iconPngSize) {
+#ifdef _WIN32
+    (void)appId; (void)appName; (void)comment; (void)iconPng; (void)iconPngSize;
+#else
+    const std::string exe = exePath();
+    if (exe.empty() || appId.empty()) return;
+
+    fs::path dataHome;
+    if (const char* xdg = getenv("XDG_DATA_HOME"); xdg && *xdg)
+        dataHome = xdg;
+    else if (const fs::path home = homeDir(); !home.empty())
+        dataHome = home / ".local" / "share";
+    if (dataHome.empty()) return;
+
+    // hicolor/256x256 is what the icon.png actually is; a theme lookup for
+    // "tyrax-editor" finds it there without an index rebuild.
+    const fs::path iconPath =
+        dataHome / "icons" / "hicolor" / "256x256" / "apps" / (appId + ".png");
+    const fs::path entryPath = dataHome / "applications" / (appId + ".desktop");
+
+    // Writes only when the bytes differ. Rewriting on every start would be
+    // harmless but keeps re-stamping mtimes the desktop's file monitors watch.
+    auto writeIfChanged = [](const fs::path& p, const char* data, std::size_t n) {
+        std::error_code ec;
+        if (fs::file_size(p, ec) == n && !ec) {
+            std::string have(n, '\0');
+            if (FILE* f = fopen(p.string().c_str(), "rb")) {
+                const bool same = fread(have.data(), 1, n, f) == n &&
+                                  memcmp(have.data(), data, n) == 0;
+                fclose(f);
+                if (same) return;
+            }
+        }
+        fs::create_directories(p.parent_path(), ec);
+        if (FILE* f = fopen(p.string().c_str(), "wb")) {
+            fwrite(data, 1, n, f);
+            fclose(f);
+        }
+    };
+
+    if (iconPng && iconPngSize)
+        writeIfChanged(iconPath, (const char*)iconPng, iconPngSize);
+
+    // Exec is quoted by the desktop-entry spec's own rules, not the shell's:
+    // double quotes, with a backslash before the four characters a shell would
+    // still expand. shQuote's single quotes would be taken literally here.
+    std::string quotedExe = "\"";
+    for (const char c : exe) {
+        if (c == '"' || c == '\\' || c == '$' || c == '`') quotedExe += '\\';
+        quotedExe += c;
+    }
+    quotedExe += '"';
+
+    // StartupWMClass is the X11 half of the same job the app id does on
+    // Wayland: it is how a taskbar matches an existing window back to this
+    // entry. %f lets a file manager hand us a .tyra project to open.
+    const std::string entry =
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=" + appName + "\n"
+        "Comment=" + comment + "\n"
+        "Exec=" + quotedExe + " %f\n"
+        "Icon=" + appId + "\n"
+        "Terminal=false\n"
+        "Categories=Development;IDE;Graphics;\n"
+        "StartupWMClass=" + appId + "\n";
+    writeIfChanged(entryPath, entry.data(), entry.size());
+#endif
+}
+
 std::string openInVSCode(const std::string& projectDir, const std::string& absFile) {
     if (!commandExists("code"))
         return "Could not launch VS Code - is the 'code' CLI on PATH? "
