@@ -39,8 +39,6 @@
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_impl_glfw.h>
@@ -48,21 +46,14 @@
 #include <ImGuizmo.h>
 #include <imnodes.h>
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <commdlg.h>
-#include <shobjidl.h>
+#include "platform.hpp"
 
 // ---------------------------------------------------------------------------
-// Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
-// pickSolutionFile: file dialog filtered to *.tyra project files.
+// Native pickers, one kind per thing the editor imports. The dialogs
+// themselves live in platform.cpp (comdlg32/IFileOpenDialog on Windows,
+// zenity/kdialog elsewhere) - here we only name the filters.
 // ---------------------------------------------------------------------------
 enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable, CamTake };
-
-// Owner window for the native dialogs. An unowned modal (Show(nullptr))
-// leaves the frozen GLFW window active behind it - Windows then wedges the
-// dialog when it interacts with the non-pumping app (grayed Open button).
-static HWND g_dialogOwner = nullptr;
 
 // Defined lower down (next to the game-error catcher) but used early in
 // attachProject() to baseline the log size.
@@ -73,7 +64,7 @@ static size_t fileSizeOr0(const std::string& path);
 // wants a different UI scale than a 1080p desktop; navigation is personal
 // preference; the emulator lives at a fixed path on this PC and the dev PS2 has
 // a fixed LAN address), so they live outside the per-project .tyra - in
-// %LOCALAPPDATA%\tyra-editor\editor.ini. Trivial key=value lines; the whole
+// editor.ini under platform::configDir(). Trivial key=value lines; the whole
 // file is rewritten on any change, so load once and save the full struct.
 // ---------------------------------------------------------------------------
 struct EditorConfig {
@@ -90,7 +81,7 @@ struct EditorConfig {
     std::string defaultProjectsDir;
     // Collaboration sessions: the name shown to other participants (empty =
     // the Windows user name) and where joined projects materialize (empty =
-    // %LOCALAPPDATA%\tyra-editor\remote-cache).
+    // <editor config dir>/remote-cache).
     std::string displayName;
     std::string sessionCacheDir;
     // AI assistant backend for flow-graph generation (aigen.hpp). Machine
@@ -135,10 +126,9 @@ struct EditorConfig {
 static constexpr size_t kMaxRecentProjects = 10;
 
 static std::filesystem::path editorConfigPath() {
-    const char* base = getenv("LOCALAPPDATA");
-    if (!base || !*base) base = getenv("USERPROFILE");
-    if (!base || !*base) return {};
-    return std::filesystem::path(base) / "tyra-editor" / "editor.ini";
+    const std::filesystem::path base = platform::configDir();
+    if (base.empty()) return {};
+    return base / "editor.ini";
 }
 
 static EditorConfig loadEditorConfig() {
@@ -283,107 +273,57 @@ static std::string recentProjectKey(const std::string& dir) {
 // default (Edit > Preferences) if set, else ~/TyraProjects.
 static std::string defaultNewProjectLocation(const std::string& configured) {
     if (!configured.empty()) return configured;
-    if (const char* home = getenv("USERPROFILE"))
-        return std::string(home) + "\\TyraProjects";
-    return "";
-}
-
-static std::string wideToUtf8(const wchar_t* path) {
-    std::string result;
-    const int len = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
-    if (len > 1) {
-        result.resize(len - 1);
-        WideCharToMultiByte(CP_UTF8, 0, path, -1, result.data(), len, nullptr, nullptr);
-    }
-    return result;
-}
-
-// Classic comdlg32 file dialog. The shell-based IFileOpenDialog wedges on
-// this setup (grayed Open button, dialog never returns) - the legacy dialog
-// carries far less shell machinery. filter is the double-NUL comdlg format.
-static std::string pickFileLegacy(const wchar_t* filter, const wchar_t* title) {
-    wchar_t buf[MAX_PATH] = L"";
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = g_dialogOwner;
-    ofn.lpstrFilter = filter;
-    ofn.nFilterIndex = 1;
-    ofn.lpstrFile = buf;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = title;
-    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
-                OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
-    if (!GetOpenFileNameW(&ofn)) return "";
-    return wideToUtf8(buf);
+    const std::filesystem::path home = platform::homeDir();
+    return home.empty() ? std::string() : (home / "TyraProjects").string();
 }
 
 static std::string pickPath(PickKind kind) {
+    // Every filter list ends with All files, so a user whose asset carries an
+    // unusual extension is never locked out of importing it.
+    static const platform::FileFilter kAll{"All files (*)", {"*"}};
     switch (kind) {
         case PickKind::Solution:
-            return pickFileLegacy(
-                L"Tyra project (*.tyra)\0*.tyra\0All files (*.*)\0*.*\0",
-                L"Open Tyra project");
+            return platform::pickFile("Open Tyra project",
+                                      {{"Tyra project (*.tyra)", {"*.tyra"}}, kAll});
         case PickKind::ObjModel:
-            return pickFileLegacy(
-                L"3D model (*.obj, *.glb, *.fbx)\0*.obj;*.glb;*.fbx\0"
-                L"Wavefront model (*.obj)\0*.obj\0"
-                L"Animated glTF binary (*.glb)\0*.glb\0"
-                L"Animated FBX (*.fbx)\0*.fbx\0All files (*.*)\0*.*\0",
-                L"Import 3D model (.glb/.fbx = animated)");
+            return platform::pickFile(
+                "Import 3D model (.glb/.fbx = animated)",
+                {{"3D model (*.obj, *.glb, *.fbx)", {"*.obj", "*.glb", "*.fbx"}},
+                 {"Wavefront model (*.obj)", {"*.obj"}},
+                 {"Animated glTF binary (*.glb)", {"*.glb"}},
+                 {"Animated FBX (*.fbx)", {"*.fbx"}},
+                 kAll});
         case PickKind::Mtl:
-            return pickFileLegacy(
-                L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
-                L"Import material library");
+            return platform::pickFile("Import material library",
+                                      {{"Material library (*.mtl)", {"*.mtl"}}, kAll});
         case PickKind::Png:
-            return pickFileLegacy(
-                L"PNG image (*.png)\0*.png\0All files (*.*)\0*.*\0",
-                L"Import PNG image");
+            return platform::pickFile("Import PNG image",
+                                      {{"PNG image (*.png)", {"*.png"}}, kAll});
         case PickKind::Wav:
-            return pickFileLegacy(
-                L"WAV audio (*.wav)\0*.wav\0All files (*.*)\0*.*\0",
-                L"Import WAV (16-bit 22kHz recommended)");
+            return platform::pickFile("Import WAV (16-bit 22kHz recommended)",
+                                      {{"WAV audio (*.wav)", {"*.wav"}}, kAll});
         case PickKind::Ttf:
-            return pickFileLegacy(
-                L"TrueType font (*.ttf, *.otf)\0*.ttf;*.otf\0All files (*.*)\0*.*\0",
-                L"Import menu font");
-        case PickKind::Executable:
-            return pickFileLegacy(
-                L"Executable (*.exe)\0*.exe\0All files (*.*)\0*.*\0",
-                L"Select PCSX2 executable");
-        case PickKind::CamTake:
-            return pickFileLegacy(
-                L"Camera take (*.hfcs, *.csv)\0*.hfcs;*.csv\0"
-                L"CamTrackAR composite shot (*.hfcs)\0*.hfcs\0"
-                L"Camera take CSV (*.csv)\0*.csv\0All files (*.*)\0*.*\0",
-                L"Import camera take (phone AR recording)");
-        case PickKind::Folder:
-            break;  // folders need the shell dialog below
-    }
-
-    const bool folder = true;
-    std::string result;
-    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    IFileOpenDialog* dialog = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
-                                   IID_PPV_ARGS(&dialog)))) {
-        DWORD options = 0;
-        dialog->GetOptions(&options);
-        dialog->SetOptions(options | (folder ? FOS_PICKFOLDERS : 0) | FOS_FORCEFILESYSTEM);
-        if (SUCCEEDED(dialog->Show(g_dialogOwner))) {
-            IShellItem* item = nullptr;
-            if (SUCCEEDED(dialog->GetResult(&item))) {
-                PWSTR path = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-                    result = wideToUtf8(path);
-                    CoTaskMemFree(path);
-                }
-                item->Release();
-            }
+            return platform::pickFile(
+                "Import menu font",
+                {{"TrueType font (*.ttf, *.otf)", {"*.ttf", "*.otf"}}, kAll});
+        case PickKind::Executable: {
+            // An executable has no extension outside Windows, so the "only
+            // executables" filter would hide every candidate there.
+            const std::string pat = std::string("*") + platform::exeSuffix();
+            return platform::pickFile("Select PCSX2 executable",
+                                      {{"Executable (" + pat + ")", {pat}}, kAll});
         }
-        dialog->Release();
+        case PickKind::CamTake:
+            return platform::pickFile(
+                "Import camera take (phone AR recording)",
+                {{"Camera take (*.hfcs, *.csv)", {"*.hfcs", "*.csv"}},
+                 {"CamTrackAR composite shot (*.hfcs)", {"*.hfcs"}},
+                 {"Camera take CSV (*.csv)", {"*.csv"}},
+                 kAll});
+        case PickKind::Folder:
+            break;
     }
-    if (SUCCEEDED(hrInit)) CoUninitialize();
-    return result;
+    return platform::pickFolder("Select folder");
 }
 
 static std::string pickFolder() { return pickPath(PickKind::Folder); }
@@ -444,7 +384,7 @@ int App::run(const std::string& initialProjectDir) {
 
     // Size is the restore-size when the user un-maximizes.
     window_ = glfwCreateWindow(1600, 900, "TyraX", nullptr, nullptr);
-    if (window_) g_dialogOwner = glfwGetWin32Window(window_);
+    if (window_) platform::setDialogOwner(window_);
     if (!window_) {
         glfwTerminate();
         return 1;
@@ -1645,7 +1585,7 @@ void App::drawWelcomeScreen() {
             // Moved/deleted since it was probed: say so and mark the row, but
             // keep it - the user decides whether it is worth forgetting.
             probeRecentProject(recentProjects_[openIndex]);
-            MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+            platform::errorBox("Open Project", err);
         }
     }
 }
@@ -3214,22 +3154,22 @@ void App::saveProject() {
     // instead of clobbering it.
     captureActiveLayout();
     if (auto err = project::save(project_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save Project", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save Project", err);
     // Terrain heightmaps live in separate <scene>.heights files (not the .tyra)
     // and, like the rest of the model, are persisted only on demand. They are
     // kept in memory (and in undo snapshots) during editing.
     if (auto err = project::saveHeights(project_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save Terrain", err);
     // Terrain splatmaps (paint weights) live in <scene>.splat sidecars, same
     // deal as the heightmaps.
     if (auto err = project::saveSplat(project_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save Terrain", err);
 }
 
 void App::saveAll(const char* status) {
     saveProject();
     if (auto err = project::saveHistory(project_, history_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save History", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save History", err);
     setDirty(false);
     statusMessage_ = status;
 }
@@ -3973,15 +3913,15 @@ void App::openRemoteProject(const std::string& dir) {
 }
 
 // Seed the display-name field once per modal open: the configured name
-// (Edit > Preferences), else USERNAME - both beat an empty box.
+// (Edit > Preferences), else the OS user name - both beat an empty box.
 static void seedSessionName(char* buf, size_t n, const std::string& configured) {
     if (buf[0]) return;
     if (!configured.empty()) {
         std::snprintf(buf, n, "%s", configured.c_str());
         return;
     }
-    const char* u = getenv("USERNAME");
-    std::snprintf(buf, n, "%s", (u && *u) ? u : "user");
+    const std::string u = platform::userName();
+    std::snprintf(buf, n, "%s", u.empty() ? "user" : u.c_str());
 }
 
 void App::drawHostSessionModal() {
@@ -4680,6 +4620,18 @@ void App::addPortal() {
     o.scale[0] = 1.6f, o.scale[1] = 2.4f, o.scale[2] = 1.0f;
     o.color[0] = 0.95f, o.color[1] = 0.55f, o.color[2] = 0.2f;
     o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
+    saveAll("Saved");
+}
+void App::addArea() {
+    addObject(PrimitiveType::Area);
+    SceneObject& o = project_.objects().back();
+    // A room-sized box resting on the ground, cool green so the wireframe
+    // reads as "volume", not "prop".
+    o.position[1] = 2.0f;
+    o.scale[0] = 8.0f, o.scale[1] = 4.0f, o.scale[2] = 8.0f;
+    o.color[0] = 0.3f, o.color[1] = 0.95f, o.color[2] = 0.5f;
+    o.collisionMode = 2;  // a volume, never a wall
+    o.castShadow = false;  // no geometry - nothing to occlude with
     saveAll("Saved");
 }
 void App::addSavePoint() {
@@ -5737,6 +5689,15 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Save point")) addSavePoint();
         // Cutscene Director shot marker (bind camera-track keys to it)
         if (ImGui::MenuItem("Camera")) addObject(PrimitiveType::Camera);
+        // Invisible volume: layer streaming zones, mirror/portal/feed target
+        // sets, In Area triggers (docs/areas.md).
+        if (ImGui::MenuItem("Area")) addArea();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Invisible box - a wireframe here, nothing in the game.\n"
+                "Point a streaming layer's zone, a mirror/portal/camera-feed\n"
+                "target list or an In Area trigger at it instead of typing\n"
+                "distances.");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Effects")) {
@@ -6138,30 +6099,42 @@ void App::drawLayersSection() {
                 "the zone below, unload it when they leave - GTA-style zone\n"
                 "streaming, no flow graph needed.");
         if (l.autoStream) {
+            // Zone shape: an Area object's box, or the circle below it
+            // (docs/areas.md). The area also bounds Y, so a zone can be one
+            // floor of a building.
             ImGui::SameLine();
-            float center[2] = {l.streamX, l.streamZ};
-            ImGui::SetNextItemWidth(110.0f);
-            if (ImGui::DragFloat2("##zonexz", center, 0.5f, 0.0f, 0.0f, "%.0f")) {
-                l.streamX = center[0];
-                l.streamZ = center[1];
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone center (world X, Z)");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(70.0f);
-            ImGui::DragFloat("##zoner", &l.streamRadius, 0.5f, 1.0f, 4096.0f,
-                             "r %.0f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone radius (world units)");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Center on sel.") && selectedObject_ >= 0 &&
-                selectedObject_ < (int)sc.objects.size()) {
-                l.streamX = sc.objects[selectedObject_].position[0];
-                l.streamZ = sc.objects[selectedObject_].position[2];
-                committed = true;
-            }
+            ImGui::SetNextItemWidth(scaled(150));
+            if (areaCombo("##zonearea", l.streamArea)) committed = true;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Move the zone center to the selected object");
+                ImGui::SetTooltip(
+                    "Zone shape: an Area object's box (bounds height too, and\n"
+                    "follows the area if it moves). <none> = the circle below.");
+            if (l.streamArea.empty()) {
+                ImGui::SameLine();
+                float center[2] = {l.streamX, l.streamZ};
+                ImGui::SetNextItemWidth(scaled(110));
+                if (ImGui::DragFloat2("##zonexz", center, 0.5f, 0.0f, 0.0f, "%.0f")) {
+                    l.streamX = center[0];
+                    l.streamZ = center[1];
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone center (world X, Z)");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(70));
+                ImGui::DragFloat("##zoner", &l.streamRadius, 0.5f, 1.0f, 4096.0f,
+                                 "r %.0f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone radius (world units)");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Center on sel.") && selectedObject_ >= 0 &&
+                    selectedObject_ < (int)sc.objects.size()) {
+                    l.streamX = sc.objects[selectedObject_].position[0];
+                    l.streamZ = sc.objects[selectedObject_].position[2];
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Move the zone center to the selected object");
+            }
         }
         ImGui::PopID();
     }
@@ -6209,8 +6182,98 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Camera: return "Camera";
         case PrimitiveType::Mirror: return "Mirror";
         case PrimitiveType::Portal: return "Portal";
+        case PrimitiveType::Area: return "Area";
     }
     return "Object";
+}
+
+// Area reference picker (docs/areas.md): the scene's Area objects plus
+// <none>. Used for a catch area (Mirror / Portal / feed Camera) and for a
+// streaming layer's zone; a dangling name shows in red so a deleted area is
+// obvious instead of silently catching nothing.
+bool App::areaCombo(const char* label, std::string& ref) {
+    bool changed = false;
+    const bool dangling =
+        !ref.empty() && !project::findArea(project_.objects(), ref);
+    const std::string current = ref.empty() ? "<none>" : ref;
+    if (dangling) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
+    if (ImGui::BeginCombo(label, dangling ? (current + " (missing)").c_str()
+                                          : current.c_str())) {
+        if (ImGui::Selectable("<none>", ref.empty()) && !ref.empty()) {
+            ref.clear();
+            changed = true;
+        }
+        int areas = 0;
+        for (const SceneObject& t : project_.objects()) {
+            if (t.type != PrimitiveType::Area) continue;
+            ++areas;
+            if (ImGui::Selectable(t.name.c_str(), t.name == ref) && ref != t.name) {
+                ref = t.name;
+                changed = true;
+            }
+        }
+        if (!areas)
+            ImGui::TextDisabled("No areas in this scene -\nAdd object > Gameplay > Area.");
+        ImGui::EndCombo();
+    }
+    if (dangling) ImGui::PopStyleColor();
+    return changed;
+}
+
+// The whole catch-area block of a Mirror / Portal / feed Camera: the picker,
+// the "update every frame" switch and the resolved counts. `verb` names what
+// the caught objects get ("re-drawn", "shown", "in the feed") so the same
+// widget reads right in all three panels.
+bool App::catchAreaControls(SceneObject& o, const char* verb) {
+    bool committed = false;
+    if (areaCombo("Catch area", o.catchArea)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Catch every object inside an Area's box (docs/areas.md)\n"
+            "instead of listing them one by one. Resolved at build, so\n"
+            "the geometry cost stays visible; the list below still adds\n"
+            "objects from outside the area.");
+    if (o.catchArea.empty()) return committed;
+    if (ImGui::Checkbox("Update every frame", &o.catchAreaLive)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Off: the volume is emptied into a fixed list at build - an\n"
+            "object that walks in later stays out.\n"
+            "On: objects that can MOVE are re-tested every frame, so they\n"
+            "join and leave the list as they cross the boundary. Only\n"
+            "movable objects pay for it (the count below); the immovable\n"
+            "rest still resolves at build. Watch that count - each one\n"
+            "inside is a second full submission of its geometry.");
+    const std::vector<int> caught = project::areaCaughtObjects(
+        project_.objects(), o.catchArea, selectedObject_);
+    if (!o.catchAreaLive) {
+        ImGui::TextDisabled("Area holds %d object%s (%s once each)",
+                            (int)caught.size(), caught.size() == 1 ? "" : "s",
+                            verb);
+        return committed;
+    }
+    const std::set<std::string> refs =
+        project::runtimeRefNames(project_, project_.objects());
+    const std::vector<int> cands = project::areaLiveCandidates(
+        project_.objects(), selectedObject_, refs);
+    // Movable objects leave the fixed list even when they sit inside right
+    // now - the per-frame test owns them, or they would be drawn twice.
+    int fixed = 0, inside = 0;
+    for (int ci : caught) {
+        bool movable = false;
+        for (int m : cands)
+            if (m == ci) { movable = true; break; }
+        if (movable) ++inside; else ++fixed;
+    }
+    ImGui::TextDisabled("%d fixed + %d of %d movable inside now (%s once each)",
+                        fixed, inside, (int)cands.size(), verb);
+    if (ImGui::IsItemHovered() && !cands.empty()) {
+        std::string list;
+        for (size_t i = 0; i < cands.size(); ++i)
+            list += (i ? "\n" : "") + project_.objects()[cands[i]].name;
+        ImGui::SetTooltip("Re-tested every frame:\n%s", list.c_str());
+    }
+    return committed;
 }
 
 // Edits the object selected in the Project panel / viewport. Only fields the
@@ -6294,6 +6357,21 @@ void App::drawPropertiesWindow() {
                     for (std::string& t : m.portalObjects)
                         if (t == from) t = o.name;
                 }
+            // Area references (docs/areas.md): catch areas, streaming-layer
+            // zones and In Area nodes all point at an area by name.
+            if (o.type == PrimitiveType::Area) {
+                for (SceneObject& m : project_.objects()) {
+                    if (m.catchArea == from) m.catchArea = o.name;
+                    for (FlowNode& fn : m.flowGraph.nodes) {
+                        const FlowNodeType* t = flowNodeType(fn.type);
+                        if (t && t->strKind == FlowParamKind::AreaName &&
+                            fn.str == from)
+                            fn.str = o.name;
+                    }
+                }
+                for (SceneLayer& l : project_.active().layers)
+                    if (l.streamArea == from) l.streamArea = o.name;
+            }
         }
     }
 
@@ -6483,18 +6561,21 @@ void App::drawPropertiesWindow() {
     // Portal: transform places the surface (+Z = the visible/entry face),
     // color tints an inactive surface; the portal block sits further down.
     const bool isPortal = o.type == PrimitiveType::Portal;
+    // Area: the transform IS the volume (scale = the box size), color tints
+    // its wireframe. Nothing else applies - it has no geometry in the game.
+    const bool isArea = o.type == PrimitiveType::Area;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
         o.type == PrimitiveType::Emitter) {
-        ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
+        ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // How big that actually is. A primitive is a UNIT shape, so its scale
         // is its size in world units - and the world scale turns that into
@@ -6520,7 +6601,7 @@ void App::drawPropertiesWindow() {
     // texture tint for decals, marker/frustum tint for camera entities, glass
     // tint for mirrors, inactive-surface tint for portals. The remaining
     // markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -6695,6 +6776,48 @@ void App::drawPropertiesWindow() {
                 "receives shadows from others. Rebuild to see it in-game.");
     }
 
+    if (isArea) {
+        ImGui::SeparatorText("Area");
+        ImGui::TextDisabled(
+            "An invisible box: this wireframe is its whole appearance and the\n"
+            "game draws nothing. Nobody collides with it. Point things at it\n"
+            "by name instead of typing distances:");
+        ImGui::BulletText("A streaming layer's zone (Project panel > Layers)");
+        ImGui::BulletText("A mirror / portal / camera feed's target list");
+        ImGui::BulletText("The In Area flow trigger (Triggers > In Area)");
+        // What references it, so deleting/resizing one is not a guess.
+        std::vector<std::string> users;
+        for (const SceneObject& t : project_.objects())
+            if (t.catchArea == o.name)
+                users.push_back(t.name + (t.catchAreaLive ? " (live)" : ""));
+        for (const SceneLayer& l : project_.active().layers)
+            if (l.streamArea == o.name) users.push_back("layer " + l.name);
+        for (const SceneObject& t : project_.objects())
+            for (const FlowNode& n : t.flowGraph.nodes)
+                if (n.type == "InArea" && n.str == o.name)
+                    users.push_back(t.name + " (In Area)");
+        if (users.empty()) {
+            ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f),
+                               "Nothing references this area yet.");
+        } else {
+            std::string list;
+            for (size_t i = 0; i < users.size(); ++i)
+                list += (i ? ", " : "") + users[i];
+            ImGui::TextDisabled("Used by: %s", list.c_str());
+        }
+        // Catch preview: the same call codegen bakes with.
+        const std::vector<int> caught =
+            project::areaCaughtObjects(project_.objects(), o.name, -1);
+        ImGui::TextDisabled("Catches %d object%s as a target list",
+                            (int)caught.size(), caught.size() == 1 ? "" : "s");
+        if (ImGui::IsItemHovered() && !caught.empty()) {
+            std::string list;
+            for (size_t i = 0; i < caught.size(); ++i)
+                list += (i ? "\n" : "") + project_.objects()[caught[i]].name;
+            ImGui::SetTooltip("%s", list.c_str());
+        }
+    }
+
     if (isMirror) {
         ImGui::SeparatorText("Mirror");
         ImGui::TextDisabled(
@@ -6738,6 +6861,10 @@ void App::drawPropertiesWindow() {
             o.collisionMode = solid ? 0 : 2;
             committed = true;
         }
+        // Area instead of (or on top of) the hand-built list: everything the
+        // volume holds reflects. The count is what the game re-draws - fixed
+        // at build unless "Update every frame" is on.
+        if (catchAreaControls(o, "re-drawn")) committed = true;
         ImGui::TextUnformatted("Reflected objects:");
         int removeAt = -1;
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i) {
@@ -6845,6 +6972,7 @@ void App::drawPropertiesWindow() {
                 "draw distances trim the cost, but big scenes pay a second\n"
                 "submission pass - watch the FPS/profiler before shipping.");
         } else {
+        if (catchAreaControls(o, "shown")) committed = true;
         ImGui::TextUnformatted("Objects visible through:");
         int removePortalAt = -1;
         for (size_t i = 0; i < o.portalObjects.size(); ++i) {
@@ -7049,6 +7177,7 @@ void App::drawPropertiesWindow() {
                 "(the first enabled one wins).");
             if (ImGui::Checkbox("Show terrain in feed", &o.camFeedTerrain))
                 committed = true;
+            if (catchAreaControls(o, "in the feed")) committed = true;
             ImGui::TextUnformatted("Objects in feed:");
             int removeAt = -1;
             for (size_t i = 0; i < o.camFeedObjects.size(); ++i) {
@@ -7361,7 +7490,7 @@ void App::drawPropertiesWindow() {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s - not found",
                                    o.scripts[i].c_str());
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("No TYRA_OBJECT_SCRIPT(%s) in src\\scripts\\*.cpp\n"
+                    ImGui::SetTooltip("No TYRA_OBJECT_SCRIPT(%s) in src/scripts/*.cpp\n"
                                       "- the game skips it (with a log line).",
                                       o.scripts[i].c_str());
             }
@@ -7388,7 +7517,7 @@ void App::drawPropertiesWindow() {
             }
             if (!any)
                 ImGui::TextDisabled(registered.empty()
-                                        ? "No object scripts in src\\scripts yet."
+                                        ? "No object scripts in src/scripts yet."
                                         : "Every script is already attached.");
             ImGui::EndCombo();
         }
@@ -7432,7 +7561,7 @@ void App::drawMultiProperties() {
     ImGui::Text("%d objects selected", (int)objs.size());
     {
         std::string tally;
-        for (int t = 0; t <= (int)PrimitiveType::Empty; ++t) {
+        for (int t = 0; t < kPrimitiveTypeCount; ++t) {
             int n = 0;
             for (auto* p : objs)
                 if ((int)p->type == t) ++n;
@@ -7462,6 +7591,8 @@ void App::drawMultiProperties() {
         const bool decal = o.type == PrimitiveType::Decal;
         const bool mirror =
             o.type == PrimitiveType::Mirror || o.type == PrimitiveType::Portal;
+        // Areas: transform + color are the whole object (the box and its wire).
+        const bool area = o.type == PrimitiveType::Area;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -7478,12 +7609,12 @@ void App::drawMultiProperties() {
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot && (solid || empty || decal || mirror ||
+        allRot = allRot && (solid || empty || decal || mirror || area ||
                             o.type == PrimitiveType::Camera ||
                             (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
-        allScale = allScale && (solid || empty || decal || mirror ||
+        allScale = allScale && (solid || empty || decal || mirror || area ||
                                 o.type == PrimitiveType::Emitter);
-        allColor = allColor && (solid || empty || decal || mirror ||
+        allColor = allColor && (solid || empty || decal || mirror || area ||
                                 o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::PointLight ||
                                 o.type == PrimitiveType::Camera);
@@ -8266,6 +8397,11 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::AreaName) {
+            // In Area: pick one of the scene's Area objects (docs/areas.md).
+            if (areaCombo("Area", n.str)) changed = true;
+            if (n.str.empty())
+                ImGui::TextDisabled("Pick an area - the node\ncompiles out without one.");
         } else if (t->strKind == FlowParamKind::SaveValue) {
             if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SaveValue& v : project_.saveValues) {
@@ -8963,6 +9099,13 @@ void App::drawFlowGraphWindow() {
                     if (t.strKind == FlowParamKind::LayerName &&
                         !project_.active().layers.empty())
                         n.str = project_.active().layers.front().name;
+                    // In Area starts on the scene's first area, if any.
+                    if (t.strKind == FlowParamKind::AreaName)
+                        for (const SceneObject& a : project_.objects())
+                            if (a.type == PrimitiveType::Area) {
+                                n.str = a.name;
+                                break;
+                            }
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
                     if (std::string(t.key) == "Raycast") n.num[0] = 50.0f;  // max dist
@@ -9016,9 +9159,8 @@ std::string App::installVsCodeExtension() {
     // silently ignored - which is why the earlier folder-copy install did
     // nothing and printed nothing. `code --install-extension <vsix>` registers
     // it properly.
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0)
-        return "Could not locate the editor executable";
+    const std::string exePath = platform::exePath();
+    if (exePath.empty()) return "Could not locate the editor executable";
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
         std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
@@ -9032,24 +9174,15 @@ std::string App::installVsCodeExtension() {
     if (vsix.empty())
         return "VS Code extension package not found (tools/vscode-tyrax/*.vsix)";
 
-    // `code` is a .cmd shim, so route through cmd.exe (same as openInVSCode).
-    // Run it synchronously so we can report the real outcome; --force reinstalls
-    // in place, so this is idempotent.
-    std::string cmd =
-        "cmd.exe /S /C \"code --install-extension \"" + vsix.string() + "\" --force\"";
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::string mutableCmd = cmd;
-    if (!CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE,
-                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+    // Run it synchronously so we can report the real outcome; --force
+    // reinstalls in place, so this is idempotent. The command goes through the
+    // platform shell, which always starts - so a missing CLI is detected up
+    // front rather than read off a spawn failure that cannot happen.
+    if (!platform::commandExists("code"))
         return "Could not run VS Code's 'code' CLI - is it on PATH?";
-    WaitForSingleObject(pi.hProcess, 60000);
-    DWORD exitCode = 1;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    if (exitCode != 0)
+    auto proc = platform::Process::start("code --install-extension " +
+                                         platform::shellArg(vsix.string()) + " --force");
+    if (!proc || proc->wait() != 0)
         return "VS Code extension install failed - is the 'code' CLI on PATH? "
                "(VS Code: Shell Command: Install 'code' in PATH)";
     return "TyraX VS Code extension installed - reload the VS Code window if it "
@@ -9065,33 +9198,19 @@ void App::openInVSCode(const std::string& file) {
         vsCodeExtStatus_ = installVsCodeExtension();
     }
 
-    // `code` is a .cmd shim, so it has to go through cmd.exe. Passing the
-    // project dir opens (or reuses) that workspace; an extra file path opens it
-    // in the same window (-g = goto), so we can jump straight to a script or a
-    // custom-node file while keeping the whole project in context.
-    std::string cmd = "cmd.exe /S /C \"code \"" + project_.dir + "\"";
+    std::string abs;
     if (!file.empty()) {
         std::filesystem::path fp(file);
-        const std::string abs =
-            fp.is_absolute() ? fp.string()
-                             : (std::filesystem::path(project_.dir) / fp).string();
-        cmd += " -g \"" + abs + "\"";
+        abs = fp.is_absolute() ? fp.string()
+                               : (std::filesystem::path(project_.dir) / fp).string();
     }
-    cmd += "\"";
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::string mutableCmd = cmd;
-    if (CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                       nullptr, project_.dir.c_str(), &si, &pi)) {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+    if (const std::string err = platform::openInVSCode(project_.dir, abs); !err.empty()) {
+        statusMessage_ = err;
+    } else {
         statusMessage_ = "Opening in VS Code...";
         // Append the extension-install outcome so it is visible (a failure here
         // is the difference between highlighting working or not).
         if (!vsCodeExtStatus_.empty()) statusMessage_ += "  [" + vsCodeExtStatus_ + "]";
-    } else {
-        statusMessage_ = "Could not launch VS Code (is 'code' on PATH?)";
     }
 }
 
@@ -9202,12 +9321,14 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
 // (existence-checked) / import a new TTF. Returns true when fontPath changed.
 bool App::fontSourceCombo(std::string& fontPath) {
     bool changed = false;
-    std::string current = "Default (Consolas Bold)";
+    const std::string defaultLabel =
+        std::string("Default (") + platform::defaultFontLabel() + ")";
+    std::string current = defaultLabel;
     if (!fontPath.empty())
         current = std::filesystem::path(fontPath).filename().string();
     ImGui::SetNextItemWidth(scaled(200.0f));
     if (ImGui::BeginCombo("Source", current.c_str())) {
-        if (ImGui::Selectable("Default (Consolas Bold)", fontPath.empty())) {
+        if (ImGui::Selectable(defaultLabel.c_str(), fontPath.empty())) {
             fontPath.clear();
             changed = true;
         }
@@ -9231,28 +9352,11 @@ bool App::fontSourceCombo(std::string& fontPath) {
                 }
             }
         }
-        // stock Windows fonts (bare file name - resolved via \Windows\Fonts)
-        struct SysFont {
-            const char* label;
-            const char* file;
-        };
-        static const SysFont kSysFonts[] = {
-            {"Arial Bold", "arialbd.ttf"},
-            {"Comic Sans MS Bold", "comicbd.ttf"},
-            {"Courier New Bold", "courbd.ttf"},
-            {"Georgia Bold", "georgiab.ttf"},
-            {"Impact", "impact.ttf"},
-            {"Segoe UI Bold", "segoeuib.ttf"},
-            {"Times New Roman Bold", "timesbd.ttf"},
-            {"Trebuchet MS Bold", "trebucbd.ttf"},
-            {"Verdana Bold", "verdanab.ttf"},
-        };
-        char windir[MAX_PATH] = {};
-        GetWindowsDirectoryA(windir, MAX_PATH);
-        for (const SysFont& sf : kSysFonts) {
-            const std::filesystem::path p =
-                std::filesystem::path(windir) / "Fonts" / sf.file;
-            if (!std::filesystem::exists(p, ec)) continue;
+        // stock system fonts, stored as a bare file name and resolved through
+        // platform::systemFontPath at bake time. Existence-checked, so the list
+        // only ever offers what this machine actually has.
+        for (const platform::SystemFont& sf : platform::systemFonts()) {
+            if (platform::systemFontPath(sf.file).empty()) continue;
             if (ImGui::Selectable(sf.label, fontPath == sf.file)) {
                 fontPath = sf.file;
                 changed = true;
@@ -20337,14 +20441,15 @@ void App::drawScriptsSection() {
 
     // Render folders first (open by default), then files. TreeNodeEx pushes an
     // ID scope per folder, so same-named files in different folders don't
-    // collide. prefix carries the src\scripts-relative path for opening.
+    // collide. prefix carries the src/scripts-relative path for opening -
+    // forward slashes, because it is handed on as a path, not as display text.
     std::function<void(const ScriptNode&, const std::string&)> drawNode =
         [&](const ScriptNode& n, const std::string& prefix) {
             for (const auto& [name, child] : n.folders) {
                 if (ImGui::TreeNodeEx(name.c_str(),
                                       ImGuiTreeNodeFlags_DefaultOpen |
                                           ImGuiTreeNodeFlags_SpanAvailWidth)) {
-                    drawNode(child, prefix + name + "\\");
+                    drawNode(child, prefix + name + "/");
                     ImGui::TreePop();
                 }
             }
@@ -20354,7 +20459,7 @@ void App::drawScriptsSection() {
                 ImGui::Bullet();
                 ImGui::SameLine();
                 if (ImGui::Selectable(f.c_str()))
-                    openInVSCode("src\\scripts\\" + prefix + f);
+                    openInVSCode("src/scripts/" + prefix + f);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Open in VS Code");
             }
@@ -20375,7 +20480,7 @@ void App::drawNewScriptModal() {
         return;
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-    ImGui::TextDisabled("Creates src\\scripts\\%s.cpp (subfolders allowed: ai/guard)",
+    ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
                         newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
@@ -22201,6 +22306,15 @@ void App::drawPreferencesModal() {
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
         "~1s). Stripped from release builds.");
     ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
+        "box, the way the editor viewport shows it. Areas have no geometry on\n"
+        "the console by design, which is exactly why \"why did that layer not\n"
+        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
+        "puts the volume back on screen. Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();
     prefHelp(
@@ -22640,7 +22754,8 @@ void App::drawEditorPreferencesModal() {
 
     ImGui::TextDisabled(
         "Settings for this editor installation - shared by every project and\n"
-        "stored outside the .tyra file (in editor.ini under %%LOCALAPPDATA%%).");
+        "stored outside the .tyra file (in editor.ini, next to the other machine "
+        "settings).");
 
     ImGui::SeparatorText("New projects");
     ImGui::InputText("Default folder", prefDefaultProjectsDir_,
@@ -22700,7 +22815,7 @@ void App::drawEditorPreferencesModal() {
     ImGui::TextDisabled(
         "Where projects you JOIN materialize (re-joins reuse it, so unchanged\n"
         "files never transfer twice). Leave empty for\n"
-        "%%LOCALAPPDATA%%\\tyra-editor\\remote-cache.");
+        "the editor config folder (remote-cache).");
 
     ImGui::SeparatorText("AI assistant");
     {
@@ -23151,6 +23266,6 @@ void App::openProjectDialog() {
         runner_.clearLog();
         // Surface the error in the Output window via the runner log is hacky;
         // show a popup instead on next frame. Simple approach: message box.
-        MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+        platform::errorBox("Open Project", err);
     }
 }

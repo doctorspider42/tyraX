@@ -1,7 +1,6 @@
 #include "aigen.hpp"
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "platform.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -90,6 +89,8 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AmbienceName:
             return "ambience preset name (see context)";
         case FlowParamKind::LayerName: return "streaming layer name (see context)";
+        case FlowParamKind::AreaName:
+            return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
@@ -270,6 +271,14 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     ctxLine("Scenes", nameList(p.scenes, [](const SceneData& s) { return s.name; }));
     ctxLine("Streaming layers (this scene)",
             nameList(sc.layers, [](const SceneLayer& l) { return l.name; }));
+    {
+        // Areas are objects, so they are listed above too - called out
+        // separately because In Area's str only accepts these.
+        std::vector<std::string> areas;
+        for (const SceneObject& obj : sc.objects)
+            if (obj.type == PrimitiveType::Area) areas.push_back(obj.name);
+        ctxLine("Areas (invisible volumes, for In Area)", nameList(areas, id));
+    }
     ctxLine("Music tracks", nameList(p.music, id));
     ctxLine("Sound effects", nameList(p.sounds, id));
     ctxLine("Save values",
@@ -552,13 +561,10 @@ void Generator::finish(State s, const std::string& reply, const std::string& err
 void Generator::cancel() {
     if (!busy()) return;
     cancelRequested_ = true;
-    std::lock_guard<std::mutex> lock(jobMutex_);
-    // Closing a kill-on-close job terminates every process in it - the cmd.exe
-    // wrapper AND the node/curl children (TerminateProcess on cmd alone would
-    // orphan a token-burning backend).
-    if (job_) {
-        TerminateJobObject((HANDLE)job_, 1);
-    }
+    std::lock_guard<std::mutex> lock(procMutex_);
+    // Kills the whole tree - the shell wrapper AND the node/curl children.
+    // Killing the wrapper alone would orphan a token-burning backend.
+    if (proc_) proc_->kill();
 }
 
 // Writes `content` to a fresh file in the system temp dir; returns its path
@@ -569,7 +575,7 @@ static std::string writeTempFile(const char* tag, const std::string& content) {
     const fs::path dir = fs::temp_directory_path(ec);
     if (ec) return "";
     static std::atomic<int> counter{0};
-    const fs::path path = dir / ("tyrax-ai-" + std::to_string(GetCurrentProcessId()) +
+    const fs::path path = dir / ("tyrax-ai-" + std::to_string(platform::processId()) +
                                  "-" + std::to_string(++counter) + "-" + tag);
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (!f) return "";
@@ -628,7 +634,7 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
                 return;
             }
             tempFiles = {bodyFile, cfgFile};
-            cmdline = "curl.exe --config \"" + cfgFile + "\"";
+            cmdline = "curl --config " + platform::shellArg(cfgFile);
         } else {
             // CLI backends read the whole prompt (instructions + request)
             // from stdin via a redirect.
@@ -643,90 +649,48 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
             if (cfg.backend == "copilot") {
                 cmdline = "copilot -p \"Follow the instructions piped on "
                           "stdin. Reply with only the JSON they describe.\"";
-                if (!cfg.model.empty()) cmdline += " --model \"" + cfg.model + "\"";
-                cmdline += " < \"" + promptFile + "\"";
+                if (!cfg.model.empty())
+                    cmdline += " --model " + platform::shellArg(cfg.model);
+                cmdline += " < " + platform::shellArg(promptFile);
             } else {  // claude
                 cmdline.clear();
                 // Extended thinking in the claude CLI is budget-driven.
-                if (cfg.thinking) cmdline += "set MAX_THINKING_TOKENS=16000&& ";
+                if (cfg.thinking)
+                    cmdline += platform::envPrefix("MAX_THINKING_TOKENS", "16000");
                 cmdline += "claude -p --output-format text --max-turns 1";
-                if (!cfg.model.empty()) cmdline += " --model \"" + cfg.model + "\"";
-                cmdline += " < \"" + promptFile + "\"";
+                if (!cfg.model.empty())
+                    cmdline += " --model " + platform::shellArg(cfg.model);
+                cmdline += " < " + platform::shellArg(promptFile);
             }
         }
 
-        // --- spawn through cmd.exe (the CLIs are .cmd shims), stdout piped,
-        // stderr to a temp file so interleaving can't corrupt the reply ------
-        SECURITY_ATTRIBUTES sa{};
-        sa.nLength = sizeof(sa);
-        sa.bInheritHandle = TRUE;
-        HANDLE readPipe = nullptr, writePipe = nullptr;
-        if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
-            finish(State::Failed, "", "Could not create an output pipe.");
-            cleanup();
-            return;
-        }
-        SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+        // --- spawn through the platform shell (on Windows the CLIs are .cmd
+        // shims; everywhere the prompt arrives via a stdin redirect), stdout
+        // piped, stderr to a temp file so interleaving can't corrupt the reply.
         const std::string errFile = writeTempFile("stderr.txt", "");
         tempFiles.push_back(errFile);
-        HANDLE errHandle = CreateFileA(errFile.c_str(), GENERIC_WRITE,
-                                       FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
-                                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                                       nullptr);
 
-        STARTUPINFOA si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdOutput = writePipe;
-        si.hStdError = errHandle != INVALID_HANDLE_VALUE ? errHandle : writePipe;
-        si.hStdInput = INVALID_HANDLE_VALUE;
-
-        HANDLE job = CreateJobObjectA(nullptr, nullptr);
-        if (job) {
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
-            info.BasicLimitInformation.LimitFlags =
-                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info,
-                                    sizeof(info));
-        }
-
-        PROCESS_INFORMATION pi{};
-        std::string full = "cmd.exe /S /C \"" + cmdline + "\"";
-        BOOL ok = CreateProcessA(nullptr, full.data(), nullptr, nullptr, TRUE,
-                                 CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
-                                 nullptr, &si, &pi);
-        CloseHandle(writePipe);
-        if (errHandle != INVALID_HANDLE_VALUE) CloseHandle(errHandle);
-        if (!ok) {
-            CloseHandle(readPipe);
-            if (job) CloseHandle(job);
+        platform::Process::Options opts;
+        opts.capture = true;
+        opts.stderrFile = errFile;
+        std::shared_ptr<platform::Process> proc =
+            platform::Process::start(cmdline, opts);
+        if (!proc) {
             finish(State::Failed, "", "Could not start the backend command: " + cmdline);
             cleanup();
             return;
         }
-        if (job) AssignProcessToJobObject(job, pi.hProcess);
         {
-            std::lock_guard<std::mutex> lock(jobMutex_);
-            job_ = job;
+            std::lock_guard<std::mutex> lock(procMutex_);
+            proc_ = proc;
         }
-        ResumeThread(pi.hThread);
 
-        std::string output;
-        char buf[4096];
-        DWORD n = 0;
-        while (ReadFile(readPipe, buf, sizeof(buf), &n, nullptr) && n > 0)
-            output.append(buf, n);
-        CloseHandle(readPipe);
-        WaitForSingleObject(pi.hProcess, INFINITE);
-        DWORD code = 1;
-        GetExitCodeProcess(pi.hProcess, &code);
+        const std::string output = proc->readAll();
+        const int code = proc->wait();
         {
-            std::lock_guard<std::mutex> lock(jobMutex_);
-            job_ = nullptr;
+            std::lock_guard<std::mutex> lock(procMutex_);
+            proc_.reset();
         }
-        if (job) CloseHandle(job);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
 
         std::string errText;
         {

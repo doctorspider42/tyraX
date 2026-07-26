@@ -4,9 +4,13 @@
 #include <string>
 #include <vector>
 
+#include "platform.hpp"
+
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -18,19 +22,42 @@ static std::string trim(const std::string& s) {
     return s.substr(b, s.find_last_not_of(" \t") - b + 1);
 }
 
+// Where PCSX2 keeps its config is genuinely differently SHAPED per OS - a
+// Documents known folder on Windows (beware OneDrive redirection), XDG
+// config/data dirs plus a flatpak sandbox on Linux - so the search stays here
+// rather than moving into platform.cpp, which knows nothing about PCSX2.
 fs::path findIni(const fs::path& exePath) {
     std::error_code ec;
 
-    fs::path portable = exePath.parent_path() / "inis" / "PCSX2.ini";
-    if (fs::exists(portable, ec)) return portable;
+    // Portable install: inis/ next to the executable. Only meaningful when the
+    // caller resolved a real path (a bare "pcsx2-qt" from PATH has none).
+    if (exePath.has_parent_path()) {
+        fs::path portable = exePath.parent_path() / "inis" / "PCSX2.ini";
+        if (fs::exists(portable, ec)) return portable;
+    }
 
+    std::vector<fs::path> candidates;
+#ifdef _WIN32
     PWSTR docs = nullptr;
-    fs::path ini;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docs)))
-        ini = fs::path(docs) / "PCSX2" / "inis" / "PCSX2.ini";
+        candidates.push_back(fs::path(docs) / "PCSX2" / "inis" / "PCSX2.ini");
     CoTaskMemFree(docs);
-
-    if (!ini.empty() && fs::exists(ini, ec)) return ini;
+#else
+    const fs::path home = platform::homeDir();
+    if (const char* xdg = getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+        candidates.push_back(fs::path(xdg) / "PCSX2" / "inis" / "PCSX2.ini");
+    else if (!home.empty())
+        candidates.push_back(home / ".config" / "PCSX2" / "inis" / "PCSX2.ini");
+    if (!home.empty()) {
+        // Flatpak keeps its own XDG tree inside the sandbox's data dir.
+        candidates.push_back(home / ".var" / "app" / "net.pcsx2.PCSX2" / "config" /
+                             "PCSX2" / "inis" / "PCSX2.ini");
+        // Older AppImage/self-contained layouts.
+        candidates.push_back(home / "PCSX2" / "inis" / "PCSX2.ini");
+    }
+#endif
+    for (const fs::path& c : candidates)
+        if (!c.empty() && fs::exists(c, ec)) return c;
     return {};
 }
 

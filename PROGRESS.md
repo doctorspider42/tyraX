@@ -262,6 +262,274 @@ Each finished feature lands as its own commit.
   window once here, which is exactly why the keyboard checks above now assert
   `GetForegroundWindow()` first). Worth a human pass with a real pad: open the
   pause menu, pick a row, press a button.
+- (187) **The editor is cross-platform: it builds and runs on Linux from the
+  same source tree.** The whole thing was Windows-only, and not incidentally -
+  `CreateProcess` + Job Objects drove the Runner and the AI generator,
+  comdlg32/`IFileOpenDialog` were the file pickers, `ShellExecute` was "Reveal
+  in Explorer", `%LOCALAPPDATA%` held editor.ini / the session remote-cache /
+  the exported PS2SDK headers, `\Windows\Fonts` resolved every baked font, and
+  `GetModuleFileName` was how anything found the bundled engine or `tools/`.
+  Rather than `#ifdef` ~40 call sites, all of it moved behind one new module,
+  **`src/platform.hpp/.cpp`**, and the call sites became platform-blind. What
+  it covers: `exePath`/`configDir`/`homeDir`/`userName`/`exeSuffix`/`processId`,
+  `sleepMs`/`logTimeStamp`, the shell-fragment helpers (`quiet`, `killByName`,
+  `envPrefix`, `commandExists`), a `Process` class, the pickers
+  (`pickFile`/`pickFolder`/`errorBox`), `revealInFileManager`, `openInVSCode`,
+  and the font lookup (`systemFontPath`/`systemFonts`/`fallbackFontFiles`).
+  **The load-bearing piece is `platform::Process`**: one shell command line
+  (`cmd.exe /S /C` vs `/bin/sh -c`), optional stdout capture, optional stderr
+  to a file, and a `kill()` that takes down the whole TREE - a Job Object on
+  Windows, a `setsid()` process group on POSIX. That last part is not a detail:
+  the shell wrapper is never the process doing the work (docker, make, node,
+  curl, ps2client), so killing only the wrapper is how Cancel used to leave a
+  token-burning backend or a port-holding file server behind. Two subsystems
+  deliberately did NOT move into it, each saying so in a comment: the socket
+  shims in `wire.cpp` (Winsock2 *is* BSD sockets with other spellings - routing
+  them through platform.hpp would mean re-inventing a socket API, so the
+  Winsock names are mapped onto POSIX in place and the transport is written
+  once), and PCSX2 discovery in `runner.cpp` / `pcsx2_config.cpp` (two Program
+  Files roots vs PATH + flatpak + an AppImage in `~/Applications`; the .ini is
+  a Documents known folder vs XDG dirs plus the flatpak sandbox - genuinely
+  different SHAPES, and platform.cpp has no business knowing what PCSX2 is).
+  Everything else is a one-line swap. Beyond the mechanical port, four things
+  had to be decided rather than translated: **file dialogs** have no portable
+  native answer on Linux, so they shell out to zenity (kdialog as fallback) and
+  the filter lists moved from wide double-NUL comdlg strings to a plain
+  `FileFilter` struct both back-ends build from - the Executable filter now
+  asks `platform::exeSuffix()` so it is not `*.exe` on a machine where
+  executables have no extension; **fonts** keep storing a bare file name, but
+  resolution goes through a lazily-built filename→path index over the
+  freedesktop font roots, and a project authored on the other OS falls back
+  through the platform chain instead of failing the bake (this is what makes
+  `.tyra` files portable in practice); **`localIPv4`** switched to `getifaddrs`
+  on POSIX, because the gethostname route the Windows build uses answers
+  `127.0.1.1` and nothing else on the many distros that put the host name in
+  `/etc/hosts` - which would have left the collaboration and phone-camera
+  panels with no address to show; and **SIGPIPE is ignored process-wide** from
+  a static in platform.cpp, since both a dying child's pipe and a vanished
+  session peer would otherwise kill the editor outright (`send` also passes
+  `MSG_NOSIGNAL` where it exists). Build side: CMake links `OpenGL::GL` +
+  Threads + `${CMAKE_DL_LIBS}` off Windows and keeps shell32/ole32/uuid/ws2_32
+  on it, and `deps.sh`/`setup.sh`/`build.sh` mirror the PowerShell trio
+  one-for-one - same single-source dependency list, same "missing dep runs
+  setup" guard, plus an up-front toolchain/pkg-config check that names the
+  exact install command instead of failing later inside cmake. The POSIX side
+  has one thing the PowerShell trio does not need: **`./setup.sh --deps`**
+  installs the system toolchain and the X11/Wayland/GL headers, because on
+  Windows they come from scoop (per-user) while here they are distro packages.
+  deps.sh carries one list per family (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/
+  `_zypper`) plus the two helpers both scripts share - `tyrax_system_packages`
+  picks the manager, `tyrax_root_prefix` picks sudo or, when there is no tty to
+  authenticate in, **pkexec** (which asks in the desktop's own dialog; that is
+  how this whole port got bootstrapped on a box where `sudo` could not prompt).
+  It is opt-in rather than part of plain `setup.sh` because it is the only step
+  that needs root. `zenity` is in the lists because the file dialogs shell out
+  to it - build.sh warns about a missing one but never blocks, since the editor
+  builds and runs fine without it, it just cannot open anything.
+  **Six real bugs fell out of actually running it, every one invisible on
+  Windows.** (1) `templates::File::relativePath` is `'\'`-separated (hundreds
+  of literals compare against it that way) and was handed straight to
+  `std::filesystem` - on POSIX a backslash is an ordinary FILENAME character,
+  so a fresh project came out as ~30 files literally called
+  `src\gen\flow_graph.gen.cpp` instead of a directory tree. Fixed at the four
+  places a relativePath meets the file system, via a new
+  `templates::nativePath()`; the string comparisons are untouched. (2) The same
+  trap one level up: `p.dir + "\" + relPath` was how EVERY project-relative
+  asset was opened (models in decalproj/navmesh/templates, menu images, the
+  `.mtl` and LOD tiers) plus `Project::elfPath()`. On Linux each of those named
+  a file that does not exist, so nothing would have loaded and PCSX2 was told
+  to boot `.../linuxtest\bin\linuxtest.elf`. There is now one
+  `Project::filePath(rel)` and no hand-joins left. (3) The build's in-container
+  shell scripts are nested inside the command line, and cmd.exe expands
+  nothing - `/bin/sh` expands `$(...)`/`${...}` inside double quotes on the
+  HOST, which emptied every variable in the sfx loop ("dirname: missing
+  operand", so `adpenc` never ran) and evaluated `$(nproc)` against the wrong
+  machine. New `platform::shellArg()` quotes anything the outer shell must not
+  touch, and every nested script and path argument goes through it. (4) The
+  container runs as root, so on a plain Linux Docker everything the copy-back
+  rsync wrote into the bind-mounted project came out root-owned - the user
+  could not delete their own `bin/` without sudo (`rm -rf bin` failed on every
+  file while proving this). The copy-back now passes
+  `--chown=$(platform::containerFileOwner())`, empty on Windows where Docker
+  Desktop maps ownership itself. (5) A non-blocking `connect()` reports
+  WSAEWOULDBLOCK on Winsock and **EINPROGRESS** on POSIX, so every
+  collaboration client and phone-camera connection was rejected the instant it
+  was made; the socket harness below caught it. (6) Projects shipped `run.ps1`
+  + `windows-pcsx2.ps1` and nothing for anyone else, so a generated project got
+  a `run.sh` twin (PATH / flatpak / AppImage probing, same kill-then-launch
+  shape) - and `writeFile` now adds the execute bits to any generated `.sh`,
+  since a file mode is not something a template can express. Both scripts are
+  emitted regardless of authoring OS: a project is portable, so the helper for
+  the *other* machine has to be in it.
+  One pre-existing limit also surfaced, because Linux runs into it far sooner
+  than Windows: **PCSX2's host: loader silently refuses a long ELF path** - it
+  logs `ELF Loading: ...` and the EE never reaches `is executing`, leaving a
+  black window and no clue. Bisected on this box: 145 characters boot, 147 do
+  not (the `host:` prefix puts that at a 150-byte buffer). A home directory
+  plus a deep project tree passes 145 much sooner than
+  `C:\Users\<name>\TyraProjects\<project>` does, so `launchPCSX2` now says
+  so in the Output panel instead of letting the user stare at it.
+  *Verified* on Ubuntu 26.04 (GNOME/Wayland, a box with no toolchain, no
+  Docker and no compiler to start with), all the way to a running game:
+  - `./setup.sh --deps` installed the toolchain and the X11/Wayland/GL headers
+    through apt (pkexec, since sudo-rs had no tty to ask in), and `./build.sh`
+    from a bare tree fetched every `vendor/` dependency and produced
+    `build/tyrax-editor` (101 targets, clean, `--clean` rebuild too). The
+    diagnostic path was exercised too, by running build.sh with a stripped
+    PATH: it names the missing tools and prints `./setup.sh --deps` plus the
+    literal apt command for this distro.
+  - Headless CLI end to end: `--new` created an FPP project whose tree is now
+    real directories (`src/gen/…`, `inc/scripts/…`, `objects/<id>.json`) with
+    an executable `run.sh` that passes `bash -n`, then `--refresh-gen`,
+    `--resave`, `--dump` (correct JSON: one `player-1`, terrain 64x64) and
+    `--list-nodes` (112 lines).
+  - A **socket harness** (`wire.cpp` + `platform.cpp` linked against a 90-line
+    `main()`, the pattern the collaboration tests already use) ran a listening
+    and a connecting transport in one process over 127.0.0.1: connect, a frame
+    each way byte-identical including a 1 KiB binary trailer, the disconnect
+    event, the WebSocket server's "a plain browser GET never becomes a peer"
+    contract, and `localIPv4()` returning a real LAN address. This is what
+    caught the EINPROGRESS bug - it failed 6 of 13 checks first.
+  - The GUI runs natively on Wayland: EGL/mesa mapped, `/dev/dri/renderD128`
+    open, 9 threads, steady CPU at vsync. (No screenshot - GNOME 45+ denies
+    every non-Shell screenshot path; see tyra-testing for what stands in.)
+  - **Full e2e**: `--build --run` pulled the `h4570/tyra` image, compiled
+    libtyra and the game with the PS2DEV toolchain, converted a test WAV with
+    `adpenc` into `bin/sfx/steps/blip.adpcm`, copied `bin/` back host-owned,
+    enabled `HostFs` + the USB keyboard/mouse ports in the distro PCSX2's ini,
+    and launched it. The game **boots and runs**: emulog says `ELF ... is
+    executing`, and `bin/log.txt` over host: shows the engine coming up
+    (audsrv, renderer, pad, save system), `Hello from TyraX!` from the example
+    script, and `VRAMSTAT f=240` - 240 rendered frames, no TYRA assert.
+  **Not verified**: the Windows build after the refactor (needs a Windows box -
+  every `#ifdef _WIN32` branch here is written but uncompiled), and the real-PS2
+  network deploy (no console on this LAN).
+
+- (186) **Two things the owner hit while playing with areas: the unload band was
+  eight units of "why is this still loaded", and you cannot debug an invisible
+  volume.** (1) A streaming layer on an area zone loaded the instant you entered
+  but unloaded only after walking well past the edge. Cause: the area branch
+  reused the CIRCLE's hysteresis - a flat `ZONE_HYSTERESIS = 8.0` added to the
+  half extent on every axis, i.e. eight units into the next room before the
+  layer went. That constant makes sense for a radius (a guess about where the
+  room is) and no sense for a box the author drew, so the box now grows by the
+  same 15% the circle applies to `r` plus half a unit per side - enough that
+  pacing ON the edge cannot thrash the loader, small enough that the boundary
+  means what it looks like. (2) New debug preference **Show areas**
+  (`Settings::showAreas` -> `DEBUG_SHOW_AREAS`, debug profile only, next to Show
+  FPS / memory / profiler): area objects render in the GAME as wireframe boxes.
+  Implemented as twelve thin beams through the ordinary `addBox` - an edge IS a
+  box (length on one axis, thickness on the other two, parked at one of four
+  parallel corners), which keeps the transform, lighting and vertex format
+  identical to every other primitive and needed no new mesh code. A wireframe
+  and not a translucent solid on purpose: a filled volume hides the objects you
+  opened it to look at. `rebuildObjectGeometry`'s `case 17` emits nothing at all
+  when the constexpr is false, so a release build is byte-identical.
+  Verified in PCSX2. The band: a fixture with a 10x6x10 zone parked on the
+  player and a flow graph gliding it away at 3 u/s (no pad input needed - the
+  area moves, the player stands still) logged the live centre offset every 15
+  frames: `in=1` up to centerDZ 4.48, `in=0 resident=1` at 5.80, unloaded by
+  7.23 - the band edge is 6.25 (half of 10*1.15+1), so the overshoot past the
+  authored wall went from 8 units to ~1.25. The wireframe: screenshot of a
+  10x6x10 area yawed 20 degrees, drawn green around the red box it contains,
+  50 FPS. Flag off -> `DEBUG_SHOW_AREAS = false` and no geometry.
+
+- (185) **Catch areas can update every frame: walk into a mirror's area and you
+  start reflecting.** (184) resolved catch areas at build on purpose - the
+  Mirror philosophy - and the owner immediately hit the other half of it: a
+  crate that rolls in front of the glass, or the player stepping up to it,
+  never joined the reflection. New per-object switch `catchAreaLive` (a
+  checkbox under the picker on Mirror / Portal / feed Camera) re-tests the
+  volume every frame instead. The whole design is about paying for it only
+  where it is real:
+  **only objects that can MOVE are re-tested.** `project::areaLiveCandidates`
+  over `project::objectRuntimeMovable` (physics / pickable / usable /
+  save-state / layer member / own graph or script / named by a flow node,
+  cutscene track or target list) is the candidate set; it bakes into a shared
+  `CATCH_CANDIDATES` table sliced per owner (`liveArea`/`firstCand`/`candCount`
+  on MirrorData, PortalData, CamFeedData) and whatever the volume holds that
+  CANNOT move stays resolved at build in the fixed list. A static room adds
+  nothing to the per-frame work. The pleasant surprise while scoping this: that
+  movable predicate is the exact complement of the immovability
+  `staticBatchEligible` relies on, so **static batching needed no change at
+  all** - a live candidate always already has the solo bag a second submission
+  needs (`batchBlockedNames` now blocks the candidate names too, explicitly,
+  so the two cannot drift). Movable objects are dropped FROM the baked list, or
+  an object sitting inside at build would be submitted twice.
+  `pointInArea` was split into `areaBasis` (center + rotated axes + half
+  extents, computed ONCE per pass, and short-circuiting the six trig calls when
+  the area is unrotated - the usual case) and `areaDistSq`, so a candidate
+  costs three dot products; `TerrainGame::collectLiveCaught` walks a slice into
+  a reused member vector and also scans the **spawn pool**, which no build-time
+  table can name. Portals run the same test in `portalCanCross` /
+  `portalShowsObject`, so the owner's rule (a portal that shows it lets it
+  through) survives. Raytraced mirrors ignore the flag - their VU0 proxies are
+  meshes baked per mirror; `portalViewAll` ignores it too. The player follows
+  *Reflect player* AND the volume. No cap on the caught count: the panel prints
+  `N fixed + K of M movable inside now` and the author watches it (explicitly
+  the owner's call - "trzeba uważać, co się robi").
+  Verified e2e in PCSX2 (Docker build clean under `-Wall`, 50 FPS): a fixture
+  mirror with a live area over three crates - one immovable, one physics body
+  inside, one physics body dropped from y=12 - logged the live set every 30
+  frames as `n=1 [4,-1]` while the third fell (dropY 11.99 -> 10.05 -> 4.58,
+  still outside: the box top is y=4 and the catch sphere is 0.5) and flipped to
+  `n=2 [4,5]` at dropY=1.57, holding there after it landed. Screenshot shows
+  all three reflected behind the glass. Codegen inspected both ways from one
+  fixture: live on -> `MIRRORS {..., liveArea 1, firstCand 0, candCount 2}`,
+  `MIRROR_TARGETS = {3}` (only the immovable crate), `CATCH_CANDIDATES = {4,5}`
+  (including the crate far outside - a candidate is about *can it move*, not
+  *is it inside*); flag off -> `liveArea -1`, `candCount 0`,
+  `MIRROR_TARGETS = {3,4}`, i.e. byte-for-byte the old behavior. All 18
+  committed example projects regenerated (they had also drifted behind (184) -
+  the generated headers gained the Area code that commit never re-emitted).
+  Editor-side visuals (the new checkbox and the count line) still want a human
+  look, same AMD-GL white-window caveat as (184).
+
+- (184) **Areas: an invisible volume you place instead of typing a distance.**
+  New object type `PrimitiveType::Area = 17` (docs/areas.md) - an oriented box
+  with NO geometry in the game: a wireframe in the editor (its own pass, so it
+  never fills the volume and hides what it encloses), nothing on the console,
+  type 17 added to every marker skip list (`collidePlayer`, the USE scan, the
+  carry/throw sweep, `physObstacle`, the geometry switch, `flowRaycast`,
+  `blocksNavigation`). Four features stopped guessing at numbers: a
+  **streaming layer's auto zone** can be an area instead of the center+radius
+  circle (`SceneLayer::streamArea` -> `SCENE_LAYER_STREAM_AREAS`, the object
+  INDEX so the zone is read live), and **Mirror / Portal / feed Camera** take a
+  **catch area** (one field, `SceneObject::catchArea` - an object is only ever
+  one of the three) whose contents join their re-draw list. Plus the **In Area**
+  flow trigger: rising edge on entry, `Who` = either/P1/P2, and a live
+  "inside now" bool output (NOT + On Condition = an exit trigger).
+  The two design calls worth recording. (1) Catch areas resolve **at build**,
+  not per frame: the Mirror philosophy is that a second submission's cost must
+  stay visible, so the Properties panel prints the resolved count and
+  `batchBlockedNames` excludes the caught objects (a batched member has no solo
+  bag and would silently vanish from the reflection - verified: with AO off the
+  caught crate drops to `batchStatic 0` while an identical crate outside the
+  area keeps `1`). (2) The point test has exactly TWO implementations and the
+  runtime one lives in the generated **data** header (`pointInArea` in
+  scene_data.hpp), not in a game-cpp template - that way both generated TUs
+  (terrain_game.cpp's layer zones, flow_graph.gen.cpp's trigger) share one
+  definition instead of the usual host/game twin pair; `areaCaughtObjects` is
+  likewise the single expansion behind the panel preview, the viewport mirror
+  preview and codegen. Host vs generated formulations (rotate-three-axes vs
+  columns of Rz*Ry*Rx) were cross-checked over **200k random oriented boxes,
+  zero mismatches**. Sound-emitter range and point-light radius deliberately
+  keep their radius - those describe a falloff, not a boundary.
+  Live Link: an area's transform is in its recipe hash (catch areas bake), so
+  moving one live flips the chip to LIVE (rebuild) instead of showing half the
+  edit; `liveLinkCanSpawnLive` excludes areas.
+  Verified e2e in PCSX2 (Docker build clean, `-Wall`, 50 FPS): a fixture with
+  the FPP player spawning inside a trigger area logged `AREA-TRIGGER-OK`
+  **exactly once** (rising edge, no re-fire over 1000 frames); an auto-streamed
+  layer pointed at a far-away area logged `FAR-LAYER-LOADED= false` despite
+  `startLoaded: true` (the zone decides), and when a Move Object To slid that
+  area onto the player mid-run it flipped to `true` - the live per-frame branch
+  and "the area moves its zone" in one run. Codegen inspected:
+  `SCENE_LAYER_STREAM_AREAS = {{2}}`, `MIRROR_TARGETS = {3}` (the crate inside
+  the area; the one outside absent). The editor-side visuals (wireframe box,
+  the Area properties block, the pickers) still need a human look - this
+  machine is in the known AMD-GL white-window state, so GUI captures are
+  unusable (see the editor-gui-screenshot notes).
 
 - (183) **Merging world scale (177) into the phone camera - the integration git
   could not see.** Bringing main in gave eight textual conflicts, all of them

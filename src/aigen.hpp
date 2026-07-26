@@ -1,11 +1,13 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 
 #include "flowgraph.hpp"
+#include "platform.hpp"
 
 struct Project;
 
@@ -96,8 +98,11 @@ private:
     mutable std::mutex mutex_;   // guards reply_/error_
     std::string reply_;
     std::string error_;
-    std::mutex jobMutex_;        // orders cancel() vs job handle lifetime
-    void* job_ = nullptr;        // HANDLE of the kill-on-close Job Object
+    // Orders cancel() against the backend process's lifetime. Process::kill()
+    // takes down the whole tree - the shell wrapper AND the node/curl child
+    // that is actually burning tokens.
+    std::mutex procMutex_;
+    std::shared_ptr<platform::Process> proc_;
 };
 
 }  // namespace aigen

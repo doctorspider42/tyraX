@@ -11,7 +11,9 @@
 #include <stb_image_write.h>
 #include <stb_image.h>  // implementation lives in app.cpp
 
-#include <windows.h>
+#include <filesystem>
+
+#include "platform.hpp"
 
 namespace menubake {
 
@@ -55,27 +57,24 @@ Font* loadFontFile(const std::string& path) {
     return &f;
 }
 
-std::string windowsFontPath(const std::string& name) {
-    char windir[MAX_PATH] = {};
-    GetWindowsDirectoryA(windir, MAX_PATH);
-    return std::string(windir) + "\\Fonts\\" + name;
-}
-
 // A font by path: project-relative when the path has a separator
-// ("res/fonts/x.ttf"), a Windows font by bare file name ("impact.ttf"),
-// falling back to the default chain when unset or unreadable.
+// ("res/fonts/x.ttf"), a system font by bare file name ("impact.ttf"), falling
+// back to the platform's default chain when unset or unreadable. A project
+// authored on another OS therefore keeps working: its bare name simply does
+// not resolve here and the fallback takes over, rather than the bake failing.
 Font* resolveFontPath(const std::string& fontPath, const std::string& projectDir) {
     if (!fontPath.empty()) {
         const bool projectRelative =
             fontPath.find('/') != std::string::npos ||
             fontPath.find('\\') != std::string::npos;
-        const std::string full = projectRelative && !projectDir.empty()
-                                     ? projectDir + "\\" + fontPath
-                                     : windowsFontPath(fontPath);
+        const std::string full =
+            projectRelative && !projectDir.empty()
+                ? (std::filesystem::path(projectDir) / fontPath).string()
+                : platform::systemFontPath(fontPath);
         if (Font* f = loadFontFile(full)) return f;
     }
-    for (const char* name : {"consolab.ttf", "arialbd.ttf", "arial.ttf"})
-        if (Font* f = loadFontFile(windowsFontPath(name))) return f;
+    for (const std::string& name : platform::fallbackFontFiles())
+        if (Font* f = loadFontFile(platform::systemFontPath(name))) return f;
     return nullptr;
 }
 
@@ -569,7 +568,8 @@ std::vector<FittedImage> fitImages(const GameMenu& menu,
         const MenuImage& mi = menu.images[i];
         if (mi.path.empty()) continue;
         int w = 0, h = 0, comp = 0;
-        const std::string full = projectDir + "\\" + mi.path;
+        const std::string full =
+            (std::filesystem::path(projectDir) / mi.path).string();
         if (!stbi_info(full.c_str(), &w, &h, &comp) || w <= 0 || h <= 0) continue;
         if (mi.slot == MenuImage::Background) {
             out[i] = {panelW, 0};  // stretched over the content at bake time
@@ -718,7 +718,7 @@ bool bakePanelRGBA(const GameMenu& menu, const Project& p,
     for (size_t i = 0; i < menu.images.size(); ++i) {
         if (menu.images[i].path.empty() || p.dir.empty()) continue;
         int comp = 0;
-        const std::string full = p.dir + "\\" + menu.images[i].path;
+        const std::string full = p.filePath(menu.images[i].path);
         pixels[i] = stbi_load(full.c_str(), &srcW[i], &srcH[i], &comp, 4);
     }
 

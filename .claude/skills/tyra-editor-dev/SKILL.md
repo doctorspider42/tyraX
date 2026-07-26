@@ -2,7 +2,8 @@
 name: tyra-editor-dev
 description: >
   Architecture map and change-making guide for the TyraX codebase — a C++20
-  ImGui/GLFW/OpenGL Windows editor that authors 3D scenes and flow graphs, then
+  ImGui/GLFW/OpenGL cross-platform (Windows + Linux) editor that authors 3D
+  scenes and flow graphs, then
   generates complete Tyra PS2 game projects (built in Docker, run in PCSX2).
   Use this skill BEFORE making ANY change to editor code in src/ — new features,
   panels, scene object types, flow-graph nodes, preferences, project.json fields,
@@ -69,7 +70,8 @@ Two sibling skills cover the rest of the system:
 | `phonecam.cpp/.hpp` | ~690 | **Live phone camera link** (docs/phone-camera.md): the phone as a viewfinder — it shows a JPEG stream of the editor's viewport while its ARKit pose drives that camera, and the Cutscene Director records the move into keys. Second acquisition source for camtake. `phonecam::Link` = Runner/Session idiom (worker thread owns the transport + does the JPEG encode; `drainEvents()`/`drainPoses()` on the UI thread once per frame in `App::phoneCamTick` — the ONLY place link data meets `project_`/ImGui). Never touches sockets: goes through `wire::makeWebSocketTransport()`, because WebSocket is what React Native and browsers have built in. Poses ride a bounded ring (`kMaxPendingPoses`) so a stalled UI thread drops old samples instead of falling behind; a preview frame already waiting is REPLACED, and `previewWanted()` gates on the send backlog — a weak link must cost frame rate, never latency. Also owns `testClientPage()`, the self-contained HTML client served to a plain GET on the same port (synthetic poses on purpose — it is the verification path, and a half-right DeviceOrientation conversion here would misdirect the ARKit one). The phone app is **NOT in this repo** — it is `github.com/doctorspider42/tyrax-cam` (public; Expo + a local Swift ARKit module, its own CI producing an unsigned sideloadable .ipa). Its `PROTOCOL.md` is the client-side twin of `docs/phone-camera.md`: **a protocol change has to land in both, and bump `phonecam::kProtoVersion`** so a stale app is denied at the handshake instead of misbehaving. Nothing reaches codegen — a recording ends as ordinary `SeqCameraKey`s. |
 | `viewport.cpp/.hpp` | ~4860 | Offscreen GL 3.3 preview. **One camera, one place**: `camView()` resolves the projection (perspective / parallel / the six locked axis views - `Viewport::Projection`, docs/orthographic-views.md) plus the Cutscene/look-through override into an eye + orthonormal basis, and `camRay()` turns image coords into a world ray. `projectToImage()` is that ray's INVERSE (world point -> image coords of the last frame) - an app-side ImDrawList overlay that has to sit on world geometry (the measuring tape, `App::drawMeasureOverlay`) places itself with it instead of rebuilding a camera. `render()`, `pick()`, `terrainRaycast()` and `placementRaycast()` ALL go through them - they used to each rebuild a hardcoded 50-degree perspective ray, which silently disagreed with the image under any other projection. `orbit`/`pan`/`fly` read the same basis (orbiting a locked axis view seeds yaw/pitch from that axis and falls back to free ortho). The corner **axis gizmo** is app-side (`App::drawAxisGizmo`, ImDrawList over the image, axes read from the view matrix's columns): it does its OWN hit test and returns "cursor is over me", which every click-consuming branch (pick, rubber-band start, paste commit) must keep honoring - an overlay that skips that veto silently makes each click on it also clear the selection. Note the ortho depth range straddles the eye on purpose (a parallel view is a slab, so a Top view still draws what is above the camera). Also: unit-primitive meshes, terrain grid + heightmap, sky dome, selection outline (+ per-peer session-presence outlines via `setPeerSelections`, drawn under the local amber), live point-light shader, sculpt-brush raycast, orbit/pan camera. Also the Material Editor preview (a primitive, a project .obj, or an animated .glb/.fbx in bind pose via `buildMatPrevAnimated` - the assigned .mtl resolved name-matched like the console, with the selected entry's staged values), its paint raycast (`materialPreviewPick`) and the live painted-texture upload (`updateTexturePixels`, shared texCache_ id so the scene updates too). Tool previews get their OWN framebuffer (`renderTreePreview`/`treeFbo_` alongside `renderMaterialPreview`/`prevFbo_`) - several tools can be open at once and size their previews independently, so a shared target would thrash its size and cross-show images; `ensurePreviewBackdrop` is the shared gradient+checker backdrop. `modelBounds()` is the **GL-free** model-AABB lookup (objparser + own cache) that the AO occluder pass uses instead of `modelDraw()` - see the aobake row. `grabPreviewRgb()` reads the LAST rendered image back as packed RGB for the phone camera link: it blits into its own small framebuffer and reads back *that*, because a straight `glReadPixels` of a 1600x900 viewport stalls the frame; `lastImageFbo_` is the source, tracked per render so a graded frame streams graded. |
 | `runner.cpp/.hpp` | 301 | Docker + PCSX2 pipeline on a worker thread (states Idle/Running/Success/Failed). `buildAndRun()`, `runEmulatorOnly()`, `exportIso()`. |
-| `pcsx2_config.cpp` | ~170 | Finds PCSX2.ini (portable dir first, then the Documents known folder — beware OneDrive redirection) and, before launch, force-enables `HostFs = true` plus — when `ProjectSettings::keyboardMouse` is on — points the emulated USB ports at the host devices (`ensureUsbKbdMouse`: `[USB1] Type=hidkbd` bound to `Keyboard`, `[USB2] Type=hidmouse` bound to `Pointer-0` + buttons). See `docs/keyboard-mouse.md`. |
+| `platform.cpp/.hpp` | ~800 | **The ONE place OS differences live** — the editor builds and runs on Windows AND Linux from this one source tree. Covers: `exePath`/`configDir` (the machine-global config root: `%LOCALAPPDATA%\tyra-editor` vs `$XDG_CONFIG_HOME/tyra-editor` — editor.ini, the session remote-cache, the exported PS2SDK headers)/`homeDir`/`userName`/`exeSuffix`/`processId`, `sleepMs`/`logTimeStamp`, the shell fragments (`quiet`, `killByName`, `envPrefix`, `commandExists`), **`Process`**, the pickers (`pickFile`/`pickFolder`/`errorBox`/`setDialogOwner`), `revealInFileManager`, `openInVSCode`, and the font lookup (`systemFontPath`/`systemFonts`/`fallbackFontFiles`/`defaultFontLabel`). **The rule: a feature that needs to know which OS it is on grows an entry HERE and the call site stays platform-blind** — that is what keeps ~40 sites free of `#ifdef`. `Process` is the load-bearing part: one shell command line (`cmd.exe /S /C` vs `/bin/sh -c`), optional stdout capture (`readLine`/`readAll`), optional stderr-to-file, `running()`/`wait()`/`startDetached()`, and a **`kill()` that takes down the whole TREE** — Job Object vs `setsid()` process group. Never "improve" that to kill just the child: the shell wrapper is never the process doing the work (docker, make, node, curl, ps2client), and killing it alone orphans a token-burning backend or a port-holding file server. Two subsystems deliberately stay outside and say so in a comment — the socket shims in `wire.cpp` (Winsock2 *is* BSD sockets with other spellings, mapped in place) and PCSX2/`PCSX2.ini` discovery in `runner.cpp`/`pcsx2_config.cpp` (genuinely different shapes per OS, and platform.cpp has no business knowing what PCSX2 is). Linux specifics worth knowing: file dialogs shell out to **zenity** (kdialog fallback) so a machine without either has no Open/Import; system fonts resolve through a lazily built filename→path index over the freedesktop roots; SIGPIPE is ignored process-wide from a static here (a dying child's pipe or a vanished session peer would otherwise kill the editor). |
+| `pcsx2_config.cpp` | ~170 | Finds PCSX2.ini (portable dir next to the exe first, then the Documents known folder on Windows — beware OneDrive redirection — or the XDG config dir / flatpak sandbox on Linux) and, before launch, force-enables `HostFs = true` plus — when `ProjectSettings::keyboardMouse` is on — points the emulated USB ports at the host devices (`ensureUsbKbdMouse`: `[USB1] Type=hidkbd` bound to `Keyboard`, `[USB2] Type=hidmouse` bound to `Pointer-0` + buttons). See `docs/keyboard-mouse.md`. |
 | `iso9660.cpp`, `isoexport.cpp` | 379+264 | In-tree ISO9660 writer + disc layout planning (`Project > Export PS2 ISO`, Disc Layout window). |
 | `json.cpp/.hpp` | 158 | Tiny standalone JSON parser used for reading the `.tyra` project file. |
 | `session.cpp/.hpp` | ~900 | **Live collaboration session** (docs/collaboration.md). `Session` (Host/Client) owns one worker thread — Runner idiom (`std::atomic` state, mutex-guarded event + command queues); the UI thread drains `drainEvents()` once per frame in `App::sessionTick()`, the ONLY place session data touches `project_`/ImGui. Host scans+hashes the project (model files from `project::manifestFiles()`, everything else from disk minus bin/obj/.git/.res-baked/*.history), serves a content-hash `manifest`; the client diffs against its `remote-cache/<projectId>` cache, fetches only misses in 256 KiB chunks, opens the materialized project. Handshake: proto-version + 6-digit join code, `deny`/`bye`, ping/timeout keepalive, kick/close. `broadcastFrame`/`sendFrameToHost` + `AppEvent::Frame` are the hook the live-sync layer rides. Never touches sockets directly — goes through `wire::Transport`. |
@@ -163,12 +165,47 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
-**New object type** → `PrimitiveType` enum (0–16 used so far; keep values stable,
-they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
+**New object type** → `PrimitiveType` enum (0–17 used so far, `kPrimitiveTypeCount`
+bounds "every type" loops; keep values stable, they're serialized) →
+mesh/marker in viewport.cpp → insert menu in app.cpp →
 codegen + runtime as above. If the type needs per-object variable-length data
 (like Mirror's reflected-object list), don't grow the fixed `SceneObjectData`
 POD — emit a flat side table into scene_data.hpp keyed by (scene, object), the
-`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` pattern.
+`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` pattern. **A type with no geometry must be
+added to every marker skip list**, and they are scattered by *number*, not by
+enum: `collidePlayer`, the USE-target scan, the carry/throw sweep,
+`physObstacle` and the geometry `switch` in templates.cpp (all `o.data.type ==
+N` lists), `flowRaycast` in `flowGraphScript`, plus `blocksNavigation`
+(navmesh.cpp) and `objectShape`/`regionCountFor` (aobake.cpp, whose `default`
+already excludes unknown types). Miss one and an invisible marker blocks the
+player or eats a raycast.
+
+**Areas (`PrimitiveType::Area`, docs/areas.md)** are the reference point for
+"replace a hand-typed distance with a placed volume". The pattern: the volume
+is an ordinary `SceneObject` (transform = the box), references to it are BY
+NAME (`SceneObject::catchArea`, `SceneLayer::streamArea`, a flow node's `str`
+with `FlowParamKind::AreaName`), and the point test lives in exactly two
+places — `project::areaContainsPoint` (host: editor previews AND codegen) and
+`pointInArea` emitted into `scene_data.hpp` (both generated TUs: the game cpp's
+layer zones and flow_graph.gen.cpp's In Area trigger). Putting the runtime
+twin in the generated DATA header instead of a game-cpp template is what keeps
+it a single definition; `project::areaCaughtObjects` is likewise the ONE
+expansion used by the Properties preview, the viewport mirror preview, the
+baked target tables and `batchBlockedNames`. If you add a consumer, call those
+— do not re-derive the box math.
+
+A catch area can also be **live** (`SceneObject::catchAreaLive`): the volume is
+re-tested every frame instead of only at build. The rule that makes it cheap
+and safe is worth reusing if you add another "re-submit these objects" feature:
+only `project::areaLiveCandidates` — objects that can move — is re-tested, and
+that predicate (`project::objectRuntimeMovable`, over
+`project::runtimeRefNames`) is the exact complement of the immovability
+`staticBatchEligible` relies on, so a live candidate always has the solo bag a
+second submission needs. The immovable rest stays baked in the fixed list, and
+movable objects are dropped FROM that list so nothing is submitted twice. The
+candidates bake into a shared `CATCH_CANDIDATES` table sliced per owner
+(`liveArea`/`firstCand`/`candCount` on `MirrorData`/`PortalData`/`CamFeedData`);
+`TerrainGame::collectLiveCaught` walks a slice plus the spawn pool.
 
 **Object identity: `SceneObject::id`.** Every object carries an opaque, stable
 `id` (first JSON key; part of `operator==`) — the merge/persistence key for the
@@ -435,6 +472,39 @@ calls `glTexImage2D` with data re-arms that crash for whatever feature owns it
 (PROGRESS 101). Framebuffer attachments allocate with `nullptr` and are fine;
 non-RGBA formats (the R32F heightmap) do the same two steps inline.
 
+### 4b. Paths and shell command lines are cross-platform hazards
+The editor builds for Windows AND Linux, and three habits that were harmless
+while it was Windows-only now break silently:
+
+- **Never hand-join a path with `"\\"`.** Outside Windows a backslash is an
+  ordinary FILENAME character, so `p.dir + "\\" + rel` names a file that does
+  not exist and the asset simply fails to load - no error, no crash. Use
+  **`Project::filePath(rel)`** for a project-relative asset path
+  ("res/models/x.obj"), and **`templates::nativePath(rel)`** for a
+  `templates::File::relativePath` (those stay `'\'`-separated because hundreds
+  of literals compare against them; only the four places they meet the file
+  system convert). This bit the first Linux run twice - a fresh project came
+  out as ~30 files literally named `src\gen\flow_graph.gen.cpp`, and PCSX2
+  was handed `.../name\bin\name.elf`.
+- **Anything nested inside a command line goes through `platform::shellArg()`.**
+  `cmd.exe` expands nothing inside double quotes, so the Runner's
+  `docker ... sh -c "<script>"` used to reach the container verbatim. `/bin/sh`
+  expands `$(...)`/`${...}` inside double quotes on the HOST, which emptied
+  every variable in the in-container sfx loop and ran `$(nproc)` against the
+  wrong machine. The same applies to any path argument that could contain `$`
+  or a backtick.
+- **The build container runs as root.** On a plain Linux Docker that means
+  everything it writes into the bind-mounted project is root-owned and the user
+  cannot delete their own `bin/`. The copy-back rsync passes
+  `--chown=` + `platform::containerFileOwner()` (empty on Windows, where Docker
+  Desktop maps ownership itself); a new container→host copy needs the same.
+
+One PS2-side limit belongs here too: **PCSX2's `host:` loader silently refuses
+an ELF path over ~145 characters** - it logs `ELF Loading: ...`, the EE never
+reaches `is executing`, and you get a black window with no diagnostic.
+`Runner::launchPCSX2` warns about it. A Linux home directory plus a deep
+project tree passes that far sooner than a Windows `TyraProjects` path does.
+
 ### 5. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.
 - One feature = one commit. `PROGRESS.md` is a living log — every finished
@@ -596,14 +666,35 @@ non-RGBA formats (the R32F heightmap) do the same two steps inline.
 ./build.ps1 -Clean   # nuke build/ first
 ```
 
-Missing `vendor/` deps are fetched by `setup.ps1` (imgui docking, glfw 3.4,
-imguizmo, imnodes, stb, ufbx — all git-ignored; `vendor/tyra` is versioned, see
-tyra-engine-dev), and build.ps1 runs it whenever something is absent. **The
-dependency list lives only in `deps.ps1`**, which both scripts read — add a new
-third-party library there and nowhere else, or the build guard won't know about
-it (see tyra-testing for the failure that caused). Toolchain:
-`scoop install mingw cmake ninja`; build.ps1 finds scoop's mingw even off-PATH. Single CMake target `tyrax-editor`, statically
-linked (MinGW `-static`), console subsystem on purpose (logs stay visible).
+```bash
+./setup.sh --deps    # one-time: toolchain + dev headers (apt/dnf/pacman/zypper)
+./build.sh           # configure (if needed) + build → build/tyrax-editor
+./build.sh --run     # build and launch
+./build.sh --clean   # nuke build/ first
+```
+
+Missing `vendor/` deps are fetched by `setup.ps1` / `setup.sh` (imgui docking,
+glfw 3.4, imguizmo, imnodes, stb, ufbx — all git-ignored; `vendor/tyra` is
+versioned, see tyra-engine-dev), and the build script runs it whenever
+something is absent. **The dependency list lives only in `deps.ps1` /
+`deps.sh`**, which the setup and build scripts read — add a new third-party
+library **to both** and nowhere else, or one platform's build guard won't know
+about it (see tyra-testing for the failure that caused). Toolchain: Windows
+`scoop install mingw cmake ninja` (build.ps1 finds scoop's mingw even
+off-PATH); Linux `./setup.sh --deps`, which reads the per-family package lists
+in deps.sh (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/`_zypper`) and installs via
+sudo, or pkexec when there is no tty. build.sh only DIAGNOSES - it checks the
+tools and the pkg-config headers up front and prints that command. **A new
+system dependency has to be added to all four lists**, or that distro's users
+get a link error instead of a clear message; zenity is in them because the
+file dialogs shell out to it.
+
+Single CMake target `tyrax-editor`. Windows: statically linked (MinGW
+`-static`), console subsystem on purpose (logs stay visible), links
+shell32/ole32/uuid/ws2_32 for the pickers and sockets. Elsewhere: `OpenGL::GL`
++ Threads + `${CMAKE_DL_LIBS}`, and the app icon `.rc` is skipped. **A new
+source file must be added to `CMakeLists.txt`'s single source list** — there is
+no glob.
 
 For how to test what you built — headless CLI, codegen checks without Docker,
 full PCSX2 e2e, screenshots — read **tyra-testing**.
