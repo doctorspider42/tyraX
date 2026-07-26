@@ -347,6 +347,15 @@ below the hips inherits it for free. The phone sends it as four floats beside
 the hips position; `writeTake` stores it, or a recorded live take would lose the
 turn all over again.
 
+**The heading has to be RELATIVE.** Composing the anchor onto the hips makes the
+character turn, but composing it *absolutely* faces the character in an
+arbitrary direction: ARKit's world zero is wherever the phone happened to point
+when the session started, so the character came out turned some random angle
+away from the camera. It is measured against the first frame seen - exactly as
+the hips translation already was - and *Recentre* forgets it along with
+everything else. The two halves of the same anchor have to be rebased the same
+way, and for a while only one of them was.
+
 **The hands, the head and the feet do not move** - and there is nothing to fix.
 Over 277 frames, these joints' local rotations never changed by so much as a
 float bit: both wrists, both ankles, both toe joints, and the head relative to

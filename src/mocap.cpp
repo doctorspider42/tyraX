@@ -386,12 +386,30 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
     hipsMove.node = hips;
     hipsMove.path = 0;
 
+    // The heading, measured against the take's FIRST frame rather than against
+    // ARKit's world. That world's zero is wherever the phone happened to point
+    // when the session started, so an absolute heading rotates the character by
+    // an arbitrary amount - which is exactly what it looked like: a body turned
+    // some random angle away from the camera. The hips TRANSLATION was already
+    // rebased this way; the rotation was not, and the two have to agree.
+    float headingBase[4] = {0, 0, 0, 1};
+    bool haveHeadingBase = false;
+
     for (uint32_t frame = 0; frame < frameCount; ++frame) {
         const float t = r.f32();
         float root[16];
         r.mat4(root);
-        float rootTr[3], rootQ[4];
-        decompose(root, rootTr, rootQ);
+        float rootTr[3], rootAbs[4];
+        decompose(root, rootTr, rootAbs);
+        if (!haveHeadingBase) {
+            headingBase[0] = -rootAbs[0];
+            headingBase[1] = -rootAbs[1];
+            headingBase[2] = -rootAbs[2];
+            headingBase[3] = rootAbs[3];
+            haveHeadingBase = true;
+        }
+        float rootQ[4];
+        quatMul(headingBase, rootAbs, rootQ);
         if (!r.ok) {
             error = "take truncated at frame " + std::to_string(frame) + " of " +
                     std::to_string(frameCount);

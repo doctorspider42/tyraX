@@ -10195,6 +10195,7 @@ void App::mocapRebind() {
         mocapLiveHips_ = -1;
         for (size_t i = 0; i < liveRig.nodes.size(); ++i)
             if (liveRig.nodes[i].name == "mixamorig:Hips") mocapLiveHips_ = (int)i;
+        mocapHaveHeadingBase_ = false;
         mocapLiveJoints_ = sk.joints;
         mocapLiveParents_ = sk.parents;
         mocapLiveRestRot_ = sk.restRot;
@@ -10244,7 +10245,27 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
     const float* src = rot;
     if (rootRot && mocapLiveHips_ >= 0 && mocapLiveHips_ < joints) {
         mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
-        const float* a = rootRot;
+        // Against the FIRST heading seen, not against ARKit's world - whose zero
+        // is wherever the phone pointed when the session started, so an absolute
+        // heading faces the character in an arbitrary direction. The hips
+        // translation is rebased the same way, one layer down.
+        if (!mocapHaveHeadingBase_) {
+            mocapHeadingBase_[0] = -rootRot[0];
+            mocapHeadingBase_[1] = -rootRot[1];
+            mocapHeadingBase_[2] = -rootRot[2];
+            mocapHeadingBase_[3] = rootRot[3];
+            mocapHaveHeadingBase_ = true;
+        }
+        const float* h = mocapHeadingBase_;
+        const float rel[4] = {h[3] * rootRot[0] + h[0] * rootRot[3] + h[1] * rootRot[2] -
+                                  h[2] * rootRot[1],
+                              h[3] * rootRot[1] - h[0] * rootRot[2] + h[1] * rootRot[3] +
+                                  h[2] * rootRot[0],
+                              h[3] * rootRot[2] + h[0] * rootRot[1] - h[1] * rootRot[0] +
+                                  h[2] * rootRot[3],
+                              h[3] * rootRot[3] - h[0] * rootRot[0] - h[1] * rootRot[1] -
+                                  h[2] * rootRot[2]};
+        const float* a = rel;
         const float* b = &mocapFrameRot_[(size_t)mocapLiveHips_ * 4];
         const float w[4] = {a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
                             a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
@@ -10474,6 +10495,7 @@ void App::drawMocapWindow() {
         ImGui::SameLine();
         if (ImGui::Button("Recentre")) {
             charanim::resetLiveOrigin(mocapBind_);
+            mocapHaveHeadingBase_ = false;
             // A recentre means the stream JUMPED, and everything that smooths
             // across frames has to be told - otherwise the character is dragged
             // through the gap instead of cutting across it.

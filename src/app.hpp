@@ -1029,6 +1029,10 @@ private:
     bool mocapGround_ = true;         // plant the feet on the floor
     bool mocapVision_ = true;         // drive head/wrists from the phone's Vision pass
     visionpose::Tracker mocapVisionTracker_;
+    // The heading the stream started at; every later one is measured
+    // against it, exactly as the hips translation is.
+    float mocapHeadingBase_[4] = {0, 0, 0, 1};
+    bool mocapHaveHeadingBase_ = false;
     bool mocapFilterEnabled_ = true;
     posefilter::PoseFilter mocapFilter_;
     // The live skeleton's names and tree, taken once at bind. Reading them
