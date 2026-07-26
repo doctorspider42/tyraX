@@ -689,6 +689,7 @@ void App::drawUI() {
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
+    drawPhoneLinkWindow();
     drawPhoneCamWindow();
     drawNewProjectModal();
     drawPreferencesModal();
@@ -3256,6 +3257,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "chargen") return &showCharGenerator_;
     if (key == "mocap") return &showMocap_;
+    if (key == "phonelink") return &showPhoneLinkWindow_;
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     return nullptr;
@@ -3268,7 +3270,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
     "anim",     "tree",     "chargen",  "phonecam", "assets",
-    "mocap"};
+    "mocap",    "phonelink"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -3310,9 +3312,41 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         ImGui::DockBuilderDockWindow("Cutscene Director", bottom);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
+        // The phone that records a camera move has to be paired from somewhere,
+        // and it is not worth hunting for - it shares the left column with the
+        // scene tree rather than taking space from the dopesheet.
+        ImGui::DockBuilderDockWindow("Phone Link", left);
+        ImGui::DockBuilderDockWindow("Phone Camera", left);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
         ImGui::DockBuilderDockWindow("Viewport", center);
         pendingFocusWindow_ = "Cutscene Director";
+        break;
+    }
+    case LayoutRecipe::Mocap: {
+        // A capture session is watched, not edited: the character being driven
+        // gets the middle, the link and the mocap controls sit down the right
+        // where a glance reaches them without covering the performer, and the
+        // scene tree keeps its column so a different character is one click
+        // away. Output goes along the bottom because the useful diagnostics
+        // during a session - what the take stored, why a joint is not driven -
+        // are printed rather than drawn.
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30f, nullptr, &center);
+        ImGuiID rightBottom =
+            ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.42f, nullptr, &right);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", left);
+        ImGui::DockBuilderDockWindow("Mocap", right);
+        ImGui::DockBuilderDockWindow("Phone Link", rightBottom);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        pendingFocusWindow_ = "Mocap";
         break;
     }
     case LayoutRecipe::Material: {
