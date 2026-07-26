@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (182) **The devkit gets a receipt: a release build provably carries none of
+- (186) **The devkit gets a receipt: a release build provably carries none of
   it - plus armed-timer reporting, Fire-and-continue, per-frame object watches
   and a visible breakpoint marker** (docs/devkit.md). The user's condition for
   going further with debugging tools was blunt and correct: "make sure we don't
@@ -65,7 +65,7 @@ Each finished feature lands as its own commit.
   out of the title bar into an IDE-style gutter left of the node: a ringed dot
   plus a bar down the node's left edge, yellow with a pulsing halo when the game
   is stopped on it.
-  **Verified** in PCSX2 on the entry-180/181 fixture: armed timer reported as
+  **Verified** in PCSX2 on the entry-184/185 fixture: armed timer reported as
   `(key 4, 51 frames)` matching the 1 s Delay; object watch delivering 6
   consecutive per-frame samples per flush (50 Hz under a 6-frame cadence) with
   the frame numbers strictly +1; and then both new features against a STRUCTURAL
@@ -74,10 +74,10 @@ Each finished feature lands as its own commit.
   0.5 units/s frame by frame (6.0 -> 7.5 over 3 s). Release audit clean, debug
   audit correctly dirty. **Not verified here**: the editor's own panels and the
   new overlay/trail drawing (the machine is still in the blank-editor-window
-  state of entry 180 - the data paths behind them are the ones measured above),
+  state of entry 184 - the data paths behind them are the ones measured above),
   and ps2link on real hardware.
 
-- (181) **Live Logic: editing a flow graph changes the RUNNING game - the last
+- (185) **Live Logic: editing a flow graph changes the RUNNING game - the last
   thing in the pipeline that always needed a rebuild** (docs/live-logic.md).
   Graphs compile to C++, so editing one meant Docker + make + reboot. Now the
   EDITOR compiles the graph instead - into a pre-resolved instruction list
@@ -106,7 +106,7 @@ Each finished feature lands as its own commit.
   RuntimeObject state as compiled code, and carries the same Live-Debugger node
   keys - so breakpoints, hit counters and the timeline keep working on
   hot-patched logic.
-  **Verified in PCSX2** with the entry-180 fixture (On Start -> Set Var Int;
+  **Verified in PCSX2** with the entry-184 fixture (On Start -> Set Var Int;
   Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int), measured through the
   Live Debugger's own telemetry - the debugger is the instrument that proves
   the patch landed: native baseline 1.00 fires/s; after a patch of *the same
@@ -129,10 +129,10 @@ Each finished feature lands as its own commit.
   from *before* the stride fix. Both ends now derive the layout from one
   documented field list, and the sizes are asserted by the round-trip harness.
   **Not verified here**: the editor-side panel/chip (same blank-window state as
-  180 - the patch path itself was driven by the harness, which calls exactly
+  184 - the patch path itself was driven by the harness, which calls exactly
   what `App::liveLogicTick` calls), and ps2link on real hardware.
 
-- (180) **Live Debugger: breakpoints, pause/step and a rewindable execution
+- (184) **Live Debugger: breakpoints, pause/step and a rewindable execution
   timeline for a game running on the PlayStation 2** (docs/live-debugger.md).
   Live Link streams edits INTO the running game; this is the return channel.
   A debug build reports every flow-graph node it runs, so the Flow Graph
@@ -203,6 +203,262 @@ Each finished feature lands as its own commit.
   the same snapshots verified above, but a human should still eyeball the
   glow/timeline once. ps2link (real hardware) uses identical code paths on a
   25-frame cadence; untested.
+- (183) **Merging world scale (177) into the phone camera - the integration git
+  could not see.** Bringing main in gave eight textual conflicts, all of them
+  adjacent additions to the same lists (a config struct, its reader and writer,
+  the layout window registry) plus two independent overlay functions inserted at
+  the same line. Those were mechanical. The change that mattered had **no
+  conflict at all**: (177) made `CamTakeMapping::scale` mean *units per meter*
+  seeded from the project, and the take-import modal was updated to do that - but
+  the live phone link builds its own mapping, so it kept defaulting to 1.0. In a
+  project where a metre is ten units, importing a recording and *filming the same
+  move live* would have disagreed by 10x, silently, with both code paths reading
+  correct in isolation. Seeded on **connect** rather than on Recentre: the take
+  path re-seeds when a file is opened, and the live equivalent of opening is a
+  phone arriving - re-seeding on every recentre would overwrite a scale tuned
+  while watching the shot. The recording tolerance is a distance, so it follows
+  the same factor, and the modal's **World scale** snap-back button is now next
+  to the phone's Scale field too.
+  *Also merged by hand:* my two PROGRESS entries were renumbered 177/178 ->
+  181/182 because main had taken those numbers and its own entries cross-
+  reference them; the SKILL.md `viewport` row kept my text plus main's
+  `projectToImage()` note (one row, both facts). The measuring tape from (178)
+  gates its clicks on the axis-gizmo veto, and my viewport gear ORs into that
+  same flag - so clicking the gear while measuring correctly does not drop a
+  measurement point, which is the merge working by construction rather than by
+  patching.
+  *Verified:* editor builds clean; a scaffolded project regenerates with the roll
+  plumbing intact (`upFor`/`rollOf` in `sequences.gen.cpp`, 7 three-argument
+  `CameraInfo3D` sites) and **compiles for the PS2 in Docker** with `-Wall`
+  silent - the one check that proves the auto-merged `templates.cpp` is still
+  valid MIPS C++. Not verified: the merged UI clicked through by hand.
+
+- (182) **Camera roll: Dutch angles from the phone's own tilt, all the way to the
+  console.** Asked for as a "tiny fix" alongside locking the phone app to
+  landscape; landscape was tiny, this was not - it runs model -> serialization ->
+  codegen -> PS2 runtime -> **engine** -> viewport -> UI.
+  **The engine turned out to be the easy part.** `CameraInfo3D` already carried an
+  `up` field and `Renderer3DFrustumPlanes` already culled against it - only the
+  view matrix dropped it, hardcoding world +Y inside a VU0 block whose cross
+  products are dead code (it computes `$vf8`/`$vf9` and then stores `$vf6`). So:
+  a `M4x4::lookAt` overload taking an up vector (plain C++ - once per frame, not
+  per vertex) and `RendererCore3D::update` passing `cameraInfo.up`. It defaults to
+  `(0,1,0)`, so every existing caller is bit-identical. Reading `setCamera`'s
+  assembly closed the last unknown: it derives `right = cross(up, vz)` then
+  `up' = cross(vz, right)`, which for a perpendicular up returns it verbatim (the
+  sign of `vz` cancels) - it never hardcodes world up, so a rolled up genuinely
+  rolls the camera.
+  **The design correction that mattered.** I first assumed a Camera entity's
+  `rotation.z` WAS a lens-axis roll and wrote that in a comment. It is not: the
+  Euler is applied `Rz*Ry*Rx`, so Z rotates about the WORLD axis last. Measured:
+  on a camera pitched 40 deg, `rotation.z = 90` swings where it points by **54
+  deg**; they coincide only for an unpitched camera. So free shots get an explicit
+  `SeqCameraKey::roll` and a BOUND shot takes its whole basis from the entity's
+  orientation (`seqCameraUpFromEuler`) with no separate channel - and a phone
+  recording into an entity folds its roll into the entity's Euler through
+  `seqEulerFromBasis`. A harness assertion now pins that distinction; the first
+  version asserted the equivalence I had wrongly expected, and failed, which is
+  how the mistake surfaced.
+  **`seqCameraUp` is a three-way twin** (host bake, viewport `camView`, the
+  generated player's `upFor`), like the other analytic-bake twins. Roll 0
+  reproduces the old hardcoded `(0,1,0)` exactly, so an unrolled cutscene renders
+  as before. Roll interpolates as a plain scalar channel and takes the short way
+  round at +-180 in both the preview and the player; the camera-take bake unwraps
+  it per sample for the same reason the Euler bake does.
+  **Phone side:** the app is landscape-only now (you hold it like a camera), the
+  measured tilt is zeroed against `anchorRoll` at **Recentre** - so whichever way
+  you hold it counts as level - and damped by a **Tilt** slider from "as held" to
+  "horizon pinned level", which also throws hand tremble away.
+  **Verified** in four layers. The sequence-math harness: up always unit and
+  perpendicular, roll 0 gravity-aligned with no lean on a pitched view and exactly
+  `(0,1,0)` on a level one, `seqRollFromUp` inverting `seqCameraUp` to 0.0000 deg
+  over a spread including straight-up/down, the Euler matrix's lens column
+  agreeing with `seqCameraForward`, and basis -> Euler -> basis round-tripping to
+  8e-7 including gimbal lock. A GL harness reading the **real view matrix** the
+  viewport renders with: 20 combinations of view direction x roll (incl. near
+  straight down and rolls past +-90) match `seqCameraUp` to **1.19e-07** - that is
+  the twin invariant proved against what actually draws, not against pixels. A
+  **Docker PS2 build**: `libtyra.a` rebuilt (m4x4.o, renderer_core_3d.o),
+  `sequences.gen.cpp` compiled with the new `CamKey`, ELF linked - the only way to
+  compile engine code at all. Plus rendered stills showing the horizon tilting the
+  right way and by the right amount.
+  *A probe lesson worth keeping:* my first visual check measured the sky/terrain
+  boundary angle and disagreed with the requested roll at 40 deg. The feature was
+  fine - the probe was measuring the finite ground plane's **edge** across only
+  two fixed columns, one of which the boundary had left. Reading the camera basis
+  out of the view matrix is the right measurement; fitting pixels was measuring
+  the scenery.
+  **Not verified: a PCSX2 pixel shot of a rolled horizon** - that needs a flow
+  graph to trigger the cutscene, which this scratch project has none of. The data
+  and the render path are verified as far as they can be without booting.
+
+- (181) **Phone camera: the phone as a live viewfinder that records cutscene
+  camera moves.** The other half of the camera-takes story (152): instead of
+  importing a finished ARKit recording, the editor **hosts a link on the LAN**,
+  a companion iOS app connects, and from then on the phone screen shows a live
+  JPEG stream of the editor viewport while the phone's 6DoF pose drives that
+  camera. In the Cutscene Director, *Record* writes the move into camera keys as
+  it happens, at a configurable keyframe density. Docs: `docs/phone-camera.md`.
+  **The app lives in its own public repo**, `doctorspider42/tyrax-cam` - it has a
+  completely different toolchain (Expo/React Native + a Swift ARKit module) and
+  its own release cycle (a sideloaded `.ipa`, never built by `build.ps1`), so
+  keeping it under `tools/` here bought nothing and hid it from anyone who just
+  wants the app. That repo carries a `PROTOCOL.md` stating the wire format from
+  the client side, which makes it self-contained (this repo is private, so it
+  could not link back into these docs anyway) - and makes the protocol a
+  **two-repo contract**: change it in both, and bump `phonecam::kProtoVersion` so
+  a stale app is denied at the handshake instead of misbehaving. Its CI builds an
+  **unsigned .ipa** on a macOS runner that Sideloadly/AltStore can sign with a
+  free Apple ID, plus a fast Linux job that Metro-bundles the JS and asserts the
+  local ARKit module is autolinked - that last check exists because autolinking
+  dropping the module is otherwise INVISIBLE: the app still builds and still
+  runs, it just quietly cannot move the camera.
+  **Transport.** `wire::makeWebSocketTransport()` - an RFC 6455 server (SHA-1 +
+  base64 upgrade, unmasking, ping/pong, fragmentation) behind the existing
+  `wire::Transport` interface, which is exactly the seam the collaboration work
+  (113-118) predicted would be reused. WebSocket rather than the raw TCP
+  framing because it is what React Native and every browser have built in, so
+  the phone needs no native socket module; one binary message carries one
+  `encodeFrame` image, so the codec above it is unchanged. It is a per-connection
+  `WsCodec` slotted between the socket and the same `FrameDecoder` rather than a
+  second Transport class - the accept/poll/send loop stays single. Two contract
+  wrinkles that took thinking: a WS peer is announced on **upgrade**, not on
+  accept (so an ordinary browser GET, which gets served an HTML page instead,
+  never becomes a peer and never emits an unmatched `Disconnected`), and a dying
+  codec sets `closeAfterFlush` instead of dropping, or the served page is
+  truncated by the close.
+  **The image.** `Viewport::grabPreviewRgb` reads back the frame `render()` just
+  produced - so the phone sees the editor's own picture, colour grading included,
+  not a second slightly different render. It blits into its own small
+  framebuffer and reads back *that*: a straight `glReadPixels` of a 1600x900
+  viewport is 5.7 MB and stalls the frame. `lastImageFbo_` tracks which target
+  holds the final image, so a graded frame streams graded. JPEG encoding happens
+  on the link's worker thread (stb_image_write), a pending frame is replaced
+  rather than queued, and `previewWanted()` gates on the send backlog - a weak
+  link must cost frame rate, never latency.
+  **The camera.** The live view and the baked keys had to be the same math or
+  the feature is a lie, so `mapCamSample()` came out of `bakeCamTake` and both
+  call it. Two `CamTakeMapping` fields are new and both exist for the streaming
+  case: `hasAnchor`/`anchor`, because a stream has no meaningful "first sample"
+  to pivot on (without an explicit anchor the whole path jumps the moment a
+  recording starts mid-stream), and `keyRate`, the fixed-rate resampler behind
+  the density control. Density and the RDP tolerance are deliberately exclusive:
+  a density that is then decimated away is not a density.
+  **Recording.** The buffer is a plain `CamTake`, so the target logic (a Camera
+  entity's transform track, or free shots on the camera lane) is the file
+  importer's code, parameterized. Re-baked at 15 Hz so the dopesheet visibly
+  fills up while you move, which meant making the re-bake **idempotent**: the
+  pre-recording camera lane and duration are snapshotted at *Record* and
+  restored before each bake, otherwise keys compound and shots authored earlier
+  are eaten. Undo sees one step for the whole recording - the live re-bakes
+  leave the history alone and only *Stop* commits. The phone can press
+  Record/Stop/Recentre itself, which matters more than it sounds: you cannot
+  reach the keyboard while holding the camera.
+  **Verified** in three layers: three host harnesses, and then the whole thing
+  in the real editor, driven from the browser test client the link serves on its
+  own port (`http://<editor-ip>:7798` - synthetic poses, drag to look, WASD to
+  walk).
+  *Harnesses* (all no-GUI, the treegen/placement pattern). The camtake one
+  (40 lines + `camtake.cpp`) proved properties rather than eyeballing them:
+  `mapCamSample` is **bit-identical** to what the bake writes, re-anchoring is a
+  rigid translation (the path's shape survives it), a fixed rate at or above the
+  stream rate reproduces the samples, every rate lands evenly spaced and exactly
+  on the take's last sample, and the 2048-key cap holds on a 10-minute take. It
+  caught a real bug the GUI would have hidden: `t += step` accumulates float
+  error, so the final clamp to the take's end emitted **two keys at the same
+  time** - a zero-length segment for the PS2 player. Key times come from the
+  step index now. The link harness (`phonecam` + `wire` + `json`) ran 100 s of
+  continuous streaming: **1279 JPEG frames, 3018 poses**, no drops, a clean
+  close-handshake disconnect, and all three refusal paths correct (wrong pairing
+  code, protocol mismatch, second device). The grab harness renders on a HIDDEN
+  GLFW window (an FBO readback needs a context, not a composited window - which
+  is why this one works even in the AMD white-window state of (101)) and checks
+  `grabPreviewRgb` at three caps: aspect preserved and never cropped, inside the
+  cap, real content, **row 0 is the sky** (the check that catches a silently
+  upside-down phone), sane JPEG sizes, and 200 repeated grabs byte-identical.
+  *Real editor*, scratch FPP project, browser as the phone: the link hosts and
+  lists all three LAN addresses + the pairing code (and raises exactly the
+  Windows Firewall prompt the docs warn about); the browser pairs; the stream
+  runs at **13 fps of 960x590** of the actual viewport image; the pose drives
+  the camera in both channels (pose -1.63/0.36/-1.75 m moved the scene camera
+  51.8 -> 49.4 and visibly rotated the axis gizmo); Recentre puts it back and
+  re-derives the yaw; **Record and Stop pressed on the phone** captured a 4.16 s
+  handheld move as **43 keys** - and the saved `.tyra` says exactly what it
+  should: 43 keys, strictly increasing times, **zero duplicate timestamps**,
+  spacing 0.1 s dead on the requested 10 keys/s with a short tail key landing on
+  the take's real last sample, `ease: 0` throughout, free shots, `cameraEnabled`
+  auto-set, 3.89 units of eye travel and 4.43 of look-at pan. The dopesheet
+  filled live while the move was happening.
+  **The iOS app now compiles** - its CI archives it on a macOS runner, Swift
+  ARKit module included, and uploads a 3.7 MB unsigned `.ipa` (scheme `TyraXCam`,
+  559 JS modules bundled into the app target). That was the biggest unknown, and
+  it took four fixes found by actually running things rather than assuming:
+  `expo export` needs `expo-asset` as a direct dependency (not hoisted);
+  `expo-modules-autolinking search -p ios` silently skips **apple-only** modules
+  because the SDK 52 platform key is `apple`, so my own module looked unlinked;
+  its `--json` output flattens the config, so the first version of the
+  "is the module linked" assertion passed vacuously; and CI caught the real one -
+  archiving `.workspace.schemes[0]` builds **boost**, not the app (CocoaPods adds
+  a scheme per pod and it sorts first), which xcodebuild reports as success while
+  leaving an archive with no `.app` in it.
+  **Still not verified: the app RUNNING on a device.** Nobody has installed it
+  yet, so real ARKit tracking quality - how it behaves when you actually walk
+  around a room, and whether the 1 u/m default scale feels right - is the one
+  thing neither the browser client nor a compiler can stand in for. The app's
+  README says so plainly and lists the three sideload routes (the CI `.ipa` +
+  Sideloadly/AltStore with a free Apple ID; Xcode with a free Apple ID, 7-day
+  expiry; an ad-hoc `.ipa` via EAS).
+  *Judgement worth recording:* the phone deliberately wins the camera over both
+  the cutscene preview and the look-through camera while it drives. A playhead
+  flying the same lane would fight the person holding the device, and there is
+  no reading of that fight where the software should win.
+- (180) **Recent projects on the startup screen.** User request: with no project
+  open the editor should offer the recently used ones on the main screen, pickable
+  in one click, plus a way to drop an entry from the list. Until now the empty
+  Viewport said "File > New Project (Ctrl+N) to create one" and the daily
+  "carry on with yesterday's project" meant Ctrl+O and walking a file dialog to
+  the same folder every single time.
+  The Viewport's no-project branch is now `drawWelcomeScreen()`: New / Open
+  buttons and up to ten entries, most recent first, each a two-line row (project
+  name over its path) that opens on click, with an **x** that forgets it. The
+  paths live in `editor.ini` as repeated `recentProject=` lines - machine-global
+  like the emulator path and the UI scale, because which projects this PC has
+  seen is a property of the PC, not of any project (this is the pattern the
+  `tyra-editor-dev` skill describes for a new global setting; nothing else in the
+  chain needed to move, the list never reaches the game).
+  Three things that shaped the implementation:
+  *One funnel.* Recording a recent has to happen wherever a project opens, so
+  the three local open paths (the CLI/startup argument, the Open dialog, the
+  welcome list) collapsed into `openProjectAt(dir)` and record there; the New
+  Project modal records after its own attach. `openRemoteProject` deliberately
+  does NOT - a joined session's project is a materialized cache copy under
+  `remote-cache/<projectId>`, and offering that as "recent" would hand the user
+  a stale snapshot of someone else's project.
+  *Name and validity come from one directory scan*, done when the list loads or
+  changes - never per frame. The display name is the `<name>.tyra` stem (found
+  the way `project::load` finds it), so an entry that is no longer a project is
+  the same lookup, not a second check: those rows show the folder name greyed
+  with *(missing)* and stay listed. Sweeping them automatically would quietly
+  eat the list of everyone whose projects live on a drive that is currently
+  unplugged; the x is right there when the entry really is dead. Clicking a
+  missing row still tries (the drive may be back) and re-probes on failure.
+  *Dedupe on a normalized key* (`lexically_normal` + lowercase + no trailing
+  slash): the Open dialog and the New Project modal disagree on slash flavour
+  and Windows does not care about case, so `D:/proj` and `D:\Proj` are one entry.
+  Two ImGui details worth remembering: the name/path are drawn straight into the
+  window draw list (as items they would register their full text width and give
+  the panel a horizontal scrollbar), and a long path ellipsizes from the LEFT -
+  the tail identifies the project, `C:\Users\...` does not.
+  Verified by driving the built editor: opening two scratch projects by CLI
+  argument produced both `recentProject=` lines in the right order; re-opening
+  one of them spelled `SCRIPT-demo` with forward slashes left **two** entries,
+  not three, with it moved to the front (which also proves the load path parsed
+  the stored list); then synthetic clicks on the welcome screen - hover shows the
+  full path in a tooltip, the x dropped `layer-streaming`, and a click on the
+  `script-demo` row opened it (title bar, scene tree, terrain in the viewport).
+  Screenshots came out fine this time, i.e. the machine was not in its
+  white-window state (see the harness notes).
+
 - (179) **Walk speed: sane default, and a field you can actually type into.**
   Third in the (177)/(178) run, same user: "przy domyslnej predkosci chodu
   postac zapierdala jak dyliżans z gorki i z zaglem, trzeba dawac ostry

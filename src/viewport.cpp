@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <utility>
 
 #include <filesystem>
@@ -1148,6 +1149,8 @@ void Viewport::shutdown() {
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
+    if (grabFbo_) glDeleteFramebuffers(1, &grabFbo_);
+    if (grabTex_) glDeleteTextures(1, &grabTex_);
 }
 
 void Viewport::setGrading(bool enabled, const CompiledGrading& g) {
@@ -1236,6 +1239,13 @@ Viewport::CamView Viewport::camView(int width, int height) const {
         fwd = normalize(sub(tgt, e));
         fovDeg = camFov_;
         c.eye[0] = e.x, c.eye[1] = e.y, c.eye[2] = e.z;
+        // Roll: the up hint IS the rolled up. seqCameraUp returns a vector
+        // perpendicular to fwd, and the basis below re-derives up from it
+        // unchanged, so this lands exactly the tilt the console will render.
+        const float f3[3] = {fwd.x, fwd.y, fwd.z};
+        float rolled[3];
+        seqCameraUp(f3, camRoll_, rolled);
+        upHint = {rolled[0], rolled[1], rolled[2]};
     } else {
         const Vec3 e{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
                      tgt.y + distance_ * std::sin(pitch_),
@@ -3667,11 +3677,73 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        lastImageFbo_ = gradeFbo_;
         return gradeTex_;
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    lastImageFbo_ = fbo_;
     return colorTex_;
+}
+
+// --- Phone camera readback -------------------------------------------------------
+
+void Viewport::ensureGrabFramebuffer(int width, int height) {
+    if (grabFbo_ && width == grabW_ && height == grabH_) return;
+    grabW_ = width;
+    grabH_ = height;
+    if (!grabFbo_) glGenFramebuffers(1, &grabFbo_);
+    if (!grabTex_) glGenTextures(1, &grabTex_);
+    glBindTexture(GL_TEXTURE_2D, grabTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, grabFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, grabTex_, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "phone-camera grab framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+bool Viewport::grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
+                              int& outW, int& outH) {
+    if (!lastImageFbo_ || fbWidth_ <= 0 || fbHeight_ <= 0) return false;
+    if (maxW < 16) maxW = 16;
+    if (maxH < 16) maxH = 16;
+    // Fit the viewport aspect inside the cap so the phone sees the same
+    // framing (letterboxing, if any, is the app's business - never a crop).
+    const float scale = std::min((float)maxW / (float)fbWidth_,
+                                 (float)maxH / (float)fbHeight_);
+    int w = scale < 1.0f ? (int)(fbWidth_ * scale + 0.5f) : fbWidth_;
+    int h = scale < 1.0f ? (int)(fbHeight_ * scale + 0.5f) : fbHeight_;
+    w = std::max(w, 16);
+    h = std::max(h, 16);
+    ensureGrabFramebuffer(w, h);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, lastImageFbo_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, grabFbo_);
+    glBlitFramebuffer(0, 0, fbWidth_, fbHeight_, 0, 0, w, h, GL_COLOR_BUFFER_BIT,
+                      GL_LINEAR);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, grabFbo_);
+    // Tightly packed rows - the JPEG encoder wants w*3 stride, and the default
+    // 4-byte pack alignment would pad every odd width.
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    std::vector<unsigned char> rows((size_t)w * h * 3);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, rows.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+    // GL hands back bottom-up rows; everything downstream (JPEG, the phone)
+    // is top-down.
+    outRgb.resize(rows.size());
+    const size_t stride = (size_t)w * 3;
+    for (int y = 0; y < h; ++y)
+        std::memcpy(outRgb.data() + (size_t)y * stride,
+                    rows.data() + (size_t)(h - 1 - y) * stride, stride);
+    outW = w;
+    outH = h;
+    return true;
 }
 
 // Material Editor live preview: gradient backdrop, checker floor and one unit
