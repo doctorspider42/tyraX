@@ -256,6 +256,23 @@ Notes:
 
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
+
+  **On Linux there may be no screen capture at all**: under a Wayland session
+  the compositor refuses non-interactive capture, so `gnome-screenshot -f`
+  exits 0 and writes nothing and the `org.gnome.Shell.Screenshot` D-Bus method
+  answers `AccessDenied`. Do not spend time on it — for **editor viewport**
+  work there is a better substitute anyway: an **offscreen GL harness**
+  (PROGRESS 208). A hidden GLFW window (`GLFW_VISIBLE` false, `GLFW_INCLUDE_NONE`
+  before glfw3.h so the loader's symbols win), `glInit()`, a real `Viewport`,
+  real `render()` calls at a real panel size, then `glReadPixels` off
+  `lastImageFbo_` into a PNG through the already-linked `stb_image_write`
+  (do NOT define `STB_IMAGE_WRITE_IMPLEMENTATION` — menubake.cpp.o has it, and
+  stbi_load comes from app.cpp.o, so link ALL of `build/`'s objects minus
+  `main.cpp.o`, `-no-pie`). That isolates the viewport image from the UI, is
+  measurable (bounding boxes, bar widths, pixel ratios) rather than
+  eyeballed, and works with no display permissions at all. What it cannot
+  cover — the surrounding UI and anything dragged by hand — say so in
+  PROGRESS.md and leave it for a human.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then

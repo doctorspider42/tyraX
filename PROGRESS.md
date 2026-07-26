@@ -10,6 +10,126 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (209) **New projects boot the full-height PAL frame** (user: make the full PAL
+  mode the default, "nie tego przygranego"). `ProjectSettings::palFullHeight`
+  now defaults ON for **new** projects: on a PAL console the region-following
+  `interlaced` mode boots the true 512-line 576i frame instead of the
+  letterboxed NTSC-size 448-line picture - 14% more picture, which is most of
+  what a 50 Hz signal is for. It follows the skill's rule about defaults to the
+  letter: the STRUCT initializer stays `false` (that is what a project saved
+  before the key loads as, and flipping it would retroactively change what
+  every existing project outputs) and `project::create` assigns the new answer,
+  next to the debug profile / Live Link / keyboard-mouse block that is there
+  for the same reason. NTSC consoles are untouched - the generated `main.cpp`
+  gates the promotion on `graph_get_region()`, so one build still serves both
+  regions.
+  Also flipped, because the two would otherwise disagree in the viewport: the
+  PS2 output mode (191) resolved `videoSystem: auto` as NTSC ("what every
+  console renders at least"), which would have shown a fresh project the 448
+  picture its own settings say it will not boot in Europe. It now shows the PAL
+  one whenever `palFullHeight` is on and the video system is not explicitly
+  `ntsc` - the flag is ONLY meaningful on a PAL console, so a project that sets
+  it is authored for PAL, and the taller frame is the one whose extra 64 lines
+  need composing for. That also puts it in step with the safe-area overlay,
+  whose *NTSC picture inside PAL* guide draws the shorter picture INSIDE the
+  taller one and enables in exactly this configuration - it had been drawing an
+  inner box for a region difference the viewport was not showing.
+  *Verified* end to end rather than by reading the diff: `--new` writes
+  `"palFullHeight": true` and the generated `src/main.cpp` carries the promotion
+  (`if (true && ... Interlaced && (PAL || (Auto && graph_get_region() == PAL)))
+  -> Pal576i`), while a **`--resave` of examples/script-demo** (which predates
+  the key) comes back out with no `palFullHeight` line at all - the old
+  behavior, untouched, which is the regression this rule exists to prevent. The
+  191 harness gained the two new resolutions (`auto` + palFullHeight -> 512x512,
+  explicit `ntsc` -> 512x448) and a check that the struct default is still
+  letterbox; all 11 display-mode cases and the rest of the suite pass.
+- (208) **PS2 output in the viewport: looking at the scene the way the console
+  draws it** (user: "zróbmy ten viewport, ale niech jest opcja wyboru między
+  tym, co mamy teraz i tym nowym"). The viewport lied in three ways that cost
+  time later - it rasterized at monitor resolution, framed to whatever shape
+  the panel was docked to, and drew square pixels. *Viewport output* (the
+  viewport gear, *View > Viewport output*, machine-global `viewportPs2` in
+  editor.ini - a way of looking, like the safe areas, so it never dirties the
+  .tyra) switches between the editor's own image and the console's: the scene
+  rasterized at the **GS framebuffer size** of the project's display mode, then
+  point-scaled into the 4:3 / 16:9 rectangle a television shows, everything
+  outside it black. Written up in docs/ps2-viewport.md.
+  Three things carry it. **The render size is decoupled from the panel size**
+  by `render()` reassigning its own `width`/`height` params to the GS size
+  (they are by value): the entire ~900-line scene pass moves to 512x448 with no
+  site knowing, and one new presentation pass (`PS2_FS`, sharing GRADE_VS and
+  `gradeVao_`) scales `fbo_`/`gradeFbo_` into the panel-sized `outFbo_`. The
+  grading pass therefore runs at GS resolution *before* the scale-up - the
+  order the console grades in. **The letterbox lives in the camera**
+  (`CamView::boxSx/boxSy`): the picture no longer fills the viewport, so image
+  coords are PANEL coords that camRay divides by the box and projectToImage
+  multiplies back - which is what keeps picking, both raycasts and the
+  measuring tape on the picture, for free, because the skill's "one camera, one
+  place" rule already routed all of them through those two. It is a pure scale,
+  not a scale+offset, because a letterbox is centred by construction. The one
+  consumer that does NOT go through camRay is the transform gizmo (ImGuizmo
+  gets `projMatrix()` and draws over the whole panel rect), so `projMatrix()`
+  is the box-scaled twin of the matrix `render()` draws with.
+  **The geometry is not computed in the viewport**: `App::ps2ViewportOutput` is
+  the host twin of the engine's `RendererSettings::updateGeometry` plus the
+  scan-out choice in `RendererCoreGS::presentFrameBuffer`, so a new engine
+  display mode is one entry in each and nothing in viewport.cpp (written into
+  both skills). It also resolves the one thing the editor cannot know: with
+  `videoSystem: auto`, whether `palFullHeight` promotes to the 512-line frame
+  depends on the console that boots the disc, so the editor assumes NTSC - the
+  shorter picture, i.e. what every console renders at least.
+  What it does NOT fake, on purpose: 16-bit dithering (this engine's
+  framebuffer is `GS_PSM_32` - there is nothing to dither), CLUT textures (the
+  Material Editor answers that per material; scene-wide is a separate job), and
+  the temporal flicker between fields (the editor does not run at the field
+  rate, so a simulated strobe would be a different artifact wearing the same
+  name - field rendering's real cost, half the vertical resolution, IS shown).
+  Texture filtering needed nothing: the engine draws bilinear with mipmapping
+  off (`max_level = 0`), which is what the viewport already did, and the
+  distance shimmer appears on its own once the raster is 512x448.
+  **The finding worth keeping**: Tyra keeps the stock `aspectRatio = 512/448`
+  as its 4:3 baseline, so a sphere is a CIRCLE in the GS buffer and the TV
+  widens it - the console's picture is horizontally stretched by
+  (4/3)/(512/448) = **1.167**, and the editor had simply never shown it.
+  Reproducing the engine's projection rather than an idealized one is the whole
+  point of the mode, so it stays.
+  *Verified* with two throwaway harnesses (the 104/105 pattern - `#define
+  private public`, link against `build/`'s objects minus main.cpp). The
+  **host** one pins the parts that would fail silently: the display-mode table
+  against values read off the engine headers (11 cases incl. both
+  `palFullHeight` resolutions and 1080i's pillarboxed widescreen window), the
+  letterbox fit, and a project/unproject round trip through it in five
+  panel/aspect combinations (worst miss 1.3e-5 world units, and 0 with the mode
+  off). It also pins the viewport's letterbox against `drawSafeAreaOverlay`'s
+  own fit - they draw the same rectangle and drifting apart would put the
+  guides off the picture. The **GL** one is the visual pass this machine could
+  not otherwise get (the compositor refuses non-interactive screen capture):
+  a hidden GLFW window, the real `Viewport`, real `render()` calls at a
+  1200x675 panel, `glReadPixels` to PNG - which is better than a screenshot
+  anyway, since it isolates the viewport image from the UI. It confirmed the
+  programs link, the fb sizes (512x448 / 512x224 / panel), the bars (900 of
+  1200 px at 4:3, none at 16:9), that the gizmo projection and
+  `projectToImage` agree on every test point, and - by measuring a centred
+  sphere - the stretch: **0.99 w/h in editor mode, 1.18 in PS2 output** against
+  1.167 predicted (one GS pixel is 1.76 panel px here, so that is inside the
+  quantization). What is NOT verified: how it looks inside the real editor
+  window with the UI around it, and the gizmo dragged by hand - the numbers say
+  they are right, a human should still look once.
+  *Follow-up, same session:* the user's first screenshot showed the gear sitting
+  ON TOP of "Center view". The gear predates this change and had picked the
+  bottom-left corner for itself (`scaled(8)` inset, a fixed `scaled(22)` box)
+  while the button row picks the same corner with its own numbers (a bare `8.0f`
+  inset, `GetFrameHeight()` slot) - so they overlapped at 1x and drifted further
+  apart at every other DPI scale, since only one of the two insets scaled. Now
+  there is one definition of where the row starts (`App::viewportGearSpan`),
+  the gear is the row's first item at its height and inset, and it is centred
+  on the SmallButtons (which are only a font tall, so a square button left at
+  the same top edge hangs below the row). The gear glyph took the same
+  treatment - it derived its centre from the corner instead of from the button,
+  which is exactly how it would have been left behind again. Not
+  screenshot-verified (see above), but the two rects cannot overlap by
+  construction now: the row starts at the gear's right edge plus one
+  `ItemSpacing.x`.
 - (207) **Measured: ps2link's extra commands are not the free lunch they look
   like.** Before building anything on them, the question was whether the tools
   `ps2client --help` advertises - `dumpmem`, `scrdump`, `startvu`/`stopvu`,

@@ -393,9 +393,32 @@ public:
     void resetView();
 
     // View/projection of the last render() call (column-major, OpenGL style) -
-    // used by the transform gizmo.
+    // used by the transform gizmo. The projection is in PANEL space: in the
+    // PS2 output mode it carries the letterbox scale, so the gizmo lands on
+    // the picture and not on the bars beside it.
     const float* viewMatrix() const { return viewM_; }
     const float* projMatrix() const { return projM_; }
+
+    // PS2 output emulation (docs/ps2-viewport.md): render the scene at the GS
+    // framebuffer size of the project's display mode and present it - nearest,
+    // letterboxed into the TV's display window - instead of drawing the scene
+    // at whatever shape the viewport happens to be docked to. Geometry comes
+    // from the app (the twin of Tyra's RendererSettings::updateGeometry); the
+    // viewport only consumes it, so a new engine display mode is one table
+    // entry there and nothing here.
+    struct Ps2Output {
+        bool on = false;
+        int bufW = 512;   // physical GS framebuffer, in GS pixels
+        int bufH = 448;   // half the logical height when field rendering
+        float projAspect = 512.0f / 448.0f;  // RendererSettings::aspectRatio
+        float tvAspect = 4.0f / 3.0f;        // shape of the display window
+        // The GS flicker filter (two read circuits, the second offset by one
+        // line): on for the Interlaced and Pal576i scan-outs, off for the DTV
+        // modes and field rendering - RendererCoreGS::presentFrameBuffer.
+        bool flicker = true;
+    };
+    void setPs2Output(const Ps2Output& o) { ps2_ = o; }
+    const Ps2Output& ps2Output() const { return ps2_; }
 
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
@@ -464,6 +487,12 @@ private:
         float tanHalf = 0.4663f;  // perspective: tan(vertical fov / 2)
         float halfH = 1.0f;       // ortho: half the visible height (world units)
         float aspect = 1.0f;
+        // Letterbox: the fraction of the panel the picture covers, per axis
+        // (1,1 outside the PS2 output mode). Image coords passed to camRay and
+        // returned by projectToImage are PANEL coords, so both go through it -
+        // that is what keeps picking, the placement raycast and the measuring
+        // tape on the picture when it no longer fills the viewport.
+        float boxSx = 1.0f, boxSy = 1.0f;
     };
     CamView camView(int width, int height) const;
     // Ray through normalized image coords (u, v in [0,1], origin top-left).
@@ -693,12 +722,34 @@ private:
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};
 
+    // The RENDER target: the panel size normally, the GS framebuffer size in
+    // the PS2 output mode. Everything inside render() sizes itself from
+    // fbWidth_/fbHeight_, so the whole scene pass moves to GS resolution
+    // without knowing about it.
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
-    // Which framebuffer holds the image the last render() returned (fbo_, or
-    // gradeFbo_ when the grading pass ran) - the source grabPreviewRgb blits
-    // from, so the phone sees the graded picture too. 0 = nothing rendered yet.
+    // Which framebuffer holds the image the last render() returned (fbo_,
+    // gradeFbo_ when the grading pass ran, or outFbo_ in the PS2 output mode)
+    // and its size - the source grabPreviewRgb blits from, so the phone sees
+    // the graded picture too. 0 = nothing rendered yet.
     uint32_t lastImageFbo_ = 0;
+    int lastImageW_ = 0, lastImageH_ = 0;
+
+    // PS2 output mode: the panel-sized presentation target the GS image is
+    // scaled into (nearest, letterboxed into the display window), and the
+    // panel size itself - camView() needs it to work out the letterbox even
+    // though every render/pick call now passes the GS size around.
+    Ps2Output ps2_;
+    void ensureOutputFramebuffer(int width, int height);
+    uint32_t outFbo_ = 0, outTex_ = 0;
+    int outW_ = 0, outH_ = 0;
+    // How much of the panel the picture covers, per axis (1 = edge to edge).
+    // The letterbox is centred by construction, so it is a pure scale: the
+    // projection handed to the gizmo is multiplied by it, camRay divides by
+    // it, projectToImage multiplies again.
+    void ps2LetterBox(float& sx, float& sy) const;
+    uint32_t ps2Program_ = 0;
+    int uPs2Src_ = -1, uPs2Box_ = -1, uPs2Texel_ = -1, uPs2Flicker_ = -1;
 
     // Phone-camera readback target: a small RGBA8 framebuffer the viewport
     // image is blitted (and thus downscaled) into before glReadPixels.
