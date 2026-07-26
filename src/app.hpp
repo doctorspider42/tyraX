@@ -695,6 +695,9 @@ private:
     void phoneCamTick();
     void startPhoneCam();
     void stopPhoneCam();
+    void drawPhoneLinkWindow();
+    // One status line + a way in, for a window that consumes the link.
+    void drawPhoneLinkSummary();
     void drawPhoneCamWindow();
     // Streams the frame the viewport just rendered. Called from
     // drawViewportWindow right after render(), so the phone sees exactly the
@@ -1194,6 +1197,7 @@ private:
 
     // --- Phone camera link state (see the method block above) ---------------
     phonecam::Link phoneCam_;
+    bool showPhoneLinkWindow_ = false;
     bool showPhoneCamWindow_ = false;
     // Machine-global settings (editor.ini).
     phonecam::PreviewPrefs phoneCamPrefs_;

@@ -1,4 +1,13 @@
-# Phone camera: the phone as a live viewfinder
+# Phone camera
+
+> **The link has its own window.** *Tools > Phone Link* hosts the session a
+> phone joins - start/stop, the address, the pairing code, which device is
+> connected. Two features ride on it, this one and body capture
+> ([character-generator.md](character-generator.md)), and they are separate apps
+> on the phone; the editor still runs **one** server, one port and one code,
+> because two links would mean two codes to type and a fight over 7798. What
+> that window does not contain is anything about what the link is *used for* -
+> that lives here and in the Mocap window.: the phone as a live viewfinder
 
 Hold your phone, look at the shot on its screen, and move it — the editor camera
 moves with you. Press **Record** and the move is written into a **Cutscene
@@ -8,7 +17,7 @@ This is the live half of [camera takes](camera-takes.md): same destination
 (camera keys in a sequence), but streamed over Wi-Fi while you work instead of
 imported from a file afterwards.
 
-- Editor side: *Tools > Phone Camera* (the link) and *Tools > Cutscene Director >
+- Editor side: *Tools > Phone Link* (hosting) and *Tools > Phone Camera* + *Tools > Cutscene Director >
   Phone camera* (the recording).
 - Phone side: the companion app lives in **its own public repo**,
   [doctorspider42/tyrax-cam](https://github.com/doctorspider42/tyrax-cam)
@@ -48,7 +57,7 @@ trustworthy:
 
 ## Getting connected
 
-1. *Tools > Phone Camera* → **Start link**. The window lists this machine's LAN
+1. *Tools > Phone Link* → **Start link**. The window lists this machine's LAN
    addresses (`192.168.1.20:7798`) and a 6-digit **pairing code**.
 2. Type both into the app (or the browser test client) and connect.
 3. The first pose that arrives **recentres** automatically — onto the selected

@@ -300,7 +300,7 @@ Generator's multi-part path, so clothes and hair come along.
 Two sources, and the distinction matters less than it looks:
 
 - **A `.tmocap` file**, played back. Scrub it, loop it, watch the retarget.
-- **The live phone link.** Start *Tools > Phone Camera*'s link, type its address
+- **The live phone link.** Start the link in *Tools > Phone Link*, type its address
   and six-digit code into the app's LIVE LINK row, and the performer moves the
   character in the editor with about a frame of lag. The window binds to the
   phone's skeleton **the moment it arrives** - a phone connects, reconnects or is

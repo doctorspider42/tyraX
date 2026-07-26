@@ -1121,6 +1121,10 @@ void App::drawMenuBar() {
                 charPreviewDirty_ = true;
             }
             if (ImGui::MenuItem("Mocap...")) showMocap_ = true;
+            if (ImGui::MenuItem("Phone Link...")) showPhoneLinkWindow_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Host the session a phone joins - one link,\n"
+                                  "shared by the camera and by body capture.");
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::EndMenu();
         }
@@ -10481,11 +10485,12 @@ void App::drawMocapWindow() {
         }
     } else if (mocapSourceKind_ == 2) {
         const bool linked = phoneCam_.connected();
-        ImGui::TextColored(linked ? ImVec4(0.5f, 0.88f, 0.63f, 1.0f)
-                                  : ImVec4(0.91f, 0.81f, 0.5f, 1.0f),
-                           "%s", linked ? phoneCam_.device().name.c_str() : "no phone connected");
+        // The link is shared infrastructure and belongs to neither feature, so
+        // this is a status line and a way in, not a second set of controls.
+        drawPhoneLinkSummary();
         if (!linked)
-            ImGui::TextDisabled("Pair one in Tools > Phone Camera - the same\nlink carries body tracking.");
+            ImGui::TextDisabled("Nothing paired yet - start the link, then type\n"
+                                "its address and code into the app.");
         else if (!phoneCam_.hasBodySkeleton())
             ImGui::TextDisabled("Connected, but this app is not sending a body.");
         else
@@ -13984,10 +13989,21 @@ void App::phoneCamTick() {
 // Tools > Phone Camera: hosting controls, what the phone has to be told to
 // connect, and the live mapping. Recording lives in the Cutscene Director -
 // this window is the link itself.
-void App::drawPhoneCamWindow() {
-    if (!showPhoneCamWindow_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(430), scaled(520)), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Phone Camera", &showPhoneCamWindow_)) {
+// Tools > Phone Link: hosting the session a phone joins, and nothing else.
+//
+// The link is shared infrastructure. Two features ride on it - the camera
+// viewfinder and body capture - and they are separate apps on the phone, but
+// one server, one port and one pairing code here, because two links would mean
+// two codes to type and a fight over 7798.
+//
+// It used to live inside the Phone Camera window, which made pairing a mocap
+// session mean opening a window whose other four sections are about preview
+// JPEG quality and which Camera entity to record into. Shared infrastructure
+// belongs to neither of its consumers.
+void App::drawPhoneLinkWindow() {
+    if (!showPhoneLinkWindow_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(400)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Phone Link", &showPhoneLinkWindow_)) {
         ImGui::End();
         return;
     }
@@ -14074,6 +14090,58 @@ void App::drawPhoneCamWindow() {
         if (!dev.sixDof && ImGui::IsItemHovered())
             ImGui::SetTooltip("This device reports no world position, so the camera\n"
                               "turns in place instead of walking.");
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("What is using it");
+    // Which consumer a device drives is decided by the app it runs, not here -
+    // the phone says at hello. This is the readout, not a switch.
+    if (live) {
+        ImGui::BulletText("Camera: %s",
+                          phoneDrive_ ? "driving the viewport" : "connected, not driving");
+        ImGui::BulletText("Mocap: %s", phoneCam_.hasBodySkeleton()
+                                           ? "sending a body"
+                                           : "this app is not sending a body");
+    } else {
+        ImGui::TextDisabled("Nothing connected. Tools > Phone Camera for the\n"
+                            "viewfinder, Tools > Mocap for body capture.");
+    }
+    ImGui::End();
+}
+
+// One line, for a window that CONSUMES the link rather than owning it: is
+// anything connected, and a way to get to the controls.
+void App::drawPhoneLinkSummary() {
+    const bool live = phoneCam_.connected();
+    if (live) {
+        const phonecam::DeviceInfo dev = phoneCam_.device();
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "%s",
+                           dev.name.empty() ? "phone connected" : dev.name.c_str());
+    } else if (phoneCam_.listening()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "waiting for a phone");
+    } else {
+        ImGui::TextDisabled("link not started");
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Phone Link...")) showPhoneLinkWindow_ = true;
+}
+
+void App::drawPhoneCamWindow() {
+    if (!showPhoneCamWindow_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(430), scaled(520)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Phone Camera", &showPhoneCamWindow_)) {
+        ImGui::End();
+        return;
+    }
+
+    const bool up = phoneCam_.listening();
+    const bool live = phoneCam_.connected();
+    const phonecam::DeviceInfo dev = phoneCam_.device();
+
+    drawPhoneLinkSummary();
+
+    // The pose stream itself stays here: it is what the CAMERA rides on.
+    if (live) {
         const double age = ImGui::GetTime() - phonePoseAt_;
         if (phoneHasPose_ && age < 1.0) {
             ImGui::Text("Stream: %llu poses", (unsigned long long)phoneCam_.poseCount());

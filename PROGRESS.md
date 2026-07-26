@@ -10,6 +10,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (192) **The link gets its own window.** Owner's objection, and a fair one:
+  pairing a MOCAP session meant opening *Tools > Phone Camera*, a window whose
+  other four sections are preview JPEG quality, which Camera entity to view
+  from, and recording into cutscene keyframes. None of that has anything to do
+  with body capture.
+  The technical decision underneath is still right and is unchanged - one
+  server, one port, one pairing code, because two links would mean two codes to
+  type and a fight over 7798. What was wrong is that shared infrastructure was
+  living inside one of its two consumers. *Tools > Phone Link* now owns hosting,
+  the address, the code and the connected device; Phone Camera and Mocap each
+  show a one-line summary and a way in, and keep only what they actually use
+  (the pose stream stays with the camera, since that is what rides on it).
+  The new window also says which consumer a connected device is feeding, read
+  from what the app sent at hello rather than offered as a switch - the phone
+  decides that by being the app it is.
+
 - (191) **The shake, taken out without taking the movement with it.** Monocular
   tracking re-estimates every joint from scratch each frame, so a performer
   standing perfectly still arrives shimmering and the retarget passes that on
