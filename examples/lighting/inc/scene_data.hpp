@@ -433,6 +433,7 @@ constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {89.6F};
 constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {74.24F};
 constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {26.0F};
 constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {17.0F};
+constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
 constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
 constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
 constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
@@ -625,6 +626,7 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

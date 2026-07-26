@@ -388,7 +388,12 @@ std::string objectJson(const SceneObject& o) {
                 fmtVec3(o.flashlightColor) + ", \"range\": " +
                 fmtFloat(o.flashlightRange) + ", \"angle\": " +
                 fmtFloat(o.flashlightAngle) + ", \"toggle\": \"" +
-                jsonEscape(o.flashlightToggleButton) + "\" }" + " }";
+                jsonEscape(o.flashlightToggleButton) + "\"" +
+                (o.flashlightTexture.empty()
+                     ? ""
+                     : ", \"texture\": \"" + jsonEscape(o.flashlightTexture) +
+                           "\"") +
+                " }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
         static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain",
@@ -2656,6 +2661,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.flashlightAngle = (float)v->numberOr(20.0);
                 if (const auto* v = fl->find("toggle"))
                     o.flashlightToggleButton = v->stringOr("");
+                if (const auto* v = fl->find("texture"))
+                    o.flashlightTexture = v->stringOr("");
                 if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
                 if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
                 if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
@@ -4324,6 +4331,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
     fnvMixS(h, o.flashlightToggleButton);
+    fnvMixS(h, o.flashlightTexture);
     fnvMix(h, (uint64_t)o.emitterKind);
     fnvMix(h, (uint64_t)o.emitterCount);
     fnvMixF(h, o.emitterSize);

@@ -1360,6 +1360,11 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // Optional custom sprite for the flashlight's pool (Player > Flashlight >
+  // Pool texture). Cached by path - a scene switch must not re-add the same
+  // texture to the repository.
+  Tyra::Texture* flashPoolTex = nullptr;
+  std::string flashPoolTexPath;
   // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
   // lighting cannot draw a spot smaller than the mesh tessellation, so
   // looking down at your own feet lit nothing (the cone footprint is
@@ -2262,6 +2267,11 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // Optional custom sprite for the flashlight's pool (Player > Flashlight >
+  // Pool texture). Cached by path - a scene switch must not re-add the same
+  // texture to the repository.
+  Tyra::Texture* flashPoolTex = nullptr;
+  std::string flashPoolTexPath;
   // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
   // lighting cannot draw a spot smaller than the mesh tessellation, so
   // looking down at your own feet lit nothing (the cone footprint is
@@ -7793,6 +7803,18 @@ void TerrainGame::setupLightPools() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = beamCoronaTex;
+    // The flashlight's pool can carry an authored sprite instead - that
+    // texture IS the beam's shape (gobo, cross, cracked lens). Additive,
+    // so the shape lives in RGB; alpha is ignored.
+    if (b.objIndex < 0 && FLASHLIGHT_TEX[0] != '\0') {
+      const std::string want(FLASHLIGHT_TEX);
+      if (!flashPoolTex || flashPoolTexPath != want) {
+        flashPoolTex =
+            engine->renderer.getTextureRepository().add(FileUtils::fromCwd(want));
+        flashPoolTexPath = want;
+      }
+      if (flashPoolTex) b.texBag->texture = flashPoolTex;
+    }
     b.texBag->coordinates = b.sts.data();
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
@@ -17356,6 +17378,16 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("FLASHLIGHT_ANGLES", [&](int si) {
         return floatLit(players[0][si] ? players[0][si]->flashlightAngle : 20.0f);
     });
+    // Ground-pool sprite of the beam ("" = the built-in procedural corona).
+    // Stored res-relative; the game loads cwd-relative, so drop the "res/".
+    out << "constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si) {
+        std::string t =
+            players[0][si] ? players[0][si]->flashlightTexture : std::string();
+        if (t.rfind("res/", 0) == 0) t = t.substr(4);
+        out << (si ? ", " : "") << "\"" << escapeCString(t) << "\"";
+    }
+    out << "};\n";
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
     sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
@@ -17641,6 +17673,7 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

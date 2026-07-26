@@ -313,6 +313,11 @@ struct SceneObject {
     float flashlightRange = 30.0f;  // world units
     float flashlightAngle = 20.0f;  // cone half-angle, degrees
     std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+    // Texture of the beam's ground pool (res-relative PNG, e.g.
+    // "res/hud/beam.png"). Empty = the built-in procedural corona. The
+    // shape must live in the RGB channels: the pool draws additively and
+    // additive bags ignore texture alpha.
+    std::string flashlightTexture;
 
     // Particle emitter parameters (used when type == Emitter). The particle
     // texture comes from the shared materialPath (first material's map_Kd);
@@ -526,6 +531,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flashlightRange == b.flashlightRange &&
            a.flashlightAngle == b.flashlightAngle &&
            a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.flashlightTexture == b.flashlightTexture &&
            a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.emitterEnabled == b.emitterEnabled &&

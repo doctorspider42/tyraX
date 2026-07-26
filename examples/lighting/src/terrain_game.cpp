@@ -5506,6 +5506,18 @@ void TerrainGame::setupLightPools() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = beamCoronaTex;
+    // The flashlight's pool can carry an authored sprite instead - that
+    // texture IS the beam's shape (gobo, cross, cracked lens). Additive,
+    // so the shape lives in RGB; alpha is ignored.
+    if (b.objIndex < 0 && FLASHLIGHT_TEX[0] != '\0') {
+      const std::string want(FLASHLIGHT_TEX);
+      if (!flashPoolTex || flashPoolTexPath != want) {
+        flashPoolTex =
+            engine->renderer.getTextureRepository().add(FileUtils::fromCwd(want));
+        flashPoolTexPath = want;
+      }
+      if (flashPoolTex) b.texBag->texture = flashPoolTex;
+    }
     b.texBag->coordinates = b.sts.data();
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();

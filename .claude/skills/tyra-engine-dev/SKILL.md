@@ -70,8 +70,7 @@ blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
 frame on the quarter-res buffers (subtract flat threshold 150, double back
 up - 96 washed the whole frame white, the sky IS bright) and iteratively
 zoom it toward the sun (2 ping-pong passes, s=0.72) before compositing
-additively at half the requested strength; DoF
-`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — bloom
+additively at half the requested strength; bloom
 takes an optional **bright-pass threshold** (`setBloomThreshold`), one extra
 quarter-res sprite subtracting a flat grey from the downsampled frame through
 `(0 - Cs)*128/128 + Cd`; the GS clamps at zero, so sub-threshold pixels drop

@@ -8050,6 +8050,51 @@ void App::drawPropertiesWindow() {
         ImGui::TextDisabled("Enabled is the master switch (Set Flashlight flow node\n"
                             "can change it). The toggle button gates the beam on/off\n"
                             "at runtime, but only while Enabled.");
+
+        // Ground-pool texture. Per-vertex lighting cannot draw a spot
+        // smaller than the mesh tessellation, so the beam paints its
+        // ground pool with this sprite - which is also the knob for the
+        // beam's SHAPE (a gobo, a cross, a cracked-lens blob...).
+        ImGui::Spacing();
+        if (o.flashlightTexture.empty())
+            ImGui::TextDisabled("Pool texture: built-in soft circle");
+        else
+            ImGui::TextDisabled("Pool texture: %s", o.flashlightTexture.c_str());
+        if (ImGui::Button(o.flashlightTexture.empty() ? "Pool texture (PNG)..."
+                                                      : "Replace pool texture...")) {
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "hud";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    o.flashlightTexture = "res/hud/" + fileName;
+                    committed = true;
+                } else {
+                    statusMessage_ = "Flashlight texture import failed: " + ec.message();
+                }
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The sprite the beam's ground pool is drawn with - swap it to\n"
+                "reshape the light (gobo, cross, cracked lens). It draws\n"
+                "ADDITIVELY, so put the shape in the RGB channels: black is\n"
+                "transparent, alpha is ignored. Power-of-two sizes only.");
+        if (!o.flashlightTexture.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Reset##flashtex")) {
+                o.flashlightTexture.clear();
+                committed = true;
+            }
+        }
     }
 
     // Attached scripts (Unity-style components): class names registered in

@@ -832,6 +832,11 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // Optional custom sprite for the flashlight's pool (Player > Flashlight >
+  // Pool texture). Cached by path - a scene switch must not re-add the same
+  // texture to the repository.
+  Tyra::Texture* flashPoolTex = nullptr;
+  std::string flashPoolTexPath;
   // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
   // lighting cannot draw a spot smaller than the mesh tessellation, so
   // looking down at your own feet lit nothing (the cone footprint is

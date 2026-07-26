@@ -10,6 +10,20 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (127) **The flashlight's pool sprite is swappable (Player > Flashlight >
+  Pool texture).** Owner's ask right after (126): since the ground pool is
+  what you actually see the beam AS, its sprite is the knob for the beam's
+  SHAPE - a gobo, a cross, a cracked lens. New
+  `SceneObject::flashlightTexture` (res-relative PNG, empty = the built-in
+  procedural corona), imported through the same copy-into-res/hud picker
+  the HUD images use, with a Reset button; serialized inside the existing
+  `flashlight` JSON block (omitted when empty), hashed into the Live Link
+  recipe, baked per scene as `FLASHLIGHT_TEXS` (the "res/" prefix is
+  stripped - the game loads cwd-relative) and picked up in
+  `setupLightPools`, cached by path so a scene switch cannot re-add the
+  same texture. It draws ADDITIVELY, so the shape must live in the RGB
+  channels (alpha is ignored) - the tooltip says so. Point-light beams
+  keep the built-in corona for now.
 - (126) **You could not light your own feet: the flashlight got a ground
   pool.** Follow-up to (125) - with the beam brightness fixed, aiming
   straight down still lit nothing. Root cause is structural, not a
