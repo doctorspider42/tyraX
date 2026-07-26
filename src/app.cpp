@@ -3263,29 +3263,34 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         break;
     }
     case LayoutRecipe::Mocap: {
-        // A capture session is watched, not edited: the character being driven
-        // gets the middle, the link and the mocap controls sit down the right
-        // where a glance reaches them without covering the performer, and the
-        // scene tree keeps its column so a different character is one click
-        // away. Output goes along the bottom because the useful diagnostics
-        // during a session - what the take stored, why a joint is not driven -
-        // are printed rather than drawn.
+        // The Mocap window carries its OWN 3D preview of the character being
+        // driven, so it belongs in the middle where the Viewport would be - not
+        // in a side column, which was the first attempt and squeezed the one
+        // thing you actually watch. It tabs with Viewport and Flow Graph and
+        // comes up focused.
+        //
+        // Phone Link is the opposite shape: controls and a status line, nothing
+        // to look at. A narrow full-height column on the right suits it, and
+        // keeps address and pairing code visible the whole session instead of
+        // behind a tab.
+        //
+        // Output along the bottom because the useful diagnostics during a
+        // session - what a take stored, why a joint is not driven - are printed
+        // rather than drawn.
         ImGuiID left =
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
         ImGuiID right =
-            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30f, nullptr, &center);
-        ImGuiID rightBottom =
-            ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.42f, nullptr, &right);
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
         ImGuiID bottom =
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Project", left);
         ImGui::DockBuilderDockWindow("Properties", left);
-        ImGui::DockBuilderDockWindow("Mocap", right);
-        ImGui::DockBuilderDockWindow("Phone Link", rightBottom);
+        ImGui::DockBuilderDockWindow("Phone Link", right);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
-        ImGui::DockBuilderDockWindow("Flow Graph", center);
         ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Mocap", center);
         pendingFocusWindow_ = "Mocap";
         break;
     }

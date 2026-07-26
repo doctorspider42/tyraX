@@ -293,12 +293,21 @@ is the right fidelity tier. For a close-up cutscene it is not.
 ## Tools > Mocap: a performer drives a character
 
 There is a **Mocap layout** (the *Layout* menu) that opens exactly what a
-capture session needs: the viewport in the middle, the Mocap controls and
-*Phone Link* stacked down the right where a glance reaches them without
-covering the performer, and Output along the bottom - during a session the
-useful diagnostics are printed rather than drawn. The Director layout carries
-*Phone Link* too, since recording a camera move is the other thing a paired
-phone does.
+capture session needs. This window carries its own 3D preview of the character
+being driven, so it takes the middle - tabbed with the Viewport and focused -
+rather than a side column, which was the first attempt and squeezed the one
+thing you actually watch. *Phone Link* is the opposite shape, all controls and
+no picture, so it gets a narrow full-height column on the right where the
+address and pairing code stay visible instead of hiding behind a tab. Output
+runs along the bottom, because during a session the useful diagnostics are
+printed rather than drawn.
+
+The Director layout carries *Phone Link* too, since recording a camera move is
+the other thing a paired phone does.
+
+A layout remembers its arrangement once shown, so changing the built-in recipe
+does not move a layout you have already opened - *Layout > Reset to built-in
+arrangement* is what re-applies it.
 
 
 Record, AirDrop, import, discover it was wrong, repeat is a bad loop. *Tools >

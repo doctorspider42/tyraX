@@ -44,10 +44,14 @@ Each finished feature lands as its own commit.
   toolchain catches. (Cause worth recording: several UI edits went in through a
   script that writes only after all its patterns match, and a single stale
   pattern silently discarded the whole batch.)
-  The layout itself: viewport in the middle, Mocap + Phone Link stacked down the
-  right where a glance reaches them without covering the performer, Output along
-  the bottom because during a session the useful diagnostics are printed rather
-  than drawn. The Director gets Phone Link as well - recording a camera move is
+  The layout itself, after the owner sent back what he had actually arranged:
+  the Mocap window takes the MIDDLE, tabbed with the Viewport and focused,
+  because it carries its own 3D preview of the character being driven - the
+  first attempt put it in a side column and squeezed the one thing anyone
+  watches. Phone Link is the opposite shape, all controls and no picture, so it
+  gets a narrow full-height column where the address and pairing code stay
+  visible instead of hiding behind a tab. Output along the bottom, because
+  during a session the useful diagnostics are printed rather than drawn. The Director gets Phone Link as well - recording a camera move is
   the other thing a paired phone does.
   Existing projects are topped up on load, because `seedBuiltinLayouts` only
   runs for new ones and the layout would otherwise be visible to nobody who
