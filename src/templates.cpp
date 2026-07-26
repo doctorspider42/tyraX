@@ -553,6 +553,10 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  // Camera up vector. World up unless a cutscene rolls the camera
+  // (Dutch angle); CameraInfo3D takes it and both the view matrix and
+  // the frustum planes honour it.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
   float orbitAngle;
 
   // Terrain chunks: the heightmap grid is cut into TERRAIN_CHUNK_CELLS-sized
@@ -1345,6 +1349,10 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  // Camera up vector. World up unless a cutscene rolls the camera
+  // (Dutch angle); CameraInfo3D takes it and both the view matrix and
+  // the frustum planes honour it.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
   float playerX, playerZ, yaw, pitch;
   float playerY, playerVelY;  // feet height + vertical velocity (physics)
 
@@ -3760,6 +3768,9 @@ void TerrainGame::loop() {
   if (scriptCtx.cameraOverride) {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
+    cameraUp = scriptCtx.cameraUp;
+  } else {
+    cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -3786,7 +3797,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
-  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     // Split screen (two players): the scene renders twice, top half from
@@ -3807,7 +3818,7 @@ void TerrainGame::loop() {
       const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
       cameraPosition = players[1].camPos;
       cameraLookAt = players[1].camLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       core.splitView.begin(1);
       splitSecondPass = true;  // reuse this frame's anim poses/skins
       renderScene();
@@ -3815,7 +3826,7 @@ void TerrainGame::loop() {
       core.splitView.end();
       cameraPosition = savedPos;
       cameraLookAt = savedLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
       renderScene();
@@ -8924,7 +8935,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag) stapip.core.render(part.bag.get());
     }
-    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
   }
 
@@ -9607,7 +9618,7 @@ void TerrainGame::renderCameraFeed() {
       for (ObjectGeometry::AnimPart& ap : og.animParts)
         if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
   }
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.camFeed.end();
 }
 
@@ -9739,7 +9750,7 @@ void TerrainGame::renderObjectProbe(int index) {
     for (GeoPart& part : objectGeometry[ri].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
 }
 
@@ -10206,7 +10217,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     co.dirty = true;  // main pass rebuilds at the real (near) position
   }
   portalExitPlaneOn = false;
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
                      (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
   return true;
@@ -12145,6 +12156,9 @@ void TerrainGame::loop() {
   if (scriptCtx.cameraOverride) {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
+    cameraUp = scriptCtx.cameraUp;
+  } else {
+    cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -12171,7 +12185,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
-  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     // Split screen (two players): the scene renders twice, top half from
@@ -12192,7 +12206,7 @@ void TerrainGame::loop() {
       const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
       cameraPosition = players[1].camPos;
       cameraLookAt = players[1].camLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       core.splitView.begin(1);
       splitSecondPass = true;  // reuse this frame's anim poses/skins
       renderScene();
@@ -12200,7 +12214,7 @@ void TerrainGame::loop() {
       core.splitView.end();
       cameraPosition = savedPos;
       cameraLookAt = savedLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
       renderScene();
@@ -12921,6 +12935,10 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  // Camera up vector. World up unless a cutscene rolls the camera
+  // (Dutch angle); CameraInfo3D takes it and both the view matrix and
+  // the frustum planes honour it.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
   float orbitAngle;
 
   std::vector<Tyra::Vec4> vertices;
@@ -12972,7 +12990,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
-  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     stapip.core.render(bag.get());
@@ -13140,6 +13158,9 @@ struct ScriptContext {
   bool cameraOverride = false;
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
+  // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene
+  // without roll renders exactly as it did before roll existed.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
 
   // Cutscene presentation, also written by the sequence player every frame a
   // cutscene is active (and zeroed when it ends): widescreen mask style
@@ -15106,7 +15127,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 out << (si ? ", " : "") << floatLit(ps[si] ? get(*ps[si]) : dflt);
             out << "};\n";
         };
-        playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.4f);
+        // The fallbacks fill scenes that have no Player object at all; keep
+        // them on the SceneObject defaults (walk = 0.1 units per 1/50 s).
+        playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.1f);
         playerFloat("LOOK_SPEEDS", [](const SceneObject& o) { return o.playerLookSpeed; }, 1.0f);
         playerFloat("EYE_HEIGHTS", [](const SceneObject& o) { return o.playerEyeHeight; }, 1.8f);
         playerFloat("JUMP_SPEEDS", [](const SceneObject& o) { return o.playerJumpSpeed; }, 4.5f);
@@ -15867,8 +15890,13 @@ std::string sequencesScript(const Project& p) {
            "// dolly it); eye/at hold the entity's authored pose as the fallback\n"
            "// when its scene is not the active one. fov is the entity's for bound\n"
            "// shots, the key's own for free ones. shake = handheld amplitude.\n"
+           "// roll = the Dutch angle in degrees, rotation about the view axis.\n"
+           "// Free shots carry the authored value; a shot BOUND to a Camera\n"
+           "// entity leaves it 0 and takes its tilt from that entity's own\n"
+           "// orientation instead (see the runtime's rollOf).\n"
            "struct CamKey { float t; float eye[3]; float at[3]; float fov;\n"
-           "                float shake; int ease; int camScene; int camObj; };\n"
+           "                float shake; float roll; int ease; int camScene;\n"
+           "                int camObj; };\n"
            "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
            "             int hidePlayer;  // hide the third-person avatar while playing\n"
            "             int bars; int skippable; float fadeIn; float fadeOut;\n"
@@ -15943,14 +15971,18 @@ std::string sequencesScript(const Project& p) {
                         rr = {-1, -1};  // stale/non-camera binding: free shot
                     }
                 }
+                // A bound shot's tilt comes from the entity's orientation at
+                // runtime, so its key roll stays 0 - baking one in would add to
+                // the entity's own and double the lean.
+                const float roll = rr.first >= 0 ? 0.0f : k.roll;
                 out << (ci ? ", " : "") << "{" << floatLit(k.time) << ", " << v3(eye)
                     << ", " << v3(at) << ", " << floatLit(fov) << ", "
-                    << floatLit(k.shake) << ", " << k.easing << ", " << rr.first
-                    << ", " << rr.second << "}";
+                    << floatLit(k.shake) << ", " << floatLit(roll) << ", "
+                    << k.easing << ", " << rr.first << ", " << rr.second << "}";
                 if (!k.camera.empty()) out << " /* \"" << k.camera << "\" */";
             }
             if (ck.empty())
-                out << "{0.0F, {0,0,0}, {0,0,0}, 60.0F, 0.0F, 0, -1, -1}";
+                out << "{0.0F, {0,0,0}, {0,0,0}, 60.0F, 0.0F, 0.0F, 0, -1, -1}";
         }
         out << "};\n\n";
     }
@@ -16096,7 +16128,40 @@ class SequenceDirector : public Script {
       // CURRENT pose (object tracks already ran this frame, so a keyframed
       // camera entity gives a dolly/crane move); the +Z lens direction math
       // mirrors seqCameraForward in src/sequence.hpp.
-      auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+      // Camera up for a view direction plus a roll about it - mirrors
+      // seqCameraUp in src/sequence.hpp. Roll 0 gives world up, so an unrolled
+      // cutscene renders exactly as it did before roll existed.
+      auto upFor = [](const float fwd[3], float roll, float out[3]) {
+        float f[3] = {fwd[0], fwd[1], fwd[2]};
+        const float fl = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+        if (fl > 1e-8F) { f[0] /= fl; f[1] /= fl; f[2] /= fl; }
+        float ref[3] = {0.0F, 1.0F, 0.0F};
+        if (f[1] > 0.9995F || f[1] < -0.9995F) {
+          ref[0] = 0.0F; ref[1] = 0.0F; ref[2] = -1.0F;
+        }
+        float r[3] = {ref[1] * f[2] - ref[2] * f[1],
+                      ref[2] * f[0] - ref[0] * f[2],
+                      ref[0] * f[1] - ref[1] * f[0]};
+        const float rl = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+        if (rl > 1e-8F) { r[0] /= rl; r[1] /= rl; r[2] /= rl; }
+        const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2],
+                            f[0] * r[1] - f[1] * r[0]};
+        const float a = roll * 3.14159265F / 180.0F;
+        const float ca = cosf(a), sa = sinf(a);
+        for (int j = 0; j < 3; ++j) out[j] = u[j] * ca + r[j] * sa;
+      };
+      // Inverse: an arbitrary basis's roll - mirrors seqRollFromUp. Used to turn
+      // a bound Camera entity's own orientation into the same scalar channel the
+      // free shots interpolate.
+      auto rollOf = [&](const float fwd[3], const float up[3]) {
+        float lv[3], rt[3];
+        upFor(fwd, 0.0F, lv);
+        upFor(fwd, 90.0F, rt);
+        const float dc = up[0] * lv[0] + up[1] * lv[1] + up[2] * lv[2];
+        const float ds = up[0] * rt[0] + up[1] * rt[1] + up[2] * rt[2];
+        return atan2f(ds, dc) * 180.0F / 3.14159265F;
+      };
+      auto shot = [&](int i, float eye[3], float at[3], float& fov, float& roll) {
         const CamKey& c = k[i];
         if (c.camObj >= 0 && c.camScene == ctx.scene &&
             c.camObj < ctx.objectCount) {
@@ -16114,31 +16179,45 @@ class SequenceDirector : public Script {
             eye[j] = o.data.position[j];
             at[j] = o.data.position[j] + fwd[j];
           }
+          // The entity's own up (Rz*Ry*Rx applied to +Y - the middle column of
+          // seqEulerMatrix) turned into a roll, so a tilted camera object leans
+          // the shot. NOT c.roll: rotation.z is a world-axis rotation applied
+          // last, not a lens-axis roll, and only coincides with one when the
+          // camera is unpitched.
+          const float eu[3] = {cz * sy * sx - sz * cx, sz * sy * sx + cz * cx,
+                               cy * sx};
+          roll = rollOf(fwd, eu);
         } else {
           for (int j = 0; j < 3; ++j) {
             eye[j] = c.eye[j];
             at[j] = c.at[j];
           }
+          roll = c.roll;
         }
         fov = c.fov;
       };
       int i = 0;
       while (i < n - 1 && t >= k[i + 1].t) ++i;
-      float eye[3], at[3], fov;
-      shot(i, eye, at, fov);
+      float eye[3], at[3], fov, roll;
+      shot(i, eye, at, fov, roll);
       float shake = k[i].shake;
       if (t > k[i].t && i < n - 1) {
         const float span = k[i + 1].t - k[i].t;
         const float u = span > 1e-6F ? (t - k[i].t) / span : 0.0F;
         const float w = seqEase(k[i].ease, u);
-        float eye1[3], at1[3], fov1;
-        shot(i + 1, eye1, at1, fov1);
+        float eye1[3], at1[3], fov1, roll1;
+        shot(i + 1, eye1, at1, fov1, roll1);
         for (int j = 0; j < 3; ++j) {
           eye[j] += (eye1[j] - eye[j]) * w;
           at[j] += (at1[j] - at[j]) * w;
         }
         fov += (fov1 - fov) * w;
         shake += (k[i + 1].shake - shake) * w;
+        // Take the short way round, or a shot crossing +-180 deg spins.
+        float dr = roll1 - roll;
+        while (dr > 180.0F) dr -= 360.0F;
+        while (dr < -180.0F) dr += 360.0F;
+        roll += dr * w;
       }
       if (shake > 0.0F) {
         // handheld noise - mirrors seqShakeOffset in src/sequence.hpp
@@ -16157,6 +16236,14 @@ class SequenceDirector : public Script {
       ctx.cameraAt.x = at[0];
       ctx.cameraAt.y = at[1];
       ctx.cameraAt.z = at[2];
+      {
+        const float fwd[3] = {at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]};
+        float up[3];
+        upFor(fwd, roll, up);
+        ctx.cameraUp.x = up[0];
+        ctx.cameraUp.y = up[1];
+        ctx.cameraUp.z = up[2];
+      }
       applyFov(ctx, fov);
     }
     // Presentation: bars slide in/out over the sequence's reveal times
@@ -20367,7 +20454,7 @@ std::vector<File> bakeStaticModels(const Project& p,
             continue;
         }
 
-        // Artist-authored LOD meshes (Assets > the model's LOD... button):
+        // Artist-authored LOD meshes (the Asset Browser's LOD... button):
         // each tier is its own .obj that must keep the model's material set
         // and be smaller than the tier before it. A tier that fails either
         // check drops the whole custom chain back to auto-decimation, so a

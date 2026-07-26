@@ -11,6 +11,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game reads a binary model instead of your `.obj`, what that means for
   your files and the disc, distance mesh LOD for static geometry, and
   authoring your own LOD meshes instead of letting the build decimate.
+- [World scale: units, meters and imports](world-scale.md) - what a unit is
+  worth in this project, why a model or a camera take can land several times
+  too small, the per-asset real-world size recorded at import, the viewport
+  measuring tape and the object Size readout, and how to work out the scale
+  your world is actually at.
 - [Object scripts (Unity-style components)](object-scripts.md) - writing
   C++ scripts and attaching them to objects, the ObjectScript lifecycle
   (`self`, onStart/onUpdate/onUsed), ScriptContext reference, Empty
@@ -50,6 +55,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   **bright-pass threshold** and **spread** that turn the frame-wide soft glow
   into a halo, and **baked emissive light** - the emitter lighting the terrain,
   walls and props around it, the ambient-occlusion machinery in reverse.
+- [Asset Browser](asset-browser.md) - the file manager over the project's
+  `res/` tree: folders, thumbnails, type filters and search, the reference
+  census that says who uses an asset (and which ones nothing does), moving
+  files with their references following, drag & drop into the scene, safe
+  renames, and why a texture never moves away from its material.
 - [Materials: model preview, duplication and texture painting](material-painting.md) -
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern
@@ -80,17 +90,27 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
   Player / Flee From Player / Stop AI / On Player Seen) with the classic
   guard wiring, plus the deliberate era-appropriate limitations.
+- [TV safe areas](safe-areas.md) - the viewport guides (behind the gear) for
+  framing something a television will not crop: the console's picture rectangle,
+  action- and title-safe insets, and the one case where PAL really does show more
+  than NTSC.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and
-  decimation controls in the import modal, and the acquisition/bake split that
-  keeps the door open for live phone streaming.
+  decimation controls in the import modal, and the acquisition/bake split the
+  live link below plugs into.
 - [Character generator](character-generator.md) - the *Tools > Character
   Generator* window: how a handful of macro sliders become a rigged, skinned
   1460-triangle human, where the MakeHuman CC0 data comes from and what is in
   it, the three tricks that make it fit a PS2 (corner-blended macro targets, a
   proxy body riding the reference mesh, a rig re-derived from the morph), the
   Mixamo-named bone list, and what is deliberately not there yet.
+- [Phone camera (live viewfinder)](phone-camera.md) - the companion iOS app as
+  a viewfinder: the editor hosts a LAN link, the phone shows a live JPEG stream
+  of the viewport and its ARKit pose drives that camera, and the Cutscene
+  Director records the move into keyframes at a chosen density. Covers pairing
+  and firewall, the mapping controls, the recording options and table-size
+  budget, the WebSocket protocol, and the built-in browser test client.
 - [AI flow-graph generation](ai-flow-graph.md) - describing game logic in
   plain language and letting an AI backend (Claude CLI, Copilot CLI or the
   OpenAI API) build the graph: backend/model/thinking preferences, what the
