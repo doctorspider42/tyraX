@@ -617,6 +617,7 @@ project tree passes that far sooner than a Windows `TyraProjects` path does.
 ```
 
 ```bash
+./setup.sh --deps    # one-time: toolchain + dev headers (apt/dnf/pacman/zypper)
 ./build.sh           # configure (if needed) + build → build/tyrax-editor
 ./build.sh --run     # build and launch
 ./build.sh --clean   # nuke build/ first
@@ -630,8 +631,13 @@ something is absent. **The dependency list lives only in `deps.ps1` /
 library **to both** and nowhere else, or one platform's build guard won't know
 about it (see tyra-testing for the failure that caused). Toolchain: Windows
 `scoop install mingw cmake ninja` (build.ps1 finds scoop's mingw even
-off-PATH); Linux `build-essential cmake ninja-build pkg-config` plus the
-X11/Wayland/GL dev headers, which build.sh checks for by name up front.
+off-PATH); Linux `./setup.sh --deps`, which reads the per-family package lists
+in deps.sh (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/`_zypper`) and installs via
+sudo, or pkexec when there is no tty. build.sh only DIAGNOSES - it checks the
+tools and the pkg-config headers up front and prints that command. **A new
+system dependency has to be added to all four lists**, or that distro's users
+get a link error instead of a clear message; zenity is in them because the
+file dialogs shell out to it.
 
 Single CMake target `tyrax-editor`. Windows: statically linked (MinGW
 `-static`), console subsystem on purpose (logs stay visible), links

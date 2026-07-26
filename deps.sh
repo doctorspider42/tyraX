@@ -38,7 +38,47 @@ PS2_TOOLS=(
     "https://github.com/ps2dev/ps2link/releases/download/RenameMe/ps2link-0269a955-highloading.tar.gz|tools/ps2link|tools/ps2link/ps2link/PS2LINK.ELF"
 )
 
-# Distro packages the editor needs to configure and link (X11/Wayland/GL
-# development headers plus the toolchain). build.sh names the missing ones in
-# an apt/dnf/pacman-shaped hint rather than trying to install anything itself.
-APT_PACKAGES="build-essential cmake ninja-build git pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols"
+# Distro packages the editor needs to configure, link and run: the toolchain,
+# the X11/Wayland/GL development headers GLFW builds against, and zenity - the
+# editor has no built-in file browser, so without zenity (or kdialog) every
+# Open/Import button has nothing to open (see platform::pickFile).
+#
+# `setup.sh --deps` installs the list for whichever package manager it finds;
+# build.sh names it when a tool or header is missing. One list per family
+# because the split of the X11 headers into packages differs everywhere - the
+# CONTENT is the same set every time, so a new dependency has to be added to
+# all four or that distro's users get a link error instead of a clear message.
+SYSTEM_PACKAGES_apt="build-essential cmake ninja-build git pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity"
+SYSTEM_PACKAGES_dnf="gcc-c++ cmake ninja-build git pkgconf-pkg-config mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity"
+SYSTEM_PACKAGES_pacman="base-devel cmake ninja git pkgconf mesa libx11 libxrandr libxinerama libxcursor libxi libxkbcommon wayland wayland-protocols zenity"
+SYSTEM_PACKAGES_zypper="gcc-c++ cmake ninja git pkg-config Mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity"
+
+# Package manager for THIS machine -> "<manager>|<install command>|<packages>",
+# or "" when none is recognised. Sourced by both setup.sh (to install) and
+# build.sh (to print the one command that fixes a missing toolchain).
+tyrax_system_packages() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "apt|apt-get install -y|$SYSTEM_PACKAGES_apt"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "dnf|dnf install -y|$SYSTEM_PACKAGES_dnf"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "pacman|pacman -S --needed --noconfirm|$SYSTEM_PACKAGES_pacman"
+    elif command -v zypper >/dev/null 2>&1; then
+        echo "zypper|zypper install -y|$SYSTEM_PACKAGES_zypper"
+    fi
+}
+
+# How to become root for a package install: sudo when it can actually
+# authenticate, else pkexec (which asks in the desktop's own dialog - the only
+# thing that works from a non-interactive shell with no tty). Empty when we are
+# already root, "-" when neither is available.
+tyrax_root_prefix() {
+    [ "$(id -u)" = "0" ] && return 0
+    if command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 || [ -t 0 ]; }; then
+        echo "sudo"
+    elif command -v pkexec >/dev/null 2>&1; then
+        echo "pkexec"
+    else
+        echo "-"
+    fi
+}

@@ -33,16 +33,18 @@ box you are on; they take the same flags and do the same things.
 ```
 
 ```bash
+./setup.sh --deps    # one-time on a bare box: toolchain + dev headers
 ./build.sh           # → build/tyrax-editor
 ./build.sh --run     # build + launch the GUI
 ./build.sh --clean   # full rebuild
 ```
 
-Needs `scoop install mingw cmake ninja` (Windows) or `build-essential cmake
-ninja-build pkg-config` plus the X11/Wayland/GL dev headers (Linux — build.sh
-names the exact apt line when something is missing, and refuses to configure
-rather than failing later inside cmake). This is also the compile check for
-everything under `src/` — warnings matter, the build is expected to be clean.
+Needs `scoop install mingw cmake ninja` (Windows) or `./setup.sh --deps`
+(Linux — apt/dnf/pacman/zypper, the lists live in deps.sh). build.sh checks
+the tools and the pkg-config headers up front, names the exact install command
+for the distro it is on, and refuses to configure rather than failing later
+inside cmake. This is also the compile check for everything under `src/` —
+warnings matter, the build is expected to be clean.
 
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching

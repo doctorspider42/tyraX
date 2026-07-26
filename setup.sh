@@ -3,10 +3,54 @@
 # tools - the POSIX twin of setup.ps1. The lists themselves live in deps.sh,
 # which build.sh reads too, so a new dependency added THERE is picked up by the
 # build guard for free.
+#
+#   ./setup.sh          - vendor/ and tools/ only (no root needed)
+#   ./setup.sh --deps   - also install this distro's toolchain + dev headers
+#
+# --deps is separate because it is the only part that needs root, and on a
+# machine that already has a toolchain it is pure noise. setup.ps1 has no
+# equivalent: on Windows the toolchain comes from scoop, which is per-user.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=deps.sh
 . ./deps.sh
+
+WITH_DEPS=0
+for arg in "$@"; do
+    case "$arg" in
+        --deps|--with-deps) WITH_DEPS=1 ;;
+        *) echo "Unknown option: $arg (expected --deps)" >&2; exit 2 ;;
+    esac
+done
+
+install_system_packages() {
+    local spec manager install packages root
+    spec="$(tyrax_system_packages)"
+    if [ -z "$spec" ]; then
+        echo "No supported package manager found (apt/dnf/pacman/zypper)." >&2
+        echo "Install by hand: a C++20 toolchain, cmake, ninja, git, pkg-config," >&2
+        echo "the X11/Wayland/GL development headers, and zenity." >&2
+        return 1
+    fi
+    IFS='|' read -r manager install packages <<<"$spec"
+    root="$(tyrax_root_prefix)"
+    if [ "$root" = "-" ]; then
+        echo "Need root to install packages, but neither sudo nor pkexec is available." >&2
+        echo "Run this as root:" >&2
+        echo "  $install $packages" >&2
+        return 1
+    fi
+    echo "== Installing system packages ($manager) =="
+    # apt needs an index refresh on a fresh image or half the names 404.
+    [ "$manager" = "apt" ] && $root apt-get update -qq
+    # Word splitting is the point here - these are argument lists, not paths.
+    # shellcheck disable=SC2086
+    DEBIAN_FRONTEND=noninteractive $root $install $packages
+}
+
+if [ "$WITH_DEPS" = 1 ]; then
+    install_system_packages
+fi
 
 fetch() {  # fetch <url> <outfile> - curl or wget, whichever this box has
     if command -v curl >/dev/null 2>&1; then

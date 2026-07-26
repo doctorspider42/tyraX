@@ -20,17 +20,17 @@ scoop install mingw cmake ninja       # editor toolchain
 **Linux**
 
 ```bash
-# 1. Install prerequisites (skip what you already have)
-sudo apt install -y build-essential cmake ninja-build git pkg-config \
-    libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
-    libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity
+# 1. Install prerequisites (toolchain + X11/Wayland/GL headers + zenity)
+./setup.sh --deps
 # + Docker (running) and PCSX2 (package, flatpak or AppImage, with BIOS configured)
 
 # 2. Build and run the editor (clones deps + configures + builds)
 ./build.sh --run
 ```
 
-Both scripts handle everything: clone the `vendor/` dependencies on first run, check the toolchain, configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency list lives in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
+`setup.sh --deps` picks the package list for your package manager (apt / dnf / pacman / zypper) and installs it with `sudo`, falling back to `pkexec` when there is no terminal to authenticate in. It is the only part that needs root, which is why it is opt-in — plain `./setup.sh` just fetches `vendor/` and `tools/`. On a machine that already has a toolchain you can skip straight to `./build.sh`.
+
+Both build scripts handle the rest: clone the `vendor/` dependencies on first run, check the toolchain (and name the exact install command when something is missing), configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency lists live in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
 
 Everything the two platforms disagree about — spawning child processes, native file dialogs, where the machine-global config lives, which system fonts exist, how to reveal a file in the file manager — lives behind [`src/platform.hpp`](src/platform.hpp). Projects are portable between the two: the `.tyra` format is identical, and a font referenced by a name this OS doesn't have falls back instead of failing the bake.
 
@@ -129,7 +129,7 @@ Then in the editor:
 - [PCSX2](https://pcsx2.net/) with a BIOS configured. Auto-detected in `Program Files\PCSX2` on Windows, and on PATH / as a flatpak / as an AppImage under `~/Applications` or `~/Downloads` on Linux. Any other location can be pointed at under `Edit > Preferences`.
 - To build the editor:
   - Windows: CMake, Ninja, GCC/MinGW (e.g. `scoop install mingw cmake ninja`).
-  - Linux: CMake, Ninja, GCC and the X11/Wayland/GL development headers (see the Quickstart command). `zenity` (or `kdialog`) provides the native file dialogs — without one, the Open/Import buttons have nothing to open.
+  - Linux: CMake, Ninja, GCC and the X11/Wayland/GL development headers — `./setup.sh --deps` installs them for apt / dnf / pacman / zypper. `zenity` (or `kdialog`) provides the native file dialogs; without one the editor still builds and runs, but the Open/Import buttons have nothing to open (`build.sh` warns).
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF path longer than about 145 characters — it loads the ELF and the game never starts, with a black window and nothing in the log. The editor warns in the *Output* panel when a project is past the limit; move it somewhere shorter. (Easy to hit on Linux: a home directory plus a deep tree adds up fast.)
 
 ## CLI

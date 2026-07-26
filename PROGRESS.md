@@ -61,7 +61,19 @@ Each finished feature lands as its own commit.
   on it, and `deps.sh`/`setup.sh`/`build.sh` mirror the PowerShell trio
   one-for-one - same single-source dependency list, same "missing dep runs
   setup" guard, plus an up-front toolchain/pkg-config check that names the
-  apt packages instead of failing later inside cmake.
+  exact install command instead of failing later inside cmake. The POSIX side
+  has one thing the PowerShell trio does not need: **`./setup.sh --deps`**
+  installs the system toolchain and the X11/Wayland/GL headers, because on
+  Windows they come from scoop (per-user) while here they are distro packages.
+  deps.sh carries one list per family (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/
+  `_zypper`) plus the two helpers both scripts share - `tyrax_system_packages`
+  picks the manager, `tyrax_root_prefix` picks sudo or, when there is no tty to
+  authenticate in, **pkexec** (which asks in the desktop's own dialog; that is
+  how this whole port got bootstrapped on a box where `sudo` could not prompt).
+  It is opt-in rather than part of plain `setup.sh` because it is the only step
+  that needs root. `zenity` is in the lists because the file dialogs shell out
+  to it - build.sh warns about a missing one but never blocks, since the editor
+  builds and runs fine without it, it just cannot open anything.
   **Six real bugs fell out of actually running it, every one invisible on
   Windows.** (1) `templates::File::relativePath` is `'\'`-separated (hundreds
   of literals compare against it that way) and was handed straight to
@@ -107,8 +119,13 @@ Each finished feature lands as its own commit.
   so in the Output panel instead of letting the user stare at it.
   *Verified* on Ubuntu 26.04 (GNOME/Wayland, a box with no toolchain, no
   Docker and no compiler to start with), all the way to a running game:
-  - `./build.sh` from a bare tree fetched every `vendor/` dependency and
-    produced `build/tyrax-editor` (101 targets, clean, `--clean` rebuild too).
+  - `./setup.sh --deps` installed the toolchain and the X11/Wayland/GL headers
+    through apt (pkexec, since sudo-rs had no tty to ask in), and `./build.sh`
+    from a bare tree fetched every `vendor/` dependency and produced
+    `build/tyrax-editor` (101 targets, clean, `--clean` rebuild too). The
+    diagnostic path was exercised too, by running build.sh with a stripped
+    PATH: it names the missing tools and prints `./setup.sh --deps` plus the
+    literal apt command for this distro.
   - Headless CLI end to end: `--new` created an FPP project whose tree is now
     real directories (`src/gen/…`, `inc/scripts/…`, `objects/<id>.json`) with
     an executable `run.sh` that passes `bash -n`, then `--refresh-gen`,

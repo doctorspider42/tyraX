@@ -19,18 +19,31 @@ done
 # shellcheck source=deps.sh
 . ./deps.sh
 
-# The toolchain and the X11/Wayland/GL development headers. We deliberately do
-# not install anything (that needs root and a distro guess) - name what is
-# missing and print the one command that fixes it, the way build.ps1 names the
-# scoop packages.
+# The toolchain and the X11/Wayland/GL development headers. Installing them
+# needs root, so this only DIAGNOSES - it names what is missing and prints the
+# one command that fixes it on this distro, the way build.ps1 names the scoop
+# packages. `./setup.sh --deps` is that command.
+say_how_to_fix() {
+    local spec manager install packages
+    spec="$(tyrax_system_packages)"
+    if [ -z "$spec" ]; then
+        echo "  Install a C++20 toolchain, cmake, ninja, git, pkg-config, the" >&2
+        echo "  X11/Wayland/GL development headers and zenity, then re-run." >&2
+        return
+    fi
+    IFS='|' read -r manager install packages <<<"$spec"
+    echo "  ./setup.sh --deps        # installs them with $manager" >&2
+    echo "or by hand:" >&2
+    echo "  sudo $install $packages" >&2
+}
+
 missing_tools=()
 for t in cmake ninja g++ git pkg-config; do
     command -v "$t" >/dev/null 2>&1 || missing_tools+=("$t")
 done
 if [ ${#missing_tools[@]} -gt 0 ]; then
     echo "Missing build tools: ${missing_tools[*]}" >&2
-    echo "Install the toolchain first:" >&2
-    echo "  sudo apt install -y $APT_PACKAGES" >&2
+    say_how_to_fix
     exit 1
 fi
 # GLFW needs the X11 and GL headers; without them cmake configures and only
@@ -41,8 +54,15 @@ for p in gl x11 xrandr xinerama xcursor xi; do
 done
 if [ ${#missing_pkgs[@]} -gt 0 ]; then
     echo "Missing development headers (pkg-config: ${missing_pkgs[*]})" >&2
-    echo "  sudo apt install -y $APT_PACKAGES" >&2
+    say_how_to_fix
     exit 1
+fi
+# zenity/kdialog is a RUNTIME dependency, not a build one: without it the
+# editor builds and starts but every Open/Import button silently does nothing
+# (platform::pickFile has no backend). Warn, never block.
+if ! command -v zenity >/dev/null 2>&1 && ! command -v kdialog >/dev/null 2>&1; then
+    echo "NOTE: neither zenity nor kdialog is installed - the editor's file" >&2
+    echo "      dialogs (Open project, Import model/texture/WAV) will not open." >&2
 fi
 
 # Dependencies in vendor/. The list comes from deps.sh so this guard can never
