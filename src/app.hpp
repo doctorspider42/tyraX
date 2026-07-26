@@ -15,6 +15,7 @@
 #include "phonecam.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
+#include "elfsym.hpp"
 #include "livedbg.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
@@ -1701,6 +1702,32 @@ private:
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     void livedbgTick();
     void drawDebuggerWindow();
+
+    // Crash reporting (docs/devkit.md). A real EE exception is not a
+    // TYRA_ASSERT: with the engine's crash handler installed the game writes
+    // bin/crash.txt (decoded cause, registers, backtrace candidates) and halts;
+    // this is that report, parsed, plus the names the PS2 toolchain resolves for
+    // its addresses on demand.
+    struct DbgCrash {
+        bool present = false;
+        std::string raw;      // the whole report, for Copy
+        std::string cause;    // decoded name
+        uint32_t epc = 0, badvaddr = 0, frame = 0;
+        int scene = -1;
+        std::vector<uint32_t> trace;
+        std::vector<elfsym::Location> names;  // resolved on demand
+        std::string namesError;
+        bool resolving = false;
+    };
+    DbgCrash dbgCrash_;
+    size_t dbgCrashSize_ = 0;   // last seen size of crash.txt (change = new)
+    double dbgCrashNextRead_ = 0.0;
+    void dbgReadCrashReport();
+    void dbgResolveCrashNames();
+    // "The game stopped reporting": the devkit heartbeat died without a crash
+    // report or an assert - a hang, or an exception nobody caught.
+    bool dbgLostGame_ = false;
+    uint32_t dbgLostAtFrame_ = 0;
 
     // Live Logic (docs/live-logic.md): flow-graph HOT PATCHING. The editor
     // compiles every graph that differs from what the running ELF was built

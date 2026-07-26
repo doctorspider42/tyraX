@@ -90,4 +90,27 @@ struct Audit {
  * interpreter's static tables. A release ELF must come back clean. */
 Audit auditRelease(const std::string& elfPath);
 
+// ------------------------------------------------------------ symbolization ---
+
+/** One resolved address. `func`/`source` are empty when the toolchain could not
+ * name it (a stripped ELF, an address outside the code, no container running). */
+struct Location {
+    uint32_t addr = 0;
+    std::string func;    // demangled function name
+    std::string source;  // file:line
+};
+
+/** Turns addresses from a crash report into names, using the PS2 toolchain in
+ * the project's build container (`mips64r5900el-ps2-elf-addr2line`) against the
+ * UNSTRIPPED copy the debug build keeps next to the ELF (bin/<name>.elf.sym -
+ * Makefile.base writes it when KEEPSYM=1). The shipped ELF is stripped, which
+ * is why the copy exists at all.
+ *
+ * Returns one Location per input address (empty fields on failure) and, when
+ * something went wrong, a human-readable reason in `error`. */
+std::vector<Location> symbolize(const std::string& projectDir,
+                                const std::string& symElfBinRelative,
+                                const std::vector<uint32_t>& addrs,
+                                std::string* error = nullptr);
+
 }  // namespace elfsym

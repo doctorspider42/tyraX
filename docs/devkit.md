@@ -89,12 +89,79 @@ Beyond breakpoints and stepping (see [live-debugger.md](live-debugger.md)):
   the head marking where the object is right now. This is the "where is it
   actually, and what did it do a second ago" tool.
 
+
+## When it crashes
+
+Three different things can go wrong in a running game, and they used to have
+very different visibility:
+
+| | before | now |
+|---|---|---|
+| `TYRA_ASSERT` / recovered asset error | delimited block in the log, editor dialog | same, and the banner is **TYRAX** |
+| a real EE exception (bad pointer, address error, reserved instruction) | **nothing** - the game just stops | crash report + symbolized backtrace (experimental, below) |
+| a hang | **nothing** | the editor notices the heartbeat stopped and shows the post-mortem |
+
+### The heartbeat, and the post-mortem
+
+The devkit already knows whether the game is alive: it flushes a snapshot every
+few frames. When those stop arriving with no crash report and no assertion, the
+Debugger says so - **"the game stopped reporting at frame N"** - and shows what
+it still holds from the seconds before: the last flow-graph nodes that ran, the
+watched objects' last positions, the armed timers. That is the difference between
+"it froze" and "it froze right after `Chase Player` fired on frame 1487".
+
+This part needs nothing from the game and works on hardware and in PCSX2 alike.
+
+### The EE crash handler (experimental, opt-in)
+
+*Project > Preferences > Build > "EE crash handler"*, **off by default**.
+
+With it on, a debug build installs the engine's handler
+([`vendor/tyra/engine/src/debug/crash_handler.cpp`](../vendor/tyra/engine/src/debug/crash_handler.cpp)),
+built on ps2sdk's `libeedebug`: the handler copies the register frame, harvests
+plausible return addresses off the stack for a backtrace, then **redirects the
+frame's EPC at a trampoline and returns** - so the report is written from
+ordinary context, where stdio and the host: filesystem work again. Doing file
+I/O inside the exception context instead is the classic way to turn a crash into
+a hang. The game then halts quietly with the last frame on screen, exactly like
+a failed assertion.
+
+The report is `bin/crash.txt`: decoded cause (`Cause.ExcCode` -> "Address error
+on store"), EPC, BadVAddr, all 32 GPRs, and the backtrace candidates. The editor
+parses it, pops the Debugger and offers **Resolve names** - which runs the PS2
+toolchain's `addr2line` in the build container against the **unstripped copy** a
+debug build keeps (`bin/<name>.elf.sym`, written by `Makefile.base` when the
+generated Makefile sets `KEEPSYM=1`; the shipped ELF is stripped). So a crash
+address becomes `TerrainGame::renderOnePortalView(int)` at
+`src/terrain_game.cpp:7913`. The same lookup is available headlessly:
+
+```bash
+tyrax-editor --symbolize <projectDir> 0x00120000 0x00180000
+```
+
+**Why it is opt-in.** Measured under PCSX2: `ee_dbg_install()` wedges the game
+the moment the handlers go in - the loop stops, nothing more reaches the log and
+the devkit heartbeat dies on the first frame. Narrowing the hooked causes did not
+help, so it is the install itself, in the emulator. Two traps were found and
+fixed along the way and they are worth knowing before touching this code:
+
+- **never hook cause 0 (Interrupt)** - that hijacks vblank/timer/DMA dispatch, so
+  no thread ever runs again;
+- **never hook cause 8 (Syscall)**, nor TLB refill (2, 3) / TLB modified (1) -
+  those are how ordinary memory traffic and every kernel service are *serviced*,
+  not faults to report.
+
+The handler now hooks only genuine faults (4, 5, 6, 7, 9, 10, 11, 12, 13, 15).
+It still needs a pass on real hardware before it can be the default; until then
+the preference exists so nobody's debug build changes behaviour by surprise.
+Since installation is also what LINKS the handler out of `libtyra.a`, a project
+that leaves it off carries none of it - and neither does any release build.
+
 ## What is not here yet
 
-- **Named memory.** The ELF reader can already map names to addresses, but the
-  shipped ELF is stripped, so a symbol-driven memory watch needs the build to
-  keep a map file first. The channel for it (a read request + a response block)
-  is a small addition once that exists.
+- **Named memory.** The unstripped `.elf.sym` copy now exists, so a symbol-driven
+  memory watch is mostly plumbing: a read request in the command file and a
+  response block in the snapshot.
 - **Live perf graphs.** The engine already computes per-phase EE times, free RAM
   and GS VRAM residency, but prints them as text (see
   [profiling.md](profiling.md), [gs-vram.md](gs-vram.md)); streaming them over

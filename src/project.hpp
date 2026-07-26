@@ -580,6 +580,14 @@ struct ProjectSettings {
     // they were compiled to.
     bool liveLogic = true;
 
+    // Debug profile only, EXPERIMENTAL and off by default: install the engine's
+    // EE crash handler, which turns a real CPU exception (bad pointer, address
+    // error, reserved instruction) into a crash.txt report instead of a silent
+    // freeze. Measured under PCSX2, ps2sdk's ee_dbg_install() wedges the game
+    // the moment it goes in, so this needs a real console (or a hand-written
+    // exception stub) before it can be the default - see docs/devkit.md.
+    bool eeCrashHandler = false;
+
     // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
     // drivers and maps keys/mouse onto a virtual pad (bindings live in the
     // generated controls.hpp). Works in PCSX2 (the editor configures its
@@ -827,6 +835,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic &&
+           a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&

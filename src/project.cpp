@@ -815,6 +815,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
          << ",\n"
+         << "    \"eeCrashHandler\": "
+         << (p.settings.eeCrashHandler ? "true" : "false") << ",\n"
          << "    \"liveLogic\": " << (p.settings.liveLogic ? "true" : "false")
          << ",\n"
          << "    \"keyboardMouse\": "
@@ -2368,6 +2370,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
+        if (const auto* v = s->find("eeCrashHandler"))
+            st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
@@ -3814,7 +3818,12 @@ std::string refreshGenerated(const Project& p) {
         const fs::path path = fs::path(p.dir) / f.relativePath;
 
         bool write = false;
-        if (f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
+        // The Makefile is fully generated (no ownership marker, like the
+        // Dockerfile): it carries the build-profile flags now - -g and
+        // -leedebug for the crash reporter in debug, neither in release -
+        // so it MUST refresh with the project, not just at creation.
+        if (f.relativePath == "Makefile" ||
+            f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
             f.relativePath == "src\\main.cpp" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||

@@ -252,6 +252,42 @@ follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
 missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
 — fine, generated games don't use them.
 
+## The EE crash handler (`src/debug/crash_handler.cpp`) — and its vector traps
+
+TyraX addition (docs/devkit.md in the editor repo): turns a real CPU exception
+into a report instead of a silent freeze. Built on ps2sdk's **libeedebug**
+(`ee_dbg_install` + `ee_dbg_set_level1/2_handler`), which hands a C handler the
+whole `EE_RegFrame` — so there is no hand-written exception stub to maintain.
+Three properties to preserve if you touch it:
+
+- **It lives in its own TU and is only linked when someone calls
+  `CrashHandler::install()`.** `libtyra.a` is an archive, so a game that never
+  installs it (any release build — the editor's devkit layer is what installs)
+  carries zero bytes. Do not add a global constructor or a reference from other
+  engine code, or that property dies quietly.
+- **The handler does the minimum and gets OUT of exception context**: copy the
+  frame, scan the stack for plausible return addresses, then set `frame->epc` to
+  a trampoline and return. The report is written from the trampoline, where stdio
+  and the IOP-served host: filesystem work again. File I/O inside the exception
+  context is the classic way to turn a crash into a hang.
+- **Which causes may be hooked is not a matter of taste** (both measured):
+  hooking **cause 0 (Interrupt)** hijacks vblank/timer/DMA dispatch, so no
+  thread ever runs again — the game freezes with the last frame up and nothing in
+  the log; **cause 8 (Syscall)** and TLB refill / TLB modified (1, 2, 3) are how
+  ordinary memory traffic and every kernel service are *serviced*, not faults to
+  report. Hook genuine faults only: 4, 5, 6, 7, 9, 10, 11, 12, 13, 15.
+
+**Still unproven on hardware**: under PCSX2 the game dies the moment
+`ee_dbg_install()` runs (even with the narrow cause set), so the feature is
+behind an off-by-default project preference. PCSX2 also refuses to *produce* the
+exception — writing to address 0 does not fault on the PS2 (main RAM starts
+there) and a misaligned load went through — so the emulator cannot validate this
+path at all. A console pass is what unlocks making it the default.
+
+Related: the engine's error blocks now print `==============  TYRAX  =============`
+(`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
+banner both, so a previously built ELF still reports.
+
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**

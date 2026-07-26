@@ -515,7 +515,46 @@ static int auditReleaseFromCli(int argc, char** argv) {
     return a.clean ? 0 : 1;
 }
 
+// Headless helper:
+//   tyrax-editor.exe --symbolize <projectDir> <addr> [addr ...]
+//
+// Turns crash-report addresses into function names and source lines, using the
+// PS2 toolchain in the project's build container against the unstripped copy a
+// debug build keeps (bin/<name>.elf.sym). See docs/devkit.md.
+static int symbolizeFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --symbolize <projectDir> <addr> "
+                     "[addr ...]\n"
+                     "");
+        return 2;
+    }
+    Project p;
+    const std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n"
+        "", err.c_str());
+        return 1;
+    }
+    std::vector<uint32_t> addrs;
+    for (int i = 3; i < argc; ++i)
+        addrs.push_back((uint32_t)std::strtoul(argv[i], nullptr, 0));
+    std::string symErr;
+    const auto locs = elfsym::symbolize(p.dir, "bin/" + p.elfName() + ".sym",
+                                        addrs, &symErr);
+    if (!symErr.empty()) std::fprintf(stderr, "warning: %s\n"
+    "", symErr.c_str());
+    for (const elfsym::Location& l : locs)
+        std::printf("0x%08x  %-40s %s\n"
+        "", l.addr,
+                    l.func.empty() ? "(unknown)" : l.func.c_str(),
+                    l.source.c_str());
+    return symErr.empty() ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "--symbolize") == 0)
+        return symbolizeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--audit-release") == 0)
         return auditReleaseFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);

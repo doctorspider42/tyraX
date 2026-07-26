@@ -258,6 +258,21 @@ Notes:
   was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
   editor and the probe must not both drive `livedbg.cmd` at once (the editor
   rewrites it whenever it goes missing or its state changes).
+- **Symbolize an address from a running/crashed game**: `tyrax-editor
+  --symbolize <projectDir> 0x...` runs the container's
+  `mips64r5900el-ps2-elf-addr2line` against `bin/<name>.elf.sym`, the unstripped
+  copy a DEBUG build keeps (`Makefile.base` writes it when the generated Makefile
+  sets `KEEPSYM=1`; the shipped ELF is `strip --strip-all`ed, so a release
+  project has nothing to resolve against). Needs the build container up.
+- **Testing a crash is harder than it looks**: PCSX2 will not produce the
+  exception for you - writing to address 0 does NOT fault on the PS2 (main RAM
+  starts at 0) and a misaligned load went through unharmed. And installing the
+  EE crash handler wedges the game under PCSX2 (entry 187), so that path is a
+  hardware-only test today. What IS testable in the emulator: the report format
+  (write a synthetic `bin/crash.txt` and let the editor parse + symbolize it),
+  the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
+  in the game's log), and the heartbeat post-mortem (kill the game and watch the
+  Debugger notice).
 - **Prove a release build is devkit-free**: `tyrax-editor --audit-release
   <projectDir>` reads the built ELF and exits 0 (clean) / 1 (something leaked),
   printing text/data/bss so the debug-vs-release cost is a number. Every release

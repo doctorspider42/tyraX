@@ -107,6 +107,11 @@ Two things make that visible instead of mysterious:
 - **Logic** — what [Live Logic](live-logic.md) has hot-patched, and what still
   needs a build.
 
+A **crash** (or a game that just stopped reporting) takes over the top of the
+panel: decoded cause, EPC/BadVAddr, a *Resolve names* button that turns the
+addresses into functions and source lines, and the last flow-graph nodes and
+watched-object positions from before it died. See [devkit.md](devkit.md).
+
 ### Firing a trigger from the editor
 
 *Fire now* runs everything wired to a trigger, once, in the running game — the

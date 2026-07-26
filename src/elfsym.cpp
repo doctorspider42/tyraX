@@ -1,6 +1,8 @@
 #include "elfsym.hpp"
 
 #include <cstring>
+#include <cstdio>
+#include <direct.h>
 #include <fstream>
 #include <sstream>
 
@@ -206,6 +208,85 @@ Audit auditRelease(const std::string& elfPath) {
     }
     a.clean = a.findings.empty();
     return a;
+}
+
+
+// ------------------------------------------------------------ symbolization ---
+
+std::vector<Location> symbolize(const std::string& projectDir,
+                                const std::string& symElfBinRelative,
+                                const std::vector<uint32_t>& addrs,
+                                std::string* error) {
+    std::vector<Location> out;
+    out.reserve(addrs.size());
+    for (uint32_t a : addrs) {
+        Location l;
+        l.addr = a;
+        out.push_back(l);
+    }
+    if (addrs.empty()) return out;
+
+    // addr2line takes every address in one go and answers with two lines per
+    // address (function, then file:line), so one container round-trip is enough.
+    std::string list;
+    char buf[16];
+    for (uint32_t a : addrs) {
+        std::snprintf(buf, sizeof(buf), "0x%08x", a);
+        list += " ";
+        list += buf;
+    }
+    const std::string cmd =
+        "docker compose exec -T compiler sh -c \"cd /src && "
+        "mips64r5900el-ps2-elf-addr2line -f -C -e " + symElfBinRelative + list +
+        "\" 2>&1";
+
+    // Run it in the project directory (that is where docker-compose.yml lives).
+    std::string prev;
+    {
+        char cwd[1024] = {0};
+        if (_getcwd(cwd, sizeof(cwd))) prev = cwd;
+    }
+    if (_chdir(projectDir.c_str()) != 0) {
+        if (error) *error = "cannot enter " + projectDir;
+        return out;
+    }
+    std::string text;
+    if (FILE* pipe = _popen(cmd.c_str(), "r")) {
+        char line[512];
+        while (fgets(line, sizeof(line), pipe)) text += line;
+        _pclose(pipe);
+    }
+    if (!prev.empty()) _chdir(prev.c_str());
+
+    if (text.empty()) {
+        if (error)
+            *error =
+                "no output from the toolchain - is the build container running "
+                "(Build once) and does bin/*.elf.sym exist (debug profile)?";
+        return out;
+    }
+    // Parse pairs of lines. Anything unexpected (an error message from docker)
+    // leaves the locations empty and is reported as-is.
+    std::vector<std::string> lines;
+    {
+        std::istringstream ls(text);
+        std::string l;
+        while (std::getline(ls, l)) {
+            if (!l.empty() && l.back() == '\r') l.pop_back();
+            if (!l.empty()) lines.push_back(l);
+        }
+    }
+    if (lines.size() < addrs.size() * 2) {
+        if (error) *error = lines.empty() ? "toolchain returned nothing" : lines[0];
+        return out;
+    }
+    for (size_t i = 0; i < addrs.size(); ++i) {
+        out[i].func = lines[i * 2];
+        out[i].source = lines[i * 2 + 1];
+        if (out[i].func == "??") out[i].func.clear();
+        if (out[i].source.rfind("??", 0) == 0) out[i].source.clear();
+    }
+    return out;
 }
 
 }  // namespace elfsym

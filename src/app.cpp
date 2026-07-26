@@ -4783,6 +4783,10 @@ void App::attachProject() {
     dbgSnapTime_ = dbgSnapPrevTime_ = 0.0;
     dbgSnapPrevFrame_ = 0;
     dbgNextTick_ = dbgSymNextRead_ = 0.0;
+    dbgCrash_ = DbgCrash();
+    dbgCrashSize_ = 0;
+    dbgLostGame_ = false;
+    dbgCrashNextRead_ = 0.0;
     // Live Logic is per project too: the built-graph list, the last patch and
     // the sequence counter all belong to the project that was open.
     liveLogicState_ = LogicState::Off;
@@ -20526,14 +20530,18 @@ void App::drawDebugWindow() {
 // vendor/tyra/engine/inc/debug/debug.hpp). Matched as substrings so a leading
 // log prefix (the Debug window's nothing, or the runner's "[ps2] "/timestamp)
 // does not defeat detection.
-static const char kTyraAssertBanner[] = "==============  TYRA  ==============";
+// The engine's delimited error block. TyraX-built games print TYRAX; the old
+// TYRA banner is still accepted so an ELF built before the rename still reports.
+static const char kTyraAssertBanner[] = "==============  TYRAX  =============";
+static const char kTyraAssertBannerLegacy[] = "==============  TYRA  ==============";
 static const char kTyraAssertClose[] = "====================================";
 
 // Returns the last complete TYRA assertion block in `text` (from its banner
 // line through the closing rule, inclusive), or "" when there is none / it is
 // still being written.
 static std::string extractLastTyraAssert(const std::string& text) {
-    const size_t banner = text.rfind(kTyraAssertBanner);
+    size_t banner = text.rfind(kTyraAssertBanner);
+    if (banner == std::string::npos) banner = text.rfind(kTyraAssertBannerLegacy);
     if (banner == std::string::npos) return "";
     // Back up to the start of the banner's line so a log prefix is dropped and
     // the dump reads cleanly in the dialog.
@@ -20753,6 +20761,85 @@ void App::liveLinkTick() {
 // state the Debugger window + the Flow Graph overlay draw from.
 // ---------------------------------------------------------------------------
 
+// bin/crash.txt, written by the game's crash handler (docs/devkit.md). Parsed
+// rather than just shown, so the addresses can be turned into names and the
+// devkit's own history can be put next to them.
+void App::dbgReadCrashReport() {
+    namespace fs = std::filesystem;
+    if (!hasProject_) return;
+    const fs::path path = fs::path(project_.dir) / "bin" / "crash.txt";
+    std::error_code ec;
+    const auto sz = fs::file_size(path, ec);
+    const size_t size = ec ? 0 : (size_t)sz;
+    if (size == dbgCrashSize_) return;  // unchanged (0 == 0 covers "no crash")
+    dbgCrashSize_ = size;
+    dbgCrash_ = DbgCrash();
+    if (!size) return;  // the Runner deletes it at build start: crash cleared
+
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    dbgCrash_.raw = ss.str();
+    dbgCrash_.present = true;
+
+    // The report is deliberately line-oriented ("| key : value"), so this is a
+    // scan, not a parser.
+    std::istringstream ls(dbgCrash_.raw);
+    std::string line;
+    auto valueAfter = [](const std::string& l) {
+        const size_t colon = l.find(':');
+        if (colon == std::string::npos) return std::string();
+        size_t i = colon + 1;
+        while (i < l.size() && isspace((unsigned char)l[i])) ++i;
+        return l.substr(i);
+    };
+    while (std::getline(ls, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.rfind("| CRASH:", 0) == 0) {
+            dbgCrash_.cause = valueAfter(line);
+        } else if (line.rfind("| epc", 0) == 0) {
+            dbgCrash_.epc = (uint32_t)std::strtoul(valueAfter(line).c_str(), nullptr, 0);
+        } else if (line.rfind("| badvaddr", 0) == 0) {
+            dbgCrash_.badvaddr =
+                (uint32_t)std::strtoul(valueAfter(line).c_str(), nullptr, 0);
+        } else if (line.rfind("| frame", 0) == 0) {
+            dbgCrash_.frame =
+                (uint32_t)std::strtoul(valueAfter(line).c_str(), nullptr, 0);
+            const size_t sc = line.find("scene:");
+            if (sc != std::string::npos)
+                dbgCrash_.scene = std::atoi(line.c_str() + sc + 6);
+        } else if (line.rfind("| #", 0) == 0) {
+            const size_t hex = line.find("0x");
+            if (hex != std::string::npos)
+                dbgCrash_.trace.push_back(
+                    (uint32_t)std::strtoul(line.c_str() + hex, nullptr, 16));
+        }
+    }
+    // Pull the editor forward - a crash deserves the same attention an assert
+    // gets (PCSX2 has the foreground when the game dies).
+    showDebugger_ = true;
+    if (window_) {
+        glfwRequestWindowAttention(window_);
+        glfwFocusWindow(window_);
+    }
+    statusMessage_ = "Game crashed: " + dbgCrash_.cause;
+}
+
+// EPC + backtrace -> function names and source lines, via the PS2 toolchain in
+// the build container (needs the unstripped bin/<name>.elf.sym a debug build
+// keeps). On demand: it costs a container round-trip.
+void App::dbgResolveCrashNames() {
+    if (!dbgCrash_.present) return;
+    std::vector<uint32_t> addrs;
+    addrs.push_back(dbgCrash_.epc);
+    for (uint32_t a : dbgCrash_.trace) addrs.push_back(a);
+    std::string err;
+    dbgCrash_.names = elfsym::symbolize(
+        project_.dir, "bin/" + project_.elfName() + ".sym", addrs, &err);
+    dbgCrash_.namesError = err;
+}
+
 std::string App::dbgBreakpointKey(const std::string& objectId, int nodeId) const {
     return objectId + ":" + std::to_string(nodeId);
 }
@@ -20843,6 +20930,13 @@ void App::livedbgTick() {
     if (now < dbgNextTick_) return;  // keep the last state between ticks
     dbgNextTick_ = now + 0.05;       // 20 Hz: the graph overlay is animated
 
+    // A crash report is cheap to look for and the most important thing there
+    // is, so check for it a few times a second.
+    if (now >= dbgCrashNextRead_) {
+        dbgCrashNextRead_ = now + 0.4;
+        dbgReadCrashReport();
+    }
+
     // The symbol table is a build artifact of codegen (src/gen/livedbg.sym).
     // Re-read it rarely - a build or a --refresh-gen must be picked up, but it
     // is not worth a disk hit at tick rate.
@@ -20930,6 +21024,20 @@ void App::livedbgTick() {
     // The game is "there" while its snapshots keep arriving. A halted game
     // still flushes (its loop keeps running), so silence means gone, not paused.
     const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < 2.0;
+    // A game that WAS reporting and stopped, with no crash report and no
+    // assertion, is a hang (or an exception nobody caught): the devkit
+    // heartbeat is the only witness. Remember where it died - the fire history,
+    // the watch curves and the timers from just before are still in memory, and
+    // that is the post-mortem.
+    if (!reporting && dbgSnapTime_ > 0.0 && !dbgLostGame_ &&
+        !dbgCrash_.present && dbgSnap_.frame > 0) {
+        dbgLostGame_ = true;
+        dbgLostAtFrame_ = dbgSnap_.frame;
+        statusMessage_ = "The game stopped reporting at frame " +
+                         std::to_string(dbgLostAtFrame_) +
+                         " - crash or hang? See the Debugger.";
+    }
+    if (reporting) dbgLostGame_ = false;
     if (!reporting) {
         dbgState_ = DbgState::Waiting;
     } else if (dbgSnap_.hash != dbgSyms_.hash) {
@@ -21263,6 +21371,94 @@ void App::drawDebuggerWindow() {
             "Runs until ANY instrumented node fires, then stops on it -\n"
             "the fastest way to find out what actually runs next.");
     ImGui::EndDisabled();
+
+    // --- crash / lost game -------------------------------------------------
+    // The loudest thing in the panel, because it is the most important: a real
+    // EE exception, or a heartbeat that simply stopped.
+    if (dbgCrash_.present) {
+        ImGui::Separator();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+        ImGui::TextWrapped("CRASH: %s", dbgCrash_.cause.empty()
+                                            ? "EE exception"
+                                            : dbgCrash_.cause.c_str());
+        ImGui::PopStyleColor();
+        ImGui::Text("epc 0x%08x   badvaddr 0x%08x   frame %u   scene %d",
+                    dbgCrash_.epc, dbgCrash_.badvaddr, dbgCrash_.frame,
+                    dbgCrash_.scene);
+        if (ImGui::SmallButton("Resolve names")) dbgResolveCrashNames();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Runs the PS2 toolchain's addr2line in the build container "
+                "against\nthe unstripped bin/*.elf.sym a debug build keeps - "
+                "turns these\naddresses into functions and source lines.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy report")) ImGui::SetClipboardText(dbgCrash_.raw.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Dismiss")) {
+            dbgCrash_ = DbgCrash();
+            dbgCrashSize_ = 0;
+        }
+        if (!dbgCrash_.namesError.empty())
+            ImGui::TextDisabled("%s", dbgCrash_.namesError.c_str());
+        for (size_t i = 0; i < dbgCrash_.names.size(); ++i) {
+            const elfsym::Location& l = dbgCrash_.names[i];
+            const char* label = i == 0 ? "crash" : "called from";
+            if (l.func.empty()) continue;
+            ImGui::Text("%-11s %s", label, l.func.c_str());
+            if (!l.source.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", l.source.c_str());
+            }
+        }
+        // The post-mortem the devkit already has: what the graphs did just
+        // before, and where the watched objects were.
+        const auto& frames = dbgTimeline_.frames();
+        if (!frames.empty()) {
+            ImGui::TextDisabled("Last flow-graph nodes before the crash:");
+            int shown = 0;
+            for (size_t i = frames.size(); i-- > 0 && shown < 8;) {
+                for (int k : frames[i].keys) {
+                    if (shown++ >= 8) break;
+                    if (const livedbg::NodeSym* n = dbgSyms_.find(k))
+                        ImGui::BulletText("frame %u: %s", frames[i].frame,
+                                          nodeLabel(*n).c_str());
+                }
+            }
+        }
+        for (const DbgObjTrack& t : dbgObjWatch_)
+            if (!t.samples.empty()) {
+                const livedbg::ObjSample& s = t.samples.back();
+                ImGui::BulletText("%s at %.2f, %.2f, %.2f (frame %u)",
+                                  t.name.c_str(), s.pos[0], s.pos[1], s.pos[2],
+                                  s.frame);
+            }
+    } else if (dbgLostGame_) {
+        ImGui::Separator();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.7f, 0.35f, 1.0f));
+        ImGui::TextWrapped(
+            "The game stopped reporting at frame %u - no crash report and no "
+            "assertion, so it hung (or took an exception with the crash handler "
+            "off).",
+            dbgLostAtFrame_);
+        ImGui::PopStyleColor();
+        const auto& frames = dbgTimeline_.frames();
+        if (!frames.empty()) {
+            ImGui::TextDisabled("The last nodes that ran:");
+            int shown = 0;
+            for (size_t i = frames.size(); i-- > 0 && shown < 6;)
+                for (int k : frames[i].keys) {
+                    if (shown++ >= 6) break;
+                    if (const livedbg::NodeSym* n = dbgSyms_.find(k))
+                        ImGui::BulletText("frame %u: %s", frames[i].frame,
+                                          nodeLabel(*n).c_str());
+                }
+        }
+        if (!project_.settings.eeCrashHandler)
+            ImGui::TextDisabled(
+                "Tip: Preferences > Build > \"EE crash handler\" makes the game "
+                "write a\nregister dump and backtrace instead of just going "
+                "quiet (experimental).");
+    }
 
     // Armed countdowns, right under the transport: a Delay only advances on
     // frames that RUN, so a halted game (or a single-frame Fire) leaves the
@@ -22783,6 +22979,26 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
     ImGui::EndDisabled();
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("EE crash handler (experimental)",
+                    &prefSettings_.eeCrashHandler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "A real CPU exception (bad pointer, address error, reserved\n"
+        ""
+        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
+        ""
+        "just stops. With this on, a debug build installs the engine's crash\n"
+        ""
+        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
+        ""
+        "backtrace - and the editor resolves those addresses to functions and\n"
+        ""
+        "source lines. EXPERIMENTAL and off by default: under PCSX2 installing\n"
+        ""
+        "the handler wedges the game (measured), so this wants a real console.\n"
+        ""
+        "See docs/devkit.md.");
     prefHelp(
         "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
         "changes the RUNNING game with no rebuild: the editor compiles the\n"
