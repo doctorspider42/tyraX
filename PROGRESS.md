@@ -45,10 +45,18 @@ Each finished feature lands as its own commit.
   button came back with 27.25 MB free at frame 571. **v3 snapshots still
   parse**, proven twice: a hand-built v3 file through a harness, and the owner's
   console - which is running yesterday's build - read live as "frame 175326".
-  **Not verified on hardware**: the new build compiles and is deployed, but
-  `ps2client reset` will not take while the previous game holds the link, so the
-  stats have not run on a real EE yet - one F6 from the editor does it. The
-  panel itself is unscreenshotted as ever (blank editor window, see 187).
+  **And then on the real PS2**, minutes later, once the owner redeployed (a
+  scripted `ps2client reset` will not take while the previous game still holds
+  the link - F6 from the editor does): 50 fps, **37 bag flushes, 3401
+  quadwords, 16101 vertices in one frame**, largest stream **108** - the VU1
+  capacity figure 200 had to derive by reading engine source. VRAM 0.73 MB free
+  with 3 textures resident, 5502 binds against 5498 hits and **zero evictions**
+  (that scene is not thrashing; it is simply large). The object counts match
+  the project exactly - 3 active of 35 pool slots, 2 visible, the third being
+  the invisible FPP player marker. The flush map named the model's draws on
+  sight: flush 23 at 1380 vertices, then 30, 25, 26, 33 - all 108-vertex chunks
+  of the same cottage. The panel itself is unscreenshotted as ever (blank
+  editor window, see 187).
 
 - (200) **Reading a frame off the owner's real PS2, and what "my model shows 2
   meshes" actually was.** The tooling from 197-199 got its first real use, on
