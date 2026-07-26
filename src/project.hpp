@@ -10,12 +10,13 @@
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "input.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
 
 struct TerrainConfig {
-    int width = 64;   // world units, X axis
-    int depth = 64;   // world units, Z axis
+    int width = 100;  // world units, X axis
+    int depth = 100;  // world units, Z axis
 };
 
 // One paintable terrain layer above the base (the scene's terrain material).
@@ -550,7 +551,10 @@ struct ProjectSettings {
     // forces 60 Hz, "pal" forces 50 Hz (gameplay speed is wall-clock
     // normalized via g_frameScale in the generated game, so both play the
     // same). The "debug" profile unlocks the on-screen FPS / free-RAM
-    // overlays; "release" strips them from the build.
+    // overlays and the Live Link poller; "release" strips them from the build.
+    // NOTE these are the values a project that predates the key loads as, NOT
+    // the new-project defaults - project::create() starts a fresh project in
+    // "debug" (you author with Live Link, then switch to release for the disc).
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
 
@@ -614,6 +618,12 @@ struct ProjectSettings {
     // console. Skipped automatically on ps2link deploys - a second usbd on
     // an IOP that may already run one (ps2link booted from a USB stick)
     // wedges the USB stack.
+    //
+    // true here is what a project that predates the key loads as (the feature
+    // was retroactively on for everyone); project::create() starts a fresh
+    // project with it OFF - a pad game pays nothing for drivers it never uses,
+    // and the console only speaks the USB HID boot protocol anyway, so this is
+    // a choice to make deliberately (docs/keyboard-mouse.md).
     bool keyboardMouse = true;
 
     // Experimental (debug): keep keyboard/mouse working on a "Run on PS2"
@@ -735,6 +745,11 @@ struct ProjectSettings {
     // (docs/world-scale.md). Existing projects keep whatever they saved.
     float walkSpeed = 0.1f;
     float lookSpeed = 1.0f;  // multiplier
+
+    // Sprint: while the "sprint" input action (Tools > Input Map) is held, the
+    // walkers multiply their walk speed by this. 1.0 = sprinting does nothing
+    // (the switch that turns the feature off without unbinding the button).
+    float sprintMultiplier = 1.8f;  // 1..4
 
     // Analog sticks: offsets below this fraction of full deflection read as
     // zero (real DualShock sticks rest off-center); motion rescales smoothly
@@ -871,6 +886,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.sprintMultiplier == b.sprintMultiplier &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
            a.stickCurveL == b.stickCurveL && a.stickCurveR == b.stickCurveR &&
@@ -1008,6 +1024,126 @@ inline bool operator==(const GameFont& a, const GameFont& b) {
            a.shadow == b.shadow && a.quant == b.quant;
 }
 
+// One inline icon a text can splice in (Tools > UI Editor > Button icons,
+// docs/text-icons.md). ANY text in the project - HUD texts, menu titles and
+// entry labels, loading-screen texts, Display Text nodes - substitutes
+// `{{name}}` with this image, sized to the text it sits in.
+//
+// The seeded set is named after the pad buttons ("cross", "l1", "start", ...),
+// which is also what makes `{{action:jump}}` work: that form resolves the
+// action's bound button and then looks up the icon of that name. Extra entries
+// with any name are fine ({{coin}}) - they just have no action to resolve from.
+struct TextIcon {
+    std::string name;  // the placeholder token: {{cross}}
+    // Project-relative PNG. The seeded pad-button entries point at
+    // res/hud/icon-<name>.png, which the editor generates when the file is
+    // missing - overriding an icon is just replacing that PNG (or pointing
+    // this at your own).
+    std::string path;
+    // Height relative to the text's line height (1 = as tall as a capital).
+    float scale = 1.0f;
+};
+
+inline bool operator==(const TextIcon& a, const TextIcon& b) {
+    return a.name == b.name && a.path == b.path && a.scale == b.scale;
+}
+
+// One piece of a text carrying icon placeholders: either a run of plain
+// characters or a resolved icon token. Every text renderer walks these instead
+// of raw bytes, which is what makes `{{cross}}` work in every text at once.
+struct TextRun {
+    std::string text;  // non-empty on a plain run
+    std::string icon;  // non-empty on an icon token (a TextIcon name)
+    // On an icon token that resolved through an ACTION ({{action:jump}} or the
+    // {{jump}} shorthand): the action's name. This is what lets a consumer draw
+    // the glyph from the LIVE binding instead of the one baked in - the
+    // interaction prompts do exactly that (docs/text-icons.md).
+    std::string action;
+};
+
+// Lowercased pad-button name, i.e. the TextIcon that stands for that button
+// ("Cross" -> "cross"). The naming convention the seeded icon set follows.
+inline std::string textIconNameForPad(const std::string& padName) {
+    std::string s;
+    for (char c : padName) s += (char)tolower((unsigned char)c);
+    return s;
+}
+
+// The icon a token names when read as an ACTION rather than an icon: the
+// lowercased pad button that action is bound to. Empty when no action goes by
+// that name or it has no pad button.
+//
+// This is the `{{use}}` shorthand: `{{action:use}}` spelled out is precise, but
+// a bare `{{use}}` is what people actually type, so a token that matches no
+// icon gets one more chance as an action name before falling back to literal
+// text. Icon names win - `{{cross}}` stays the Cross glyph even if a project
+// ever names an action "cross".
+inline std::string textIconForAction(const std::string& token,
+                                     const InputMap& input) {
+    if (!input.findAction(token)) return std::string();
+    const InputBinding b = input.resolve(token);
+    return b.pad.empty() ? std::string() : textIconNameForPad(b.pad);
+}
+
+// Splits `s` into plain runs and icon tokens.
+//   {{cross}}        -> the icon named "cross"
+//   {{action:jump}}  -> the icon named after the pad button the "jump" action
+//                       is bound to in `input`'s active preset
+// A token whose action is unknown or has no pad button, and anything that is
+// not a well-formed `{{...}}`, stays LITERAL text - a typo shows up on screen
+// instead of silently vanishing.
+//
+// A BARE token comes out as-is in TextRun::icon; a caller that finds no icon of
+// that name should try textIconForAction() before giving up, which is what makes
+// the `{{use}}` shorthand work (see there).
+inline std::vector<TextRun> parseTextIcons(const std::string& s,
+                                           const InputMap& input) {
+    std::vector<TextRun> out;
+    auto pushText = [&out](const std::string& t) {
+        if (t.empty()) return;
+        if (!out.empty() && out.back().icon.empty())
+            out.back().text += t;
+        else
+            out.push_back(TextRun{t, ""});
+    };
+    size_t i = 0;
+    while (i < s.size()) {
+        const size_t open = s.find("{{", i);
+        if (open == std::string::npos) {
+            pushText(s.substr(i));
+            break;
+        }
+        const size_t close = s.find("}}", open + 2);
+        if (close == std::string::npos) {
+            pushText(s.substr(i));
+            break;
+        }
+        pushText(s.substr(i, open - i));
+        const std::string token = s.substr(open + 2, close - open - 2);
+        std::string icon = token;
+        std::string action;
+        if (token.rfind("action:", 0) == 0) {
+            action = token.substr(7);
+            const InputBinding b = input.resolve(action);
+            icon = b.pad.empty() ? std::string() : textIconNameForPad(b.pad);
+        }
+        if (icon.empty())
+            pushText(s.substr(open, close + 2 - open));  // keep it visible
+        else
+            out.push_back(TextRun{"", icon, action});
+        i = close + 2;
+    }
+    return out;
+}
+
+// The text with every icon token removed - what a plain-text consumer (a
+// window title, a list row) should show.
+inline std::string stripTextIcons(const std::string& s, const InputMap& input) {
+    std::string out;
+    for (const TextRun& r : parseTextIcons(s, input)) out += r.text;
+    return out;
+}
+
 // An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
 // build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
 // runtime by the Set Text Visible flow node. Multi-line on '\n'. The string is
@@ -1030,6 +1166,18 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
            a.color[2] == b.color[2] && a.font == b.font &&
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
+}
+
+// A prompt text's starting state. HudText's own default is "New text" (right
+// for the HUD-texts list, nonsense in a prompt field), so the prompts carry the
+// classic word plus the button glyph - "{{use}} USE" reads as the old sprite did
+// and follows a rebind (docs/text-icons.md).
+inline HudText defaultPromptText(const char* name, const char* text) {
+    HudText t;
+    t.name = name;
+    t.text = text;
+    t.size = 20;
+    return t;
 }
 
 // A progress bar on a loading screen (Tools > Loading Screens). Continuous =
@@ -1273,6 +1421,14 @@ struct MenuEntry {
         // confirm). Without one, display rows keep the classic
         // switch-on-change behavior.
         ApplyVideo = 9,
+        // Rebinds one input action (docs/input-bindings.md). `bindAction` names
+        // the Tools > Input Map action, `param` the save value holding the
+        // player's override as an inputCodes() index (0 = the project's preset
+        // binding). Selecting the row arms capture mode: the next button or
+        // key the player presses becomes the binding. The row draws its
+        // current binding as runtime text from the menu's font atlas, so it is
+        // not limited to a baked option strip.
+        RebindKey = 10,
     };
     int action = Close;
     std::string param;
@@ -1303,14 +1459,20 @@ struct MenuEntry {
                               // / PAL 576i (see MenuEntry::optionModes)
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
         BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
+        BindInputPreset = 8,  // Tools > Input Map preset (options = presets)
     };
     int settingBind = BindNone;
+    // RebindKey rows only: which InputAction the row rebinds (by name). Last
+    // field on purpose - the positional MenuEntry{...} initializers in app.cpp
+    // predate it and must keep meaning what they say.
+    std::string bindAction;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
-           a.amount == b.amount && a.options == b.options &&
-           a.optionModes == b.optionModes && a.settingBind == b.settingBind;
+           a.bindAction == b.bindAction && a.amount == b.amount &&
+           a.options == b.options && a.optionModes == b.optionModes &&
+           a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -1496,9 +1658,34 @@ struct Project {
     std::vector<GameFont> fonts{GameFont{}};
 
     std::vector<HudImage> hud;
+    // Inline text icons (Tools > UI Editor > Button icons,
+    // docs/text-icons.md): any text in the project can splice one in with a
+    // {{name}} placeholder. Seeded with one entry per pad button by
+    // project::ensureTextIcons, so {{cross}} works in a fresh project.
+    std::vector<TextIcon> textIcons;
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).
     // Always present - the UI Editor edits it but cannot delete it.
     HudImage usePrompt = defaultUsePrompt();
+    // The two interaction prompts (Tools > UI Editor > USE prompt) are each
+    // either TEXT or an IMAGE - an explicit mode, not "text wins when non-empty":
+    // switching to the image to compare should not mean losing the text you
+    // typed. Text is the interesting mode because it can carry a button glyph
+    // that follows the binding, which is why a fresh project starts on it
+    // ("{{use}} Use" / "{{use}} Pick up", docs/text-icons.md).
+    //
+    // Either way the build produces ONE sprite per prompt and the game draws it
+    // the same: text is rasterized to res/hud/use-text.png / pick-text.png and
+    // the prompt simply points there. The texts' `pos` is unused (the USE
+    // prompt's own position places both); size/color/font/shadow are the text's.
+    bool usePromptIsText = false;
+    HudText usePromptText = defaultPromptText("use-prompt", "{{use}} USE");
+    // The "PICK UP" prompt, shown instead of USE while the looked-at object is
+    // pickable. It shares the USE prompt's screen position; `pickPromptImage`
+    // empty = the built-in res/hud/pickup.png.
+    bool pickPromptIsText = false;
+    HudText pickPromptText =
+        defaultPromptText("pick-prompt", "{{use}} PICK UP");
+    std::string pickPromptImage;
     // On-screen texts baked to sprites at build, triggered by the Show Text /
     // Hide Text flow nodes (Tools > UI Editor > Texts).
     std::vector<HudText> hudTexts;
@@ -1568,6 +1755,11 @@ struct Project {
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
+    // Configurable buttons/keys (Tools > Input Map, docs/input-bindings.md).
+    // Named actions + per-project binding presets; the generated game reads
+    // every gameplay button through them. Never empty after a load -
+    // project::ensureInputActions() seeds the built-in roles.
+    InputMap input;
     // Color grading presets (Tools > Color Grading): project-wide looks
     // applied as GS full-screen passes. defaultGrading is the index applied
     // at game boot (-1 = none); the Set Color Grading flow node switches
@@ -1651,9 +1843,15 @@ namespace project {
 // and the <name>.tyra project file. `preset` picks the starting content:
 //   "empty" - orbit camera, no objects.
 //   "fpp"   - FPP game template with a single Player entity in the center.
+// `unitsPerMeter` is the project's world scale (ProjectSettings::unitsPerMeter,
+// docs/world-scale.md); the metric-by-definition FPP/physics defaults (eye
+// height, walk speed, gravity, jump) are multiplied by it so the preset player
+// is person-sized whatever scale the project chose. Decided here and not later
+// because changing the scale afterwards deliberately rescales nothing.
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& preset = "empty");
+                   const TerrainConfig& terrain, const std::string& preset = "empty",
+                   float unitsPerMeter = 1.0f);
 
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
@@ -1677,6 +1875,24 @@ void ensureObjectIds(Project& p);
 // Assigns Project::projectId when it is empty (fresh create or a project from
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
+
+// Fills in the built-in input actions and the "Default" preset (Tools > Input
+// Map) with the bindings that were hardcoded before the Input Map existed, so
+// a project from an older TyraX plays identically. Only ADDS what is missing:
+// an action the user renamed/rebound/deleted stays as it is, and re-running is
+// a no-op. Called from create() and at the end of load().
+void ensureInputActions(Project& p);
+
+// The built-in action name for a role (InputAction::Role), e.g. "jump" - what
+// ensureInputActions seeds and what the codegen role slots look for. Empty for
+// RoleNone / out-of-range values.
+const char* inputRoleName(int role);
+
+// Fills in the pad-button text icons (Tools > UI Editor > Button icons) so
+// {{cross}} and {{action:jump}} resolve in a fresh or older project. Only ADDS
+// missing entries - a renamed/repointed/deleted icon stays as the user left it.
+// Their PNGs are generated into res/hud/ when absent (saveAssets).
+void ensureTextIcons(Project& p);
 
 // --- Per-object / per-section (de)serialization ------------------------------
 // The building blocks of both the on-disk format and the collaboration wire
@@ -1712,8 +1928,13 @@ enum class Section {
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
     ModelUnits,      // "modelUnits" (per-model real-world size)
+    Input,           // "input" (actions + binding presets)
 };
-constexpr int kSectionCount = 14;
+// KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
+// one short silently stops writing the LAST section to the .tyra - and parallel
+// branches keep adding sections (ModelLods, ModelUnits and Input all arrived
+// while this one was open), which is exactly how it drifts.
+constexpr int kSectionCount = 15;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

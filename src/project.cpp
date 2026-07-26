@@ -79,6 +79,15 @@ std::vector<int> Project::atlasFontIndices() const {
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes)
                 if (n.type == "DisplayText") want(n.str);
+    // A menu with a "Rebind key" row draws the current binding name as runtime
+    // text (the string is only known while the game runs - see
+    // docs/input-bindings.md), so that menu's font needs an atlas too.
+    for (const GameMenu& m : menus)
+        for (const MenuEntry& e : m.entries)
+            if (e.action == MenuEntry::RebindKey) {
+                want(m.font);
+                break;
+            }
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -869,6 +878,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
+         << "    \"sprintMultiplier\": " << fmtFloat(p.settings.sprintMultiplier)
+         << ",\n"
          << "    \"stickDeadzoneL\": " << fmtFloat(p.settings.stickDeadzoneL) << ",\n"
          << "    \"stickDeadzoneR\": " << fmtFloat(p.settings.stickDeadzoneR) << ",\n"
          << "    \"stickCurveL\": " << p.settings.stickCurveL << ",\n"
@@ -987,6 +998,26 @@ static void writeHudSection(std::ostream& json, const Project& p) {
          << fmtFloat(p.usePrompt.size[0]) << ", " << fmtFloat(p.usePrompt.size[1])
          << "], \"texW\": " << p.usePrompt.texW << ", \"texH\": " << p.usePrompt.texH
          << ", \"texQuant\": \"" << p.usePrompt.texQuant << "\" }";
+    // The two prompts: an explicit text/image mode plus the text itself, so
+    // flipping to the image keeps whatever text was typed.
+    auto writePromptText = [&](const char* key, const HudText& t) {
+        json << ",\n  \"" << key << "\": { \"text\": \""
+             << jsonEscape(t.text) << "\", \"size\": " << t.size
+             << ", \"color\": " << fmtVec3(t.color)
+             << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
+             << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
+    };
+    json << ",\n  \"usePromptIsText\": "
+         << (p.usePromptIsText ? "true" : "false");
+    if (!p.usePromptText.text.empty())
+        writePromptText("usePromptText", p.usePromptText);
+    json << ",\n  \"pickPromptIsText\": "
+         << (p.pickPromptIsText ? "true" : "false");
+    if (!p.pickPromptText.text.empty())
+        writePromptText("pickPromptText", p.pickPromptText);
+    if (!p.pickPromptImage.empty())
+        json << ",\n  \"pickPromptImage\": \""
+             << jsonEscape(p.pickPromptImage) << "\"";
     json << ",\n  \"hudTexts\": [";
     for (size_t i = 0; i < p.hudTexts.size(); ++i) {
         const HudText& t = p.hudTexts[i];
@@ -1000,6 +1031,19 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << " }";
     }
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
+    // Inline text icons ({{name}} in any text). Emitted even at their seeded
+    // defaults: the set is what a project's texts reference by name, and a
+    // dropped key would silently change what {{cross}} resolves to.
+    json << ",\n  \"textIcons\": [";
+    for (size_t i = 0; i < p.textIcons.size(); ++i) {
+        const TextIcon& ic = p.textIcons[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(ic.name) << "\", \"path\": \"" << jsonEscape(ic.path)
+             << "\"";
+        if (ic.scale != 1.0f) json << ", \"scale\": " << fmtFloat(ic.scale);
+        json << " }";
+    }
+    json << (p.textIcons.empty() ? "]" : "\n  ]");
     json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
     json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
     if (!p.screenFx.empty()) {
@@ -1262,7 +1306,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
-                                         "apply-video"};
+                                         "apply-video", "rebind"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -1303,10 +1347,14 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         json << ",\n      \"entries\": [";
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
-            const int a = (en.action >= 0 && en.action <= 9) ? en.action : 0;
+            const int a = (en.action >= 0 && en.action <= 10) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
+                 << (en.bindAction.empty()
+                         ? ""
+                         : ", \"bindAction\": \"" + jsonEscape(en.bindAction) +
+                               "\"")
                  << (en.amount != 0.0f ? ", \"amount\": " + fmtFloat(en.amount) : "");
             if (!en.options.empty()) {
                 json << ", \"options\": [";
@@ -1322,15 +1370,117 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                 json << "]";
             }
             static const char* kMenuBinds[] = {
-                "",           "music-volume", "sfx-volume",  "deadzone",
-                "stick-curve", "display-mode", "widescreen", "player-count"};
-            if (en.settingBind >= 1 && en.settingBind <= 7)
+                "",            "music-volume", "sfx-volume",  "deadzone",
+                "stick-curve", "display-mode", "widescreen",  "player-count",
+                "input-preset"};
+            if (en.settingBind >= 1 && en.settingBind <= 8)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
     }
     json << (p.menus.empty() ? "]" : "\n  ]");
+}
+
+// Input actions + binding presets (Tools > Input Map). Always emitted: after
+// ensureInputActions every project has the built-in actions, and a project
+// whose .tyra lost the key would silently fall back to the seeded defaults
+// instead of the user's bindings.
+static void writeInputSection(std::ostream& json, const Project& p) {
+    // Role -> stable json name. Index = InputAction::Role.
+    static const char* kRoles[] = {
+        "",        "jump",      "use",       "throw",     "sprint",
+        "fly-up",  "fly-down",  "confirm",   "back",      "menu",
+        "alt",     "menu-up",   "menu-down", "menu-left", "menu-right",
+        "move-forward", "move-back", "move-left", "move-right"};
+    json << "\"input\": {\n    \"activePreset\": " << p.input.activePreset
+         << ",\n    \"allowRebind\": "
+         << (p.input.allowRebind ? "true" : "false") << ",\n    \"actions\": [";
+    for (size_t i = 0; i < p.input.actions.size(); ++i) {
+        const InputAction& a = p.input.actions[i];
+        const int r = (a.role > 0 && a.role < InputAction::RoleCount) ? a.role : 0;
+        json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+             << jsonEscape(a.name) << "\", \"label\": \"" << jsonEscape(a.label)
+             << "\"";
+        if (r != 0) json << ", \"role\": \"" << kRoles[r] << "\"";
+        if (!a.rebindable) json << ", \"rebindable\": false";
+        json << " }";
+    }
+    json << (p.input.actions.empty() ? "]" : "\n    ]") << ",\n    \"presets\": [";
+    for (size_t i = 0; i < p.input.presets.size(); ++i) {
+        const InputPreset& pr = p.input.presets[i];
+        json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+             << jsonEscape(pr.name) << "\", \"bindings\": [";
+        for (size_t b = 0; b < pr.bindings.size(); ++b) {
+            const InputBinding& bd = pr.bindings[b];
+            json << (b ? ",\n          " : "\n          ") << "{ \"action\": \""
+                 << jsonEscape(bd.action) << "\"";
+            if (!bd.pad.empty()) json << ", \"pad\": \"" << bd.pad << "\"";
+            if (bd.key != 0) json << ", \"key\": " << bd.key;
+            if (bd.mouse != 0) json << ", \"mouse\": " << bd.mouse;
+            json << " }";
+        }
+        json << (pr.bindings.empty() ? "]" : "\n        ]") << " }";
+    }
+    json << (p.input.presets.empty() ? "]" : "\n    ]") << "\n  }";
+}
+
+static void readInputSection(const json::Value& root, Project& out) {
+    out.input = InputMap{};
+    const auto* in = root.find("input");
+    if (!in || in->type != json::Value::Type::Object) return;
+    if (const auto* v = in->find("activePreset"))
+        out.input.activePreset = (int)v->numberOr(0.0);
+    if (const auto* v = in->find("allowRebind"))
+        out.input.allowRebind = v->boolOr(true);
+    if (const auto* arr = in->find("actions");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const auto& ja : arr->arr) {
+            InputAction a;
+            if (const auto* v = ja.find("name")) a.name = v->stringOr("");
+            if (const auto* v = ja.find("label")) a.label = v->stringOr("");
+            if (const auto* v = ja.find("role")) {
+                const std::string r = v->stringOr("");
+                for (int i = 1; i < InputAction::RoleCount; ++i)
+                    if (r == inputRoleName(i)) a.role = i;
+            }
+            if (const auto* v = ja.find("rebindable"))
+                a.rebindable = v->boolOr(true);
+            if (a.name.empty()) continue;  // an unnamed action addresses nothing
+            if (a.label.empty()) a.label = a.name;
+            out.input.actions.push_back(std::move(a));
+        }
+    }
+    if (const auto* arr = in->find("presets");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const auto& jp : arr->arr) {
+            InputPreset pr;
+            if (const auto* v = jp.find("name")) pr.name = v->stringOr("Preset");
+            if (const auto* bs = jp.find("bindings");
+                bs && bs->type == json::Value::Type::Array) {
+                for (const auto& jb : bs->arr) {
+                    InputBinding b;
+                    if (const auto* v = jb.find("action"))
+                        b.action = v->stringOr("");
+                    if (const auto* v = jb.find("pad")) b.pad = v->stringOr("");
+                    if (const auto* v = jb.find("key")) b.key = (int)v->numberOr(0.0);
+                    if (const auto* v = jb.find("mouse"))
+                        b.mouse = (int)v->numberOr(0.0);
+                    // Drop what the game could not use: an unknown pad name or
+                    // an out-of-range key/mouse would reach codegen as junk.
+                    if (b.action.empty()) continue;
+                    if (!b.pad.empty() && padButtonIndex(b.pad) < 0) b.pad.clear();
+                    if (b.key < 0 || b.key > 255) b.key = 0;
+                    if (b.mouse < 0 || b.mouse > 3) b.mouse = 0;
+                    pr.bindings.push_back(std::move(b));
+                }
+            }
+            if (!pr.name.empty()) out.input.presets.push_back(std::move(pr));
+        }
+    }
+    if (out.input.activePreset < 0 ||
+        out.input.activePreset >= (int)out.input.presets.size())
+        out.input.activePreset = 0;
 }
 
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
@@ -1376,6 +1526,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
+        case Section::Input: writeInputSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1396,6 +1547,7 @@ const char* sectionName(Section s) {
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
         case Section::ModelUnits: return "modelUnits";
+        case Section::Input: return "input";
     }
     return "unknown";
 }
@@ -1489,6 +1641,113 @@ void ensureProjectId(Project& p) {
     if (p.projectId.empty()) p.projectId = newObjectId();
 }
 
+const char* inputRoleName(int role) {
+    switch (role) {
+        case InputAction::RoleJump: return "jump";
+        case InputAction::RoleUse: return "use";
+        case InputAction::RoleThrow: return "throw";
+        case InputAction::RoleSprint: return "sprint";
+        case InputAction::RoleFlyUp: return "fly-up";
+        case InputAction::RoleFlyDown: return "fly-down";
+        case InputAction::RoleConfirm: return "confirm";
+        case InputAction::RoleBack: return "back";
+        case InputAction::RoleMenu: return "menu";
+        case InputAction::RoleAlt: return "alt";
+        case InputAction::RoleMenuUp: return "menu-up";
+        case InputAction::RoleMenuDown: return "menu-down";
+        case InputAction::RoleMenuLeft: return "menu-left";
+        case InputAction::RoleMenuRight: return "menu-right";
+        case InputAction::RoleMoveForward: return "move-forward";
+        case InputAction::RoleMoveBack: return "move-back";
+        case InputAction::RoleMoveLeft: return "move-left";
+        case InputAction::RoleMoveRight: return "move-right";
+        default: return "";
+    }
+}
+
+void ensureTextIcons(Project& p) {
+    // One entry per pad button, named after it (lowercased) - that convention
+    // is what makes {{cross}} and {{action:jump}} resolve. Their PNGs are
+    // generated into res/hud/ by saveAssets when missing, so an override is
+    // just replacing the file.
+    for (const std::string& name : menubake::builtinIconNames()) {
+        bool have = false;
+        for (const TextIcon& ic : p.textIcons) have |= (ic.name == name);
+        if (have) continue;
+        TextIcon ic;
+        ic.name = name;
+        ic.path = "res/hud/" + menubake::iconFileName(name);
+        p.textIcons.push_back(std::move(ic));
+    }
+}
+
+void ensureInputActions(Project& p) {
+    // The bindings TyraX hardcoded before the Input Map existed (the old
+    // controls.hpp defaults - see docs/keyboard-mouse.md), plus the new sprint
+    // action. Order is the order the Input Map window and a scaffolded controls
+    // menu list them in.
+    struct Seed {
+        int role;
+        const char* label;
+        const char* pad;
+        int key;
+        int mouse;
+        bool rebindable;
+    };
+    static const Seed kSeeds[] = {
+        {InputAction::RoleMoveForward, "Move forward", "", 0x1A, 0, true},
+        {InputAction::RoleMoveBack, "Move back", "", 0x16, 0, true},
+        {InputAction::RoleMoveLeft, "Move left", "", 0x04, 0, true},
+        {InputAction::RoleMoveRight, "Move right", "", 0x07, 0, true},
+        {InputAction::RoleJump, "Jump", "Cross", 0x2C, 2, true},
+        {InputAction::RoleSprint, "Sprint", "R2", 0xE1, 0, true},
+        {InputAction::RoleUse, "Use", "Square", 0x08, 1, true},
+        {InputAction::RoleThrow, "Throw", "Circle", 0, 3, true},
+        {InputAction::RoleFlyUp, "Fly up", "Cross", 0x2C, 0, true},
+        {InputAction::RoleFlyDown, "Fly down", "Square", 0x08, 0, true},
+        // The menu set is deliberately NOT rebindable by default: a player who
+        // rebinds "Confirm" to a button they cannot reach is locked out of the
+        // menu they would need to fix it.
+        {InputAction::RoleConfirm, "Confirm", "Cross", 0x28, 0, false},
+        {InputAction::RoleBack, "Back", "Triangle", 0x2A, 0, false},
+        {InputAction::RoleMenu, "Pause menu", "Start", 0x29, 0, false},
+        {InputAction::RoleAlt, "Alternate", "Circle", 0x15, 3, false},
+        {InputAction::RoleMenuUp, "Menu up", "DpadUp", 0x52, 0, false},
+        {InputAction::RoleMenuDown, "Menu down", "DpadDown", 0x51, 0, false},
+        {InputAction::RoleMenuLeft, "Menu left", "DpadLeft", 0x50, 0, false},
+        {InputAction::RoleMenuRight, "Menu right", "DpadRight", 0x4F, 0, false},
+    };
+
+    if (p.input.presets.empty()) p.input.presets.push_back(InputPreset{});
+    if (p.input.activePreset < 0 ||
+        p.input.activePreset >= (int)p.input.presets.size())
+        p.input.activePreset = 0;
+
+    for (const Seed& s : kSeeds) {
+        const char* name = inputRoleName(s.role);
+        // A role already covered (even under a user-chosen name) is left alone.
+        int idx = p.input.roleIndex(s.role);
+        if (idx < 0 && p.input.findAction(name)) continue;
+        if (idx < 0) {
+            InputAction a;
+            a.name = name;
+            a.label = s.label;
+            a.role = s.role;
+            a.rebindable = s.rebindable;
+            p.input.actions.push_back(std::move(a));
+            idx = (int)p.input.actions.size() - 1;
+            // A newly seeded action needs its default binding in EVERY preset,
+            // not just the active one - otherwise switching preset unbinds it.
+            for (InputPreset& pr : p.input.presets) {
+                InputBinding& b = pr.at(p.input.actions[idx].name);
+                b.pad = s.pad;
+                b.key = s.key;
+                b.mouse = s.mouse;
+            }
+        }
+    }
+}
+
 void ensureObjectIds(Project& p) {
     // Single pass: an object gets a fresh id when it has none (legacy / just
     // pasted) or when its id already appeared on an earlier object (accidental
@@ -1518,7 +1777,8 @@ void seedBuiltinLayouts(Project& p) {
 }
 
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& preset) {
+                   const TerrainConfig& terrain, const std::string& preset,
+                   float unitsPerMeter) {
     if (name.empty()) return "Project name is empty";
     for (char c : name) {
         if (!isalnum((unsigned char)c) && c != '-' && c != '_')
@@ -1537,6 +1797,29 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.name = name;
     out.dir = root.string();
     out.scenes[0].terrain = terrain;
+
+    // New-project defaults that deliberately differ from the struct defaults -
+    // those are what a project predating each key loads as, so they cannot
+    // carry the new answer without changing existing projects' behavior.
+    //
+    // A fresh project is born for authoring: the debug profile so Live Link and
+    // the on-screen overlays work from the first build (switch to release for
+    // the disc), and USB keyboard & mouse OFF - a pad game pays nothing for
+    // drivers it never uses, and the choice is one to make deliberately.
+    out.settings.buildProfile = "debug";
+    out.settings.liveLink = true;
+    out.settings.keyboardMouse = false;
+
+    // World scale, chosen when the project is created because the alternative
+    // is discovering it after the world is built. The metric-by-definition
+    // numbers scale with it, so the FPP preset is a 1.8 m player at any scale
+    // (docs/world-scale.md); everything else is in units by nature and stays.
+    if (!(unitsPerMeter > 0.0001f)) unitsPerMeter = 1.0f;
+    out.settings.unitsPerMeter = unitsPerMeter;
+    out.settings.eyeHeight *= unitsPerMeter;
+    out.settings.walkSpeed *= unitsPerMeter;
+    out.settings.gravity *= unitsPerMeter;
+    out.settings.jumpSpeed *= unitsPerMeter;
 
     // Start with one ambience preset (its defaults match the project's default
     // sky/lighting/fog) so the sky renders and the Ambience Editor isn't empty.
@@ -1563,11 +1846,28 @@ std::string create(Project& out, const std::string& name, const std::string& par
         player.type = PrimitiveType::Player;
         player.position[0] = 0.0f, player.position[1] = 0.0f, player.position[2] = 0.0f;
         player.color[0] = 0.15f, player.color[1] = 0.9f, player.color[2] = 0.9f;
+        // Same reasoning as the settings above: these are metres by definition
+        // (a 1.8 m person running 5 m/s), so they follow the world scale.
+        player.playerEyeHeight *= unitsPerMeter;
+        player.playerWalkSpeed *= unitsPerMeter;
+        player.playerJumpSpeed *= unitsPerMeter;
+        player.playerCamDist *= unitsPerMeter;
+        player.playerCamHeight *= unitsPerMeter;
         out.scenes[0].objects.push_back(player);
     }
 
     ensureProjectId(out);
     ensureObjectIds(out);
+    ensureInputActions(out);
+    ensureTextIcons(out);
+    // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
+    // what to press rather than a generic "USE" - and follows a rebind. Only on
+    // create: flipping an existing project from its image to text would restyle
+    // it behind the user's back (the UI Editor offers the switch instead).
+    // Both prompts start as TEXT (the defaults carry the button glyph); the
+    // strings themselves come from the members' initializers.
+    out.usePromptIsText = true;
+    out.pickPromptIsText = true;
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
@@ -2607,6 +2907,13 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
+        // Sprint: projects that predate it read 1.8 like a fresh one (the
+        // sprint action ensureInputActions seeds is what actually enables it).
+        if (const auto* v = s->find("sprintMultiplier")) {
+            st.sprintMultiplier = (float)v->numberOr(1.8);
+            if (st.sprintMultiplier < 1.0f) st.sprintMultiplier = 1.0f;
+            if (st.sprintMultiplier > 4.0f) st.sprintMultiplier = 4.0f;
+        }
         // Legacy single-value key seeds both sticks; per-stick keys override.
         if (const auto* v = s->find("stickDeadzone")) {
             st.stickDeadzoneL = (float)v->numberOr(0.2);
@@ -2794,6 +3101,74 @@ static void readHudSection(const json::Value& root, Project& out) {
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }
+    // The two interaction prompts. Their mode is explicit; a project written
+    // before the flag existed is migrated by the rule that was in force then
+    // ("non-empty text wins"), so it keeps the look it had.
+    // Returns true when the project actually carried this text - the pre-flag
+    // migration rule ("non-empty text wins") may only fire then, or every older
+    // project would flip to text mode showing the default.
+    auto readPromptText = [&](const char* key, HudText& t) {
+        const auto* jt = root.find(key);
+        if (!jt || jt->type != json::Value::Type::Object) return false;
+        if (const auto* v = jt->find("text")) t.text = v->stringOr("");
+        if (const auto* v = jt->find("size")) t.size = (int)v->numberOr(16);
+        if (t.size < 8) t.size = 8;
+        if (t.size > 48) t.size = 48;
+        readVec3(jt->find("color"), t.color);
+        if (const auto* v = jt->find("font")) t.font = v->stringOr("");
+        if (const auto* v = jt->find("shadow"))
+            t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
+        return true;
+    };
+    out.usePromptText = defaultPromptText("use-prompt", "{{use}} USE");
+    out.pickPromptText = defaultPromptText("pick-prompt", "{{use}} PICK UP");
+    bool hadUseText = readPromptText("usePromptText", out.usePromptText);
+    bool hadPickText = readPromptText("pickPromptText", out.pickPromptText);
+    // Mode: the stored flag when there is one, otherwise the pre-flag rule
+    // ("non-empty text wins") so an older project keeps the look it had.
+    out.usePromptIsText = hadUseText && !out.usePromptText.text.empty();
+    out.pickPromptIsText = hadPickText && !out.pickPromptText.text.empty();
+    if (const auto* v = root.find("usePromptIsText"))
+        out.usePromptIsText = v->boolOr(false);
+    if (const auto* v = root.find("pickPromptIsText"))
+        out.pickPromptIsText = v->boolOr(false);
+    // "New text" is HudText's own default and can only have got in here from an
+    // interim build that default-constructed a prompt text and then wrote it out
+    // (flag included). Nobody types that into a prompt, so restore the real
+    // default and fall back to the image - AFTER the flags, or the bogus flag
+    // would keep the placeholder on screen.
+    auto dropPlaceholder = [](HudText& t, bool& isText, const char* def) {
+        if (t.text != "New text") return;
+        t.text = def;
+        isText = false;
+    };
+    dropPlaceholder(out.usePromptText, out.usePromptIsText, "{{use}} USE");
+    dropPlaceholder(out.pickPromptText, out.pickPromptIsText,
+                    "{{use}} PICK UP");
+    out.pickPromptImage.clear();
+    if (const auto* v = root.find("pickPromptImage"))
+        out.pickPromptImage = v->stringOr("");
+
+    out.textIcons.clear();
+    if (const auto* icons = root.find("textIcons");
+        icons && icons->type == json::Value::Type::Array) {
+        for (const auto& ji : icons->arr) {
+            TextIcon ic;
+            if (const auto* v = ji.find("name")) ic.name = v->stringOr("");
+            if (const auto* v = ji.find("path")) ic.path = v->stringOr("");
+            if (const auto* v = ji.find("scale")) ic.scale = (float)v->numberOr(1.0);
+            if (ic.scale < 0.2f) ic.scale = 0.2f;
+            if (ic.scale > 4.0f) ic.scale = 4.0f;
+            // A nameless icon has no placeholder that could reach it.
+            if (ic.name.empty()) continue;
+            bool dup = false;
+            for (const TextIcon& e : out.textIcons) dup |= (e.name == ic.name);
+            if (!dup) out.textIcons.push_back(std::move(ic));
+        }
+    }
+    // Seed/backfill the pad-button set: a project from before text icons (or one
+    // whose key was trimmed) still resolves {{cross}}.
+    ensureTextIcons(out);
     // Effect layer positions; absent (older projects) or out of range = -1,
     // i.e. the effect applies over everything at end of frame - the old
     // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
@@ -3290,9 +3665,12 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "toggle"    ? MenuEntry::Toggle
                                     : a == "choice"    ? MenuEntry::Choice
                                     : a == "apply-video" ? MenuEntry::ApplyVideo
+                                    : a == "rebind"    ? MenuEntry::RebindKey
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
+                    if (const auto* v = je.find("bindAction"))
+                        en.bindAction = v->stringOr("");
                     if (const auto* v = je.find("amount"))
                         en.amount = (float)v->numberOr(0.0);
                     if (const auto* v = je.find("options");
@@ -3322,6 +3700,7 @@ static void readMenusSection(const json::Value& root, Project& out) {
                             : b == "display-mode" ? MenuEntry::BindDisplayMode
                             : b == "widescreen"  ? MenuEntry::BindWidescreen
                             : b == "player-count" ? MenuEntry::BindPlayerCount
+                            : b == "input-preset" ? MenuEntry::BindInputPreset
                                                  : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));
@@ -3392,6 +3771,12 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
         case Section::ModelUnits: readModelUnitsSection(root, p); break;
+        // A section blob is total, so a peer that never had the Input Map
+        // would wipe it - re-seed the built-ins after applying (idempotent).
+        case Section::Input:
+            readInputSection(root, p);
+            ensureInputActions(p);
+            break;
     }
     return true;
 }
@@ -3483,7 +3868,7 @@ std::string load(Project& out, const std::string& projectDir) {
     // above) and reach scenes through inheritance (project::resolvedSettings),
     // so no per-scene copy is needed here.
     if (const auto* terrain = root.find("terrain")) {
-        TerrainConfig t;
+        TerrainConfig t{64, 64};  // legacy default, not the new-project one
         if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
         if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
         for (SceneData& sc : out.scenes) sc.terrain = t;
@@ -3573,6 +3958,12 @@ std::string load(Project& out, const std::string& projectDir) {
         out.defaultAmbience = -1;
 
     readMenusSection(root, out);
+
+    readInputSection(root, out);
+    // Backfill the built-in actions/preset: a project from before the Input Map
+    // (or one whose "input" key was hand-trimmed) gets exactly the bindings
+    // that used to be hardcoded, so it plays the same.
+    ensureInputActions(out);
 
     loadHeights(out);
     ensureHeightmap(out);
@@ -4002,7 +4393,10 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\ao_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
-            f.relativePath == "inc\\menu_data.gen.hpp") {
+            f.relativePath == "inc\\menu_data.gen.hpp" ||
+            f.relativePath == "inc\\icon_data.gen.hpp" ||
+            f.relativePath == "inc\\input_map.gen.hpp" ||
+            f.relativePath == "src\\gen\\input_map.gen.cpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
@@ -4228,6 +4622,78 @@ std::string refreshGenerated(const Project& p) {
                 for (const std::string& w : wantedAtlases) wanted |= (w == fn);
                 if (!wanted) fs::remove(e.path(), ec);
             }
+        }
+    }
+
+    // Text icons ({{name}} placeholders, docs/text-icons.md). The built-in
+    // pad-button images are GENERATED when their file is missing and never
+    // overwritten afterwards - that is what makes "override an icon" simply
+    // mean "replace the PNG". The icon sheet the runtime text path blits from
+    // is always rebaked, like the font atlases: its rects live in
+    // icon_data.gen.hpp and a stale sheet would misplace every icon.
+    for (const TextIcon& ic : p.textIcons) {
+        if (ic.path.empty()) continue;
+        const fs::path path = fs::path(p.dir) / ic.path;
+        std::error_code ec;
+        if (fs::exists(path, ec)) continue;
+        std::vector<unsigned char> png;
+        if (!menubake::bakeBuiltinIconPNG(ic.name, menubake::kIconBakeSize, png))
+            continue;  // a user icon with no file yet: not ours to invent
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write text icon: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
+    }
+    {
+        std::vector<unsigned char> png;
+        const fs::path path = fs::path(p.dir) / "res" / "hud" / "icons.png";
+        std::error_code ec;
+        if (menubake::bakeIconAtlasPNG(p, png)) {
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write icon sheet: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        } else {
+            fs::remove(path, ec);  // no icons left: don't ship a stale sheet
+        }
+    }
+
+    // The interaction prompts in text mode: baked like a HUD text into a fixed
+    // file the codegen points the sprite at. Removed when the prompt is not on
+    // text, so res/ never ships a sprite nothing draws.
+    {
+        struct PromptBake {
+            const char* file;
+            const HudText* text;
+            bool on;
+            const char* label;
+        };
+        const PromptBake bakes[] = {
+            {"use-text.png", &p.usePromptText,
+             p.usePromptIsText && !p.usePromptText.text.empty(), "USE"},
+            {"pick-text.png", &p.pickPromptText,
+             p.pickPromptIsText && !p.pickPromptText.text.empty(), "PICK UP"},
+        };
+        for (const PromptBake& b : bakes) {
+            const fs::path path = fs::path(p.dir) / "res" / "hud" / b.file;
+            std::error_code ec;
+            if (!b.on) {
+                fs::remove(path, ec);
+                continue;
+            }
+            std::vector<unsigned char> png;
+            // bakePromptPNG, not bakeTextPNG: the action glyphs are left out so
+            // the game can draw the LIVE bindings' over the holes.
+            std::vector<menubake::PromptIconSlot> slots;
+            if (!menubake::bakePromptPNG(*b.text, p, png, slots))
+                return std::string(b.label) +
+                       " prompt text bake failed (no usable TTF font found)";
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write prompt text: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
         }
     }
 

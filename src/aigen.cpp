@@ -94,6 +94,12 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::SequenceName: return "sequence name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
+        case FlowParamKind::InputActionName:
+            return "input action name (see context; Tools > Input Map)";
+        case FlowParamKind::KeyName:
+            return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
+                   "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
+                   "Left Ctrl, Left Alt";
         default: return "";
     }
 }
@@ -280,6 +286,12 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     ctxLine("Save texts",
             nameList(p.saveTexts, [](const SaveTextValue& v) { return v.name; }));
     ctxLine("Menus", nameList(p.menus, [](const GameMenu& m) { return m.name; }));
+    ctxLine("Input actions (On Action)",
+            nameList(p.input.actions,
+                     [](const InputAction& a) { return a.name; }));
+    ctxLine("Input presets (Set Input Preset)",
+            nameList(p.input.presets,
+                     [](const InputPreset& v) { return v.name; }));
     {
         // Flow event names reachable from menu entries (On Menu Event's str).
         std::vector<std::string> events;

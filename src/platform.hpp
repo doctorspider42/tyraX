@@ -17,6 +17,7 @@
 // and the emulator/PCSX2.ini discovery in runner.cpp / pcsx2_config.cpp, both
 // of which say so in a comment.
 
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -177,6 +178,22 @@ void revealInFileManager(const std::string& path);
 // Open a project folder (and optionally jump to one file) in VS Code. Returns
 // "" on success, or a message naming what went wrong.
 std::string openInVSCode(const std::string& projectDir, const std::string& absFile);
+
+// Register the running editor with the desktop environment, so its window and
+// launcher entry get an icon. No-op on Windows, where the icon is a resource
+// inside the .exe (resources/app.rc) and nothing has to be installed.
+//
+// Elsewhere this is the ONLY way a window gets an icon under Wayland: the
+// compositor takes it from the .desktop file whose basename matches the
+// surface's app id, never from the application itself (GLFW's
+// glfwSetWindowIcon is X11/Win32-only and fails with GLFW_FEATURE_UNAVAILABLE
+// there). So `appId` must be both the GLFW_WAYLAND_APP_ID window hint and the
+// name of the file this writes. Idempotent and cheap: rewrites the entry only
+// when its contents changed, which also keeps Exec= pointing at the binary
+// after it moves.
+void installDesktopEntry(const std::string& appId, const std::string& appName,
+                         const std::string& comment, const unsigned char* iconPng,
+                         std::size_t iconPngSize);
 
 // --- fonts -----------------------------------------------------------------
 // The PS2 has no font engine, so every piece of text is rasterized host-side

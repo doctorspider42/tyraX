@@ -103,6 +103,16 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
   Player / Flee From Player / Stop AI / On Player Seen) with the classic
   guard wiring, plus the deliberate era-appropriate limitations.
+- [Configurable buttons & keys](input-bindings.md) - the Input Map: named
+  actions instead of hardcoded pad buttons, per-project binding presets, the
+  in-game *Rebind key* menu row (capture mode, overrides persisted in save
+  values), the configurable sprint, and the On Action / On Key / Set Input
+  Preset flow nodes. Pairs with [keyboard & mouse](keyboard-mouse.md).
+- [Text icons (button glyphs in text)](text-icons.md) - `{{cross}}` /
+  `{{action:jump}}` placeholders that draw a pad-button glyph inside any text:
+  the seeded DualShock set the editor draws itself, overriding one with your own
+  PNG, and the two paths (composited into baked sprites, blitted from a sheet in
+  runtime text).
 - [TV safe areas](safe-areas.md) - the viewport guides (behind the gear) for
   framing something a television will not crop: the console's picture rectangle,
   action- and title-safe insets, and the one case where PAL really does show more

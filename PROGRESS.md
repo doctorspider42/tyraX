@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (188) **Ambient / drone music generator: *Tools > Drone Generator*.** User
+- (190) **Ambient / drone music generator: *Tools > Drone Generator*.** User
   request - "a few tools so a background track can actually be crafted, knobs to
   turn like in the priciest VST plugins". A game needs a background bed and the
   editor had no way to make one: music could only be imported. This is a real
@@ -119,6 +119,379 @@ Each finished feature lands as its own commit.
   (see tyra-testing). **Still needs a human**: whether the presets sound *good*,
   and the feel of dragging the knobs.
 
+- (189) **New-project defaults: authoring-ready build settings, a 100x100
+  terrain, and the world scale chosen before there is any content.** Four
+  changes to what `File > New Project` (and `--new`) hands you. The build ones
+  are the easy half: a fresh project now starts in the **debug** profile with
+  **Live Link** on and **USB keyboard & mouse off** - you author with the live
+  loop and the overlays available, switch to release for the disc, and a pad
+  game stops loading three IRX drivers it never polls. The load-bearing detail
+  is *where* those defaults live: every `read*Section` guards on
+  `find("key")`, so a member initializer in `ProjectSettings` is not the
+  new-project default at all - it is what a project saved *before that key
+  existed* loads as. Flipping `keyboardMouse` there would have silently
+  disabled the keyboard in every pre-feature project. So the struct keeps the
+  legacy answer (`"release"`, `true`) and `project::create` assigns the new one,
+  the same split `AmbiencePreset::aoEnabled` already used. `TerrainConfig` is
+  the exception - nothing reads it for a loaded project - so its 64 became 100
+  in the struct, with the legacy inline-`"terrain"` reader pinned to `{64, 64}`
+  so a malformed old file still reads as it did.
+  **World scale** is now asked in the dialog (a preset combo - metric / 10 cm /
+  1 cm / 10 m per unit / Custom, with the terrain size restating itself in
+  metres underneath) and as a trailing `--new` argument, plumbed through a new
+  `project::create(..., unitsPerMeter)` parameter. Not because it cannot be
+  changed later - *Preferences > World* is still there - but because changing it
+  later deliberately rescales *nothing* (177), so the only honest moment to ask
+  is before any content exists. Picking it also scales the
+  metric-by-definition defaults, since those are metres and seconds by
+  construction: eye height, walk speed, gravity, jump on `ProjectSettings`, plus
+  the FPP preset Player's own three and its third-person boom/height. At 10
+  units/m the preset player is 18 units tall running 50 units/s - still 1.8 m at
+  5 m/s. Units-by-nature values (tiling, nav cells, AO radius, flashlight
+  range) are left alone, and no existing project is ever touched.
+  Also, at the owner's request, the dialog's **explanatory paragraphs became
+  `(?)` tooltips** (the Preferences `prefHelp` idiom). The AI-support and
+  world-scale litanies plus the new build-defaults note were ~15 lines of
+  `TextDisabled` between the fields and the Create button; the modal is now
+  compact and the prose is one hover away.
+  *Verified* headlessly first - `--new defproj` gave `terrain 100x100,
+  1.000 units/m` with `"buildProfile": "debug"`, `"liveLink": true`,
+  `"keyboardMouse": false` in the `.tyra`, `loadUsbKbdMouse = false` in the
+  generated `src/main.cpp`, a non-empty `src/gen/live_link.gen.cpp` (211 lines =
+  the poller compiled in) and `TERRAIN_WIDTHS = {100.0F}` in `scene_data.hpp`;
+  `--new metric5 ... fpp 5` gave eye 9 / walk 0.5 / gravity 49 / jump 22.5 and a
+  player object at `eyeHeight 9, walkSpeed 0.5, camDist 30`. Then the GUI, which
+  **worked on this machine this time** (the white-window state of 101/187 was
+  absent): screenshots of the modal, the scale dropdown, the Custom branch's
+  `Units per meter` drag, the `= 10.0 x 10.0 m` hint and both new tooltips
+  rendered, and a full click-through Create at 10 units/m produced
+  `unitsPerMeter: 10`, eye 18, walk 1, gravity 98, terrain 100x100 and opened
+  with the amber `LIVE (build)` chip in the toolbar - the chip only exists with
+  the debug profile plus the Live Link preference, so it double-checks both.
+  One self-inflicted mess worth recording: driving the modal with `SendKeys`
+  after an ALT-tap **minimized the window mid-sequence**, the following clicks
+  landed at `-32000` coordinates, and something in that noise hit Create - which
+  created a stray `my-game` in the owner's real `TyraProjects` folder (found by
+  timestamp, verified as freshly-generated default content, removed). The fix
+  for the retry was to stop typing into the dialog at all: back up
+  `editor.ini`, point `defaultProjectsDir` at the scratchpad so the proposed
+  location is already safe, click only, then restore the ini. Prefer that over
+  synthetic text entry for any modal that writes to disk.
+  After merging main, re-ran the headless checks (same numbers) plus a **Docker
+  game build** (exit 0, `live_link.gen.o` in the link line and `livelink.sig`
+  stamped - the debug default reaches the PS2 toolchain) and a **PCSX2 boot** of
+  the 5-units/m FPP project: 2040 frames, no assert, `Static batching: 0 objects
+  in 0 batches` and the example script's hello in `bin/log.txt`, with the
+  debug-only `VRAMSTAT` lines confirming the profile in the *running* game.
+  That boot needed a detour: **`Project::elfPath()` returns a mixed-separator
+  path on Windows since the Linux port** (`filePath("bin/" + elfName())` gives
+  `...\proj\bin/proj.elf`), `fs::exists` accepts it and **PCSX2 v2.6.3 refuses
+  it** - `Requested boot ELF ... does not exist` in its emulog and nothing in
+  the editor's Output, because the Runner believes it launched. Isolated to the
+  separator by booting the same file both spellings by hand; a regression from
+  c01b09e5 (PR #154), unrelated to this change, so it is filed separately rather
+  than bundled here. The boot above used `pcsx2-qt` directly with a
+  backslash path. (The other silent limit bit first, for the record: the initial
+  scratch project sat 168 characters deep, past PCSX2's ~145-char `host:` cap -
+  same black window, also nothing in the game log.)
+
+- (188) **The editor had no icon on Linux.** On Windows the icon is a resource
+  inside the .exe (`resources/app.rc`, named `GLFW_ICON` so GLFW's Win32
+  backend picks it up for the window too), and there is no equivalent anywhere
+  else - the Linux port simply inherited a blank window and a generic launcher
+  tile. The fix has three parts because **X11 and Wayland get their icon from
+  completely different places**, and only one of them involves the application
+  at all:
+  - `resources/icon.png` is baked into the binary by a new
+    `cmake/embed_icon.cmake` (`icon_gen.hpp`, the `ai-support` embed pattern) -
+    the image is needed at runtime, and shipping a loose PNG next to the binary
+    would break the moment someone moves it.
+  - **X11**: decode it with stb_image and `glfwSetWindowIcon` (`applyWindowIcon`
+    in app.cpp).
+  - **Wayland**: there is no icon protocol at all. The compositor matches the
+    surface's **app id** against the installed `.desktop` files and takes the
+    icon from there, so no amount of application-side code can do it -
+    `glfwSetWindowIcon` returns `GLFW_FEATURE_UNAVAILABLE`, which is why the
+    call is skipped on `GLFW_PLATFORM_WAYLAND` rather than left to spam the
+    error callback. So the editor now registers itself:
+    `platform::installDesktopEntry` writes
+    `~/.local/share/applications/tyrax-editor.desktop` plus the icon into
+    `hicolor/256x256/apps/`, and `GLFW_WAYLAND_APP_ID` /
+    `GLFW_X11_CLASS_NAME` / `GLFW_X11_INSTANCE_NAME` are hinted to the same
+    `kAppId` string. All four names have to agree or the desktop cannot connect
+    the running window to its icon, which is why the id is one constant. The
+    entry is written before `glfwInit` (a compositor resolves the icon once, at
+    map time), rewritten only when its bytes change, and `Exec=` is re-stamped
+    from `exePath()` so moving the binary fixes itself. No-op on Windows.
+  - `Exec=` is quoted by the **desktop-entry** rules (double quotes, backslash
+    before `"` `\` `$` `` ` ``), not `shQuote`'s shell single quotes - a
+    single-quoted path is taken literally there.
+  Verified on Ubuntu/GNOME, both backends. Wayland: `WAYLAND_DEBUG=1` shows
+  `xdg_toplevel.set_app_id("tyrax-editor")`, and the other half of the chain
+  checked through GTK itself - `Gio.DesktopAppInfo.new('tyrax-editor.desktop')`
+  resolves to *TyraX* with the right `Exec`, and an icon-theme lookup of
+  `tyrax-editor` at 256 px returns the installed
+  `~/.local/share/icons/hicolor/256x256/apps/tyrax-editor.png`. X11 (forced
+  with `XDG_SESSION_TYPE=x11`): the window's `WM_CLASS` is
+  `"tyrax-editor", "tyrax-editor"` and `_NET_WM_ICON` starts `256, 256`, i.e.
+  the real image (note `xprop` prints a big CARDINAL array as *empty* - a GTK
+  app looks identical, so read the first two fields with a format spec instead
+  of concluding the property is unset). GNOME blocks
+  `org.gnome.Shell.Screenshot`/`Introspect` for unsandboxed callers, so the
+  "icon is visibly in the dash" half stays a human check.
+
+- (186) **Input follow-ups from review: the un-bindable Triangle, a USE prompt
+  that says which button, and a leaner controls scaffold.**
+  (a) **Fix: Triangle could never be rebound.** Capture mode checked the `back`
+  action first as its cancel, and back IS Triangle by default - so pressing
+  Triangle cancelled instead of being captured, and it was the one button no
+  player could bind. Cancel is now the RAW Start button: not the `menu` action
+  either, so it still works when a project moves that action. The cost is
+  documented (Start itself is uncapturable, which is why it is not a rebindable
+  action) and the row's hint stays `PRESS...`.
+  (b) **The USE prompt can be TEXT**, and a fresh project starts at `{{use}} Use`
+  - the prompt now says which button to press and follows a rebind, instead of a
+  generic "USE" sprite. `Project::usePromptText` is a HudText; non-empty text
+  wins over the image, is baked to `res/hud/use-text.png` and drawn at the baked
+  canvas size, so the GAME is unchanged - it still draws one sprite, just a
+  different file. Deliberately seeded only in `create()`: flipping existing
+  projects from their image to text would restyle every HUD behind the user's
+  back (the UI Editor offers the default in one click, and the viewport overlay
+  previews whichever mode is active).
+  (c) **`{{use}}` shorthand.** A token that is not an icon name gets one more
+  chance as an ACTION name, so `{{use}}` means `{{action:use}}` - which is what
+  people actually type. Icon names still win, so `{{cross}}` can never become an
+  action lookup. Both renderers learned it (the shared `textIconForAction` on the
+  host, `resolveIconToken` in the generated game).
+  (d) **The scaffolded OPTIONS tree no longer adds rebind rows.** Rebinding costs
+  a save value per action and most projects ship a fixed scheme, so its CONTROLS
+  page carries the stick settings only; the rows stay an explicit
+  *+ Option block > Key bindings*.
+  Verified on the console, and the harness earned two notes worth keeping: arrow
+  keys need `KEYEVENTF_EXTENDEDKEY` or the emulated keyboard reads them as the
+  numpad twins (the menu cursor never moved), and **PCSX2's default pad map binds
+  Return to Start** - so the synthetic "confirm" was pressing Start and closing
+  the pause menu, which looked exactly like a capture bug. Driving PCSX2's own
+  pad keys instead (K = Cross, I = Triangle): capture arms (`PRESS...`), Triangle
+  is captured, and the row redraws as the green triangle glyph. The USE prompt
+  bakes to "□ Use" with the pink Square glyph (the `use` action's binding).
+  Second round on the same review: the prompts became a pair with an EXPLICIT
+  text/image mode (radio buttons, not "text wins when non-empty" - flipping to
+  the image to compare must not throw away the text), **PICK UP** got its own
+  text (`{{use}} PICK UP`) plus its own image override and its own baked size
+  (`PICK_PROMPT_W/H` - it used to borrow the USE prompt's box), and the default
+  text is the classic word with the glyph rather than `HudText`'s "New text",
+  which is what was showing up in the field. That placeholder also revealed a
+  migration bug of my own making: an interim build wrote a default-constructed
+  prompt text AND its mode flag into every project it saved, so older projects
+  flipped to a prompt reading "New text". The reader now drops that exact string
+  (nobody types it into a prompt) *after* applying the flags - doing it before
+  left the bogus flag in charge - and the committed examples were put back on
+  their built-in sprites. The Button icons manager also gained a preview that
+  falls back to the built-in DRAWING when the PNG has not been baked yet (a fresh
+  project showed an empty column), a hover blow-up, and a per-icon **Default**
+  button that resets the scale and deletes the generated PNG so the next build
+  redraws it. The scaffolded OPTIONS root now opens at game start unless another
+  menu already claims the title screen.
+  Third round, and it turned up a **data-loss bug that predates this branch**:
+  `commitChange()` marked the project dirty only when `History::push` accepted a
+  new snapshot, and that snapshot carries **only the scenes** - so editing any
+  project-wide collection (menus, the Input Map, gradings, sequences, save
+  values...) left the save icon dark and, worse, no "unsaved changes" prompt on
+  exit. Those edits were quietly losable. commitChange now dirties
+  unconditionally (push still decides whether it becomes an undo step), and the
+  UI Editor + icon manager stopped writing to disk behind the user's back on
+  every keystroke - they mark dirty like everything else. Verified in the GUI:
+  "+ Add action" in the Input Map turns the toolbar save icon amber (it stayed
+  grey before) and a close request now raises "Unsaved Changes".
+  Also from that round: the shoulder/Start/Select icons dropped their border and
+  draw the LABEL ONLY - at text size the border left the letters unreadable on a
+  TV, and "L1+R1 Aim" / "R2" now read cleanly in-game; a **`{{ }}` picker** next
+  to every placeholder-capable field lists the project's tokens with their
+  glyphs (the legend the syntax was missing, and it inserts them); and the Menu
+  Editor's text sizes became two labelled sliders that say icons scale with them
+  (they always did - the control was just a cramped unlabelled DragInt2).
+  Also merged origin/main (#138-#151: asset browser, world scale, lightmaps,
+  trees, emissive, ortho views, VRAM manager) - `kSectionCount` needed 15 after
+  main's ModelUnits met this branch's Input, the same one-short trap as the last
+  merge, so the constant now carries a comment saying why it drifts.
+  Fourth round, two bugs from playing the thing. **(1) An action bound to L3 (or
+  R3/Start/Select) never fired if it was a HELD action** - sprint on L3 did
+  nothing while sprint on any other button worked. The engine, not this branch:
+  `Pad::update` built its `pressed` struct button by button and the four with no
+  pressure channel were **absent from that list entirely**, so `pressed.L3` was
+  permanently 0 while `getClicked()` (which reads the raw word) had all sixteen -
+  hence "the rebind takes, the action doesn't". Four lines in
+  `vendor/tyra/engine/src/pad/pad.cpp`. Proved on the console with a graph of
+  *On Action "sprint"* -> *On Condition* -> red sky and sprint bound to L3: the
+  sky turns red the moment L3 goes down (it stayed blue before the fix), so the
+  held path sees it.
+  **(2) The USE prompt lied after an in-game rebind** - `{{use}} USE` baked to
+  "□ USE" at build time and kept showing □ after the player moved `use` to
+  Triangle. The prompt is now **two sprites**: the bake writes the letters with
+  the first `{{action}}` glyph LEFT OUT and reports the hole
+  (`USE_PROMPT_ICON_ACTION/X/Y/SIZE`, and the `PICK_` twins), and the game blits
+  the current binding's icon into it from the shared icon sheet each frame -
+  `menubake::promptLayout`/`bakePromptRGBA`/`bakePromptPNG` on the host,
+  `liveIconForAction` + `drawIconAt` in the generated game. One extra quad per
+  frame, no extra texture (the sheet was already loaded for runtime text, and the
+  sprite is shared with it now), and a prompt with no action token still bakes
+  whole (`ICON_ACTION` = -1). Verified end to end in PCSX2: the prompt reads
+  "□ USE", the pause-menu row rebinds `use` to Triangle, and the prompt reads
+  "△ USE" with no rebuild.
+  *And then the user asked the right question* - "does that also work for `Press
+  {{use}} to use`?" It did, by luck: the slot walk summed the preceding runs'
+  text, which is correct as long as nothing but letters precedes the token. Two
+  tokens, or a plain `{{cross}}` before one, and it fell apart - the bake skipped
+  **all** icons (so `{{cross}}` vanished) while only the FIRST action got a live
+  glyph (so a second one vanished too), and an icon in the prefix was measured as
+  zero width, sliding the live glyph left by its advance. Now there is a slot per
+  action token: `promptLayout` walks the runs with drawText's own pen (so any
+  line, any position), the bake skips only the runs that came from an ACTION and
+  composites every other icon as before, and `hud_data.gen.hpp` carries
+  `USE_PROMPT_ICONS[]` + `_COUNT` which the game loops over. `Press {{use}} to
+  use {{cross}} or {{jump}}` renders on the console as "Press □ to use ✕ or ✕"
+  with all three aligned, and after rebinding `use` to Triangle only the first
+  becomes △: the `{{jump}}` glyph still follows jump, and the baked `{{cross}}`
+  is untouched.
+
+- (185) **Text icons: `{{cross}}` in any text draws the button glyph.** Written
+  as a companion to the Input Map (165): a controls menu that says "Cross" reads
+  like a manual, one that shows ✕ reads like a PlayStation game. `Project::textIcons`
+  (`TextIcon`: name + PNG + scale) is the registry, edited in *UI Editor > Button
+  icons*, and the placeholder comes in two forms - `{{cross}}` for a named icon
+  and **`{{action:jump}}` for whatever that action is currently bound to**, which
+  is what keeps a prompt correct after a preset switch or a player's rebind (live
+  in runtime text; resolved from the default preset at bake time in baked text,
+  documented as the snapshot it is). A token naming nothing stays LITERAL on
+  screen - a typo should be visible, not vanish.
+  The trick that made this cheap: **both text renderers already funnel through
+  one function each**, so teaching `textWidth`/`drawText` (menubake.cpp) about
+  icon runs gave menu titles, entry labels, Toggle/Choice option strips, HUD
+  texts and loading screens the feature simultaneously, and the parser itself
+  (`parseTextIcons` -> `TextRun`s) is header-only in project.hpp so the editor,
+  the baker and codegen share it. Baked text **composites the icon into the
+  sprite** (zero runtime cost - still one quad); runtime text (Display Text
+  nodes, a rebind row's value) blits from one sheet `res/hud/icons.png` with
+  rects in `inc/icon_data.gen.hpp`, handed to the texture repository only the
+  first time something actually draws an icon, so an unused feature costs no
+  VRAM. The advance formulas are explicit twins (`iconAdvance` /
+  `iconAdvanceFor`) - they must stay equal or a baked and a runtime copy of the
+  same string come out different widths.
+  The built-in set is **drawn, not shipped as blobs**: 16 pad-button glyphs from
+  signed-distance fields (4x4 supersampled) in the DualShock colors - blue ✕,
+  red ○, pink □, green △, grey plates for L1-R3/Start/Select, grey arrows for
+  the d-pad - written to `res/hud/icon-<name>.png` on the first build and never
+  overwritten after, so "override an icon" is just "replace the PNG" (with
+  *Regenerate built-in PNGs* as the way back). Unlike font glyphs they keep
+  their own colors and are skipped in shadow passes; a colored icon tinted with
+  the text color, or shadowed, looks wrong.
+  Two rounds of visual review paid for themselves. The first drew all four
+  d-pad icons as "a plus with one arm marked", which at 16px on a TV is the same
+  icon four times - replaced with solid direction arrows. The second (asked for
+  during the review) put the face buttons in PlayStation colors and revealed
+  that the ✕ and □ **touched the ring**: a diagonal shape reaches sqrt(2) further
+  than its radius suggests, so those two now have their own smaller extents and
+  every inner glyph is checked against the ring's inner edge.
+  Verified: editor builds clean; a scratch project's 16 icons rendered and
+  reviewed at 4x; a hand-authored menu proves the baked path end to end
+  (`{{triangle}} HINTS` title, `{{cross}} Jump`, `{{action:use}}` -> □,
+  `{{l1}}+{{r1}}`, `{{dpadleft}} Low` in a value strip, `{{nope}}` staying
+  literal) and a HUD text proves `{{action:jump}}`; **full Docker build returns
+  `Build OK` and PCSX2 shows all of it on screen in color**, including the
+  runtime path (the Jump rebind row drawing a blue ✕ and Sprint a grey R2 from
+  the sheet). Examples regenerated; docs/text-icons.md + README, docs index,
+  editor skill and both ai-support guides.
+
+- (184) **Configurable buttons & keys: the Input Map, in-game rebinding and a
+  sprint action.** Every gameplay button in a generated game was a `#define` in
+  `inc/controls.hpp` — jump was Cross, full stop, and a player had no say. Now
+  the game reads inputs through **named actions** and three layers resolve them:
+  project **presets** → the **player's** in-game override → a *user-owned*
+  `controls.hpp`. New model in `src/input.hpp` (`InputAction` with a `Role`,
+  `InputBinding` = pad **and/or** USB HID key **and/or** mouse button,
+  `InputPreset`, `InputMap` on `Project::input` + `Section::Input`) plus the
+  shared **`inputCodes()`** table — the dense rebind code space whose numbers
+  land in players' memory-card saves, hence append-only, with `INPUT_CODES` in
+  the generated game as its twin. `project::ensureInputActions` seeds/backfills
+  the 18 built-in actions with *exactly* the bindings that were hardcoded, so an
+  existing project plays identically (verified by generating a project and
+  diffing the emitted `controls.hpp` against the old constants); the one
+  behavior addition is **sprint** (pad R2 / Left Shift, `sprintMultiplier`
+  ×1.8, 1.0 = off), applied in all three walker modes — and deliberately NOT
+  folded into the animation `step`, so a third-person avatar crosses its run
+  threshold while sprinting and plays the run clip for free.
+  Codegen: `inc/input_map.gen.hpp` (action indices, `IA_ROLE_*` slots — `-1`
+  when the project has no action for a role — preset tables, `SPRINT_MULT`) +
+  `src/gen/input_map.gen.cpp` (`inputPressed`/`inputClicked`, preset+override
+  resolution, table-driven keyboard/mouse folding, rebind capture, binding
+  labels). Every read site moved off `pad.getClicked().<Button>`: both walkers,
+  the noclip fly keys, use/throw/carry, the save menu and the whole pause-menu
+  navigation (which means a project can now *move* menu buttons too).
+  `controls.hpp` stays ownable and stays authoritative when owned — the
+  generated copy is derived from the default preset, so the runtime only lets
+  the macros win when they **disagree** with it (otherwise a preset switch or a
+  rebind would be overwritten every `inputRebuild()`); its
+  `applyKeyboardMouseInput` is now a one-liner into the generated fold, so keys
+  rebind as well.
+  In-game rebinding is a new Menu Editor row (`MenuEntry::RebindKey`, action
+  10) and is deliberately **pad-only**: `inputCapture` ignores keyboard/mouse
+  and `inputBindLabel` omits them, because that support is still experimental
+  (docs/keyboard-mouse.md - the hardware path is unconfirmed) and is meant to
+  get its own dedicated menu later. Consequence worth spelling out: an override
+  therefore replaces the action's `pad` slot **alone**, so the key and mouse
+  button the preset authored keep working - replacing the whole binding would
+  silently kill a keyboard key that no in-game row can put back. A saved code
+  that is not a pad button (written by the interim build that did capture keys)
+  is ignored rather than allowed to unbind the pad.
+  `bindAction` names the action, `param` the save value holding the
+  override, so it persists on the memory card and re-applies after a load
+  (`applyInputBindings`, next to `applyMenuBindings`). Selecting it arms capture
+  mode (`menuRebindRow`, cleared on every menu transition) — the next button or
+  key pressed becomes the binding, *back* cancels, *menu left* clears to the
+  preset. Its value is the one menu value that **cannot** be baked into the
+  option strip (the binding name is only known at runtime), so it draws as
+  runtime text from the menu font's glyph atlas — `atlasFontIndices()` now bakes
+  an atlas for any menu with such a row and `MenuData` carries that FONTS slot.
+  Also: menu bind 8 = *Input preset*, a *+ Option block > Key bindings* item and
+  rebind rows in the scaffolded CONTROLS page, flow nodes **On Action** (follows
+  the binding, bool output = held) / **On Key** (raw key, for debug/cheat keys)
+  / **Set Input Preset**, `--dump` lists input actions + presets and the AI
+  generator's context/catalog carry them. Docs:
+  new [docs/input-bindings.md](docs/input-bindings.md), keyboard-mouse.md,
+  README, both ai-support guides and the editor skill.
+  Verified, all the way to the console: editor builds clean; headless `--new`
+  reproduces the old bindings in `controls.hpp` and a full 18-action/1-preset
+  table; `--apply-graph` + `--refresh-gen` show On Action compiling to
+  `inputClicked(ctx.engine->pad, 5)  // sprint`, On Key to `isKeyClicked(62) //
+  F5`, Set Input Preset to `inputSetPreset(0)` and an unknown action name to a
+  `// node N (OnAction): unknown input action` comment; a hand-authored controls
+  menu round-trips through `--resave` and emits
+  `{10, 0, 0.0F, 0, -1, 0, 4, nullptr}` rows plus `FONT_COUNT = 1` (the atlas
+  the rebind row needs). **Full Docker build of the generated game returns
+  `Build OK`** (`obj/gen/input_map.gen.o` compiles, the ELF links), it **boots
+  in PCSX2** with both USB drivers ready and no assert, and pressing **Left
+  Shift on the host keyboard fires the `On Action "sprint"` trigger exactly
+  once** (a rising edge, as designed) — proving the fold reads the LIVE
+  bindings, not a baked table. A screenshot of the in-game CONTROLS menu shows
+  the rebind rows drawing their bindings as runtime atlas text
+  (`Jump  Cross+Space`, `Sprint  R2+Left Shift`) next to a baked `Preset
+  Default` strip. That screenshot is what settled the pad-only scope: the first
+  attempt read `Cross+Space+Mouse Right` and ran straight over the row's baked
+  label (the value column of a 256px panel is ~100px). Shrinking the text to fit
+  (kept, 50% floor) made it legible but not *right* — advertising experimental
+  keyboard/mouse keys in a shipped controls menu was premature, so the row now
+  shows and captures the pad alone and reads `Jump  Cross` / `Sprint  R2`
+  (screenshot). Re-verified afterwards that the keyboard still WORKS while no
+  longer being displayed: Left Shift fires the sprint trigger, and Backspace
+  (the `back` action) closes the pause menu.
+  Still unverified visually: the capture-mode `PRESS...` state and the actual
+  rebind — driving it needs synthetic keystrokes and
+  `SetForegroundWindow` cannot reliably raise PCSX2 from a background process,
+  so the keys land in whatever window has focus (they went into another app's
+  window once here, which is exactly why the keyboard checks above now assert
+  `GetForegroundWindow()` first). Worth a human pass with a real pad: open the
+  pause menu, pick a row, press a button.
 - (187) **The editor is cross-platform: it builds and runs on Linux from the
   same source tree.** The whole thing was Windows-only, and not incidentally -
   `CreateProcess` + Job Objects drove the Runner and the AI generator,
