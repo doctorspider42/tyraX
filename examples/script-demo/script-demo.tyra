@@ -26,6 +26,7 @@
     "navCellSize": 1,
     "navMaxSlope": 40,
     "navAgentRadius": 0.4,
+    "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
@@ -87,6 +88,7 @@
   ],
   "hud": [],
   "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
+  "usePromptText": { "text": "New text", "size": 16, "color": [1, 1, 1], "shadow": true },
   "hudTexts": [],
   "textIcons": [
     { "name": "cross", "path": "res/hud/icon-cross.png" },
@@ -170,7 +172,7 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0 },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "" },

@@ -198,13 +198,20 @@ float iconAdvance(const Project& p, const std::string& name, float pixelHeight) 
 std::vector<TextRun> textRuns(const Project* proj, const std::string& text) {
     if (!proj) return {TextRun{text, ""}};
     std::vector<TextRun> runs = parseTextIcons(text, proj->input);
-    // An icon token naming something the project does not have stays visible as
-    // text, so a typo shows up on screen instead of silently vanishing.
-    for (TextRun& r : runs)
-        if (!r.icon.empty() && !iconImage(*proj, r.icon)) {
-            r.text = "{{" + r.icon + "}}";
-            r.icon.clear();
+    for (TextRun& r : runs) {
+        if (r.icon.empty() || iconImage(*proj, r.icon)) continue;
+        // Not an icon name: give it one more chance as an ACTION name, which is
+        // the `{{use}}` shorthand for `{{action:use}}`.
+        const std::string viaAction = textIconForAction(r.icon, proj->input);
+        if (!viaAction.empty() && iconImage(*proj, viaAction)) {
+            r.icon = viaAction;
+            continue;
         }
+        // Neither: stay visible as text, so a typo shows up on screen instead
+        // of silently vanishing.
+        r.text = "{{" + r.icon + "}}";
+        r.icon.clear();
+    }
     return runs;
 }
 

@@ -976,6 +976,15 @@ static void writeHudSection(std::ostream& json, const Project& p) {
          << fmtFloat(p.usePrompt.size[0]) << ", " << fmtFloat(p.usePrompt.size[1])
          << "], \"texW\": " << p.usePrompt.texW << ", \"texH\": " << p.usePrompt.texH
          << ", \"texQuant\": \"" << p.usePrompt.texQuant << "\" }";
+    // The USE prompt as text: non-empty wins over the image (the build
+    // bakes it to res/hud/use-text.png and points the sprite there).
+    if (!p.usePromptText.text.empty()) {
+        const HudText& t = p.usePromptText;
+        json << ",\n  \"usePromptText\": { \"text\": \"" << jsonEscape(t.text)
+             << "\", \"size\": " << t.size << ", \"color\": " << fmtVec3(t.color)
+             << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
+             << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
+    }
     json << ",\n  \"hudTexts\": [";
     for (size_t i = 0; i < p.hudTexts.size(); ++i) {
         const HudText& t = p.hudTexts[i];
@@ -1786,6 +1795,13 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureObjectIds(out);
     ensureInputActions(out);
     ensureTextIcons(out);
+    // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
+    // what to press rather than a generic "USE" - and follows a rebind. Only on
+    // create: flipping an existing project from its image to text would restyle
+    // it behind the user's back (the UI Editor offers the switch instead).
+    out.usePromptText.name = "use-prompt";
+    out.usePromptText.text = "{{use}} Use";
+    out.usePromptText.size = 20;
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
@@ -2864,6 +2880,22 @@ static void readHudSection(const json::Value& root, Project& out) {
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }
+    // The USE prompt as text (empty text = the classic image path).
+    out.usePromptText = HudText{};
+    out.usePromptText.name = "use-prompt";
+    if (const auto* upt = root.find("usePromptText");
+        upt && upt->type == json::Value::Type::Object) {
+        HudText& t = out.usePromptText;
+        if (const auto* v = upt->find("text")) t.text = v->stringOr("");
+        if (const auto* v = upt->find("size")) t.size = (int)v->numberOr(16);
+        if (t.size < 8) t.size = 8;
+        if (t.size > 48) t.size = 48;
+        readVec3(upt->find("color"), t.color);
+        if (const auto* v = upt->find("font")) t.font = v->stringOr("");
+        if (const auto* v = upt->find("shadow"))
+            t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
+    }
+
     out.textIcons.clear();
     if (const auto* icons = root.find("textIcons");
         icons && icons->type == json::Value::Type::Array) {
@@ -4351,6 +4383,26 @@ std::string refreshGenerated(const Project& p) {
                     (std::streamsize)png.size());
         } else {
             fs::remove(path, ec);  // no icons left: don't ship a stale sheet
+        }
+    }
+
+    // The USE prompt as text: baked like a HUD text, into a fixed file the
+    // codegen points the prompt sprite at. Removed when the text is cleared so
+    // res/ never ships a sprite nothing draws.
+    {
+        const fs::path path = fs::path(p.dir) / "res" / "hud" / "use-text.png";
+        std::error_code ec;
+        if (!p.usePromptText.text.empty()) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeTextPNG(p.usePromptText, p, png))
+                return "USE prompt text bake failed (no usable TTF font found)";
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write USE prompt text: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        } else {
+            fs::remove(path, ec);
         }
     }
 

@@ -23,7 +23,7 @@ constexpr int HUD_BLOOM_LAYER = -1;
 constexpr int HUD_GRAIN_LAYER = -1;
 
 // The USE prompt sprite (shown while looking at a usable object)
-constexpr const char* USE_PROMPT_PATH = "hud/use.png";
+constexpr const char* USE_PROMPT_PATH = "hud/use-text.png";
 constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
 constexpr float USE_PROMPT_Y = 0.596F;
 constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels

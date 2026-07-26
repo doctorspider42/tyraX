@@ -26,6 +26,7 @@
     "navCellSize": 1,
     "navMaxSlope": 40,
     "navAgentRadius": 0.4,
+    "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
@@ -87,6 +88,7 @@
   ],
   "hud": [],
   "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
+  "usePromptText": { "text": "New text", "size": 16, "color": [1, 1, 1], "shadow": true },
   "hudTexts": [],
   "textIcons": [
     { "name": "cross", "path": "res/hud/icon-cross.png" },
@@ -199,7 +201,7 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0 },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,19\nSize=460,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260721\n\n[Window][Properties]\nPos=1541,19\nSize=379,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260721\n\n[Window][Output]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260721\n\n[Window][Debug]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260721\n\n[Window][Flow Graph]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260721\n\n[Window][Viewport]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260721\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260721\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260721\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260721\n\n[Window][Menu Editor]\nPos=472,45\nSize=1022,832\nCollapsed=0\nLastUsed=20260721\n\n[Window][Unsaved Changes]\nPos=827,471\nSize=266,75\nCollapsed=0\nLastUsed=20260721\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1077,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n" },

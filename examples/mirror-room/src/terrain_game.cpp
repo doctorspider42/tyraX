@@ -942,17 +942,21 @@ int resolveIconToken(const char* s, int* tokenLen) {
 
   // {{action:x}}: the icon of whatever x is bound to RIGHT NOW - a preset
   // switch or the player's own rebind moves the glyph with it.
+  const char* action = nullptr;
   if (strncmp(name, "action:", 7) == 0) {
-    const char* action = name + 7;
-    for (int a = 0; a < INPUT_ACTION_COUNT; ++a) {
-      if (strcmp(INPUT_ACTION_NAMES[a], action) != 0) continue;
-      const int pad = g_inputBind[a].pad;
-      return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
-    }
-    return -1;
+    action = name + 7;
+  } else {
+    // Icon names win; a token that is none gets one more chance as an action
+    // name ({{use}} is the shorthand for {{action:use}}).
+    for (int i = 0; i < ICON_COUNT; ++i)
+      if (strcmp(ICONS[i].name, name) == 0) return i;
+    action = name;
   }
-  for (int i = 0; i < ICON_COUNT; ++i)
-    if (strcmp(ICONS[i].name, name) == 0) return i;
+  for (int a = 0; a < INPUT_ACTION_COUNT; ++a) {
+    if (strcmp(INPUT_ACTION_NAMES[a], action) != 0) continue;
+    const int pad = g_inputBind[a].pad;
+    return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
+  }
   return -1;
 }
 
@@ -4468,17 +4472,22 @@ bool TerrainGame::updateGameMenu() {
 
   const MenuData& m = MENUS[gameMenuIndex];
 
-  // A rebind row in capture mode owns the pad completely: the next button or
-  // key the player presses becomes the binding (the "back" action cancels).
-  // Nothing else may read input this frame, or the very press being captured
-  // would also select a row.
+  // A rebind row in capture mode owns the pad completely: the next button the
+  // player presses becomes the binding. Nothing else may read input this frame,
+  // or the very press being captured would also select a row.
+  //
+  // Cancel is the RAW Start button, deliberately not the "back" action: back is
+  // Triangle by default, and checking it first made Triangle the one button you
+  // could never bind (it cancelled instead of being captured). Start is the
+  // classic cancel, is not offered as a rebindable action, and using the raw
+  // button means this still works when a project moves its `menu` action.
   if (menuRebindRow >= 0) {
     if (menuRebindRow >= m.entryCount) {
       menuRebindRow = -1;
       return pausing();
     }
     const MenuEntryData& re = m.entries[menuRebindRow];
-    if (inputClicked(engine->pad, IA_ROLE_BACK)) {
+    if (engine->pad.getClicked().Start) {
       menuRebindRow = -1;
       return pausing();
     }

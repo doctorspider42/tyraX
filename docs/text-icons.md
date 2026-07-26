@@ -20,7 +20,11 @@ Managed in *Tools > UI Editor > **Button icons***.
 | Placeholder | Resolves to |
 | --- | --- |
 | `{{cross}}`, `{{l1}}`, `{{start}}`, `{{coin}}` | the icon of that **name** |
-| `{{action:jump}}` | the icon of the button **the action is bound to right now** |
+| `{{use}}`, `{{jump}}`, `{{sprint}}` | shorthand: a token that is not an icon name but IS an **action** name resolves as that action |
+| `{{action:jump}}` | the same thing spelled out (use it when a name could be either) |
+
+Icon names win, so `{{cross}}` stays the ✕ glyph even in a project that also has
+an action called "cross".
 
 `{{action:...}}` is the one to reach for in a prompt: it names an action from
 *Tools > Input Map* ([docs/input-bindings.md](input-bindings.md)) and follows the
@@ -55,6 +59,24 @@ a hand-edit.
 Unlike font glyphs, icons keep **their own colors** — a colored button glyph
 should look like that button, and a custom PNG should look like what you drew.
 They are not tinted with the color of the text they sit in.
+
+## The USE prompt
+
+*Tools > UI Editor > USE prompt* has a **Prompt text** field, and a fresh project
+starts at `{{use}} Use` — so the prompt shows the button to press instead of a
+generic "USE", and it follows a rebind of the `use` action. Non-empty text wins
+over the image: the build rasterizes it to `res/hud/use-text.png` and points the
+prompt sprite there, so the game still draws exactly one sprite. Clear the field
+to go back to the image (the built-in `res/hud/use.png` or your own).
+
+Existing projects keep their image until you fill the field in — flipping them to
+text would have restyled every project's HUD behind the user's back. The field
+offers the default with one click.
+
+Because the prompt is a baked sprite, its `{{use}}` is resolved at **build** time
+from the default preset: a player who rebinds `use` in-game sees the old glyph on
+the prompt until the next build. That is the same snapshot rule as every other
+baked text.
 
 ## Adding your own
 

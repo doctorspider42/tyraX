@@ -10,6 +10,46 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (183) **Input follow-ups from review: the un-bindable Triangle, a USE prompt
+  that says which button, and a leaner controls scaffold.**
+  (a) **Fix: Triangle could never be rebound.** Capture mode checked the `back`
+  action first as its cancel, and back IS Triangle by default - so pressing
+  Triangle cancelled instead of being captured, and it was the one button no
+  player could bind. Cancel is now the RAW Start button: not the `menu` action
+  either, so it still works when a project moves that action. The cost is
+  documented (Start itself is uncapturable, which is why it is not a rebindable
+  action) and the row's hint stays `PRESS...`.
+  (b) **The USE prompt can be TEXT**, and a fresh project starts at `{{use}} Use`
+  - the prompt now says which button to press and follows a rebind, instead of a
+  generic "USE" sprite. `Project::usePromptText` is a HudText; non-empty text
+  wins over the image, is baked to `res/hud/use-text.png` and drawn at the baked
+  canvas size, so the GAME is unchanged - it still draws one sprite, just a
+  different file. Deliberately seeded only in `create()`: flipping existing
+  projects from their image to text would restyle every HUD behind the user's
+  back (the UI Editor offers the default in one click, and the viewport overlay
+  previews whichever mode is active).
+  (c) **`{{use}}` shorthand.** A token that is not an icon name gets one more
+  chance as an ACTION name, so `{{use}}` means `{{action:use}}` - which is what
+  people actually type. Icon names still win, so `{{cross}}` can never become an
+  action lookup. Both renderers learned it (the shared `textIconForAction` on the
+  host, `resolveIconToken` in the generated game).
+  (d) **The scaffolded OPTIONS tree no longer adds rebind rows.** Rebinding costs
+  a save value per action and most projects ship a fixed scheme, so its CONTROLS
+  page carries the stick settings only; the rows stay an explicit
+  *+ Option block > Key bindings*.
+  Verified on the console, and the harness earned two notes worth keeping: arrow
+  keys need `KEYEVENTF_EXTENDEDKEY` or the emulated keyboard reads them as the
+  numpad twins (the menu cursor never moved), and **PCSX2's default pad map binds
+  Return to Start** - so the synthetic "confirm" was pressing Start and closing
+  the pause menu, which looked exactly like a capture bug. Driving PCSX2's own
+  pad keys instead (K = Cross, I = Triangle): capture arms (`PRESS...`), Triangle
+  is captured, and the row redraws as the green triangle glyph. The USE prompt
+  bakes to "□ Use" with the pink Square glyph (the `use` action's binding).
+  Also merged origin/main (#138-#151: asset browser, world scale, lightmaps,
+  trees, emissive, ortho views, VRAM manager) - `kSectionCount` needed 15 after
+  main's ModelUnits met this branch's Input, the same one-short trap as the last
+  merge, so the constant now carries a comment saying why it drifts.
+
 - (182) **Text icons: `{{cross}}` in any text draws the button glyph.** Written
   as a companion to the Input Map (165): a controls menu that says "Cross" reads
   like a manual, one that shows ✕ reads like a PlayStation game. `Project::textIcons`

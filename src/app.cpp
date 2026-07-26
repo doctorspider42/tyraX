@@ -2241,11 +2241,22 @@ void App::drawViewportWindow() {
             // layout aid, drawn whenever the overlay is on.
             {
                 const HudImage& up = project_.usePrompt;
+                // Text mode wins over the image and is sized by its own bake -
+                // the same rule the build follows, so this preview matches.
+                const HudTexture* t = nullptr;
+                float size[2] = {up.size[0], up.size[1]};
+                if (!project_.usePromptText.text.empty()) {
+                    t = hudTextTexture(project_.usePromptText);
+                    if (t) {
+                        size[0] = (float)t->w;
+                        size[1] = (float)t->h;
+                    }
+                } else {
+                    t = up.imagePath.empty() ? builtinUseTexture()
+                                             : hudTexture(up.imagePath);
+                }
                 ImVec2 pMin, pMax;
-                screenRect(up.pos, up.size, pMin, pMax);
-                const HudTexture* t = up.imagePath.empty()
-                                          ? builtinUseTexture()
-                                          : hudTexture(up.imagePath);
+                screenRect(up.pos, size, pMin, pMax);
                 if (t)
                     dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
                 else
@@ -10513,10 +10524,59 @@ void App::drawUiEditorWindow() {
         ImGui::Spacing();
         ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        // Text prompt. Non-empty wins over the image, and it is what a fresh
+        // project starts with ("{{use}} Use") - a prompt that shows the button
+        // is worth more than a generic "USE", and {{use}} follows a rebind.
+        HudText& upt = project_.usePromptText;
+        ImGui::SeparatorText("Text");
+        {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%s", upt.text.c_str());
+            ImGui::SetNextItemWidth(scaled(240.0f));
+            if (ImGui::InputText("Prompt text##use", buf, sizeof(buf)))
+                upt.text = buf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Baked to a sprite at build. Empty = use the image below\n"
+                "instead. {{use}} draws the glyph of whatever the \"use\"\n"
+                "action is bound to (docs/text-icons.md), so the prompt\n"
+                "follows a rebind; {{cross}} pins a fixed button.");
+        if (upt.text.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Use \"{{use}} Use\"")) {
+                upt.text = "{{use}} Use";
+                if (upt.size < 8) upt.size = 20;
+                changed = true;
+            }
+        } else {
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::DragInt("Text size##use", &upt.size, 0.5f, 8, 48, "%d px"))
+                changed = true;
+            ImGui::SameLine();
+            if (ImGui::ColorEdit3("Color##useprompt", upt.color,
+                                  ImGuiColorEditFlags_NoInputs))
+                changed = true;
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Shadow##useprompt", &upt.shadow)) changed = true;
+            changed |= fontCombo(upt.font);
+            // The baked canvas sizes the sprite, so the image Size below would
+            // only stretch it - say so instead of offering a fight.
+            ImGui::TextDisabled("Sized by the baked text (the Size below is "
+                                "for image mode).");
+            if (const HudTexture* t = hudTextTexture(upt))
+                ImGui::Image((ImTextureID)(intptr_t)t->tex,
+                             ImVec2(scaled((float)t->w), scaled((float)t->h)));
+        }
+
         ImGui::DragFloat2("Size (px)##use", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
 
         ImGui::SeparatorText("Image");
+        if (!upt.text.empty())
+            ImGui::TextDisabled("(unused while the text above is set)");
         if (h.imagePath.empty()) {
             ImGui::TextDisabled("Built-in \"USE\" sprite (res/hud/use.png).");
             if (ImGui::Button("Custom image (PNG)...")) {
@@ -18175,7 +18235,7 @@ int addOptionsMenuPages(Project& p) {
     // shows the "^ BACK" hint); a Close-action "back" row would instead dismiss
     // the whole menu tree, so submenus carry only their option blocks.
     auto makeSub = [&](const char* base, const char* title, int b0, int b1,
-                       bool applyVideo = false, bool rebinds = false) {
+                       bool applyVideo = false) {
         GameMenu sub;
         sub.name = uniqueName(base);
         sub.title = title;
@@ -18184,15 +18244,15 @@ int addOptionsMenuPages(Project& p) {
         // The APPLY row makes the display-mode row stage-then-commit: the
         // player browses the modes freely, the switch fires on APPLY.
         if (applyVideo) sub.entries.push_back(makeApplyVideoEntry());
-        // CONTROLS also gets the key-assignment rows (docs/input-bindings.md):
-        // one per rebindable Input Map action, each with its own save value.
-        if (rebinds) addRebindRows(p, sub);
         p.menus.push_back(std::move(sub));
         return p.menus.back().name;
     };
     const std::string audio = makeSub("options-audio", "AUDIO", 0, 1);
-    const std::string controls =
-        makeSub("options-controls", "CONTROLS", 2, 3, false, true);
+    // CONTROLS carries the stick settings only. Key rebinding is deliberately
+    // NOT scaffolded: it needs one save value per action and most projects want
+    // a fixed control scheme, so it stays an explicit choice
+    // (+ Option block > Key bindings). See docs/input-bindings.md.
+    const std::string controls = makeSub("options-controls", "CONTROLS", 2, 3);
     const std::string display = makeSub("options-display", "DISPLAY", 4, 5, true);
     GameMenu root;
     root.name = uniqueName("options");
@@ -18250,7 +18310,9 @@ void App::drawMenusWindow() {
             "AUDIO / CONTROLS / DISPLAY submenus, each pre-filled with\n"
             "ready-made setting rows (volume, deadzone, aim curve,\n"
             "display mode + an APPLY row that commits it, aspect).\n"
-            "Style and edit them like any menu.");
+            "Style and edit them like any menu. Key rebinding is NOT\n"
+            "included - add it deliberately with + Option block >\n"
+            "Key bindings.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);

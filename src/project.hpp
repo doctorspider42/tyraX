@@ -1015,6 +1015,22 @@ inline std::string textIconNameForPad(const std::string& padName) {
     return s;
 }
 
+// The icon a token names when read as an ACTION rather than an icon: the
+// lowercased pad button that action is bound to. Empty when no action goes by
+// that name or it has no pad button.
+//
+// This is the `{{use}}` shorthand: `{{action:use}}` spelled out is precise, but
+// a bare `{{use}}` is what people actually type, so a token that matches no
+// icon gets one more chance as an action name before falling back to literal
+// text. Icon names win - `{{cross}}` stays the Cross glyph even if a project
+// ever names an action "cross".
+inline std::string textIconForAction(const std::string& token,
+                                     const InputMap& input) {
+    if (!input.findAction(token)) return std::string();
+    const InputBinding b = input.resolve(token);
+    return b.pad.empty() ? std::string() : textIconNameForPad(b.pad);
+}
+
 // Splits `s` into plain runs and icon tokens.
 //   {{cross}}        -> the icon named "cross"
 //   {{action:jump}}  -> the icon named after the pad button the "jump" action
@@ -1022,6 +1038,10 @@ inline std::string textIconNameForPad(const std::string& padName) {
 // A token whose action is unknown or has no pad button, and anything that is
 // not a well-formed `{{...}}`, stays LITERAL text - a typo shows up on screen
 // instead of silently vanishing.
+//
+// A BARE token comes out as-is in TextRun::icon; a caller that finds no icon of
+// that name should try textIconForAction() before giving up, which is what makes
+// the `{{use}}` shorthand work (see there).
 inline std::vector<TextRun> parseTextIcons(const std::string& s,
                                            const InputMap& input) {
     std::vector<TextRun> out;
@@ -1573,6 +1593,15 @@ struct Project {
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).
     // Always present - the UI Editor edits it but cannot delete it.
     HudImage usePrompt = defaultUsePrompt();
+    // The USE prompt as TEXT instead of an image (Tools > UI Editor > USE
+    // prompt). Non-empty `text` wins over usePrompt.imagePath: the build
+    // rasterizes it to res/hud/use-text.png and points the prompt sprite there,
+    // so the game runtime is unchanged - it still draws one sprite. Text means
+    // the prompt can carry a button glyph that follows the binding, which is why
+    // a fresh project starts at "{{use}} Use" (docs/text-icons.md). Empty =
+    // the classic image path. Its `pos` is unused (the prompt's own position
+    // applies); size/color/font/shadow are the text's.
+    HudText usePromptText;
     // On-screen texts baked to sprites at build, triggered by the Show Text /
     // Hide Text flow nodes (Tools > UI Editor > Texts).
     std::vector<HudText> hudTexts;

@@ -82,22 +82,33 @@ Two presets are the classic "Default / Southpaw" pair; one preset is fine too.
 
 In game: the cursor lands on the row, *confirm* arms capture mode (the row reads
 `PRESS...`), and the next **pad button** the player presses becomes the binding.
-*Back* cancels; *menu left* clears the row back to the preset binding. The row's
-current binding is drawn as **runtime text** from the menu font's glyph atlas —
-a baked option strip could not cover every possible binding name, so
+**Start cancels** capture and *menu left* clears the row back to the preset
+binding.
+
+Cancel is deliberately the raw **Start** button rather than the *back* action:
+back is Triangle by default, so checking it first made Triangle the one button
+you could never bind - it cancelled instead of being captured. The cost is that
+Start itself cannot be captured, which is why it is not offered as a rebindable
+action.
+
+The row's current binding is drawn as **runtime text** from the menu font's glyph
+atlas — a baked option strip could not cover every possible binding name, so
 `Project::atlasFontIndices()` bakes an atlas for any menu that has a rebind row.
+When the project has an icon for the bound button (it does by default) the row
+shows that **glyph** instead of the button's name.
 
 The override replaces the action's **pad** slot and nothing else: the keyboard
 key and mouse button the preset gave it keep working, since no in-game row can
 put them back yet. An action with no pad binding at all shows `---`.
 
-Two shortcuts build the whole page for you:
+*Menu Editor > + Option block > **Key bindings (all rebindable actions)*** builds
+the whole page in one click: one row per rebindable action, each with its own
+save value, plus a preset picker when the project has several presets.
 
-- *Menu Editor > + Option block > **Key bindings (all rebindable actions)*** —
-  one row per rebindable action (+ a preset picker when the project has several
-  presets).
-- *Menu Editor > + Options menu* — the scaffolded OPTIONS tree; its CONTROLS
-  page now carries those rows on top of deadzone/aim curve.
+The scaffolded OPTIONS tree (*+ Options menu*) deliberately does **not** include
+them - its CONTROLS page carries the stick settings only. Rebinding needs a save
+value per action and most projects ship a fixed control scheme, so it stays an
+explicit choice.
 
 Because the overrides live in save values, they persist in memory-card saves
 like every other menu state and are re-applied after a load
