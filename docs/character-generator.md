@@ -292,6 +292,15 @@ is the right fidelity tier. For a close-up cutscene it is not.
 
 ## Tools > Mocap: a performer drives a character
 
+There is a **Mocap layout** (the *Layout* menu) that opens exactly what a
+capture session needs: the viewport in the middle, the Mocap controls and
+*Phone Link* stacked down the right where a glance reaches them without
+covering the performer, and Output along the bottom - during a session the
+useful diagnostics are printed rather than drawn. The Director layout carries
+*Phone Link* too, since recording a camera move is the other thing a paired
+phone does.
+
+
 Record, AirDrop, import, discover it was wrong, repeat is a bad loop. *Tools >
 Mocap* closes it: pick an animated model, pick a source, and the character is
 posed **as frames arrive**, in the window's own preview - the Character

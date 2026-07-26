@@ -10,6 +10,24 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (193) **A Mocap layout, and the Phone Link window that would not open.** The
+  window, its menu item and its whole body existed; nothing ever CALLED
+  `drawPhoneLinkWindow()`, so the menu set a flag no frame read. A missing call
+  is not a compile error, which is why the build stayed green and the failure
+  surfaced on a click - the one class of mistake nothing in this session's
+  toolchain catches. (Cause worth recording: several UI edits went in through a
+  script that writes only after all its patterns match, and a single stale
+  pattern silently discarded the whole batch.)
+  The layout itself: viewport in the middle, Mocap + Phone Link stacked down the
+  right where a glance reaches them without covering the performer, Output along
+  the bottom because during a session the useful diagnostics are printed rather
+  than drawn. The Director gets Phone Link as well - recording a camera move is
+  the other thing a paired phone does.
+  Existing projects are topped up on load, because `seedBuiltinLayouts` only
+  runs for new ones and the layout would otherwise be visible to nobody who
+  already had a project open. Appended, never merged, so a layout of the user's
+  own is untouched.
+
 - (192) **The link gets its own window.** Owner's objection, and a fair one:
   pairing a MOCAP session meant opening *Tools > Phone Camera*, a window whose
   other four sections are preview JPEG quality, which Camera entity to view
