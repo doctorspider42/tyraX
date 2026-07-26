@@ -10,6 +10,17 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (194) **ImGui ID conflict in the Debugger's object watch** (reported by the
+  owner with the "3 visible items with conflicting ID" popup on screen). The
+  per-axis position plots were three `PlotLines` calls sharing the label
+  `"##plot"` inside one `PushID` scope - three widgets claiming one ID, which is
+  also why hovering them was ambiguous. Now `##plotX/Y/Z`. The count in the
+  popup (3) pinpointed it exactly; the rest of the window was audited at the
+  same time (the other loops do push an id, and the watch table's rows are
+  text-only, so they claim no id). Fixed structurally and compiles; **not
+  visually confirmed** - this machine still renders the editor window blank
+  (see 187).
+
 - (193) **The number plane: a flow graph can now COMPUTE a value instead of
   only typing one in.** Reported by the owner: "you cannot pass a value into a
   node through an input at all", wanting the simplest possible thing - a button

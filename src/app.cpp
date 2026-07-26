@@ -22245,7 +22245,13 @@ void App::drawDebuggerWindow() {
                 char overlay[48];
                 std::snprintf(overlay, sizeof(overlay), "%c  %.2f .. %.2f",
                               "XYZ"[axis], lo, hi);
-                ImGui::PlotLines("##plot", series.data(), n, 0, overlay, lo, hi,
+                // Per-axis id: three plots inside one PushID scope with the
+                // same label are three widgets claiming one ID, which ImGui
+                // reports as a conflict (and makes tooltips/hover ambiguous).
+                const char* plotId = axis == 0 ? "##plotX"
+                                     : axis == 1 ? "##plotY"
+                                                 : "##plotZ";
+                ImGui::PlotLines(plotId, series.data(), n, 0, overlay, lo, hi,
                                  ImVec2(-FLT_MIN, scaled(38.0f)));
             }
             ImGui::TextDisabled("%d samples (%.1fs of history)", n,
