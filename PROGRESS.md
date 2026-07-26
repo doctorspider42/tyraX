@@ -10,6 +10,33 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (124) **Lit objects brightened at screen edges: the VU1 clip family
+  clamped colors AFTER interpolating.** Owner spotted it pad-walking the
+  example ("the red crate glows brighter in the screen corner"). The cull
+  programs clamp every vertex color with `FixColor` (mini 255 / max 0)
+  right after `CalculateTyraSpotLight`; the clip programs stored the RAW
+  lit color into the Sutherland-Hodgman scratch polygon and clamped only
+  in the emitter - i.e. after the lerp. A vertex the dynamic light pushed
+  to ~400 therefore dragged a cut edge's midpoint to 250 where the cull
+  path (clamping per vertex first) produces 177, so the same surface
+  visibly brightened the moment it touched a screen edge and started
+  being clipped. Fix: clamp the three colors to 0..255 in
+  `stapip_clip_c_vu1.vclpp` / `stapip_clip_tc_vu1.vclpp` before they go
+  into the polygon (float clamp only - the `ftoi0` stays in the emitter).
+  Pre-existing in the clip family; the batch's bright dynamic lights are
+  just what made it visible. **The first attempt did not fit**: a full
+  clamp pair (mini 255 + max 0) per vertex = 9 instructions per program,
+  and the game asserted `VU1 pipeline programs overflow into the
+  draw-finish program` (path1.cpp:145) on the boot logo - the clip family
+  already lives at the micro-memory ceiling (it is why `clip` replaces
+  `as_is` there in the first place). Shipped version is the CEILING only
+  (3x `loi 255` + `mini.xyz` = 6 instructions per program): the spot light
+  strictly ADDS to non-negative vertex colors, so the emitter's existing
+  max-with-0 remains a sufficient floor. clip_c 258, clip_tc 270 VU
+  instructions. **Verified**: engine + example rebuild, `bin/log.txt`
+  free of TYRA banners (the overflow assert is gone), PCSX2 SW renderer
+  at 50 FPS. The edge-brightening itself is subtle in a still - the
+  owner's pad walk is the real confirmation.
 - (123) **Merged main (AO / portals / split-view / physics / fbx): the
   `castShadow` name collision.** Main landed baked **ambient occlusion**
   with a per-object `SceneObject::castShadow` (default TRUE, "this object

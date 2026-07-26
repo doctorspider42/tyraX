@@ -389,6 +389,22 @@ banner both, so a previously built ELF still reports.
   them in registers for the whole program (`lq` is cheap), and lane-pack
   related scalar fold state into one register's x/y/z fields (assemble
   candidates with `add.x/y/z reg, vf00, src[x]`, fold once as a vector).
+- **Clamp vertex colors BEFORE the VU1 clipper interpolates them.** The cull
+  programs run `FixColor` (mini 255 / max 0) per vertex right after the spot
+  light; the clip programs feed Sutherland-Hodgman and only clamp in the
+  emitter — after the lerp. An unclamped saturated color (a bright dynamic
+  light easily pushes past 255) then interpolates from its raw value, so a
+  lit surface visibly BRIGHTENS the moment it touches a screen edge and
+  starts being clipped. `stapip_clip_{c,tc}_vu1.vclpp` now clamp before
+  storing into the scratch polygon (float clamp only — `ftoi0` belongs in
+  the emitter). **Budget note:** the ceiling alone (`loi 255` + `mini.xyz`
+  per vertex, 6 instructions) is all that fits — adding the matching
+  `max.xyz … vf00[x]` floor too (9 per program) tripped the real
+  `VU1 pipeline programs overflow into the draw-finish program` assert
+  (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
+  headroom; measure with
+  `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
+  after ANY edit there.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

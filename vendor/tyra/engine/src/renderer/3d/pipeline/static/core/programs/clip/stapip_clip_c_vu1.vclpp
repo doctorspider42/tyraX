@@ -144,6 +144,23 @@ processing:
         CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
         CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
 
+        ; Ceiling BEFORE the clipper interpolates. The emitter clamps too,
+        ; but that is after the lerp - a saturated vertex left at its raw
+        ; 400 drags a cut edge's midpoint to 250 where the cull path
+        ; (FixColor per vertex) gets 177, so a lit surface visibly
+        ; BRIGHTENED as it touched a screen edge. Upper bound only: the
+        ; spot light strictly ADDS to non-negative vertex colors, so the
+        ; emitter's max-with-0 stays the only floor - and VU1 micro memory
+        ; has no room for the six extra instructions (the clip family
+        ; already asserted "programs overflow into the draw-finish
+        ; program" at 3 clamp pairs per vertex).
+        loi         255
+        mini.xyz    color1,     color1,     i
+        loi         255
+        mini.xyz    color2,     color2,     i
+        loi         255
+        mini.xyz    color3,     color3,     i
+
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
