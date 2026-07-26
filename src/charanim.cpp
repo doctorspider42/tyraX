@@ -108,6 +108,10 @@ Quat slerp(const Quat& a, Quat b, float t) {
 
 // --- the rig ---------------------------------------------------------------
 
+// A node's own rotation, whether the file stored it as a quaternion or folded
+// it into a matrix. Defined below; needed by findRig, which runs first.
+Quat localRotation(const glbparser::SkelNode& n);
+
 enum Role {
     Hips, Spine, Spine1, Spine2, Neck, Head,
     ShoulderL, ArmL, ForeArmL, HandL,
@@ -164,7 +168,8 @@ const int kDirChild[RoleCount] = {
 
 struct Rig {
     int node[RoleCount];
-    Vec pos[RoleCount];  // bind-pose world positions
+    Vec pos[RoleCount];   // bind-pose world positions
+    Quat bind[RoleCount]; // bind-pose world ROTATIONS
     bool has[RoleCount];
     float height = 1.75f;
 
@@ -192,17 +197,34 @@ Rig findRig(const glbparser::Skel& skel) {
             if (r.node[role] < 0 && name == kRoleNames[role]) r.node[role] = (int)i;
     }
 
-    // Bind-pose globals (translations only - every bind rotation is identity).
+    // Bind-pose globals, ROTATIONS INCLUDED.
+    //
+    // This used to compose translations alone, on the grounds that a generated
+    // character binds with identity rotations - true, by construction, and
+    // false for almost every rig anyone downloads. A Mixamo character measures
+    // 43 of 80 nodes with a real bind rotation and its thigh at a full 180
+    // degrees; composing its bone positions without them puts every joint in
+    // the wrong place, which then poisons the rest-direction correction and the
+    // pose built on top of it.
     std::vector<Vec> global(skel.nodes.size(), Vec{0, 0, 0});
+    std::vector<Quat> globalRot(skel.nodes.size());
     for (size_t i = 0; i < skel.nodes.size(); ++i) {
         const int parent = skel.nodes[i].parent;
-        for (int k = 0; k < 3; ++k)
-            global[i][k] = skel.nodes[i].t[k] +
-                           (parent >= 0 && parent < (int)i ? global[parent][k] : 0.0f);
+        const Vec t{skel.nodes[i].t[0], skel.nodes[i].t[1], skel.nodes[i].t[2]};
+        const Quat local = localRotation(skel.nodes[i]);
+        if (parent >= 0 && parent < (int)i) {
+            const Vec rotated = rotate(globalRot[parent], t);
+            for (int k = 0; k < 3; ++k) global[i][k] = global[parent][k] + rotated[k];
+            globalRot[i] = normalized(mul(globalRot[parent], local));
+        } else {
+            global[i] = t;
+            globalRot[i] = local;
+        }
     }
     for (int role = 0; role < RoleCount; ++role)
         if (r.node[role] >= 0) {
             r.pos[role] = global[r.node[role]];
+            r.bind[role] = globalRot[r.node[role]];
             r.has[role] = true;
         }
 
@@ -688,8 +710,14 @@ Frame frameFromSource(const LiveRetarget::State& st, const std::vector<Quat>& lo
         // delta is identity and the character adopts the PERFORMER's rest pose,
         // which is exactly right - a performer standing in a T-pose should put
         // the character in one.
+        // World rotation = the source's delta, then the rest correction, then
+        // the character's OWN bind orientation. That last factor used to be
+        // absent because a generated rig binds with identity rotations; a rig
+        // that does not - which is most - was being posed as though its bones
+        // already pointed where the generator's do, and a thigh bound at 180
+        // degrees ends up pointing the other way.
         const Quat delta = mul(global[sn], conj(st.srcBindGlobal[sn]));
-        f.put(role, normalized(mul(delta, st.restFix[role])));
+        f.put(role, normalized(mul(mul(delta, st.restFix[role]), st.rig.bind[role])));
     }
     if (hipsT) {
         if (!st.haveBase) {

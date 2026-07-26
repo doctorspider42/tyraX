@@ -584,6 +584,25 @@ metres is about ninety pixels. Step closer and the wrists come alive. The Mocap
 window shows how many joints Vision is actually driving, and hovering that
 number says why the others are not.
 
+### Retargeting onto a rig you did not generate
+
+The generated characters bind with **identity rotations**, by construction, and
+the retarget was written against that - `findRig` composed bind positions from
+translations alone and said so. Almost no rig anyone downloads is like that. A
+Mixamo character measures **43 of 80 nodes with a real bind rotation, and its
+thigh at a full 180 degrees**; composing its bone positions without them puts
+every joint in the wrong place, which then poisons the rest-direction correction
+and the pose built on top of it.
+
+Bind rotations are composed now, and a bone's world orientation is
+`delta × restFix × bindRotation` rather than `delta × restFix`. With an identity
+bind that is the old formula unchanged, which is why the generated characters
+render identically; with a real one the character is finally posed relative to
+where its own bones actually point.
+
+Calibration does not help here and cannot: it fixes the pose the **source** is
+measured against, and this is the **target's** bind.
+
 ### The 90-degree pelvis
 
 The correction above nearly ended the feature. A performer standing perfectly

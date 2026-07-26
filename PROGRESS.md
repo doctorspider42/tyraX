@@ -10,6 +10,29 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (200) **Retargeting onto a rig somebody else made.** Owner asked whether a
+  take captured for a generated character could drive a Mixamo model too, or
+  whether he was out of luck - and whether calibration might rescue it.
+  Neither: it was a real limitation of mine, and calibration could never have
+  touched it, because that fixes the pose the SOURCE is measured against while
+  this is the TARGET's bind.
+  Generated characters bind with identity rotations by construction, and the
+  retarget was written against that - `findRig` composed bind positions from
+  translations alone, with a comment saying exactly why. Measured on the owner's
+  Mixamo character: **43 of 80 nodes carry a real bind rotation and the thigh is
+  at a full 180 degrees**. Composing its bone positions without them puts every
+  joint somewhere it is not, which then poisons the rest-direction correction
+  and everything built on top.
+  Bind rotations are composed now, and a bone's world orientation is
+  `delta * restFix * bind`. With an identity bind that is the previous formula
+  character for character, which is the point: the generated-character contact
+  sheet is unchanged, and the Mixamo model - which used to be unusable - now
+  stands in the same clean T-pose from the same take.
+  Worth stating: this was never about mocap. Any retarget onto a downloaded rig
+  was wrong in the same way, including a Mixamo animation library imported
+  through the Character Generator; nobody had pointed one at a non-generated
+  TARGET before.
+
 - (199) **The heading was also being applied in the wrong FRAME.** Repairing
   the doubled heading (198) left the character still tumbling, which said the
   duplicate was real but not the whole story - and the rest was a
