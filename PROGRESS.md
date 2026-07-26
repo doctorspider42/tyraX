@@ -10,6 +10,38 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (187) **An agent that needs root hangs the session behind a password dialog
+  nobody can see.** On Linux the owner kept getting a polkit "Authentication
+  Required" popup mid-session. The trigger was an assistant workaround:
+  `docker` failed with permission denied on `/var/run/docker.sock`, so a past
+  session reached for `pkexec setfacl -m u:spider:rw` to unstick itself. Root
+  cause of the docker failure was never the socket — the login session simply
+  predated `usermod -aG docker`, so the user was in the group per the user
+  database (`id spider`) but not in the running process (`id`); a logout fixes
+  it and no privilege escalation is needed at all. Two things made this worse
+  than it looks. The owner had already raised `timestamp_timeout` in visudo,
+  which is inert here twice over: polkit does not read sudoers, and Ubuntu
+  26.04 ships `sudo-rs`, which keeps a separate timestamp per terminal with no
+  `tty_tickets` knob to disable it — every Bash tool call is a fresh non-tty
+  process, so the cached credential is never reused. And the assistant cannot
+  detect the popup: `pkexec` blocks with no output, indistinguishable from a
+  slow command, so the session just stalls.
+  Fixed by denying the escalation instead of trying to observe it. New
+  `.claude/settings.json` puts `pkexec`, `sudo`, `su`, `doas` and `runas` in
+  `permissions.deny`, and a new CLAUDE.md section tells the agent to stop and
+  report the command, why root was needed and what is blocked — plus the
+  docker-group diagnosis specifically, so the next agent reads `id` instead of
+  patching the socket. `permissions.deny` and not a `PreToolUse` hook on
+  purpose: hooks run a real shell (PowerShell on Windows without Git Bash), so
+  a `jq`/`grep` one-liner guarding this would break on the owner's other
+  machine, while deny rules are matched inside Claude Code and behave
+  identically on both. Verified live in-session, no restart needed:
+  `sudo -n true` and `pkexec setfacl -m u:spider:rw /var/run/docker.sock` both
+  come back "Permission to use Bash ... has been denied". Known limit, stated
+  rather than papered over: the rules match a command prefix, so escalation
+  buried inside `bash -c "..."` would still pass — this is a guard against
+  accidents, not a sandbox.
+
 - (186) **Two things the owner hit while playing with areas: the unload band was
   eight units of "why is this still loaded", and you cannot debug an invisible
   volume.** (1) A streaming layer on an area zone loaded the instant you entered
