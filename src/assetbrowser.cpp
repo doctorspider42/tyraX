@@ -491,8 +491,10 @@ std::vector<std::string> App::assetSidecars(const std::string& rel) {
     std::error_code ec;
     const std::string dir = folderOf(rel);
     const std::string stem = stemOf(rel);
-    // Animated-model replacement UVs (uvunwrap) and the model AO sidecar.
-    for (const char* ext : {".uvs", ".aov"}) {
+    // Animated-model replacement UVs (uvunwrap), the model AO sidecar, and the
+    // Drone Generator patch that produced a track (docs/drone-generator.md) -
+    // all editor-only data whose whole value is staying next to its asset.
+    for (const char* ext : {".uvs", ".aov", ".drone"}) {
         const std::string cand = dir + "/" + stem + ext;
         if (fs::exists(assetAbs(cand), ec)) out.push_back(cand);
     }
@@ -1020,7 +1022,17 @@ bool App::activateAsset(const std::string& rel) {
             ensureFontForPath(rel);
             showFontManager_ = true;
             return true;
+        case AssetKind::Music:
+        case AssetKind::Sound: {
+            // A track rendered by the Drone Generator kept its patch next to
+            // it, so opening the WAV reopens the piece that made it.
+            const std::string patch = folderOf(rel) + "/" + stemOf(rel) + ".drone";
+            std::error_code ec;
+            if (fs::exists(assetAbs(patch), ec)) return droneLoadPatch(patch);
+            return false;
+        }
         default:
+            if (extOf(rel) == ".drone") return droneLoadPatch(rel);
             return false;
     }
 }

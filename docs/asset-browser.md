@@ -102,8 +102,13 @@ breaks. Two rules shape what they do:
    `mtllib` line so it still finds it.
 
 Editor-side sidecars travel with their asset: the Material Editor's paint layers
-(`<texture>.png.layers/`) and replacement UVs (`<model>.uvs`). The baked
-`.tmdl` is deleted instead - the next build re-bakes it in the new place.
+(`<texture>.png.layers/`), replacement UVs (`<model>.uvs`) and the Drone
+Generator patch that produced a track (`<track>.drone`, see
+[drone-generator.md](drone-generator.md)). The baked `.tmdl` is deleted instead -
+the next build re-bakes it in the new place.
+
+Double-clicking a track that has a `.drone` next to it (or the patch itself)
+reopens that piece in the Drone Generator.
 
 A WAV moved between `res/audio` and `res/sfx` changes role (streamed music vs
 ADPCM one-shot) and moves between the Music and Sounds lists accordingly.

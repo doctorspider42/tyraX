@@ -251,6 +251,23 @@ Notes:
 
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
+
+  **On Linux, screenshot the EDITOR from inside itself**: set
+  `TYRAX_SHOT=<dir>` (and optionally `TYRAX_SHOT_EVERY=<seconds>`, default 2)
+  and the editor writes `<dir>/shotNN.png` of its own framebuffer
+  (`App::captureFrameIfRequested`). Do NOT reach for an external tool first: a
+  Wayland compositor may refuse capture outright (GNOME answers
+  `org.gnome.Shell.Screenshot` with AccessDenied, `gnome-screenshot -f` silently
+  writes nothing) and when GLFW picks the Wayland backend there is no X11 window
+  for `xwd`/XTEST to find either — check `grep libwayland-client
+  /proc/<pid>/maps` before assuming otherwise. Self-capture also reads what the
+  editor DREW rather than what was presented, so it survives the AMD present
+  quirk that leaves the window blank on some machines. It cannot click anything,
+  though: to reach a panel that needs a menu click, pre-open it by adding its key
+  to the active layout's `open` list in the project's `.tyra`
+  (`kLayoutWindowKeys` in app.cpp has the names — `"drone"`, `"tree"`,
+  `"material"`, …). PROGRESS 188 used exactly this to verify a new tool window
+  end-to-end without a human at the keyboard.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then
@@ -286,7 +303,12 @@ Notes:
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
   GS load.
-- **Audio**: EE-side logs are invisible, so meter the PCSX2 process instead —
+- **Audio**: the *editor's* own audio (the Drone Generator's audition,
+  `src/audiopreview.cpp`) is testable directly — a host harness can open the
+  device and print peak levels (PROGRESS 188), and the generator's DSP needs no
+  device at all: link `dronegen.cpp` alone, render a preset and measure the
+  samples. For the GAME's audio, EE-side logs are invisible, so meter the PCSX2
+  process instead —
   on Windows the WASAPI session peak meter (e.g. via `AudioMeterInformation`),
   on Linux `pactl list sink-inputs` (the PCSX2 sink input's volume/peak, or a
   short `parec` capture of the monitor source). Silence vs bursts at expected
@@ -308,7 +330,7 @@ Notes:
 
 | Change | Minimum honest verification |
 |---|---|
-| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (Windows; see the screenshot note for what stands in on Linux) |
+| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (the bundled GDI script on Windows, `TYRAX_SHOT=<dir>` self-capture on Linux — see the screenshot note) |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |

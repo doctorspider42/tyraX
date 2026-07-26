@@ -60,6 +60,7 @@ add_executable(tyrax-editor
     src/animedit.cpp
     src/aobake.cpp
     src/app.cpp
+    src/audiopreview.cpp
     src/assetbrowser.cpp
     src/camtake.cpp
     src/flownode.cpp
@@ -80,6 +81,8 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/primmesh.cpp
     src/decalproj.cpp
+    src/dronegen.cpp
+    src/droneui.cpp
     src/navmesh.cpp
     src/project.cpp
     src/screenfx.cpp
@@ -102,7 +105,7 @@ add_executable(tyrax-editor
 
     ${TYRAX_EDITOR_RC}
 )
-target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx ${CMAKE_BINARY_DIR}/generated)
+target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx vendor/miniaudio ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
 
 find_package(OpenGL REQUIRED)

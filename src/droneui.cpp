@@ -1,0 +1,1186 @@
+// Tools > Drone Generator - the UI half of the ambient/drone music generator
+// (docs/drone-generator.md). App:: methods declared in app.hpp but kept in
+// their own TU, the assetbrowser.cpp precedent: a self-contained subsystem with
+// its own widget vocabulary has no business growing app.cpp further.
+//
+// The DSP lives in dronegen.cpp and the sound card in audiopreview.cpp; this
+// file only turns knobs and draws meters. The one rule it must respect: every
+// parameter edit calls dronePushParams(), because the whole point of the tool is
+// that you hear the knob you are turning.
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+#include <imgui.h>
+
+#include "app.hpp"
+#include "platform.hpp"
+
+namespace {
+
+constexpr float kPi = 3.14159265358979f;
+
+// --- the rotary ------------------------------------------------------------
+
+// A VST-style knob. Vertical drag turns it (Shift = fine, Ctrl = coarse),
+// double-click returns it to `def`, and the value is drawn under the dial.
+//
+// `curve` > 1 spends more travel on the low end of the range, which is what a
+// frequency or time knob needs: linear pixels-per-Hz makes everything under
+// 1 kHz a single pixel of a 14 kHz sweep. A symmetric range (-x..+x) is drawn
+// bipolar, filling from the centre - so pan and mod amounts read at a glance.
+bool knob(const char* label, float* v, float lo, float hi, float def,
+          const char* fmt, float scale, float curve = 1.0f,
+          const char* tip = nullptr) {
+    const float cell = 62.0f * scale;
+    const float dia = 42.0f * scale;
+    const bool bipolar = lo < 0.0f && hi > 0.0f && std::fabs(lo + hi) < 1e-4f;
+
+    ImGui::PushID(label);
+    ImGui::BeginGroup();
+
+    // Display name = the label up to "##", the ImGui convention: the suffix
+    // disambiguates the ID and is not drawn. That is what lets a panel hold a
+    // delay "Mix" and a reverb "Mix" - two visible items sharing an ID is an
+    // ImGui error, not a cosmetic problem (it breaks hover and drag state).
+    char cap[40];
+    {
+        const char* end = std::strstr(label, "##");
+        size_t n = end ? (size_t)(end - label) : std::strlen(label);
+        if (n > sizeof(cap) - 1) n = sizeof(cap) - 1;
+        std::memcpy(cap, label, n);
+        cap[n] = '\0';
+    }
+    // Centred caption (labels are short by design; a long one just left-aligns)
+    {
+        const float tw = ImGui::CalcTextSize(cap).x;
+        if (tw < cell) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (cell - tw) * 0.5f);
+        ImGui::TextUnformatted(cap);
+    }
+
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("dial", ImVec2(cell, dia));
+    const bool active = ImGui::IsItemActive();
+    const bool hovered = ImGui::IsItemHovered();
+    bool changed = false;
+
+    const float span = hi - lo;
+    auto toNorm = [&](float val) {
+        const float t = span != 0.0f ? (val - lo) / span : 0.0f;
+        return std::pow(std::max(0.0f, std::min(1.0f, t)), 1.0f / curve);
+    };
+    auto fromNorm = [&](float t) {
+        t = std::max(0.0f, std::min(1.0f, t));
+        return lo + span * std::pow(t, curve);
+    };
+
+    if (active) {
+        const ImGuiIO& io = ImGui::GetIO();
+        const float d = -io.MouseDelta.y - io.MouseDelta.x * 0.15f;
+        if (d != 0.0f) {
+            float sens = 1.0f / (200.0f * scale);
+            if (io.KeyShift) sens *= 0.2f;
+            if (io.KeyCtrl) sens *= 3.0f;
+            *v = fromNorm(toNorm(*v) + d * sens);
+            *v = std::max(std::min(lo, hi), std::min(std::max(lo, hi), *v));
+            changed = true;
+        }
+    }
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        *v = def;
+        changed = true;
+    }
+
+    const float t = toNorm(*v);
+    const ImVec2 c(p.x + cell * 0.5f, p.y + dia * 0.5f);
+    const float r = dia * 0.5f - 2.0f * scale;
+    const float a0 = kPi * 0.75f, sweep = kPi * 1.5f;
+    const float ang = a0 + t * sweep;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 body = IM_COL32(38, 40, 46, 255);
+    const ImU32 rim = hovered || active ? IM_COL32(150, 155, 165, 255)
+                                        : IM_COL32(85, 88, 96, 255);
+    const ImU32 track = IM_COL32(58, 60, 68, 255);
+    const ImU32 fill = active ? IM_COL32(255, 205, 100, 255)
+                              : IM_COL32(232, 168, 62, 255);
+
+    dl->AddCircleFilled(c, r, body, 32);
+    dl->PathArcTo(c, r - 1.0f * scale, a0, a0 + sweep, 32);
+    dl->PathStroke(track, 0, 3.0f * scale);
+    const float from = bipolar ? a0 + 0.5f * sweep : a0;
+    if (std::fabs(ang - from) > 0.01f) {
+        dl->PathArcTo(c, r - 1.0f * scale, std::min(from, ang), std::max(from, ang), 32);
+        dl->PathStroke(fill, 0, 3.0f * scale);
+    }
+    const ImVec2 tip0(c.x + std::cos(ang) * r * 0.28f, c.y + std::sin(ang) * r * 0.28f);
+    const ImVec2 tip1(c.x + std::cos(ang) * r * 0.78f, c.y + std::sin(ang) * r * 0.78f);
+    dl->AddLine(tip0, tip1, IM_COL32(235, 238, 245, 255), 2.0f * scale);
+    dl->AddCircle(c, r, rim, 32, 1.5f * scale);
+
+    // Value readout
+    {
+        char buf[40];
+        std::snprintf(buf, sizeof(buf), fmt, *v);
+        const float tw = ImGui::CalcTextSize(buf).x;
+        if (tw < cell) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (cell - tw) * 0.5f);
+        ImGui::TextDisabled("%s", buf);
+    }
+    ImGui::EndGroup();
+    if (hovered && !active) {
+        char buf[40];
+        std::snprintf(buf, sizeof(buf), fmt, *v);
+        ImGui::SetTooltip("%s: %s\n%s\ndrag to turn, Shift = fine, double-click resets",
+                          cap, buf, tip ? tip : "");
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// Integer knob: the same dial, rounded to whole steps. The range stays exactly
+// lo..hi (no fudge for the top value) so a symmetric one - Octave, Semi, the
+// shimmer interval - still reads as bipolar. Each end value covers half a step
+// of travel, which is how every hardware stepped encoder behaves anyway.
+bool knobInt(const char* label, int* v, int lo, int hi, int def, const char* fmt,
+             float scale, const char* tip = nullptr) {
+    float f = (float)*v;
+    knob(label, &f, (float)lo, (float)hi, (float)def, fmt, scale, 1.0f, tip);
+    const int nv = std::max(lo, std::min(hi, (int)std::lround(f)));
+    if (nv == *v) return false;
+    *v = nv;
+    return true;
+}
+
+// Section caption inside a tab.
+void groupTitle(const char* text) {
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.62f, 0.72f, 0.9f, 1.0f), "%s", text);
+    ImGui::Separator();
+}
+
+// --- the arc envelope editor ----------------------------------------------
+
+// Five draggable breakpoints defining the piece-long intensity curve. Dragging
+// grabs the nearest point in x and sets its value from y - the whole widget is
+// 40 lines because it has exactly one job.
+bool arcEditor(const char* id, float* pts, int n, ImVec2 size, float scale) {
+    ImGui::PushID(id);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("arc", size);
+    bool changed = false;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(26, 28, 33, 255),
+                      3.0f * scale);
+    dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(70, 74, 82, 255),
+                3.0f * scale);
+    for (int g = 1; g < 4; ++g) {
+        const float y = p.y + size.y * (float)g / 4.0f;
+        dl->AddLine(ImVec2(p.x, y), ImVec2(p.x + size.x, y), IM_COL32(48, 50, 58, 255));
+    }
+    if (ImGui::IsItemActive()) {
+        const ImVec2 m = ImGui::GetIO().MousePos;
+        const float tx = std::max(0.0f, std::min(1.0f, (m.x - p.x) / size.x));
+        const int idx = std::max(0, std::min(n - 1, (int)std::lround(tx * (float)(n - 1))));
+        pts[idx] = std::max(0.0f, std::min(1.0f, 1.0f - (m.y - p.y) / size.y));
+        changed = true;
+    }
+    auto at = [&](int i) {
+        return ImVec2(p.x + size.x * (float)i / (float)(n - 1),
+                      p.y + size.y * (1.0f - pts[i]));
+    };
+    for (int i = 0; i + 1 < n; ++i) {
+        const ImVec2 a = at(i), b = at(i + 1);
+        dl->AddLine(a, b, IM_COL32(232, 168, 62, 255), 2.0f * scale);
+        dl->AddQuadFilled(a, b, ImVec2(b.x, p.y + size.y), ImVec2(a.x, p.y + size.y),
+                          IM_COL32(232, 168, 62, 34));
+    }
+    for (int i = 0; i < n; ++i)
+        dl->AddCircleFilled(at(i), 4.0f * scale, IM_COL32(255, 225, 160, 255));
+    ImGui::PopID();
+    return changed;
+}
+
+// --- displays -------------------------------------------------------------
+
+// Peak meter with a -12 dB tick, drawn vertically.
+void meterBar(ImDrawList* dl, ImVec2 p, ImVec2 size, float peak, float scale) {
+    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(22, 24, 28, 255));
+    const float t = std::max(0.0f, std::min(1.0f, peak));
+    const float h = size.y * t;
+    const ImU32 col = t > 0.99f ? IM_COL32(230, 70, 60, 255)
+                     : t > 0.8f ? IM_COL32(235, 190, 70, 255)
+                                : IM_COL32(120, 200, 130, 255);
+    dl->AddRectFilled(ImVec2(p.x, p.y + size.y - h), ImVec2(p.x + size.x, p.y + size.y),
+                      col);
+    const float y = p.y + size.y * (1.0f - 0.25f);  // ~-12 dBFS
+    dl->AddLine(ImVec2(p.x, y), ImVec2(p.x + size.x, y), IM_COL32(90, 94, 104, 255),
+                1.0f * scale);
+    dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(70, 74, 82, 255));
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// Audition / live synth
+// ---------------------------------------------------------------------------
+
+void App::droneAudition(bool on) {
+    if (!on) {
+        if (droneDevice_) droneDevice_->stop();
+        droneAuditioning_ = false;
+        return;
+    }
+    if (!droneLive_ || droneLiveRate_ != droneParams_.sampleRate) {
+        // The sample rate is structural in the synth, so switching it rebuilds
+        // both sides (tracked here rather than read back off the device, which
+        // reports 0 once stopped). Stop the device FIRST: its callback holds the
+        // old LiveSynth, and ma_device_uninit joins the audio thread.
+        if (droneDevice_) droneDevice_->stop();
+        droneLive_.reset(new dronegen::LiveSynth(droneParams_));
+        droneLiveRate_ = droneParams_.sampleRate;
+    }
+    if (!droneDevice_) droneDevice_.reset(new audiopreview::Device());
+    droneLive_->push(droneParams_);
+    dronegen::LiveSynth* live = droneLive_.get();
+    droneAuditioning_ =
+        droneDevice_->start(droneParams_.sampleRate,
+                            [live](float* out, int frames) { live->render(out, frames); });
+    droneAudioError_ = droneAuditioning_ ? std::string() : droneDevice_->error();
+}
+
+void App::dronePushParams() {
+    if (droneLive_) droneLive_->push(droneParams_);
+}
+
+// ---------------------------------------------------------------------------
+// Offline render (worker thread) -> res/audio/<name>.wav + <name>.drone
+// ---------------------------------------------------------------------------
+
+void App::droneStartRender() {
+    if (droneRendering_ || !hasProject_) return;
+    if (droneRenderThread_.joinable()) droneRenderThread_.join();
+
+    std::string name = droneTrackName_;
+    // Keep it a safe, PS2-friendly file name: the ISO9660 writer and the
+    // generated code both refer to this path as a literal.
+    std::string clean;
+    for (char c : name) {
+        if (isalnum((unsigned char)c) || c == '-' || c == '_')
+            clean += (char)tolower((unsigned char)c);
+        else if (c == ' ')
+            clean += '-';
+    }
+    if (clean.empty()) clean = "drone";
+    droneRenderTarget_ = "res/audio/" + clean + ".wav";
+    // Resolved now, not when the render finishes: opening another project
+    // mid-render must not redirect the file into it.
+    droneRenderAbs_ = project_.filePath(droneRenderTarget_);
+
+    droneRenderProgress_.store(0.0f);
+    droneRenderCancel_.store(false);
+    droneRenderDone_.store(false);
+    droneRendering_ = true;
+    droneRenderedWith_ = droneParams_;
+    droneStatus_ = "Rendering " + clean + ".wav...";
+
+    const dronegen::Params p = droneParams_;
+    droneRenderThread_ = std::thread([this, p]() {
+        dronegen::RenderResult r = dronegen::render(p, [this](float frac) {
+            droneRenderProgress_.store(frac);
+            return !droneRenderCancel_.load();
+        });
+        droneRenderResult_ = std::move(r);
+        droneRenderDone_.store(true);
+    });
+}
+
+void App::droneTickRender() {
+    if (!droneRendering_ || !droneRenderDone_.load()) return;
+    if (droneRenderThread_.joinable()) droneRenderThread_.join();
+    droneRendering_ = false;
+
+    if (droneRenderResult_.cancelled) {
+        droneStatus_ = "Render cancelled.";
+        droneRenderResult_ = dronegen::RenderResult();
+        return;
+    }
+
+    const std::filesystem::path abs(droneRenderAbs_);
+    std::error_code ec;
+    std::filesystem::create_directories(abs.parent_path(), ec);
+    std::string err;
+    if (!dronegen::writeWav(abs.string(), droneRenderResult_, droneRenderedWith_.seed,
+                            droneRenderedWith_.master.dither, err)) {
+        droneStatus_ = "Could not write the WAV: " + err;
+        return;
+    }
+    // The patch travels with the track: a .drone sidecar next to the WAV is what
+    // makes a shipped piece re-editable months later (and the Asset Browser
+    // carries it along on rename/move/delete - see App::assetSidecars).
+    {
+        std::filesystem::path patch = abs;
+        patch.replace_extension(".drone");
+        std::ofstream f(patch, std::ios::binary);
+        if (f) f << dronegen::toText(droneRenderedWith_, dronePatchTitle_);
+    }
+
+    bool known = false;
+    for (const std::string& m : project_.music) known |= (m == droneRenderTarget_);
+    if (!known) project_.music.push_back(droneRenderTarget_);
+    wavIssueCache_.clear();
+    droneBuildWaveOverview();
+    droneScrub_ = 0.0f;
+
+    char msg[256];
+    std::snprintf(msg, sizeof(msg),
+                  "%s: %.0f s, %s, peak %.2f%s - play it with a Play Music node",
+                  droneRenderTarget_.c_str(),
+                  (double)droneRenderResult_.frames / droneRenderResult_.sampleRate,
+                  droneRenderResult_.channels == 2 ? "stereo" : "mono",
+                  (double)droneRenderResult_.peak, known ? " (replaced)" : "");
+    droneStatus_ = msg;
+    saveAll(msg);
+}
+
+bool App::droneLoadPatch(const std::string& relOrAbs) {
+    std::filesystem::path abs(relOrAbs);
+    if (abs.is_relative() && hasProject_) abs = project_.filePath(relOrAbs);
+    std::ifstream f(abs, std::ios::binary);
+    if (!f) {
+        droneStatus_ = "Cannot read " + abs.string();
+        return false;
+    }
+    std::stringstream ss;
+    ss << f.rdbuf();
+    dronegen::Params p;
+    std::string title, err;
+    if (!dronegen::fromText(ss.str(), p, title, err)) {
+        droneStatus_ = "Not a usable patch: " + err;
+        return false;
+    }
+    droneParams_ = p;
+    dronePatchTitle_ = title;
+    const std::string stem = abs.stem().string();
+    std::snprintf(droneTrackName_, sizeof(droneTrackName_), "%s", stem.c_str());
+    droneStatus_ = "Loaded patch " + abs.filename().string();
+    droneWaveMin_.clear();
+    droneWaveMax_.clear();
+    if (droneLive_) {
+        droneLive_->push(droneParams_);
+        droneLive_->reset();
+    }
+    showDroneGenerator_ = true;
+    return true;
+}
+
+void App::droneBuildWaveOverview() {
+    droneWaveMin_.clear();
+    droneWaveMax_.clear();
+    const dronegen::RenderResult& r = droneRenderResult_;
+    if (r.frames <= 0 || r.samples.empty()) return;
+    const int cols = 900;  // more than any sane window width; the strip samples it
+    droneWaveMin_.assign(cols, 0.0f);
+    droneWaveMax_.assign(cols, 0.0f);
+    for (int c = 0; c < cols; ++c) {
+        const int a = (int)((int64_t)r.frames * c / cols);
+        const int b = std::max(a + 1, (int)((int64_t)r.frames * (c + 1) / cols));
+        float lo = 0.0f, hi = 0.0f;
+        for (int i = a; i < b && i < r.frames; ++i) {
+            for (int ch = 0; ch < r.channels; ++ch) {
+                const float v = r.samples[(size_t)i * r.channels + ch];
+                lo = std::min(lo, v);
+                hi = std::max(hi, v);
+            }
+        }
+        droneWaveMin_[c] = lo;
+        droneWaveMax_[c] = hi;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The window
+// ---------------------------------------------------------------------------
+
+void App::drawDroneGeneratorWindow() {
+    droneTickRender();
+    if (!showDroneGenerator_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(scaled(940.0f), scaled(640.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Drone Generator", &showDroneGenerator_)) {
+        ImGui::End();
+        return;
+    }
+    const float s = uiScaleApplied_;
+    dronegen::Params& p = droneParams_;
+    bool dirty = false;
+
+    // ---- top row: preset, seed, transport --------------------------------
+    const std::vector<dronegen::Preset>& presets = dronegen::presets();
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::BeginCombo("##preset", presets[dronePreset_].name)) {
+        for (int i = 0; i < (int)presets.size(); ++i) {
+            if (ImGui::Selectable(presets[i].name, dronePreset_ == i)) {
+                dronePreset_ = i;
+                const float keepLen = p.lengthSec;
+                const int keepRate = p.sampleRate;
+                p = presets[i].params;
+                p.lengthSec = keepLen;  // a preset is a sound, not a duration
+                p.sampleRate = keepRate;
+                dronePatchTitle_ = presets[i].name;
+                dirty = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", presets[i].blurb);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("preset");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    int seed = (int)p.seed;
+    if (ImGui::InputInt("##seed", &seed)) {
+        p.seed = (uint32_t)std::max(0, seed);
+        dirty = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Roll")) {
+        uint32_t x = p.seed ? p.seed : 0x1234567u;
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        p.seed = x;
+        dirty = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("New random stream: bell placement, drift and noise\n"
+                          "change, the patch does not.");
+    ImGui::SameLine();
+    ImGui::TextDisabled("seed");
+
+    ImGui::SameLine(0.0f, scaled(24.0f));
+    if (droneAuditioning_) {
+        if (ImGui::Button("Stop", ImVec2(scaled(70.0f), 0))) droneAudition(false);
+    } else {
+        if (ImGui::Button("Audition", ImVec2(scaled(70.0f), 0))) droneAudition(true);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Plays the patch live through your sound card.\n"
+                          "Every knob you turn is heard immediately - this is the\n"
+                          "same synthesizer that renders the file.");
+    ImGui::SameLine();
+    if (ImGui::Button("Restart") && droneLive_) droneLive_->reset();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rewinds the audition to bar 1 (and the arc envelope).");
+    if (droneAuditioning_ && droneLive_) {
+        ImGui::SameLine();
+        const double t = droneLive_->timeSec();
+        const float barSec = dronegen::barSeconds(p);
+        ImGui::TextDisabled("t %02d:%05.2f  bar %.1f", (int)(t / 60.0),
+                            std::fmod(t, 60.0), t / barSec + 1.0);
+    } else if (!droneAudioError_.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "%s",
+                           droneAudioError_.c_str());
+    }
+
+    // ---- display strip: waveform / live scope + spectrum + meters ---------
+    {
+        const float h = scaled(72.0f);
+        ImGui::BeginChild("dronescope", ImVec2(0, h), true,
+                          ImGuiWindowFlags_NoScrollbar);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 o = ImGui::GetCursorScreenPos();
+        const float availW = ImGui::GetContentRegionAvail().x;
+        const float availH = ImGui::GetContentRegionAvail().y;
+        const float meterW = scaled(10.0f);
+        const float specW = scaled(150.0f);
+        const float waveW = std::max(scaled(80.0f), availW - specW - meterW * 2.0f -
+                                                        scaled(14.0f));
+        const ImVec2 wp = o;
+        const ImVec2 wsz(waveW, availH);
+        dl->AddRectFilled(wp, ImVec2(wp.x + wsz.x, wp.y + wsz.y),
+                          IM_COL32(20, 22, 26, 255));
+        const float mid = wp.y + wsz.y * 0.5f;
+        dl->AddLine(ImVec2(wp.x, mid), ImVec2(wp.x + wsz.x, mid),
+                    IM_COL32(52, 55, 62, 255));
+
+        if (droneAuditioning_ && droneLive_) {
+            // Live scope: the last ~90 ms of output, drawn as a line.
+            static float buf[dronegen::LiveSynth::kScopeSize];
+            const int n = droneLive_->scope(buf, dronegen::LiveSynth::kScopeSize);
+            const int step = std::max(1, n / (int)std::max(1.0f, wsz.x));
+            ImVec2 prev(wp.x, mid);
+            for (int i = 0, col = 0; i < n; i += step, ++col) {
+                const float x = wp.x + (float)col * (wsz.x / (float)(n / step + 1));
+                const ImVec2 cur(x, mid - buf[i] * wsz.y * 0.48f);
+                if (col) dl->AddLine(prev, cur, IM_COL32(120, 210, 150, 220), 1.0f);
+                prev = cur;
+            }
+            // Analyzer: one-pole smoothed log bands (a visualizer, not a
+            // measurement - it reads the same shared scope ring).
+            for (int b = 0; b < 32; ++b) {
+                // crude band energy: bin the scope by frequency via zero-crossing
+                // free Goertzel at the band centre
+                const float hz = 40.0f * std::pow(2.0f, (float)b * (8.0f / 32.0f));
+                const float w = 2.0f * kPi * hz / (float)std::max(8000, p.sampleRate);
+                const float cc = 2.0f * std::cos(w);
+                float s1 = 0.0f, s2 = 0.0f;
+                for (int i = 0; i < n; ++i) {
+                    const float s0 = buf[i] + cc * s1 - s2;
+                    s2 = s1;
+                    s1 = s0;
+                }
+                float m = std::sqrt(std::fabs(s1 * s1 + s2 * s2 - cc * s1 * s2)) /
+                          (float)std::max(1, n);
+                m = std::max(0.0f, 1.0f + std::log10(m + 1e-6f) / 3.0f);  // ~-60 dB floor
+                droneBands_[b] += (m - droneBands_[b]) * 0.35f;
+            }
+        } else if (!droneWaveMin_.empty()) {
+            const int cols = (int)droneWaveMin_.size();
+            for (int x = 0; x < (int)wsz.x; ++x) {
+                const int c = std::min(cols - 1, (int)((float)x / wsz.x * (float)cols));
+                const float top = mid - droneWaveMax_[c] * wsz.y * 0.48f;
+                const float bot = mid - droneWaveMin_[c] * wsz.y * 0.48f;
+                dl->AddLine(ImVec2(wp.x + (float)x, top), ImVec2(wp.x + (float)x, bot),
+                            IM_COL32(120, 165, 220, 220));
+            }
+            const float px = wp.x + wsz.x * droneScrub_;
+            dl->AddLine(ImVec2(px, wp.y), ImVec2(px, wp.y + wsz.y),
+                        IM_COL32(240, 200, 90, 255), 1.5f * s);
+        } else {
+            const char* msg = "Audition to see the live output, or render to see the "
+                              "finished track";
+            dl->AddText(ImVec2(wp.x + scaled(8.0f), mid - ImGui::GetTextLineHeight() * 0.5f),
+                        IM_COL32(120, 124, 134, 255), msg);
+        }
+        dl->AddRect(wp, ImVec2(wp.x + wsz.x, wp.y + wsz.y), IM_COL32(70, 74, 82, 255));
+
+        // spectrum
+        const ImVec2 sp(wp.x + wsz.x + scaled(6.0f), wp.y);
+        dl->AddRectFilled(sp, ImVec2(sp.x + specW, sp.y + availH), IM_COL32(20, 22, 26, 255));
+        for (int b = 0; b < 32; ++b) {
+            const float bw = specW / 32.0f;
+            const float hh = availH * std::min(1.0f, droneBands_[b]);
+            dl->AddRectFilled(ImVec2(sp.x + bw * (float)b, sp.y + availH - hh),
+                              ImVec2(sp.x + bw * (float)(b + 1) - 1.0f, sp.y + availH),
+                              IM_COL32(90, 150, 220, 220));
+        }
+        dl->AddRect(sp, ImVec2(sp.x + specW, sp.y + availH), IM_COL32(70, 74, 82, 255));
+
+        // meters
+        const float pl = droneLive_ && droneAuditioning_ ? droneLive_->peakL() : 0.0f;
+        const float pr = droneLive_ && droneAuditioning_ ? droneLive_->peakR() : 0.0f;
+        meterBar(dl, ImVec2(sp.x + specW + scaled(6.0f), wp.y), ImVec2(meterW, availH),
+                 pl, s);
+        meterBar(dl, ImVec2(sp.x + specW + scaled(8.0f) + meterW, wp.y),
+                 ImVec2(meterW, availH), pr, s);
+
+        // click the waveform to move the playhead (a marker for the eye - the
+        // audition always plays from its own transport)
+        ImGui::InvisibleButton("wavehit", ImVec2(waveW, availH));
+        if (ImGui::IsItemActive())
+            droneScrub_ = std::max(0.0f, std::min(1.0f, (ImGui::GetIO().MousePos.x - wp.x) /
+                                                            waveW));
+        ImGui::EndChild();
+    }
+
+    // ---- tabs -------------------------------------------------------------
+    ImGui::BeginChild("dronetabs", ImVec2(0, -scaled(78.0f)), false);
+    if (ImGui::BeginTabBar("dronetabbar")) {
+        // ================= HARMONY ==========================
+        if (ImGui::BeginTabItem("Harmony")) {
+            groupTitle("Tonality");
+            int rootIdx = p.rootNote;
+            if (knobInt("Root", &rootIdx, 12, 72, 33, "%.0f", s,
+                        "The drone's root note. Everything else is an offset "
+                        "from it.")) {
+                p.rootNote = rootIdx;
+                dirty = true;
+            }
+            ImGui::SameLine();
+            dirty |= knob("Tuning", &p.tuning, 415.0f, 466.0f, 440.0f, "%.1f Hz", s);
+            ImGui::SameLine();
+            dirty |= knob("Glide", &p.glide, 0.0f, 20.0f, 2.5f, "%.1f s", s, 1.6f,
+                          "How long a chord change takes to slide.");
+            ImGui::SameLine();
+            dirty |= knob("Tempo", &p.bpm, 20.0f, 140.0f, 60.0f, "%.0f BPM", s);
+            ImGui::SameLine();
+            int bpb = p.beatsPerBar;
+            if (knobInt("Beats", &bpb, 2, 12, 4, "%.0f", s, "Beats per bar.")) {
+                p.beatsPerBar = bpb;
+                dirty = true;
+            }
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Root note %s   bar = %.2f s   scale",
+                                dronegen::noteName(p.rootNote),
+                                (double)dronegen::barSeconds(p));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(130.0f));
+            dirty |= ImGui::Combo("##scale", &p.scale, dronegen::scaleNames(),
+                                  dronegen::ScaleCount);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Only the bells use the scale; chords are spelled "
+                                  "note by note below.");
+
+            groupTitle("Chord progression");
+            ImGui::TextDisabled(
+                "Semitones from the root, one row per chord. Blank cells (-99) are "
+                "unused voices; a layer picks which of the six it plays.");
+            int stepCount = p.stepCount;
+            ImGui::SetNextItemWidth(scaled(160.0f));
+            if (ImGui::SliderInt("Chords", &stepCount, 1, dronegen::kMaxSteps)) {
+                p.stepCount = stepCount;
+                dirty = true;
+            }
+            if (ImGui::BeginTable("chords", 3 + dronegen::kMaxChordNotes,
+                                  ImGuiTableFlags_SizingFixedFit |
+                                      ImGuiTableFlags_BordersInnerV)) {
+                ImGui::TableSetupColumn("#");
+                ImGui::TableSetupColumn("bars");
+                for (int i = 0; i < dronegen::kMaxChordNotes; ++i) {
+                    char h[8];
+                    std::snprintf(h, sizeof(h), "v%d", i + 1);
+                    ImGui::TableSetupColumn(h);
+                }
+                ImGui::TableSetupColumn("notes");
+                ImGui::TableHeadersRow();
+                for (int i = 0; i < p.stepCount; ++i) {
+                    dronegen::Step& st = p.steps[i];
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%d", i + 1);
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(scaled(58.0f));
+                    dirty |= ImGui::DragFloat("##bars", &st.bars, 0.25f, 0.25f, 64.0f,
+                                              "%.2g");
+                    std::string names;
+                    for (int n = 0; n < dronegen::kMaxChordNotes; ++n) {
+                        ImGui::TableNextColumn();
+                        int v = n < st.count ? st.notes[n] : -99;
+                        ImGui::SetNextItemWidth(scaled(44.0f));
+                        ImGui::PushID(n);
+                        if (ImGui::DragInt("##n", &v, 0.25f, -99, 36, v <= -99 ? "-" : "%d")) {
+                            if (v <= -90) {
+                                // clearing a voice shortens the chord from here
+                                st.count = std::min(st.count, n);
+                            } else {
+                                st.notes[n] = std::max(-36, std::min(36, v));
+                                st.count = std::max(st.count, n + 1);
+                            }
+                            dirty = true;
+                        }
+                        ImGui::PopID();
+                        if (n < st.count) {
+                            if (!names.empty()) names += " ";
+                            names += dronegen::noteName(p.rootNote + st.notes[n]);
+                        }
+                    }
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("%s", names.c_str());
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            const float pass = dronegen::progressionBars(p) * dronegen::barSeconds(p);
+            ImGui::TextDisabled("One pass = %.1f bars = %.1f s.",
+                                (double)dronegen::progressionBars(p), (double)pass);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Fit length to whole passes")) {
+                const int n = std::max(1, (int)std::lround(p.lengthSec / pass));
+                p.lengthSec = pass * (float)n;
+                dirty = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A looping track whose length is a whole number of\n"
+                                  "passes never lands mid-chord at the loop point.");
+            ImGui::EndTabItem();
+        }
+
+        // ================= LAYERS ==========================
+        if (ImGui::BeginTabItem("Layers")) {
+            // Mixer strip first: balancing four stacks should not need four
+            // tab clicks.
+            groupTitle("Mix");
+            for (int i = 0; i < dronegen::kMaxLayers; ++i) {
+                dronegen::Layer& L = p.layers[i];
+                ImGui::PushID(i);
+                if (i) ImGui::SameLine(0.0f, scaled(18.0f));
+                ImGui::BeginGroup();
+                char lbl[16];
+                std::snprintf(lbl, sizeof(lbl), "L%d", i + 1);
+                dirty |= ImGui::Checkbox(lbl, &L.on);
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", dronegen::waveNames()[L.wave]);
+                float lv = L.level;
+                if (knob("level", &lv, 0.0f, 1.0f, 0.5f, "%.2f", s)) {
+                    L.level = lv;
+                    dirty = true;
+                }
+                ImGui::EndGroup();
+                ImGui::PopID();
+            }
+
+            if (ImGui::BeginTabBar("layertabs")) {
+                for (int i = 0; i < dronegen::kMaxLayers; ++i) {
+                    char name[16];
+                    std::snprintf(name, sizeof(name), "Layer %d", i + 1);
+                    if (!ImGui::BeginTabItem(name)) continue;
+                    dronegen::Layer& L = p.layers[i];
+                    ImGui::PushID(i);
+                    dirty |= ImGui::Checkbox("Enabled", &L.on);
+                    ImGui::SameLine(0.0f, scaled(20.0f));
+                    ImGui::SetNextItemWidth(scaled(120.0f));
+                    dirty |= ImGui::Combo("Wave", &L.wave, dronegen::waveNames(),
+                                          dronegen::WaveCount);
+                    ImGui::SameLine(0.0f, scaled(20.0f));
+                    // Which chord degrees this stack plays: the difference
+                    // between a sub, a pad and a top voice.
+                    ImGui::TextDisabled("Plays:");
+                    for (int n = 0; n < dronegen::kMaxChordNotes; ++n) {
+                        ImGui::SameLine();
+                        char t[8];
+                        std::snprintf(t, sizeof(t), "%d##nb%d", n + 1, n);
+                        bool on = (L.notes & (1 << n)) != 0;
+                        if (ImGui::Checkbox(t, &on)) {
+                            L.notes = on ? (L.notes | (1 << n)) : (L.notes & ~(1 << n));
+                            dirty = true;
+                        }
+                    }
+
+                    groupTitle("Pitch");
+                    int oct = L.octave, semi = L.semi;
+                    if (knobInt("Octave", &oct, -3, 3, 0, "%.0f", s)) {
+                        L.octave = oct;
+                        dirty = true;
+                    }
+                    ImGui::SameLine();
+                    if (knobInt("Semi", &semi, -12, 12, 0, "%.0f", s)) {
+                        L.semi = semi;
+                        dirty = true;
+                    }
+                    ImGui::SameLine();
+                    dirty |= knob("Fine", &L.fine, -50.0f, 50.0f, 0.0f, "%.0f ct", s);
+                    ImGui::SameLine();
+                    int uni = L.unison;
+                    if (knobInt("Unison", &uni, 1, dronegen::kMaxUnison, 1, "%.0f", s,
+                                "Detuned copies of every voice."))
+                        { L.unison = uni; dirty = true; }
+                    ImGui::SameLine();
+                    dirty |= knob("Detune", &L.detune, 0.0f, 60.0f, 12.0f, "%.0f ct", s);
+                    ImGui::SameLine();
+                    dirty |= knob("Spread", &L.spread, 0.0f, 1.0f, 0.6f, "%.2f", s, 1.0f,
+                                  "Stereo fan of the unison stack.");
+                    ImGui::SameLine();
+                    dirty |= knob("Drift", &L.drift, 0.0f, 40.0f, 6.0f, "%.0f ct", s,
+                                  1.0f, "Slow random detuning - what keeps a held\n"
+                                        "chord from sounding frozen.");
+
+                    groupTitle("Shape");
+                    dirty |= knob("Level", &L.level, 0.0f, 1.0f, 0.5f, "%.2f", s);
+                    ImGui::SameLine();
+                    dirty |= knob("Pan", &L.pan, -1.0f, 1.0f, 0.0f, "%+.2f", s);
+                    ImGui::SameLine();
+                    dirty |= knob("Tone", &L.tone, 0.0f, 1.0f, 0.6f, "%.2f", s, 1.0f,
+                                  "Per-voice low pass, 80 Hz to 12 kHz.");
+                    ImGui::SameLine();
+                    dirty |= knob("Attack", &L.attack, 0.05f, 30.0f, 4.0f, "%.1f s", s,
+                                  1.7f);
+                    ImGui::SameLine();
+                    dirty |= knob("Release", &L.release, 0.05f, 30.0f, 5.0f, "%.1f s", s,
+                                  1.7f);
+                    if (L.wave == dronegen::WaveFm) {
+                        ImGui::SameLine();
+                        dirty |= knob("Ratio", &L.fmRatio, 0.5f, 8.0f, 2.0f, "%.2f", s);
+                        ImGui::SameLine();
+                        dirty |= knob("Index", &L.fmIndex, 0.0f, 8.0f, 1.5f, "%.2f", s);
+                    }
+                    if (L.wave == dronegen::WavePulse) {
+                        ImGui::SameLine();
+                        dirty |= knob("Width", &L.pw, 0.05f, 0.95f, 0.35f, "%.2f", s);
+                    }
+                    ImGui::PopID();
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
+            ImGui::EndTabItem();
+        }
+
+        // ================= MOTION ==========================
+        if (ImGui::BeginTabItem("Motion")) {
+            groupTitle("LFOs");
+            for (int i = 0; i < dronegen::kNumLfos; ++i) {
+                dronegen::Lfo& L = p.lfos[i];
+                ImGui::PushID(i);
+                if (i) ImGui::Spacing();
+                ImGui::BeginGroup();
+                ImGui::Text("LFO %d", i + 1);
+                ImGui::SetNextItemWidth(scaled(130.0f));
+                dirty |= ImGui::Combo("##shape", &L.shape, dronegen::lfoShapeNames(),
+                                      dronegen::LfoShapeCount);
+                if (ImGui::Checkbox("per bar", &L.sync)) dirty = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Rate in cycles per bar instead of Hz, so the\n"
+                                      "motion lines up with the progression (and with\n"
+                                      "the loop point).");
+                ImGui::EndGroup();
+                ImGui::SameLine();
+                dirty |= knob(L.sync ? "Cycles/bar" : "Rate", &L.rate, 0.005f,
+                              L.sync ? 4.0f : 8.0f, 0.07f,
+                              L.sync ? "%.3f" : "%.3f Hz", s, 2.0f);
+                ImGui::SameLine();
+                dirty |= knob("Depth", &L.depth, 0.0f, 1.0f, 1.0f, "%.2f", s);
+                ImGui::PopID();
+            }
+
+            groupTitle("Modulation matrix");
+            ImGui::TextDisabled("Route a source at a destination. This is where a "
+                                "static patch becomes a piece.");
+            if (ImGui::BeginTable("mods", 3,
+                                  ImGuiTableFlags_SizingFixedFit |
+                                      ImGuiTableFlags_BordersInnerV)) {
+                ImGui::TableSetupColumn("source");
+                ImGui::TableSetupColumn("destination");
+                ImGui::TableSetupColumn("amount");
+                ImGui::TableHeadersRow();
+                for (int i = 0; i < dronegen::kNumMods; ++i) {
+                    dronegen::ModRow& m = p.mods[i];
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(scaled(110.0f));
+                    dirty |= ImGui::Combo("##src", &m.src, dronegen::modSourceNames(),
+                                          dronegen::ModSrcCount);
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(scaled(160.0f));
+                    dirty |= ImGui::Combo("##dst", &m.dst, dronegen::modTargetNames(),
+                                          dronegen::ModDstTargetCount);
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(scaled(150.0f));
+                    dirty |= ImGui::SliderFloat("##amt", &m.amount, -1.0f, 1.0f, "%+.2f");
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+
+            groupTitle("Arc");
+            ImGui::TextDisabled("The shape of the whole piece: five points from start "
+                                "to end.\nUse it as the \"Arc\" modulation source "
+                                "above.");
+            if (arcEditor("arc", p.arc, dronegen::kArcPoints,
+                          ImVec2(scaled(420.0f), scaled(90.0f)), s))
+                dirty = true;
+            ImGui::EndTabItem();
+        }
+
+        // ================= AIR & BELLS ==========================
+        if (ImGui::BeginTabItem("Air & Bells")) {
+            groupTitle("Air (filtered noise)");
+            dirty |= ImGui::Checkbox("Air on", &p.noise.on);
+            dirty |= knob("Level##air", &p.noise.level, 0.0f, 0.6f, 0.12f, "%.3f", s);
+            ImGui::SameLine();
+            dirty |= knob("Colour", &p.noise.cutoff, 60.0f, 8000.0f, 900.0f, "%.0f Hz", s,
+                          2.2f, "Centre of the noise band.");
+            ImGui::SameLine();
+            dirty |= knob("Res", &p.noise.res, 0.0f, 0.95f, 0.3f, "%.2f", s, 1.0f,
+                          "Narrows the band - past 0.7 it whistles.");
+            ImGui::SameLine();
+            dirty |= knob("Motion", &p.noise.motionRate, 0.005f, 1.0f, 0.05f, "%.3f Hz",
+                          s, 2.0f, "How fast the band wanders.");
+            ImGui::SameLine();
+            dirty |= knob("Sweep", &p.noise.motionDepth, 0.0f, 1.0f, 0.5f, "%.2f", s,
+                          1.0f, "How far it wanders (octaves).");
+            ImGui::SameLine();
+            dirty |= knob("Width", &p.noise.stereo, 0.0f, 1.0f, 0.7f, "%.2f", s, 1.0f,
+                          "Channel decorrelation.");
+
+            groupTitle("Bells (sparse notes)");
+            dirty |= ImGui::Checkbox("Bells on", &p.bells.on);
+            ImGui::SameLine(0.0f, scaled(20.0f));
+            ImGui::SetNextItemWidth(scaled(140.0f));
+            dirty |= ImGui::Combo("Timbre", &p.bells.timbre, dronegen::bellNames(),
+                                  dronegen::BellTimbreCount);
+            ImGui::SameLine(0.0f, scaled(20.0f));
+            dirty |= ImGui::Checkbox("Chord notes only", &p.bells.chordLock);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("On: bells pick a note from the chord that is "
+                                  "playing.\nOff: they roam the scale.");
+            ImGui::SameLine(0.0f, scaled(20.0f));
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            const char* kQuant[] = {"free", "on the beat", "on the bar"};
+            dirty |= ImGui::Combo("Timing", &p.bells.quantize, kQuant, 3);
+
+            dirty |= knob("Density", &p.bells.density, 0.0f, 90.0f, 8.0f, "%.0f /min", s,
+                          1.5f);
+            ImGui::SameLine();
+            dirty |= knob("Level##bells", &p.bells.level, 0.0f, 1.0f, 0.35f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Decay", &p.bells.decay, 0.1f, 15.0f, 3.0f, "%.1f s", s, 1.6f);
+            ImGui::SameLine();
+            int bo = p.bells.octave;
+            if (knobInt("Octave", &bo, -1, 4, 2, "%.0f", s, "Octaves above the root."))
+                { p.bells.octave = bo; dirty = true; }
+            ImGui::SameLine();
+            int br = p.bells.range;
+            if (knobInt("Range", &br, 1, 36, 12, "%.0f", s, "Semitones of reach."))
+                { p.bells.range = br; dirty = true; }
+            ImGui::SameLine();
+            dirty |= knob("Bright", &p.bells.bright, 0.0f, 1.0f, 0.5f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Spread", &p.bells.spread, 0.0f, 1.0f, 0.8f, "%.2f", s, 1.0f,
+                          "Random stereo placement per note.");
+            ImGui::SameLine();
+            dirty |= knob("To delay", &p.bells.delaySend, 0.0f, 1.5f, 0.5f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("To reverb", &p.bells.revSend, 0.0f, 1.5f, 0.8f, "%.2f", s);
+            ImGui::EndTabItem();
+        }
+
+        // ================= SPACE (FX) ==========================
+        if (ImGui::BeginTabItem("Space")) {
+            groupTitle("Filter & drive");
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            dirty |= ImGui::Combo("##ftype", &p.filter.type, dronegen::filterNames(),
+                                  dronegen::FilterTypeCount);
+            ImGui::SameLine();
+            dirty |= knob("Cutoff", &p.filter.cutoff, 40.0f, 12000.0f, 2200.0f, "%.0f Hz",
+                          s, 2.4f);
+            ImGui::SameLine();
+            dirty |= knob("Res", &p.filter.res, 0.0f, 0.95f, 0.25f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Drive", &p.fx.drive, 0.0f, 1.0f, 0.15f, "%.2f", s, 1.0f,
+                          "Soft saturation before the filter.");
+            ImGui::SameLine();
+            dirty |= knob("Dry/wet", &p.fx.driveMix, 0.0f, 1.0f, 1.0f, "%.2f", s);
+
+            groupTitle("Chorus & tape");
+            dirty |= knob("Ch rate", &p.fx.chorusRate, 0.01f, 3.0f, 0.25f, "%.2f Hz", s,
+                          1.8f);
+            ImGui::SameLine();
+            dirty |= knob("Ch depth", &p.fx.chorusDepth, 0.0f, 1.0f, 0.4f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Ch mix", &p.fx.chorusMix, 0.0f, 1.0f, 0.35f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Ch width", &p.fx.chorusSpread, 0.0f, 1.0f, 1.0f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Wow", &p.fx.wow, 0.0f, 1.0f, 0.15f, "%.2f", s, 1.0f,
+                          "Slow tape pitch drift.");
+            ImGui::SameLine();
+            dirty |= knob("Flutter", &p.fx.flutter, 0.0f, 1.0f, 0.05f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Hiss", &p.fx.hiss, 0.0f, 1.0f, 0.0f, "%.2f", s);
+
+            groupTitle("Delay");
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::BeginCombo("##ddiv", dronegen::delayDivName(p.fx.delayDiv))) {
+                for (int i = 0; i < 6; ++i)
+                    if (ImGui::Selectable(dronegen::delayDivName(i), p.fx.delayDiv == i)) {
+                        p.fx.delayDiv = i;
+                        dirty = true;
+                    }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            if (p.fx.delayDiv == 0) {
+                dirty |= knob("Time", &p.fx.delayTime, 0.02f, 4.0f, 1.5f, "%.2f s", s,
+                              1.8f);
+                ImGui::SameLine();
+            }
+            dirty |= knob("Feedback", &p.fx.delayFeedback, 0.0f, 0.95f, 0.55f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Mix##delay", &p.fx.delayMix, 0.0f, 1.0f, 0.25f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Damp##delay", &p.fx.delayDamp, 0.0f, 0.95f, 0.5f, "%.2f", s, 1.0f,
+                          "Each repeat loses its top end.");
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0, scaled(14.0f)));
+            dirty |= ImGui::Checkbox("Ping-pong", &p.fx.pingpong);
+            ImGui::TextDisabled("%.2f s", (double)dronegen::delaySeconds(p));
+            ImGui::EndGroup();
+
+            groupTitle("Reverb");
+            dirty |= knob("Size", &p.fx.revSize, 0.0f, 1.0f, 0.7f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Decay", &p.fx.revDecay, 0.2f, 40.0f, 9.0f, "%.1f s", s, 1.8f,
+                          "RT60. A 30-second tail is a legitimate choice here.");
+            ImGui::SameLine();
+            dirty |= knob("Damp##reverb", &p.fx.revDamp, 0.0f, 1.0f, 0.45f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Low cut##reverb", &p.fx.revLowCut, 20.0f, 600.0f, 90.0f, "%.0f Hz", s,
+                          1.8f, "Keeps the tail out of the sub range.");
+            ImGui::SameLine();
+            dirty |= knob("Predelay", &p.fx.revPredelay, 0.0f, 0.25f, 0.03f, "%.3f s", s);
+            ImGui::SameLine();
+            dirty |= knob("Diffusion", &p.fx.revDiffusion, 0.0f, 1.0f, 0.7f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Width", &p.fx.revWidth, 0.0f, 1.0f, 1.0f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Mix##reverb", &p.fx.revMix, 0.0f, 1.0f, 0.45f, "%.2f", s);
+
+            dirty |= knob("Shimmer", &p.fx.shimmer, 0.0f, 1.0f, 0.0f, "%.2f", s, 1.0f,
+                          "Pitch-shifted feedback inside the tail - the sound\n"
+                          "everyone means by \"ambient reverb\".");
+            ImGui::SameLine();
+            int ss = p.fx.shimmerSemi;
+            if (knobInt("Shift", &ss, -12, 19, 12, "%.0f", s, "Semitones of the shimmer."))
+                { p.fx.shimmerSemi = ss; dirty = true; }
+
+            groupTitle("Output tone");
+            dirty |= knob("Low cut##out", &p.fx.lowCut, 10.0f, 300.0f, 40.0f, "%.0f Hz", s,
+                          1.6f);
+            ImGui::SameLine();
+            dirty |= knob("High cut", &p.fx.highCut, 800.0f, 11000.0f, 9000.0f, "%.0f Hz",
+                          s, 2.0f);
+            ImGui::SameLine();
+            dirty |= knob("Tilt", &p.fx.tilt, -9.0f, 9.0f, 0.0f, "%+.1f dB", s, 1.0f,
+                          "Darker to brighter, pivoting at 700 Hz.");
+            ImGui::SameLine();
+            dirty |= knob("Stereo", &p.fx.width, 0.0f, 2.0f, 1.0f, "%.2f", s, 1.0f,
+                          "Mid/side width. 0 = mono, 1 = as recorded.");
+            ImGui::SameLine();
+            dirty |= knob("Mono under", &p.fx.monoBelow, 20.0f, 500.0f, 140.0f, "%.0f Hz",
+                          s, 1.6f, "Bass summed to the centre - kinder to a TV.");
+            ImGui::EndTabItem();
+        }
+
+        // ================= MASTER ==========================
+        if (ImGui::BeginTabItem("Master")) {
+            groupTitle("Piece");
+            dirty |= knob("Length", &p.lengthSec, 5.0f, 600.0f, 60.0f, "%.0f s", s, 1.8f);
+            ImGui::SameLine();
+            dirty |= knob("Level", &p.master.level, 0.0f, 1.0f, 0.8f, "%.2f", s);
+            ImGui::SameLine();
+            dirty |= knob("Normalize", &p.master.normalize, 0.0f, 1.0f, 0.89f, "%.2f", s,
+                          1.0f, "Target peak of the rendered file. 0 = leave it alone.");
+            if (!p.master.loopSeamless) {
+                ImGui::SameLine();
+                dirty |= knob("Fade in", &p.master.fadeIn, 0.0f, 20.0f, 2.0f, "%.1f s", s);
+                ImGui::SameLine();
+                dirty |= knob("Fade out", &p.master.fadeOut, 0.0f, 20.0f, 4.0f, "%.1f s",
+                              s);
+            } else {
+                ImGui::SameLine();
+                dirty |= knob("Loop tail", &p.master.loopTail, 0.5f, 30.0f, 6.0f, "%.1f s",
+                              s, 1.4f,
+                              "How much of the reverb tail is folded back over\n"
+                              "the start of the file.");
+            }
+
+            ImGui::Spacing();
+            dirty |= ImGui::Checkbox("Seamless loop", &p.master.loopSeamless);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Renders past the end and adds the tail over the beginning -\n"
+                    "which is exactly what a looping player hears. Leave it on for\n"
+                    "background music (Play Music with Loop checked); turn it off\n"
+                    "for a one-shot cue and use the fades instead.");
+            ImGui::SameLine(0.0f, scaled(20.0f));
+            dirty |= ImGui::Checkbox("Limiter", &p.master.limiter);
+            ImGui::SameLine(0.0f, scaled(20.0f));
+            dirty |= ImGui::Checkbox("Dither", &p.master.dither);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("TPDF noise at 16-bit. Seeded from the patch, so a\n"
+                                  "re-render is still byte-identical.");
+
+            groupTitle("File");
+            const char* kRates[] = {"11025 Hz", "22050 Hz (PS2 song player)",
+                                    "44100 Hz"};
+            int rateIdx = p.sampleRate == 11025 ? 0 : p.sampleRate == 44100 ? 2 : 1;
+            ImGui::SetNextItemWidth(scaled(240.0f));
+            if (ImGui::Combo("Sample rate", &rateIdx, kRates, 3)) {
+                p.sampleRate = rateIdx == 0 ? 11025 : rateIdx == 2 ? 44100 : 22050;
+                dirty = true;
+                // Structural change: the audition device and synth are rebuilt.
+                if (droneAuditioning_) {
+                    droneAudition(false);
+                    droneLive_.reset();
+                    droneAudition(true);
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Tyra's AudioSong streams 16-bit 22050 Hz stereo -\n"
+                                  "anything else is for auditioning or for exporting\n"
+                                  "to another tool. The Music list can also downsample\n"
+                                  "per build (Project > Music > PS2 build).");
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Stereo", &p.stereo)) dirty = true;
+
+            const unsigned long long bytes = dronegen::wavBytes(p);
+            ImGui::TextDisabled("Renders to %.1f MB of WAV (%.0f s at %d Hz %s).",
+                                (double)bytes / (1024.0 * 1024.0), (double)p.lengthSec,
+                                p.sampleRate, p.stereo ? "stereo" : "mono");
+            if (bytes > 24ull * 1024 * 1024)
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                   "That is a lot of disc for one track - a shorter "
+                                   "seamless loop usually reads the same.");
+
+            if (droneRenderResult_.frames > 0 && !droneRendering_) {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Last render: peak %.2f, RMS %.3f, normalize gain "
+                                    "x%.2f.",
+                                    (double)droneRenderResult_.peak,
+                                    (double)droneRenderResult_.rms,
+                                    (double)droneRenderResult_.gainApplied);
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::EndChild();
+
+    // ---- bottom bar: name, render, patch I/O ------------------------------
+    ImGui::Separator();
+    ImGui::SetNextItemWidth(scaled(170.0f));
+    ImGui::InputText("Track name", droneTrackName_, sizeof(droneTrackName_));
+    ImGui::SameLine(0.0f, scaled(16.0f));
+    if (droneRendering_) {
+        ImGui::ProgressBar(droneRenderProgress_.load(), ImVec2(scaled(190.0f), 0));
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) droneRenderCancel_.store(true);
+    } else {
+        if (ImGui::Button("Render to res/audio", ImVec2(scaled(190.0f), 0)))
+            droneStartRender();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Writes res/audio/<name>.wav plus a <name>.drone patch\n"
+                              "sidecar and adds the track to the project's Music list.");
+    }
+    ImGui::SameLine(0.0f, scaled(16.0f));
+    if (ImGui::Button("Save patch")) {
+        // Patches live with the project (res/audio, next to where the track
+        // would land), so this needs no dialog - the editor has no save picker.
+        const std::string rel = std::string("res/audio/") + droneTrackName_ + ".drone";
+        const std::filesystem::path abs = project_.filePath(rel);
+        std::error_code ec;
+        std::filesystem::create_directories(abs.parent_path(), ec);
+        std::ofstream f(abs, std::ios::binary);
+        if (f) {
+            f << dronegen::toText(p, dronePatchTitle_);
+            droneStatus_ = "Patch saved to " + rel;
+        } else {
+            droneStatus_ = "Could not write " + rel;
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Writes res/audio/<name>.drone without rendering audio -\n"
+                          "a work in progress you can come back to.");
+    ImGui::SameLine();
+    if (ImGui::Button("Load patch...")) {
+        const std::string path = platform::pickFile(
+            "Open drone patch", {{"TyraX drone patch (*.drone)", {"*.drone"}}});
+        if (!path.empty()) droneLoadPatch(path);
+    }
+    if (!droneStatus_.empty()) {
+        ImGui::SameLine(0.0f, scaled(16.0f));
+        ImGui::TextDisabled("%s", droneStatus_.c_str());
+    }
+
+    if (dirty) dronePushParams();
+    ImGui::End();
+}

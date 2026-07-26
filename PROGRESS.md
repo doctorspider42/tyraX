@@ -10,6 +10,115 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (188) **Ambient / drone music generator: *Tools > Drone Generator*.** User
+  request - "a few tools so a background track can actually be crafted, knobs to
+  turn like in the priciest VST plugins". A game needs a background bed and the
+  editor had no way to make one: music could only be imported. This is a real
+  synthesizer, host-side, whose output is an ordinary asset - `res/audio/x.wav`
+  in the 16-bit 22050 Hz stereo format `Tyra::AudioSong` already streams, plus a
+  re-editable `x.drone` patch next to it. **Nothing about the PS2 side changed**:
+  no object type, no serialization field, no codegen, no engine work - the
+  treegen precedent, and the reason the whole thing is reviewable.
+  **What it is** (`src/dronegen.cpp`, host-only, no GL, no `Project`): four
+  oscillator layers (sine/triangle/saw/square/pulse/FM/organ; saw/square/pulse
+  PolyBLEP band-limited, organ drops partials past Nyquist rather than folding
+  them - a drone is exactly the signal that gives you all day to hear aliasing),
+  each up to six chord voices x five detuned unison copies with stereo fan and a
+  slow per-voice random **drift** (what keeps a 30-second chord from sounding
+  frozen), a per-layer chord-degree mask so one layer is a sub and another a pad;
+  an eight-step **chord progression** that **glides** between chords; a filtered
+  **air bed**; sparse **bells** (FM / Karplus-Strong pluck / glass, quantized to
+  beat or bar, drawn from the chord or the scale, with their own delay/reverb
+  sends - they bypass the master filter on purpose, a low-passed bell is a thud);
+  a Cytomic TPT **SVF**; **three LFOs plus a five-point arc envelope over the
+  whole piece, through a six-row modulation matrix** onto 15 destinations - the
+  part that turns a patch into a piece; then drive, three-tap ensemble chorus,
+  tape wow/flutter/hiss, ping-pong delay on musical divisions, an **8-line FDN
+  reverb** (normalized Hadamard feedback, per-line damping, in-loop low cut,
+  modulated lengths, input diffuser, predelay; RT60 to 40 s - an FDN and not a
+  comb bank because comb filters ring metallic long before a 30-second tail),
+  **shimmer** (a two-window granular pitch shifter inside the reverb's feedback,
+  the one place its window seams are inaudible), tilt EQ, M/S width with the bass
+  summed to mono (a wide low end collapses through a TV), limiter and 16-bit
+  TPDF dither.
+  **The two design decisions worth remembering.** (1) *Seamless loops add, they
+  do not crossfade*: background music plays with `song.inLoop = true`, so the
+  render runs past the end and **adds** that tail over the beginning - which is
+  literally what a looping player hears at the wrap. Measured on *Deep Space
+  Hum*: RMS in the last second before the wrap 0.1545 vs 0.1530 at the start of
+  the file; with the option off the same measurement is 0.1688 vs 0.0351, i.e.
+  the thud you have heard in a hundred games. (2) *The audition IS the renderer*:
+  `Synth` renders blocks, the editor's audio device pulls from it through
+  `LiveSynth`, and the offline `render()` runs the identical block loop and only
+  then applies the mastering - so a knob cannot sound different in the file than
+  it did in the preview. The UI/audio hand-off is a `try_lock` in the AUDIO
+  thread (a UI stalled in a file dialog must never starve the device; it keeps
+  the previous parameters for another block), while meters/scope go the other way
+  through plain atomics - a visualizer may race, a device may not.
+  **New dependency**: `vendor/miniaudio` (single header, in deps.sh + deps.ps1),
+  wrapped by `src/audiopreview.cpp` - the only TU that includes it and the
+  editor's only audio *output* path. It dlopen's its backends (WASAPI /
+  ALSA/Pulse/JACK), so **no new system package** and no link-time dependency; a
+  machine with no sound card is an expected state (the button says so and the
+  tool stays an offline renderer).
+  **UI** (`src/droneui.cpp`, its own TU - the assetbrowser.cpp precedent): a
+  VST-style rotary for every parameter (vertical drag, Shift = fine, double-click
+  resets, log-ish curve for frequency/time knobs, symmetric ranges drawn bipolar
+  from the centre), the arc curve editor, the chord table showing the note names
+  it spells, the mod matrix, a live scope + 32-band analyzer + peak meters, a
+  rendered-waveform overview with a playhead, and ten presets. Everything is
+  **deterministic in `Params`** (every random stream derives from the seed
+  through a mixer), so a re-render is byte-identical and *Roll* re-seeds instead
+  of re-rolling the patch. The `.drone` sidecar joins `App::assetSidecars`, so the
+  Asset Browser carries it on rename/move/delete - and **double-clicking a track
+  reopens the piece that made it**. `toText`/`fromText` walk ONE field list
+  (`visitParams`), the project's section-writer trick: a field added there is
+  saved and loaded, with no second list to forget.
+  **Verified.** (a) Host harness over `dronegen.cpp` alone (the treegen pattern):
+  all ten presets rendered - no NaN/Inf, DC offset < 6e-5, peak 0.890 = the
+  normalization target, 1-second RMS windows inside 0.10..0.30 (no holes, no
+  spikes), a second render **bit-identical**, and audio rendered from a patch's
+  saved `.drone` text identical to the original; 1/6-octave spectra confirm what
+  each patch claims (Init Drone: 53 Hz fundamental + 107/428/605 harmonics with a
+  smooth falloff; Machine Room rolls off to -77 dB near Nyquist, i.e. PolyBLEP
+  works; Glacial Shimmer shows the octave stack 1976 / 3952 / 7904 Hz the
+  shimmer builds). Live path checked to produce the same first block as the
+  offline synth, and the scope/meters to fill. (b) Real audio device opened on
+  this Linux box (ALSA via miniaudio), played 3 s, took a live parameter push,
+  and the transport advanced in real time. (c) Inside the running editor, with a
+  throwaway self-drive hook: all six tabs drawn (no ImGui assert), *Audition*
+  opened the device, and *Render* wrote `res/audio/selftest.wav` (2 ch / 22050 Hz
+  / 16-bit / 12.0 s, verified by reading the file back) plus `selftest.drone`,
+  added the track to the project's Music list and saved the project.
+  (d) Owner-reported bug, fixed in the same entry: the *Mix*, *Damp*, *Level* and
+  *Low cut* knobs raised Dear ImGui's "2 visible items with conflicting ID"
+  error - a delay *Mix* and a reverb *Mix* in one panel hash to the same ID,
+  which breaks hover/drag state, not just the warning. `knob()` now honours the
+  **`##` convention** (display name is the label up to `##`, the whole string is
+  the ID) and the four colliding pairs are spelled `Mix##delay` / `Mix##reverb`
+  etc. **Both members** of a pair carry a suffix so neither reads as "the real
+  one". Verified twice: a script that extracts every `knob`/`knobInt` label per
+  tab and reports duplicates (Air & Bells `Level`x2; Space `Mix`x2, `Damp`x2,
+  `Low cut`x2 - `Low cut` had not been noticed by eye yet), and a runtime check
+  inside `knob()` printing any repeat of the ID **ImGui actually assigned**
+  (`GetItemID`) within one frame, with all six tabs cycled: 0 duplicates, and
+  240 hits when one collision was reintroduced on purpose as a control.
+  *Dead end worth recording*: ImGui's own conflict detector cannot be driven
+  headlessly - it fires only via `HoveredIdPreviousFrameItemCount`, and a
+  synthetic cursor (`AddMousePosEvent` before `NewFrame`, dwelling on a grid of
+  10 000+ positions) never produced a single hovered ITEM even though the
+  hovered WINDOW resolved correctly. Comparing IDs at draw time is the check
+  that works; do not spend an hour on the fake-cursor route again.
+  (e) Screenshots: this machine runs GNOME on Wayland, which **denies external
+  capture** (`org.gnome.Shell.Screenshot` -> AccessDenied) and gives GLFW no X11
+  window to grab, so the editor grew a small **framebuffer self-capture**
+  (`TYRAX_SHOT=<dir>`, interval via `TYRAX_SHOT_EVERY`, off unless set): it reads
+  back its own window with `glReadPixels` and writes PNGs. That is what produced
+  the shots used to check the knob rendering, the layout of all six tabs and the
+  meters - and it is now the documented answer for verifying editor UI on Linux
+  (see tyra-testing). **Still needs a human**: whether the presets sound *good*,
+  and the feel of dragging the knobs.
+
 - (187) **The editor is cross-platform: it builds and runs on Linux from the
   same source tree.** The whole thing was Windows-only, and not incidentally -
   `CreateProcess` + Job Objects drove the Runner and the AI generator,

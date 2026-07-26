@@ -1,16 +1,21 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
 #include "aigen.hpp"
+#include "audiopreview.hpp"
 #include "camtake.hpp"
+#include "dronegen.hpp"
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "matbake.hpp"
@@ -57,6 +62,11 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
+    // Writes the editor's own framebuffer to <TYRAX_SHOT>/shotNN.png every
+    // TYRAX_SHOT_EVERY seconds (default 2), and nothing at all when the
+    // variable is unset. The only screenshot path that works under a compositor
+    // that denies external capture - see the comment on the definition.
+    void captureFrameIfRequested(int w, int h);
     // Icon toolbar drawn inline in the main menu bar (Save / Run in PCSX2 /
     // Run on PS2 / Stop). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
@@ -491,6 +501,27 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Drone Generator (docs/drone-generator.md) - the ambient/drone
+    // music tool. All of these live in droneui.cpp (the assetbrowser.cpp
+    // precedent: a self-contained subsystem gets its own TU).
+    void drawDroneGeneratorWindow();
+    // Starts/stops live audition. Opening the device also creates the
+    // LiveSynth; a machine with no sound card just gets droneAudioError_.
+    void droneAudition(bool on);
+    // Pushes droneParams_ into the running LiveSynth. Every knob edit calls it,
+    // so what you hear is always the current patch.
+    void dronePushParams();
+    // Kicks off the offline render on a worker thread; droneTickRender() polls
+    // it each frame and writes the WAV (+ .drone sidecar) when it finishes.
+    void droneStartRender();
+    void droneTickRender();
+    // Loads a .drone patch (a rendered track's sidecar, or any hand-written
+    // one) into the tool. Returns false and sets droneStatus_ on a bad file.
+    bool droneLoadPatch(const std::string& relOrAbs);
+    // Rebuilds the min/max envelope the waveform strip draws from the last
+    // render, so the display does not walk a million samples per frame.
+    void droneBuildWaveOverview();
+
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -967,6 +998,39 @@ private:
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
     int treeGenDisplayMode_ = 0;
+    // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
+    // droneParams_ is the whole patch; the LiveSynth and the audio device are
+    // created lazily on the first Audition, so a session that never opens the
+    // tool never touches the sound card. The render runs on droneRenderThread_
+    // and hands its result over through droneRenderDone_ (Runner idiom: the UI
+    // thread only ever reads the result after that flag is set).
+    bool showDroneGenerator_ = false;
+    dronegen::Params droneParams_;
+    int dronePreset_ = 0;
+    int droneTab_ = 0;
+    char droneTrackName_[64] = "ambient";
+    std::unique_ptr<dronegen::LiveSynth> droneLive_;
+    std::unique_ptr<audiopreview::Device> droneDevice_;
+    bool droneAuditioning_ = false;
+    std::string droneAudioError_;
+    std::string droneStatus_;
+    std::string dronePatchTitle_;
+    std::thread droneRenderThread_;
+    std::atomic<float> droneRenderProgress_{0.0f};
+    std::atomic<bool> droneRenderCancel_{false};
+    std::atomic<bool> droneRenderDone_{false};
+    bool droneRendering_ = false;
+    dronegen::RenderResult droneRenderResult_;
+    dronegen::Params droneRenderedWith_;
+    std::string droneRenderTarget_;  // res-relative WAV path being written
+    int droneLiveRate_ = 0;          // rate the LiveSynth was built for
+    std::string droneRenderAbs_;     // absolute destination, fixed at start
+    // Waveform overview of the last render + the analyzer bands, both display
+    // caches (never the source of truth for anything).
+    std::vector<float> droneWaveMin_, droneWaveMax_;
+    float droneScrub_ = 0.0f;  // 0..1 playhead of the rendered preview
+    float droneBands_[32] = {};
+
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;

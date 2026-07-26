@@ -19,6 +19,7 @@ VENDOR_DEPS=(
     "https://github.com/Nelarius/imnodes.git|master|vendor/imnodes|vendor/imnodes/imnodes.cpp|1"
     "https://github.com/nothings/stb.git|master|vendor/stb|vendor/stb/stb_image.h|1"
     "https://github.com/ufbx/ufbx.git|master|vendor/ufbx|vendor/ufbx/ufbx.c|1"
+    "https://github.com/mackron/miniaudio.git|master|vendor/miniaudio|vendor/miniaudio/miniaudio.h|1"
     "https://github.com/h4570/tyra.git|master|vendor/tyra|vendor/tyra/Makefile.base|0"
 )
 
