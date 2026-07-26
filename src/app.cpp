@@ -23,6 +23,7 @@
 #include "gl_loader.h"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
+#include "gltfwrite.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
@@ -10466,6 +10467,81 @@ void App::mocapLogVisionFrame(float t) {
       << mocapVisionSolvedHead_[1] << "," << mocapVisionSolvedHead_[2] << "]}\n";
 }
 
+// Bake the source's motion onto the chosen model, as a clip inside its own
+// .glb.
+//
+// Without this the feature stopped one step short of useful: recording wrote a
+// .tmocap and the only way onto a character was the Character Generator's
+// "Import clips...", which rebuilds a GENERATED character from its sliders. A
+// model already in the scene - the very one being posed in this window - had no
+// route at all.
+//
+// The model is re-read from disk rather than reusing the posed copy on screen:
+// `mocapSkel_` has had live rotations written into its nodes, and baking that
+// would fold the current frame into the rest pose.
+void App::mocapBakeClip() {
+    if (mocapModel_.empty() || mocapSourceKind_ != 1 || mocapSource_.clips.empty()) {
+        mocapNote_ = "open a take first - a live stream has to be recorded before it can be baked";
+        return;
+    }
+    std::string err;
+    glbparser::Skel model;
+    const std::string full = project_.dir + "\\" + mocapModel_;
+    if (!animimport::parseSkel(full, model, err)) {
+        mocapNote_ = "character: " + err;
+        return;
+    }
+
+    // The same source the window is previewing, calibration included - what you
+    // watched is what gets written.
+    const glbparser::Skel* source = &mocapSource_;
+    glbparser::Skel calibrated;
+    if (mocapHaveCalib_ && mocapCalibRot_.size() == mocapSource_.nodes.size() * 4) {
+        calibrated = mocapSource_;
+        for (size_t i = 0; i < calibrated.nodes.size(); ++i)
+            std::memcpy(calibrated.nodes[i].r, &mocapCalibRot_[i * 4], 16);
+        source = &calibrated;
+    }
+
+    // Keep whatever clips the model already has: a character usually arrives
+    // with idle/walk/run/jump and a take is one more, not a replacement.
+    std::vector<glbparser::SkelClip> existing = model.clips;
+    std::vector<std::string> notes;
+    charanim::RetargetOptions opts;
+    opts.ground.enabled = mocapGround_;
+    if (charanim::retarget(*source, model, opts, notes) == 0) {
+        for (const std::string& n : notes) mocapNote_ = n;
+        if (mocapNote_.empty()) mocapNote_ = "nothing to bake";
+        return;
+    }
+    // retarget() REPLACES the clip list, so put the old ones back underneath and
+    // give the new one a name that says where it came from.
+    std::vector<glbparser::SkelClip> baked = std::move(model.clips);
+    for (glbparser::SkelClip& c : baked) {
+        std::string name = mocapName_[0] ? std::string(mocapName_) : c.name;
+        for (int n = 2;; ++n) {
+            bool clash = false;
+            for (const glbparser::SkelClip& e : existing)
+                if (e.name == name) clash = true;
+            if (!clash) break;
+            name = (mocapName_[0] ? std::string(mocapName_) : c.name) + "-" + std::to_string(n);
+        }
+        c.name = name;
+        existing.push_back(std::move(c));
+    }
+    model.clips = std::move(existing);
+
+    if (!gltfwrite::writeGlbFile(full, model, "TyraX Mocap", err)) {
+        mocapNote_ = "could not write the model: " + err;
+        return;
+    }
+    mocapNote_ = "baked " + std::to_string(baked.size()) + " clip(s) into " + mocapModel_ +
+                 " - rename them in Tools > Animation Editor";
+    // The scene's copy is stale now; a rebind re-reads it so the preview and the
+    // file agree again.
+    mocapRebind();
+}
+
 // Arm the capture. Nobody can press a button and be in a T-pose at the same
 // instant, so with a delay set this fires later and the operator gets to walk
 // into frame - which is the only way one person can do this alone.
@@ -10690,9 +10766,11 @@ void App::mocapStopRecording() {
                           mocapRecHips_, mocapRecRoot_, err)) {
         mocapNote_ = "take: " + err;
     } else {
+        mocapLastTakePath_ = (dir / (name + ".tmocap")).string();
         mocapNote_ = "wrote res/mocap/" + name + ".tmocap (" +
                      std::to_string(mocapRecTimes_.size()) + " frames, " +
-                     std::to_string((int)(mocapRecTimes_.back() - mocapRecTimes_.front())) + " s)";
+                     std::to_string((int)(mocapRecTimes_.back() - mocapRecTimes_.front())) +
+                     " s) - Open take... it, then Add as a clip";
     }
     mocapRecTimes_.clear();
     mocapRecRot_.clear();
@@ -10888,6 +10966,8 @@ void App::drawMocapWindow() {
 
     // Calibrating is the FIRST thing an operator does and the thing that
     // decides whether any of the rest is usable, so it leads.
+    // Deliberately NOT gated on a valid binding: calibrating is what makes a
+    // good binding possible, so requiring one first is backwards.
     const bool canCalibrate = mocapSourceKind_ == 1
                                   ? !mocapSource_.clips.empty()
                                   : (phoneCam_.hasBodySkeleton() && !mocapLastFrameRot_.empty());
@@ -10970,6 +11050,28 @@ void App::drawMocapWindow() {
     // was armed from here or from the phone.
     if (mocapCalibAt_ > 0.0 && ImGui::GetTime() >= mocapCalibAt_) mocapCalibrateFromPhone();
 
+    // --- onto the character ---------------------------------------------------
+    // The step that was missing: a take on disk is not an animation until it is
+    // a clip inside a model.
+    ImGui::Spacing();
+    ImGui::TextDisabled("BAKE ONTO THE CHARACTER");
+    const bool canBake = !mocapModel_.empty() && mocapSourceKind_ == 1 &&
+                         !mocapSource_.clips.empty();
+    ImGui::BeginDisabled(!canBake);
+    if (ImGui::Button("Add as a clip", ImVec2(scaled(140), 0))) mocapBakeClip();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Retargets the open take onto this model and writes it back into\n"
+            "the model's own .glb, beside the clips it already has.\n\n"
+            "A live stream has to be recorded first - Record below writes a\n"
+            ".tmocap into res/mocap, and Open take... reads it back.\n\n"
+            "Rename the result in Tools > Animation Editor, which retargets\n"
+            "every reference for you.");
+    if (!canBake)
+        ImGui::TextDisabled("%s", mocapModel_.empty() ? "pick a character first"
+                                                      : "open a recorded take to bake");
+
     // --- recording ------------------------------------------------------------
     ImGui::Spacing();
     ImGui::TextDisabled("RECORD");
@@ -11016,6 +11118,33 @@ void App::drawMocapWindow() {
     // Pull whatever the source has for this frame. Both sources end in
     // mocapApplyFrame - the file one is not a simulation of the live path, it
     // IS the live path with a different feed.
+    //
+    // The live link is handled OUTSIDE the "is anything bound" check, and that
+    // is the whole point: it used to sit inside, which meant the code that
+    // CREATES the binding only ran once a binding existed. A phone connecting
+    // after the character was picked therefore did nothing - no preview, and
+    // Calibrate greyed out for good, because the newest frame it captures was
+    // only kept in there too.
+    if (mocapSourceKind_ == 2) {
+        // A phone connects, reconnects, or is swapped for another at moments
+        // nothing announces. Binding on sight is the difference between the
+        // window working and the window needing a button pressed.
+        if (phoneCam_.hasBodySkeleton() && phoneCam_.bodySkeletonSeq() != mocapLiveSkelSeq_)
+            mocapRebind();
+        // Every frame since the last repaint: the newest is the live pose, and
+        // a recording keeps all of them so no motion is lost between two frames
+        // of UI. The newest is kept even when nothing is bound - that is what
+        // Calibrate captures, and needing a working binding before you may
+        // calibrate is backwards.
+        for (const phonecam::BodyFrame& f : phoneCam_.drainBodyFrames()) {
+            mocapLastFrameRot_.assign(f.rot.begin(), f.rot.end());
+            if (!mocapBind_.valid()) continue;
+            if ((int)f.rot.size() / 4 != mocapBind_.sourceNodeCount()) continue;
+            mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t,
+                            f.haveRootRot ? f.rootRot : nullptr, &f);
+        }
+    }
+
     if (mocapBind_.valid()) {
         if (mocapSourceKind_ == 1 && !mocapSource_.clips.empty()) {
             const glbparser::SkelClip& clip = mocapSource_.clips[0];
@@ -11054,23 +11183,6 @@ void App::drawMocapWindow() {
                 }
             }
             mocapApplyFrame(rot.data(), hips, haveHips, mocapTime_);
-        } else if (mocapSourceKind_ == 2) {
-            // A phone that connects (or reconnects, or is a different phone)
-            // sends its skeleton whenever it feels like it, which is usually
-            // after the source was picked. Binding on sight is the difference
-            // between the window working and the window needing a button
-            // pressed at a moment nothing announces.
-            if (phoneCam_.hasBodySkeleton() &&
-                phoneCam_.bodySkeletonSeq() != mocapLiveSkelSeq_)
-                mocapRebind();
-            // Every frame that arrived since the last UI frame: the newest is
-            // the live pose, and a recording keeps all of them so no motion is
-            // lost between two repaints.
-            for (const phonecam::BodyFrame& f : phoneCam_.drainBodyFrames()) {
-                if ((int)f.rot.size() / 4 != mocapBind_.sourceNodeCount()) continue;
-                mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t,
-                                f.haveRootRot ? f.rootRot : nullptr, &f);
-            }
         }
     }
 

@@ -364,6 +364,19 @@ It rebuilds *which bone drives which* - joint matching, rest poses, the height
 ratio - and is what you need after changing the character, not after changing
 where the performer is standing.
 
+**Add as a clip** is the step that turns a recording into an animation. It
+retargets the open take onto the chosen model and writes it back into that
+model's own `.glb`, beside whatever clips it already had; rename it afterwards
+in *Tools > Animation Editor*, which retargets every reference for you. Without
+it the feature stopped one short of useful - recording produced a file, and the
+only route onto a character was the Character Generator's *Import clips...*,
+which rebuilds a **generated** character from its sliders. A model already in
+the scene, the very one being posed in this window, had no route at all.
+
+The model is re-read from disk for the bake rather than reusing the posed copy
+on screen: that copy has live rotations written into its nodes, and baking it
+would fold the current frame into the rest pose.
+
 **Record** writes a `.tmocap`, and only from the live source - a file is already
 a take. It buffers the **source** frames rather than the retargeted pose,
 because a take is reusable on any character and a baked pose is not; the result

@@ -523,6 +523,7 @@ private:
     void mocapStopRecording();
     // The two a performer triggers from the phone as well as from here.
     void mocapZero();
+    void mocapBakeClip();
     void mocapReadVisionResult();
     void mocapLogVisionFrame(float t);
     void mocapArmCalibration();
@@ -1084,6 +1085,9 @@ private:
     float mocapVisionSolvedWrist_[2][3] = {{0, 0, 0}, {0, 0, 0}};
     // Appends every observation to a file so a session can be picked apart
     // offline instead of read off a screen.
+    // Where the last recording landed, so the window can offer to open it
+    // instead of leaving the operator to find it.
+    std::string mocapLastTakePath_;
     bool mocapVisionLog_ = false;
     std::string mocapVisionLogPath_;
     std::vector<float> mocapFrameRot_;  // scratch: source rotations + the heading

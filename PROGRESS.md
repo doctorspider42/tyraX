@@ -10,6 +10,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (196) **The last mile: a recording that can become an animation, and two
+  chicken-and-egg bugs.** Owner: "I recorded a clip, where did the animation go
+  and how do I put it on a model?" - a fair question with no good answer.
+  Recording wrote a `.tmocap` into `res/mocap`, and the only route onto a
+  character was the Character Generator's *Import clips...*, which rebuilds a
+  GENERATED character from its sliders. The model already in the scene - the one
+  being posed in that very window - had no route at all. **Add as a clip** does
+  it now: retarget the open take onto the chosen model and write it back into
+  that model's `.glb` beside the clips it already has. The model is re-read from
+  disk rather than reusing the on-screen copy, whose nodes carry the live pose;
+  baking that would fold the current frame into the rest pose.
+  **Two bugs with the same shape**, both reported and both real: Calibrate stayed
+  greyed out, and the preview did not come up when the link was started. The
+  whole live path sat inside `if (mocapBind_.valid())` - so the code that CREATES
+  the binding only ran when a binding already existed, and the newest frame that
+  Calibrate captures was only kept in there too. A phone connecting after the
+  character was picked therefore did nothing at all. The live handling is outside
+  that guard now, the newest frame is kept whether or not anything is bound, and
+  calibrating is explicitly not gated on a binding - requiring a good binding
+  before you may calibrate is backwards, since calibrating is what makes one.
+  Also: the phone's two buttons became one (v1.0.10). Calibrating already
+  re-zeroes the origin, so Zero never did anything Calibrate did not - two
+  buttons for one intent. The countdown beside it is what makes it a one-person
+  job: prop the phone up, press, walk into frame.
+
 - (195) **The 90-degree pelvis - "like a twisted gut".** A performer standing
   perfectly still with the arms out came through with the legs crossed and the
   torso wrung around its own waist. It reproduced identically from the live link
