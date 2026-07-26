@@ -4454,7 +4454,10 @@ std::string refreshGenerated(const Project& p) {
                 continue;
             }
             std::vector<unsigned char> png;
-            if (!menubake::bakeTextPNG(*b.text, p, png))
+            // bakePromptPNG, not bakeTextPNG: the action glyph is left out so
+            // the game can draw the LIVE binding's one over the hole.
+            menubake::PromptIconSlot slot;
+            if (!menubake::bakePromptPNG(*b.text, p, png, slot))
                 return std::string(b.label) +
                        " prompt text bake failed (no usable TTF font found)";
             fs::create_directories(path.parent_path(), ec);

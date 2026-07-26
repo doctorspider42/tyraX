@@ -1005,6 +1005,11 @@ inline bool operator==(const TextIcon& a, const TextIcon& b) {
 struct TextRun {
     std::string text;  // non-empty on a plain run
     std::string icon;  // non-empty on an icon token (a TextIcon name)
+    // On an icon token that resolved through an ACTION ({{action:jump}} or the
+    // {{jump}} shorthand): the action's name. This is what lets a consumer draw
+    // the glyph from the LIVE binding instead of the one baked in - the
+    // interaction prompts do exactly that (docs/text-icons.md).
+    std::string action;
 };
 
 // Lowercased pad-button name, i.e. the TextIcon that stands for that button
@@ -1067,15 +1072,16 @@ inline std::vector<TextRun> parseTextIcons(const std::string& s,
         pushText(s.substr(i, open - i));
         const std::string token = s.substr(open + 2, close - open - 2);
         std::string icon = token;
+        std::string action;
         if (token.rfind("action:", 0) == 0) {
-            const std::string action = token.substr(7);
+            action = token.substr(7);
             const InputBinding b = input.resolve(action);
             icon = b.pad.empty() ? std::string() : textIconNameForPad(b.pad);
         }
         if (icon.empty())
             pushText(s.substr(open, close + 2 - open));  // keep it visible
         else
-            out.push_back(TextRun{"", icon});
+            out.push_back(TextRun{"", icon, action});
         i = close + 2;
     }
     return out;

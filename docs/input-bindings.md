@@ -145,6 +145,14 @@ faster playback come for free.
 So "on jump" is an *On Action* node with `str = "jump"`, and it keeps working
 after the player rebinds jump to Triangle.
 
+Every one of the sixteen pad buttons can carry a **held** action, `L3`/`R3`/
+`Start`/`Select` included. They could not until this branch: the engine's `Pad`
+filled its `pressed` struct for twelve buttons only (the four with no pressure
+channel were simply missing), while `getClicked()` read the full raw word — so
+binding *Sprint* to L3 looked fine, fired nothing, and only the held actions were
+affected. Fixed in `vendor/tyra/engine/src/pad/pad.cpp`, which means a **clean
+engine rebuild** is what picks it up.
+
 ## Files
 
 ```

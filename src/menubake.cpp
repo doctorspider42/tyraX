@@ -204,6 +204,7 @@ std::vector<TextRun> textRuns(const Project* proj, const std::string& text) {
         // the `{{use}}` shorthand for `{{action:use}}`.
         const std::string viaAction = textIconForAction(r.icon, proj->input);
         if (!viaAction.empty() && iconImage(*proj, viaAction)) {
+            r.action = r.icon;  // the token WAS an action - remember which
             r.icon = viaAction;
             continue;
         }
@@ -983,6 +984,99 @@ bool bakeTextRGBA(const HudText& text, const Project& p,
         y += lineH;
     }
     return true;
+}
+
+// --- Interaction prompts ----------------------------------------------------
+// Same bake as a HUD text with one difference: the first ACTION token is left
+// as a hole and its box reported, so the game can blit the CURRENT binding's
+// glyph there (see the header). Prompts are single-line by nature, so the slot
+// math only has to walk one line.
+
+namespace {
+
+// The runs of a prompt plus the index of the first action-token run, or -1.
+int firstActionRun(const std::vector<TextRun>& runs) {
+    for (size_t i = 0; i < runs.size(); ++i)
+        if (!runs[i].icon.empty() && !runs[i].action.empty()) return (int)i;
+    return -1;
+}
+
+}  // namespace
+
+bool promptLayout(const HudText& text, const Project& p, int& w, int& h,
+                  PromptIconSlot& slot) {
+    slot = PromptIconSlot{};
+    Font* font = resolveFontNamed(p, text.font);
+    if (!font) return false;
+    if (!textLayout(text, p, w, h)) return false;
+
+    const std::vector<TextRun> runs = textRuns(&p, text.text);
+    const int idx = firstActionRun(runs);
+    if (idx < 0) return true;  // no live glyph in this prompt
+
+    // The glyph occupies its slot in the layout either way, so the full width
+    // (icons included) is what centres the line - exactly like the bake.
+    const float full = textWidth(*font, text.text, (float)text.size, &p);
+    std::string prefix;
+    for (int i = 0; i < idx; ++i) prefix += runs[i].text;
+    const float before = textWidth(*font, prefix, (float)text.size, nullptr);
+    const float adv = iconAdvance(p, runs[idx].icon, (float)text.size);
+    const float box = adv - text.size * 0.12f;
+
+    const int lineH = text.size + 4;
+    const int yTop = (h - lineH) / 2;
+    int ascent = 0, descent = 0, lineGap = 0;
+    const float scale = stbtt_ScaleForPixelHeight(&font->info, (float)text.size);
+    stbtt_GetFontVMetrics(&font->info, &ascent, &descent, &lineGap);
+    const int capH = (int)(ascent * scale + 0.5f);
+
+    slot.action = runs[idx].action;
+    slot.size = (int)(box + 0.5f);
+    slot.x = (int)(w * 0.5f - full * 0.5f + before + text.size * 0.06f + 0.5f);
+    slot.y = yTop + (capH - slot.size) / 2;
+    return true;
+}
+
+bool bakePromptRGBA(const HudText& text, const Project& p,
+                    std::vector<unsigned char>& out, int& w, int& h,
+                    PromptIconSlot& slot) {
+    Font* font = resolveFontNamed(p, text.font);
+    if (!font) return false;
+    if (!promptLayout(text, p, w, h, slot)) return false;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+
+    auto clamp255 = [](float v) {
+        return (unsigned char)(v < 0 ? 0 : v > 1 ? 255 : v * 255.0f + 0.5f);
+    };
+    const RGBA color{clamp255(text.color[0]), clamp255(text.color[1]),
+                     clamp255(text.color[2]), 255};
+    const RGBA shadow{10, 12, 16, 210};
+
+    const auto lines = splitLines(text.text);
+    const int lineH = text.size + 4;
+    int y = (h - (int)lines.size() * lineH) / 2;
+    for (const auto& line : lines) {
+        // skipIcons on BOTH passes: the glyph is the game's job now, and a
+        // baked shadow of it would sit under a glyph that may have changed.
+        if (text.shadow)
+            drawText(canvas, *font, w * 0.5f + 1, y + 1, line, (float)text.size,
+                     shadow, true, &p, /*skipIcons=*/true);
+        drawText(canvas, *font, w * 0.5f, y, line, (float)text.size, color, true,
+                 &p, /*skipIcons=*/true);
+        y += lineH;
+    }
+    return true;
+}
+
+bool bakePromptPNG(const HudText& text, const Project& p,
+                   std::vector<unsigned char>& png, PromptIconSlot& slot) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakePromptRGBA(text, p, rgba, w, h, slot)) return false;
+    png.clear();
+    stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(), w * 4);
+    return !png.empty();
 }
 
 bool bakeTextPNG(const HudText& text, const Project& p,

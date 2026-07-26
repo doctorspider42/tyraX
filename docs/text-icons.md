@@ -34,7 +34,8 @@ an action called "cross".
 binding, so "Press {{action:jump}} to jump" stays correct after a preset switch
 or a player's rebind. One caveat by construction: in **baked** text (see below)
 it is resolved at *build* time from the default preset — a text that must track a
-runtime rebind has to be a *Display Text* node.
+runtime rebind has to be a *Display Text* node, or one of the two interaction
+prompts, which bake their glyph as a live slot for exactly that reason.
 
 A placeholder that names nothing stays on screen as literal text (`{{nope}}`),
 so a typo is visible instead of silently vanishing.
@@ -89,10 +90,18 @@ prompt's box.
 Existing projects stay on their images until you flip the switch - turning them
 into text would have restyled every project's HUD behind the user's back.
 
-Because a prompt is a baked sprite, its `{{use}}` is resolved at **build** time
-from the default preset: a player who rebinds `use` in-game keeps seeing the old
-glyph on the prompt until the next build. That is the same snapshot rule as every
-other baked text.
+A prompt in text mode is the one baked text that is **not** a build-time snapshot
+of its icon. The bake writes the letters only and leaves the first `{{action}}`
+glyph out, reporting where it would have sat (`USE_PROMPT_ICON_X/Y/SIZE` in
+`hud_data.gen.hpp`); the game blits the **current** binding's icon into that hole
+from the icon sheet every frame. So a player who rebinds `use` from □ to △ sees
+the prompt change with it, with no rebuild — the text sprite is unchanged and only
+one small quad follows the binding.
+
+A prompt without an action token bakes whole (`ICON_ACTION` = -1) and no glyph is
+drawn over it. Every *other* baked text still resolves `{{action:...}}` at build
+time from the default preset; a runtime-varying one has to be a *Display Text*
+node.
 
 ## Adding your own
 
