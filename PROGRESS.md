@@ -10,6 +10,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (183) **Per-frame retargeting, and the phone-camera branch merged in.** The
+  live mocap streaming that comes next needs both halves - `phonecam::Link` for
+  the transport, `charanim::retarget` for the motion - and neither had landed on
+  main, so the camera branch merges here rather than racing. Every conflict was
+  "each branch added its own thing beside the other's" except `kLayoutWindowKeys`,
+  where keeping both sides would have left two array literals.
+  **`retarget()` is now implemented on top of a per-frame function** rather than
+  beside one: `prepareLive` builds the (source rig, character) binding once -
+  joint mapping, source bind pose, height ratio - and `applyLive` turns one
+  frame of source rotations into the character's node transforms, which
+  `poseMesh(skel, -1, 0)` then skins. The clip path calls the identical
+  `frameFromSource`, so a streamed pose and a baked take cannot be two
+  implementations of one idea.
+  **The harness proves it rather than asserting it in a comment**: retarget the
+  Mixamo library to clips, prepare a live binding from the same source, feed it
+  the same instants, and compare the POSED VERTICES (not the quaternions - a
+  clip channel is sign-corrected, so `q` and `-q` legitimately differ while the
+  pose does not). First run: **6.6 cm apart**. The cause was worth finding - the
+  clip path rebases root motion on each clip's own first sample, while the live
+  binding kept the first frame it ever saw. That is a real gap in the live API,
+  not a test artefact: a stream needs re-origining whenever it JUMPS rather than
+  moves (tracking lost and reacquired, a different person stepping in, or just
+  "put the character back where I placed it"). `resetLiveOrigin` exists now, and
+  with the two paths told the same thing the worst difference over 117 frames is
+  **0.48 micrometres** - float rounding.
+
 - (182) **Motion capture from an iPhone** (docs/character-generator.md). A new
   companion app - **[tyrax-mocap](https://github.com/doctorspider42/tyrax-mocap)**,
   its own public repo, the sibling of tyrax-cam - records ARKit body tracking

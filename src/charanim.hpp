@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -86,6 +87,52 @@ struct RetargetOptions {
 // `warnings`), and the caller should keep whatever clips it had.
 int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const RetargetOptions& opts,
              std::vector<std::string>& warnings);
+
+// ---------------------------------------------------------------------------
+// The same retarget, one frame at a time - for a pose arriving live from a
+// phone rather than a clip read off disk.
+//
+// `retarget()` above is implemented ON TOP of this, so the two cannot drift:
+// whatever a recorded take produces, the live stream produces from the same
+// numbers. (The harness asserts it: posing the clip and posing the live path at
+// the same instants gives identical vertices.)
+
+// A prepared source-rig -> character binding. Build it once when a device
+// connects and feed it frames; it holds the source's bind pose, the joint
+// mapping and the height ratio, none of which change while a session lasts.
+struct LiveRetarget {
+    struct State;
+    std::shared_ptr<State> state;
+    bool valid() const { return state != nullptr; }
+    // How many bones of the character the source can actually drive.
+    int matchedBones() const;
+    // The source rig's node count - `applyLive` expects this many rotations.
+    int sourceNodeCount() const;
+};
+
+// `source` needs no clips: only its skeleton and bind pose are used. Returns an
+// invalid binding (and a note) when the two rigs share no bones.
+LiveRetarget prepareLive(const glbparser::Skel& source, const glbparser::Skel& target,
+                         const RetargetOptions& opts, std::vector<std::string>& warnings);
+
+// Applies one source frame to `target`, writing the live pose into its NODE
+// transforms - `poseMesh(target, -1, 0, ...)` then skins exactly that pose.
+//
+// `srcLocalRot` is 4 floats per source node (x, y, z, w), in the order
+// `source.nodes` had at prepare time. `hipsWorld` is an optional 3-float world
+// translation for the hips; the first frame it is seen becomes the origin the
+// rest are measured against, so a performer standing anywhere maps onto a
+// character standing where it was placed.
+void applyLive(const LiveRetarget& binding, const float* srcLocalRot, const float* hipsWorld,
+               glbparser::Skel& target);
+
+// Forgets where the performer was, so the NEXT frame carrying a hips position
+// becomes the new origin. Needed whenever the stream jumps rather than moves:
+// tracking was lost and reacquired, somebody else stepped in front of the
+// camera, or the operator simply wants the character back where it was placed.
+// (The clip path calls this between clips - each take starts from its own first
+// frame, which is why the two paths agree.)
+void resetLiveOrigin(const LiveRetarget& binding);
 
 // Linear-blend skinning on the host: poses EVERY part at `time` of `clipIndex`
 // and writes one interleaved pos3 + normal3 + uv2 array per part, ready for

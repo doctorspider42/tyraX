@@ -527,25 +527,33 @@ Quat localRotation(const glbparser::SkelNode& n) {
 }
 
 // Global rotations of every source node, given a per-node local rotation.
-std::vector<Quat> globalRotations(const glbparser::Skel& s, const std::vector<Quat>& local) {
-    std::vector<Quat> global(s.nodes.size());
-    std::vector<char> done(s.nodes.size(), 0);
-    for (size_t i = 0; i < s.nodes.size(); ++i) {
+// Takes the parent array rather than the Skel: the live path is fed rotations
+// off a socket and has no source object left to consult.
+std::vector<Quat> globalRotations(const std::vector<int>& parent, const std::vector<Quat>& local) {
+    const size_t n = parent.size();
+    std::vector<Quat> global(n);
+    std::vector<char> done(n, 0);
+    for (size_t i = 0; i < n; ++i) {
         std::vector<int> chain;
         int cur = (int)i;
-        while (cur >= 0 && cur < (int)s.nodes.size() && !done[cur]) {
+        while (cur >= 0 && cur < (int)n && !done[cur]) {
             chain.push_back(cur);
-            cur = s.nodes[cur].parent;
+            cur = parent[cur];
         }
         for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-            const int parent = s.nodes[*it].parent;
-            global[*it] = (parent >= 0 && parent < (int)s.nodes.size() && done[parent])
-                              ? mul(global[parent], local[*it])
-                              : local[*it];
+            const int p = parent[*it];
+            global[*it] = (p >= 0 && p < (int)n && done[p]) ? mul(global[p], local[*it])
+                                                           : local[*it];
             done[*it] = 1;
         }
     }
     return global;
+}
+
+std::vector<int> parentsOf(const glbparser::Skel& s) {
+    std::vector<int> out(s.nodes.size());
+    for (size_t i = 0; i < s.nodes.size(); ++i) out[i] = s.nodes[i].parent;
+    return out;
 }
 
 // Which source node drives each role, by name (the "mixamorig:" prefix is
@@ -564,30 +572,145 @@ std::vector<int> matchRoles(const glbparser::Skel& s) {
 
 }  // namespace
 
-int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const RetargetOptions& opts,
-             std::vector<std::string>& warnings) {
-    const Rig rig = findRig(skel);
-    if (rig.node[Hips] < 0) return 0;
-    const std::vector<int> srcNode = matchRoles(source);
-    if (srcNode[Hips] < 0) {
+// Everything about a (source rig, character) pair that does not change frame to
+// frame. The clip path and the live path both hold one - which is what keeps
+// them the same retarget rather than two implementations of one idea.
+struct LiveRetarget::State {
+    Rig rig;
+    std::vector<int> srcNode;          // per role, index into source.nodes
+    std::vector<int> srcParent;        // per source node
+    std::vector<Quat> srcBindLocal;    // per source node
+    std::vector<Quat> srcBindGlobal;   // per source node
+    float heightScale = 1.0f;
+    float bindHips[3] = {0, 0, 0};     // the CHARACTER's bind hips
+    bool inPlace = true;
+    int matched = 0;
+    size_t sourceNodes = 0;
+    // Where the performer was on the first frame that carried a hips position;
+    // everything after is measured against it.
+    mutable float hipsBase[3] = {0, 0, 0};
+    mutable bool haveBase = false;
+};
+
+int LiveRetarget::matchedBones() const { return state ? state->matched : 0; }
+int LiveRetarget::sourceNodeCount() const { return state ? (int)state->sourceNodes : 0; }
+
+namespace {
+
+// The heart of both paths: source local rotations in, one Frame of target WORLD
+// rotations out.
+Frame frameFromSource(const LiveRetarget::State& st, const std::vector<Quat>& local,
+                      const float* hipsT) {
+    const std::vector<Quat> global = globalRotations(st.srcParent, local);
+    Frame f;
+    for (int role = 0; role < RoleCount; ++role) {
+        const int sn = st.srcNode[role];
+        if (sn < 0 || st.rig.node[role] < 0) continue;
+        // The whole conversion: the source's rotation relative to its OWN bind,
+        // applied to a target that binds with identity.
+        f.put(role, normalized(mul(global[sn], conj(st.srcBindGlobal[sn]))));
+    }
+    if (hipsT) {
+        if (!st.haveBase) {
+            std::memcpy(st.hipsBase, hipsT, sizeof(st.hipsBase));
+            st.haveBase = true;
+        }
+        for (int k = 0; k < 3; ++k)
+            f.hipsOffset[k] = (hipsT[k] - st.hipsBase[k]) * st.heightScale;
+        if (st.inPlace) f.hipsOffset[0] = f.hipsOffset[2] = 0.0f;
+    }
+    return f;
+}
+
+// Writes one Frame into the character's node transforms. buildClip does the
+// same conversion per key into channels; this does it into the nodes, which is
+// what poseMesh reads when no clip is playing.
+void applyFrame(const LiveRetarget::State& st, const Frame& f, glbparser::Skel& target) {
+    for (int role = 0; role < RoleCount; ++role) {
+        const int node = st.rig.node[role];
+        if (node < 0 || node >= (int)target.nodes.size()) continue;
+        const int parent = kParentRole[role];
+        const Quat pw = parent >= 0 ? f.get(parent) : Quat();
+        const Quat local = normalized(mul(conj(pw), f.get(role)));
+        target.nodes[node].r[0] = local.x;
+        target.nodes[node].r[1] = local.y;
+        target.nodes[node].r[2] = local.z;
+        target.nodes[node].r[3] = local.w;
+    }
+    const int hips = st.rig.node[Hips];
+    if (hips >= 0 && hips < (int)target.nodes.size())
+        for (int k = 0; k < 3; ++k) target.nodes[hips].t[k] = st.bindHips[k] + f.hipsOffset[k];
+}
+
+// Builds the shared state, or leaves it null with a note.
+std::shared_ptr<LiveRetarget::State> bindSource(const glbparser::Skel& source,
+                                                const glbparser::Skel& target,
+                                                const RetargetOptions& opts,
+                                                std::vector<std::string>& warnings) {
+    auto st = std::make_shared<LiveRetarget::State>();
+    st->rig = findRig(target);
+    if (st->rig.node[Hips] < 0) return nullptr;
+    st->srcNode = matchRoles(source);
+    if (st->srcNode[Hips] < 0) {
         warnings.push_back(
             "animation source has no Mixamo-named bones (looked for \"Hips\") - not retargeted");
-        return 0;
+        return nullptr;
     }
-    int matched = 0;
     for (int role = 0; role < RoleCount; ++role)
-        if (srcNode[role] >= 0 && rig.node[role] >= 0) ++matched;
+        if (st->srcNode[role] >= 0 && st->rig.node[role] >= 0) ++st->matched;
 
     // Bind rotations of the source, and the source's own scale, so a hips
     // translation lands proportionally on a body of a different height.
-    std::vector<Quat> srcBindLocal(source.nodes.size());
-    for (size_t i = 0; i < source.nodes.size(); ++i) srcBindLocal[i] = localRotation(source.nodes[i]);
-    const std::vector<Quat> srcBindGlobal = globalRotations(source, srcBindLocal);
+    st->srcBindLocal.resize(source.nodes.size());
+    for (size_t i = 0; i < source.nodes.size(); ++i)
+        st->srcBindLocal[i] = localRotation(source.nodes[i]);
+    st->srcParent = parentsOf(source);
+    st->srcBindGlobal = globalRotations(st->srcParent, st->srcBindLocal);
     const float srcHeight = source.max[1] - source.min[1];
-    const float heightScale = srcHeight > 0.1f ? rig.height / srcHeight : 1.0f;
+    st->heightScale = srcHeight > 0.1f ? st->rig.height / srcHeight : 1.0f;
+    std::memcpy(st->bindHips, target.nodes[st->rig.node[Hips]].t, sizeof(st->bindHips));
+    st->inPlace = opts.inPlace;
+    st->sourceNodes = source.nodes.size();
+    return st;
+}
 
-    float bindHips[3] = {0, 0, 0};
-    std::memcpy(bindHips, skel.nodes[rig.node[Hips]].t, sizeof(bindHips));
+}  // namespace
+
+LiveRetarget prepareLive(const glbparser::Skel& source, const glbparser::Skel& target,
+                         const RetargetOptions& opts, std::vector<std::string>& warnings) {
+    LiveRetarget out;
+    out.state = bindSource(source, target, opts, warnings);
+    return out;
+}
+
+void resetLiveOrigin(const LiveRetarget& binding) {
+    if (binding.valid()) binding.state->haveBase = false;
+}
+
+void applyLive(const LiveRetarget& binding, const float* srcLocalRot, const float* hipsWorld,
+               glbparser::Skel& target) {
+    if (!binding.valid() || !srcLocalRot) return;
+    const LiveRetarget::State& st = *binding.state;
+
+    std::vector<Quat> local(st.sourceNodes);
+    for (size_t i = 0; i < st.sourceNodes; ++i)
+        local[i] = normalized({srcLocalRot[i * 4], srcLocalRot[i * 4 + 1],
+                               srcLocalRot[i * 4 + 2], srcLocalRot[i * 4 + 3]});
+
+    applyFrame(st, frameFromSource(st, local, hipsWorld), target);
+}
+
+int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const RetargetOptions& opts,
+             std::vector<std::string>& warnings) {
+    auto stPtr = bindSource(source, skel, opts, warnings);
+    if (!stPtr) return 0;
+    LiveRetarget::State& st = *stPtr;
+    const Rig& rig = st.rig;
+    const std::vector<int>& srcNode = st.srcNode;
+    const std::vector<Quat>& srcBindLocal = st.srcBindLocal;
+    const int matched = st.matched;
+    float bindHips[3];
+    std::memcpy(bindHips, st.bindHips, sizeof(bindHips));
 
     std::vector<glbparser::SkelClip> out;
     for (const glbparser::SkelClip& clip : source.clips) {
@@ -597,10 +720,9 @@ int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const Retarge
         std::vector<Frame> frames;
         frames.reserve(times.size());
 
-        // Root motion is measured on the first sample so an in-place clip
-        // keeps the height it was authored at instead of snapping to bind.
-        float hipsBase[3] = {0, 0, 0};
-        bool haveBase = false;
+        // Root motion is measured from each clip's own first sample, so a take
+        // starts where the performer was rather than snapping to bind.
+        st.haveBase = false;
 
         for (float t : times) {
             std::vector<Quat> local = srcBindLocal;
@@ -621,26 +743,10 @@ int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const Retarge
                     haveHipsT = true;
                 }
             }
-            const std::vector<Quat> global = globalRotations(source, local);
-
-            Frame f;
-            for (int role = 0; role < RoleCount; ++role) {
-                const int sn = srcNode[role];
-                if (sn < 0 || rig.node[role] < 0) continue;
-                // The whole conversion: the source's rotation relative to its
-                // OWN bind, applied to a target that binds with identity.
-                f.put(role, normalized(mul(global[sn], conj(srcBindGlobal[sn]))));
-            }
-            if (haveHipsT) {
-                if (!haveBase) {
-                    std::memcpy(hipsBase, hipsT, sizeof(hipsBase));
-                    haveBase = true;
-                }
-                for (int k = 0; k < 3; ++k)
-                    f.hipsOffset[k] = (hipsT[k] - hipsBase[k]) * heightScale;
-                if (opts.inPlace) f.hipsOffset[0] = f.hipsOffset[2] = 0.0f;
-            }
-            frames.push_back(f);
+            // The one place the conversion lives - the live path calls this
+            // very function, which is what keeps a streamed pose and a baked
+            // clip from being two implementations of one idea.
+            frames.push_back(frameFromSource(st, local, haveHipsT ? hipsT : nullptr));
         }
 
         glbparser::SkelClip built = buildClip(clip.name, rig, bindHips, times, frames);
