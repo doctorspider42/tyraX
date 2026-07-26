@@ -56,6 +56,16 @@ Vec norm(Vec v) {
     return {v[0] / l, v[1] / l, v[2] / l};
 }
 
+Vec rotate(const Quat& q, const Vec& v) {
+    const float x = q.x, y = q.y, z = q.z, w = q.w;
+    return {(1 - 2 * (y * y + z * z)) * v[0] + 2 * (x * y - z * w) * v[1] +
+                2 * (x * z + y * w) * v[2],
+            2 * (x * y + z * w) * v[0] + (1 - 2 * (x * x + z * z)) * v[1] +
+                2 * (y * z - x * w) * v[2],
+            2 * (x * z - y * w) * v[0] + 2 * (y * z + x * w) * v[1] +
+                (1 - 2 * (x * x + y * y)) * v[2]};
+}
+
 // The shortest rotation taking `from` onto `to`. This is what lets the rest
 // stance be described anatomically ("the upper arm hangs down and slightly
 // out") instead of as a hardcoded angle: MakeHuman's arms bind diagonally
@@ -107,6 +117,17 @@ const int kParentRole[RoleCount] = {
     Spine2, ShoulderR, ArmR, ForeArmR,
     Hips,  UpLegL, LegL, FootL,
     Hips,  UpLegR, LegR, FootR,
+};
+
+// Which child a bone points AT, for the purpose of "where does this bone lie
+// in the rest pose". The hips have three children and the answer is the spine;
+// leaves have none and simply have no direction to correct.
+const int kDirChild[RoleCount] = {
+    Spine, Spine1, Spine2, Neck, Head, -1,
+    ArmL, ForeArmL, HandL, -1,
+    ArmR, ForeArmR, HandR, -1,
+    LegL, FootL, ToeL, -1,
+    LegR, FootR, ToeR, -1,
 };
 
 struct Rig {
@@ -582,6 +603,14 @@ struct LiveRetarget::State {
     std::vector<Quat> srcBindLocal;    // per source node
     std::vector<Quat> srcBindGlobal;   // per source node
     float heightScale = 1.0f;
+    // Per bone: the rotation taking the CHARACTER's rest direction onto the
+    // PERFORMER's. Without it a delta measured from one rest pose is applied to
+    // a body resting somewhere else - ARKit rests in a true T-pose (the arm
+    // measures (1.00, 0.00, -0.01)) while the generated rig rests in an A-pose
+    // with the arm already 40 degrees down, so "arms hanging at your sides"
+    // came out as arms folded across the chest. The Mixamo clips never showed
+    // it because their arms are never straight down.
+    Quat restFix[RoleCount];
     float bindHips[3] = {0, 0, 0};     // the CHARACTER's bind hips
     bool inPlace = true;
     int matched = 0;
@@ -607,8 +636,12 @@ Frame frameFromSource(const LiveRetarget::State& st, const std::vector<Quat>& lo
         const int sn = st.srcNode[role];
         if (sn < 0 || st.rig.node[role] < 0) continue;
         // The whole conversion: the source's rotation relative to its OWN bind,
-        // applied to a target that binds with identity.
-        f.put(role, normalized(mul(global[sn], conj(st.srcBindGlobal[sn]))));
+        // then the correction for the two rigs resting differently. At rest the
+        // delta is identity and the character adopts the PERFORMER's rest pose,
+        // which is exactly right - a performer standing in a T-pose should put
+        // the character in one.
+        const Quat delta = mul(global[sn], conj(st.srcBindGlobal[sn]));
+        f.put(role, normalized(mul(delta, st.restFix[role])));
     }
     if (hipsT) {
         if (!st.haveBase) {
@@ -668,6 +701,38 @@ std::shared_ptr<LiveRetarget::State> bindSource(const glbparser::Skel& source,
     st->srcBindGlobal = globalRotations(st->srcParent, st->srcBindLocal);
     const float srcHeight = source.max[1] - source.min[1];
     st->heightScale = srcHeight > 0.1f ? st->rig.height / srcHeight : 1.0f;
+
+    // Rest directions on both sides, in world space, and the rotation between
+    // them. The source's come from its own bind pose (positions composed
+    // through the rotations - ARKit's offsets live in the parent's rotated
+    // frame); the target's are a pure position difference, its bind rotations
+    // being identity.
+    {
+        std::vector<Vec> spos(source.nodes.size(), Vec{0, 0, 0});
+        std::vector<Quat> srot = st->srcBindGlobal;
+        for (size_t i = 0; i < source.nodes.size(); ++i) {
+            const int par = source.nodes[i].parent;
+            const Vec t{source.nodes[i].t[0], source.nodes[i].t[1], source.nodes[i].t[2]};
+            if (par < 0 || par >= (int)i) {
+                spos[i] = t;
+                continue;
+            }
+            const Quat& q = srot[par];
+            const Vec r = rotate(q, t);
+            spos[i] = {spos[par][0] + r[0], spos[par][1] + r[1], spos[par][2] + r[2]};
+        }
+        for (int role = 0; role < RoleCount; ++role) {
+            const int child = kDirChild[role];
+            const int sn = st->srcNode[role];
+            if (child < 0 || sn < 0 || st->srcNode[child] < 0 || st->rig.node[role] < 0 ||
+                st->rig.node[child] < 0)
+                continue;
+            const int sc = st->srcNode[child];
+            const Vec srcDir = norm({spos[sc][0] - spos[sn][0], spos[sc][1] - spos[sn][1],
+                                     spos[sc][2] - spos[sn][2]});
+            st->restFix[role] = alignTo(st->rig.dir(role, child), srcDir);
+        }
+    }
     std::memcpy(st->bindHips, target.nodes[st->rig.node[Hips]].t, sizeof(st->bindHips));
     st->inPlace = opts.inPlace;
     st->sourceNodes = source.nodes.size();

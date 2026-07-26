@@ -10,6 +10,39 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (186) **Two retarget bugs the first real phone take exposed.** A 9.5-second
+  ARKit recording from the owner's iPhone came out, in his words, completely
+  broken: the character flew off the top of the screen and its arms were folded
+  across its chest. Both causes were measured out of the file rather than
+  guessed at, and neither was in the data - the take was well formed, every
+  mapped joint name existed, and rest and frames were in the same space.
+  **(a) The performer's height was measured wrong by 13x.** `buildSource`
+  summed the Y components of local translations down the chain, but ARKit
+  expresses a bone's offset in its parent's ROTATED frame - the thigh-to-shin
+  offset reads `(0.42, 0, 0)`, along the bone's own X. A 1.713 m performer
+  measured as **0.130 m**, so `heightScale` came out ~13 and every hips
+  translation was multiplied by it. Composing the full transform fixes it.
+  **(b) The two rigs rest differently, and a delta retarget assumed they did
+  not.** Measured: ARKit's rest arm direction is `(1.00, 0.00, -0.01)` - a true
+  T-pose - while the generated rig's is about `(0.55, -0.68, 0.29)`, an A-pose
+  already 40 degrees down. Transferring "80 degrees down from rest" onto a body
+  that starts 40 degrees lower lands it 120 degrees down, which is arms folded
+  across the chest. The binding now carries a per-bone `restFix` (`alignTo`
+  between the two rest directions) applied after the delta, so at rest the
+  character adopts the PERFORMER's pose - a performer standing in a T-pose puts
+  the character in one, which is what retargeting should mean.
+  **Why nothing caught this earlier, which is the useful part.** The synthetic
+  `.tmocap` test wrote the file with the same mapping it read back, so it could
+  only ever prove self-consistency. The Mixamo library did have the same
+  A-pose/T-pose mismatch, but its clips are a sword guard - the arms are never
+  straight down, and a systematic 40-degree shoulder offset is invisible in a
+  combat stance. And the live/clip equivalence harness proves the two paths
+  agree, not that either is right. It took real data of a person standing
+  normally.
+  Verified on that take: the character stays in frame across the whole clip and
+  the first frame has its arms hanging at its sides. The equivalence harness
+  still passes over it (0.48 micrometres, 143 frames).
+
 - (185) **Tools > Mocap**: a performer drives a character in the editor. Pick an
   animated model, pick a source - a recorded `.tmocap` played back, or the live
   phone link - and the character is posed as frames arrive, in the window's own

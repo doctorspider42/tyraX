@@ -1,5 +1,6 @@
 #include "mocap.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -184,13 +185,43 @@ bool buildSource(const std::vector<std::string>& jointNames, const std::vector<i
     // The performer's height, from the rest pose - retargeting scales the hips
     // translation by it so a tall performer does not lift a short character off
     // the floor. There is no mesh to measure, so measure the skeleton.
-    std::vector<float> gy(n, 0.0f);
+    //
+    // Composing the FULL transform matters and is not pedantry: ARKit expresses
+    // a bone's offset in its parent's ROTATED frame, so the thigh-to-shin
+    // offset reads (0.42, 0, 0) - along the bone's own X, not down. Adding up
+    // the Y components (which is what this did) measured a 1.71 m performer as
+    // 0.13 m, the hips translation came back thirteen times too big, and the
+    // character flew off the top of the screen.
+    std::vector<std::array<float, 3>> pos(n, {0.0f, 0.0f, 0.0f});
+    std::vector<std::array<float, 4>> rot(n, {0.0f, 0.0f, 0.0f, 1.0f});
     float lo = 1e30f, hi = -1e30f;
     for (size_t i = 0; i < n; ++i) {
         const int par = out.nodes[i].parent;
-        gy[i] = out.nodes[i].t[1] + (par >= 0 ? gy[par] : 0.0f);
-        lo = std::min(lo, gy[i]);
-        hi = std::max(hi, gy[i]);
+        const float* t = out.nodes[i].t;
+        const float* r = out.nodes[i].r;
+        if (par < 0) {
+            pos[i] = {t[0], t[1], t[2]};
+            rot[i] = {r[0], r[1], r[2], r[3]};
+        } else {
+            const std::array<float, 4>& q = rot[par];
+            // Rotate the local offset by the parent's global rotation, then
+            // translate - the ordinary composition, done by hand to keep this
+            // module free of a matrix type.
+            const float x = q[0], y = q[1], z = q[2], w = q[3];
+            const float rx = (1 - 2 * (y * y + z * z)) * t[0] + 2 * (x * y - z * w) * t[1] +
+                             2 * (x * z + y * w) * t[2];
+            const float ry = 2 * (x * y + z * w) * t[0] + (1 - 2 * (x * x + z * z)) * t[1] +
+                             2 * (y * z - x * w) * t[2];
+            const float rz = 2 * (x * z - y * w) * t[0] + 2 * (y * z + x * w) * t[1] +
+                             (1 - 2 * (x * x + y * y)) * t[2];
+            pos[i] = {pos[par][0] + rx, pos[par][1] + ry, pos[par][2] + rz};
+            rot[i] = {w * r[0] + x * r[3] + y * r[2] - z * r[1],
+                      w * r[1] - x * r[2] + y * r[3] + z * r[0],
+                      w * r[2] + x * r[1] - y * r[0] + z * r[3],
+                      w * r[3] - x * r[0] - y * r[1] - z * r[2]};
+        }
+        lo = std::min(lo, pos[i][1]);
+        hi = std::max(hi, pos[i][1]);
     }
     out.min[1] = lo;
     out.max[1] = hi;
