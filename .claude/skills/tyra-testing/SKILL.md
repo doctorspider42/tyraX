@@ -299,6 +299,194 @@ Notes:
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
   GS load.
+- **What is the OWNER debugging right now?** When the user asks about "my
+  scene", "the last capture", "why does my model look like that", do NOT guess
+  at project paths — their projects live wherever they put them, and a blind
+  `Get-ChildItem -Recurse` over the disk finds nothing useful. Ask the machine:
+
+  ```powershell
+  build\tyrax-editor.exe --debug-state
+  ```
+
+  It prints, per project, the live devkit artifacts in `bin/` with **how old**
+  each is, and decodes the interesting ones inline — `vucap.bin` as
+  *"frame 661, flush 2/9, 16 mesh(es), 94 tris in, 512x448"*, `livedbg.bin` as
+  *"frame 1111, scene 0, HALTED"*. The last line names the freshest artifact on
+  the whole machine, which is almost always the thing being talked about. Then
+  go in with `--dump-vucap <thatDir>` (or read `bin/log.txt`).
+
+  Where the list comes from, and its limits:
+  - **Running editors publish themselves** (`devsession.hpp`): one small file
+    per process under `%LOCALAPPDATA%\tyra-editor\sessions\<pid>.ini`
+    (`$XDG_STATE_HOME/tyra-editor/sessions/` off Windows), carrying the open
+    project, the build profile, whether the game is live/halted and at which
+    frame, and **which transport** — `pcsx2` or `ps2link`. A file per pid, so
+    several editors at once each get a line. Liveness is the **heartbeat**
+    (refreshed every ~4 s), not a pid probe: a session that stopped beating is
+    shown as `stale` rather than hidden, because a crashed editor's last known
+    project is information. This is the source that works when nothing else
+    does — a project opened for the first time, or a game on real hardware with
+    no local emulator process to find.
+  - **`editor.ini`'s recent-project list** (`%LOCALAPPDATA%\tyra-editor\editor.ini`,
+    machine-global, shared by every build and worktree). It is rewritten the
+    moment a project is **opened**, so entry 0 is the last one opened — but a
+    project created by `--new` and never opened in the GUI is not in it, and it
+    has been seen to miss a project that WAS open (unreproduced; the session
+    pointer is the reason that no longer matters).
+  - **the default projects folder** (`~/TyraProjects` unless Preferences moved
+    it), scanned for the projects the list misses.
+  - Anything else needs the path: `--debug-state <projectDir>` reports one
+    project directly.
+
+  **A running game beats all of it** — that is a process query, not a file one:
+
+  ```powershell
+  Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'" | Select-Object CommandLine
+  ```
+
+  The `-elf` path is `<projectDir>\bin\<name>.elf`. Same trick for
+  `tyrax-editor.exe`: its command line carries the project it was opened on,
+  and its `MainWindowTitle` reads `TyraX - <project>`. And **never kill either
+  process by name** — the owner may be sitting in front of one (a link step
+  failing with *"cannot open output file tyrax-editor.exe: Permission denied"*
+  means exactly that; ask them to close it, or link a check binary under
+  another name).
+
+  **On a real PS2 there is no game process to find, and the channel dies with
+  the editor.** A ps2link deploy is served by a `ps2client.exe` that the RUNNER
+  spawns (`src/runner.cpp`), so closing the editor takes the file server with
+  it: the console keeps running but every devkit file freezes at its last
+  write, and commands written to `livedbg.cmd` are never seen. Symptom:
+  `livedbg.bin` stops advancing while the console still answers `ping`. The fix
+  is a redeploy (*Run on PS2*, F6), not a retry — and it is why
+  `--debug-state` reports the transport.
+
+  That leaves a bind for **scripted** hardware debugging: a probe needs the file
+  server alive, but the editor that hosts it also drives `livedbg.cmd`, and two
+  writers on that file is a known hazard. Break it by hosting the server
+  yourself. **A game that is still running does NOT need a redeploy** — it is
+  blocked on `host:` and resumes the moment a server answers:
+
+  ```bash
+  cd <projectDir>/bin && ../../tools/ps2client/bin/ps2client.exe -h <ps2-ip> listen
+  ```
+
+  `listen` serves the console's file traffic and nothing else — within seconds
+  `livedbg.bin` starts advancing again and captures work.
+
+  **Do not send ps2client COMMANDS at a console with a game loaded.** Measured
+  the hard way: with a game running (or starving), any client that connects is
+  immediately conscripted as its file server and the command never reaches
+  ps2link — `reset` and `dumpmem` both returned -1 while the game's `host:` opens
+  scrolled past. Attaching a `listen` server first does let a command through,
+  and **the one that got through froze the game**. The reliable sequence is the
+  runner's: nothing else attached, `reset` (exit 0 only when the link is free),
+  then `execee`. And ps2link's extra commands are **not** the free lunch the
+  help text suggests: on the pinned build `dumpmem` answers `EE: pkoDumpMem()
+  write failed` (the destination file is created, zero bytes) and `scrdump`
+  exits 0 having written nothing — vestigial pko-era plumbing, not working
+  tools. Anything wanted from them is a **ps2link patch** (the workflow exists:
+  `tools/ps2link-usbhid/` clones a pinned ps2link, applies a patch and builds
+  it in Docker), and hardware-only — PCSX2 runs no ps2link. (Verified: a session
+  orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
+  the game is actually gone do you need the runner's two commands —
+  `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`
+  with `cwd = <project>/bin`, that second process being the file server for the
+  whole session. Use the **main checkout's** copy of ps2client either way: a
+  worktree path is a different binary to Windows Firewall and pops a prompt
+  nobody is watching.
+
+  With the server yours and the editor closed, a probe can pin each flush in
+  turn and summarise the frame — which is how "my model shows 2 meshes" was
+  traced to a bag flush full of terrain (PROGRESS 204). Since PROGRESS 205 the
+  **flush map** makes that one read instead of a walk: `livedbg.bin` (snapshot
+  **v4**) ends with a 64-byte stats block (FPS, flushes/quadwords/vertices to
+  VU1, GS VRAM free/low-water/largest/resident, object counts, free EE RAM) and
+  one 8-byte row per bag flush (qw, unpacks, verts, program). A ~60-line Python
+  probe reads it — that is how the block was verified, cross-checking the VRAM
+  figures against the game's own `VRAMSTAT` log line and the flush map's vertex
+  counts against `--dump-vucap` of the same capture. **v3 snapshots still
+  parse** (a console running an older build keeps working, minus stats), so
+  when stats are missing the first question is "was the GAME rebuilt?".
+  Free EE RAM is measured only when asked (command flags **bit 5**): the
+  engine's measurement allocates every free block until malloc fails.
+- **Flow-graph logic, without a pad or a screenshot**: a debug build with the
+  *Live Debugger* preference on (docs/live-debugger.md) writes
+  `bin/livedbg.bin` every 6 frames - per-node hit counters, a ring of recent
+  fires, the flow variables and save values, the halted flag - and reads
+  `bin/livedbg.cmd` (breakpoint list, halt/step, force-fire). Both are small
+  fixed-layout binaries (`src/livedbg.hpp`), so **a ~40-line Python probe
+  replaces the whole editor for scripted verification**: read the snapshot to
+  assert which nodes ran how often and what the variables hold, and write a
+  command to prove Pause freezes the counters, Step frame advances exactly
+  one frame, or a force-fire runs a trigger's branch (that is how entry 191
+  was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
+  editor and the probe must not both drive `livedbg.cmd` at once (the editor
+  rewrites it whenever it goes missing or its state changes).
+- **Inspect what went to VU1**: arm a capture (Debugger > VU, or command flag
+  bit 3 in `livedbg.cmd`) and the game writes `bin/vucap.bin`;
+  `tyrax-editor --dump-vucap <projectDir>` prints the decoded chain (DMA tags,
+  VIF codes, UNPACK destinations, the MSCAL entry point) and the first vertices.
+  That CLI is how the decoder is verified without the GUI - a healthy capture
+  shows `UNPACK V4_32 -> VU1 addr 0` for the scales, referenced `num=21` blocks
+  for the double-buffered vertex data, and model-space positions with w=1.0. It
+  also lists the **meshes** in the flush (a bag flush carries a dozen; the GUI
+  draws one at a time), which **bag flush of the frame** the capture is, the live
+  render resolution, and the findings the panel paints amber. **A project with no
+  runnable flow-graph node generates no devkit layer at all**, so a scratch
+  fixture needs a graph (`--apply-graph`) before it can capture anything -
+  `live_debug.gen.cpp` being a 220-byte comment is the tell. Consecutive captures
+  of the same draw are byte-identical in LENGTH (same bag, fixed 16 KiB memory
+  tail); tell them apart by mtime or the frame in the header, never by size. A
+  scripted probe selects the flush the same way the panel does: flags bit 3 arms
+  a capture, bit 4 means "index in bits 8-23", and without bit 4 each capture
+  walks to the next flush (that is how PROGRESS 201 was verified). **Delete
+  `livedbg.cmd` before booting a fixture** - a leftover command is applied at
+  boot and eats the first capture, which reads exactly like an off-by-one in the
+  walk. If
+  you see tags like `refe qwc=32789` or float garbage, the walker lost sync (see
+  the by-reference rule in tyra-engine-dev).
+- **Symbolize an address from a running/crashed game**: `tyrax-editor
+  --symbolize <projectDir> 0x...` runs the container's
+  `mips64r5900el-ps2-elf-addr2line` against `bin/<name>.elf.sym`, the unstripped
+  copy a DEBUG build keeps (`Makefile.base` writes it when the generated Makefile
+  sets `KEEPSYM=1`; the shipped ELF is `strip --strip-all`ed, so a release
+  project has nothing to resolve against). Needs the build container up.
+- **Testing a crash is harder than it looks**: PCSX2 will not produce the
+  exception for you - writing to address 0 does NOT fault on the PS2 (main RAM
+  starts at 0) and a misaligned load went through unharmed. And installing the
+  EE crash handler wedges the game under PCSX2 (entry 194), so that path is a
+  hardware-only test today. What IS testable in the emulator: the report format
+  (write a synthetic `bin/crash.txt` and let the editor parse + symbolize it),
+  the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
+  in the game's log), and the heartbeat post-mortem (kill the game and watch the
+  Debugger notice).
+- **Prove a release build is devkit-free**: `tyrax-editor --audit-release
+  <projectDir>` reads the built ELF and exits 0 (clean) / 1 (something leaked),
+  printing text/data/bss so the debug-vs-release cost is a number. Every release
+  build also runs it and logs the verdict. **Negative-test it too** - run it
+  against a DEBUG ELF and confirm it fails and names the findings, otherwise a
+  broken check reads exactly like a clean build (entry 193).
+- **Live Logic patches without the GUI**: `livelogic.cpp` has no GUI
+  dependency, so a ~100-line host harness (link it against the editor's
+  `build/CMakeFiles/tyrax-editor.dir/src/*.obj` minus `app`/`viewport`/
+  `gl_loader`/`main`, plus `vendor/ufbx/ufbx.c.obj` and your own
+  `STB_IMAGE_IMPLEMENTATION` TU) can `project::load` a project, edit graph
+  params in memory, `livelogic::compile` + `encode` and write
+  `bin/livelogic.bin` - i.e. do exactly what `App::liveLogicTick` does. Combined
+  with the Live Debugger's telemetry that gives a fully scripted end-to-end
+  check of hot-patched logic: measure a node's fire RATE before and after the
+  patch (entry 192). **When a patch half-works** (the visible effect lands but
+  debug keys/state look wrong), suspect the wire STRIDE first, and check that
+  `build/tyrax-editor.exe` was rebuilt before the `--build` that generated the
+  game's parser - a stale editor binary generates a stale interpreter.
+- **The editor window sometimes renders WHITE on this machine** (title bar
+  only, capture is blank) - a GL present quirk, not a code regression. The
+  check that settles it costs 30 seconds: capture
+  `D:	yra-editoruild	yrax-editor.exe` (the main-repo baseline binary)
+  the same way. If that is blank too, GUI visual verification is unavailable
+  for this session: say so in PROGRESS rather than claiming a visual check
+  that did not happen.
 - **Audio**: EE-side logs are invisible, so meter the PCSX2 process instead —
   on Windows the WASAPI session peak meter (e.g. via `AudioMeterInformation`),
   on Linux `pactl list sink-inputs` (the PCSX2 sink input's volume/peak, or a

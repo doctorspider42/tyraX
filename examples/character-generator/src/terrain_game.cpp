@@ -30,6 +30,7 @@
 #include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1646,12 +1647,19 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
-  const bool menuActive = saveMenuActive || gameMenuPausing;
+  // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
+  // the halt, and a halt then freezes the world exactly the way a pausing menu
+  // does - scripts, walker, particles and animation stop while frames keep
+  // being presented, so you can still look at what you stopped. All of this
+  // compiles to nothing when the debugger is off.
+  livedbg::tickFromLoop(scriptCtx);
+  const bool dbgHalted = livedbg::halted();
+  const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -2548,6 +2556,20 @@ void TerrainGame::processOneStreamJob() {
     loadAnimModelAsset(index);
   else
     loadSceneTexture(index);
+
+  // A terrain chunk built while the terrain texture was still queued got no
+  // texture bag, and nothing would ever give it one - the chunk is only
+  // rebuilt when it leaves the view rect and comes back. At scene load the
+  // queue drains before any chunk is built, so this only bites the streamed
+  // ring and layer residency; freeing the built chunks lets the ordinary
+  // budgeted pass rebuild them with the texture bound (the buffers keep their
+  // capacity, so it costs a rebuild, not an allocation).
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+    for (TerrainChunk& ch : terrainChunks) {
+      if (ch.cx < 0) continue;
+      terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
+      ch.cx = ch.cz = -1;
+    }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go
@@ -9553,7 +9575,15 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // No material: two greens in a checker pattern. With a material, the Kd
   // tint colors every cell uniformly - textured terrain modulates the map
   // (PS2 modulation: 128 = 1.0, so Kd*128), flat terrain uses Kd*255.
-  const bool textured = TERRAIN_TEXTURE >= 0;
+  //
+  // The texture must be the one actually LOADED, not merely the one the build
+  // assigned: a texture that failed to load (or is not resident yet) leaves the
+  // bag untextured further down, and scaling the vertex colors for a modulate
+  // that never happens draws the whole terrain at HALF brightness. That is
+  // invisible in PCSX2, where host: always serves the file, and shows up on a
+  // real console the moment an asset does not arrive.
+  const bool textured =
+      TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE] != nullptr;
   const bool hasMat = TERRAIN_HAS_MATERIAL;
   const float k = textured ? 128.0F : 255.0F;
   const float baseA[3] = {hasMat ? TERRAIN_TINT_R * k : 96.0F,
@@ -9736,7 +9766,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   ch.bag->color = ch.colorBag.get();
   ch.bag->vertices = ch.vertices.data();
   ch.bag->count = static_cast<u32>(ch.vertices.size());
-  if (textured && loadedTextures[TERRAIN_TEXTURE]) {
+  if (textured) {  // `textured` already means "loaded", see the color scale
     ch.texBag.texture = loadedTextures[TERRAIN_TEXTURE];
     ch.texBag.coordinates = ch.sts.data();
     ch.bag->texture = &ch.texBag;

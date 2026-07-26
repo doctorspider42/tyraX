@@ -188,6 +188,7 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 (l.kind == FlowLinkPos ? ", \"pos\": true" : "") +
                 (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
                 (l.kind == FlowLinkText ? ", \"text\": true" : "") +
+                (l.kind == FlowLinkNum ? ", \"number\": true" : "") +
                 (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") + " }";
     }
     return json + "] }";
@@ -291,6 +292,12 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("text");
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkText;
+            // "number", not "num": a node's numeric PARAMS already serialize as
+            // a "num" array, and one key meaning two things in one file invites
+            // exactly the bug it looks like.
+            if (const auto* v = jl.find("number");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkNum;
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
             if (l.kind == FlowLinkExec && !l.toPin)
                 for (const Retarget& r : retargets)
@@ -810,9 +817,17 @@ TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matR
     for (int i = 0; i < 3; ++i) out.kd[i] = m.kd[i];
     out.tile[0] = m.scale[0];
     out.tile[1] = m.scale[1];
-    // map_Kd is relative to the .mtl's own directory.
+    // map_Kd is relative to the .mtl's own directory - and the result must be
+    // NORMALIZED, because a material one folder over yields "materials/../
+    // textures/x.png" and **the PS2 cannot walk ".."**. PCSX2 hides this
+    // completely (its host: fs resolves the path through the OS) while a disc
+    // has no such entry at all, so the texture silently fails to load on real
+    // hardware only. texbake already copies the file to its normalized
+    // location, so this is also what makes the two agree.
     if (!m.texture.empty())
-        out.texture = (fs::path(matRel).parent_path() / m.texture).generic_string();
+        out.texture = (fs::path(matRel).parent_path() / m.texture)
+                          .lexically_normal()
+                          .generic_string();
     return out;
 }
 
@@ -843,6 +858,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"showAreas\": "
          << (p.settings.showAreas ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
+         << ",\n"
+         << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
+         << ",\n"
+         << "    \"eeCrashHandler\": "
+         << (p.settings.eeCrashHandler ? "true" : "false") << ",\n"
+         << "    \"liveLogic\": " << (p.settings.liveLogic ? "true" : "false")
          << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
@@ -1581,7 +1602,12 @@ static std::string manifestJson(const Project& p) {
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
          << ", \"viewMode\": " << p.viewMode
-         << ", \"viewProjection\": " << p.viewProjection << " }";
+         << ", \"viewProjection\": " << p.viewProjection
+         << ", \"breakpoints\": [";
+    for (size_t i = 0; i < p.debugBreakpoints.size(); ++i)
+        json << (i ? ", " : "") << "\"" << jsonEscape(p.debugBreakpoints[i])
+             << "\"";
+    json << "] }";
     // emulatorPath / ps2LinkIp used to live here but are now machine-global
     // editor settings (editor.ini), no longer written per-project. The reader
     // still accepts them to migrate older projects into the global config.
@@ -1776,6 +1802,8 @@ void seedBuiltinLayouts(Project& p) {
         {"Director", "", (int)LayoutRecipe::Director, {"cutscene", "phonecam", "phonelink"}});
     p.windowLayouts.push_back(
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
+    p.windowLayouts.push_back(
+        {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     // Everything a capture session needs and nothing else: the character being
     // driven, and the link driving it.
     p.windowLayouts.push_back(
@@ -2839,6 +2867,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.showProfiler = v->boolOr(false);
         if (const auto* v = s->find("showAreas")) st.showAreas = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
+        if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
+        if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
+        if (const auto* v = s->find("eeCrashHandler"))
+            st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
@@ -3997,6 +4029,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewProjection"))
             out.viewProjection = (int)v->numberOr(0);
+        if (const auto* v = ed->find("breakpoints");
+            v && v->type == json::Value::Type::Array)
+            for (const auto& jb : v->arr)
+                if (jb.type == json::Value::Type::String && !jb.str.empty())
+                    out.debugBreakpoints.push_back(jb.str);
         // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
         // (editor.ini). Still read so the editor can migrate an older project's
         // values into the global config on first open (see App::attachProject);
@@ -4029,6 +4066,14 @@ std::string load(Project& out, const std::string& projectDir) {
         // layout of the user's own is never touched. Delete it and it comes back
         // next load - the cost of having no schema version to remember by, and
         // cheaper than the feature being invisible.
+        // A project saved while Mocap still carried recipe 3 would now open that
+        // layout as the Debugger, main having taken 3 first. The name is the
+        // only evidence left of what it was meant to be, and it is enough:
+        // nothing else writes a layout called Mocap.
+        for (WindowLayout& L : out.windowLayouts)
+            if (L.name == "Mocap" && L.recipe == (int)LayoutRecipe::Debugger)
+                L.recipe = (int)LayoutRecipe::Mocap;
+
         bool haveMocap = false;
         for (const WindowLayout& L : out.windowLayouts)
             if (L.recipe == (int)LayoutRecipe::Mocap) haveMocap = true;
@@ -4041,6 +4086,20 @@ std::string load(Project& out, const std::string& projectDir) {
             const std::string legacy = v->stringOr("");
             if (!legacy.empty()) out.windowLayouts[0].ini = legacy;  // keep old arrangement
         }
+    }
+    // Top up the built-in set: a project saved before a built-in layout existed
+    // keeps its own layouts, and would otherwise never see the new one. Only
+    // recipe-backed built-ins are added (a user layout with the same name is
+    // left alone), so this stays a one-time migration per project.
+    {
+        auto hasRecipe = [&](LayoutRecipe r) {
+            for (const WindowLayout& L : out.windowLayouts)
+                if (L.recipe == (int)r) return true;
+            return false;
+        };
+        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Debugger))
+            out.windowLayouts.push_back(
+                {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
@@ -4387,13 +4446,24 @@ std::string refreshGenerated(const Project& p) {
         const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);
 
         bool write = false;
-        if (f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
+        // The Makefile is fully generated (no ownership marker, like the
+        // Dockerfile): it carries the build-profile flags now - -g and
+        // -leedebug for the crash reporter in debug, neither in release -
+        // so it MUST refresh with the project, not just at creation.
+        if (f.relativePath == "Makefile" ||
+            f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
             f.relativePath == "src\\main.cpp" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_logic.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\live_logic.gen.hpp" ||
+            f.relativePath == "src\\gen\\livelogic.built" ||
+            f.relativePath == "src\\gen\\live_debug.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\live_debug.gen.hpp" ||
+            f.relativePath == "src\\gen\\livedbg.sym" ||
             f.relativePath == "src\\gen\\live_tex.gen.cpp" ||
             f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||

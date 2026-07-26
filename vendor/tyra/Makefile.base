@@ -74,6 +74,13 @@ cleaner: clean
 #Link
 $(TARGET): $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS)
 	$(CXX) -T$(PS2DEV)/ps2sdk/ee/startup/linkfile -o $(TARGETDIR)/$(TARGET) $^ -L$(PS2DEV)/ps2sdk/ee/lib -L$(PS2SDK)/ports/lib $(LINKFLAGS) $(LIBDIRS) $(LIB)
+# TyraX: keep an UNSTRIPPED copy before stripping the shipped ELF, so the
+# editor can turn a crash dump address into a function name and source line
+# (mips64r5900el-ps2-elf-addr2line). The generated Makefile sets KEEPSYM in
+# the debug profile only; the shipped ELF is stripped either way.
+ifeq ($(KEEPSYM),1)
+	cp $(TARGETDIR)/$(TARGET) $(TARGETDIR)/$(TARGET).sym
+endif
 	$(STRIP) --strip-all $(TARGETDIR)/$(TARGET)
 
 $(BUILDDIR)/%.$(OBJEXT): $(SRCDIR)/%.$(IRXEMBEDDEDEXT)

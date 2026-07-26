@@ -81,6 +81,7 @@ add_executable(tyrax-editor
     src/camtake.cpp
     src/charanim.cpp
     src/chargen.cpp
+    src/devsession.cpp
     src/flownode.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
@@ -91,6 +92,10 @@ add_executable(tyrax-editor
     src/posefilter.cpp
     src/visionpose.cpp
     src/json.cpp
+    src/elfsym.cpp
+    src/livedbg.cpp
+    src/livelogic.cpp
+    src/vucap.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp

@@ -1,6 +1,7 @@
 #include "runner.hpp"
 
 #include "isoexport.hpp"
+#include "elfsym.hpp"
 #include "pcsx2_config.hpp"
 #include "platform.hpp"
 #include "texbake.hpp"
@@ -307,6 +308,16 @@ bool Runner::launchPCSX2(const Project& p) {
     std::error_code logEc;
     fs::remove(fs::path(p.dir) / "bin" / "log.txt", logEc);
     fs::remove(fs::path(p.dir) / "bin" / "ps2link.run", logEc);
+    // Live Debugger channel (docs/live-debugger.md): both files describe a
+    // session that is over. A stale livedbg.cmd would freeze the fresh boot at
+    // whatever the last session was doing, and a stale livedbg.bin would read
+    // as a game already reporting; the editor re-sends its breakpoints within
+    // a tick of the new game coming up.
+    fs::remove(fs::path(p.dir) / "bin" / "livedbg.bin", logEc);
+    fs::remove(fs::path(p.dir) / "bin" / "livedbg.cmd", logEc);
+    // Live Logic: the fresh build compiles every graph natively again, so
+    // a leftover patch would make the game interpret a stale program.
+    fs::remove(fs::path(p.dir) / "bin" / "livelogic.bin", logEc);
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -349,6 +360,9 @@ bool Runner::launchPCSX2(const Project& p) {
     }
 
     appendLine("[editor] Launching PCSX2: " + exe);
+    // (The ELF path is native-separator already: Project::filePath() applies
+    // make_preferred, which is what PCSX2 needs - it refuses a boot ELF whose
+    // path mixes separators.)
     if (!platform::Process::startDetached(platform::shellArg(exe) + " -elf " +
                                           platform::shellArg(p.elfPath()))) {
         appendLine("[editor] Failed to launch PCSX2.");
@@ -483,6 +497,9 @@ bool Runner::deployToPs2(const Project& p) {
     // host: (here: over the network); drop the stale file for the Debug window.
     std::error_code logEc;
     fs::remove(fs::path(binDir) / "log.txt", logEc);
+    fs::remove(fs::path(binDir) / "livedbg.bin", logEc);
+    fs::remove(fs::path(binDir) / "livedbg.cmd", logEc);
+    fs::remove(fs::path(binDir) / "livelogic.bin", logEc);
 
     // ps2link passes execee arguments in a non-standard way that the game's
     // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied
@@ -838,6 +855,18 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
                 }
                 if (superseded) fs::remove(it->path(), ec);
             }
+        }
+
+        // Every release build audits itself: the devkit (Live Link / Live
+        // Debugger / Live Logic) claims to cost a shipped game nothing, and a
+        // claim that is never checked rots. This reads the ELF that was just
+        // produced and says so in the build log, with the real numbers - see
+        // docs/devkit.md and `--audit-release`.
+        if (ok && p.settings.buildProfile == "release") {
+            const elfsym::Audit audit = elfsym::auditRelease(p.elfPath());
+            appendLine("[editor] " + audit.summary());
+            for (const elfsym::AuditFinding& f : audit.findings)
+                appendLine("[editor]   leaked: " + f.what + " (" + f.where + ")");
         }
 
         appendLine(ok ? "[editor] === Build OK ==="
