@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,14 @@ std::string scriptStub(const Project& p, const std::string& className,
 // True when `content` is byte-identical to what an older editor version
 // generated for this file - i.e. the user never edited it and it is safe
 // to regenerate even though it predates the ownership marker.
+// A File::relativePath as a filesystem path. The generator writes '\\'
+// separators (and hundreds of call sites compare against literals spelled that
+// way), but a backslash is an ordinary FILENAME CHARACTER on POSIX - writing
+// one straight out produces a single file literally called "src\\gen\\x.cpp"
+// instead of the directory tree. Every place a relativePath meets the file
+// system goes through here.
+std::filesystem::path nativePath(const std::string& relativePath);
+
 bool matchesLegacy(const Project& p, const std::string& relativePath,
                    const std::string& content);
 

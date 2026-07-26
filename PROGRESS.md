@@ -10,6 +10,132 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (187) **The editor is cross-platform: it builds and runs on Linux from the
+  same source tree.** The whole thing was Windows-only, and not incidentally -
+  `CreateProcess` + Job Objects drove the Runner and the AI generator,
+  comdlg32/`IFileOpenDialog` were the file pickers, `ShellExecute` was "Reveal
+  in Explorer", `%LOCALAPPDATA%` held editor.ini / the session remote-cache /
+  the exported PS2SDK headers, `\Windows\Fonts` resolved every baked font, and
+  `GetModuleFileName` was how anything found the bundled engine or `tools/`.
+  Rather than `#ifdef` ~40 call sites, all of it moved behind one new module,
+  **`src/platform.hpp/.cpp`**, and the call sites became platform-blind. What
+  it covers: `exePath`/`configDir`/`homeDir`/`userName`/`exeSuffix`/`processId`,
+  `sleepMs`/`logTimeStamp`, the shell-fragment helpers (`quiet`, `killByName`,
+  `envPrefix`, `commandExists`), a `Process` class, the pickers
+  (`pickFile`/`pickFolder`/`errorBox`), `revealInFileManager`, `openInVSCode`,
+  and the font lookup (`systemFontPath`/`systemFonts`/`fallbackFontFiles`).
+  **The load-bearing piece is `platform::Process`**: one shell command line
+  (`cmd.exe /S /C` vs `/bin/sh -c`), optional stdout capture, optional stderr
+  to a file, and a `kill()` that takes down the whole TREE - a Job Object on
+  Windows, a `setsid()` process group on POSIX. That last part is not a detail:
+  the shell wrapper is never the process doing the work (docker, make, node,
+  curl, ps2client), so killing only the wrapper is how Cancel used to leave a
+  token-burning backend or a port-holding file server behind. Two subsystems
+  deliberately did NOT move into it, each saying so in a comment: the socket
+  shims in `wire.cpp` (Winsock2 *is* BSD sockets with other spellings - routing
+  them through platform.hpp would mean re-inventing a socket API, so the
+  Winsock names are mapped onto POSIX in place and the transport is written
+  once), and PCSX2 discovery in `runner.cpp` / `pcsx2_config.cpp` (two Program
+  Files roots vs PATH + flatpak + an AppImage in `~/Applications`; the .ini is
+  a Documents known folder vs XDG dirs plus the flatpak sandbox - genuinely
+  different SHAPES, and platform.cpp has no business knowing what PCSX2 is).
+  Everything else is a one-line swap. Beyond the mechanical port, four things
+  had to be decided rather than translated: **file dialogs** have no portable
+  native answer on Linux, so they shell out to zenity (kdialog as fallback) and
+  the filter lists moved from wide double-NUL comdlg strings to a plain
+  `FileFilter` struct both back-ends build from - the Executable filter now
+  asks `platform::exeSuffix()` so it is not `*.exe` on a machine where
+  executables have no extension; **fonts** keep storing a bare file name, but
+  resolution goes through a lazily-built filename→path index over the
+  freedesktop font roots, and a project authored on the other OS falls back
+  through the platform chain instead of failing the bake (this is what makes
+  `.tyra` files portable in practice); **`localIPv4`** switched to `getifaddrs`
+  on POSIX, because the gethostname route the Windows build uses answers
+  `127.0.1.1` and nothing else on the many distros that put the host name in
+  `/etc/hosts` - which would have left the collaboration and phone-camera
+  panels with no address to show; and **SIGPIPE is ignored process-wide** from
+  a static in platform.cpp, since both a dying child's pipe and a vanished
+  session peer would otherwise kill the editor outright (`send` also passes
+  `MSG_NOSIGNAL` where it exists). Build side: CMake links `OpenGL::GL` +
+  Threads + `${CMAKE_DL_LIBS}` off Windows and keeps shell32/ole32/uuid/ws2_32
+  on it, and `deps.sh`/`setup.sh`/`build.sh` mirror the PowerShell trio
+  one-for-one - same single-source dependency list, same "missing dep runs
+  setup" guard, plus an up-front toolchain/pkg-config check that names the
+  apt packages instead of failing later inside cmake.
+  **Six real bugs fell out of actually running it, every one invisible on
+  Windows.** (1) `templates::File::relativePath` is `'\'`-separated (hundreds
+  of literals compare against it that way) and was handed straight to
+  `std::filesystem` - on POSIX a backslash is an ordinary FILENAME character,
+  so a fresh project came out as ~30 files literally called
+  `src\gen\flow_graph.gen.cpp` instead of a directory tree. Fixed at the four
+  places a relativePath meets the file system, via a new
+  `templates::nativePath()`; the string comparisons are untouched. (2) The same
+  trap one level up: `p.dir + "\" + relPath` was how EVERY project-relative
+  asset was opened (models in decalproj/navmesh/templates, menu images, the
+  `.mtl` and LOD tiers) plus `Project::elfPath()`. On Linux each of those named
+  a file that does not exist, so nothing would have loaded and PCSX2 was told
+  to boot `.../linuxtest\bin\linuxtest.elf`. There is now one
+  `Project::filePath(rel)` and no hand-joins left. (3) The build's in-container
+  shell scripts are nested inside the command line, and cmd.exe expands
+  nothing - `/bin/sh` expands `$(...)`/`${...}` inside double quotes on the
+  HOST, which emptied every variable in the sfx loop ("dirname: missing
+  operand", so `adpenc` never ran) and evaluated `$(nproc)` against the wrong
+  machine. New `platform::shellArg()` quotes anything the outer shell must not
+  touch, and every nested script and path argument goes through it. (4) The
+  container runs as root, so on a plain Linux Docker everything the copy-back
+  rsync wrote into the bind-mounted project came out root-owned - the user
+  could not delete their own `bin/` without sudo (`rm -rf bin` failed on every
+  file while proving this). The copy-back now passes
+  `--chown=$(platform::containerFileOwner())`, empty on Windows where Docker
+  Desktop maps ownership itself. (5) A non-blocking `connect()` reports
+  WSAEWOULDBLOCK on Winsock and **EINPROGRESS** on POSIX, so every
+  collaboration client and phone-camera connection was rejected the instant it
+  was made; the socket harness below caught it. (6) Projects shipped `run.ps1`
+  + `windows-pcsx2.ps1` and nothing for anyone else, so a generated project got
+  a `run.sh` twin (PATH / flatpak / AppImage probing, same kill-then-launch
+  shape) - and `writeFile` now adds the execute bits to any generated `.sh`,
+  since a file mode is not something a template can express. Both scripts are
+  emitted regardless of authoring OS: a project is portable, so the helper for
+  the *other* machine has to be in it.
+  One pre-existing limit also surfaced, because Linux runs into it far sooner
+  than Windows: **PCSX2's host: loader silently refuses a long ELF path** - it
+  logs `ELF Loading: ...` and the EE never reaches `is executing`, leaving a
+  black window and no clue. Bisected on this box: 145 characters boot, 147 do
+  not (the `host:` prefix puts that at a 150-byte buffer). A home directory
+  plus a deep project tree passes 145 much sooner than
+  `C:\Users\<name>\TyraProjects\<project>` does, so `launchPCSX2` now says
+  so in the Output panel instead of letting the user stare at it.
+  *Verified* on Ubuntu 26.04 (GNOME/Wayland, a box with no toolchain, no
+  Docker and no compiler to start with), all the way to a running game:
+  - `./build.sh` from a bare tree fetched every `vendor/` dependency and
+    produced `build/tyrax-editor` (101 targets, clean, `--clean` rebuild too).
+  - Headless CLI end to end: `--new` created an FPP project whose tree is now
+    real directories (`src/gen/…`, `inc/scripts/…`, `objects/<id>.json`) with
+    an executable `run.sh` that passes `bash -n`, then `--refresh-gen`,
+    `--resave`, `--dump` (correct JSON: one `player-1`, terrain 64x64) and
+    `--list-nodes` (112 lines).
+  - A **socket harness** (`wire.cpp` + `platform.cpp` linked against a 90-line
+    `main()`, the pattern the collaboration tests already use) ran a listening
+    and a connecting transport in one process over 127.0.0.1: connect, a frame
+    each way byte-identical including a 1 KiB binary trailer, the disconnect
+    event, the WebSocket server's "a plain browser GET never becomes a peer"
+    contract, and `localIPv4()` returning a real LAN address. This is what
+    caught the EINPROGRESS bug - it failed 6 of 13 checks first.
+  - The GUI runs natively on Wayland: EGL/mesa mapped, `/dev/dri/renderD128`
+    open, 9 threads, steady CPU at vsync. (No screenshot - GNOME 45+ denies
+    every non-Shell screenshot path; see tyra-testing for what stands in.)
+  - **Full e2e**: `--build --run` pulled the `h4570/tyra` image, compiled
+    libtyra and the game with the PS2DEV toolchain, converted a test WAV with
+    `adpenc` into `bin/sfx/steps/blip.adpcm`, copied `bin/` back host-owned,
+    enabled `HostFs` + the USB keyboard/mouse ports in the distro PCSX2's ini,
+    and launched it. The game **boots and runs**: emulog says `ELF ... is
+    executing`, and `bin/log.txt` over host: shows the engine coming up
+    (audsrv, renderer, pad, save system), `Hello from TyraX!` from the example
+    script, and `VRAMSTAT f=240` - 240 rendered frames, no TYRA assert.
+  **Not verified**: the Windows build after the refactor (needs a Windows box -
+  every `#ifdef _WIN32` branch here is written but uncompiled), and the real-PS2
+  network deploy (no console on this LAN).
+
 - (186) **Two things the owner hit while playing with areas: the unload band was
   eight units of "why is this still loaded", and you cannot debug an invisible
   volume.** (1) A streaming layer on an area zone loaded the instant you entered

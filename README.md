@@ -1,10 +1,12 @@
 # TyraX
 
-An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engine. C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3.
+An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engine. C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3. Runs on **Windows and Linux** from one source tree.
 
 ![The TyraX editor: the Project panel (scenes, objects, layers, assets) on the left, the 3D viewport with a checkerboard terrain, scene objects and camera-entity frustum wedges in the center, the Properties panel on the right, and the build Output docked below.](docs/img/editor-overview.png)
 
 ## Quickstart
+
+**Windows**
 
 ```powershell
 # 1. Install prerequisites (skip what you already have)
@@ -15,7 +17,22 @@ scoop install mingw cmake ninja       # editor toolchain
 ./build.ps1 -Run
 ```
 
-`build.ps1` handles everything: clones `vendor/` dependencies on first run, finds the scoop mingw toolchain even when it's not on PATH, configures CMake and builds. Flags: `-Run` launches the editor after building, `-Clean` rebuilds from scratch.
+**Linux**
+
+```bash
+# 1. Install prerequisites (skip what you already have)
+sudo apt install -y build-essential cmake ninja-build git pkg-config \
+    libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+    libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity
+# + Docker (running) and PCSX2 (package, flatpak or AppImage, with BIOS configured)
+
+# 2. Build and run the editor (clones deps + configures + builds)
+./build.sh --run
+```
+
+Both scripts handle everything: clone the `vendor/` dependencies on first run, check the toolchain, configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency list lives in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
+
+Everything the two platforms disagree about — spawning child processes, native file dialogs, where the machine-global config lives, which system fonts exist, how to reveal a file in the file manager — lives behind [`src/platform.hpp`](src/platform.hpp). Projects are portable between the two: the `.tyra` format is identical, and a font referenced by a name this OS doesn't have falls back instead of failing the bake.
 
 Then in the editor:
 
@@ -89,7 +106,7 @@ Then in the editor:
 - **Baked ambient occlusion (contact shadows)** — soft shadows where geometry meets: terrain self-shadowing (ravines, foot of hills) and darkening where objects touch the ground and each other. Baked at build into **per-pixel AO textures** (a terrain map + a per-scene primitive lightmap atlas) drawn as extra blended passes — smooth, no visible triangle edges. Scene-wide strength/radius live in *Tools > Ambience Editor* (enabled by default for new projects); **which objects cast is per object** — *Properties > Cast shadow*. Previewed live in the viewport. Imported/animated models cast but don't receive (their per-vertex bake read as triangulated shading — parked until a lightmap unwrap exists). See [docs/ambient-occlusion.md](docs/ambient-occlusion.md).
 - **Sky** — gradient dome (horizon/zenith colors) or flat clear color; scripts can retint it at runtime.
 - **HUD from images** — `+ Image (PNG)` imports into `res/hud/`; position/size editable with a live preview over the viewport; rendered in-game as 2D sprites. The built-in **USE prompt** is a pinned entry in *Tools > UI Editor*: reposition/resize it or replace its sprite with a custom PNG (reset to the built-in anytime).
-- **Fonts** — *Tools > Font Manager*: the project's typefaces, each an entry (name + a TTF imported into the project or a stock Windows font). Everything that draws text — HUD texts, menus, loading screens, *Display Text* nodes — picks one **by name**, so restyling a project is one edit here. The first entry is the default every unset reference falls back to; replace it to restyle everything at once. No TTF ever reaches the PS2: static text is rasterized to sprites at build, and only a font a *Display Text* node uses additionally bakes a glyph atlas.
+- **Fonts** — *Tools > Font Manager*: the project's typefaces, each an entry (name + a TTF imported into the project or a stock system font). Everything that draws text — HUD texts, menus, loading screens, *Display Text* nodes — picks one **by name**, so restyling a project is one edit here. The first entry is the default every unset reference falls back to; replace it to restyle everything at once. No TTF ever reaches the PS2: static text is rasterized to sprites at build, and only a font a *Display Text* node uses additionally bakes a glyph atlas.
 - **On-screen texts** — *Tools > UI Editor > Texts*: named texts (font, size, color, multi-line, drop shadow) baked to sprites at build — the PS2 engine has no font. The *Set Text Visible* flow node's show/hide pins trigger them at runtime, with an optional auto-hide after N seconds: subtitles, tutorial hints, pickup toasts. The string is frozen at build.
 - **Runtime text** — the **Display Text** flow node draws a string that is only known while the game runs (a score, a save value, a timer), so it cannot be a pre-baked sprite. Wire any text source into it (*Get Save Text*, *Get Int As Text*, *Position To Text*, ...), give it a font, screen position and size, and drive its **show** and **hide** pins; a static prefix ("Score: ") sits in front of the wired value. It draws glyph by glyph from the font's baked atlas, and that atlas only reaches VRAM the first time the text is actually on screen — a font nobody displays costs nothing.
 - **Screen effects** — *Tools > UI Editor* composites the whole screen as one reorderable **screen stack**: the built-in **bloom** (+ color grading) and **film grain** effects and the HUD sprites, dragged into the order they draw (e.g. bloom under the HUD so it doesn't blur the crosshair, grain over everything). Bloom carries a **Threshold** (bright pass) and a **Spread**: at threshold 0 the whole frame glows (soft focus), raised it collapses the halo onto the pixels brighter than the cut — which is what turns an [emissive material](docs/emissive-materials.md) into a glowing object instead of a veil over the picture — while Spread adds blur rounds with doubled tap offsets to grow a tight fringe into a real corona. Bloom itself goes to **2×** (the GS blend factor is a whole byte, so the blur can be over-added for a blown-out glow). Cost: one extra quarter-res GS sprite for the bright pass, four per spread round, no EE time. A **depth of field** effect blurs the image past a focus distance — per-pixel, following real scene depth (the blurred frame is composited back through z-tested sprites). It is authored as its own pinned stack entry (*Amount* / *Focus* / *Range*, per-scene overridable in *Scene > Preferences > Post effects*) that always composites right after the 3D scene, under the whole HUD — sprites stamp depth across their full rectangle, so compositing DoF above them would punch sharp boxes into the blur; pinned underneath, the HUD always stays crisp. At runtime the *Set Depth Of Field* flow node overrides it (custom focus / range / amount, or wire a position to keep an object in focus), switches it off, or restores the scene's authored values (*Scene setting* mode). Need an effect the editor doesn't have? Define your own **custom screen effect** in a `screen-effects/*.screenfx` text file — no editor rebuild. There are no pixel shaders on the PS2, so an effect is written **low-level** (a small manifest + raw GS-blit C++, the same way bloom/grain are built); it appears as a positionable stack entry with numeric parameters. Copy the file to reuse it in other projects: [docs/custom-screen-effects.md](docs/custom-screen-effects.md).
@@ -107,20 +124,27 @@ Then in the editor:
 
 ## Requirements
 
-- Windows, [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running), [PCSX2](https://pcsx2.net/) installed in `Program Files\PCSX2` (with BIOS configured). A non-standard install can be pointed at under `Edit > Preferences`.
-- To build the editor: CMake, Ninja, GCC/MinGW (e.g. `scoop install mingw cmake ninja`).
+- **Windows or Linux.**
+- [Docker](https://www.docker.com/products/docker-desktop/) running (Docker Desktop on Windows, `docker` + the compose plugin on Linux) — the generated game is compiled inside the `h4570/tyra` container.
+- [PCSX2](https://pcsx2.net/) with a BIOS configured. Auto-detected in `Program Files\PCSX2` on Windows, and on PATH / as a flatpak / as an AppImage under `~/Applications` or `~/Downloads` on Linux. Any other location can be pointed at under `Edit > Preferences`.
+- To build the editor:
+  - Windows: CMake, Ninja, GCC/MinGW (e.g. `scoop install mingw cmake ninja`).
+  - Linux: CMake, Ninja, GCC and the X11/Wayland/GL development headers (see the Quickstart command). `zenity` (or `kdialog`) provides the native file dialogs — without one, the Open/Import buttons have nothing to open.
+- **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF path longer than about 145 characters — it loads the ELF and the game never starts, with a black window and nothing in the log. The editor warns in the *Output* panel when a project is past the limit; move it somewhere shorter. (Easy to hit on Linux: a home directory plus a deep tree adds up fast.)
 
 ## CLI
 
 Projects can also be created and built headlessly:
 
-```powershell
-tyrax-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp]
-tyrax-editor.exe --build <projectDir> [--run]
-tyrax-editor.exe --resave <projectDir>        # load + save (runs format migrations)
-tyrax-editor.exe --refresh-gen <projectDir>   # regenerate game sources (no Docker)
-tyrax-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
+```bash
+tyrax-editor --new <name> <parentDir> [width] [depth] [orbit|fpp]
+tyrax-editor --build <projectDir> [--run]
+tyrax-editor --resave <projectDir>        # load + save (runs format migrations)
+tyrax-editor --refresh-gen <projectDir>   # regenerate game sources (no Docker)
+tyrax-editor <projectDir|project.tyra>    # open GUI with a project loaded
 ```
+
+(`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux.)
 
 `--resave` loads a project and writes it straight back out, running every
 on-disk format migration in the process (e.g. stamping stable object ids on
@@ -138,7 +162,7 @@ project — `--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`,
 3. `rsync` project sources into the container volume (`/host` → `/src`).
 4. `make` inside the container (`mips64r5900el-ps2-elf-g++` compiler).
 5. `rsync` the `bin/` directory back to the host.
-6. Launch `pcsx2-qt.exe -elf <project>\bin\<name>.elf`.
+6. Launch `pcsx2-qt -elf <project>/bin/<name>.elf`.
 
 ## Run on a real PS2 (network deploy)
 
@@ -216,12 +240,12 @@ architecture guides live under [.claude/skills/](.claude/skills).
 
 ## Structure
 
-- `src/` — editor code (`app` UI, `assetbrowser` the res/ asset manager, `viewport` GL preview, `project`+`templates` project generator, `flownode` custom flow-graph node loader, `aigen` AI flow-graph generation, `aisupport` AI-support installer, `runner` docker/PCSX2 pipeline, `gl_loader` minimal GL loader).
+- `src/` — editor code (`app` UI, `assetbrowser` the res/ asset manager, `viewport` GL preview, `project`+`templates` project generator, `flownode` custom flow-graph node loader, `aigen` AI flow-graph generation, `aisupport` AI-support installer, `runner` docker/PCSX2 pipeline, `platform` the single OS-abstraction layer, `gl_loader` minimal GL loader).
 - `ai-support/` — source markdown for the AI assistant guides installed into projects (embedded into the exe at build time; see [docs/ai-support.md](docs/ai-support.md)).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
-- `vendor/` (rest) — editor dependencies (not versioned; fetched by `setup.ps1` from the single list in `deps.ps1`, which `build.ps1` also checks before configuring — add a new dependency there and nothing else needs to know).
-- `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1`), a [custom ps2link with USB keyboard+mouse](tools/ps2link-usbhid/README.md) (`ps2link-usbhid`, for playing kbd/mouse over the F6 network deploy on real hardware), and the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
+- `vendor/` (rest) — editor dependencies (not versioned; fetched by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know).
+- `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1` / `setup.sh`), a [custom ps2link with USB keyboard+mouse](tools/ps2link-usbhid/README.md) (`ps2link-usbhid`, for playing kbd/mouse over the F6 network deploy on real hardware), and the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
 
 ## Credits
 
@@ -239,12 +263,12 @@ This project stands on the shoulders of the PS2 homebrew community:
   ([`tools/ps2client/nodelay.patch`](tools/ps2client/nodelay.patch),
   `TCP_NODELAY` on the request socket); upstream declares no explicit license
   file, so it is redistributed here in the spirit of the ps2dev homebrew SDK
-  with full credit to its authors. `ps2link` is downloaded unmodified from
-  upstream releases by `setup.ps1`.
+  with full credit to its authors. The Linux `ps2client` binary and `ps2link`
+  are downloaded unmodified from upstream releases by `setup.sh` / `setup.ps1`.
 - **[PS2SDK](https://github.com/ps2dev/ps2sdk)** (ps2dev) — the SDK every
   generated game links against; the custom `audsrv` build in
   `vendor/tyra/audsrv-pan` derives from its audsrv module.
-- Editor dependencies fetched by `setup.ps1`: [Dear ImGui](https://github.com/ocornut/imgui)
+- Editor dependencies fetched by `setup.ps1` / `setup.sh`: [Dear ImGui](https://github.com/ocornut/imgui)
   (MIT), [GLFW](https://www.glfw.org/) (zlib/libpng),
   [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) (MIT),
   [imnodes](https://github.com/Nelarius/imnodes) (MIT),

@@ -2,7 +2,8 @@
 name: tyra-testing
 description: >
   How to build, run and VERIFY anything in this repo: compiling the editor
-  (build.ps1), headless CLI project creation and game builds, checking code
+  (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
+  game builds, checking code
   generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
   reliable window screenshots via the bundled script), and audio verification.
   Use this skill EVERY time you need to test a change, run the editor, build a
@@ -22,44 +23,64 @@ PROGRESS.md about which layer you reached (the existing entries distinguish
 
 ## Layer 0 — build the editor
 
+The editor builds and runs on **Windows and Linux**. Pick the script for the
+box you are on; they take the same flags and do the same things.
+
 ```powershell
 ./build.ps1          # → build/tyrax-editor.exe (fetches missing vendor deps itself)
 ./build.ps1 -Run     # build + launch the GUI
 ./build.ps1 -Clean   # full rebuild
 ```
 
-Needs `scoop install mingw cmake ninja`. This is also the compile check for
+```bash
+./build.sh           # → build/tyrax-editor
+./build.sh --run     # build + launch the GUI
+./build.sh --clean   # full rebuild
+```
+
+Needs `scoop install mingw cmake ninja` (Windows) or `build-essential cmake
+ninja-build pkg-config` plus the X11/Wayland/GL dev headers (Linux — build.sh
+names the exact apt line when something is missing, and refuses to configure
+rather than failing later inside cmake). This is also the compile check for
 everything under `src/` — warnings matter, the build is expected to be clean.
 
-**Third-party dependencies live in exactly one list: `deps.ps1`.** `setup.ps1`
-fetches from it and `build.ps1` probes it before configuring, so adding a
-dependency there is all it takes — the build guard picks it up for free and
-`git clone`s it on the next build. Add one anywhere else and you recreate the
-bug this arrangement exists to prevent: the two lists used to drift, and a
-worktree that predated a new dependency reached cmake with the sources
-missing.
+**Only one platform's compiler runs at a time, so a cross-platform change is
+only half-checked until the other side builds too.** Anything touching
+`src/platform.*`, `wire.cpp`, the Runner or CMakeLists needs a build on both,
+or say so in PROGRESS.md.
+
+**Third-party dependencies live in exactly one list per platform: `deps.ps1`
+and `deps.sh`.** `setup.ps1`/`setup.sh` fetch from them and `build.ps1`/
+`build.sh` probe them before configuring, so adding a dependency **to both** is
+all it takes — the build guard picks it up for free and `git clone`s it on the
+next build. Add one anywhere else, or to only one of the two, and you recreate
+the bug this arrangement exists to prevent: the lists used to drift, and a
+worktree that predated a new dependency reached cmake with the sources missing.
 
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
-corrupt checkout — that path simply isn't on disk yet. `./build.ps1` normally
-fixes it by itself; run `./setup.ps1` directly if you want the fetch without a
-build. The same applies after merging a branch that added a dependency: the
-merge brings the CMake reference, not the clone. Probes are real source files,
-so a half-finished clone reports as missing rather than sneaking through —
-delete the directory and re-run setup when the guard says a probe is still
-absent after a fetch.
+corrupt checkout — that path simply isn't on disk yet. The build script
+normally fixes it by itself; run `./setup.ps1` / `./setup.sh` directly if you
+want the fetch without a build. The same applies after merging a branch that
+added a dependency: the merge brings the CMake reference, not the clone. Probes
+are real source files, so a half-finished clone reports as missing rather than
+sneaking through — delete the directory and re-run setup when the guard says a
+probe is still absent after a fetch.
 
 ## Layer 1 — headless CLI (no GUI needed)
 
-```powershell
-build\tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
-build\tyrax-editor.exe --build <projectDir> [--run]   # exit code 0 = success
-build\tyrax-editor.exe --resave <projectDir>          # load + save, no Docker
-build\tyrax-editor.exe --refresh-gen <projectDir>     # regen sources, no Docker
-build\tyrax-editor.exe --dump <projectDir>            # JSON project summary
-build\tyrax-editor.exe --dump-graph <projectDir> <object> [scene]
-build\tyrax-editor.exe --apply-graph <projectDir> <object> <g.json> [scene] [--append]
-build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
+(`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux — written
+`TYRAX` below.)
+
+```
+TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp]
+TYRAX --build <projectDir> [--run]   # exit code 0 = success
+TYRAX --resave <projectDir>          # load + save, no Docker
+TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
+TYRAX --dump <projectDir>            # JSON project summary
+TYRAX --dump-graph <projectDir> <object> [scene]
+TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
+TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
@@ -140,19 +161,23 @@ client `Session` **in one process over 127.0.0.1 with real sockets** (drain
 drive `session::diffModel`/`applyEdit` directly on two `Project` replicas for
 convergence property tests (random concurrent edits + the host relay rule →
 assert byte-identical serializations; that test caught two real divergence
-bugs). Link the same .obj set as the model harness plus `session`, `wire`, and
-`-lws2_32`. For the interactive layer, run **two editor instances on one
+bugs). Link the same .obj set as the model harness plus `session`, `wire`, `platform`,
+and `-lws2_32` on Windows (`-pthread` elsewhere; `wire.cpp` needs no extra
+library on Linux). For the interactive layer, run **two editor instances on one
 machine** (the second without a project), host from A, join from B at
 `127.0.0.1` — loopback is not blocked by Windows Firewall even when the LAN
 prompt was declined.
 
 ## Layer 3 — full e2e: Docker build + PCSX2 boot
 
-Prerequisites: Docker Desktop **running**, PCSX2 installed in
-`Program Files\PCSX2` with a BIOS configured.
+Prerequisites: Docker **running** (Docker Desktop on Windows, `docker` + the
+compose plugin on Linux) and PCSX2 with a BIOS configured — auto-detected in
+`Program Files\PCSX2`, or on Linux from PATH / flatpak / an AppImage under
+`~/Applications` or `~/Downloads`. Anything else: set the path in
+*Edit > Preferences*.
 
-```powershell
-build\tyrax-editor.exe --build <projectDir> --run
+```
+TYRAX --build <projectDir> --run
 ```
 
 What happens (see `src/runner.cpp`): generated files refresh → `docker compose
@@ -165,10 +190,12 @@ ELF.
 Notes:
 - First-ever build downloads the `h4570/tyra` image and compiles the engine
   (minutes). Subsequent builds take seconds unless the engine changed.
-- PCSX2.ini is found portable-first, then in the Documents known folder —
-  **Documents may be OneDrive-redirected** (e.g. `...\OneDrive - <org>\Dokumenty\PCSX2\`),
-  not `%USERPROFILE%\Documents`. Logs and screenshots live next to it
-  (`logs\emulog.txt`, `snaps\`).
+- PCSX2.ini is found portable-first (an `inis/` next to the executable), then
+  per OS: the Documents known folder on Windows — **Documents may be
+  OneDrive-redirected** (e.g. `...\OneDrive - <org>\Dokumenty\PCSX2\`), not
+  `%USERPROFILE%\Documents` — or `$XDG_CONFIG_HOME/PCSX2/inis` and the flatpak
+  sandbox (`~/.var/app/net.pcsx2.PCSX2/config/PCSX2/inis`) on Linux. Logs and
+  screenshots live next to it (`logs/emulog.txt`, `snaps/`).
 - Missing `HostFs` = "Failed to load ...png" assert on the first fopen. The
   editor enforces it, but PCSX2 rewrites its ini on exit — if a game asserts on
   asset loading, check HostFs first. (The launcher also configures PCSX2's
@@ -188,6 +215,18 @@ Notes:
   until relaunch.
 - For ISO/cdrom0: testing use `Project > Export PS2 ISO`, then boot the ISO in
   PCSX2 (covers the path-conversion code that host: boots skip).
+- **Keep the fixture project's path short.** PCSX2's host: loader gives up on
+  an ELF path over ~145 characters: emulog stops after `ELF Loading: ...`, the
+  EE never reaches `is executing`, `bin/log.txt` is never written, and the
+  window is black with no diagnostic. The editor warns, but a scratchpad path
+  under `/tmp/claude-*/...` blows past the limit on its own - put e2e fixtures
+  in `~/tyra-projects/<name>` (or the Windows equivalent) instead. If a boot
+  produces nothing but `TLB Miss` spam, measure the path before debugging the
+  game.
+- **Docker on Linux runs the container as root**, so a `docker` group that was
+  granted in the current login session is not yet active in an already-running
+  shell. Either start a fresh session or accept that `docker` needs privilege
+  there; the build itself needs no root once the socket is reachable.
 
 ### Reading the results
 
@@ -200,8 +239,8 @@ Notes:
   frame up — see tyra-engine-dev), so grep `bin/log.txt` for the banner rather
   than screenshotting for assert text; the running editor also pops that dump in
   a copyable dialog. (A screenshot still shows *where* the game froze.)
-- **Screenshots**: PCSX2's F8 via SendKeys is flaky. Use the bundled script —
-  a GDI capture that works reliably:
+- **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
+  script — a GDI capture that works reliably:
 
   ```powershell
   powershell -File .claude/skills/tyra-testing/scripts/screenshot-window.ps1 `
@@ -245,10 +284,12 @@ Notes:
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
   GS load.
-- **Audio**: EE-side logs are invisible, so use the Windows WASAPI session peak
-  meter on the PCSX2 process (e.g. via `AudioMeterInformation`) — silence vs
-  bursts at expected times proved music/sfx features before; a by-ear speaker
-  check stays with the human.
+- **Audio**: EE-side logs are invisible, so meter the PCSX2 process instead —
+  on Windows the WASAPI session peak meter (e.g. via `AudioMeterInformation`),
+  on Linux `pactl list sink-inputs` (the PCSX2 sink input's volume/peak, or a
+  short `parec` capture of the monitor source). Silence vs bursts at expected
+  times proved music/sfx features before; a by-ear speaker check stays with the
+  human.
 - **Two-player modes** (docs/multiplayer.md): the split/shared toggle is
   testable with ONE keyboard: give the scene two Player objects and a pause
   menu with the "Player count" option block, then drive pad 1 via PostMessage
@@ -265,9 +306,9 @@ Notes:
 
 | Change | Minimum honest verification |
 |---|---|
-| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel |
+| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (Windows; see the screenshot note for what stands in on Linux) |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
-| ISO export | Export + mount the ISO on Windows + boot it in PCSX2 |
+| ISO export | Export + mount the ISO on the host + boot it in PCSX2 |

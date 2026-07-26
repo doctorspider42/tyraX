@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "app.hpp"
+#include "platform.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 
@@ -356,10 +357,9 @@ static int refreshGenFromCli(int argc, char** argv) {
 // config lives in app.cpp.
 static aigen::Config aiConfigFromEditorIni() {
     aigen::Config cfg;
-    const char* base = getenv("LOCALAPPDATA");
-    if (!base || !*base) base = getenv("USERPROFILE");
-    if (!base || !*base) return cfg;
-    std::ifstream f(std::filesystem::path(base) / "tyra-editor" / "editor.ini");
+    const std::filesystem::path base = platform::configDir();
+    if (base.empty()) return cfg;
+    std::ifstream f(base / "editor.ini");
     std::string line;
     while (std::getline(f, line)) {
         if (line.rfind("aiBackend=", 0) == 0) cfg.backend = line.substr(10);

@@ -9,7 +9,8 @@ description: How a TyraX-generated PS2 game project is structured - the project 
 
 ## What this project is
 
-A PlayStation 2 game authored in the TyraX editor (a Windows GUI app). The
+A PlayStation 2 game authored in the TyraX editor (a cross-platform GUI app -
+Windows and Linux). The
 editor edits a **data model** and generates the complete game from it on every
 build. Two kinds of files coexist here:
 
@@ -37,7 +38,7 @@ build. Two kinds of files coexist here:
 | `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources | Only after deleting the ownership marker line |
 | `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `Dockerfile`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
-| `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 | Rarely |
+| `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
 `Do not edit - regenerated on every build` means never touch it; `Delete this
@@ -53,8 +54,8 @@ The editor executable doubles as a headless tool. On this machine it is:
 {TYRAX_EXE}
 ```
 
-(Quote the path - it may contain spaces. If it moved, ask the user where
-tyrax-editor.exe lives.)
+(Quote the path - it may contain spaces. If it moved, ask the user where the
+tyrax-editor binary lives.)
 
 | Command | What it does |
 |---|---|

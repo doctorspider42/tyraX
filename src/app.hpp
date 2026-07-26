@@ -26,7 +26,7 @@ struct GLFWwindow;
 
 // Viewport navigation preferences. These are a machine/muscle-memory property,
 // not project data, so they live in the global editor config (editor.ini in
-// %LOCALAPPDATA%), never in the per-project .tyra. See NavConfig persistence in
+// the editor config dir), never in the per-project .tyra. See NavConfig persistence in
 // app.cpp.
 enum class NavScheme {
     Default = 0,  // tyra: LMB/RMB orbit, MMB pan
@@ -784,7 +784,7 @@ private:
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
     // Collaboration (editor.ini): the name other session participants see
-    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    // (empty = the OS user name) and the remote-project cache root (empty = default).
     std::string globalDisplayName_;
     std::string globalSessionCacheDir_;
     // AI assistant backend for flow-graph generation (editor.ini; Edit >

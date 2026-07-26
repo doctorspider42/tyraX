@@ -1,7 +1,6 @@
 #include "aisupport.hpp"
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "platform.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -36,9 +35,8 @@ static bool mayOverwrite(const fs::path& path) {
 }
 
 static std::string exePath() {
-    char buf[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, buf, MAX_PATH) == 0) return "tyrax-editor.exe";
-    return buf;
+    const std::string p = platform::exePath();
+    return p.empty() ? std::string("tyrax-editor") + platform::exeSuffix() : p;
 }
 
 static std::string replaceAll(std::string s, const std::string& from,

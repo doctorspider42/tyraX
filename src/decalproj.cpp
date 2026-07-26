@@ -135,7 +135,7 @@ void addObjectReceiver(std::vector<Tri>& out, const Project& p, const SceneObjec
     if (o.type == PrimitiveType::Model) {
         if (o.modelPath.empty() || isAnimatedModelPath(o.modelPath)) return;  // .obj only
         objparser::Model m;
-        if (!objparser::load(p.dir + "\\" + o.modelPath, m)) return;
+        if (!objparser::load(p.filePath(o.modelPath), m)) return;
         for (const objparser::Submesh& s : m.submeshes)
             addLocalMesh(out, s.verts, x, box);
         return;
