@@ -59,7 +59,7 @@ Two sibling skills cover the rest of the system:
 | `project.cpp/.hpp` | ~1050 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()`: the `<name>.tyra` **manifest** (project-wide data + per-scene ordered object-id list + editor state + the named window layouts) plus one `objects/<id>.json` body per object — `save()` writes every live object then prunes orphaned files; `load()`→`readSceneObjects()` dispatches split (id strings) vs legacy inline (object bodies). Both are **recomposed from per-section writer/reader pairs** (`Section` enum + `sectionJson()`/`applySectionJson()` — one manifest key group as a standalone JSON blob; apply is total-replace-with-defaults, the collaboration LWW unit). **A new manifest key must join a `write*Section`/`read*Section` pair** (or the scene table / editor tail) or it reaches the file but never the collaboration wire. `objectJson()`/`parseObject()` (public): one object ⇄ wire string. `manifestFiles()`: in-memory byte images of .tyra + objects/*.json + heights from the LIVE model. `Project::projectId` + `ensureProjectId()` (stable 16-hex project identity — the remote-cache key). `ensureObjectIds()` (stamps stable ids), `create()`, `seedBuiltinLayouts()` (the Default/Director/Material `WindowLayout` set, also used to migrate a legacy single `"layout"` dump), `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack — stays monolithic/inline, gitignored), `refreshGenerated()`. **Window layouts** are `std::vector<WindowLayout> windowLayouts` + `activeLayout`; a `WindowLayout` is `{name, ini, recipe, openWindows}` where an empty `ini` + a `LayoutRecipe` id is (re)built by `App::buildLayoutRecipe` (DockBuilder) the first time it's shown. The Layout menu / switching / capture logic lives in app.cpp (`switchLayout`/`applyActiveLayout`/`captureActiveLayout`/`buildLayoutRecipe`, applied at a frame boundary). Editor state, not undo. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config (`.vscode/c_cpp_properties.json` always-overwritten; `.vscode/extensions.json` written-if-missing — recommends the `tools/vscode-tyrax` extension). |
 | `input.hpp` | ~250 | **Configurable input model** (docs/input-bindings.md), header-only. `InputAction` (name + label + `Role` + rebindable), `InputBinding` (pad name / USB HID key / mouse button - all three may fire one action), `InputPreset`, `InputMap` (on `Project::input`; `Section::Input`). Plus the shared tables every layer agrees on: `kPadButtonNames` (Tyra::PadButtons order - the index codegen stores), `inputKeyNames()` (the offered HID keys), and **`inputCodes()`** - the dense rebind code space whose index 0 means "the preset's binding" and whose numbers land in players' memory-card saves, so it is **append-only**; `INPUT_CODES` in the generated game is its twin. `project::ensureInputActions` seeds/backfills the built-in roles with exactly the bindings that used to be hardcoded in controls.hpp. |
-| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool / text link kinds, plus `toPin` — which exec input an exec link fires), `FlowGraph`, the built-in `flowNodeTypes()` registry, the retired-type migration table (`flowLegacyNodes`), and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
+| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool / text / **number** link kinds, plus `toPin` — which exec input an exec link fires), `FlowGraph`, the built-in `flowNodeTypes()` registry, the retired-type migration table (`flowLegacyNodes`), and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
 | `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. **When you add/change a header key or `{placeholder}` here, mirror it in the VS Code extension's `SPEC` table (`tools/vscode-tyrax/extension.js`) and the grammar** — that is what colours/validates `.flownode` files (see `docs/vscode-extension.md`). |
 | `screenfx.cpp` / `.hpp` | ~230 | Loads project-defined **custom screen effects** from `<project>/screen-effects/*.screenfx` text files into the global `customScreenEffects()` registry (`screenfx::loadForProject`, called by `project::load` before placements are read). The full-screen-post-effect analogue of custom flow nodes: a manifest (title + up to four numeric params) plus a raw low-level GS-blit C++ body. A `Project` references one only by placement (`ScreenFxPlacement` in project.hpp: key + stack `layer` + `enabled` + params). Placed/reordered in the *UI Editor* screen stack (like bloom/grain), codegen'd to `src/gen/screen_fx.gen.cpp` (`screenFxSource`/`screenFxHeader` in templates.cpp), run via `RendererCore::applyCustomPostFx` at the effect's slot in the frame loop. Unknown-key placements are dropped on load. See `docs/custom-screen-effects.md`. (Header keys/`{pN}` placeholders are also mirrored in the VS Code extension's `SPEC` — `tools/vscode-tyrax/extension.js`; keep them in sync.) |
 | `treegen.cpp/.hpp` | ~800 | **Procedural low-poly tree generator** (docs/tree-generator.md), EZ-Tree-inspired. Host-only, no GL, no `Project` dependency - the stochtile/matbake pattern: pure functions over a `Params` struct, so it is the one part of the editor you can **exercise from a 40-line host harness** (link `treegen.cpp` + define `STB_IMAGE_WRITE_IMPLEMENTATION`, dump the triangle soup, measure or rasterize it - far faster than clicking the GUI, see PROGRESS 104). `Params::height` is the tree's SIZE: `thickness` and `leafSize` are fractions of it, so the slider scales the tree instead of thinning it - a new world-space parameter should follow that rule. `Params::crown` picks the growth rule: 0 spread (the branching recursion) or 1 conical, where the trunk keeps its leader and `conicalWhorls()` hangs rings of boughs off it with a length PROFILE along the trunk - a conifer is a different rule, not a tuning of the spread one. `generate()` builds a recursive branch skeleton into tapered tubes + leaf quads; `bakeBarkTexture`/`bakeLeafTexture` bake tileable 128² procedural textures (the leaf card uses **hard 0/255 alpha** with opaque colors dilated into the margin - the tRNS→CLUT path loses a soft gradient, and bilinear sampling would otherwise fringe); `writeAssets()` emits `.obj` + `.mtl` + the PNGs into `res/models/trees/`. **Fully deterministic in `Params`** - each branch derives its RNG stream from (parent seed, child index), so editing one slider adjusts the tree instead of reshuffling it; keep that property when adding parameters. The tree reaches the scene through the ordinary `addModelObject()`, so NOTHING downstream (serialization, codegen, runtime) knows trees exist - do not grow a scene-object type for this. UI = `App::drawTreeGeneratorWindow`/`rebuildTreePreview`/`addTreeToScene` (app.cpp) + `Viewport::renderTreePreview` on its **own** framebuffer (`treeFbo_`, NOT the Material Editor's `prevFbo_` - both tools can be open at once and size their previews independently). |
@@ -75,6 +75,9 @@ Two sibling skills cover the rest of the system:
 | `iso9660.cpp`, `isoexport.cpp` | 379+264 | In-tree ISO9660 writer + disc layout planning (`Project > Export PS2 ISO`, Disc Layout window). |
 | `json.cpp/.hpp` | 158 | Tiny standalone JSON parser used for reading the `.tyra` project file. |
 | `session.cpp/.hpp` | ~900 | **Live collaboration session** (docs/collaboration.md). `Session` (Host/Client) owns one worker thread — Runner idiom (`std::atomic` state, mutex-guarded event + command queues); the UI thread drains `drainEvents()` once per frame in `App::sessionTick()`, the ONLY place session data touches `project_`/ImGui. Host scans+hashes the project (model files from `project::manifestFiles()`, everything else from disk minus bin/obj/.git/.res-baked/*.history), serves a content-hash `manifest`; the client diffs against its `remote-cache/<projectId>` cache, fetches only misses in 256 KiB chunks, opens the materialized project. Handshake: proto-version + 6-digit join code, `deny`/`bye`, ping/timeout keepalive, kick/close. `broadcastFrame`/`sendFrameToHost` + `AppEvent::Frame` are the hook the live-sync layer rides. Never touches sockets directly — goes through `wire::Transport`. |
+| `elfsym.cpp/.hpp` | ~230 | **ELF32 reader + the release audit** (docs/devkit.md). Sections, symbols and section bytes out of a built PS2 ELF, and `auditRelease()` on top: the check that a shipped game carries NO devkit code. **The PS2 toolchain strips the symbol table**, so the audit leans on two designed signals instead - the `TXDEVKIT-<layer>` marker each generated devkit runtime plants (`__attribute__((used))`) and the channel file names - and reports text/data/bss so the cost is a number. `--audit-release` exits 0/1 for scripts; the Runner runs it after every release build and logs the verdict. Also the future foundation for named-memory reads (needs an unstripped ELF / map file first). |
+| `livelogic.cpp/.hpp` | ~700 | **Live Logic host side** (docs/live-logic.md) - the flow-graph HOT PATCHER: the editor compiles a graph itself so editing one no longer needs a Docker rebuild. `livelogic.hpp` is the single source of truth for the IR (`BlockKind`/`OpCode`/`CondOp`/`PosKind`, `Block`/`Instr`/`Program`, the caps) - **templates.cpp GENERATES the interpreter's enums and dispatch switch from it**, so the numbering cannot be restated by hand and a missing interpreter body becomes a `#error` in the generated file. `compile()` mirrors `flowGraphScript`'s resolution (resolveTarget / posExpr / boolInputsOr) but writes INDICES instead of C++ literals, linearizes exec chains into blocks (a `Delay` owns the block it arms) and allocates per-node state slots; `capability()` is the honest gate - the supported node set is explicit and anything else is reported per graph. `graphHash()` deliberately EXCLUDES node positions (dragging a node must not read as a logic change), and `builtListText()`/`loadBuiltList()` are the "what did the ELF compile" record that decides which graphs need patching. |
+| `livedbg.cpp/.hpp` | ~250 | **Live Debugger host side** (docs/live-debugger.md) - the flow-graph debugger's formats and history model. No GL, no ImGui, no project.hpp: the aobake/placement shape, harness-testable. Owns `Symbols` (`src/gen/livedbg.sym`: node key -> scene + object id + node id, the watch-variable list and the table hash), `Snapshot` (`bin/livedbg.bin`: cumulative hits per node, a ring of recent fires with their AGE in frames, watch values, halted flag, break key), `Command` (`bin/livedbg.cmd`: full breakpoint list, halt/step/step-until-fire, force-fire keys) and `Timeline`, the per-frame fire history the Debugger scrubs. **Every layout here has a twin in the generated runtime; the shared caps (`kMaxNodes`/`kMaxBreakpoints`/`kMaxForced`/`kMaxEvents`) are read by codegen from this header.** Torn writes are rejected by exact-size + footer-echo on both ends; commands apply only when `seq` changes (so a repeated Step must bump it). |
 | `wire.cpp/.hpp` | ~700 | **The only place sockets live** (no project.hpp dependency — pure bytes). Frame codec `[u32 jsonLen][u32 binLen][json][bin]` LE with per-part caps + incremental `FrameDecoder`; `wire::Transport` interface (listen/connect/poll/send/kick, single-thread contract) with two impls, protocol code never seeing a socket: `makeTcpTransport()` (Winsock2 + WSAPoll) for LAN collaboration, and `makeWebSocketTransport()` — an RFC 6455 **server** (SHA-1 + base64 upgrade, unmasking, ping/pong, fragmentation) for the phone camera link, because WebSocket is what React Native and browsers have built in. The two share the accept/poll/send machinery: WebSocket is a per-connection `WsCodec` between the socket and the same `FrameDecoder`, one binary message = one `encodeFrame` image. Two contract differences to respect if you touch it: a WS peer is announced on **upgrade**, not accept (so an ordinary browser GET — which gets served an HTML page instead — never becomes a peer, and never produces an unmatched `Disconnected`), and a dying codec sets `closeAfterFlush` rather than dropping, or the served page is truncated. Also `fnv1a64`/`hashFile` (transfer-cache hashing) and `localIPv4()`. Binary payloads ride the raw trailer, never JSON (json.cpp collapses `\u`). |
 | `objparser.cpp` | 109 | Wavefront .obj importer for custom models. Editor-side only: the GAME never reads .obj, it reads the baked `.tmdl` (below). |
 | `tmdl.cpp/.hpp` | ~130 | **The binary static-model format the game ships** (docs/model-pipeline.md). Pure serialization, no project.hpp: `tmdl::Model{parts, min, max}` -> bytes, following the `.tskl` conventions (4-byte magic, `u32` version read as a range, packed little-endian, fixed NUL-padded strings, counts + inline arrays). Written by `templates::bakeStaticModels` (called from `refreshGenerated`, so `--refresh-gen` produces it without Docker), read by the engine's `TmdlLoader`, which returns the SAME `LeanObjMesh` the .obj loader does so the generated game keeps one geometry path. Everything the EE used to work out at load is resolved at bake: triangulation, flat normals, the V flip, material assignment incl. a per-object .mtl override, atlas UV rects folded into the UVs, bin-relative texture paths, and the LOD tiers. `texbake` then skips mirroring the source .obj and the Runner sweeps a superseded one out of `bin/`. **Both sides carry a "keep in sync" comment - the layout lives in two files.** |
@@ -139,6 +142,15 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `sceneDataContent()` in templates.cpp so the game sees it → game runtime in the
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
+
+**An asset path the GAME will open must be `lexically_normal()`.** The PS2
+cannot walk `..`, and a Wavefront reference is resolved relative to the file
+that named it — so joining a `.mtl`'s folder with its `map_Kd` yields
+`materials/../textures/x.png` unless you normalize. PCSX2's `host:` fs resolves
+that through the OS, so the bug is **invisible in the emulator and black on
+hardware** (PROGRESS 199, `project::resolveTerrainMaterial`). The bake copies
+files to their normalized location, so normalizing is also what keeps codegen
+and `bin/` agreeing.
 
 **Any new field that stores an asset path** (a `res/...` file: a model, a
 material, a texture, a WAV, a TTF) must join **`App::retargetAssetPath`**
@@ -228,7 +240,24 @@ in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
 script class per object graph; object references resolve to indices at codegen;
 bool logic folds into inline C++ expressions.
 
-**Several triggers on one node** (show/hide/toggle): set `execInCount` +
+**A value a graph computes** rides the **number plane** (`FlowLinkNum`,
+`numIn`/`numOut`): a wired number REPLACES the target's `num[0]`, one
+convention for every consumer, mirroring `posIn` over X/Y/Z. Codegen resolves
+it to a self-contained float C++ expression (`numExprImpl` / `numOperand` in
+`flowGraphScript`, the bool-plane shape) so a value needs no runtime slot;
+`flowNumFolds()` — a *pure* node with both pins, i.e. a Math node — is the
+single predicate deciding whether an input folds over every link or takes only
+the first, read by the editor's link pruning AND by codegen. Two things a new
+number consumer must do: read `numOperand(n)` instead of `n.num[0]`, and accept
+that **Live Logic cannot patch it** (`capability()` rejects any graph with a
+number link — the IR carries num[] as compile-time constants). Two things a new
+*int* consumer must do: round (the plane is float, `flowInt` is not) and, if it
+names variables, join BOTH copies of the collect list (`collectFlowVars` in
+templates.cpp and the identical walk in livelogic.cpp) — a variable named only
+by a getter still takes its index slot, and a missing entry shifts every index
+after it.
+
+**Several triggers on one node** (show/hide/toggle/add): set `execInCount` +
 `execInLabels` on the `FlowNodeType` and switch on the `pin` argument in
 `actionCode(n, pad, pin)`. The pin a link fires is `FlowLink::toPin`
 (serialized `"pin": N`, omitted at 0); pin ids come from `flowExecInPin` (slot 2
@@ -474,6 +503,64 @@ silently not show that edit while claiming LIVE. The snapshot seq is seeded
 from the clock at attach — a restarted editor must never reuse a seq the
 still-running game already applied.
 
+**Live Logic** (`App::liveLogicTick` each frame from `drawUI`; docs in
+`docs/live-logic.md`) - the third live channel, and the one that changes
+BEHAVIOR: debug profile + `ProjectSettings::liveLogic`. Codegen emits
+`src/gen/livelogic.built` (per graph: scene + object id + `livelogic::graphHash`)
+at build start; the editor compares every live graph against it and compiles
+only the ones that differ, so untouched graphs keep running their native C++.
+The seam in the generated game is one line per script - `if
+(livelogic::patched(scene, ownerIdx)) return;` - so a graph is EITHER
+interpreted or compiled, never both. **Adding a node type to the interpreter is
+adding a twin**: the opcode goes in `livelogic.hpp`, the runtime body in
+`liveLogicOpBodies()` (templates.cpp) and the mapping in livelogic.cpp's
+`actionMap`/`triggerMap`; the body must behave exactly like the C++ `actionCode`
+emits for that node, and the capability check derives from the same tables so
+the editor can never promise a node the interpreter lacks. Patched graphs share
+EVERYTHING with compiled ones (the `flowInt/flowBool/flowPos` statics via
+generated accessors, save values, RuntimeObject state, and the Live Debugger
+node keys carried in each instruction) - that sharing is why a hot patch is
+usable rather than a sandbox.
+
+**The devkit's zero-cost rule** (docs/devkit.md) - the constraint every future
+debugging feature must satisfy: a release build carries NOTHING. In practice that
+means (1) the generated runtime becomes an empty TU, (2) the generated header
+keeps the API as `inline` no-ops with predicates that are compile-time `false` so
+call sites fold away, (3) the instrumentation in `flow_graph.gen.cpp` is not
+emitted at all, and (4) no static arrays exist. Do not add a runtime `if
+(debugEnabled)` - that is a branch and a table in a shipped game. The rule is
+CHECKED: `elfsym::auditRelease` scans the built ELF for the `TXDEVKIT-` markers
+and channel file names, `--audit-release` exits non-zero, and every release build
+runs it. **A new devkit layer must plant its own marker** or the audit cannot see
+it; a new instrumentation call must go through a generated header that no-ops.
+
+**Live Debugger** (`App::livedbgTick` each frame from `drawUI`; docs in
+`docs/live-debugger.md`) - Live Link's reverse channel, on the same host: files.
+Debug profile + `ProjectSettings::liveDebug`. Codegen (`debugSymbols` in
+templates.cpp) assigns ONE KEY per instrumented flow-graph node by walking
+scenes -> objects -> nodes, and that enumeration is the single source of truth
+for four consumers: the `livedbg::hit(key)` calls emitted into
+`flow_graph.gen.cpp`, the runtime tables in `src/gen/live_debug.gen.cpp`, the
+`src/gen/livedbg.sym` map the editor reads, and the hash baked into the ELF that
+flips the chip to amber when the two disagree. So **a change that alters which
+nodes exist changes the keys** - never hand-roll a second enumeration, call
+`debugSymbols()`. Instrumented = triggers + actions (`!t->pure`); pure data
+nodes are expressions with no moment to report. The generated header
+(`inc/scripts/live_debug.gen.hpp`) is ALWAYS emitted and is the on/off seam:
+with the debugger off every entry point is an inline no-op and `halted()` a
+compile-time `false`, so the game loop's `|| livedbg::halted()` folds away -
+that is why the loop hook needs no `{{...}}` gating. The halt itself is the
+existing menu pause (`menuActive`/`menuOwnsPad`/`g_gameplayPaused`), so a
+project that took ownership of `terrain_game.cpp` loses the world freeze but
+keeps the reporting (a fallback global Script pumps it - `tickFromLoop` sets a
+flag that permanently disables `tickFromScript`). Breakpoints live in
+`Project::debugBreakpoints` as `"<objectId>:<nodeId>"` - editor state in the
+`.tyra`, deliberately NOT a collaboration section. Anything new the Debugger
+should watch goes into the ONE watch array: flow variables via
+`flowDbgReadVar` (emitted next to the `flowInt/flowBool/flowPos` statics,
+because that is the TU that owns them), then save values read straight off
+`ScriptContext` - the sym file's per-entry `kind` is what tells the editor which
+is which.
 ### 4. Never hand pixels straight to `glTexImage2D`
 Every RGBA texture upload in the editor goes through **`glUploadTexRgba(w, h,
 pixels)`** (`gl_loader.h`), which allocates the level empty and then fills it
@@ -512,7 +599,7 @@ while it was Windows-only now break silently:
   therefore ends in `make_preferred()`, `App::assetAbs` delegates to it instead
   of repeating the join, and `platform::revealInFileManager` normalizes at the
   OS boundary. So: join through `filePath()`, and normalize anything you build
-  by hand before it leaves the process (PROGRESS 189).
+  by hand before it leaves the process (PROGRESS 193).
 - **Anything nested inside a command line goes through `platform::shellArg()`.**
   `cmd.exe` expands nothing inside double quotes, so the Runner's
   `docker ... sh -c "<script>"` used to reach the container verbatim. `/bin/sh`

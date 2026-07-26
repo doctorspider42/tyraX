@@ -15,6 +15,10 @@
 #include "phonecam.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
+#include "elfsym.hpp"
+#include "vucap.hpp"
+#include "livedbg.hpp"
+#include "livelogic.hpp"
 #include "placement.hpp"
 #include "project.hpp"
 #include "runner.hpp"
@@ -184,6 +188,11 @@ private:
     void drawPreferencesModal();          // project-wide defaults (Project menu)
     void drawEditorPreferencesModal();    // machine-global settings (Edit menu)
     void saveGlobalConfig();              // write editor.ini from the App members
+    // devsession.hpp: "this editor has that project open, and here is what the
+    // game is doing" - so nobody has to search the disk for the live project.
+    void publishDevSession();
+    double devSessionNext_ = 0.0;      // throttle
+    long long devSessionStarted_ = 0;  // epoch seconds, first publish
     void drawNavigationModal();  // global viewport-navigation settings
     void drawScenePreferencesModal();
     void openScenePreferences();  // stage the active scene into scenePref* + open
@@ -434,6 +443,13 @@ private:
     struct ModelInfo {
         bool ok = false;
         int tris = 0;
+        // Two different vertex counts, and the difference is the point:
+        // `verts` is what actually goes to VU1 (three per triangle, corners
+        // split wherever a normal/UV/material does), `positions` is the obj
+        // `v` count the modelling tool shows. A model whose verts are far
+        // above 3x positions is paying for split corners.
+        int verts = 0;
+        int positions = 0;
         struct MaterialLine {
             std::string text;      // "name (texture.png)" / "name (color)"
             bool missing = false;  // the referenced texture file is absent
@@ -961,6 +977,9 @@ private:
     // and since when - shown after a short delay, reset on hover change.
     int flowDescNode_ = -1;
     double flowDescSince_ = 0.0;
+    // Node the per-node context menu was opened on (Live Debugger actions:
+    // breakpoint, force-fire).
+    int flowCtxNode_ = -1;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)
@@ -982,6 +1001,10 @@ private:
     bool showInputMap_ = false;
     int inputActionSel_ = 0;  // row selected in the Input Map action list
     int inputPresetSel_ = 0;  // preset tab being edited
+
+    // Live Debugger panel (Tools > Debugger, the DBG toolbar chip, or the
+    // built-in "Debugger" window layout).
+    bool showDebugger_ = false;
 
     // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
     // rebuilt into these on any param change; treePreviewVersion_ tells the
@@ -1718,6 +1741,141 @@ private:
     double liveLinkSigNextRead_ = 0.0; // ImGui::GetTime() gate for sig re-read
     double liveLinkNextTick_ = 0.0;    // ImGui::GetTime() gate for the ticker
     void liveLinkTick();
+
+    // Live Debugger (docs/live-debugger.md): Live Link's opposite direction.
+    // A debug build with the "Live Debugger" preference reports what its flow
+    // graphs are doing - every trigger and action it runs, the flow variables,
+    // the save values - into bin/livedbg.bin, and reads breakpoints, halt/step
+    // and force-fire requests back from bin/livedbg.cmd. Both files ride the
+    // same host: channel as Live Link, so PCSX2 and a real console over
+    // ps2link work identically. livedbgTick() (each frame from drawUI,
+    // self-throttled to ~20 Hz) reads the snapshot, folds it into the timeline
+    // and writes the command file whenever the desired state changed (or the
+    // Runner deleted it for a fresh run). The Debugger window and the Flow
+    // Graph overlay draw from dbgSnap_/dbgSyms_/dbgTimeline_ only.
+    enum class DbgState {
+        Off,       // release build, preference off, or no project
+        NoBuild,   // no symbol table yet - refresh/build once
+        Waiting,   // symbols known, no game reporting
+        Stale,     // the running ELF was built from different graphs
+        Running,   // the game is reporting and moving
+        Halted     // stopped at a breakpoint / by Pause
+    };
+    DbgState dbgState_ = DbgState::Off;
+    livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
+    livedbg::Snapshot dbgSnap_;     // newest snapshot the game wrote
+    livedbg::Timeline dbgTimeline_;  // per-frame fire history (the scrub)
+    livedbg::Command dbgCmd_;       // last command written (state + seq)
+    bool dbgCmdWritten_ = false;    // has the current dbgCmd_ reached the game?
+    std::vector<uint32_t> dbgPrevHits_;  // previous snapshot's counters
+    std::vector<double> dbgHeat_;   // per key: ImGui::GetTime() of its last fire
+    std::vector<uint16_t> dbgFireQueue_;  // keys the user asked to force-fire
+    double dbgNextTick_ = 0.0;      // ImGui::GetTime() gate for the ticker
+    double dbgSymNextRead_ = 0.0;   // gate for re-reading the symbol table
+    double dbgSnapTime_ = 0.0;      // when the newest snapshot arrived
+    double dbgSnapPrevTime_ = 0.0;  // and the one before it (for the FPS)
+    uint32_t dbgSnapPrevFrame_ = 0;
+    float dbgFps_ = 0.0f;           // measured against the editor's wall clock
+    int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
+    void livedbgTick();
+    void drawDebuggerWindow();
+
+    // Crash reporting (docs/devkit.md). A real EE exception is not a
+    // TYRA_ASSERT: with the engine's crash handler installed the game writes
+    // bin/crash.txt (decoded cause, registers, backtrace candidates) and halts;
+    // this is that report, parsed, plus the names the PS2 toolchain resolves for
+    // its addresses on demand.
+    struct DbgCrash {
+        bool present = false;
+        std::string raw;      // the whole report, for Copy
+        std::string cause;    // decoded name
+        uint32_t epc = 0, badvaddr = 0, frame = 0;
+        int scene = -1;
+        std::vector<uint32_t> trace;
+        std::vector<elfsym::Location> names;  // resolved on demand
+        std::string namesError;
+        bool resolving = false;
+    };
+    DbgCrash dbgCrash_;
+    size_t dbgCrashSize_ = 0;   // last seen size of crash.txt (change = new)
+    double dbgCrashNextRead_ = 0.0;
+    // VU1 packet capture (docs/devkit.md): "show me what the EE actually fed
+    // VU1 for one draw". Armed from the Debugger's VU tab; the game answers with
+    // bin/vucap.bin, decoded by src/vucap.hpp.
+    vucap::Capture dbgVuCap_;
+    size_t dbgVuCapSize_ = 0;
+    long long dbgVuCapStamp_ = 0;  // last_write_time of the file we decoded
+    int dbgVuCapTorn_ = 0;         // consecutive incomplete reads of that file
+    bool dbgVuCapWaiting_ = false;  // a capture was asked for, none arrived yet
+    float dbgVuYaw_ = 0.6f, dbgVuPitch_ = 0.35f, dbgVuZoom_ = 1.0f;
+    int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
+    bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
+    int dbgVuFlushWanted_ = 0;    // ...which one
+    void dbgReadVuCapture();
+    void dbgReadCrashReport();
+    void dbgResolveCrashNames();
+    // "The game stopped reporting": the devkit heartbeat died without a crash
+    // report or an assert - a hang, or an exception nobody caught.
+    bool dbgLostGame_ = false;
+    uint32_t dbgLostAtFrame_ = 0;
+
+    // Live Logic (docs/live-logic.md): flow-graph HOT PATCHING. The editor
+    // compiles every graph that differs from what the running ELF was built
+    // with (src/gen/livelogic.built, emitted by codegen) into the pre-resolved
+    // instruction list in livelogic.hpp and writes bin/livelogic.bin; the
+    // game's interpreter runs those graphs instead of their compiled C++.
+    // liveLogicTick() (each frame from drawUI, self-throttled) recompiles when
+    // the project changed and rewrites the patch only when its bytes change.
+    // Graphs the IR cannot express (audio, AI, animation, spawning, text...)
+    // are listed per graph in liveLogicBlocked_ and still need a rebuild.
+    enum class LogicState {
+        Off,        // release build, preference off, or no project
+        NoBuild,    // no built-graph list yet (build once)
+        InSync,     // nothing differs from the build - nothing to patch
+        Patched,    // N graphs are running from the editor's patch
+        Blocked     // an edited graph cannot be hot-patched (rebuild needed)
+    };
+    LogicState liveLogicState_ = LogicState::Off;
+    livelogic::BuiltList liveLogicBuilt_;
+    std::vector<unsigned char> liveLogicLastPayload_;
+    uint32_t liveLogicSeq_ = 0;
+    int liveLogicPatchCount_ = 0;
+    // Per unpatchable graph: "object name" -> why (node titles, deduped).
+    std::vector<std::pair<std::string, std::string>> liveLogicBlocked_;
+    double liveLogicNextTick_ = 0.0;
+    double liveLogicBuiltNextRead_ = 0.0;
+    void liveLogicTick();
+    // Breakpoints are stored as "<objectId>:<nodeId>" in the project (editor
+    // state), and resolved to the game's integer keys through dbgSyms_.
+    std::string dbgBreakpointKey(const std::string& objectId, int nodeId) const;
+    bool dbgHasBreakpoint(const std::string& objectId, int nodeId) const;
+    void dbgToggleBreakpoint(const std::string& objectId, int nodeId);
+    int dbgKeyFor(int scene, const std::string& objectId, int nodeId) const;
+    // Seconds since a node last fired (FLT_MAX = not since the game started).
+    float dbgNodeHeat(int key) const;
+    // Fires the whole branch under a trigger in the running game, once.
+    // `andRun` resumes the game afterwards instead of running a single frame -
+    // needed whenever the branch only ARMS something (a Delay, a glide), which
+    // then needs frames to finish.
+    void dbgFireNode(int key, bool andRun = false);
+    // Frames left on an armed countdown for this node key (-1 = not armed).
+    int dbgTimerFrames(int key) const;
+
+    // Object watch (docs/devkit.md): the editor names up to
+    // livedbg::kMaxWatchObjects runtime objects and the game samples them every
+    // frame; the samples accumulate here into a per-object history the panel
+    // plots and the viewport draws as a trail. Session state (indices belong to
+    // the running build), not saved with the project.
+    struct DbgObjTrack {
+        int index = -1;               // runtime object index
+        std::string name;             // for display when the object is renamed
+        std::vector<livedbg::ObjSample> samples;  // oldest first, capped
+    };
+    std::vector<DbgObjTrack> dbgObjWatch_;
+    bool dbgShowTrails_ = true;       // draw watched paths in the viewport
+    void dbgToggleObjectWatch(int objectIndex);
+    bool dbgIsWatched(int objectIndex) const;
+    static constexpr size_t kDbgTrackSamples = 1500;  // ~30 s at 50 Hz
 
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.

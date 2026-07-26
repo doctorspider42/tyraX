@@ -21,6 +21,8 @@
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
+#include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
+#include "livelogic.hpp"  // Live Logic IR - the interpreter is generated from it
 #include "menubake.hpp"
 #include "meshlod.hpp"
 #include "navmesh.hpp"
@@ -285,8 +287,13 @@ DEPEXT      := d
 OBJEXT      := o
 
 #Flags, Libraries and Includes
-CFLAGS      :=
-LIB         := -ltyra
+# Debug builds carry -g (for the crash reporter's addr2line lookups) and link
+# ps2sdk's libeedebug, which the engine's crash handler uses to hook the EE
+# exception vectors. Release builds carry neither, and KEEPSYM off means no
+# unstripped copy of the ELF is kept - see docs/devkit.md.
+CFLAGS      := {{BUILD_CFLAGS}}
+KEEPSYM     := {{KEEPSYM}}
+LIB         := -ltyra{{BUILD_LIBS}}
 LIBDIRS     := -L$(ENGINEDIR)/bin
 INC         := -I$(INCDIR) -I$(ENGINEDIR)/inc
 INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
@@ -2174,6 +2181,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -3777,12 +3785,19 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
-  const bool menuActive = saveMenuActive || gameMenuPausing;
+  // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
+  // the halt, and a halt then freezes the world exactly the way a pausing menu
+  // does - scripts, walker, particles and animation stop while frames keep
+  // being presented, so you can still look at what you stopped. All of this
+  // compiles to nothing when the debugger is off.
+  livedbg::tickFromLoop(scriptCtx);
+  const bool dbgHalted = livedbg::halted();
+  const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -4646,6 +4661,20 @@ void TerrainGame::processOneStreamJob() {
     loadAnimModelAsset(index);
   else
     loadSceneTexture(index);
+
+  // A terrain chunk built while the terrain texture was still queued got no
+  // texture bag, and nothing would ever give it one - the chunk is only
+  // rebuilt when it leaves the view rect and comes back. At scene load the
+  // queue drains before any chunk is built, so this only bites the streamed
+  // ring and layer residency; freeing the built chunks lets the ordinary
+  // budgeted pass rebuild them with the texture bound (the buffers keep their
+  // capacity, so it costs a rebuild, not an allocation).
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+    for (TerrainChunk& ch : terrainChunks) {
+      if (ch.cx < 0) continue;
+      terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
+      ch.cx = ch.cz = -1;
+    }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go
@@ -11651,7 +11680,15 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // No material: two greens in a checker pattern. With a material, the Kd
   // tint colors every cell uniformly - textured terrain modulates the map
   // (PS2 modulation: 128 = 1.0, so Kd*128), flat terrain uses Kd*255.
-  const bool textured = TERRAIN_TEXTURE >= 0;
+  //
+  // The texture must be the one actually LOADED, not merely the one the build
+  // assigned: a texture that failed to load (or is not resident yet) leaves the
+  // bag untextured further down, and scaling the vertex colors for a modulate
+  // that never happens draws the whole terrain at HALF brightness. That is
+  // invisible in PCSX2, where host: always serves the file, and shows up on a
+  // real console the moment an asset does not arrive.
+  const bool textured =
+      TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE] != nullptr;
   const bool hasMat = TERRAIN_HAS_MATERIAL;
   const float k = textured ? 128.0F : 255.0F;
   const float baseA[3] = {hasMat ? TERRAIN_TINT_R * k : 96.0F,
@@ -11834,7 +11871,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   ch.bag->color = ch.colorBag.get();
   ch.bag->vertices = ch.vertices.data();
   ch.bag->count = static_cast<u32>(ch.vertices.size());
-  if (textured && loadedTextures[TERRAIN_TEXTURE]) {
+  if (textured) {  // `textured` already means "loaded", see the color scale
     ch.texBag.texture = loadedTextures[TERRAIN_TEXTURE];
     ch.texBag.coordinates = ch.sts.data();
     ch.bag->texture = &ch.texBag;
@@ -12418,12 +12455,19 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
-  const bool menuActive = saveMenuActive || gameMenuPausing;
+  // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
+  // the halt, and a halt then freezes the world exactly the way a pausing menu
+  // does - scripts, walker, particles and animation stop while frames keep
+  // being presented, so you can still look at what you stopped. All of this
+  // compiles to nothing when the debugger is off.
+  livedbg::tickFromLoop(scriptCtx);
+  const bool dbgHalted = livedbg::halted();
+  const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -14247,10 +14291,24 @@ exec $PCSX2 -elf "$PWD/$ELF"
 // author's local path).
 static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
+bin/*.elf.sym
 *.history
 .vscode/
 .res-baked/
 docker-compose.yml
+# Devkit runtime files (docs/devkit.md): the editor <-> game channel and
+# a crash report. Written next to the ELF while you work, never shipped.
+bin/livedbg.bin
+bin/livedbg.cmd
+bin/livelink.bin
+bin/livelink.sig
+bin/livelogic.bin
+bin/crash.txt
+bin/log.txt
+# Codegen's devkit side tables: regenerated on every build (the editor reads
+# them next to the sources), so they are artifacts, not source.
+src/gen/livedbg.sym
+src/gen/livelogic.built
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
@@ -16533,6 +16591,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // post-FX, usable-highlight and lighting are per scene now (scene_data.hpp
     // arrays via project::resolvedSettings), so no scalar tokens for them here.
     const ProjectSettings& st = p.settings;
+    // Build-profile flags for the generated Makefile (see TPL_MAKEFILE).
+    const bool dbgProfile = st.buildProfile == "debug";
+    s = replaceAll(s, "{{BUILD_CFLAGS}}", dbgProfile ? "-g" : "");
+    s = replaceAll(s, "{{KEEPSYM}}", dbgProfile ? "1" : "0");
+    s = replaceAll(s, "{{BUILD_LIBS}}", dbgProfile ? " -leedebug" : "");
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
     s = replaceAll(s, "{{TERRAIN_VIEW_DISTANCE}}", floatLit(st.terrainViewDistance));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
@@ -17219,6 +17282,144 @@ static std::vector<DynTextSlot> dynTextSlots(const Project& p) {
 }
 
 // ---------------------------------------------------------------------------
+// Live Debugger symbol table (docs/live-debugger.md). The generated game only
+// ever reports opaque integer KEYS - one per instrumented flow-graph node, one
+// per watch variable - because a PS2 game must not carry name strings for
+// something a debug build streams every few frames. This table is what turns
+// them back into editor objects and nodes, and it is emitted next to the
+// generated sources as src/gen/livedbg.sym for the editor to read.
+//
+// The enumeration below IS the key assignment, so it must walk the graphs in
+// exactly the order flowGraphScript does (scene, then object, then node).
+// Everything that needs a key - the instrumentation, the runtime tables, the
+// sym file - goes through debugSymbols(), so there is one order, not four.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct DbgNodeSym {
+    int key = 0;
+    int scene = 0;
+    std::string objectId;
+    int nodeId = 0;
+    std::string type;
+};
+struct DbgVarSym {
+    char kind = 'i';  // 'i' int / 'b' bool / 'p' position / 's' save value
+    std::string name;
+};
+struct DbgSymbols {
+    std::vector<DbgNodeSym> nodes;
+    std::vector<DbgVarSym> vars;
+    int flowVarCount = 0;  // the leading vars[] entries that are flow variables
+    uint64_t hash = 0;     // identity of this table (baked into the ELF too)
+    std::string text;      // the sym file body, minus the hash line
+};
+
+// Flow variables live in one namespace per type across every graph in the
+// project - a variable exists by being named on any Set/Get node. Both
+// flowGraphScript (which emits the arrays) and the debugger's watch table read
+// them from here, so the indices always agree.
+void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
+                     std::vector<std::string>& boolVars,
+                     std::vector<std::string>& posVars) {
+    auto collect = [](std::vector<std::string>& v, const std::string& name) {
+        if (name.empty()) return;
+        for (const std::string& e : v)
+            if (e == name) return;
+        v.push_back(name);
+    };
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                // Live Logic's compiler collects the same names in the same
+                // order (livelogic.cpp) because the interpreter indexes THESE
+                // arrays - a type listed here and not there shifts every index
+                // in a patched graph. Keep the two lists identical.
+                if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
+                    n.type == "GetVarIntText" || n.type == "GetVarInt")
+                    collect(intVars, n.str);
+                else if (n.type == "SetVarBool" || n.type == "GetVarBool")
+                    collect(boolVars, n.str);
+                else if (n.type == "SetVarPos" || n.type == "GetVarPos")
+                    collect(posVars, n.str);
+            }
+}
+
+// A node is instrumented when it can "run": triggers (they fire) and actions
+// (they execute). Pure data nodes are expressions folded into the C++ of
+// whoever reads them - they have no moment in time to report.
+bool dbgInstrumented(const FlowNode& n) {
+    const FlowNodeType* t = flowNodeType(n.type);
+    return t && (t->trigger || !t->pure);
+}
+
+DbgSymbols debugSymbols(const Project& p) {
+    DbgSymbols s;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi) {
+            if (objs[oi].flowGraph.empty()) continue;
+            for (const FlowNode& n : objs[oi].flowGraph.nodes) {
+                if (!dbgInstrumented(n)) continue;
+                if ((int)s.nodes.size() >= livedbg::kMaxNodes) break;
+                DbgNodeSym e;
+                e.key = (int)s.nodes.size();
+                e.scene = (int)si;
+                e.objectId = objs[oi].id;
+                e.nodeId = n.id;
+                e.type = n.type;
+                s.nodes.push_back(std::move(e));
+            }
+        }
+    }
+
+    std::vector<std::string> intVars, boolVars, posVars;
+    collectFlowVars(p, intVars, boolVars, posVars);
+    for (const std::string& n : intVars) s.vars.push_back({'i', n});
+    for (const std::string& n : boolVars) s.vars.push_back({'b', n});
+    for (const std::string& n : posVars) s.vars.push_back({'p', n});
+    s.flowVarCount = (int)s.vars.size();
+    // Save values ride in the same watch array (read straight off
+    // ScriptContext), so a paused game shows its persistent state too.
+    for (const SaveValue& v : p.saveValues) s.vars.push_back({'s', v.name});
+
+    std::ostringstream t;
+    t << "nodes " << s.nodes.size() << "\n";
+    for (const DbgNodeSym& n : s.nodes)
+        t << "n " << n.key << " " << n.scene << " " << n.objectId << " "
+          << n.nodeId << " " << n.type << "\n";
+    t << "vars " << s.vars.size() << "\n";
+    for (size_t i = 0; i < s.vars.size(); ++i)
+        t << "v " << i << " " << s.vars[i].kind << " "
+          << (s.vars[i].name.empty() ? "-" : s.vars[i].name) << "\n";
+    s.text = t.str();
+    s.hash = wire::fnv1a64(s.text.data(), s.text.size());
+    return s;
+}
+
+// The Live Debugger is a debug-profile feature behind its own preference, and
+// it needs something to instrument: with no runnable node in any graph the
+// generated runtime would only be dead weight.
+bool liveDebugEnabled(const Project& p) {
+    return p.settings.buildProfile == "debug" && p.settings.liveDebug;
+}
+bool liveDebugOn(const Project& p, const DbgSymbols& syms) {
+    return liveDebugEnabled(p) && !syms.nodes.empty();
+}
+
+// Live Logic (docs/live-logic.md) is the same shape of switch: a debug-profile
+// feature behind its own preference, and pointless with nothing to patch.
+bool liveLogicOn(const Project& p) {
+    if (p.settings.buildProfile != "debug" || !p.settings.liveLogic) return false;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (!o.flowGraph.empty()) return true;
+    return false;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
 // ---------------------------------------------------------------------------
@@ -17278,25 +17479,25 @@ std::string flowGraphScript(const Project& p) {
     // flowInt/flowBool/flowPos arrays emitted below - a variable exists by
     // being named on any Set/Get node.
     std::vector<std::string> intVars, boolVars, posVars;
-    {
-        auto collect = [](std::vector<std::string>& v, const std::string& name) {
-            if (name.empty()) return;
-            for (const std::string& e : v)
-                if (e == name) return;
-            v.push_back(name);
-        };
-        for (const SceneData& sc : p.scenes)
-            for (const SceneObject& o : sc.objects)
-                for (const FlowNode& n : o.flowGraph.nodes) {
-                    if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
-                        n.type == "GetVarIntText")
-                        collect(intVars, n.str);
-                    else if (n.type == "SetVarBool" || n.type == "GetVarBool")
-                        collect(boolVars, n.str);
-                    else if (n.type == "SetVarPos" || n.type == "GetVarPos")
-                        collect(posVars, n.str);
-                }
-    }
+    collectFlowVars(p, intVars, boolVars, posVars);
+
+    // Live Debugger (docs/live-debugger.md): with the debugger on, every
+    // trigger and every action reports itself to the running game's hit table
+    // through livedbg::hit(key), each script bails out while the game is
+    // halted, and every trigger gains a second, editor-driven entry (its body
+    // repeated under livedbg::forced(key)) so the Debugger's "Fire" button can
+    // run a branch on demand. Keys come from debugSymbols() - the same table
+    // src/gen/livedbg.sym is written from, so the ELF and the editor agree by
+    // construction. All of it disappears when the debugger is off.
+    const DbgSymbols dbgSyms = debugSymbols(p);
+    const bool dbgOn = liveDebugOn(p, dbgSyms);
+    auto dbgKeyOf = [&](size_t si, const std::string& objectId, int nodeId) {
+        for (const DbgNodeSym& e : dbgSyms.nodes)
+            if (e.scene == (int)si && e.nodeId == nodeId &&
+                e.objectId == objectId)
+                return e.key;
+        return -1;
+    };
     auto varIndex = [](const std::vector<std::string>& v, const std::string& name) {
         for (size_t i = 0; i < v.size(); ++i)
             if (v[i] == name) return (int)i;
@@ -17341,6 +17542,7 @@ std::string flowGraphScript(const Project& p) {
     bool anyRaycast = false;
     bool anyDynText = false;
     bool anyInArea = false;
+    bool anyNumDiv = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
@@ -17349,6 +17551,7 @@ std::string flowGraphScript(const Project& p) {
                 anyRaycast |= (n.type == "Raycast");
                 anyDynText |= (n.type == "DisplayText");
                 anyInArea |= (n.type == "InArea");
+                anyNumDiv |= (n.type == "NumDiv");
             }
     const bool anyNav = anyNavAiNode(p);
 
@@ -17364,6 +17567,13 @@ std::string flowGraphScript(const Project& p) {
     if (anyNav)
         out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
                "(Patrol/Chase/Flee/On Player Seen)\n";
+    if (dbgOn)
+        out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
+               "hits / halt / force-fire\n";
+    const bool logicOn = liveLogicOn(p);
+    if (logicOn)
+        out << "#include \"scripts/live_logic.gen.hpp\"  // Live Logic: a "
+               "patched graph runs on the interpreter\n";
     out << "\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
@@ -17471,6 +17681,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 )";
     }
 
+    if (anyNumDiv) {
+        out << "\n// Divide node: a graph must not be able to produce a NaN that\n"
+               "// then propagates into a position or a save file.\n"
+               "static inline float flowNumDiv(float a, float b) {\n"
+               "  return (b > -0.000001F && b < 0.000001F) ? 0.0F : a / b;\n"
+               "}\n";
+    }
+
     if (anyTextNode) {
         out << "\n// Text-plane helpers (Convert nodes / Get Save Value)\n"
                "static inline std::string flowNumText(float v) {\n"
@@ -17563,6 +17781,15 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             for (const FlowNode& n : fg.nodes)
                 if (n.id == id) return &n;
             return nullptr;
+        };
+
+        // "This node just ran" - one line, or nothing at all when the Live
+        // Debugger is off.
+        auto dbgHit = [&](const FlowNode& n, const std::string& pad) {
+            if (!dbgOn) return std::string();
+            const int k = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
+            return k < 0 ? std::string()
+                         : pad + "livedbg::hit(" + std::to_string(k) + ");\n";
         };
 
         // Which object a node refers to: incoming data link (follow the
@@ -17720,6 +17947,86 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return posExprImpl(n, visited);
         };
 
+        // Number plane: one self-contained float C++ expression per number-out
+        // node, so a value costs no runtime slot and inlines wherever it is
+        // read - the same shape as the bool plane. `visited` is passed BY VALUE
+        // so a source feeding two consumers (a diamond) still emits on both
+        // branches while a genuine cycle folds to 0.
+        std::function<std::string(const FlowNode&, std::vector<int>)> numExprImpl =
+            [&](const FlowNode& n, std::vector<int> visited) -> std::string {
+            for (int id : visited)
+                if (id == n.id) return "0.0F";  // cycle guard
+            visited.push_back(n.id);
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t) return "0.0F";
+
+            if (n.type == "Number") return floatLit(n.num[0]);
+            if (n.type == "GetVarInt") {
+                const int vi = varIndex(intVars, n.str);
+                if (vi < 0) return "0.0F";
+                return "(float)flowInt[" + std::to_string(vi) + "]";
+            }
+            if (n.type == "GetSaveValue") {
+                const int vi = saveValueIndex(n.str);
+                if (vi < 0) return "0.0F";
+                return "ctx.saveValues[" + std::to_string(vi) + "]";
+            }
+            if (!flowNumFolds(*t)) return "0.0F";  // not a Math node
+
+            // Math: fold the wired inputs in LINK order. One input makes the B
+            // param the second operand (the counter case: input + 1); none
+            // leaves B as the whole result.
+            std::vector<std::string> es;
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkNum || l.toNode != n.id) continue;
+                const FlowNode* src = nodeById(l.fromNode);
+                if (!src) continue;
+                const FlowNodeType* st = flowNodeType(src->type);
+                if (!st || !st->numOut) continue;
+                es.push_back(numExprImpl(*src, visited));
+            }
+            const std::string b = floatLit(n.num[0]);
+            if (es.empty())
+                return n.type == "NumSub" ? "(-" + b + ")" : b;
+            if (es.size() == 1) es.push_back(b);
+            if (n.type == "NumDiv") {
+                std::string s = es[0];
+                for (size_t i = 1; i < es.size(); ++i)
+                    s = "flowNumDiv(" + s + ", " + es[i] + ")";
+                return s;
+            }
+            const char* op = n.type == "NumAdd"   ? " + "
+                             : n.type == "NumSub" ? " - "
+                                                  : " * ";
+            std::string s = "(";
+            for (size_t i = 0; i < es.size(); ++i) {
+                if (i) s += op;
+                s += es[i];
+            }
+            return s + ")";
+        };
+
+        // The number wired into a node's number input, or "" when nothing is -
+        // the "a linked number overrides num[0]" test every consumer makes.
+        auto numInput = [&](const FlowNode& n) -> std::string {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t || !t->numIn) return "";
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkNum || l.toNode != n.id) continue;
+                const FlowNode* src = nodeById(l.fromNode);
+                if (!src) continue;
+                const FlowNodeType* st = flowNodeType(src->type);
+                if (!st || !st->numOut) continue;
+                return numExprImpl(*src, std::vector<int>{});
+            }
+            return "";
+        };
+        // A consumer's float operand: the wired number if any, else num[0].
+        auto numOperand = [&](const FlowNode& n) {
+            const std::string e = numInput(n);
+            return e.empty() ? floatLit(n.num[0]) : e;
+        };
+
         // Boolean-value plane: each trigger exposes a per-frame condition,
         // logic gates fold those conditions, and "On Condition" turns a bool
         // back into an exec pulse. Every bool is a self-contained C++
@@ -17770,7 +18077,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "false";
                 return "(ctx.saveValues[" + std::to_string(vi) +
-                       "] >= " + floatLit(n.num[0]) + ")";
+                       "] >= " + numOperand(n) + ")";
+            }
+            if (n.type == "NumAtLeast") {
+                // The number plane's own comparison - nothing wired means
+                // nothing to compare, which is false rather than "0 >= 0".
+                const std::string e = numInput(n);
+                if (e.empty()) return "false";
+                return "(" + e + " >= " + floatLit(n.num[0]) + ")";
             }
             if (n.type == "GetVarBool") {
                 const int vi = varIndex(boolVars, n.str);
@@ -17780,6 +18094,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (n.type == "VarAtLeast") {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) return "false";
+                // A wired threshold is a float expression, so compare in float
+                // and keep the int literal path exactly as it was.
+                const std::string e = numInput(n);
+                if (!e.empty())
+                    return "((float)flowInt[" + std::to_string(vi) + "] >= " + e +
+                           ")";
                 return "(flowInt[" + std::to_string(vi) + "] >= " + intLit(n.num[0]) +
                        ")";
             }
@@ -17909,6 +18229,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 std::string expr = boolInputsOr(n);
                 if (expr.empty()) expr = "false";
                 return "std::string(" + expr + " ? \"true\" : \"false\")";
+            }
+            if (n.type == "NumToText") {
+                const std::string e = numInput(n);
+                return "flowNumText(" + (e.empty() ? "0.0F" : e) + ")";
             }
             return "std::string()";
         };
@@ -18365,7 +18689,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     c << pad << "ctx.saveValues[" << vi << "] "
                       << (n.type == "SetValue" ? "=" : "+=") << " "
-                      << floatLit(n.num[0]) << ";  // \"" << n.str << "\"\n";
+                      << numOperand(n) << ";  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "OpenSaveMenu") {
                 c << pad << "ctx.openSaveMenu = true;\n";
@@ -18374,17 +18698,30 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (vi < 0) {
                     c << pad << "// node " << n.id << " (SetVarInt): unnamed variable\n";
                 } else {
-                    c << pad << "flowInt[" << vi << "] = " << intLit(n.num[0])
-                      << ";  // \"" << n.str << "\"\n";
+                    // pin 0 = set, pin 1 = add. The wired-number path rounds
+                    // (the plane is float, the variable is an int); the plain
+                    // param path keeps emitting the exact same literal it did
+                    // before the number plane existed.
+                    const std::string e = numInput(n);
+                    const std::string v =
+                        e.empty() ? intLit(n.num[0])
+                                  : "(int)lroundf(" + e + ")";
+                    c << pad << "flowInt[" << vi << "] " << (pin == 1 ? "+=" : "=")
+                      << " " << v << ";  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "SetVarBool") {
                 const int vi = varIndex(boolVars, n.str);
                 if (vi < 0) {
                     c << pad << "// node " << n.id << " (SetVarBool): unnamed variable\n";
+                } else if (pin == 1) {
+                    c << pad << "flowBool[" << vi << "] = !flowBool[" << vi
+                      << "];  // \"" << n.str << "\"\n";
                 } else {
+                    const std::string e = numInput(n);
                     c << pad << "flowBool[" << vi << "] = "
-                      << (n.num[0] != 0.0f ? "true" : "false") << ";  // \"" << n.str
-                      << "\"\n";
+                      << (e.empty() ? (n.num[0] != 0.0f ? "true" : "false")
+                                    : "(" + e + " != 0.0F)")
+                      << ";  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "SetVarPos") {
                 const int vi = varIndex(posVars, n.str);
@@ -18534,10 +18871,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             }
             // Clone targets guard on the handle: no clone spawned yet (or it
             // was despawned / the scene reloaded) skips the action outright.
-            if (!dyn.empty() && !c.str().empty())
+            // The debugger's hit goes INSIDE that guard - a skipped action did
+            // not run, and must not report that it did.
+            if (c.str().empty()) return std::string();
+            if (!dyn.empty())
                 return pad + "if (" + dyn + " >= 0 && " + dyn +
-                       " < ctx.objectCount) {\n" + c.str() + pad + "}\n";
-            return c.str();
+                       " < ctx.objectCount) {\n" + dbgHit(n, pad + "  ") +
+                       c.str() + pad + "}\n";
+            return dbgHit(n, pad) + c.str();
         };
 
         // Emit the actions reached by exec links out of `fromId`. A custom
@@ -18592,7 +18933,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "    if (ctx.scene != "
             << si
             << ") return;\n"
-               "    if (ctx.sceneGeneration != generation) {\n"
+            << (dbgOn ? "    // Live Debugger: nothing in this graph advances "
+                        "while the game is\n    // stopped at a breakpoint "
+                        "(the loop's own pause covers the rest).\n"
+                        "    if (livedbg::halted()) return;\n"
+                      : "")
+            << (logicOn ? "    // Live Logic: while the editor has a patch for "
+                          "this graph, the\n    // interpreter runs it instead "
+                          "of this compiled copy.\n"
+                          "    if (livelogic::patched(" +
+                              std::to_string(si) + ", " +
+                              std::to_string(ownerIdx) + ")) return;\n"
+                        : "")
+            << "    if (ctx.sceneGeneration != generation) {\n"
                "      // scene was (re)loaded - back to the initial state\n"
                "      generation = ctx.sceneGeneration;\n"
                "      frame = 0;\n"
@@ -18623,6 +18976,15 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 flagResets << "      " << var << " = 0;\n";
                 clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
                        << linkedActions(n.id, "      ") << "    }\n";
+                // Tell the debugger this countdown is armed, so "I fired the
+                // trigger and nothing happened" has a visible answer instead of
+                // being a guess (a Delay only advances on frames that RUN).
+                if (dbgOn) {
+                    const int tk = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
+                    if (tk >= 0)
+                        clsOut << "    livedbg::timer(" << tk << ", " << var
+                               << ");\n";
+                }
             } else if (n.type == "DisplayText") {
                 // The wired text is a live value (a save value, a counter), so
                 // re-read it every frame the slot is on - that is what makes
@@ -18712,8 +19074,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !t->trigger) continue;
-            const std::string body = linkedActions(n.id, "      ");
-            if (body.empty()) continue;
+            const std::string chain = linkedActions(n.id, "      ");
+            if (chain.empty()) continue;
+            const std::string body = dbgHit(n, "      ") + chain;
+
+            // Debugger "Fire": the trigger's whole branch, reachable on demand
+            // from the editor. Emitted before the trigger's own condition so
+            // the unresolved-reference branches below (which `continue`) can't
+            // drop it, and only in debug builds with the debugger on.
+            if (dbgOn) {
+                const int fk = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
+                if (fk >= 0)
+                    clsOut << "    if (livedbg::forced(" << fk
+                           << ")) {  // Live Debugger: fired from the editor\n"
+                           << body << "    }\n";
+            }
 
             if (n.type == "OnStart") {
                 clsOut << "    if (!started) {\n      started = true;\n" << body << "    }\n";
@@ -18916,7 +19291,1771 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
     if (!anyGraph) out << "\n// No object has a flow graph yet.\n";
 
+    // The Live Debugger's watch table. The flow variables live in this
+    // translation unit (they are statics above), so the accessor does too;
+    // live_debug.gen.cpp appends the project's save values off ScriptContext
+    // and streams both to the editor.
+    if (dbgOn) {
+        out << "\n// Live Debugger watch table (docs/live-debugger.md): the "
+               "flow variables\n// in one shared order - ints, then bools, "
+               "then positions.\n"
+               "int flowDbgVarCount() { return "
+            << (intVars.size() + boolVars.size() + posVars.size()) << "; }\n"
+               "void flowDbgReadVar(int index, float* out3) {\n"
+               "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
+        const size_t total = intVars.size() + boolVars.size() + posVars.size();
+        if (total == 0) {
+            out << "  (void)index;  // this project defines no flow variables\n";
+        } else {
+            out << "  switch (index) {\n";
+            size_t slot = 0;
+            for (size_t i = 0; i < intVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = (float)flowInt[" << i
+                    << "]; break;  // " << intVars[i] << "\n";
+            for (size_t i = 0; i < boolVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = flowBool[" << i
+                    << "] ? 1.0F : 0.0F; break;  // " << boolVars[i] << "\n";
+            for (size_t i = 0; i < posVars.size(); ++i, ++slot)
+                out << "    case " << slot << ":\n      out3[0] = flowPos[" << i
+                    << "][0]; out3[1] = flowPos[" << i
+                    << "][1]; out3[2] = flowPos[" << i << "][2];\n"
+                       "      break;  // "
+                    << posVars[i] << "\n";
+            out << "    default: break;\n  }\n";
+        }
+        out << "}\n";
+    }
+
+    // Live Logic: the interpreter runs patched graphs from another translation
+    // unit, so it reaches the flow variables (statics above) through these.
+    // Same shape as the debugger's watch table, both directions.
+    if (logicOn) {
+        auto guard = [&](const char* arr, size_t n) {
+            return "index >= 0 && index < " + std::to_string(n);
+        };
+        out << "\n// Live Logic (docs/live-logic.md): flow-variable access for "
+               "the\n// interpreter - patched graphs read and write the very "
+               "same arrays the\n// compiled ones do, so a hot-patched graph "
+               "shares state with the rest.\n";
+        out << "void flowLiveSetVarInt(int index, int value) {\n";
+        if (intVars.empty())
+            out << "  (void)index; (void)value;\n";
+        else
+            out << "  if (" << guard("flowInt", intVars.size())
+                << ") flowInt[index] = value;\n";
+        out << "}\n";
+        out << "void flowLiveSetVarBool(int index, bool value) {\n";
+        if (boolVars.empty())
+            out << "  (void)index; (void)value;\n";
+        else
+            out << "  if (" << guard("flowBool", boolVars.size())
+                << ") flowBool[index] = value;\n";
+        out << "}\n";
+        out << "void flowLiveSetVarPos(int index, const float* v3) {\n";
+        if (posVars.empty())
+            out << "  (void)index; (void)v3;\n";
+        else
+            out << "  if (" << guard("flowPos", posVars.size())
+                << ")\n    for (int a = 0; a < 3; ++a) flowPos[index][a] = "
+                   "v3[a];\n";
+        out << "}\n";
+        out << "int flowLiveGetVarInt(int index) {\n";
+        if (intVars.empty())
+            out << "  (void)index;\n  return 0;\n";
+        else
+            out << "  return " << guard("flowInt", intVars.size())
+                << " ? flowInt[index] : 0;\n";
+        out << "}\n";
+        out << "bool flowLiveGetVarBool(int index) {\n";
+        if (boolVars.empty())
+            out << "  (void)index;\n  return false;\n";
+        else
+            out << "  return " << guard("flowBool", boolVars.size())
+                << " ? flowBool[index] : false;\n";
+        out << "}\n";
+        out << "void flowLiveGetVarPos(int index, float* out3) {\n";
+        if (posVars.empty())
+            out << "  (void)index; (void)out3;\n";
+        else
+            out << "  if (" << guard("flowPos", posVars.size())
+                << ")\n    for (int a = 0; a < 3; ++a) out3[a] = "
+                   "flowPos[index][a];\n";
+        out << "}\n";
+    }
+
     out << "\n}  // namespace " << ns << "\n\n" << registrations.str();
+    return out.str();
+}
+
+// ---------------------------------------------------------------------------
+// Live Logic: inc/scripts/live_logic.gen.hpp + src/gen/live_logic.gen.cpp +
+// src/gen/livelogic.built (docs/live-logic.md).
+//
+// The interpreter that lets a flow graph change WITHOUT a rebuild. The editor
+// compiles an edited graph into the pre-resolved instruction list defined in
+// src/livelogic.hpp and writes it to bin/livelogic.bin; this runtime loads it,
+// makes the natively compiled script for that graph stand down
+// (`livelogic::patched`), and runs the instructions itself.
+//
+// The opcode numbering, the block kinds and the condition ops all come from
+// livelogic.hpp - the enums below are GENERATED from it, and a missing
+// interpreter case is a build error rather than a silently dead opcode.
+// ---------------------------------------------------------------------------
+
+// Interpreter bodies, keyed by the opcode name livelogic.hpp declares. Written
+// against: `in` (the instruction), `ctx`, `o` (RuntimeObject* target, null when
+// the index is out of range), `pos` (the resolved position operand), `st` (the
+// program's state slots). Each body must behave exactly like the C++ that
+// flowGraphScript emits for the same node - these are twins.
+static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies() {
+    static const std::vector<std::pair<std::string, std::string>> v = {
+        {"OP_SetObjectVisible",
+         "      if (!o) break;\n"
+         "      if (in.pin == 1) o->visible = false;\n"
+         "      else if (in.pin == 2) o->visible = !o->visible;\n"
+         "      else o->visible = true;\n"},
+        {"OP_MoveObjectBy",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) o->data.position[a] += in.num[a];\n"
+         "      o->restFrames = 0;\n"
+         "      o->dirty = true;\n"},
+        {"OP_SetObjectColor",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) o->data.color[a] = in.num[a];\n"
+         "      o->dirty = true;\n"},
+        {"OP_SetPosition",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) o->data.position[a] = pos[a];\n"
+         "      o->restFrames = 0;\n"
+         "      o->dirty = true;\n"},
+        {"OP_MoveObjectTo",
+         "      // arms the glide; the per-frame pass below moves the object\n"
+         "      if (in.state != 0xFFFF) st[in.state] = 1.0F;\n"},
+        {"OP_TeleportPlayer",
+         "      ctx.teleport = true;\n"
+         "      ctx.teleportPos = Tyra::Vec4(pos[0], pos[1], pos[2]);\n"
+         "      if (o) ctx.teleportYaw = o->data.rotation[1];\n"},
+        {"OP_SetSky",
+         "      ctx.skyColor = Tyra::Color(in.num[0] * 255.0F, in.num[1] * "
+         "255.0F,\n                                 in.num[2] * 255.0F);\n"},
+        {"OP_Delay",
+         "      if (in.state != 0xFFFF) st[in.state] = (float)everyFrames(in.num[0]);\n"},
+        {"OP_Log",
+         "      {\n"
+         "        char msg[96];\n"
+         "        int n = in.strLen < (int)sizeof(msg) - 1 ? in.strLen\n"
+         "                                                : (int)sizeof(msg) - 1;\n"
+         "        if (in.strOff + n > strCount) n = 0;\n"
+         "        memcpy(msg, strPool + in.strOff, n);\n"
+         "        msg[n] = '\\0';\n"
+         "        TYRA_LOG(msg);\n"
+         "      }\n"},
+        // pin 0 = set, pin 1 = add / toggle - the same branch flowGraphScript
+        // emits. A number LINK is not representable in the IR, so a graph that
+        // wires one is rejected by livelogic::capability instead of quietly
+        // running the param here (docs/live-logic.md).
+        {"OP_SetVarInt",
+         "      flowLiveSetVarInt(in.aux, in.pin == 1\n"
+         "                                    ? flowLiveGetVarInt(in.aux) +\n"
+         "                                          (int)in.num[0]\n"
+         "                                    : (int)in.num[0]);\n"},
+        {"OP_SetVarBool",
+         "      flowLiveSetVarBool(in.aux, in.pin == 1\n"
+         "                                     ? !flowLiveGetVarBool(in.aux)\n"
+         "                                     : in.num[0] != 0.0F);\n"},
+        {"OP_SetVarPos", "      flowLiveSetVarPos(in.aux, pos);\n"},
+        {"OP_SetValue",
+         "      if (ctx.saveValues && in.aux >= 0 && in.aux < ctx.saveValueCount)\n"
+         "        ctx.saveValues[in.aux] = in.num[0];\n"},
+        {"OP_AddValue",
+         "      if (ctx.saveValues && in.aux >= 0 && in.aux < ctx.saveValueCount)\n"
+         "        ctx.saveValues[in.aux] += in.num[0];\n"},
+        {"OP_SetTextVisible",
+         "      if (ctx.textRequest && in.aux >= 0 && in.aux < ctx.textCount) {\n"
+         "        ctx.textRequest[in.aux] = in.pin == 1 ? 0 : 1;\n"
+         "        if (in.pin != 1 && ctx.textDuration)\n"
+         "          ctx.textDuration[in.aux] = in.num[0] > 0.0F ? in.num[0] : 0.0F;\n"
+         "      }\n"},
+        {"OP_SetHudVisible",
+         "      ctx.hudVisible = in.pin == 1   ? false\n"
+         "                       : in.pin == 2 ? !ctx.hudVisible\n"
+         "                                     : true;\n"},
+        {"OP_SwitchScene", "      ctx.requestScene = in.aux;\n"},
+        {"OP_SetFog", "      ctx.fog = in.num[0] != 0.0F ? 1 : 0;\n"},
+        {"OP_SetBloom",
+         "      {\n"
+         "        int v = (int)(in.num[0] * 128.0F + 0.5F);\n"
+         "        ctx.bloom = v < 0 ? 0 : (v > 255 ? 255 : v);\n"
+         "      }\n"},
+        {"OP_SetGrain",
+         "      {\n"
+         "        int v = (int)(in.num[0] * 128.0F + 0.5F);\n"
+         "        ctx.grain = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
+         "      }\n"},
+        {"OP_SetParticles", "      ctx.particles = in.num[0] != 0.0F ? 1 : 0;\n"},
+    };
+    return v;
+}
+
+static const char* TPL_LIVE_LOGIC_HPP_ON = R"LGC(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Logic hooks (docs/live-logic.md): the interpreter that runs flow graphs
+// the editor patched into this game while it was running. Implemented in
+// src/gen/live_logic.gen.cpp.
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+
+// Flow-variable access for the interpreter. The variables are statics inside
+// flow_graph.gen.cpp (the TU that owns them), so patched graphs reach them
+// through these - emitted next to the arrays themselves.
+void flowLiveSetVarInt(int index, int value);
+void flowLiveSetVarBool(int index, bool value);
+void flowLiveSetVarPos(int index, const float* v3);
+int flowLiveGetVarInt(int index);
+bool flowLiveGetVarBool(int index);
+void flowLiveGetVarPos(int index, float* out3);
+
+namespace livelogic {
+
+/** Per-frame pump: polls bin/livelogic.bin and runs every patched graph. */
+void tick(ScriptContext& ctx);
+
+/** True while a patch replaces the graph of object `objectIndex` in `scene` -
+ * the natively compiled script for it stands down that frame. */
+bool patched(int scene, int objectIndex);
+
+}  // namespace livelogic
+}  // namespace {{NS}}
+)LGC";
+
+static const char* TPL_LIVE_LOGIC_HPP_OFF = R"LGC(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Logic hooks, compiled out: this is a release build or the "Live Logic"
+// preference is off, so flow graphs run only as the C++ they were compiled to
+// and `patched()` is a compile-time false. See docs/live-logic.md.
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+namespace livelogic {
+
+inline void tick(ScriptContext&) {}
+inline bool patched(int, int) { return false; }
+
+}  // namespace livelogic
+}  // namespace {{NS}}
+)LGC";
+
+static std::string liveLogicHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    return replaceAll(liveLogicOn(p) ? TPL_LIVE_LOGIC_HPP_ON
+                                     : TPL_LIVE_LOGIC_HPP_OFF,
+                      "{{NS}}", ns);
+}
+
+static const char* TPL_LIVE_LOGIC_CPP = R"LGC(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Logic runtime (docs/live-logic.md): the flow-graph INTERPRETER. Debug
+// builds with Project > Preferences > Build > "Live Logic" on; otherwise this
+// file is an empty translation unit.
+//
+// A flow graph normally becomes C++ in flow_graph.gen.cpp, which is why
+// editing one used to mean a Docker rebuild. The editor can instead COMPILE a
+// graph itself - into the pre-resolved instruction list documented in the
+// editor's src/livelogic.hpp - and drop it next to the ELF as livelogic.bin,
+// on the same host: filesystem Live Link and the Live Debugger already use.
+// This runtime loads that patch, tells the native script for the same graph to
+// stand down (`patched()`), and runs the instructions.
+//
+// Everything is pre-resolved by the editor: object references are runtime
+// indices, variables/save values/HUD texts/scenes are table indices, positions
+// are literal / variable / object operands, and conditions are a tiny RPN
+// program. So the interpreter has no name lookups, no allocation and no
+// parsing beyond one memcpy pass - it is a switch over opcodes.
+//
+// The opcode numbering below is GENERATED from the editor's livelogic.hpp, and
+// so is every dispatch case; the two ends cannot drift apart silently.
+#include <tyra>
+#include <cstdio>
+#include <cstring>
+#include <math.h>
+
+#include "scripts/script.hpp"
+#include "scripts/live_logic.gen.hpp"
+#include "scripts/live_debug.gen.hpp"
+
+namespace {{NS}} {
+namespace livelogic {
+namespace {
+
+// Release-audit marker: `elfsym::auditRelease` (and `--audit-release`) looks
+// for "TXDEVKIT-" in a shipped ELF's string data. The PS2 toolchain strips the
+// symbol table, so a DESIGNED marker is what makes "this build carries no
+// devkit code" a check instead of a hope. `used` keeps it through -O3.
+const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livelogic";
+
+const unsigned int LP_MAGIC = 0x504C5854U;  // "TXLP"
+const unsigned int LP_VERSION = 1U;
+const int LP_HEADER = 32;
+const unsigned int LP_FOOTER_XOR = 0x5A5A5A5AU;
+
+const int MAX_PROGRAMS = {{MAX_PROGRAMS}};
+const int MAX_BLOCKS = {{MAX_BLOCKS}};
+const int MAX_INSTRS = {{MAX_INSTRS}};
+const int MAX_COND = {{MAX_COND}};
+const int MAX_STRINGS = {{MAX_STRINGS}};
+const int MAX_STATE = {{MAX_STATE}};
+const int COND_STACK = {{COND_STACK}};
+
+// --- the IR, generated from the editor's livelogic.hpp ----------------------
+{{ENUMS}}
+enum { PK_Literal = 0, PK_VarPos = 1, PK_ObjectPos = 2 };
+
+// Wire layout, field for field as livelogic::encode writes it: 28 bytes per
+// block, 50 per instruction (the offsets below are the contract).
+const int BLK_STRIDE = 28;
+const int INS_STRIDE = 50;
+
+struct Blk {
+  unsigned char kind;
+  unsigned short nodeId;
+  short obj, aux;
+  float p[2];
+  unsigned short first, count, condOff, state, dbgKey;
+};
+
+struct Ins {
+  unsigned char op, pin;
+  unsigned short nodeId;
+  short obj, aux, blockRef;
+  unsigned char posKind;
+  short posIndex;
+  unsigned short state, dbgKey, strOff, strLen;
+  float num[4];
+  float posLit[3];
+};
+
+struct Prog {
+  unsigned long long id;  // owner object's stable id hash
+  int scene;
+  int objIdx;  // resolved at load / on scene reload (-1 = not in this scene)
+  unsigned short blockFirst, blockCount;
+  unsigned short instrFirst, instrCount;
+  unsigned short condFirst, stateFirst;
+};
+
+Prog progs[MAX_PROGRAMS];
+Blk blocks[MAX_BLOCKS];
+Ins instrs[MAX_INSTRS];
+unsigned char cond[MAX_COND];
+char strPool[MAX_STRINGS];
+float state[MAX_STATE];
+int progCount = 0, blockCount = 0, instrCount = 0, condCount = 0, strCount = 0;
+
+unsigned int lastSeq = 0;
+unsigned int lastGen = 0xFFFFFFFFU;  // scene generation the state belongs to
+int cooldown = 1;
+
+// One static read buffer - the EE does not allocate for this.
+unsigned char buf[LP_HEADER + 8 + MAX_PROGRAMS * 24 + MAX_BLOCKS * BLK_STRIDE +
+                  MAX_INSTRS * INS_STRIDE + MAX_COND + MAX_STRINGS + 4];
+
+inline unsigned int rd32(const unsigned char* p) {
+  unsigned int v;
+  memcpy(&v, p, 4);
+  return v;
+}
+inline unsigned short rd16(const unsigned char* p) {
+  unsigned short v;
+  memcpy(&v, p, 2);
+  return v;
+}
+inline float rdF(const unsigned char* p) {
+  float v;
+  memcpy(&v, p, 4);
+  return v;
+}
+
+// The pad button a trigger names, in the editor's padButtons() order.
+bool padClicked(ScriptContext& ctx, int idx) {
+  const Tyra::PadButtons& c = ctx.engine->pad.getClicked();
+  switch (idx) {
+{{PAD_CASES}}    default: break;
+  }
+  return false;
+}
+
+// Resolve a program's owner object index from its stable id hash (renames and
+// reorders are non-events; a missing object parks the program).
+void resolveOwners(ScriptContext& ctx) {
+  const unsigned long long* table = SCENE_OBJECT_ID_TABLES[ctx.scene];
+  const int n = SCENE_OBJECT_COUNTS[ctx.scene];
+  for (int i = 0; i < progCount; ++i) {
+    progs[i].objIdx = -1;
+    if (progs[i].scene != ctx.scene) continue;
+    for (int k = 0; k < n; ++k)
+      if (table[k] == progs[i].id) {
+        progs[i].objIdx = k;
+        break;
+      }
+  }
+}
+
+// Fresh state for every program: OnStart not yet fired, timers armed for the
+// first frame (the native scripts start their Every-N counters at 1 too),
+// edges clear.
+void resetState() {
+  for (int i = 0; i < MAX_STATE; ++i) state[i] = 0.0F;
+  for (int i = 0; i < blockCount; ++i) {
+    const Blk& b = blocks[i];
+    if (b.kind == BK_EverySeconds && b.state != 0xFFFF) {
+      // find the owning program to offset the slot
+      for (int pi = 0; pi < progCount; ++pi)
+        if (i >= progs[pi].blockFirst &&
+            i < progs[pi].blockFirst + progs[pi].blockCount)
+          state[progs[pi].stateFirst + b.state] = 1.0F;
+    }
+  }
+}
+
+bool parse(const unsigned char* b, int size) {
+  if (size < LP_HEADER + 4) return false;
+  if (rd32(b) != LP_MAGIC || rd32(b + 4) != LP_VERSION) return false;
+  const unsigned int seq = rd32(b + 8);
+  const unsigned int bodyLen = rd32(b + 12);
+  if ((int)(LP_HEADER + bodyLen + 4) != size) return false;
+  if (rd32(b + LP_HEADER + bodyLen) != (seq ^ LP_FOOTER_XOR)) return false;
+  if (seq == lastSeq) return false;  // already applied
+
+  const unsigned char* p = b + LP_HEADER;
+  const int nProg = (int)rd32(p);
+  const int poolLen = (int)rd32(p + 4);
+  p += 8;
+  if (nProg < 0 || nProg > MAX_PROGRAMS) return false;
+  if (poolLen < 0 || poolLen > MAX_STRINGS) return false;
+
+  progCount = blockCount = instrCount = condCount = 0;
+  int stateNext = 0;
+  for (int i = 0; i < nProg; ++i) {
+    Prog pr;
+    memcpy(&pr.id, p, 8);
+    p += 8;
+    pr.scene = (int)rd32(p);
+    p += 4;
+    const int nBlk = rd16(p);
+    const int nIns = rd16(p + 2);
+    const int nCond = rd16(p + 4);
+    const int nState = rd16(p + 6);
+    p += 8;
+    if (blockCount + nBlk > MAX_BLOCKS || instrCount + nIns > MAX_INSTRS ||
+        condCount + nCond > MAX_COND || stateNext + nState > MAX_STATE)
+      return false;
+    pr.objIdx = -1;
+    pr.blockFirst = (unsigned short)blockCount;
+    pr.blockCount = (unsigned short)nBlk;
+    pr.instrFirst = (unsigned short)instrCount;
+    pr.instrCount = (unsigned short)nIns;
+    pr.condFirst = (unsigned short)condCount;
+    pr.stateFirst = (unsigned short)stateNext;
+    stateNext += nState;
+
+    for (int k = 0; k < nBlk; ++k, p += BLK_STRIDE) {
+      Blk& bk = blocks[blockCount++];
+      bk.kind = p[0];
+      bk.nodeId = rd16(p + 2);
+      bk.obj = (short)rd16(p + 4);
+      bk.aux = (short)rd16(p + 6);
+      bk.p[0] = rdF(p + 8);
+      bk.p[1] = rdF(p + 12);
+      bk.first = rd16(p + 16);
+      bk.count = rd16(p + 18);
+      bk.condOff = rd16(p + 20);
+      bk.state = rd16(p + 22);
+      bk.dbgKey = rd16(p + 24);
+    }
+    for (int k = 0; k < nIns; ++k, p += INS_STRIDE) {
+      Ins& in = instrs[instrCount++];
+      in.op = p[0];
+      in.pin = p[1];
+      in.nodeId = rd16(p + 2);
+      in.obj = (short)rd16(p + 4);
+      in.aux = (short)rd16(p + 6);
+      in.blockRef = (short)rd16(p + 8);
+      in.posKind = p[10];
+      in.posIndex = (short)rd16(p + 12);
+      in.state = rd16(p + 14);
+      in.dbgKey = rd16(p + 16);
+      in.strOff = rd16(p + 18);
+      in.strLen = rd16(p + 20);
+      for (int a = 0; a < 4; ++a) in.num[a] = rdF(p + 22 + a * 4);
+      for (int a = 0; a < 3; ++a) in.posLit[a] = rdF(p + 38 + a * 4);
+    }
+    memcpy(cond + condCount, p, nCond);
+    condCount += nCond;
+    p += nCond;
+    progs[progCount++] = pr;
+  }
+  memcpy(strPool, p, poolLen);
+  strCount = poolLen;
+
+  lastSeq = seq;
+  resetState();
+  TYRA_LOG("LiveLogic: patched ", progCount, " graph(s), ", instrCount,
+           " instruction(s)");
+  return true;
+}
+
+void poll(ScriptContext& ctx) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livelogic.bin").c_str(), "rb");
+  if (!f) {
+    // The editor removed the patch (graphs back to what was built): hand the
+    // graphs back to their native scripts.
+    if (progCount > 0) {
+      progCount = blockCount = instrCount = condCount = strCount = 0;
+      lastSeq = 0;
+      TYRA_LOG("LiveLogic: patch withdrawn - native scripts resume");
+    }
+    return;
+  }
+  const size_t got = fread(buf, 1, sizeof(buf), f);
+  fclose(f);
+  if (parse(buf, (int)got)) resolveOwners(ctx);
+}
+
+float* stateOf(const Prog& pr) { return state + pr.stateFirst; }
+
+void resolvePos(ScriptContext& ctx, const Ins& in, float* out) {
+  out[0] = in.posLit[0];
+  out[1] = in.posLit[1];
+  out[2] = in.posLit[2];
+  if (in.posKind == PK_VarPos) {
+    flowLiveGetVarPos(in.posIndex, out);
+  } else if (in.posKind == PK_ObjectPos && in.posIndex >= 0 &&
+             in.posIndex < ctx.objectCount) {
+    const float* s = ctx.objects[in.posIndex].data.position;
+    out[0] = s[0];
+    out[1] = s[1];
+    out[2] = s[2];
+  }
+}
+
+// The bool plane as RPN over a tiny stack (sources push, gates fold the top n).
+bool evalCond(ScriptContext& ctx, const Prog& pr, int off) {
+  bool stack[COND_STACK];
+  int sp = 0;
+  const unsigned char* p = cond + pr.condFirst + off;
+  const unsigned char* end = cond + condCount;
+  while (p < end) {
+    const unsigned char op = *p++;
+    if (op == CO_End) break;
+    if (op == CO_IsVisible || op == CO_VarBool) {
+      const short a = (short)rd16(p);
+      p += 2;
+      bool v = false;
+      if (op == CO_IsVisible)
+        v = a >= 0 && a < ctx.objectCount && ctx.objects[a].visible;
+      else
+        v = flowLiveGetVarBool(a);
+      if (sp < COND_STACK) stack[sp++] = v;
+      continue;
+    }
+    if (op == CO_VarAtLeast || op == CO_ValueAtLeast) {
+      const short a = (short)rd16(p);
+      const float thr = rdF(p + 2);
+      p += 6;
+      bool v = false;
+      if (op == CO_VarAtLeast)
+        v = a >= 0 && (float)flowLiveGetVarInt(a) >= thr;
+      else
+        v = ctx.saveValues && a >= 0 && a < ctx.saveValueCount &&
+            ctx.saveValues[a] >= thr;
+      if (sp < COND_STACK) stack[sp++] = v;
+      continue;
+    }
+    // A gate: fold the top `n` values.
+    int n = *p++;
+    if (n > sp) n = sp;
+    bool all = true, any = false;
+    int ones = 0;
+    for (int i = 0; i < n; ++i) {
+      const bool v = stack[sp - 1 - i];
+      all = all && v;
+      any = any || v;
+      if (v) ++ones;
+    }
+    sp -= n;
+    bool r = false;
+    if (op == CO_And) r = all;
+    else if (op == CO_Or) r = any;
+    else if (op == CO_Not) r = !any;
+    else if (op == CO_Nand) r = !all;
+    else if (op == CO_Xor) r = (ones & 1) != 0;
+    else if (op == CO_Xnor) r = (ones & 1) == 0;
+    if (sp < COND_STACK) stack[sp++] = r;
+  }
+  return sp > 0 ? stack[sp - 1] : false;
+}
+
+void runBlock(ScriptContext& ctx, const Prog& pr, int localBlock);
+
+void exec(ScriptContext& ctx, const Prog& pr, const Ins& in) {
+  if (in.dbgKey != 0xFFFF) livedbg::hit(in.dbgKey);
+  RuntimeObject* o = (in.obj >= 0 && in.obj < ctx.objectCount)
+                         ? &ctx.objects[in.obj]
+                         : (RuntimeObject*)0;
+  float pos[3];
+  resolvePos(ctx, in, pos);
+  float* st = stateOf(pr);
+  (void)o;
+  (void)st;
+  switch (in.op) {
+{{OP_CASES}}    default: break;
+  }
+}
+
+void runBlock(ScriptContext& ctx, const Prog& pr, int localBlock) {
+  if (localBlock < 0 || localBlock >= pr.blockCount) return;
+  const Blk& bk = blocks[pr.blockFirst + localBlock];
+  if (bk.dbgKey != 0xFFFF) livedbg::hit(bk.dbgKey);
+  for (int i = 0; i < bk.count; ++i) {
+    const int idx = pr.instrFirst + bk.first + i;
+    if (idx < 0 || idx >= instrCount) break;
+    exec(ctx, pr, instrs[idx]);
+  }
+}
+
+void runProgram(ScriptContext& ctx, const Prog& pr) {
+  float* st = stateOf(pr);
+  // Per-frame instruction state, ticked before the triggers - exactly the
+  // order the native scripts use (anything armed this frame starts counting on
+  // the NEXT one).
+  for (int i = 0; i < pr.instrCount; ++i) {
+    const Ins& in = instrs[pr.instrFirst + i];
+    if (in.state == 0xFFFF) continue;
+    if (in.op == OP_Delay) {
+      if (st[in.state] > 0.0F) {
+        st[in.state] -= 1.0F;
+        if (st[in.state] <= 0.0F) {
+          st[in.state] = 0.0F;
+          runBlock(ctx, pr, in.blockRef);
+        }
+      }
+      // A patched Delay reports its countdown exactly like a compiled one.
+      if (in.dbgKey != 0xFFFF) livedbg::timer(in.dbgKey, (int)st[in.state]);
+    } else if (in.op == OP_MoveObjectTo && st[in.state] > 0.0F) {
+      if (in.obj < 0 || in.obj >= ctx.objectCount) continue;
+      float target[3];
+      resolvePos(ctx, in, target);
+      float* p = ctx.objects[in.obj].data.position;
+      const float dx = target[0] - p[0], dy = target[1] - p[1],
+                  dz = target[2] - p[2];
+      const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+      const float speed = in.num[3] > 0.001F ? in.num[3] : 2.0F;
+      const float step = speed * g_frameDt;
+      if (dist <= step) {
+        p[0] = target[0];
+        p[1] = target[1];
+        p[2] = target[2];
+        st[in.state] = 0.0F;
+      } else if (dist > 0.0001F) {
+        p[0] += dx / dist * step;
+        p[1] += dy / dist * step;
+        p[2] += dz / dist * step;
+      }
+      ctx.objects[in.obj].dirty = true;
+    }
+  }
+
+  for (int b = 0; b < pr.blockCount; ++b) {
+    const Blk& bk = blocks[pr.blockFirst + b];
+    if (bk.kind == BK_Delay) continue;  // armed, not scanned
+    bool fire = false;
+    switch (bk.kind) {
+      case BK_OnStart:
+        if (bk.state != 0xFFFF && st[bk.state] == 0.0F) {
+          st[bk.state] = 1.0F;
+          fire = true;
+        }
+        break;
+      case BK_EverySeconds:
+        if (bk.state != 0xFFFF) {
+          st[bk.state] -= 1.0F;
+          if (st[bk.state] <= 0.0F) {
+            st[bk.state] = (float)everyFrames(bk.p[0]);
+            fire = true;
+          }
+        }
+        break;
+      case BK_OnButton:
+        fire = padClicked(ctx, bk.aux);
+        break;
+      case BK_NearObject: {
+        if (bk.obj < 0 || bk.obj >= ctx.objectCount) break;
+        const float* op2 = ctx.objects[bk.obj].data.position;
+        const float dx = ctx.playerPosition.x - op2[0];
+        const float dz = ctx.playerPosition.z - op2[2];
+        const bool isNear = dx * dx + dz * dz < bk.p[0] * bk.p[0];
+        if (bk.state != 0xFFFF) {
+          fire = isNear && st[bk.state] == 0.0F;
+          st[bk.state] = isNear ? 1.0F : 0.0F;
+        }
+        break;
+      }
+      case BK_OnCondition: {
+        const bool c = evalCond(ctx, pr, bk.condOff);
+        if (bk.state != 0xFFFF) {
+          fire = c && st[bk.state] == 0.0F;
+          st[bk.state] = c ? 1.0F : 0.0F;
+        }
+        break;
+      }
+      default: break;
+    }
+    if (fire) runBlock(ctx, pr, b);
+  }
+}
+
+}  // namespace
+
+bool patched(int scene, int objectIndex) {
+  for (int i = 0; i < progCount; ++i)
+    if (progs[i].scene == scene && progs[i].objIdx == objectIndex) return true;
+  return false;
+}
+
+void tick(ScriptContext& ctx) {
+  // A scene (re)load resets every program's state and re-resolves the owners.
+  if (ctx.sceneGeneration != lastGen) {
+    lastGen = ctx.sceneGeneration;
+    resetState();
+    resolveOwners(ctx);
+  }
+  // Over ps2link every fopen is a network round-trip; PCSX2's host filesystem
+  // is plain local IO, so poll ~10x/s there.
+  if (--cooldown <= 0) {
+    cooldown = Tyra::IrxLoader::keepIopResident ? 25 : 6;
+    poll(ctx);
+  }
+  for (int i = 0; i < progCount; ++i)
+    if (progs[i].scene == ctx.scene && progs[i].objIdx >= 0)
+      runProgram(ctx, progs[i]);
+}
+
+namespace {
+// The pump is an ordinary global Script, so it needs nothing from the game
+// loop (and stops with everything else while the Live Debugger holds the game).
+class LiveLogicPump : public Script {
+ public:
+  void update(ScriptContext& ctx) override { tick(ctx); }
+};
+LiveLogicPump g_pump;
+const bool g_pumpRegistered = []() {
+  getScripts().push_back(&g_pump);
+  return true;
+}();
+}  // namespace
+
+}  // namespace livelogic
+}  // namespace {{NS}}
+)LGC";
+
+static std::string liveLogicSource(const Project& p) {
+    if (!liveLogicOn(p)) {
+        std::string why = "the \"Live Logic\" preference is off";
+        if (p.settings.buildProfile != "debug") why = "this is a release build";
+        else if (p.settings.liveLogic)
+            why = "no object has a flow graph to patch";
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// Live Logic: nothing to compile here - " +
+               why +
+               ".\n// See docs/live-logic.md (Project > Preferences > "
+               "Build).\n";
+    }
+
+    // The enums, straight from the editor's livelogic.hpp - the numbering the
+    // patch file uses cannot be restated by hand here.
+    std::ostringstream enums;
+    auto emitEnum = [&](const std::vector<std::string>& names) {
+        enums << "enum {";
+        for (size_t i = 0; i < names.size(); ++i)
+            enums << (i ? ", " : " ") << names[i] << " = " << i;
+        enums << " };\n";
+    };
+    emitEnum(livelogic::blockKindNames());
+    emitEnum(livelogic::opNames());
+    emitEnum(livelogic::condOpNames());
+
+    std::ostringstream pad;
+    const auto& buttons = livelogic::padButtons();
+    for (size_t i = 0; i < buttons.size(); ++i)
+        pad << "    case " << i << ": return c." << buttons[i] << " != 0;\n";
+
+    // One dispatch case per opcode, in enum order. A missing body is a BUILD
+    // ERROR, not a silently dead opcode.
+    std::ostringstream cases;
+    for (const std::string& name : livelogic::opNames()) {
+        const std::string* body = nullptr;
+        for (const auto& e : liveLogicOpBodies())
+            if (e.first == name) body = &e.second;
+        if (!body) {
+            cases << "#error Live Logic: no interpreter case for " << name
+                  << " (add one to liveLogicOpBodies in templates.cpp)\n";
+            continue;
+        }
+        cases << "    case " << name << ":\n" << *body << "      break;\n";
+    }
+
+    std::string s = TPL_LIVE_LOGIC_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{ENUMS}}", enums.str());
+    s = replaceAll(s, "{{PAD_CASES}}", pad.str());
+    s = replaceAll(s, "{{OP_CASES}}", cases.str());
+    s = replaceAll(s, "{{MAX_PROGRAMS}}", std::to_string(livelogic::kMaxPrograms));
+    s = replaceAll(s, "{{MAX_BLOCKS}}", std::to_string(livelogic::kMaxBlocks));
+    s = replaceAll(s, "{{MAX_INSTRS}}", std::to_string(livelogic::kMaxInstrs));
+    s = replaceAll(s, "{{MAX_COND}}", std::to_string(livelogic::kMaxCond));
+    s = replaceAll(s, "{{MAX_STRINGS}}", std::to_string(livelogic::kMaxStrings));
+    s = replaceAll(s, "{{MAX_STATE}}", std::to_string(livelogic::kMaxStateSlots));
+    s = replaceAll(s, "{{COND_STACK}}", std::to_string(livelogic::kCondStack));
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// Live Debugger: inc/scripts/live_debug.gen.hpp + src/gen/live_debug.gen.cpp +
+// src/gen/livedbg.sym (docs/live-debugger.md).
+//
+// The header is ALWAYS generated and is what the rest of the generated code
+// talks to: with the debugger off every entry point is an inline no-op and
+// `halted()` is a compile-time false, so `... || livedbg::halted()` in the
+// game loop folds away and the feature costs literally nothing. With it on,
+// the source below implements them: a hit table + event ring fed by the
+// instrumented graphs, a snapshot written to livedbg.bin over host:, and a
+// command file (livedbg.cmd) carrying the breakpoint list, halt/step and
+// force-fire requests back from the editor.
+// ---------------------------------------------------------------------------
+static const char* TPL_LIVE_DEBUG_HPP_ON = R"DBG(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Debugger hooks (docs/live-debugger.md). Implemented in
+// src/gen/live_debug.gen.cpp; the instrumented graphs in flow_graph.gen.cpp
+// call hit()/forced(), the game loop calls tickFromLoop() + halted().
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+
+// The debugger's watch table, emitted by flow_graph.gen.cpp: every flow
+// variable in the project, in one shared order (ints, then bools, then
+// positions). Save values are appended by the runtime straight off
+// ScriptContext, so they need no accessor.
+int flowDbgVarCount();
+void flowDbgReadVar(int index, float* out3);
+
+namespace livedbg {
+
+/** An instrumented node ran. Bumps its counter, records it in the event ring
+ * and stops the game when the editor has a breakpoint on it. */
+void hit(int key);
+
+/** True while the game is stopped by the debugger. The generated loop folds
+ * this into its "a menu is pausing the world" condition, so a halt freezes
+ * scripts, the walker, particles and animation while frames keep presenting.
+ */
+bool halted();
+
+/** True for the one frame in which the editor asked to force-fire this node
+ * (Debugger > "Fire"), OR'd into the node's own trigger condition. */
+bool forced(int key);
+
+/** Reports an armed countdown (a Delay) so the editor can show "43 frames
+ * left" instead of leaving you wondering why nothing happened. Called once per
+ * frame per Delay node with its current counter; 0 = not armed. */
+void timer(int key, int framesLeft);
+
+/** Per-frame pump. The generated loop calls tickFromLoop() before anything
+ * reads halted(); tickFromScript() is the fallback for projects that took
+ * ownership of terrain_game.cpp (it does nothing once the loop hook is seen).
+ */
+void tickFromLoop(ScriptContext& ctx);
+void tickFromScript(ScriptContext& ctx);
+
+}  // namespace livedbg
+}  // namespace {{NS}}
+)DBG";
+
+static const char* TPL_LIVE_DEBUG_HPP_OFF = R"DBG(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Debugger hooks, compiled out: this build is either a release build, has
+// the "Live Debugger" preference off, or has no runnable flow-graph node to
+// instrument. Every entry point below is an empty inline function and
+// halted() is a compile-time false, so the calls in the generated game (and in
+// terrain_game.cpp's loop) disappear entirely. See docs/live-debugger.md.
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+namespace livedbg {
+
+inline void hit(int) {}
+inline bool halted() { return false; }
+inline bool forced(int) { return false; }
+inline void timer(int, int) {}
+inline void tickFromLoop(ScriptContext&) {}
+inline void tickFromScript(ScriptContext&) {}
+
+}  // namespace livedbg
+}  // namespace {{NS}}
+)DBG";
+
+static const char* TPL_LIVE_DEBUG_CPP = R"DBG(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Debugger runtime (docs/live-debugger.md). Debug builds with Project >
+// Preferences > Build > "Live Debugger" on; otherwise this file is an empty
+// translation unit.
+//
+// Two files next to the ELF, on the same host: filesystem the game already
+// loads its assets from (PCSX2's Host Filesystem / the ps2link file server):
+//
+//   livedbg.bin  written here, read by the editor - cumulative hit count per
+//                instrumented node, a ring of the most recent fires (with
+//                their age in frames), the watch values, the halted flag and
+//                the node whose breakpoint stopped the game.
+//   livedbg.cmd  written by the editor, read here - the full breakpoint list,
+//                halt / resume / step, and nodes to force-fire once.
+//
+// Both layouts are documented field by field in the editor's src/livedbg.hpp
+// and parsed there; the two ends must agree, so change them together. Torn
+// writes are rejected by an exact-size + footer-echo check on both sides, and
+// a command is applied only when its sequence number changes.
+#include <tyra>
+#include <cstdio>
+#include <cstring>
+
+#include "debug/crash_handler.hpp"  // EE exception -> crash report
+#include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
+#include "scripts/script.hpp"
+#include "scripts/live_debug.gen.hpp"
+
+namespace {{NS}} {
+namespace livedbg {
+namespace {
+
+// Release-audit marker - see the note in live_logic.gen.cpp.
+const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livedbg";
+
+const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
+const unsigned int SNAP_VERSION = 4U;  // v4 appends the stats + flush map
+const int SNAP_HEADER = 64;
+const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
+const unsigned int CMD_VERSION = 1U;
+const int CMD_HEADER = 32;
+const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
+
+const int NODES = {{NODES}};      // instrumented flow-graph nodes
+const int VARS = {{VARS}};        // watch slots: flow variables + save values
+const int FLOW_VARS = {{FLOW_VARS}};  // how many of those are flow variables
+const int EVENTS = {{EVENTS}};    // event-ring capacity
+const int MAX_BP = {{MAX_BP}};    // breakpoints tracked at once
+const int MAX_FIRE = {{MAX_FIRE}};  // force-fire keys per command
+const int MAX_WATCH = {{MAX_WATCH}};  // objects sampled every frame
+const int OBJ_RING = {{OBJ_RING}};    // samples kept per watched object
+// Identity of the symbol table this ELF was built from (src/gen/livedbg.sym).
+// The editor compares it with the file on disk: a mismatch means the graphs
+// moved since this build, so node keys would point at the wrong nodes.
+const unsigned int HASH_LO = {{HASH_LO}}U, HASH_HI = {{HASH_HI}}U;
+
+unsigned int hits[NODES] = {};
+unsigned short evKey[EVENTS] = {};
+unsigned int evFrame[EVENTS] = {};
+int evCount = 0;  // valid ring entries
+int evNext = 0;   // write cursor
+unsigned int frameNo = 0;
+
+bool haltRequested = false;  // sticky: the game is stopped
+bool haltedFrame = false;    // this frame's answer to halted()
+int breakKey = -1;           // which node's breakpoint stopped it
+int stepFrames = 0;          // frames left to run before stopping again
+bool stepUntilFire = false;  // run until any instrumented node fires
+unsigned short bp[MAX_BP] = {};
+int bpCount = 0;
+unsigned short forcedKeys[MAX_FIRE] = {};
+int forcedCount = 0;
+bool fireAndRun = false;  // a force-fire that resumes instead of stepping once
+// Armed countdowns, refreshed every frame by the graphs themselves.
+unsigned short timerKey[MAX_BP] = {};
+unsigned short timerLeft[MAX_BP] = {};
+int timerCount = 0;
+
+// Watched objects (docs/devkit.md): the editor names a few runtime indices and
+// the game samples them EVERY frame into a ring, so what reaches the editor is
+// a real per-frame curve instead of one value per flush. 13 floats + a frame
+// number per sample; the flags ride in the last slot as a bitfield.
+short watchIdx[MAX_WATCH];
+int watchCount = 0;
+struct ObjSample {
+  unsigned int frame;
+  float pos[3], rot[3], scale[3], color[3];
+  unsigned int flags;
+};
+ObjSample watchRing[MAX_WATCH][OBJ_RING];
+int watchRingNext[MAX_WATCH] = {};
+int watchRingCount[MAX_WATCH] = {};
+
+int lastScene = 0;  // for the crash report
+// VU1 packet capture state (the buffer + the tap live further down).
+bool vuCapArmed = false;   // set by a command, cleared once one is grabbed
+bool vuCapPending = false;  // captured, not yet written
+// WHICH flush of the frame to grab. A frame sends one chain per bag flush and
+// they are always sent in the same order, so grabbing "the next one" forever
+// means always inspecting the same draw. The editor can name an index; with
+// none named the capture walks the frame, one flush per click, wrapping at the
+// last frame's flush count.
+int vuCapWant = 0;          // flush index to grab
+bool vuCapExplicit = false;  // the editor named it (do not auto-advance)
+int vuFlushCount = 0;       // flushes seen so far THIS frame
+int vuFlushPrevFrame = 0;   // flushes the last complete frame sent
+int vuCapTookIndex = 0;     // which one the pending capture actually is
+
+// The flush map: one line per bag flush of the last complete frame. A frame
+// sends dozens of them and a capture can only hold ONE, so without this the
+// editor's only way to find the draw you care about is to walk them all. The
+// tap already sees every flush; this walks its tags (cheap - tens of
+// quadwords, no vertex data is read) for the numbers that identify a draw.
+const int MAX_FLUSHMAP = 64;
+struct FlushRec {
+  unsigned short qw, unpacks, verts, program;
+};
+FlushRec flushCur[MAX_FLUSHMAP];   // filling, this frame
+FlushRec flushMap[MAX_FLUSHMAP];   // the last complete frame
+int flushCurCount = 0, flushMapCount = 0;
+unsigned int frameQw = 0, frameVerts = 0;          // this frame
+unsigned int lastFrameQw = 0, lastFrameVerts = 0;  // the last complete one
+unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
+// Free EE RAM is measured ON REQUEST only. The engine's Info::getAvailableRAM
+// finds it by allocating every free block until malloc fails and then freeing
+// the chain - honest, but a heap storm nobody wants once per frame.
+bool ramMeasureWanted = false;
+unsigned int ramFreeKB = 0, ramFrame = 0;
+void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
+void vuPacketTap(const void* data, unsigned int qwc, const char* name);
+void vuMemTap(const void* mem, unsigned int bytes);
+void writeVuCapture(ScriptContext& ctx);  // both defined below
+unsigned int cmdSeq = 0;  // last applied command
+unsigned int outSeq = 0;  // snapshots written
+int pollCooldown = 1;
+int flushCooldown = 1;
+bool flushNow = true;  // first frame: tell the editor we are alive
+bool loopHook = false;  // the generated loop is driving the pump
+
+// One static snapshot buffer - the EE has no business allocating per flush.
+// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry.
+unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 +
+                      MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) +
+                      64 + 2 + MAX_FLUSHMAP * 8 + 4];
+
+inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
+inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
+
+void readVar(ScriptContext& ctx, int i, float* out) {
+  out[0] = out[1] = out[2] = 0.0F;
+  if (i < FLOW_VARS) {
+    flowDbgReadVar(i, out);
+    return;
+  }
+  const int s = i - FLOW_VARS;
+  if (ctx.saveValues && s < ctx.saveValueCount) out[0] = ctx.saveValues[s];
+}
+
+void pollCommand() {
+  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 + 4];
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
+  if (!f) return;  // no editor attached (or a shipped build)
+  const size_t got = fread(c, 1, sizeof(c), f);
+  fclose(f);
+  if (got < (size_t)CMD_HEADER + 4) return;
+
+  unsigned int magic, version, seq, flags;
+  int steps, bpc, firec;
+  memcpy(&magic, c + 0, 4);
+  memcpy(&version, c + 4, 4);
+  memcpy(&seq, c + 8, 4);
+  memcpy(&flags, c + 12, 4);
+  memcpy(&steps, c + 16, 4);
+  memcpy(&bpc, c + 20, 4);
+  memcpy(&firec, c + 24, 4);
+  if (magic != CMD_MAGIC || version != CMD_VERSION) return;
+  if (seq == cmdSeq) return;  // already applied
+  if (bpc < 0 || bpc > MAX_BP || firec < 0 || firec > MAX_FIRE) return;
+  int watchLen;
+  memcpy(&watchLen, c + 28, 4);
+  if (watchLen < 0 || watchLen > MAX_WATCH) return;
+  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2 + 4))
+    return;
+  unsigned int foot;
+  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2, 4);
+  if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
+
+  cmdSeq = seq;
+  int watchc;
+  memcpy(&watchc, c + 28, 4);
+  if (watchc < 0 || watchc > MAX_WATCH) watchc = 0;
+  bpCount = bpc;
+  for (int i = 0; i < bpc; ++i) memcpy(&bp[i], c + CMD_HEADER + i * 2, 2);
+  forcedCount = firec;
+  for (int i = 0; i < firec; ++i)
+    memcpy(&forcedKeys[i], c + CMD_HEADER + bpc * 2 + i * 2, 2);
+  // The watch list changed? Start its rings over - mixing samples of two
+  // different objects in one ring would draw a curve that never happened.
+  {
+    const unsigned char* w = c + CMD_HEADER + bpc * 2 + firec * 2;
+    bool same = watchc == watchCount;
+    for (int i = 0; i < watchc && same; ++i) {
+      short v;
+      memcpy(&v, w + i * 2, 2);
+      same = watchIdx[i] == v;
+    }
+    if (!same) {
+      watchCount = watchc;
+      for (int i = 0; i < watchc; ++i) {
+        memcpy(&watchIdx[i], w + i * 2, 2);
+        watchRingNext[i] = watchRingCount[i] = 0;
+      }
+    }
+  }
+  const bool halt = (flags & 1U) != 0;
+  stepUntilFire = (flags & 2U) != 0;
+  fireAndRun = (flags & 4U) != 0;
+  // Capture one VU1 packet. Bit 4 = the editor named a flush index (bits 8-23);
+  // without it the capture walks the frame one flush per arm, wrapping when it
+  // runs past what the last complete frame sent. Old editors set neither, which
+  // leaves the index at 0 - the behaviour they expect.
+  // Bit 5: measure free EE RAM once (a heap storm - see ramMeasureWanted).
+  if ((flags & 32U) != 0) ramMeasureWanted = true;
+  if ((flags & 8U) != 0) {
+    vuCapArmed = true;
+    vuCapExplicit = (flags & 16U) != 0;
+    if (vuCapExplicit)
+      vuCapWant = (int)((flags >> 8) & 0xFFFFU);
+    else if (vuFlushPrevFrame > 0 && vuCapWant >= vuFlushPrevFrame)
+      vuCapWant = 0;
+  }
+  stepFrames = steps;
+  haltRequested = halt;
+  if (!halt) breakKey = -1;
+  flushNow = true;  // answer the editor on the next tick, not in 6 frames
+}
+
+void flush(ScriptContext& ctx) {
+  unsigned char* p = snapBuf;
+  ++outSeq;
+  put32(p + 0, SNAP_MAGIC);
+  put32(p + 4, SNAP_VERSION);
+  put32(p + 8, outSeq);
+  put32(p + 12, frameNo);
+  const int scene = ctx.scene;
+  memcpy(p + 16, &scene, 4);
+  put32(p + 20, haltRequested ? 1U : 0U);
+  memcpy(p + 24, &breakKey, 4);
+  const int nodes = NODES, vars = VARS;
+  memcpy(p + 28, &nodes, 4);
+  memcpy(p + 32, &vars, 4);
+  memcpy(p + 36, &evCount, 4);
+  put32(p + 40, HASH_LO);
+  put32(p + 44, HASH_HI);
+  unsigned int total = 0;
+  for (int i = 0; i < NODES; ++i) total += hits[i];
+  put32(p + 48, total);
+  memcpy(p + 52, &timerCount, 4);
+  memcpy(p + 56, &stepFrames, 4);
+  memcpy(p + 60, &watchCount, 4);
+  p += SNAP_HEADER;
+  for (int i = 0; i < NODES; ++i, p += 4) put32(p, hits[i]);
+  // Oldest first, each with its AGE in frames - the editor rebuilds absolute
+  // frame numbers from the header's counter, so the ring needs no rebasing.
+  const int start = evCount == EVENTS ? evNext : 0;
+  for (int i = 0; i < evCount; ++i, p += 4) {
+    const int s = (start + i) % EVENTS;
+    put16(p, evKey[s]);
+    unsigned int age = frameNo - evFrame[s];
+    if (age > 65535U) age = 65535U;
+    put16(p + 2, (unsigned short)age);
+  }
+  for (int i = 0; i < VARS; ++i, p += 12) {
+    float v[3];
+    readVar(ctx, i, v);
+    memcpy(p, v, 12);
+  }
+  for (int i = 0; i < timerCount; ++i, p += 4) {
+    put16(p, timerKey[i]);
+    put16(p + 2, timerLeft[i]);
+  }
+  // Watched objects: (index, sampleCount) + the ring, oldest sample first.
+  for (int i = 0; i < watchCount; ++i) {
+    put16(p, (unsigned short)watchIdx[i]);
+    put16(p + 2, (unsigned short)watchRingCount[i]);
+    p += 4;
+    const int start = watchRingCount[i] == OBJ_RING ? watchRingNext[i] : 0;
+    for (int k = 0; k < watchRingCount[i]; ++k, p += 56) {
+      const ObjSample& sm = watchRing[i][(start + k) % OBJ_RING];
+      put32(p, sm.frame);
+      memcpy(p + 4, sm.pos, 12);
+      memcpy(p + 16, sm.rot, 12);
+      memcpy(p + 28, sm.scale, 12);
+      memcpy(p + 40, sm.color, 12);
+      put32(p + 52, sm.flags);
+    }
+    watchRingCount[i] = 0;  // flushed: the editor has these frames now
+    watchRingNext[i] = 0;
+  }
+
+  // --- v4: the frame's vital signs, and the flush map -----------------------
+  // Everything here is already computed by somebody: the engine counts frames
+  // and VRAM residency, the VU1 tap counts draws, the scene knows its objects.
+  // The only reason these were invisible is that nobody carried them across.
+  unsigned char* st = p;
+  memset(st, 0, 64);
+  unsigned int fps = 0, vramFreeKB = 0, vramMinKB = 0, vramLargestKB = 0;
+  unsigned int binds = 0, hits = 0, uploads = 0, evictions = 0;
+  unsigned short resident = 0, peak = 0;
+  if (ctx.engine) {
+    fps = ctx.engine->info.getFps();
+    Tyra::RendererCore& rc = ctx.engine->renderer.core;
+    const Tyra::RendererCoreVRamStats& vs = rc.texture.stats;
+    binds = vs.binds;
+    hits = vs.hits;
+    uploads = vs.uploads;
+    evictions = vs.evictions;
+    resident = (unsigned short)vs.resident;
+    peak = (unsigned short)vs.peakResident;
+    vramMinKB = (unsigned int)(vs.minFreeMB * 1024.0F);
+    vramFreeKB = (unsigned int)(rc.gs.vram.getFreeSpaceInMB() * 1024.0F);
+    vramLargestKB = (unsigned int)(rc.gs.vram.getLargestFreeWords() / 256);
+  }
+  unsigned short objActive = 0, objVisible = 0;
+  for (int i = 0; i < ctx.objectCount; ++i) {
+    if (ctx.objects[i].active) ++objActive;
+    if (ctx.objects[i].visible) ++objVisible;
+  }
+  put16(st + 0, (unsigned short)fps);
+  put16(st + 2, (unsigned short)vuFlushPrevFrame);
+  put32(st + 4, lastFrameQw);
+  put32(st + 8, lastFrameVerts);
+  put32(st + 12, vramFreeKB);
+  put32(st + 16, vramMinKB);
+  put32(st + 20, vramLargestKB);
+  put16(st + 24, resident);
+  put16(st + 26, peak);
+  put32(st + 28, uploads);
+  put32(st + 32, evictions);
+  put16(st + 36, (unsigned short)ctx.objectCount);
+  put16(st + 38, objActive);
+  put16(st + 40, objVisible);
+  put16(st + 42, lastMaxChunk);
+  put32(st + 44, ramFreeKB);
+  put32(st + 48, ramFrame);
+  put32(st + 52, binds);
+  put32(st + 56, hits);
+  p += 64;
+  put16(p, (unsigned short)flushMapCount);
+  p += 2;
+  for (int i = 0; i < flushMapCount; ++i, p += 8) {
+    put16(p + 0, flushMap[i].qw);
+    put16(p + 2, flushMap[i].unpacks);
+    put16(p + 4, flushMap[i].verts);
+    put16(p + 6, flushMap[i].program);
+  }
+
+  put32(p, outSeq ^ FOOTER_XOR);
+  p += 4;
+
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.bin").c_str(), "wb");
+  if (!f) return;
+  fwrite(snapBuf, 1, (size_t)(p - snapBuf), f);
+  fclose(f);
+}
+
+void tickImpl(ScriptContext& ctx) {
+  lastScene = ctx.scene;
+  // Install the EE crash handler on the first tick (idempotent). This call is
+  // ALSO what pulls the engine's crash-handler object out of libtyra.a - a
+  // release build never reaches it, so it links none of it.
+  static bool crashHooked = false;
+  if (!crashHooked) {
+    crashHooked = true;
+{{CRASH_INSTALL}}
+  }
+  // The VU1 tap: installed once, costs the engine a null check per bag flush.
+  static bool vuHooked = false;
+  if (!vuHooked) {
+    vuHooked = true;
+    Tyra::g_vuPacketHook = &vuPacketTap;
+  }
+  // The tick runs once per frame, so a frame's worth of bag flushes has just
+  // gone by: bank the total (that is what "flush 3 of 13" and the capture's
+  // wrap-around are counted against) and start over.
+  if (vuFlushCount > 0) {
+    vuFlushPrevFrame = vuFlushCount;
+    // Hand the frame's map over whole: a half-filled one would draw a picture
+    // of a frame that never happened.
+    flushMapCount = flushCurCount;
+    for (int i = 0; i < flushCurCount; ++i) flushMap[i] = flushCur[i];
+    lastFrameQw = frameQw;
+    lastFrameVerts = frameVerts;
+    lastMaxChunk = frameMaxChunk;
+  }
+  // Still armed after a whole frame? Then the index asked for is past what this
+  // frame sends (the count moves with streaming) - wrap rather than wait for a
+  // flush that may never come. The written capture reports the index actually
+  // taken, so this never lies about what you are looking at.
+  if (vuCapArmed && vuFlushCount > 0 && vuCapWant >= vuFlushCount)
+    vuCapWant = 0;
+  vuFlushCount = 0;
+  flushCurCount = 0;
+  frameQw = frameVerts = 0;
+  frameMaxChunk = 0;
+  // A requested RAM measurement runs here, between frames, never mid-render.
+  if (ramMeasureWanted && ctx.engine) {
+    ramMeasureWanted = false;
+    ramFreeKB = (unsigned int)(ctx.engine->info.getAvailableRAM() * 1024.0F);
+    ramFrame = frameNo;
+  }
+  if (vuCapPending) writeVuCapture(ctx);
+  forcedCount = 0;  // force-fires live for exactly one frame
+
+  // Over ps2link every fopen is a network round-trip, so poll sparsely there.
+  // While the game is stopped the editor is waiting on us: poll fast.
+  const bool ps2link = Tyra::IrxLoader::keepIopResident;
+  if (--pollCooldown <= 0) {
+    pollCooldown = ps2link ? 25 : (haltRequested ? 2 : 6);
+    pollCommand();
+  }
+
+  // A force-fire that arrives while the game is stopped needs frames to run in:
+  // a halted game runs no scripts, so nobody would ever ask forced(). One frame
+  // is enough for the branch itself; "fire and run" resumes instead, which is
+  // what anything the branch ARMS (a Delay, a glide) needs to finish.
+  if (forcedCount > 0 && haltRequested && stepFrames == 0) {
+    if (fireAndRun) {
+      haltRequested = false;
+      breakKey = -1;
+      flushNow = true;
+    } else {
+      stepFrames = 1;
+    }
+  }
+  // Sample the watched objects - every frame, not every flush, so the editor
+  // can draw what actually happened between two flushes.
+  for (int i = 0; i < watchCount; ++i) {
+    const int idx = watchIdx[i];
+    if (idx < 0 || idx >= ctx.objectCount) continue;
+    const RuntimeObject& o = ctx.objects[idx];
+    ObjSample& sm = watchRing[i][watchRingNext[i]];
+    sm.frame = frameNo;
+    memcpy(sm.pos, o.data.position, 12);
+    memcpy(sm.rot, o.data.rotation, 12);
+    memcpy(sm.scale, o.data.scale, 12);
+    memcpy(sm.color, o.data.color, 12);
+    sm.flags = (o.visible ? 1U : 0U) | (o.active ? 2U : 0U) |
+               (o.dirty ? 4U : 0U);
+    watchRingNext[i] = (watchRingNext[i] + 1) % OBJ_RING;
+    if (watchRingCount[i] < OBJ_RING) ++watchRingCount[i];
+  }
+
+  if (stepFrames > 0) {
+    // Step: this frame runs, and the last one of the batch stops again.
+    haltedFrame = false;
+    if (--stepFrames == 0) {
+      haltRequested = true;
+      flushNow = true;
+    }
+  } else {
+    haltedFrame = haltRequested;
+  }
+  // The frame counter is the game's LOGIC clock, not its picture clock: it
+  // stops while the debugger has the game stopped, so "halted at frame N"
+  // stays N and the event ages the editor reads stay put too.
+  if (!haltedFrame) ++frameNo;
+
+  if (--flushCooldown <= 0 || flushNow) {
+    flushCooldown = ps2link ? 25 : 6;
+    flushNow = false;
+    flush(ctx);
+  }
+  // Clear the armed-timer list only AFTER the flush: the graphs report their
+  // countdowns while they run, i.e. after this pump - so at flush time the list
+  // holds the PREVIOUS frame's reports, which is the freshest complete set
+  // there is. Clearing at the top of the tick would flush an empty list every
+  // time (it did, until this was measured on the console).
+  timerCount = 0;
+}
+
+// --- VU1 packet capture (docs/devkit.md) -----------------------------------
+// Debugging a VU1 microprogram is blind: no printf, and the output goes straight
+// to the GS. The INPUT, though, is ours - one DMA chain per bag flush. When the
+// editor arms a capture, the engine's tap hands us the next chain and we drop it
+// next to the ELF for the editor to decode (VIF tags, unpacked vertex arrays,
+// the MSCAL that names the program).
+const int VU_CAP_MAX_QW = 2048;  // 32 KiB - a whole flush, and then some
+unsigned char vuCapBuf[VU_CAP_MAX_QW * 16];
+int vuCapQw = 0;
+const int VU_CAP_MAX_BLOCKS = 64;
+unsigned char vuCapBlockBuf[VU_CAP_MAX_QW * 16];  // referenced vertex data
+unsigned short vuCapBlockAt[VU_CAP_MAX_BLOCKS];
+unsigned short vuCapBlockQw[VU_CAP_MAX_BLOCKS];
+int vuCapBlocks = 0, vuCapBlockQwTotal = 0;
+unsigned char vuCapMem[1024 * 16];  // VU1 data memory after the run
+bool vuCapHaveMem = false;
+
+void vuPacketTap(const void* data, unsigned int qwc, const char* name) {
+  (void)name;
+  // Counted for EVERY flush, armed or not: this is both the index the editor
+  // selects with and the "how many draws does a frame send" figure it reports.
+  const int flushIndex = vuFlushCount++;
+
+  // Summarise this flush for the map. Walking the chain here costs a few dozen
+  // iterations - the tags only; nothing dereferences the referenced vertex
+  // blocks. Positions are the UNPACK to VU1 address 2: the pipeline puts the
+  // mesh constants at 0 and the position array right after them, whichever
+  // microprogram runs (checked against three of them on real hardware).
+  {
+    int unpacks = 0, verts = 0, prog = 0, biggest = 0;
+    int at = 0;
+    const unsigned char* base = (const unsigned char*)data;
+    while (at < (int)qwc) {
+      unsigned int w0, vif0, vif1;
+      memcpy(&w0, base + (size_t)at * 16, 4);
+      memcpy(&vif0, base + (size_t)at * 16 + 8, 4);
+      memcpy(&vif1, base + (size_t)at * 16 + 12, 4);
+      const int tagQwc = (int)(w0 & 0xFFFF);
+      const int id = (int)((w0 >> 28) & 0x7);
+      const bool byRef = (id == 0 || id == 3 || id == 4);
+      for (int k = 0; k < 2; ++k) {
+        const unsigned int code = k ? vif1 : vif0;
+        if (!code) continue;
+        const unsigned int cmd = (code >> 24) & 0xFF;
+        const unsigned int num = (code >> 16) & 0xFF;
+        const unsigned int imm = code & 0xFFFF;
+        if ((cmd & 0x60) == 0x60) {
+          ++unpacks;
+          if ((imm & 0x3FF) == 2) {
+            const int n = (int)(num ? num : 256);
+            verts += n;
+            // The biggest single stream IS the VU1 buffer's capacity for that
+            // vertex layout: the pipeline cuts a mesh at exactly that many.
+            if (n > biggest) biggest = n;
+          }
+        } else if (cmd == 0x14 || cmd == 0x15) {
+          prog = (int)imm;  // MSCAL / MSCALF names the microprogram
+        }
+      }
+      at += byRef ? 1 : 1 + tagQwc;
+      if (id == 0 || id == 7) break;  // refe / end
+    }
+    if (flushCurCount < MAX_FLUSHMAP) {
+      FlushRec& r = flushCur[flushCurCount++];
+      r.qw = (unsigned short)(qwc > 65535U ? 65535U : qwc);
+      r.unpacks = (unsigned short)unpacks;
+      r.verts = (unsigned short)verts;
+      r.program = (unsigned short)prog;
+    }
+    frameQw += qwc;
+    frameVerts += (unsigned int)verts;
+    if (biggest > (int)frameMaxChunk) frameMaxChunk = (unsigned short)biggest;
+  }
+  if (!vuCapArmed || vuCapPending) return;
+  // EXACTLY the wanted index, not "the first one at or past it": arming happens
+  // mid-frame, so a >= test grabs whatever is left of the frame and the walk
+  // drifts forward a flush at a time. Waiting for the real index costs at most
+  // one frame (the counter restarts every frame) and makes "flush 3" mean it.
+  if (flushIndex != vuCapWant) return;
+  vuCapTookIndex = flushIndex;
+  int qw = (int)qwc;
+  if (qw <= 0) return;
+  if (qw > VU_CAP_MAX_QW) qw = VU_CAP_MAX_QW;
+  memcpy(vuCapBuf, data, (size_t)qw * 16);
+  vuCapQw = qw;
+
+  // The vertex arrays are NOT in the chain: the pipeline sends them by
+  // REFERENCE (a ref/refs/refe DMA tag whose qwc counts quadwords at another
+  // address). Follow the chain here, while those addresses are still live, and
+  // copy each referenced block along - otherwise the editor would see the
+  // structure and none of the geometry.
+  vuCapBlocks = 0;
+  int at = 0;
+  unsigned char* dst = vuCapBlockBuf;
+  const unsigned char* base = (const unsigned char*)data;
+  while (at < qw && vuCapBlocks < VU_CAP_MAX_BLOCKS) {
+    unsigned int w0, w1;
+    memcpy(&w0, base + (size_t)at * 16, 4);
+    memcpy(&w1, base + (size_t)at * 16 + 4, 4);
+    const int tagQwc = (int)(w0 & 0xFFFF);
+    const int id = (int)((w0 >> 28) & 0x7);
+    const bool byRef = (id == 0 || id == 3 || id == 4);  // refe / ref / refs
+    if (byRef && tagQwc > 0 && w1 >= 0x00080000U && w1 < 0x02000000U) {
+      int take = tagQwc;
+      const int room = (int)((vuCapBlockBuf + sizeof(vuCapBlockBuf) - dst) / 16);
+      if (take > room) take = room;
+      if (take > 0) {
+        vuCapBlockAt[vuCapBlocks] = (unsigned short)at;
+        vuCapBlockQw[vuCapBlocks] = (unsigned short)take;
+        memcpy(dst, (const void*)w1, (size_t)take * 16);
+        dst += (size_t)take * 16;
+        ++vuCapBlocks;
+      }
+    }
+    // Inline data (cnt / next) follows the tag; a referenced tag is one qw.
+    at += byRef ? 1 : 1 + tagQwc;
+    if (id == 0 || id == 7) break;  // refe / end terminate the chain
+  }
+  vuCapBlockQwTotal = (int)((dst - vuCapBlockBuf) / 16);
+
+  vuCapArmed = false;
+  if (!vuCapExplicit) ++vuCapWant;  // the next click walks to the next draw
+  // Ask for VU1 memory as well: the next send stalls once and hands over what
+  // the microprogram left - the GIF packet it staged included.
+  vuCapHaveMem = false;
+  Tyra::g_vuMemHook = &vuMemTap;
+  vuCapPending = true;  // the tick writes it: no file I/O mid-frame
+}
+
+void vuMemTap(const void* mem, unsigned int bytes) {
+  if (vuCapHaveMem) return;
+  size_t n = bytes < sizeof(vuCapMem) ? (size_t)bytes : sizeof(vuCapMem);
+  memcpy(vuCapMem, mem, n);
+  vuCapHaveMem = true;
+  Tyra::g_vuMemHook = nullptr;  // one snapshot: the stall ends here
+}
+
+void writeVuCapture(ScriptContext& ctx) {
+  // Hold the write until the VU1 memory snapshot landed (it happens on the
+  // next send, one or two frames later at most).
+  if (!vuCapHaveMem) return;
+  vuCapPending = false;
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("vucap.bin").c_str(), "wb");
+  if (!f) return;
+  // Header: magic "TXVU", version 4, frame, chain quadwords, block count, then
+  // (v4) which flush of the frame this is, how many the last complete frame
+  // sent, and the RENDER RESOLUTION - without it the editor cannot say whether
+  // a staged GS vertex lands inside the drawing window, because the resolution
+  // is decided at runtime (display mode + console region), not at build time.
+  unsigned char h[32];
+  memcpy(h + 0, "TXVU", 4);
+  put32(h + 4, 4U);
+  put32(h + 8, frameNo);
+  put32(h + 12, (unsigned int)((vuCapQw & 0xFFFF) | (vuCapBlocks << 16)));
+  put32(h + 16, (unsigned int)vuCapTookIndex);
+  put32(h + 20, (unsigned int)vuFlushPrevFrame);
+  unsigned int rw = 0, rh = 0;
+  if (ctx.engine) {
+    const Tyra::RendererSettings& rs =
+        ctx.engine->renderer.core.getSettings();
+    rw = (unsigned int)rs.getWidth();
+    rh = (unsigned int)rs.getRenderHeightF();
+  }
+  put32(h + 24, rw);
+  put32(h + 28, rh);
+  fwrite(h, 1, sizeof(h), f);
+  fwrite(vuCapBuf, 1, (size_t)vuCapQw * 16, f);
+  // Then one index entry per referenced block, followed by all block data.
+  for (int i = 0; i < vuCapBlocks; ++i) {
+    unsigned char e[4];
+    put16(e + 0, vuCapBlockAt[i]);
+    put16(e + 2, vuCapBlockQw[i]);
+    fwrite(e, 1, 4, f);
+  }
+  fwrite(vuCapBlockBuf, 1, (size_t)vuCapBlockQwTotal * 16, f);
+  // v3: the whole of VU1 data memory after the run - matrices, the vertex
+  // arrays as VU1 saw them, and the GIF packet the program staged.
+  fwrite(vuCapMem, 1, sizeof(vuCapMem), f);
+  fclose(f);
+  TYRA_LOG("VU capture: flush ", vuCapTookIndex, "/", vuFlushPrevFrame, ", ",
+           vuCapQw, " qw chain + ", vuCapBlocks,
+           " referenced block(s) written to vucap.bin");
+}
+
+// A real EE exception (bad pointer, address error, reserved instruction...) is
+// not a TYRA_ASSERT: nothing prints it and the game just stops. The engine's
+// crash handler (vendor/tyra, linked only because this file calls install())
+// captures the register frame and calls this from ORDINARY context, so stdio is
+// usable again: we write one human-readable block to crash.txt AND the machine
+// state the editor symbolizes (docs/devkit.md). The same delimited banner the
+// engine's asserts use, so the editor's existing catcher shows it either way.
+void writeCrashReport(const Tyra::CrashInfo& ci) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("crash.txt").c_str(), "wb");
+  if (!f) return;
+  fprintf(f, "==============  TYRAX  =============\n");
+  fprintf(f, "| CRASH: %s\n", ci.name ? ci.name : "unknown");
+  fprintf(f, "|\n");
+  fprintf(f, "| excCode : %lu (level %d)\n", (unsigned long)ci.excCode,
+          ci.level);
+  fprintf(f, "| epc     : 0x%08lx\n", (unsigned long)ci.epc);
+  fprintf(f, "| badvaddr: 0x%08lx\n", (unsigned long)ci.badvaddr);
+  fprintf(f, "| status  : 0x%08lx  cause: 0x%08lx\n",
+          (unsigned long)ci.status, (unsigned long)ci.cause);
+  fprintf(f, "| ra      : 0x%08lx  sp: 0x%08lx  gp: 0x%08lx\n",
+          (unsigned long)ci.gpr[31], (unsigned long)ci.gpr[29],
+          (unsigned long)ci.gpr[28]);
+  // The frame number pins the crash to the fire history the editor already
+  // holds, which is what turns a register dump into "what were you doing".
+  fprintf(f, "| frame   : %lu  scene: %d\n", (unsigned long)frameNo,
+          lastScene);
+  fprintf(f, "|\n| REGISTERS\n");
+  static const char* const kNames[32] = {
+      "zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2",
+      "t3",   "t4", "t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4", "s5",
+      "s6",   "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"};
+  for (int i = 0; i < 32; i += 4)
+    fprintf(f, "| %-4s %08lx  %-4s %08lx  %-4s %08lx  %-4s %08lx\n",
+            kNames[i], (unsigned long)ci.gpr[i], kNames[i + 1],
+            (unsigned long)ci.gpr[i + 1], kNames[i + 2],
+            (unsigned long)ci.gpr[i + 2], kNames[i + 3],
+            (unsigned long)ci.gpr[i + 3]);
+  fprintf(f, "|\n| BACKTRACE (candidates, nearest first)\n");
+  for (int i = 0; i < ci.traceCount; ++i)
+    fprintf(f, "| #%d 0x%08lx\n", i, (unsigned long)ci.trace[i]);
+  fprintf(f, "====================================\n");
+  fclose(f);
+}
+
+// The fallback pump is a plain global Script: it runs only in projects whose
+// terrain_game.cpp no longer carries the loop hook (the user took ownership of
+// the file), and then the halt works through each generated graph's own
+// early-out instead of the loop's pause.
+class LiveDebugPump : public Script {
+ public:
+  void update(ScriptContext& ctx) override { tickFromScript(ctx); }
+};
+LiveDebugPump g_pump;
+const bool g_pumpRegistered = []() {
+  getScripts().push_back(&g_pump);
+  return true;
+}();
+
+}  // namespace
+
+
+void hit(int key) {
+  if (key < 0 || key >= NODES) return;
+  ++hits[key];
+  evKey[evNext] = (unsigned short)key;
+  evFrame[evNext] = frameNo;
+  evNext = (evNext + 1) % EVENTS;
+  if (evCount < EVENTS) ++evCount;
+
+  if (stepUntilFire) {  // "Step node": stop on the next fire, whatever it is
+    stepUntilFire = false;
+    haltRequested = true;
+    breakKey = key;
+    flushNow = true;
+    return;
+  }
+  // A breakpoint stops the game from the NEXT frame: the node's own action has
+  // already run by the time it is reported, which is what the editor shows.
+  for (int i = 0; i < bpCount; ++i)
+    if (bp[i] == (unsigned short)key) {
+      if (!haltRequested) {
+        haltRequested = true;
+        breakKey = key;
+        flushNow = true;
+      }
+      return;
+    }
+}
+
+bool halted() { return haltedFrame; }
+
+bool forced(int key) {
+  for (int i = 0; i < forcedCount; ++i)
+    if (forcedKeys[i] == (unsigned short)key) return true;
+  return false;
+}
+
+void timer(int key, int framesLeft) {
+  if (framesLeft <= 0 || key < 0 || key >= NODES) return;
+  if (timerCount >= MAX_BP) return;  // more armed timers than we report
+  timerKey[timerCount] = (unsigned short)key;
+  timerLeft[timerCount] =
+      framesLeft > 65535 ? (unsigned short)65535 : (unsigned short)framesLeft;
+  ++timerCount;
+}
+
+void tickFromLoop(ScriptContext& ctx) {
+  loopHook = true;
+  tickImpl(ctx);
+}
+
+void tickFromScript(ScriptContext& ctx) {
+  if (!loopHook) tickImpl(ctx);
+}
+
+}  // namespace livedbg
+}  // namespace {{NS}}
+)DBG";
+
+static std::string liveDebugHeader(const Project& p) {
+    const DbgSymbols syms = debugSymbols(p);
+    const std::string ns = sanitizeNamespace(p.name);
+    return replaceAll(liveDebugOn(p, syms) ? TPL_LIVE_DEBUG_HPP_ON
+                                           : TPL_LIVE_DEBUG_HPP_OFF,
+                      "{{NS}}", ns);
+}
+
+static std::string liveDebugSource(const Project& p) {
+    const DbgSymbols syms = debugSymbols(p);
+    if (!liveDebugOn(p, syms)) {
+        std::string why = "the \"Live Debugger\" preference is off";
+        if (p.settings.buildProfile != "debug")
+            why = "this is a release build";
+        else if (p.settings.liveDebug)
+            why = "no flow graph has a runnable node to instrument";
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// Live Debugger: nothing to compile here - " +
+               why +
+               ".\n// See docs/live-debugger.md (Project > Preferences > "
+               "Build).\n";
+    }
+    std::string s = TPL_LIVE_DEBUG_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{NODES}}", std::to_string(syms.nodes.size()));
+    s = replaceAll(s, "{{VARS}}", std::to_string(syms.vars.size()));
+    s = replaceAll(s, "{{FLOW_VARS}}", std::to_string(syms.flowVarCount));
+    s = replaceAll(s, "{{EVENTS}}", std::to_string(livedbg::kMaxEvents));
+    s = replaceAll(s, "{{MAX_BP}}", std::to_string(livedbg::kMaxBreakpoints));
+    s = replaceAll(s, "{{MAX_FIRE}}", std::to_string(livedbg::kMaxForced));
+    // The EE crash handler is experimental and opt-in (ProjectSettings::
+    // eeCrashHandler): calling install() is also what LINKS it out of
+    // libtyra.a, so a project that leaves it off carries none of it.
+    s = replaceAll(s, "{{CRASH_INSTALL}}",
+                   p.settings.eeCrashHandler
+                       ? "    Tyra::CrashHandler::install(&writeCrashReport);"
+                       : "    // EE crash handler off (Preferences > Build); "
+                         "nothing links it in.");
+    s = replaceAll(s, "{{MAX_WATCH}}",
+                   std::to_string(livedbg::kMaxWatchObjects));
+    s = replaceAll(s, "{{OBJ_RING}}", std::to_string(livedbg::kObjRing));
+    s = replaceAll(s, "{{HASH_LO}}",
+                   std::to_string((unsigned int)(syms.hash & 0xFFFFFFFFULL)));
+    s = replaceAll(s, "{{HASH_HI}}",
+                   std::to_string((unsigned int)(syms.hash >> 32)));
+    return s;
+}
+
+// src/gen/livedbg.sym - the editor's map from the keys the game reports back
+// to objects and nodes. Plain text on purpose: it is a build artifact a human
+// (or an AI agent inspecting a project) can read.
+static std::string liveDebugSymFile(const Project& p) {
+    const DbgSymbols syms = debugSymbols(p);
+    std::ostringstream out;
+    out << "# TyraX Live Debugger symbols. Generated by TyraX - do not edit.\n"
+           "# Maps the node keys the running game reports (livedbg.bin) onto\n"
+           "# scene objects (stable editor id) and flow-graph node ids.\n"
+           "1\n";
+    char hex[32];
+    std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)syms.hash);
+    out << "hash " << hex << "\n";
+    if (!liveDebugOn(p, syms))
+        out << "# The build this was generated with carries no debugger "
+               "runtime.\n";
+    out << syms.text;
     return out.str();
 }
 
@@ -22494,6 +24633,12 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\gen\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"inc\\scripts\\live_logic.gen.hpp", liveLogicHeader(p)},
+        {"src\\gen\\live_logic.gen.cpp", liveLogicSource(p)},
+        {"src\\gen\\livelogic.built", livelogic::builtListText(p)},
+        {"inc\\scripts\\live_debug.gen.hpp", liveDebugHeader(p)},
+        {"src\\gen\\live_debug.gen.cpp", liveDebugSource(p)},
+        {"src\\gen\\livedbg.sym", liveDebugSymFile(p)},
         {"src\\gen\\live_link.gen.cpp", liveLinkScript(p)},
         {"src\\gen\\live_tex.gen.cpp", liveTexScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},
