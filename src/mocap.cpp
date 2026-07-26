@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <ostream>
 #include <map>
 #include <vector>
 
@@ -193,6 +194,72 @@ bool buildSource(const std::vector<std::string>& jointNames, const std::vector<i
     }
     out.min[1] = lo;
     out.max[1] = hi;
+    return true;
+}
+
+namespace {
+
+// Little-endian primitives, the mirror of the app's Swift writer.
+void putU16(std::ostream& f, uint16_t v) { f.write((const char*)&v, 2); }
+void putI16(std::ostream& f, int16_t v) { f.write((const char*)&v, 2); }
+void putU32(std::ostream& f, uint32_t v) { f.write((const char*)&v, 4); }
+void putF32(std::ostream& f, float v) { f.write((const char*)&v, 4); }
+
+// Column-major 4x4 from a translation and a quaternion.
+void putTrs(std::ostream& f, const float* t, const float* r) {
+    const float x = r[0], y = r[1], z = r[2], w = r[3];
+    const float m[16] = {
+        1 - 2 * (y * y + z * z), 2 * (x * y + z * w),     2 * (x * z - y * w),     0,
+        2 * (x * y - z * w),     1 - 2 * (x * x + z * z), 2 * (y * z + x * w),     0,
+        2 * (x * z + y * w),     2 * (y * z - x * w),     1 - 2 * (x * x + y * y), 0,
+        t[0],                    t[1],                    t[2],                    1};
+    f.write((const char*)m, sizeof(m));
+}
+
+}  // namespace
+
+bool writeTake(const std::string& path, const std::vector<std::string>& jointNames,
+               const std::vector<int>& parents, const float* restPos, const float* restRot,
+               const std::vector<float>& times, const std::vector<float>& rot,
+               const std::vector<float>& hips, std::string& error) {
+    const size_t n = jointNames.size();
+    const size_t frames = times.size();
+    if (!n || parents.size() != n || !restPos || !restRot || !frames ||
+        rot.size() != frames * n * 4 || hips.size() != frames * 3) {
+        error = "take is inconsistent (" + std::to_string(n) + " joints, " +
+                std::to_string(frames) + " frames)";
+        return false;
+    }
+    std::ofstream f(path, std::ios::binary);
+    if (!f) {
+        error = "could not write " + path;
+        return false;
+    }
+    const float duration = times.back() - times.front();
+    f.write("TMCP", 4);
+    putU32(f, 1);                                        // version
+    putU32(f, 0);                                        // flags
+    putF32(f, duration > 0.001f ? (float)frames / duration : 30.0f);
+    putU32(f, (uint32_t)n);
+    putU32(f, (uint32_t)frames);
+    putF32(f, duration);
+    for (size_t i = 0; i < n; ++i) {
+        putU16(f, (uint16_t)jointNames[i].size());
+        f.write(jointNames[i].data(), (std::streamsize)jointNames[i].size());
+        putI16(f, (int16_t)parents[i]);
+    }
+    for (size_t i = 0; i < n; ++i) putTrs(f, restPos + i * 3, restRot + i * 4);
+    for (size_t fr = 0; fr < frames; ++fr) {
+        putF32(f, times[fr] - times.front());            // rebased to zero
+        const float ident[4] = {0, 0, 0, 1};
+        putTrs(f, &hips[fr * 3], ident);                 // the anchor's transform
+        for (size_t i = 0; i < n; ++i)
+            putTrs(f, restPos + i * 3, &rot[(fr * n + i) * 4]);
+    }
+    if (!f) {
+        error = "could not write " + path;
+        return false;
+    }
     return true;
 }
 

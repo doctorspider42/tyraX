@@ -10,6 +10,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (185) **Tools > Mocap**: a performer drives a character in the editor. Pick an
+  animated model, pick a source - a recorded `.tmocap` played back, or the live
+  phone link - and the character is posed as frames arrive, in the window's own
+  preview (the Character Generator's multi-part preview path, so clothes and
+  hair come along).
+  **The file source is not a mock of the live one, it is the live one with a
+  different feed**: both end in the same `mocapApplyFrame` -> `charanim::
+  applyLive`. That is deliberate. A streaming feature that only runs when a
+  phone is in the room is a feature nobody can debug, and the equivalence
+  harness from (183) already proves the two feeds produce identical poses.
+  **Recording writes a `.tmocap`, not a clip**, and only from the live source
+  (a file is already a take). It buffers the SOURCE frames rather than the
+  retargeted pose - a take is reusable on any character, a baked pose is not -
+  and the result imports through the Character Generator like any other take.
+  `mocap::writeTake` is the editor's half of the format the phone writes on
+  device; per-joint translation comes from the rest pose, since bones do not
+  change length mid-take.
+  Also: `Recentre` calls `resetLiveOrigin` - the thing (183) discovered the live
+  path needed - for when tracking is lost and regained.
+  **Verified**: builds clean, the window opens and renders (editor screenshot),
+  and the motion path underneath is the numerically proven one. What is NOT yet
+  verified is the click-through (picking a model and a take), which needs a
+  human at the GUI, and the live source, which needs the phone-side sender that
+  does not exist yet.
+
 - (184) **The body-tracking half of the phone link.** The SAME
   `phonecam::Link` carries it - one server, one port, one pairing code, and the
   phone says at hello what kind of client it is. Two links would have meant two

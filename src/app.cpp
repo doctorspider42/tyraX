@@ -1,5 +1,7 @@
 #include "app.hpp"
 
+#include "mocap.hpp"
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -683,6 +685,7 @@ void App::drawUI() {
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
     drawCharacterGeneratorWindow();
+    drawMocapWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
@@ -1117,6 +1120,7 @@ void App::drawMenuBar() {
                 showCharGenerator_ = true;
                 charPreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("Mocap...")) showMocap_ = true;
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::EndMenu();
         }
@@ -3247,6 +3251,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
     if (key == "chargen") return &showCharGenerator_;
+    if (key == "mocap") return &showMocap_;
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     return nullptr;
@@ -3258,7 +3263,8 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
-    "anim",     "tree",     "chargen",  "phonecam", "assets"};
+    "anim",     "tree",     "chargen",  "phonecam", "assets",
+    "mocap"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -10138,6 +10144,358 @@ void App::addCharacterToScene() {
     statusMessage_ =
         "Added character '" + name + "' (" + std::to_string(tris) + " tris, " +
         std::to_string((int)charSkel_.palette.size()) + " bones)";
+}
+
+void App::mocapRebind() {
+    mocapBind_ = charanim::LiveRetarget();
+    mocapNote_.clear();
+    mocapTime_ = 0.0f;
+    if (mocapModel_.empty()) return;
+
+    std::string err;
+    glbparser::Skel character;
+    const std::string full = project_.dir + "\\" + mocapModel_;
+    if (!animimport::parseSkel(full, character, err)) {
+        mocapNote_ = "character: " + err;
+        return;
+    }
+    mocapSkel_ = std::move(character);
+    // The character is posed by its node transforms from now on, so the clips
+    // it shipped with are not in the way - but keep them, the take is recorded
+    // separately and the asset on disk is untouched.
+
+    const glbparser::Skel* source = nullptr;
+    glbparser::Skel liveRig;
+    if (mocapSourceKind_ == 1) {
+        source = &mocapSource_;
+    } else if (mocapSourceKind_ == 2) {
+        const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
+        if (!sk.valid()) {
+            mocapNote_ = "waiting for the phone's skeleton";
+            return;
+        }
+        if (!mocap::buildSource(sk.joints, sk.parents, sk.restPos.data(), sk.restRot.data(),
+                                liveRig, err)) {
+            mocapNote_ = "live skeleton: " + err;
+            return;
+        }
+        source = &liveRig;
+    }
+    if (!source || source->nodes.empty()) return;
+
+    std::vector<std::string> notes;
+    charanim::RetargetOptions opts;
+    mocapBind_ = charanim::prepareLive(*source, mocapSkel_, opts, notes);
+    for (const std::string& n : notes) mocapNote_ = n;
+    if (!mocapBind_.valid() && mocapNote_.empty())
+        mocapNote_ = "the character and the performer share no bones";
+
+    // One decoded texture per part, exactly like the Character Generator's
+    // preview - the puppet is drawn by the same path.
+    mocapPrevTex_.assign(mocapSkel_.parts.size(), {});
+    for (size_t i = 0; i < mocapSkel_.parts.size(); ++i) {
+        const int img = mocapSkel_.parts[i].image;
+        if (img < 0 || img >= (int)mocapSkel_.images.size()) continue;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(mocapSkel_.images[img].png.data(),
+                                                  (int)mocapSkel_.images[img].png.size(), &w, &h,
+                                                  &comp, 4);
+        if (!px) continue;
+        mocapPrevTex_[i].rgba.assign(px, px + (size_t)w * h * 4);
+        mocapPrevTex_[i].w = w;
+        mocapPrevTex_[i].h = h;
+        stbi_image_free(px);
+    }
+    charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
+    ++mocapPrevVersion_;
+}
+
+void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t) {
+    if (!mocapBind_.valid() || !rot) return;
+    charanim::applyLive(mocapBind_, rot, haveHips ? hips : nullptr, mocapSkel_);
+    charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
+    ++mocapPrevVersion_;
+
+    if (!mocapRecording_) return;
+    const int joints = mocapBind_.sourceNodeCount();
+    mocapRecTimes_.push_back(t);
+    mocapRecRot_.insert(mocapRecRot_.end(), rot, rot + (size_t)joints * 4);
+    for (int k = 0; k < 3; ++k) mocapRecHips_.push_back(haveHips ? hips[k] : 0.0f);
+}
+
+void App::mocapStopRecording() {
+    mocapRecording_ = false;
+    if (mocapRecTimes_.size() < 2) {
+        mocapNote_ = "nothing recorded";
+        mocapRecTimes_.clear();
+        mocapRecRot_.clear();
+        mocapRecHips_.clear();
+        return;
+    }
+    const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
+    if (!sk.valid()) {
+        mocapNote_ = "the performer's skeleton is gone - cannot write the take";
+        return;
+    }
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(project_.dir) / "res" / "mocap";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    std::string base = sanitizeAssetName(mocapName_);
+    if (base.empty()) base = "take";
+    std::string name = base;
+    for (int n = 2; fs::exists(dir / (name + ".tmocap")); ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string err;
+    if (!mocap::writeTake((dir / (name + ".tmocap")).string(), sk.joints, sk.parents,
+                          sk.restPos.data(), sk.restRot.data(), mocapRecTimes_, mocapRecRot_,
+                          mocapRecHips_, err)) {
+        mocapNote_ = "take: " + err;
+    } else {
+        mocapNote_ = "wrote res/mocap/" + name + ".tmocap (" +
+                     std::to_string(mocapRecTimes_.size()) + " frames, " +
+                     std::to_string((int)(mocapRecTimes_.back() - mocapRecTimes_.front())) + " s)";
+    }
+    mocapRecTimes_.clear();
+    mocapRecRot_.clear();
+    mocapRecHips_.clear();
+}
+
+// Tools > Mocap: a performer drives a character in the editor, live off the
+// phone link or played back from a recorded take. Both go through the same
+// charanim::applyLive, so the file source is not a toy - it is how the whole
+// path is exercised without a phone in the room.
+void App::drawMocapWindow() {
+    if (!showMocap_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(760.0f), scaled(560.0f)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Mocap", &showMocap_)) {
+        ImGui::End();
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+
+    ImGui::BeginChild("mocapleft", ImVec2(scaled(300.0f), 0), true);
+
+    // --- the character being puppeted ---------------------------------------
+    ImGui::TextDisabled("CHARACTER");
+    const std::vector<std::string> models = listAnimatedModelFiles();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##mocapmodel",
+                          mocapModel_.empty() ? "(pick an animated model)"
+                                              : mocapModel_.c_str())) {
+        for (const std::string& m : models) {
+            const std::string rel = "res/models/" + m;
+            if (ImGui::Selectable(rel.c_str(), rel == mocapModel_)) {
+                mocapModel_ = rel;
+                mocapRebind();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (models.empty())
+        ImGui::TextDisabled("None - generate one in Tools > Character Generator.");
+
+    // --- where the motion comes from ----------------------------------------
+    ImGui::Spacing();
+    ImGui::TextDisabled("SOURCE");
+    int kind = mocapSourceKind_;
+    if (ImGui::RadioButton("Recorded take", &kind, 1)) {
+        mocapSourceKind_ = 1;
+        mocapRebind();
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Live phone", &kind, 2)) {
+        mocapSourceKind_ = 2;
+        mocapRebind();
+    }
+
+    if (mocapSourceKind_ == 1) {
+        if (ImGui::Button("Open take...")) {
+            const std::string file = pickPath(PickKind::ObjModel);
+            if (!file.empty()) {
+                std::string err;
+                if (!mocap::load(file, mocapSource_, err)) {
+                    mocapNote_ = err;
+                } else {
+                    mocapTake_ = file;
+                    mocapRebind();
+                    mocapPlaying_ = true;
+                }
+            }
+        }
+        if (!mocapTake_.empty()) {
+            const size_t slash = mocapTake_.find_last_of("/\\");
+            ImGui::TextWrapped("%s", slash == std::string::npos ? mocapTake_.c_str()
+                                                                : mocapTake_.c_str() + slash + 1);
+            if (!mocapSource_.clips.empty()) {
+                const glbparser::SkelClip& c = mocapSource_.clips[0];
+                ImGui::Text("%d joints, %.2f s", (int)mocapSource_.nodes.size(), c.duration);
+                if (ImGui::Button(mocapPlaying_ ? "Pause" : "Play"))
+                    mocapPlaying_ = !mocapPlaying_;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::SliderFloat("##mocapscrub", &mocapTime_, 0.0f,
+                                       std::max(0.01f, c.duration), "%.2f s"))
+                    mocapPlaying_ = false;
+            }
+        }
+    } else if (mocapSourceKind_ == 2) {
+        const bool linked = phoneCam_.connected();
+        ImGui::TextColored(linked ? ImVec4(0.5f, 0.88f, 0.63f, 1.0f)
+                                  : ImVec4(0.91f, 0.81f, 0.5f, 1.0f),
+                           "%s", linked ? phoneCam_.device().name.c_str() : "no phone connected");
+        if (!linked)
+            ImGui::TextDisabled("Pair one in Tools > Phone Camera - the same\nlink carries body tracking.");
+        else if (!phoneCam_.hasBodySkeleton())
+            ImGui::TextDisabled("Connected, but this app is not sending a body.");
+        else
+            ImGui::Text("%llu frames received",
+                        (unsigned long long)phoneCam_.bodyFrameCount());
+        if (ImGui::Button("Rebind")) mocapRebind();
+        ImGui::SameLine();
+        if (ImGui::Button("Recentre")) charanim::resetLiveOrigin(mocapBind_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Put the character back where it started.\nUse it after tracking is lost and regained.");
+    }
+
+    // --- recording ------------------------------------------------------------
+    ImGui::Spacing();
+    ImGui::TextDisabled("RECORD");
+    const bool canRecord = mocapSourceKind_ == 2 && mocapBind_.valid();
+    ImGui::BeginDisabled(!canRecord);
+    if (!mocapRecording_) {
+        if (ImGui::Button("Record")) {
+            mocapRecTimes_.clear();
+            mocapRecRot_.clear();
+            mocapRecHips_.clear();
+            mocapRecording_ = true;
+            mocapNote_.clear();
+        }
+    } else if (ImGui::Button("Stop")) {
+        mocapStopRecording();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    ImGui::InputText("##mocapname", mocapName_, sizeof(mocapName_));
+    if (mocapRecording_)
+        ImGui::Text("%d frames", (int)mocapRecTimes_.size());
+    else if (!canRecord)
+        ImGui::TextDisabled("Recording needs the live phone source -\na file is already a take.");
+
+    if (!mocapNote_.empty()) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", mocapNote_.c_str());
+    }
+    if (mocapBind_.valid())
+        ImGui::TextDisabled("driving %d bones", mocapBind_.matchedBones());
+    ImGui::EndChild();
+
+    // --- the puppet ----------------------------------------------------------
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
+    const int ph = (int)std::max(64.0f, ImGui::GetContentRegionAvail().y -
+                                            ImGui::GetFrameHeightWithSpacing());
+
+    // Pull whatever the source has for this frame. Both sources end in
+    // mocapApplyFrame - the file one is not a simulation of the live path, it
+    // IS the live path with a different feed.
+    if (mocapBind_.valid()) {
+        if (mocapSourceKind_ == 1 && !mocapSource_.clips.empty()) {
+            const glbparser::SkelClip& clip = mocapSource_.clips[0];
+            if (mocapPlaying_) {
+                mocapTime_ += io.DeltaTime;
+                if (mocapTime_ > clip.duration) mocapTime_ = 0.0f;
+            }
+            const size_t nodes = mocapSource_.nodes.size();
+            std::vector<float> rot(nodes * 4);
+            for (size_t i = 0; i < nodes; ++i) std::memcpy(&rot[i * 4], mocapSource_.nodes[i].r, 16);
+            float hips[3] = {0, 0, 0};
+            bool haveHips = false;
+            int hipsNode = -1;
+            for (size_t i = 0; i < nodes; ++i)
+                if (mocapSource_.nodes[i].name == "mixamorig:Hips") hipsNode = (int)i;
+            for (const glbparser::SkelChannel& ch : clip.channels) {
+                if (ch.node < 0 || ch.node >= (int)nodes || ch.times.empty()) continue;
+                size_t hi = 0;
+                while (hi < ch.times.size() && ch.times[hi] < mocapTime_) ++hi;
+                const size_t lo = hi == 0 ? 0 : hi - 1;
+                if (hi >= ch.times.size()) hi = ch.times.size() - 1;
+                const float t0 = ch.times[lo], t1 = ch.times[hi];
+                const float f = t1 > t0 ? (mocapTime_ - t0) / (t1 - t0) : 0.0f;
+                const int comps = ch.path == 1 ? 4 : 3;
+                float v[4] = {0, 0, 0, 1};
+                for (int c = 0; c < comps; ++c)
+                    v[c] = ch.values[lo * comps + c] * (1 - f) + ch.values[hi * comps + c] * f;
+                if (ch.path == 1) {
+                    const float len = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+                    if (len > 1e-8f)
+                        for (int c = 0; c < 4; ++c) v[c] /= len;
+                    std::memcpy(&rot[(size_t)ch.node * 4], v, 16);
+                } else if (ch.node == hipsNode) {
+                    std::memcpy(hips, v, 12);
+                    haveHips = true;
+                }
+            }
+            mocapApplyFrame(rot.data(), hips, haveHips, mocapTime_);
+        } else if (mocapSourceKind_ == 2) {
+            // Every frame that arrived since the last UI frame: the newest is
+            // the live pose, and a recording keeps all of them so no motion is
+            // lost between two repaints.
+            for (const phonecam::BodyFrame& f : phoneCam_.drainBodyFrames()) {
+                if ((int)f.rot.size() / 4 != mocapBind_.sourceNodeCount()) continue;
+                mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t);
+            }
+        }
+    }
+
+    Viewport::CharPreviewDesc desc;
+    desc.version = mocapPrevVersion_;
+    for (size_t i = 0; i < mocapPrevTris_.size() && desc.partCount < desc.kMaxParts; ++i) {
+        Viewport::CharPreviewDesc::Part& dp = desc.parts[desc.partCount++];
+        dp.tris = &mocapPrevTris_[i];
+        if (i < mocapPrevTex_.size() && !mocapPrevTex_[i].rgba.empty()) {
+            dp.rgba = mocapPrevTex_[i].rgba.data();
+            dp.texW = mocapPrevTex_[i].w;
+            dp.texH = mocapPrevTex_[i].h;
+        }
+        dp.cutout = i < mocapSkel_.parts.size() &&
+                    mocapSkel_.parts[i].material.rfind("hair:", 0) == 0;
+    }
+    for (int i = 0; i < 3; ++i) desc.center[i] = (mocapSkel_.min[i] + mocapSkel_.max[i]) * 0.5f;
+    desc.minY = mocapSkel_.min[1];
+    const float dx = mocapSkel_.max[0] - mocapSkel_.min[0];
+    const float dy = mocapSkel_.max[1] - mocapSkel_.min[1];
+    const float dz = mocapSkel_.max[2] - mocapSkel_.min[2];
+    desc.radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+    desc.angleDeg = mocapAngle_;
+    desc.pitchDeg = mocapPitch_;
+    desc.zoom = mocapZoom_;
+
+    const uint32_t tex =
+        mocapPrevTris_.empty() ? 0 : viewport_.renderCharacterPreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph), ImVec2(0, 1),
+                     ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##mocap_prev", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
+            mocapZoom_ = std::clamp(mocapZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
+        if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            mocapAngle_ += io.MouseDelta.x * 0.5f;
+            mocapPitch_ = std::clamp(mocapPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
+        }
+    } else {
+        ImGui::Dummy(ImVec2((float)pw, (float)ph));
+        ImGui::TextDisabled("Pick a character and a source.");
+    }
+    ImGui::EndGroup();
+
+    ImGui::End();
 }
 
 // Picks one of the project's Font Manager entries by name. An empty reference

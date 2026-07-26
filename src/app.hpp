@@ -496,6 +496,18 @@ private:
     // re-uploads. Cheap enough to run every frame while a clip plays.
     void refreshCharacterPose();
     void addCharacterToScene();
+    // Tools > Mocap (docs/character-generator.md): a performer's motion driving
+    // a character in the editor as it arrives. The source is either a recorded
+    // `.tmocap` played back or the live phone link - deliberately the same
+    // code path, because a stream that only works when a phone is present is a
+    // stream nobody can debug.
+    void drawMocapWindow();
+    // Binds the chosen character to the current source and starts from scratch.
+    void mocapRebind();
+    // One frame in: retarget it onto the character, and append it to the take
+    // when recording.
+    void mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t);
+    void mocapStopRecording();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -999,6 +1011,31 @@ private:
     int charClip_ = 0;
     float charAnimTime_ = 0.0f;
     bool charPlaying_ = true;
+    // Mocap (Tools > Mocap). mocapSkel_ is the character being puppeted - its
+    // NODE transforms are overwritten every frame, which is what
+    // charanim::poseMesh reads when no clip is playing.
+    bool showMocap_ = false;
+    std::string mocapModel_;          // project-relative .glb driving the puppet
+    glbparser::Skel mocapSkel_;
+    charanim::LiveRetarget mocapBind_;
+    glbparser::Skel mocapSource_;     // file playback: the take as a source rig
+    int mocapSourceKind_ = 0;         // 0 none, 1 file, 2 live link
+    std::string mocapTake_;           // the file being played back
+    float mocapTime_ = 0.0f;
+    bool mocapPlaying_ = false;
+    std::string mocapNote_;
+    std::vector<std::vector<float>> mocapPrevTris_;
+    std::vector<CharPrevTex> mocapPrevTex_;
+    uint64_t mocapPrevVersion_ = 0;
+    float mocapAngle_ = 20.0f, mocapPitch_ = 6.0f, mocapZoom_ = 1.0f;
+    // Recording buffers the SOURCE frames, not the retargeted pose: a take is
+    // reusable on any character, a baked pose is not.
+    bool mocapRecording_ = false;
+    std::vector<float> mocapRecTimes_;
+    std::vector<float> mocapRecRot_;   // frames * joints * 4
+    std::vector<float> mocapRecHips_;  // frames * 3
+    char mocapName_[64] = "take";
+
     float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
     bool charGenSpin_ = false;
     int charGenDisplayMode_ = 0;
