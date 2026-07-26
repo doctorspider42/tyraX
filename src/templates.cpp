@@ -4001,20 +4001,21 @@ void TerrainGame::loop() {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
-      // The prompt's button glyph is NOT in that sprite: the bake left a hole
-      // so the icon can come from the live binding, which is the only way the
-      // prompt still tells the truth after an in-game rebind.
-      const int slotAction =
-          pick ? PICK_PROMPT_ICON_ACTION : USE_PROMPT_ICON_ACTION;
-      const int icon = liveIconForAction(slotAction);
-      if (icon >= 0)
-        drawIconAt(engine, icon,
-                   prompt.position.x +
-                       (float)(pick ? PICK_PROMPT_ICON_X : USE_PROMPT_ICON_X),
-                   prompt.position.y +
-                       (float)(pick ? PICK_PROMPT_ICON_Y : USE_PROMPT_ICON_Y),
-                   (float)(pick ? PICK_PROMPT_ICON_SIZE
-                                : USE_PROMPT_ICON_SIZE));
+      // The prompt's button glyphs are NOT in that sprite: the bake left a
+      // hole per {{action}} token so the icons can come from the live
+      // bindings, which is the only way the prompt still tells the truth
+      // after an in-game rebind. Usually one, but a prompt naming two
+      // actions gets two.
+      const int slotCount =
+          pick ? PICK_PROMPT_ICON_COUNT : USE_PROMPT_ICON_COUNT;
+      const PromptIconSlot* slots = pick ? PICK_PROMPT_ICONS : USE_PROMPT_ICONS;
+      for (int s = 0; s < slotCount; ++s) {
+        const int icon = liveIconForAction(slots[s].action);
+        if (icon < 0) continue;
+        drawIconAt(engine, icon, prompt.position.x + (float)slots[s].x,
+                   prompt.position.y + (float)slots[s].y,
+                   (float)slots[s].size);
+      }
     }
     updateAndRenderHudTexts();
     updateAndRenderDynTexts();
@@ -12549,20 +12550,21 @@ void TerrainGame::loop() {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
-      // The prompt's button glyph is NOT in that sprite: the bake left a hole
-      // so the icon can come from the live binding, which is the only way the
-      // prompt still tells the truth after an in-game rebind.
-      const int slotAction =
-          pick ? PICK_PROMPT_ICON_ACTION : USE_PROMPT_ICON_ACTION;
-      const int icon = liveIconForAction(slotAction);
-      if (icon >= 0)
-        drawIconAt(engine, icon,
-                   prompt.position.x +
-                       (float)(pick ? PICK_PROMPT_ICON_X : USE_PROMPT_ICON_X),
-                   prompt.position.y +
-                       (float)(pick ? PICK_PROMPT_ICON_Y : USE_PROMPT_ICON_Y),
-                   (float)(pick ? PICK_PROMPT_ICON_SIZE
-                                : USE_PROMPT_ICON_SIZE));
+      // The prompt's button glyphs are NOT in that sprite: the bake left a
+      // hole per {{action}} token so the icons can come from the live
+      // bindings, which is the only way the prompt still tells the truth
+      // after an in-game rebind. Usually one, but a prompt naming two
+      // actions gets two.
+      const int slotCount =
+          pick ? PICK_PROMPT_ICON_COUNT : USE_PROMPT_ICON_COUNT;
+      const PromptIconSlot* slots = pick ? PICK_PROMPT_ICONS : USE_PROMPT_ICONS;
+      for (int s = 0; s < slotCount; ++s) {
+        const int icon = liveIconForAction(slots[s].action);
+        if (icon < 0) continue;
+        drawIconAt(engine, icon, prompt.position.x + (float)slots[s].x,
+                   prompt.position.y + (float)slots[s].y,
+                   (float)slots[s].size);
+      }
     }
     updateAndRenderHudTexts();
     updateAndRenderDynTexts();
@@ -20070,12 +20072,12 @@ static std::string hudDataHeader(const Project& p) {
     if (usePath.rfind("res/", 0) == 0) usePath = usePath.substr(4);
     if (usePath.empty()) usePath = "hud/use.png";
     float useW = p.usePrompt.size[0], useH = p.usePrompt.size[1];
-    // A prompt in text mode carries its action glyph as a SLOT rather than baked
+    // A prompt in text mode carries its action glyphs as SLOTS rather than baked
     // pixels, so a runtime rebind changes the button shown (docs/text-icons.md).
-    menubake::PromptIconSlot useSlot, pickSlot;
+    std::vector<menubake::PromptIconSlot> useSlots, pickSlots;
     if (p.usePromptIsText && !p.usePromptText.text.empty()) {
         int tw = 0, th = 0;
-        if (menubake::promptLayout(p.usePromptText, p, tw, th, useSlot)) {
+        if (menubake::promptLayout(p.usePromptText, p, tw, th, useSlots)) {
             usePath = "hud/use-text.png";
             useW = (float)tw;
             useH = (float)th;
@@ -20089,7 +20091,7 @@ static std::string hudDataHeader(const Project& p) {
     float pickW = useW, pickH = useH;
     if (p.pickPromptIsText && !p.pickPromptText.text.empty()) {
         int tw = 0, th = 0;
-        if (menubake::promptLayout(p.pickPromptText, p, tw, th, pickSlot)) {
+        if (menubake::promptLayout(p.pickPromptText, p, tw, th, pickSlots)) {
             pickPath = "hud/pick-text.png";
             pickW = (float)tw;
             pickH = (float)th;
@@ -20113,20 +20115,38 @@ static std::string hudDataHeader(const Project& p) {
         << "constexpr const char* PICK_PROMPT_PATH = \"" << pickPath << "\";\n"
         << "constexpr float PICK_PROMPT_W = " << floatLit(pickW) << ";\n"
         << "constexpr float PICK_PROMPT_H = " << floatLit(pickH) << ";\n"
-        << "// Live glyph slot in each prompt sprite: the baked text leaves a\n"
-           "// hole and the game blits the CURRENT binding's icon into it, so a\n"
-           "// runtime rebind is reflected. Action index -1 = the prompt has no\n"
-           "// action token and the sprite is complete on its own.\n"
-        << "constexpr int USE_PROMPT_ICON_ACTION = "
-        << p.input.actionIndex(useSlot.action) << ";\n"
-        << "constexpr int USE_PROMPT_ICON_X = " << useSlot.x << ";\n"
-        << "constexpr int USE_PROMPT_ICON_Y = " << useSlot.y << ";\n"
-        << "constexpr int USE_PROMPT_ICON_SIZE = " << useSlot.size << ";\n"
-        << "constexpr int PICK_PROMPT_ICON_ACTION = "
-        << p.input.actionIndex(pickSlot.action) << ";\n"
-        << "constexpr int PICK_PROMPT_ICON_X = " << pickSlot.x << ";\n"
-        << "constexpr int PICK_PROMPT_ICON_Y = " << pickSlot.y << ";\n"
-        << "constexpr int PICK_PROMPT_ICON_SIZE = " << pickSlot.size << ";\n";
+        << "\n// Live glyph slots in the prompt sprites: the baked text leaves a\n"
+           "// hole per {{action}} token and the game blits the CURRENT binding's\n"
+           "// icon into each, so a runtime rebind is reflected. One entry per\n"
+           "// token in reading order, so \"Press {{use}} to open\" and a two-\n"
+           "// action prompt both work; count 0 = the sprite is complete on its\n"
+           "// own (icons that are not actions are baked in - see docs).\n"
+           "struct PromptIconSlot {\n"
+           "  short action;   // index into the Input Map's actions\n"
+           "  short x, y;     // top-left inside the prompt sprite, pixels\n"
+           "  short size;     // glyph box side, pixels\n"
+           "};\n";
+    // A zero-length array is ill-formed, so an empty list still emits one
+    // (unused) entry - the COUNT is what the loops read.
+    const auto emitSlots = [&](const char* prefix,
+                               const std::vector<menubake::PromptIconSlot>& v) {
+        out << "constexpr int " << prefix << "_PROMPT_ICON_COUNT = " << v.size()
+            << ";\n"
+            << "inline const PromptIconSlot " << prefix << "_PROMPT_ICONS["
+            << prefix << "_PROMPT_ICON_COUNT > 0 ? " << prefix
+            << "_PROMPT_ICON_COUNT : 1] = {\n";
+        if (v.empty()) {
+            out << "    {-1, 0, 0, 0},\n";
+        } else {
+            for (const menubake::PromptIconSlot& s : v)
+                out << "    {" << p.input.actionIndex(s.action) << ", " << s.x
+                    << ", " << s.y << ", " << s.size << "},  // " << s.action
+                    << "\n";
+        }
+        out << "};\n";
+    };
+    emitSlots("USE", useSlots);
+    emitSlots("PICK", pickSlots);
 
     // On-screen texts, baked to res/hud/text-*.png sprites by the editor
     // (menubake). Shown/hidden by the Show Text / Hide Text flow nodes.

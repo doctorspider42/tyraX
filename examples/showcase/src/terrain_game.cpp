@@ -1929,20 +1929,21 @@ void TerrainGame::loop() {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
-      // The prompt's button glyph is NOT in that sprite: the bake left a hole
-      // so the icon can come from the live binding, which is the only way the
-      // prompt still tells the truth after an in-game rebind.
-      const int slotAction =
-          pick ? PICK_PROMPT_ICON_ACTION : USE_PROMPT_ICON_ACTION;
-      const int icon = liveIconForAction(slotAction);
-      if (icon >= 0)
-        drawIconAt(engine, icon,
-                   prompt.position.x +
-                       (float)(pick ? PICK_PROMPT_ICON_X : USE_PROMPT_ICON_X),
-                   prompt.position.y +
-                       (float)(pick ? PICK_PROMPT_ICON_Y : USE_PROMPT_ICON_Y),
-                   (float)(pick ? PICK_PROMPT_ICON_SIZE
-                                : USE_PROMPT_ICON_SIZE));
+      // The prompt's button glyphs are NOT in that sprite: the bake left a
+      // hole per {{action}} token so the icons can come from the live
+      // bindings, which is the only way the prompt still tells the truth
+      // after an in-game rebind. Usually one, but a prompt naming two
+      // actions gets two.
+      const int slotCount =
+          pick ? PICK_PROMPT_ICON_COUNT : USE_PROMPT_ICON_COUNT;
+      const PromptIconSlot* slots = pick ? PICK_PROMPT_ICONS : USE_PROMPT_ICONS;
+      for (int s = 0; s < slotCount; ++s) {
+        const int icon = liveIconForAction(slots[s].action);
+        if (icon < 0) continue;
+        drawIconAt(engine, icon, prompt.position.x + (float)slots[s].x,
+                   prompt.position.y + (float)slots[s].y,
+                   (float)slots[s].size);
+      }
     }
     updateAndRenderHudTexts();
     updateAndRenderDynTexts();

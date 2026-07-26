@@ -124,35 +124,39 @@ bool bakeTextPNG(const HudText& text, const Project& p,
 std::string textFileName(const std::string& textName);
 
 // --- Interaction prompts -----------------------------------------------------
-// The USE / PICK UP prompts are baked like a HUD text, with one difference: an
-// action token in them is NOT composited in. A prompt has to keep telling the
+// The USE / PICK UP prompts are baked like a HUD text, with one difference: the
+// action tokens in them are NOT composited in. A prompt has to keep telling the
 // truth after the player rebinds the action at runtime, and a baked glyph
-// cannot - so the text is baked with a HOLE where the glyph goes and the game
+// cannot - so the text is baked with a HOLE where each glyph goes and the game
 // blits the current binding's glyph from the icon sheet into it every frame.
 // (Other baked text stays a build-time snapshot; use a Display Text node when it
 // must follow a rebind.)
 
-// Where the live glyph goes, in pixels inside the baked sprite. `action` empty =
-// the prompt has no action token, so there is nothing to draw at runtime.
+// Where one live glyph goes, in pixels inside the baked sprite.
 struct PromptIconSlot {
     std::string action;
     int x = 0, y = 0, size = 0;
 };
 
-// Canvas size + glyph slot of a prompt, without rasterizing. False when no
-// usable font is found.
+// Canvas size + one glyph slot per action token, in reading order and wherever
+// they sit ("Press {{use}} to open" as much as a leading token, on any line).
+// Icons that did NOT come from an action are baked in and get no slot: they
+// cannot be rebound, so there is nothing for the game to keep up with. An empty
+// slot list means the sprite is complete on its own. False when no usable font
+// is found.
 bool promptLayout(const HudText& text, const Project& p, int& w, int& h,
-                  PromptIconSlot& slot);
+                  std::vector<PromptIconSlot>& slots);
 
-// Rasterizes the prompt's TEXT only (the glyph slot is left transparent) and
-// reports the slot.
+// Rasterizes the prompt's TEXT (the glyph slots are left transparent) and
+// reports them.
 bool bakePromptRGBA(const HudText& text, const Project& p,
                     std::vector<unsigned char>& out, int& w, int& h,
-                    PromptIconSlot& slot);
+                    std::vector<PromptIconSlot>& slots);
 
 // Same, PNG-encoded. Empty on failure.
 bool bakePromptPNG(const HudText& text, const Project& p,
-                   std::vector<unsigned char>& png, PromptIconSlot& slot);
+                   std::vector<unsigned char>& png,
+                   std::vector<PromptIconSlot>& slots);
 
 // --- Font atlases ------------------------------------------------------------
 // A Display Text node draws a string only known at runtime, so it cannot use a

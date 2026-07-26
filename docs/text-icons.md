@@ -91,17 +91,28 @@ Existing projects stay on their images until you flip the switch - turning them
 into text would have restyled every project's HUD behind the user's back.
 
 A prompt in text mode is the one baked text that is **not** a build-time snapshot
-of its icon. The bake writes the letters only and leaves the first `{{action}}`
-glyph out, reporting where it would have sat (`USE_PROMPT_ICON_X/Y/SIZE` in
-`hud_data.gen.hpp`); the game blits the **current** binding's icon into that hole
+of its icons. The bake writes the letters and leaves **every `{{action}}` glyph**
+out, reporting the box each would have filled (`USE_PROMPT_ICONS[]` in
+`hud_data.gen.hpp`); the game blits the **current** binding's icon into each hole
 from the icon sheet every frame. So a player who rebinds `use` from □ to △ sees
 the prompt change with it, with no rebuild — the text sprite is unchanged and only
-one small quad follows the binding.
+those small quads follow the bindings.
 
-A prompt without an action token bakes whole (`ICON_ACTION` = -1) and no glyph is
-drawn over it. Every *other* baked text still resolves `{{action:...}}` at build
-time from the default preset; a runtime-varying one has to be a *Display Text*
-node.
+The token can sit anywhere, and there can be more than one:
+
+| Prompt text | What the game draws |
+| --- | --- |
+| `{{use}} USE` | one live glyph, then the word |
+| `Press {{use}} to open` | letters, live glyph in the middle, letters |
+| `{{use}} use  {{throw}} throw` | two live glyphs, each following its own action |
+| `Press {{cross}} to open` | nothing live — `{{cross}}` is a plain icon, so it is **baked in** (a raw button is not rebindable, so there is nothing to keep up with) |
+
+Mixing is fine: in `Press {{use}} to use {{cross}}` the first glyph follows the
+binding and the second is part of the sprite. A prompt with no action token bakes
+whole (`ICON_COUNT` = 0) and costs the game nothing extra.
+
+Every *other* baked text still resolves `{{action:...}}` at build time from the
+default preset; a runtime-varying one has to be a *Display Text* node.
 
 ## Adding your own
 

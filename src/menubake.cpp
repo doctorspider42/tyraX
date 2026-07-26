@@ -245,9 +245,14 @@ float textWidth(Font& f, const std::string& text, float pixelHeight,
 // skipIcons: advance past icon tokens without drawing them. The drop-shadow
 // pass of a HUD text uses it - the icons carry their own colors, so a dark
 // offset copy underneath would only leak a colored fringe around them.
+// skipActionIcons: skip only the tokens that resolved through an ACTION and
+// leave every other icon composited in. That is what a prompt bakes with: the
+// action glyphs become live slots the game fills, while a plain `{{cross}}` in
+// the same string is not rebindable and has no reason to cost a runtime quad.
 void drawText(Canvas& canvas, Font& f, float x, int yTop, const std::string& text,
               float pixelHeight, RGBA color, bool centered,
-              const Project* proj = nullptr, bool skipIcons = false) {
+              const Project* proj = nullptr, bool skipIcons = false,
+              bool skipActionIcons = false) {
     const float scale = stbtt_ScaleForPixelHeight(&f.info, pixelHeight);
     int ascent = 0, descent = 0, lineGap = 0;
     stbtt_GetFontVMetrics(&f.info, &ascent, &descent, &lineGap);
@@ -262,7 +267,9 @@ void drawText(Canvas& canvas, Font& f, float x, int yTop, const std::string& tex
             const IconImg* img = iconImage(*proj, run.icon);
             const float adv = iconAdvance(*proj, run.icon, pixelHeight);
             const float box = adv - pixelHeight * 0.12f;
-            if (img && !skipIcons) {
+            const bool skip =
+                skipIcons || (skipActionIcons && !run.action.empty());
+            if (img && !skip) {
                 const int side = (int)(box + 0.5f);
                 const int ox = (int)(penX + pixelHeight * 0.06f + 0.5f);
                 const int oy = yTop + (capH - side) / 2;
@@ -987,62 +994,61 @@ bool bakeTextRGBA(const HudText& text, const Project& p,
 }
 
 // --- Interaction prompts ----------------------------------------------------
-// Same bake as a HUD text with one difference: the first ACTION token is left
-// as a hole and its box reported, so the game can blit the CURRENT binding's
-// glyph there (see the header). Prompts are single-line by nature, so the slot
-// math only has to walk one line.
-
-namespace {
-
-// The runs of a prompt plus the index of the first action-token run, or -1.
-int firstActionRun(const std::vector<TextRun>& runs) {
-    for (size_t i = 0; i < runs.size(); ++i)
-        if (!runs[i].icon.empty() && !runs[i].action.empty()) return (int)i;
-    return -1;
-}
-
-}  // namespace
+// Same bake as a HUD text with one difference: EVERY action token is left as a
+// hole and its box reported, so the game can blit the CURRENT binding's glyph
+// there (see the header). "Press {{use}} to open" and "{{use}} use /
+// {{throw}} throw" both work - the walk below mirrors drawText's pen exactly,
+// so a slot lands wherever the glyph would have been baked, on whichever line.
 
 bool promptLayout(const HudText& text, const Project& p, int& w, int& h,
-                  PromptIconSlot& slot) {
-    slot = PromptIconSlot{};
+                  std::vector<PromptIconSlot>& slots) {
+    slots.clear();
     Font* font = resolveFontNamed(p, text.font);
     if (!font) return false;
     if (!textLayout(text, p, w, h)) return false;
 
-    const std::vector<TextRun> runs = textRuns(&p, text.text);
-    const int idx = firstActionRun(runs);
-    if (idx < 0) return true;  // no live glyph in this prompt
-
-    // The glyph occupies its slot in the layout either way, so the full width
-    // (icons included) is what centres the line - exactly like the bake.
-    const float full = textWidth(*font, text.text, (float)text.size, &p);
-    std::string prefix;
-    for (int i = 0; i < idx; ++i) prefix += runs[i].text;
-    const float before = textWidth(*font, prefix, (float)text.size, nullptr);
-    const float adv = iconAdvance(p, runs[idx].icon, (float)text.size);
-    const float box = adv - text.size * 0.12f;
-
-    const int lineH = text.size + 4;
-    const int yTop = (h - lineH) / 2;
     int ascent = 0, descent = 0, lineGap = 0;
     const float scale = stbtt_ScaleForPixelHeight(&font->info, (float)text.size);
     stbtt_GetFontVMetrics(&font->info, &ascent, &descent, &lineGap);
     const int capH = (int)(ascent * scale + 0.5f);
 
-    slot.action = runs[idx].action;
-    slot.size = (int)(box + 0.5f);
-    slot.x = (int)(w * 0.5f - full * 0.5f + before + text.size * 0.06f + 0.5f);
-    slot.y = yTop + (capH - slot.size) / 2;
+    const auto lines = splitLines(text.text);
+    const int lineH = text.size + 4;
+    int yTop = (h - (int)lines.size() * lineH) / 2;
+    for (const auto& line : lines) {
+        // The glyphs occupy their slots in the layout either way, so the full
+        // width (icons included) is what centres the line - as in the bake.
+        const float full = textWidth(*font, line, (float)text.size, &p);
+        float penX = w * 0.5f - full * 0.5f;
+        for (const TextRun& run : textRuns(&p, line)) {
+            if (run.icon.empty()) {
+                // Kerning restarts at every run boundary in drawText, so a
+                // per-run width sums to the same pen position.
+                penX += textWidth(*font, run.text, (float)text.size, nullptr);
+                continue;
+            }
+            const float adv = iconAdvance(p, run.icon, (float)text.size);
+            if (!run.action.empty()) {
+                PromptIconSlot s;
+                s.action = run.action;
+                s.size = (int)(adv - text.size * 0.12f + 0.5f);
+                s.x = (int)(penX + text.size * 0.06f + 0.5f);
+                s.y = yTop + (capH - s.size) / 2;
+                slots.push_back(s);
+            }
+            penX += adv;
+        }
+        yTop += lineH;
+    }
     return true;
 }
 
 bool bakePromptRGBA(const HudText& text, const Project& p,
                     std::vector<unsigned char>& out, int& w, int& h,
-                    PromptIconSlot& slot) {
+                    std::vector<PromptIconSlot>& slots) {
     Font* font = resolveFontNamed(p, text.font);
     if (!font) return false;
-    if (!promptLayout(text, p, w, h, slot)) return false;
+    if (!promptLayout(text, p, w, h, slots)) return false;
     out.assign((size_t)w * h * 4, 0);
     Canvas canvas{&out, w, h};
 
@@ -1057,23 +1063,25 @@ bool bakePromptRGBA(const HudText& text, const Project& p,
     const int lineH = text.size + 4;
     int y = (h - (int)lines.size() * lineH) / 2;
     for (const auto& line : lines) {
-        // skipIcons on BOTH passes: the glyph is the game's job now, and a
-        // baked shadow of it would sit under a glyph that may have changed.
+        // The shadow pass skips ALL icons as usual (a dark copy under a colored
+        // glyph only leaks a fringe); the main pass skips the ACTION ones only,
+        // so they become the game's live slots and any other icon still bakes.
         if (text.shadow)
             drawText(canvas, *font, w * 0.5f + 1, y + 1, line, (float)text.size,
                      shadow, true, &p, /*skipIcons=*/true);
         drawText(canvas, *font, w * 0.5f, y, line, (float)text.size, color, true,
-                 &p, /*skipIcons=*/true);
+                 &p, /*skipIcons=*/false, /*skipActionIcons=*/true);
         y += lineH;
     }
     return true;
 }
 
 bool bakePromptPNG(const HudText& text, const Project& p,
-                   std::vector<unsigned char>& png, PromptIconSlot& slot) {
+                   std::vector<unsigned char>& png,
+                   std::vector<PromptIconSlot>& slots) {
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    if (!bakePromptRGBA(text, p, rgba, w, h, slot)) return false;
+    if (!bakePromptRGBA(text, p, rgba, w, h, slots)) return false;
     png.clear();
     stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(), w * 4);
     return !png.empty();
