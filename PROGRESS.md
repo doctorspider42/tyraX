@@ -10,6 +10,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (207) **Measured: ps2link's extra commands are not the free lunch they look
+  like.** Before building anything on them, the question was whether the tools
+  `ps2client --help` advertises - `dumpmem`, `scrdump`, `startvu`/`stopvu`,
+  `dumpreg` - already give hardware memory dumps and framebuffer grabs for free
+  (they are implemented on the PS2 side, by ps2link). Tested against the
+  owner's console; they do not.
+  - `dumpmem <addr> <size> host:<file>` **creates the destination and writes
+    nothing**, with the PS2 answering `EE: pkoDumpMem() write failed` - vestigial
+    pko-era plumbing whose host-write path this ps2client/ps2link pair does not
+    complete. Without a `host:` prefix it targets `mc0:/PS2LINK/` instead.
+  - `scrdump` exits 0 and produces no file anywhere.
+  Two things worth more than the commands themselves came out of it. **A console
+  with a game loaded cannot be commanded**: any client that connects is
+  immediately conscripted as the game's file server, so `reset` and `dumpmem`
+  both returned -1 while the game's `host:` opens scrolled past - and when a
+  `listen` server was attached first so a command COULD get through, that
+  command **froze the game**. And **`reset` is reliable only with nothing else
+  attached** (exit 0 then; -1 every time otherwise), which is exactly the
+  runner's sequence and why a scripted redeploy earlier in the session could not
+  take.
+  So a hardware framebuffer grab or live memory dump means **patching ps2link** -
+  the workflow exists (`tools/ps2link-usbhid/` already clones a pinned ps2link,
+  applies a patch and builds it in Docker for the USB HID stack) - and it stays
+  hardware-only, since PCSX2 runs no ps2link at all. That asymmetry is the
+  standing argument for the devkit riding the host filesystem: one
+  implementation, both targets. Written into the tyra-testing skill so the next
+  session does not re-run the experiment.
+
 - (206) **A static model's vertex count, next to its triangle count.** Owner's
   ask, and the properties panel was inconsistent about it: an animated `.glb`
   reported "%d verts", a static `.obj` reported triangles only. Now it shows

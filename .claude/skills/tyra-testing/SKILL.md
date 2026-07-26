@@ -364,7 +364,22 @@ Notes:
   ```
 
   `listen` serves the console's file traffic and nothing else — within seconds
-  `livedbg.bin` starts advancing again and captures work. (Verified: a session
+  `livedbg.bin` starts advancing again and captures work.
+
+  **Do not send ps2client COMMANDS at a console with a game loaded.** Measured
+  the hard way: with a game running (or starving), any client that connects is
+  immediately conscripted as its file server and the command never reaches
+  ps2link — `reset` and `dumpmem` both returned -1 while the game's `host:` opens
+  scrolled past. Attaching a `listen` server first does let a command through,
+  and **the one that got through froze the game**. The reliable sequence is the
+  runner's: nothing else attached, `reset` (exit 0 only when the link is free),
+  then `execee`. And ps2link's extra commands are **not** the free lunch the
+  help text suggests: on the pinned build `dumpmem` answers `EE: pkoDumpMem()
+  write failed` (the destination file is created, zero bytes) and `scrdump`
+  exits 0 having written nothing — vestigial pko-era plumbing, not working
+  tools. Anything wanted from them is a **ps2link patch** (the workflow exists:
+  `tools/ps2link-usbhid/` clones a pinned ps2link, applies a patch and builds
+  it in Docker), and hardware-only — PCSX2 runs no ps2link. (Verified: a session
   orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
   the game is actually gone do you need the runner's two commands —
   `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`
