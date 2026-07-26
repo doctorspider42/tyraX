@@ -1502,10 +1502,17 @@ void seedBuiltinLayouts(Project& p) {
     // recipe-backed, empty ini: App::buildLayoutRecipe arranges them the first
     // time each is shown (see WindowLayout / LayoutRecipe).
     p.windowLayouts.push_back({"Default", "", (int)LayoutRecipe::Default, {}});
+    // The link comes up with the Director too: recording a camera move is the
+    // other thing a paired phone does, and hunting for the window that hosts it
+    // is the same annoyance either way.
     p.windowLayouts.push_back(
-        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
+        {"Director", "", (int)LayoutRecipe::Director, {"cutscene", "phonecam", "phonelink"}});
     p.windowLayouts.push_back(
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
+    // Everything a capture session needs and nothing else: the character being
+    // driven, and the link driving it.
+    p.windowLayouts.push_back(
+        {"Mocap", "", (int)LayoutRecipe::Mocap, {"mocap", "phonelink"}});
     p.activeLayout = 0;
 }
 
@@ -3614,6 +3621,19 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = root.find("activeLayout"))
             out.activeLayout = (int)v->numberOr(0);
+        // A project saved before a built-in layout existed has no way to learn
+        // about it: `seedBuiltinLayouts` only runs for new projects, so without
+        // this the Mocap arrangement would be visible to nobody who already had
+        // a project open. Appended rather than merged, so a renamed or rearranged
+        // layout of the user's own is never touched. Delete it and it comes back
+        // next load - the cost of having no schema version to remember by, and
+        // cheaper than the feature being invisible.
+        bool haveMocap = false;
+        for (const WindowLayout& L : out.windowLayouts)
+            if (L.recipe == (int)LayoutRecipe::Mocap) haveMocap = true;
+        if (!haveMocap)
+            out.windowLayouts.push_back(
+                {"Mocap", "", (int)LayoutRecipe::Mocap, {"mocap", "phonelink"}});
     } else {
         seedBuiltinLayouts(out);
         if (const auto* v = root.find("layout")) {

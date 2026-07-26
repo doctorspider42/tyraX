@@ -1111,13 +1111,14 @@ inline bool operator==(const SplashScreen& a, const SplashScreen& b) {
 struct WindowLayout {
     std::string name;
     std::string ini;                       // ImGui docking dump; empty = use recipe
-    int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material
+    int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material,
+                                           // 3 mocap
     std::vector<std::string> openWindows;  // optional-window keys (see App::layoutWindowKeys)
 };
 
 // Built-in DockBuilder recipe ids (WindowLayout::recipe). The arrangement lives
 // in App::buildLayoutRecipe; only the id travels in the .tyra file.
-enum class LayoutRecipe { None = -1, Default = 0, Director = 1, Material = 2 };
+enum class LayoutRecipe { None = -1, Default = 0, Director = 1, Material = 2, Mocap = 3 };
 
 // One custom screen effect placed in the screen stack. The effect body lives
 // in a <project>/screen-effects/<stem>.screenfx file (loaded into
