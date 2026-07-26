@@ -136,6 +136,31 @@ struct BodyFrame {
     float rootRot[4] = {0, 0, 0, 1};
     bool haveRootRot = false;
     bool tracked = true;            // false = ARKit lost the body this frame
+
+    // What the phone's Vision pass saw, RAW. ARKit solves neither the head nor
+    // the wrists, so those come from a second framework running over the same
+    // camera frames - and the geometry that turns landmarks into orientations
+    // lives on THIS side, in visionpose, where it can be tested without a Mac
+    // and corrected without a release. Nothing is interpreted here.
+    bool haveCameraRot = false;
+    float cameraRot[4] = {0, 0, 0, 1};   // the camera in ARKit world space
+    bool haveFace = false;
+    float face[3] = {0, 0, 0};           // yaw, pitch, roll, radians
+    // Image width / height. Vision normalizes BOTH axes to [0, 1], which on a
+    // 4:3 frame stretches everything vertically by a third - so a landmark's
+    // direction is not its direction until this is applied. It is sent rather
+    // than assumed because the capture format is a setting the operator can
+    // change from the phone's own lens picker.
+    float imageAspect = 1.0f;
+    struct HandObs {
+        bool have = false;
+        bool haveThumb = false;
+        float confidence = 0.0f;
+        // Normalized image points, in order: wrist, index knuckle, middle
+        // knuckle, little knuckle, thumb base.
+        float pts[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    };
+    HandObs handLeft, handRight;
 };
 
 struct Config {

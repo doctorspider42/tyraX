@@ -404,6 +404,55 @@ foot stayed bent the whole time and the character's left foot never came within
 23 mm difference in leg extension between the two sides to become a 240 mm
 difference in how low each ankle ever gets.
 
+### The head and the hands: a second opinion
+
+The joints ARKit reports and never solves are not a dead end. Hand and face
+tracking on iOS live in **Vision**, a different framework, and it runs perfectly
+happily over the same camera frames the body tracker is already producing. The
+app now runs it at 12 Hz and sends what it sees; `src/visionpose.cpp` turns that
+into rotations for `head_joint` and the two wrists, writes them into the source
+frame, and the retarget downstream never learns a second framework was involved.
+
+**The phone sends observations, the editor solves.** That split is the whole
+reason the geometry is C++ and not Swift: it can be tested here against
+synthetic data with no device in the loop, and getting a convention wrong costs
+an edit rather than a build, a tag, an AltStore round trip and a reinstall.
+
+It took three rewrites, and each came out of the harness rather than a hunch:
+
+- **Matching directions does not work.** Two projected directions are two
+  constraints on three unknowns, and a whole family of orientations projects
+  identically. Nine synthetic cases, eight wrong, by 24 to 166 degrees. The
+  missing third constraint is *foreshortening* - a palm turned away projects
+  shorter - so the fit uses the vectors with their lengths and solves for the
+  single unknown scale. That is also why no camera intrinsics are sent: only the
+  ratio matters, and distance and focal length cancel.
+- **A plane cannot be told from its mirror.** The wrist and three knuckles are
+  coplanar, so two poses always fit equally well and no pixel accuracy separates
+  them. The **thumb** sits off that plane, which is the only reason it is on the
+  wire. With it, five failing cases became one.
+- **The rest-pose tie-break had to be ten times weaker.** At its first weight it
+  dragged correct answers home by 8 to 19 degrees. It only has to separate poses
+  that are genuinely indistinguishable.
+
+Measured, on synthetic data with a known answer:
+
+| | error |
+|---|---|
+| clean geometry, camera anywhere | **≤ 1.2°** |
+| realistic landmark noise (~3 px on a 90 px hand) | 4.8° |
+| a small hand (0.5% of frame) | 10° |
+| 1% of frame and beyond | breaks - the mirror wins |
+
+Frame-to-frame tracking earns its keep at the noisy end: at 0.5% noise it takes
+the mean from 11.1° to 7.7°, the worst case from 95.7° to 49.5°, and **jitter
+from 15.8° to 6.8°** - which is the part you see.
+
+What it needs is size in frame. A face across the room is plenty; a hand at four
+metres is about ninety pixels. Step closer and the wrists come alive. The Mocap
+window shows how many joints Vision is actually driving, and hovering that
+number says why the others are not.
+
 ### Two things real data broke that Mixamo clips never did
 
 Both were found by importing an actual take and looking at it, which is the
@@ -437,6 +486,7 @@ argument for having the live window at all:
 | `src/chargen.cpp` | `Params` → `glbparser::Skel`: macro blend, proxy fit, rig, weight transfer, skin bake. Host-only, no GL, no `Project`. |
 | `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, retargeting from an imported library, and host linear-blend skinning for the preview. Host-only, no GL. |
 | `src/mocap.cpp` | reads `.tmocap` phone takes into a source `Skel` (ARKit joint names renamed to the rig's), and writes them - `buildSource` is shared by the file and live-link paths. Host-only, no GL. |
+| `src/visionpose.cpp` | head and wrist orientation from Vision's landmarks - the geometry the phone deliberately does not do. Host-only, no GL, harness-tested against synthetic poses. |
 | `src/phonecam.cpp` | the link the phone joins: `bodyrest` / `body` messages into `bodySkeleton()` and `drainBodyFrames()`, alongside the camera app's own traffic. |
 | `src/app.cpp` (mocap window) | `drawMocapWindow` / `mocapRebind` / `mocapApplyFrame` - both sources end in the same `charanim::applyLive`. |
 | `src/gltfwrite.cpp` | `Skel` → `.glb` bytes; the exact inverse of `glbparser::parseSkel`. |

@@ -10,6 +10,50 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (190) **The head and the hands, from a framework ARKit is not.** "It just
+  does not give hands and that is that?" - no. ARKit's body tracker reports
+  those joints without solving them, but hand and face tracking on iOS live in
+  **Vision**, which runs over the same camera frames the same session is already
+  producing. The app (v1.0.8) now runs it at 12 Hz alongside the body tracker
+  and sends what it sees; `src/visionpose.cpp` turns landmarks into rotations
+  for `head_joint` and the two wrists and writes them into the SOURCE frame, so
+  the retarget downstream never learns a second framework was involved.
+  **The phone sends observations, the editor solves** - and that is the whole
+  reason the geometry is C++. It can be tested here against synthetic data with
+  no device in the loop, and a wrong convention costs an edit instead of a
+  build, a tag, an AltStore round trip and a reinstall. The harness earned it
+  three times over:
+  (a) **matching projected DIRECTIONS cannot work.** Two directions are two
+  constraints on three unknowns; eight of nine synthetic cases came back wrong
+  by 24 to 166 degrees. Foreshortening is the third constraint, so the fit uses
+  the vectors with their LENGTHS and solves for the one unknown scale - which is
+  also why no intrinsics are sent, since only the ratio matters and distance and
+  focal length cancel.
+  (b) **a plane cannot be told from its mirror.** The wrist and three knuckles
+  are coplanar, so two poses fit equally well forever. The THUMB sits off that
+  plane and is on the wire for no other reason; five failing cases became one.
+  (c) **the rest-pose tie-break had to become ten times weaker** - at 0.02 it
+  dragged correct answers home by 8 to 19 degrees. Its only job is separating
+  poses that are genuinely indistinguishable.
+  **Measured**: clean geometry with the camera anywhere, <= 1.2 degrees;
+  realistic landmark noise, 4.8; a small hand at 0.5% of frame, 10; past 1% the
+  mirror wins and it breaks. Frame-to-frame tracking pays at the noisy end - at
+  0.5% it takes the worst case from 95.7 to 49.5 degrees and JITTER from 15.8 to
+  6.8, which is the part anyone sees.
+  Two conventions are load-bearing on the wire and both are written into
+  PROTOCOL: the image ASPECT is sent because Vision normalizes both axes to
+  [0,1] independently (a 4:3 capture arrives a third too tall, which would tilt
+  every direction the solver reads), and hands are sorted left-to-right in the
+  IMAGE rather than by Vision's chirality, which is unreliable at the distance a
+  full-body shot needs - the editor knows where both wrists really are.
+  A recorded take now stores the SOLVED frame, because the solve is part of
+  acquiring a pose rather than of moving it onto a character; storing the raw one
+  would silently lose the head and wrists on re-import.
+  *Unverified*: the phone half. CI builds it; whether Vision finds a hand at the
+  distance a whole body needs is the owner's next test, and the Mocap window says
+  how many joints it is actually driving so the answer is visible rather than
+  guessed.
+
 - (189) **Feet on the floor: a ground solve for every retarget.** The owner's
   brief was "the most expensive possible solution, take an epoch, as long as the
   result knocks you off your feet", and the feet were the place to start: it

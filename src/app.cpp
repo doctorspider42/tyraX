@@ -10227,7 +10227,7 @@ void App::mocapRebind() {
 }
 
 void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
-                          const float* rootRot) {
+                          const float* rootRot, const phonecam::BodyFrame* vision) {
     if (!mocapBind_.valid() || !rot) return;
     const int joints = mocapBind_.sourceNodeCount();
 
@@ -10250,16 +10250,63 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
         src = mocapFrameRot_.data();
     }
 
+    // What ARKit does not solve, Vision might. This overwrites exactly the
+    // joints the body tracker leaves frozen - the head and the two wrists - in
+    // the SOURCE frame, before any retargeting happens, so everything
+    // downstream stays unaware that a second framework was involved.
+    if (vision && mocapVision_) {
+        if (src != mocapFrameRot_.data()) {
+            mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+            src = mocapFrameRot_.data();
+        }
+        visionpose::Observation obs;
+        obs.haveCamera = vision->haveCameraRot;
+        std::memcpy(obs.cameraRot, vision->cameraRot, sizeof(obs.cameraRot));
+        obs.haveFace = vision->haveFace;
+        obs.faceYaw = vision->face[0];
+        obs.facePitch = vision->face[1];
+        obs.faceRoll = vision->face[2];
+        const phonecam::BodyFrame::HandObs* in[2] = {&vision->handLeft, &vision->handRight};
+        visionpose::Observation::Hand* out[2] = {&obs.left, &obs.right};
+        // Vision's frame into the solver's: origin bottom-left to top-left, and
+        // the vertical un-stretched. Both axes arrive normalized to [0, 1]
+        // independently, so on a 4:3 capture every vertical distance is a third
+        // too large - which would tilt every direction the solver reads and put
+        // a confident, wrong number on the wrist.
+        const float aspect = vision->imageAspect > 0.01f ? vision->imageAspect : 1.0f;
+        auto convert = [aspect](const float* src, float* dst) {
+            dst[0] = src[0];
+            dst[1] = (1.0f - src[1]) / aspect;
+        };
+        for (int side = 0; side < 2; ++side) {
+            out[side]->have = in[side]->have;
+            out[side]->confidence = in[side]->confidence;
+            out[side]->haveThumb = in[side]->haveThumb;
+            convert(in[side]->pts + 0, out[side]->wrist);
+            convert(in[side]->pts + 2, out[side]->indexMcp);
+            convert(in[side]->pts + 4, out[side]->middleMcp);
+            convert(in[side]->pts + 6, out[side]->littleMcp);
+            convert(in[side]->pts + 8, out[side]->thumbMcp);
+        }
+        const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
+        mocapVisionNotes_.clear();
+        mocapVisionDriven_ = visionpose::applyToFrame(
+            obs, sk.joints, sk.parents, sk.restRot.data(), visionpose::Limits(),
+            mocapFrameRot_.data(), &mocapVisionTracker_, &mocapVisionNotes_);
+    }
+
     charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_, t);
     charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
     ++mocapPrevVersion_;
 
     if (!mocapRecording_) return;
     mocapRecTimes_.push_back(t);
-    // The RAW rotations, with the heading kept separate exactly as the file
-    // format keeps it - a take must decode to what the phone sent, not to what
-    // this window happened to compose for its preview.
-    mocapRecRot_.insert(mocapRecRot_.end(), rot, rot + (size_t)joints * 4);
+    // The heading stays separate, exactly as the file format keeps it. The
+    // Vision solve does NOT: it is part of acquiring the pose, not of moving it
+    // onto a character, so a recorded take must contain the head and wrists it
+    // solved - otherwise importing the file later would silently lose them.
+    const float* store = mocapVision_ && src == mocapFrameRot_.data() ? src : rot;
+    mocapRecRot_.insert(mocapRecRot_.end(), store, store + (size_t)joints * 4);
     for (int k = 0; k < 3; ++k) mocapRecHips_.push_back(haveHips ? hips[k] : 0.0f);
     const float ident[4] = {0, 0, 0, 1};
     const float* rr = rootRot ? rootRot : ident;
@@ -10415,6 +10462,23 @@ void App::drawMocapWindow() {
                 "Plant a standing foot and level its sole. ARKit never solves\n"
                 "the ankle, so without this the foot follows the shin rigidly\n"
                 "and a lifted knee comes with a pointed toe.");
+        if (ImGui::Checkbox("Head and hands from Vision", &mocapVision_))
+            mocapVisionTracker_.reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "ARKit reports the head and both wrists and solves neither.\n"
+                "The phone's Vision pass sees them; the geometry is done here.\n"
+                "Needs a face or a hand big enough in frame - step closer and\n"
+                "the wrists come alive.");
+        if (mocapVision_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%d driven", mocapVisionDriven_);
+            if (ImGui::IsItemHovered() && !mocapVisionNotes_.empty()) {
+                ImGui::BeginTooltip();
+                for (const std::string& n : mocapVisionNotes_) ImGui::TextUnformatted(n.c_str());
+                ImGui::EndTooltip();
+            }
+        }
     }
 
     // --- recording ------------------------------------------------------------
@@ -10516,7 +10580,7 @@ void App::drawMocapWindow() {
             for (const phonecam::BodyFrame& f : phoneCam_.drainBodyFrames()) {
                 if ((int)f.rot.size() / 4 != mocapBind_.sourceNodeCount()) continue;
                 mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t,
-                                f.haveRootRot ? f.rootRot : nullptr);
+                                f.haveRootRot ? f.rootRot : nullptr, &f);
             }
         }
     }

@@ -413,6 +413,25 @@ void Link::workerMain() {
                 std::memcpy(f.rot.data(), e.frame.bin.data(), joints * 4 * sizeof(float));
                 f.haveHips = readVec(msg, "h", f.hips, 3);
                 f.haveRootRot = readVec(msg, "r", f.rootRot, 4);
+                f.haveCameraRot = readVec(msg, "cq", f.cameraRot, 4);
+                f.haveFace = readVec(msg, "fa", f.face, 3);
+                if (const json::Value* v = msg.find("ia")) {
+                    const float a = (float)v->numberOr(1.0);
+                    if (a > 0.01f) f.imageAspect = a;
+                }
+                // A hand is one flat array: confidence, then five landmarks. A
+                // thumb the detector was unsure of arrives as (-1, -1), which is
+                // outside the image and so cannot be mistaken for a position.
+                const char* handKey[2] = {"hl", "hr"};
+                BodyFrame::HandObs* hands[2] = {&f.handLeft, &f.handRight};
+                for (int side = 0; side < 2; ++side) {
+                    float raw[11];
+                    if (!readVec(msg, handKey[side], raw, 11)) continue;
+                    hands[side]->have = true;
+                    hands[side]->confidence = raw[0];
+                    std::memcpy(hands[side]->pts, raw + 1, sizeof(hands[side]->pts));
+                    hands[side]->haveThumb = raw[9] >= 0.0f && raw[10] >= 0.0f;
+                }
                 std::lock_guard<std::mutex> lk(mutex_);
                 bodyFrames_.push_back(std::move(f));
                 while (bodyFrames_.size() > kMaxPendingPoses) bodyFrames_.pop_front();

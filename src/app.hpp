@@ -14,6 +14,7 @@
 #include "chargen.hpp"
 #include "history.hpp"
 #include "phonecam.hpp"
+#include "visionpose.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
 #include "placement.hpp"
@@ -507,7 +508,8 @@ private:
     // One frame in: retarget it onto the character, and append it to the take
     // when recording.
     void mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
-                         const float* rootRot = nullptr);
+                         const float* rootRot = nullptr,
+                         const phonecam::BodyFrame* vision = nullptr);
     void mocapStopRecording();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
@@ -1024,6 +1026,10 @@ private:
     uint64_t mocapLiveSkelSeq_ = 0;   // the phone skeleton mocapBind_ was built from
     int mocapLiveHips_ = -1;          // where the heading is composed in
     bool mocapGround_ = true;         // plant the feet on the floor
+    bool mocapVision_ = true;         // drive head/wrists from the phone's Vision pass
+    visionpose::Tracker mocapVisionTracker_;
+    std::vector<std::string> mocapVisionNotes_;
+    int mocapVisionDriven_ = 0;
     std::vector<float> mocapFrameRot_;  // scratch: source rotations + the heading
     std::string mocapTake_;           // the file being played back
     float mocapTime_ = 0.0f;
