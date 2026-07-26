@@ -10496,20 +10496,35 @@ void App::drawMocapWindow() {
         else
             ImGui::Text("%llu frames received",
                         (unsigned long long)phoneCam_.bodyFrameCount());
-        if (ImGui::Button("Rebind")) mocapRebind();
-        ImGui::SameLine();
-        if (ImGui::Button("Recentre")) {
+        // Two unrelated things that used to sit side by side looking like a
+        // pair. Zeroing is about WHERE the origin is; Rebind is about WHO
+        // drives whom. The first is what an operator reaches for constantly, so
+        // it leads and is named for what it promises rather than what it clears.
+        if (ImGui::Button("Zero here", ImVec2(scaled(110), 0))) {
             charanim::resetLiveOrigin(mocapBind_);
             mocapHaveHeadingBase_ = false;
-            // A recentre means the stream JUMPED, and everything that smooths
-            // across frames has to be told - otherwise the character is dragged
+            // A jump is not a movement, so everything that smooths across
+            // frames has to be told - otherwise the character is dragged
             // through the gap instead of cutting across it.
             mocapFilter_.reset();
             mocapVisionTracker_.reset();
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Put the character back where it started.\n"
-                              "Use it after tracking is lost and regained.");
+            ImGui::SetTooltip(
+                "\"The performer is facing me, right now.\"\n\n"
+                "Everything after this is measured from this instant: they turn,\n"
+                "the character turns; they walk across the room, it walks across\n"
+                "the room. The link otherwise takes its zero from the FIRST frame\n"
+                "it sees - whatever they happened to be doing when tracking\n"
+                "caught them - so this is how you pick that moment yourself.\n\n"
+                "Also use it whenever the stream jumps rather than moves: tracking\n"
+                "lost and regained, or somebody else stepping in.");
+        ImGui::SameLine();
+        if (ImGui::Button("Rebind", ImVec2(scaled(90), 0))) mocapRebind();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Rebuild which bone drives which - joint matching,\n"
+                              "rest poses, the height ratio. Needed after changing\n"
+                              "the character, not for changing where they are.");
         if (ImGui::Checkbox("Feet on the floor", &mocapGround_)) mocapRebind();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(

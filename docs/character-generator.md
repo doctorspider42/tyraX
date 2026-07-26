@@ -313,11 +313,23 @@ and a streaming feature that only runs when a phone is in the room is a feature
 nobody can debug. (The equivalence is measured, not asserted: posing through
 `applyLive` frame by frame and posing through the clip path agree to 0.48 µm.)
 
+**Zero here** is the one to reach for. It says *"the performer is facing me,
+right now"*: everything after is measured from that instant, so they turn and
+the character turns, they walk across the room and it walks across the room.
+Without it the link takes its zero from the **first frame it sees** - whatever
+they happened to be doing when tracking caught them, which is rarely the moment
+you meant. It is also what to press whenever the stream *jumps* rather than
+moves: tracking lost and regained, or somebody else stepping in.
+
+**Rebind** is a different thing that used to sit next to it looking like a pair.
+It rebuilds *which bone drives which* - joint matching, rest poses, the height
+ratio - and is what you need after changing the character, not after changing
+where the performer is standing.
+
 **Record** writes a `.tmocap`, and only from the live source - a file is already
 a take. It buffers the **source** frames rather than the retargeted pose,
 because a take is reusable on any character and a baked pose is not; the result
-imports through *Import clips...* like anything else. **Recentre** re-zeroes the
-root, for when tracking is lost and regained and the performer has wandered.
+imports through *Import clips...* like anything else. 
 
 ### What the wire carries
 
