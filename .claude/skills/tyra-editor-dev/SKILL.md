@@ -252,7 +252,11 @@ skip-list rightly ignores, so anything that must be able to hit the PLAYER
 needs the explicit body-sphere test (`wpnRay(..., testPlayer)`); and in
 FPP/noclip the **Player object never leaves its spawn point** (the camera is
 the player — the same trap `navPlayerPos` documents), so read a combat
-actor's position through `wpnActorPos`, never `data.position`. Combat and
+actor's position through `wpnActorPos`, never `data.position`. A third one is
+general to ANY generated subsystem with lazy per-scene state: **sync on first
+TOUCH, not first tick** — generated scripts run in LINK order, so a graph's
+`On Start` can call into your subsystem before its own script has ticked
+once, and a lazy sync in that tick will wipe what the graph just did. Combat and
 viewmodel objects are excluded from static batching, and a burst effect's
 `size` is a HALF extent (a muzzle flash lives ~1 unit from the eye, where
 0.1 already fills a quarter of the screen).

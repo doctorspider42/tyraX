@@ -1,0 +1,1 @@
+{ "id": "a00000000000000f", "name": "react-sandbag", "type": "box", "position": [0, 1.1, -6], "rotation": [0, 0, 0], "scale": [1.6, 2.2, 0.8], "color": [0.72, 0.64, 0.42], "physics": false, "combat": { "health": 400, "death": 2, "hitFx": 3 } }

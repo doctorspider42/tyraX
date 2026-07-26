@@ -6,7 +6,9 @@ projectiles, particle effects and enemies that shoot back — authored in
 **Combat** flow-graph nodes, and compiled into a generated PS2 runtime that a
 project without combat never pays for.
 
-Working demo: [examples/weapons](../examples/weapons).
+Working demos: [examples/weapons](../examples/weapons) — a quick shooting
+range — and [examples/weapons-arena](../examples/weapons-arena), which lays
+out every axis of the feature as six stations along one walk.
 
 ## The shape of it
 
@@ -158,6 +160,25 @@ frame N is published for the whole of frame N+1, which is what makes them
 independent of the link order of the generated scripts. (One frame of latency,
 invisible in play; the alternative was a trigger that fired for some graphs
 and not others depending on which `.cpp` the linker put first.)
+
+## Two rules the runtime enforces for you
+
+**The combat state syncs on first TOUCH, not first tick.** Generated scripts
+run in link order, so a graph's *On Start* can hand the player a weapon before
+the weapon script has ever ticked. If the per-scene sync ran lazily from that
+tick it would wipe the inventory it was handed a moment earlier — which is
+exactly the bug this cost, once. Every `wpn*` entry point calls the sync
+first, so whoever touches combat first triggers it and the ordering stops
+mattering.
+
+**A generated viewmodel is auto-framed.** The game has one field of view for
+the world and the weapon (a PS2 has no separate viewmodel FOV), so a life-size
+rifle half a unit from the eye covers a quarter of the screen. Every FPS
+solves this by rendering a miniature; *Create viewmodel + add to scene* sets
+`viewScale` so each weapon lands at the same ~0.38-unit apparent length and
+moves the muzzle offset to the end of the scaled barrel. A pistol is already
+small enough and clamps to 1. Hand-authored viewmodels are on you — if yours
+fills the screen, that is the knob.
 
 ## Generating weapon models
 

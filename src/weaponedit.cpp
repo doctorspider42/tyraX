@@ -140,6 +140,26 @@ void App::addWeaponModelToScene(int weaponIndex) {
     addModelObject(objRel);  // creates the Model object + commitChange()
     if (project_.objects().empty()) return;
     SceneObject& o = project_.objects().back();
+    // Size the viewmodel so it reads on screen. A weapon in the hands is
+    // half a unit from the eye, and the game has ONE field of view for the
+    // world and the weapon (no separate viewmodel FOV on a PS2), so a
+    // life-size rifle at that distance covers a quarter of the screen.
+    // Every FPS solves this by rendering a miniature; this aims each weapon
+    // at the same ~0.38-unit apparent length, which is what the default
+    // offsets below were tuned against. A pistol is already small enough and
+    // clamps to 1.
+    const float len = mesh.max[2] - mesh.min[2];
+    if (len > 0.001f) {
+        float s = 0.38f / len;
+        if (s > 1.0f) s = 1.0f;
+        if (s < 0.2f) s = 0.2f;
+        w.viewScale = s;
+        // Put the muzzle at the far end of the scaled model, so the flash and
+        // the tracer leave the barrel rather than the middle of the frame.
+        w.muzzleOffset[0] = w.viewOffset[0];
+        w.muzzleOffset[1] = w.viewOffset[1] + 0.10f;
+        w.muzzleOffset[2] = w.viewOffset[2] + mesh.max[2] * s + 0.05f;
+    }
     // A viewmodel is scenery in the ordinary sense: it must not cast contact
     // shadows onto the world from half a unit in front of the camera, and the
     // runtime forces its collision off anyway - saying so here keeps the

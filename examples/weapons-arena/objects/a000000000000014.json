@@ -1,0 +1,1 @@
+{ "id": "a000000000000014", "name": "death-despawn", "type": "box", "position": [-3, 1.4, 6], "rotation": [0, 0, 0], "scale": [1.4, 2.8, 1.4], "color": [0.8, 0.55, 0.25], "physics": false, "combat": { "health": 70, "death": 1, "hitFx": 0 } }

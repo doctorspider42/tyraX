@@ -1,0 +1,1 @@
+{ "id": "a00000000000000d", "name": "react-steel", "type": "box", "position": [-8, 1.1, -6], "rotation": [0, 0, 0], "scale": [1.6, 2.2, 0.8], "color": [0.55, 0.58, 0.64], "physics": false, "combat": { "health": 400, "death": 2, "hitFx": 1 } }

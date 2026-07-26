@@ -52,7 +52,10 @@ struct WpnActor {
 };
 
 WpnActor actors[WPN_MAX_ACTORS];
-int wpnGeneration = -1;
+// ScriptContext::sceneGeneration is unsigned and starts at 0, so the
+// "never synced" sentinel has to be a value it cannot hold yet, not -1.
+unsigned int wpnGeneration = 0;
+bool wpnSynced = false;
 
 // Trigger publication. A flag raised anywhere during frame N is published for
 // the WHOLE of frame N+1: generated scripts run in link order, so a flag that
@@ -538,8 +541,16 @@ void wpnDeath(ScriptContext& ctx, int obj) {
 
 // Scene (re)load: rebuild every actor from the scene tables. Combat state is
 // deliberately NOT persistent across scenes - a fresh scene is a fresh fight.
+//
+// EVERY public entry point below calls this first, and that is not belt and
+// braces - it is the whole ordering contract. Generated scripts run in LINK
+// order, so a graph's On Start can hand the player a weapon before this
+// script has ever ticked; if the sync then ran lazily from the weapon tick it
+// would wipe the inventory it was handed a moment earlier. Syncing on first
+// TOUCH instead of first TICK removes the ordering dependency completely.
 void wpnSyncScene(ScriptContext& ctx) {
-  if (ctx.sceneGeneration == wpnGeneration) return;
+  if (wpnSynced && ctx.sceneGeneration == wpnGeneration) return;
+  wpnSynced = true;
   wpnGeneration = ctx.sceneGeneration;
   for (int i = 0; i < WPN_MAX_ACTORS; ++i) {
     actors[i] = WpnActor{};
@@ -751,6 +762,7 @@ void wpnTickAutoFire(ScriptContext& ctx) {
 // --- The API the flow graph calls ----------------------------------------
 
 void wpnGive(ScriptContext& ctx, int obj, int weapon, int ammo) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a || weapon < 0 || weapon >= WEAPON_COUNT) return;
   const WeaponData& w = WEAPON_DEFS[weapon];
@@ -773,6 +785,7 @@ void wpnGive(ScriptContext& ctx, int obj, int weapon, int ammo) {
 }
 
 void wpnEquip(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a) return;
   if (weapon >= 0) {
@@ -795,6 +808,7 @@ void wpnEquip(ScriptContext& ctx, int obj, int weapon) {
 }
 
 void wpnFire(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a || a->equipped < 0) return;
   // A scripted shot ignores the cooldown and the magazine on purpose: a
@@ -803,6 +817,7 @@ void wpnFire(ScriptContext& ctx, int obj) {
 }
 
 void wpnReload(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a || a->equipped < 0 || a->reloadLeft > 0.0F) return;
   const int wi = a->equipped;
@@ -815,6 +830,7 @@ void wpnReload(ScriptContext& ctx, int obj) {
 }
 
 void wpnSetAmmo(ScriptContext& ctx, int obj, int weapon, int mag, int reserve) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a) return;
   if (weapon < 0) weapon = a->equipped;
@@ -827,6 +843,7 @@ void wpnSetAmmo(ScriptContext& ctx, int obj, int weapon, int mag, int reserve) {
 }
 
 void wpnDamage(ScriptContext& ctx, int obj, float amount) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a || !a->used) return;
   if (amount > 0.0F) {
@@ -849,12 +866,14 @@ void wpnDamage(ScriptContext& ctx, int obj, float amount) {
 }
 
 void wpnKill(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a || !a->used || !a->alive) return;
   wpnDamage(ctx, obj, a->health + 1.0F);
 }
 
 void wpnSetHealth(ScriptContext& ctx, int obj, float hp) {
+  wpnSyncScene(ctx);
   WpnActor* a = actorOf(ctx, obj);
   if (!a) return;
   a->used = 1;
@@ -863,6 +882,7 @@ void wpnSetHealth(ScriptContext& ctx, int obj, float hp) {
 }
 
 bool wpnHas(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
   const WpnActor* a = actorOf(ctx, obj);
   if (!a) return false;
   if (weapon < 0) return a->equipped >= 0;
@@ -871,6 +891,7 @@ bool wpnHas(ScriptContext& ctx, int obj, int weapon) {
 }
 
 int wpnAmmo(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
   const WpnActor* a = actorOf(ctx, obj);
   if (!a) return 0;
   if (weapon < 0) weapon = a->equipped;
@@ -879,6 +900,7 @@ int wpnAmmo(ScriptContext& ctx, int obj, int weapon) {
 }
 
 int wpnReserve(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
   const WpnActor* a = actorOf(ctx, obj);
   if (!a) return 0;
   if (weapon < 0) weapon = a->equipped;
@@ -887,6 +909,7 @@ int wpnReserve(ScriptContext& ctx, int obj, int weapon) {
 }
 
 float wpnHealth(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
   const WpnActor* a = actorOf(ctx, obj);
   return a && a->used ? a->health : 0.0F;
 }

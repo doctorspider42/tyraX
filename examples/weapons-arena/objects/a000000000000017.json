@@ -1,0 +1,1 @@
+{ "id": "a000000000000017", "name": "barrel-00", "type": "cylinder", "position": [-22, 0.8, 4], "rotation": [0, 0, 0], "scale": [1.2, 1.6, 1.2], "color": [0.3, 0.55, 0.35], "physics": false, "combat": { "health": 40, "death": 3, "hitFx": 3 } }

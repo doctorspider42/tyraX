@@ -10,6 +10,46 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (181) **The weapons arena - and the two bugs building it found.** Same user,
+  right after (180): "dodaj jeszcze jakas example mapke, ktora maksymalnie
+  tego feature pokazuje". `examples/weapons-arena` is every axis of the
+  weapon feature as six stations along one walk: an arsenal of six weapons on
+  usable pedestals (`On Used -> Give Weapon` IS the pickup system - there is
+  no pickup object type), a reaction wall where one shot sparks / bleeds /
+  puffs dust / leaves nothing depending on the TARGET, the four death actions
+  side by side, a nine-barrel pit one launcher shell clears, three turrets
+  plus a guard that chases while it shoots, and a melee alley. All nine
+  sounds are **synthesized** (`gunsfx.py` in the scratchpad: a gunshot is a
+  highpassed noise transient + a lowpassed body + a swept sine thump; an
+  explosion is integrated brown noise) for the same reason the models are
+  generated - no licence to carry.
+  Two real bugs it flushed out, both in the runtime, not the example:
+  **(a) the combat state synced on first TICK.** Generated scripts run in
+  LINK order, so the player's `On Start` handed out weapons and the weapon
+  script's first `wpnSyncScene` then wiped the inventory later in the same
+  frame - the HUD read the right ammo on frame 1 and 0/0 forever after.
+  Every `wpn*` entry point now calls the sync first, so combat initializes on
+  first TOUCH and the ordering stops mattering. Worth remembering as a class:
+  any generated subsystem with lazy per-scene state has this hazard.
+  **(b) a life-size viewmodel fills the screen.** One FOV for the world and
+  the weapon (no viewmodel FOV on a PS2) means a 0.95-unit shotgun 0.85 units
+  from the eye covers a quarter of the frame. "Create viewmodel + add to
+  scene" now auto-frames: `viewScale = 0.38 / model length` (clamped, a
+  pistol stays at 1) and the muzzle offset moves to the end of the scaled
+  barrel.
+  Also fixed a `-Wsign-compare` warning the PS2 toolchain flagged: the
+  "never synced" sentinel was `int -1` against an `unsigned` generation.
+  Verified in PCSX2 at a locked 50 FPS. Because the pad cannot be scripted,
+  the weapons were exercised through a throwaway rig in %TEMP% that hands the
+  player everything and pulls its own trigger on a timer (`arenatest.py`,
+  with a spawn override so a rig can face the station it tests): the shotgun
+  viewmodel frames correctly and its ammo holds steady, and the launcher rig
+  aimed into the pit left **3 of 9 barrels standing** with debris on the
+  ground - projectile arc, blast radius and the debris burst in one shot.
+  The shipped example boots clean, unarmed, with AMMO/HP/KILLS drawn.
+  Still needs a human with a pad: the pickups, weapon switching, the recoil
+  of the revolver vs the SMG, and the melee arc.
+
 - (180) **Weapons and combat: firearms, melee, damage, particle effects and
   enemies that shoot back.** The user asked for "feature epoki" - guns and
   blades, configurable damage, particle effects, and models the licence lets

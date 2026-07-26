@@ -1,0 +1,1 @@
+{ "id": "a000000000000015", "name": "death-stay", "type": "box", "position": [3, 1.4, 6], "rotation": [0, 0, 0], "scale": [1.4, 2.8, 1.4], "color": [0.55, 0.55, 0.58], "physics": false, "combat": { "health": 70, "death": 2, "hitFx": 0 } }

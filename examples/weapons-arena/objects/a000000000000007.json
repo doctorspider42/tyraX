@@ -1,0 +1,1 @@
+{ "id": "a000000000000007", "name": "vm-pistol", "type": "model", "position": [0, 1.2, -24], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/weapons/pistol.obj" }
