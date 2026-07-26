@@ -10,7 +10,8 @@ namespace livedbg {
 namespace {
 
 constexpr uint32_t kSnapMagic = 0x42445854;  // "TXDB" little-endian
-constexpr uint32_t kSnapVersion = 3;
+constexpr uint32_t kSnapVersion = 4;  // v4 appends stats + the flush map
+constexpr int kMaxFlushMap = 64;
 constexpr int kSnapHeader = 64;
 constexpr uint32_t kCmdMagic = 0x43445854;  // "TXDC"
 constexpr uint32_t kCmdVersion = 1;
@@ -97,7 +98,11 @@ bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out) {
     if (bytes.size() < (size_t)kSnapHeader + 4) return false;
     const unsigned char* b = bytes.data();
     if (rd<uint32_t>(b + 0) != kSnapMagic) return false;
-    if (rd<uint32_t>(b + 4) != kSnapVersion) return false;
+    // v3 is still accepted: a game built before the stats block exists on
+    // people's consoles right now, and refusing it would blank the whole
+    // Debugger over a tail it simply does not have.
+    const uint32_t ver = rd<uint32_t>(b + 4);
+    if (ver != 3 && ver != kSnapVersion) return false;
 
     Snapshot s;
     s.seq = rd<uint32_t>(b + 8);
@@ -168,6 +173,50 @@ bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out) {
         }
         s.objects.push_back(std::move(w));
     }
+    // v4 tail: 64 bytes of stats, then the flush map. A v3 snapshot ends at the
+    // footer and simply reports no stats.
+    if (ver < 4) {
+        if (rd<uint32_t>(p) != (s.seq ^ kFooterXor)) return false;
+        out = std::move(s);
+        return true;
+    }
+    if (p + 64 + 2 > bytes.data() + bytes.size()) return false;
+    Stats st;
+    st.valid = true;
+    st.fps = rd<uint16_t>(p + 0);
+    st.flushes = rd<uint16_t>(p + 2);
+    st.qw = rd<uint32_t>(p + 4);
+    st.verts = rd<uint32_t>(p + 8);
+    st.vramFreeKB = rd<uint32_t>(p + 12);
+    st.vramMinFreeKB = rd<uint32_t>(p + 16);
+    st.vramLargestKB = rd<uint32_t>(p + 20);
+    st.vramResident = rd<uint16_t>(p + 24);
+    st.vramPeak = rd<uint16_t>(p + 26);
+    st.vramUploads = rd<uint32_t>(p + 28);
+    st.vramEvictions = rd<uint32_t>(p + 32);
+    st.objects = rd<uint16_t>(p + 36);
+    st.objActive = rd<uint16_t>(p + 38);
+    st.objVisible = rd<uint16_t>(p + 40);
+    st.maxChunkVerts = rd<uint16_t>(p + 42);
+    st.ramFreeKB = rd<uint32_t>(p + 44);
+    st.ramFrame = rd<uint32_t>(p + 48);
+    st.vramBinds = rd<uint32_t>(p + 52);
+    st.vramHits = rd<uint32_t>(p + 56);
+    s.stats = st;
+    p += 64;
+    const int flushCount = (int)rd<uint16_t>(p);
+    p += 2;
+    if (flushCount < 0 || flushCount > kMaxFlushMap) return false;
+    if (p + (size_t)flushCount * 8 + 4 > bytes.data() + bytes.size()) return false;
+    s.flushes.reserve(flushCount);
+    for (int i = 0; i < flushCount; ++i, p += 8) {
+        FlushInfo fi;
+        fi.qw = rd<uint16_t>(p + 0);
+        fi.unpacks = rd<uint16_t>(p + 2);
+        fi.verts = rd<uint16_t>(p + 4);
+        fi.program = rd<uint16_t>(p + 6);
+        s.flushes.push_back(fi);
+    }
     if (rd<uint32_t>(p) != (s.seq ^ kFooterXor)) return false;
 
     out = std::move(s);
@@ -189,7 +238,7 @@ bool Command::sameStateAs(const Command& o) const {
            stepFrames == o.stepFrames && breakpoints == o.breakpoints &&
            fire == o.fire && fireAndRun == o.fireAndRun &&
            captureVu == o.captureVu && vuFlush == o.vuFlush &&
-           watchObjects == o.watchObjects;
+           measureRam == o.measureRam && watchObjects == o.watchObjects;
 }
 
 std::vector<unsigned char> encodeCommand(const Command& c) {
@@ -207,6 +256,7 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
                      (c.fireAndRun ? 4u : 0u) | (c.captureVu ? 8u : 0u);
     if (c.captureVu && c.vuFlush >= 0)
         flags |= 16u | ((uint32_t)(c.vuFlush & 0xFFFF) << 8);
+    if (c.measureRam) flags |= 32u;
     put32(v, flags);
     put32(v, (uint32_t)(int32_t)c.stepFrames);
     put32(v, (uint32_t)(int32_t)c.breakpoints.size());

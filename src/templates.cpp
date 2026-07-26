@@ -19792,7 +19792,7 @@ namespace {
 const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livedbg";
 
 const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
-const unsigned int SNAP_VERSION = 3U;
+const unsigned int SNAP_VERSION = 4U;  // v4 appends the stats + flush map
 const int SNAP_HEADER = 64;
 const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
 const unsigned int CMD_VERSION = 1U;
@@ -19863,6 +19863,27 @@ bool vuCapExplicit = false;  // the editor named it (do not auto-advance)
 int vuFlushCount = 0;       // flushes seen so far THIS frame
 int vuFlushPrevFrame = 0;   // flushes the last complete frame sent
 int vuCapTookIndex = 0;     // which one the pending capture actually is
+
+// The flush map: one line per bag flush of the last complete frame. A frame
+// sends dozens of them and a capture can only hold ONE, so without this the
+// editor's only way to find the draw you care about is to walk them all. The
+// tap already sees every flush; this walks its tags (cheap - tens of
+// quadwords, no vertex data is read) for the numbers that identify a draw.
+const int MAX_FLUSHMAP = 64;
+struct FlushRec {
+  unsigned short qw, unpacks, verts, program;
+};
+FlushRec flushCur[MAX_FLUSHMAP];   // filling, this frame
+FlushRec flushMap[MAX_FLUSHMAP];   // the last complete frame
+int flushCurCount = 0, flushMapCount = 0;
+unsigned int frameQw = 0, frameVerts = 0;          // this frame
+unsigned int lastFrameQw = 0, lastFrameVerts = 0;  // the last complete one
+unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
+// Free EE RAM is measured ON REQUEST only. The engine's Info::getAvailableRAM
+// finds it by allocating every free block until malloc fails and then freeing
+// the chain - honest, but a heap storm nobody wants once per frame.
+bool ramMeasureWanted = false;
+unsigned int ramFreeKB = 0, ramFrame = 0;
 void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
@@ -19875,8 +19896,10 @@ bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
 
 // One static snapshot buffer - the EE has no business allocating per flush.
+// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry.
 unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 +
-                      MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) + 4];
+                      MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) +
+                      64 + 2 + MAX_FLUSHMAP * 8 + 4];
 
 inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -19954,6 +19977,8 @@ void pollCommand() {
   // without it the capture walks the frame one flush per arm, wrapping when it
   // runs past what the last complete frame sent. Old editors set neither, which
   // leaves the index at 0 - the behaviour they expect.
+  // Bit 5: measure free EE RAM once (a heap storm - see ramMeasureWanted).
+  if ((flags & 32U) != 0) ramMeasureWanted = true;
   if ((flags & 8U) != 0) {
     vuCapArmed = true;
     vuCapExplicit = (flags & 16U) != 0;
@@ -20030,6 +20055,64 @@ void flush(ScriptContext& ctx) {
     watchRingCount[i] = 0;  // flushed: the editor has these frames now
     watchRingNext[i] = 0;
   }
+
+  // --- v4: the frame's vital signs, and the flush map -----------------------
+  // Everything here is already computed by somebody: the engine counts frames
+  // and VRAM residency, the VU1 tap counts draws, the scene knows its objects.
+  // The only reason these were invisible is that nobody carried them across.
+  unsigned char* st = p;
+  memset(st, 0, 64);
+  unsigned int fps = 0, vramFreeKB = 0, vramMinKB = 0, vramLargestKB = 0;
+  unsigned int binds = 0, hits = 0, uploads = 0, evictions = 0;
+  unsigned short resident = 0, peak = 0;
+  if (ctx.engine) {
+    fps = ctx.engine->info.getFps();
+    Tyra::RendererCore& rc = ctx.engine->renderer.core;
+    const Tyra::RendererCoreVRamStats& vs = rc.texture.stats;
+    binds = vs.binds;
+    hits = vs.hits;
+    uploads = vs.uploads;
+    evictions = vs.evictions;
+    resident = (unsigned short)vs.resident;
+    peak = (unsigned short)vs.peakResident;
+    vramMinKB = (unsigned int)(vs.minFreeMB * 1024.0F);
+    vramFreeKB = (unsigned int)(rc.gs.vram.getFreeSpaceInMB() * 1024.0F);
+    vramLargestKB = (unsigned int)(rc.gs.vram.getLargestFreeWords() / 256);
+  }
+  unsigned short objActive = 0, objVisible = 0;
+  for (int i = 0; i < ctx.objectCount; ++i) {
+    if (ctx.objects[i].active) ++objActive;
+    if (ctx.objects[i].visible) ++objVisible;
+  }
+  put16(st + 0, (unsigned short)fps);
+  put16(st + 2, (unsigned short)vuFlushPrevFrame);
+  put32(st + 4, lastFrameQw);
+  put32(st + 8, lastFrameVerts);
+  put32(st + 12, vramFreeKB);
+  put32(st + 16, vramMinKB);
+  put32(st + 20, vramLargestKB);
+  put16(st + 24, resident);
+  put16(st + 26, peak);
+  put32(st + 28, uploads);
+  put32(st + 32, evictions);
+  put16(st + 36, (unsigned short)ctx.objectCount);
+  put16(st + 38, objActive);
+  put16(st + 40, objVisible);
+  put16(st + 42, lastMaxChunk);
+  put32(st + 44, ramFreeKB);
+  put32(st + 48, ramFrame);
+  put32(st + 52, binds);
+  put32(st + 56, hits);
+  p += 64;
+  put16(p, (unsigned short)flushMapCount);
+  p += 2;
+  for (int i = 0; i < flushMapCount; ++i, p += 8) {
+    put16(p + 0, flushMap[i].qw);
+    put16(p + 2, flushMap[i].unpacks);
+    put16(p + 4, flushMap[i].verts);
+    put16(p + 6, flushMap[i].program);
+  }
+
   put32(p, outSeq ^ FOOTER_XOR);
   p += 4;
 
@@ -20058,7 +20141,16 @@ void tickImpl(ScriptContext& ctx) {
   // The tick runs once per frame, so a frame's worth of bag flushes has just
   // gone by: bank the total (that is what "flush 3 of 13" and the capture's
   // wrap-around are counted against) and start over.
-  if (vuFlushCount > 0) vuFlushPrevFrame = vuFlushCount;
+  if (vuFlushCount > 0) {
+    vuFlushPrevFrame = vuFlushCount;
+    // Hand the frame's map over whole: a half-filled one would draw a picture
+    // of a frame that never happened.
+    flushMapCount = flushCurCount;
+    for (int i = 0; i < flushCurCount; ++i) flushMap[i] = flushCur[i];
+    lastFrameQw = frameQw;
+    lastFrameVerts = frameVerts;
+    lastMaxChunk = frameMaxChunk;
+  }
   // Still armed after a whole frame? Then the index asked for is past what this
   // frame sends (the count moves with streaming) - wrap rather than wait for a
   // flush that may never come. The written capture reports the index actually
@@ -20066,6 +20158,15 @@ void tickImpl(ScriptContext& ctx) {
   if (vuCapArmed && vuFlushCount > 0 && vuCapWant >= vuFlushCount)
     vuCapWant = 0;
   vuFlushCount = 0;
+  flushCurCount = 0;
+  frameQw = frameVerts = 0;
+  frameMaxChunk = 0;
+  // A requested RAM measurement runs here, between frames, never mid-render.
+  if (ramMeasureWanted && ctx.engine) {
+    ramMeasureWanted = false;
+    ramFreeKB = (unsigned int)(ctx.engine->info.getAvailableRAM() * 1024.0F);
+    ramFrame = frameNo;
+  }
   if (vuCapPending) writeVuCapture(ctx);
   forcedCount = 0;  // force-fires live for exactly one frame
 
@@ -20158,6 +20259,57 @@ void vuPacketTap(const void* data, unsigned int qwc, const char* name) {
   // Counted for EVERY flush, armed or not: this is both the index the editor
   // selects with and the "how many draws does a frame send" figure it reports.
   const int flushIndex = vuFlushCount++;
+
+  // Summarise this flush for the map. Walking the chain here costs a few dozen
+  // iterations - the tags only; nothing dereferences the referenced vertex
+  // blocks. Positions are the UNPACK to VU1 address 2: the pipeline puts the
+  // mesh constants at 0 and the position array right after them, whichever
+  // microprogram runs (checked against three of them on real hardware).
+  {
+    int unpacks = 0, verts = 0, prog = 0, biggest = 0;
+    int at = 0;
+    const unsigned char* base = (const unsigned char*)data;
+    while (at < (int)qwc) {
+      unsigned int w0, vif0, vif1;
+      memcpy(&w0, base + (size_t)at * 16, 4);
+      memcpy(&vif0, base + (size_t)at * 16 + 8, 4);
+      memcpy(&vif1, base + (size_t)at * 16 + 12, 4);
+      const int tagQwc = (int)(w0 & 0xFFFF);
+      const int id = (int)((w0 >> 28) & 0x7);
+      const bool byRef = (id == 0 || id == 3 || id == 4);
+      for (int k = 0; k < 2; ++k) {
+        const unsigned int code = k ? vif1 : vif0;
+        if (!code) continue;
+        const unsigned int cmd = (code >> 24) & 0xFF;
+        const unsigned int num = (code >> 16) & 0xFF;
+        const unsigned int imm = code & 0xFFFF;
+        if ((cmd & 0x60) == 0x60) {
+          ++unpacks;
+          if ((imm & 0x3FF) == 2) {
+            const int n = (int)(num ? num : 256);
+            verts += n;
+            // The biggest single stream IS the VU1 buffer's capacity for that
+            // vertex layout: the pipeline cuts a mesh at exactly that many.
+            if (n > biggest) biggest = n;
+          }
+        } else if (cmd == 0x14 || cmd == 0x15) {
+          prog = (int)imm;  // MSCAL / MSCALF names the microprogram
+        }
+      }
+      at += byRef ? 1 : 1 + tagQwc;
+      if (id == 0 || id == 7) break;  // refe / end
+    }
+    if (flushCurCount < MAX_FLUSHMAP) {
+      FlushRec& r = flushCur[flushCurCount++];
+      r.qw = (unsigned short)(qwc > 65535U ? 65535U : qwc);
+      r.unpacks = (unsigned short)unpacks;
+      r.verts = (unsigned short)verts;
+      r.program = (unsigned short)prog;
+    }
+    frameQw += qwc;
+    frameVerts += (unsigned int)verts;
+    if (biggest > (int)frameMaxChunk) frameMaxChunk = (unsigned short)biggest;
+  }
   if (!vuCapArmed || vuCapPending) return;
   // EXACTLY the wanted index, not "the first one at or past it": arming happens
   // mid-frame, so a >= test grabs whatever is left of the frame and the walk

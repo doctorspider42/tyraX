@@ -329,7 +329,18 @@ Notes:
 
   With the server yours and the editor closed, a probe can pin each flush in
   turn and summarise the frame — which is how "my model shows 2 meshes" was
-  traced to a bag flush full of terrain (PROGRESS 200).
+  traced to a bag flush full of terrain (PROGRESS 200). Since PROGRESS 201 the
+  **flush map** makes that one read instead of a walk: `livedbg.bin` (snapshot
+  **v4**) ends with a 64-byte stats block (FPS, flushes/quadwords/vertices to
+  VU1, GS VRAM free/low-water/largest/resident, object counts, free EE RAM) and
+  one 8-byte row per bag flush (qw, unpacks, verts, program). A ~60-line Python
+  probe reads it — that is how the block was verified, cross-checking the VRAM
+  figures against the game's own `VRAMSTAT` log line and the flush map's vertex
+  counts against `--dump-vucap` of the same capture. **v3 snapshots still
+  parse** (a console running an older build keeps working, minus stats), so
+  when stats are missing the first question is "was the GAME rebuilt?".
+  Free EE RAM is measured only when asked (command flags **bit 5**): the
+  engine's measurement allocates every free block until malloc fails.
 - **Flow-graph logic, without a pad or a screenshot**: a debug build with the
   *Live Debugger* preference on (docs/live-debugger.md) writes
   `bin/livedbg.bin` every 6 frames - per-node hit counters, a ring of recent

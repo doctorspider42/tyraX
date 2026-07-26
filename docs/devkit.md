@@ -90,6 +90,50 @@ Beyond breakpoints and stepping (see [live-debugger.md](live-debugger.md)):
   actually, and what did it do a second ago" tool.
 
 
+## The frame's vital signs
+
+*Debugger > Stats*, and the **flush map** in the VU tab. Nothing here is newly
+measured: the engine already counts frames and VRAM residency, the VU1 tap
+already sees every draw, the scene already knows its objects. They were simply
+invisible - counted on the console and never carried across. The snapshot (v4)
+now carries them.
+
+- **Frame** - FPS, and what went to VU1: bag flushes, quadwords, vertices. Plus
+  the **largest single position stream**, which is not a curiosity: the pipeline
+  cuts a mesh at exactly the VU1 buffer's capacity for its vertex layout, so
+  that number IS the capacity, and it is the chunk size a big model is diced
+  into.
+- **GS VRAM** - free MB with a bar, the largest free block, the low-water mark,
+  resident textures and the peak, and the cumulative bind/hit/upload/eviction
+  counters. Evictions get a warning line, because they mean the working set does
+  not fit and textures are being re-sent every frame. This is the `VRAMSTAT`
+  line from the log, in a place you can watch.
+- **EE memory** - free RAM, **on request only**. The engine measures it by
+  allocating every free block until `malloc` fails and then freeing the chain
+  (`Info::getAvailableRAM`); that is honest but it is a heap storm, so it
+  happens when you press the button and never on a timer. The panel shows the
+  value and the frame it was taken on.
+- **Scene** - objects, active, visible. The count includes the spawn pool's
+  idle slots, which is why a small scene can report dozens.
+
+### The flush map
+
+A frame sends one DMA chain per bag flush - dozens of them - and a capture holds
+exactly one. The map lists them all (index, vertices, quadwords, unpacks, the
+microprogram), fattest ones highlighted, and **clicking a row captures that
+draw**. That turns "which of these 37 draws is my model?" from a 37-step
+guessing game into reading a table.
+
+The counts come from the tap walking each chain's tags - no vertex data is
+touched, just the tags and VIF codes. Positions are the UNPACK to VU1 address 2
+(the pipeline puts the mesh constants at 0 and positions right after, whichever
+microprogram runs). The EE's count and the editor's own decode of the same
+capture were checked against each other: 282 vertices either way.
+
+**A game built before this reports none of it.** The snapshot version moved to 4;
+v3 still parses (the Debugger keeps working against a console running yesterday's
+build), it just has no stats to show. Rebuild to get them.
+
 ## When it crashes
 
 Three different things can go wrong in a running game, and they used to have

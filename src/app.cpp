@@ -21452,6 +21452,7 @@ void App::livedbgTick() {
             dbgCmd_.stepUntilFire = false;
             dbgCmd_.fireAndRun = false;
             dbgCmd_.captureVu = false;
+            dbgCmd_.measureRam = false;
         }
     }
 }
@@ -22170,6 +22171,78 @@ void App::drawDebuggerWindow() {
         ImGui::EndTabItem();
     }
 
+    // Stats: the frame's vital signs. Every number here already existed
+    // somewhere the developer could not see it - the engine's own counters, the
+    // VU1 tap's per-flush accounting, the scene's object list - and the whole
+    // feature is carrying them across the same channel as everything else.
+    if (ImGui::BeginTabItem("Stats")) {
+        const livedbg::Stats& st = dbgSnap_.stats;
+        if (!live || !st.valid) {
+            ImGui::TextWrapped(
+                "No stats. They arrive with the game's snapshots - run a debug "
+                "build with the Live Debugger on. (A game built before this "
+                "panel existed reports none: rebuild it.)");
+        } else {
+            ImGui::SeparatorText("Frame");
+            ImGui::Text("%d FPS", st.fps);
+            ImGui::SameLine();
+            ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
+                                "%u vertices",
+                                st.flushes, st.qw, st.verts);
+            if (st.maxChunkVerts)
+                ImGui::TextDisabled(
+                    "Largest single stream: %d vertices - that IS the VU1 "
+                    "buffer's capacity for this vertex layout, and the size a "
+                    "mesh gets cut into.",
+                    st.maxChunkVerts);
+
+            ImGui::SeparatorText("GS VRAM");
+            const float freeMB = st.vramFreeKB / 1024.0f;
+            const float lowMB = st.vramMinFreeKB / 1024.0f;
+            ImGui::Text("%.2f MB free, largest block %u KB", freeMB,
+                        st.vramLargestKB);
+            // 4 MB total on the console; the bar is against what is left, which
+            // is what actually runs out.
+            ImGui::ProgressBar(ImClamp(freeMB / 4.0f, 0.0f, 1.0f),
+                               ImVec2(-FLT_MIN, 0), "");
+            ImGui::TextDisabled("low-water mark %.2f MB   |   %d textures "
+                                "resident (peak %d)",
+                                lowMB, st.vramResident, st.vramPeak);
+            ImGui::TextDisabled("%u binds, %u hits, %u uploads, %u evictions "
+                                "(cumulative)",
+                                st.vramBinds, st.vramHits, st.vramUploads,
+                                st.vramEvictions);
+            if (st.vramEvictions)
+                ImGui::TextColored(ImVec4(0.94f, 0.75f, 0.35f, 1.0f),
+                                   "Evictions happen: the working set does not "
+                                   "fit, so textures are re-uploaded.");
+
+            ImGui::SeparatorText("EE memory");
+            if (st.ramFreeKB)
+                ImGui::Text("%.2f MB free at frame %u", st.ramFreeKB / 1024.0f,
+                            st.ramFrame);
+            else
+                ImGui::TextDisabled("not measured yet");
+            ImGui::BeginDisabled(!live);
+            if (ImGui::Button("Measure now")) {
+                dbgCmd_.measureRam = true;
+                dbgCmdWritten_ = false;
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "On request only. The engine measures free RAM by "
+                    "allocating every free block\nuntil malloc fails and then "
+                    "freeing the chain - honest, but not something to\nrun once "
+                    "a frame.");
+
+            ImGui::SeparatorText("Scene");
+            ImGui::Text("%d objects: %d active, %d visible", st.objects,
+                        st.objActive, st.objVisible);
+        }
+        ImGui::EndTabItem();
+    }
+
     // VU: what the EE actually fed VU1 for one draw - the DMA chain decoded,
     // and the vertex stream it carried drawn as a wireframe. VU1 debugging is
     // otherwise blind (no printf, output straight to the GS), and this is the
@@ -22209,6 +22282,73 @@ void App::drawDebuggerWindow() {
         if (dbgVuCapWaiting_) {
             ImGui::SameLine();
             ImGui::TextDisabled("waiting for the game...");
+        }
+
+        // The flush map: every draw of the last complete frame, so finding the
+        // one you care about is reading a table instead of clicking through
+        // dozens of captures. Click a row to capture THAT draw.
+        if (!dbgSnap_.flushes.empty() &&
+            ImGui::CollapsingHeader("Flush map - the frame's draws")) {
+            uint32_t totalV = 0;
+            for (const livedbg::FlushInfo& f : dbgSnap_.flushes)
+                totalV += (uint32_t)f.verts;
+            ImGui::TextDisabled(
+                "%d flush(es), %u vertices in the last complete frame. Click a "
+                "row to capture it.",
+                (int)dbgSnap_.flushes.size(), totalV);
+            const float h = scaled(150.0f);
+            if (ImGui::BeginTable("##flushmap", 5,
+                                  ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_SizingStretchProp |
+                                      ImGuiTableFlags_ScrollY,
+                                  ImVec2(0, h))) {
+                ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthStretch, 0.12f);
+                ImGui::TableSetupColumn("verts", ImGuiTableColumnFlags_WidthStretch, 0.22f);
+                ImGui::TableSetupColumn("qw", ImGuiTableColumnFlags_WidthStretch, 0.18f);
+                ImGui::TableSetupColumn("unpacks", ImGuiTableColumnFlags_WidthStretch, 0.22f);
+                ImGui::TableSetupColumn("program", ImGuiTableColumnFlags_WidthStretch, 0.26f);
+                ImGui::TableHeadersRow();
+                int biggest = 0;
+                for (const livedbg::FlushInfo& f : dbgSnap_.flushes)
+                    biggest = ImMax(biggest, f.verts);
+                for (size_t i = 0; i < dbgSnap_.flushes.size(); ++i) {
+                    const livedbg::FlushInfo& f = dbgSnap_.flushes[i];
+                    ImGui::TableNextRow();
+                    ImGui::PushID((int)i);
+                    ImGui::TableSetColumnIndex(0);
+                    char label[16];
+                    std::snprintf(label, sizeof(label), "%zu", i);
+                    const bool pinnedHere =
+                        dbgVuPinFlush_ && dbgVuFlushWanted_ == (int)i;
+                    if (ImGui::Selectable(label, pinnedHere,
+                                          ImGuiSelectableFlags_SpanAllColumns)) {
+                        dbgVuPinFlush_ = true;
+                        dbgVuFlushWanted_ = (int)i;
+                        dbgCmd_.captureVu = true;
+                        dbgCmd_.vuFlush = (int)i;
+                        dbgCmdWritten_ = false;
+                        dbgVuCapWaiting_ = true;
+                    }
+                    ImGui::TableSetColumnIndex(1);
+                    // The fattest draws are the ones worth looking at first.
+                    if (biggest > 0 && f.verts >= biggest / 2)
+                        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "%d",
+                                           f.verts);
+                    else
+                        ImGui::Text("%d", f.verts);
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%d", f.qw);
+                    ImGui::TableSetColumnIndex(3);
+                    ImGui::Text("%d", f.unpacks);
+                    ImGui::TableSetColumnIndex(4);
+                    if (f.program)
+                        ImGui::Text("@%d", f.program);
+                    else
+                        ImGui::TextDisabled("carried over");
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
         }
         if (!dbgVuCap_.loaded) {
             ImGui::TextWrapped(

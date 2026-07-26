@@ -10,6 +10,46 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (201) **The frame's vital signs, and a map of its draws.** Owner's ask after
+  200 ("okienko ze statami... ile miejsca w VU, co się da"), and the answer to
+  the 37-flush problem it left behind. **Not one number here is newly measured**
+  - the engine counts frames and VRAM residency, the VU1 tap sees every draw,
+  the scene knows its objects; they were counted on the console and never
+  carried across. The snapshot (v4) now carries them, and the Debugger grew a
+  **Stats** tab: FPS, flushes/quadwords/vertices to VU1, GS VRAM free with a
+  bar, its low-water mark, resident/peak textures, binds/hits/uploads/evictions
+  (with a warning line when anything is being evicted), free EE RAM, and the
+  object counts.
+  The **flush map** is the part that changes how the VU panel is used: one row
+  per bag flush of the last frame (vertices, quadwords, unpacks, microprogram),
+  fattest highlighted, and **clicking a row captures that draw**. Finding a
+  model in a 37-flush frame becomes reading a table.
+  Three judgement calls worth recording:
+  **EE RAM is measured on request only.** `Info::getAvailableRAM` finds it by
+  allocating every free block until malloc fails and then freeing the chain -
+  accurate, and a heap storm nobody wants on a timer. The panel has a button and
+  reports which frame the value came from.
+  **The largest position stream is reported as a statistic**, because it is not
+  a curiosity: the pipeline cuts a mesh at exactly the VU1 buffer's capacity for
+  its vertex layout, so that number IS the capacity (108 on the owner's scene,
+  24 on the test fixture) - the answer to "how much room is there in VU1?" that
+  200 could only reach by hand.
+  **Positions are counted on the EE as "the UNPACK to VU1 address 2"**, checked
+  against three different microprograms on hardware first; the tap walks tags
+  only, never vertex data.
+  *Verified* in PCSX2 against the fixture: 50 fps, 9 flushes, 819 quadwords,
+  2484 vertices, and VRAM figures that match the game's own `VRAMSTAT` log line
+  to the digit (1.01 MB free, low 0.95, largest 1032 KB, 1 resident). The flush
+  map's EE-side vertex counts agree with the editor's independent decode of the
+  same capture (282 either way) - two implementations, one answer. The RAM
+  button came back with 27.25 MB free at frame 571. **v3 snapshots still
+  parse**, proven twice: a hand-built v3 file through a harness, and the owner's
+  console - which is running yesterday's build - read live as "frame 175326".
+  **Not verified on hardware**: the new build compiles and is deployed, but
+  `ps2client reset` will not take while the previous game holds the link, so the
+  stats have not run on a real EE yet - one F6 from the editor does it. The
+  panel itself is unscreenshotted as ever (blank editor window, see 187).
+
 - (200) **Reading a frame off the owner's real PS2, and what "my model shows 2
   meshes" actually was.** The tooling from 197-199 got its first real use, on
   hardware, against a scene the owner built: a 3351-vertex `Cottage_FREE.obj`

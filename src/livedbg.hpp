@@ -75,6 +75,36 @@ struct ObjWatch {
     std::vector<ObjSample> samples;
 };
 
+/** One bag flush of the last complete frame, as the VU1 tap saw it go by. A
+ * frame sends dozens; a capture holds one - so this is the index. */
+struct FlushInfo {
+    int qw = 0;        // chain length in quadwords
+    int unpacks = 0;
+    int verts = 0;     // items UNPACKed to VU1 address 2, i.e. positions
+    int program = 0;   // MSCAL entry (0 = the chain only said MSCNT)
+};
+
+/** The frame's vital signs (v4). Every number here is one somebody already
+ * computed - the engine, the tap, the scene - and nobody carried across. */
+struct Stats {
+    bool valid = false;
+    int fps = 0;
+    int flushes = 0;      // bag flushes in the last complete frame
+    uint32_t qw = 0;      // quadwords sent to VU1 in that frame
+    uint32_t verts = 0;   // position items sent in that frame
+    uint32_t vramFreeKB = 0, vramMinFreeKB = 0, vramLargestKB = 0;
+    int vramResident = 0, vramPeak = 0;
+    uint32_t vramBinds = 0, vramHits = 0, vramUploads = 0, vramEvictions = 0;
+    int objects = 0, objActive = 0, objVisible = 0;
+    // The largest position stream of the frame: the pipeline cuts a mesh at
+    // exactly the VU1 buffer's capacity, so this IS that capacity.
+    int maxChunkVerts = 0;
+    // Free EE RAM, in KiB, and the frame it was measured on. Measured only when
+    // asked for: the engine finds it by allocating every free block until
+    // malloc fails, which is not something to do once per frame.
+    uint32_t ramFreeKB = 0, ramFrame = 0;
+};
+
 /** bin/livedbg.bin - what the running game reports. */
 struct Snapshot {
     uint32_t seq = 0;    // flush counter; unchanged = nothing new to read
@@ -95,6 +125,8 @@ struct Snapshot {
     // draw a real 50 Hz curve (and a trail in the viewport), not the 8 Hz the
     // flush cadence would give. Oldest sample first.
     std::vector<ObjWatch> objects;
+    Stats stats;                    // v4
+    std::vector<FlushInfo> flushes;  // v4: the last complete frame's draws
 };
 
 /** Decodes a snapshot. Torn/partial writes fail the size + footer checks and
@@ -124,6 +156,10 @@ struct Command {
     // that index every time. Rides in the flags word, so a game built before
     // this existed simply keeps grabbing the first flush.
     int vuFlush = -1;
+    // Ask the game to measure free EE RAM once. One-shot, like `fire`: the
+    // engine's measurement allocates every free block and frees the chain, so
+    // it happens when asked and never on a timer.
+    bool measureRam = false;
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once
