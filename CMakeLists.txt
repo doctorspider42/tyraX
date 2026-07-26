@@ -71,6 +71,7 @@ add_executable(tyrax-editor
     src/gltfwrite.cpp
     src/mhdata.cpp
     src/mocap.cpp
+    src/posefilter.cpp
     src/visionpose.cpp
     src/json.cpp
     src/matbake.cpp

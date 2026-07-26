@@ -404,6 +404,47 @@ foot stayed bent the whole time and the character's left foot never came within
 23 mm difference in leg extension between the two sides to become a 240 mm
 difference in how low each ankle ever gets.
 
+### Taking the shake out
+
+Monocular tracking re-estimates every joint from scratch each frame, so a
+performer standing perfectly still arrives **shimmering** - and a retarget
+faithfully passes that on to the character. Averaging fixes it and ruins
+everything else: smoothing strong enough to settle a still hand puts visible lag
+on a punch.
+
+*Smooth the shake* uses a one-euro filter, whose whole idea is that **the cutoff
+rises with speed**. Slow movement is mostly noise, so it filters hard; fast
+movement is mostly signal, so it gets out of the way. One knob set, no mode
+switch, and the two failure modes trade against each other instead of fighting.
+
+Measured against a known signal with 2.5° of joint noise:
+
+| | jitter | error | lag |
+|---|---|---|---|
+| standing still, off | 1.85° | 1.22° | |
+| standing still, **on** | **0.48°** | **0.58°** | |
+| slow gesture, off | 3.00° | 1.22° | 0 fr |
+| slow gesture, **on** | 2.38° | 2.79° | 1 fr |
+| fast punch, off | 26.39° | 1.22° | 0 fr |
+| fast punch, **on** | 25.73° | 4.20° | **0 fr** |
+
+Standing still gets four times calmer *and* twice as faithful; a fast gesture
+pays three degrees and no lag at all. The settings are not taste - they came out
+of a parameter sweep scored the way an eye weights the defects, because the
+first attempt (weighting jitter and error equally) scored the filter barely
+better than doing nothing and said more about the weights than about the filter.
+
+One number in the textbook one-euro is wrong for a body: the **derivative
+cutoff**, which smooths the speed estimate that opens the main cutoff. At the
+standard 1 Hz - tuned for a mouse pointer - it cannot follow a 2 Hz gesture, so
+the cutoff never opens in time and the filter sits 18° behind a punch. It is 3 Hz
+here.
+
+Anything that smooths across frames has to be told when the stream *jumps*
+rather than moves, so **Recentre** clears the filter and the Vision tracker
+along with the root - otherwise the character is dragged through the gap instead
+of cutting across it.
+
 ### The head and the hands: a second opinion
 
 The joints ARKit reports and never solves are not a dead end. Hand and face
@@ -486,6 +527,7 @@ argument for having the live window at all:
 | `src/chargen.cpp` | `Params` → `glbparser::Skel`: macro blend, proxy fit, rig, weight transfer, skin bake. Host-only, no GL, no `Project`. |
 | `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, retargeting from an imported library, and host linear-blend skinning for the preview. Host-only, no GL. |
 | `src/mocap.cpp` | reads `.tmocap` phone takes into a source `Skel` (ARKit joint names renamed to the rig's), and writes them - `buildSource` is shared by the file and live-link paths. Host-only, no GL. |
+| `src/posefilter.cpp` | the one-euro jitter filter over a frame of joint rotations. Host-only, no GL; the sweep that set its constants is scratchpad/filter_check.cpp. |
 | `src/visionpose.cpp` | head and wrist orientation from Vision's landmarks - the geometry the phone deliberately does not do. Host-only, no GL, harness-tested against synthetic poses. |
 | `src/phonecam.cpp` | the link the phone joins: `bodyrest` / `body` messages into `bodySkeleton()` and `drainBodyFrames()`, alongside the camera app's own traffic. |
 | `src/app.cpp` (mocap window) | `drawMocapWindow` / `mocapRebind` / `mocapApplyFrame` - both sources end in the same `charanim::applyLive`. |

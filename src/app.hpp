@@ -14,6 +14,7 @@
 #include "chargen.hpp"
 #include "history.hpp"
 #include "phonecam.hpp"
+#include "posefilter.hpp"
 #include "visionpose.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
@@ -1028,6 +1029,8 @@ private:
     bool mocapGround_ = true;         // plant the feet on the floor
     bool mocapVision_ = true;         // drive head/wrists from the phone's Vision pass
     visionpose::Tracker mocapVisionTracker_;
+    bool mocapFilterEnabled_ = true;
+    posefilter::PoseFilter mocapFilter_;
     // The live skeleton's names and tree, taken once at bind. Reading them
     // from the link per frame copies 91 strings under a mutex, 30 times a
     // second, for data that cannot change without a rebind.

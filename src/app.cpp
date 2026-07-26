@@ -10254,6 +10254,22 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
         src = mocapFrameRot_.data();
     }
 
+    // The shake, before anything reads the pose. Monocular tracking
+    // re-estimates every joint each frame, so a performer standing perfectly
+    // still arrives shimmering - and the retarget would faithfully pass that on
+    // to the character. Filtering here rather than after means the heading
+    // (already composed onto the hips) is smoothed with everything else.
+    if (mocapFilterEnabled_) {
+        if (src != mocapFrameRot_.data()) {
+            mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+            src = mocapFrameRot_.data();
+        }
+        posefilter::Params fp = mocapFilter_.params();
+        fp.enabled = true;
+        mocapFilter_.configure(fp);
+        mocapFilter_.apply(mocapFrameRot_.data(), (size_t)joints, t);
+    }
+
     // What ARKit does not solve, Vision might. This overwrites exactly the
     // joints the body tracker leaves frozen - the head and the two wrists - in
     // the SOURCE frame, before any retargeting happens, so everything
@@ -10456,7 +10472,14 @@ void App::drawMocapWindow() {
                         (unsigned long long)phoneCam_.bodyFrameCount());
         if (ImGui::Button("Rebind")) mocapRebind();
         ImGui::SameLine();
-        if (ImGui::Button("Recentre")) charanim::resetLiveOrigin(mocapBind_);
+        if (ImGui::Button("Recentre")) {
+            charanim::resetLiveOrigin(mocapBind_);
+            // A recentre means the stream JUMPED, and everything that smooths
+            // across frames has to be told - otherwise the character is dragged
+            // through the gap instead of cutting across it.
+            mocapFilter_.reset();
+            mocapVisionTracker_.reset();
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Put the character back where it started.\n"
                               "Use it after tracking is lost and regained.");
@@ -10466,6 +10489,13 @@ void App::drawMocapWindow() {
                 "Plant a standing foot and level its sole. ARKit never solves\n"
                 "the ankle, so without this the foot follows the shin rigidly\n"
                 "and a lifted knee comes with a pointed toe.");
+        if (ImGui::Checkbox("Smooth the shake", &mocapFilterEnabled_)) mocapFilter_.reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Monocular tracking re-estimates every joint each frame, so a\n"
+                "performer standing perfectly still arrives shimmering.\n"
+                "The cutoff rises with speed: a still hand is filtered hard,\n"
+                "a thrown punch is barely touched.");
         if (ImGui::Checkbox("Head and hands from Vision", &mocapVision_))
             mocapVisionTracker_.reset();
         if (ImGui::IsItemHovered())

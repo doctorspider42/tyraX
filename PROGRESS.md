@@ -10,6 +10,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (191) **The shake, taken out without taking the movement with it.** Monocular
+  tracking re-estimates every joint from scratch each frame, so a performer
+  standing perfectly still arrives shimmering and the retarget passes that on
+  faithfully. Averaging fixes it and ruins everything else - smoothing strong
+  enough to settle a still hand puts visible lag on a punch.
+  `posefilter` is a one-euro filter whose cutoff RISES WITH SPEED: slow movement
+  is mostly noise and is filtered hard, fast movement is mostly signal and is
+  barely touched. Measured against a known signal at 2.5 degrees of joint noise:
+  standing still goes from 1.85 to **0.48** degrees of jitter and from 1.22 to
+  **0.58** of error - four times calmer AND twice as faithful - while a fast
+  punch pays three degrees of error and **zero frames of lag**.
+  **Two mistakes worth recording, both caught by measuring rather than looking.**
+  The textbook derivative cutoff of 1 Hz is tuned for a mouse pointer; at that
+  value the speed estimate cannot follow a 2 Hz gesture, the main cutoff never
+  opens in time, and the filter sat **18 degrees behind a punch**. And the first
+  parameter sweep weighted jitter and error equally, which scored the filter
+  barely better than doing nothing - a result that said everything about the
+  weights and nothing about the filter. Reweighted the way an eye actually
+  weights the defects (shimmer on a standing figure is the most visible thing
+  there is; three degrees of lag mid-punch is invisible), the optimum moved off
+  the grid edge and became obvious.
+  Quaternion trap, same as everywhere in this module: q and -q are the same
+  orientation and blending the two goes the long way round, so every input is
+  aligned to the filter's state before it is touched. And the filter is TIME
+  based, not frame based, so a dropped frame does not change how much it smooths.
+  It is reset wherever root motion is - Recentre now clears the filter and the
+  Vision tracker along with the origin, because a stream that JUMPS has not
+  moved and smoothing across the gap drags the character through it.
+
 - (190) **The head and the hands, from a framework ARKit is not.** "It just
   does not give hands and that is that?" - no. ARKit's body tracker reports
   those joints without solving them, but hand and face tracking on iOS live in
