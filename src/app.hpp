@@ -189,7 +189,16 @@ private:
     void addDecal();
     void addMirror();
     void addPortal();
+    void addArea();
     void drawAddObjectMenu();
+    // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
+    // a layer zone: a combo of this scene's Area objects plus <none>. Returns
+    // true when the selection changed (the caller commits).
+    bool areaCombo(const char* label, std::string& ref);
+    // The catch-area block shared by the Mirror / Portal / feed Camera panels:
+    // picker + "Update every frame" + the resolved counts. `verb` is how the
+    // panel words what happens to a caught object ("re-drawn", "shown", ...).
+    bool catchAreaControls(SceneObject& o, const char* verb);
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
     // of the model, or "" when cancelled/failed. Does NOT create an object.

@@ -79,6 +79,9 @@ struct ScriptContext {
   bool cameraOverride = false;
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
+  // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene
+  // without roll renders exactly as it did before roll existed.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
 
   // Cutscene presentation, also written by the sequence player every frame a
   // cutscene is active (and zeroed when it ends): widescreen mask style

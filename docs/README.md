@@ -24,6 +24,13 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+- [Areas (invisible volumes)](areas.md) - the box-shaped object that has no
+  geometry in the game and replaces hand-typed distances: streaming-layer
+  zones that bound height too, mirror / portal / camera-feed target lists
+  picked up by volume instead of one name at a time (optionally re-tested
+  every frame, so things that move join and leave), and the In Area trigger
+  (rising edge + a live "inside" bool). Also: which radii deliberately stay
+  radii.
 - [Orthographic and axis views](orthographic-views.md) - the viewport's
   parallel projection and the six locked Top/Bottom/Front/Back/Right/Left
   views: the clickable axis gizmo in the corner, the other three ways to

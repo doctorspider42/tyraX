@@ -39,6 +39,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Camera: return "camera";
         case PrimitiveType::Mirror: return "mirror";
         case PrimitiveType::Portal: return "portal";
+        case PrimitiveType::Area: return "area";
     }
     return "box";
 }
@@ -60,6 +61,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "camera") return PrimitiveType::Camera;
     if (s == "mirror") return PrimitiveType::Mirror;
     if (s == "portal") return PrimitiveType::Portal;
+    if (s == "area") return PrimitiveType::Area;
     return PrimitiveType::Box;
 }
 
@@ -405,6 +407,11 @@ std::string objectJson(const SceneObject& o) {
     }
     if (!o.textureFeed.empty())
         json += ", \"textureFeed\": \"" + jsonEscape(o.textureFeed) + "\"";
+    // Catch area (Mirror / Portal / feed Camera); omitted when unset.
+    if (!o.catchArea.empty()) {
+        json += ", \"catchArea\": \"" + jsonEscape(o.catchArea) + "\"";
+        if (o.catchAreaLive) json += ", \"catchAreaLive\": true";
+    }
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
                 ", \"reflectPlayer\": " +
@@ -469,10 +476,14 @@ static void writeLayersArray(std::ostream& json, const std::vector<SceneLayer>& 
         json << (i ? ", " : "") << "{ \"name\": \"" << layers[i].name << "\""
              << (layers[i].startLoaded ? "" : ", \"startLoaded\": false")
              << (layers[i].editorVisible ? "" : ", \"editorVisible\": false");
-        if (layers[i].autoStream)  // off = keys omitted (older files stay valid)
+        if (layers[i].autoStream) {  // off = keys omitted (older files stay valid)
             json << ", \"autoStream\": true, \"streamX\": " << fmtFloat(layers[i].streamX)
                  << ", \"streamZ\": " << fmtFloat(layers[i].streamZ)
                  << ", \"streamRadius\": " << fmtFloat(layers[i].streamRadius);
+            // Area zone (docs/areas.md); absent = the circle above.
+            if (!layers[i].streamArea.empty())
+                json << ", \"streamArea\": \"" << jsonEscape(layers[i].streamArea) << "\"";
+        }
         json << " }";
     }
     json << "]";
@@ -493,6 +504,7 @@ static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& lay
             l.streamRadius = (float)v->numberOr(60.0);
             if (l.streamRadius < 1.0f) l.streamRadius = 1.0f;
         }
+        if (const auto* v = jl.find("streamArea")) l.streamArea = v->stringOr("");
         if (!l.name.empty()) layers.push_back(l);
     }
 }
@@ -811,6 +823,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"showProfiler\": "
          << (p.settings.showProfiler ? "true" : "false") << ",\n"
+         << "    \"showAreas\": "
+         << (p.settings.showAreas ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
          << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
@@ -2024,6 +2038,155 @@ void loadSplat(Project& p) {
     ensureSplatmap(p);  // reconcile with the current layer count / resolution
 }
 
+// --- Areas (docs/areas.md) --------------------------------------------------
+
+namespace {
+
+struct AV3 {
+    float x, y, z;
+};
+
+// Rotation order X, then Y, then Z - the same convention as the viewport's
+// model matrix, aobake::rotated and the generated game's rotated(). Keep in
+// sync.
+AV3 areaRotated(const AV3& v, const float* rotDeg) {
+    AV3 r = v;
+    const float d2r = 3.14159265358979323846f / 180.0f;
+    const float rx = rotDeg[0] * d2r, ry = rotDeg[1] * d2r, rz = rotDeg[2] * d2r;
+    {
+        const float c = std::cos(rx), s = std::sin(rx);
+        const float y = r.y * c - r.z * s, z = r.y * s + r.z * c;
+        r.y = y, r.z = z;
+    }
+    {
+        const float c = std::cos(ry), s = std::sin(ry);
+        const float x = r.x * c + r.z * s, z = -r.x * s + r.z * c;
+        r.x = x, r.z = z;
+    }
+    {
+        const float c = std::cos(rz), s = std::sin(rz);
+        const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
+        r.x = x, r.y = y;
+    }
+    return r;
+}
+
+// Squared distance from a world point to the area's oriented box, 0 inside.
+// The rotated unit axes are orthonormal, so projecting the offset onto each and
+// clamping to the half extent gives the closest point without a matrix inverse.
+float areaDistSq(const SceneObject& area, float x, float y, float z) {
+    const AV3 d{x - area.position[0], y - area.position[1], z - area.position[2]};
+    const AV3 ax[3] = {areaRotated({1, 0, 0}, area.rotation),
+                       areaRotated({0, 1, 0}, area.rotation),
+                       areaRotated({0, 0, 1}, area.rotation)};
+    float out = 0.0f;
+    for (int k = 0; k < 3; ++k) {
+        const float half = 0.5f * std::fabs(area.scale[k]);
+        const float t = d.x * ax[k].x + d.y * ax[k].y + d.z * ax[k].z;
+        const float over = std::fabs(t) - half;
+        if (over > 0.0f) out += over * over;
+    }
+    return out;
+}
+
+}  // namespace
+
+const SceneObject* findArea(const std::vector<SceneObject>& objs,
+                            const std::string& name) {
+    if (name.empty()) return nullptr;
+    for (const SceneObject& o : objs)
+        if (o.type == PrimitiveType::Area && o.name == name) return &o;
+    return nullptr;
+}
+
+bool areaContainsPoint(const SceneObject& area, float x, float y, float z) {
+    return areaDistSq(area, x, y, z) <= 0.0f;
+}
+
+bool areaCatchable(PrimitiveType t) {
+    switch (t) {
+        case PrimitiveType::Box:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::Plane:
+        case PrimitiveType::SavePoint:
+        case PrimitiveType::Model:
+        case PrimitiveType::Decal:
+            return true;
+        default:
+            return false;  // markers, lights, cameras, mirrors, portals, areas
+    }
+}
+
+std::vector<int> areaCaughtObjects(const std::vector<SceneObject>& objs,
+                                   const std::string& areaName, int exclude) {
+    std::vector<int> out;
+    const SceneObject* area = findArea(objs, areaName);
+    if (!area) return out;
+    for (size_t i = 0; i < objs.size(); ++i) {
+        if ((int)i == exclude) continue;
+        const SceneObject& o = objs[i];
+        if (!areaCatchable(o.type)) continue;
+        // Bounding sphere = half the largest scale axis, so a prop only
+        // partly inside still counts (a strict center test would drop a wide
+        // crate the author clearly meant to include).
+        float r = std::fabs(o.scale[0]);
+        r = std::max(r, std::fabs(o.scale[1]));
+        r = std::max(r, std::fabs(o.scale[2]));
+        r *= 0.5f;
+        if (areaDistSq(*area, o.position[0], o.position[1], o.position[2]) <= r * r)
+            out.push_back((int)i);
+    }
+    return out;
+}
+
+std::set<std::string> runtimeRefNames(const Project& p,
+                                      const std::vector<SceneObject>& objs) {
+    std::set<std::string> refs;
+    for (const SceneObject& o : objs) {
+        for (const FlowNode& n : o.flowGraph.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (t && t->strKind == FlowParamKind::ObjectName && !n.str.empty())
+                refs.insert(n.str);
+        }
+        if (o.type == PrimitiveType::Mirror)
+            for (const std::string& m : o.mirrorObjects) refs.insert(m);
+        if (o.type == PrimitiveType::Portal)
+            for (const std::string& m : o.portalObjects) refs.insert(m);
+    }
+    for (const Sequence& s : p.sequences) {
+        for (const SeqTrack& tr : s.tracks) refs.insert(tr.target);
+        for (const SeqCameraKey& k : s.cameraKeys) refs.insert(k.camera);
+    }
+    return refs;
+}
+
+bool objectRuntimeMovable(const SceneObject& o,
+                          const std::set<std::string>& refs) {
+    if (o.physics) return true;    // gravity, bounces, gets pushed
+    if (o.pickable) return true;   // carried in front of the camera, thrown
+    if (o.usable) return true;     // the highlight defers and re-submits it
+    if (o.saveState) return true;  // a loaded save repositions it
+    if (!o.layer.empty()) return true;  // streams in and out of the world
+    // Per-object logic: the graph can move self, attached scripts get a
+    // per-frame hook on this object.
+    if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return true;
+    return refs.find(o.name) != refs.end();
+}
+
+std::vector<int> areaLiveCandidates(const std::vector<SceneObject>& objs,
+                                    int exclude,
+                                    const std::set<std::string>& refs) {
+    std::vector<int> out;
+    for (size_t i = 0; i < objs.size(); ++i) {
+        if ((int)i == exclude) continue;
+        if (!areaCatchable(objs[i].type)) continue;
+        if (objectRuntimeMovable(objs[i], refs)) out.push_back((int)i);
+    }
+    return out;
+}
+
 static void readVec3(const json::Value* v, float* out) {
     if (!v || v->type != json::Value::Type::Array || v->arr.size() < 3) return;
     for (int i = 0; i < 3; ++i) out[i] = (float)v->arr[i].numberOr(out[i]);
@@ -2213,6 +2376,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             }
         }
         if (const auto* v = jo.find("textureFeed")) o.textureFeed = v->stringOr("");
+        if (const auto* v = jo.find("catchArea")) o.catchArea = v->stringOr("");
+        if (const auto* v = jo.find("catchAreaLive"))
+            o.catchAreaLive = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* mr = jo.find("mirror")) {
             if (const auto* v = mr->find("opacity")) {
                 o.mirrorOpacity = (float)v->numberOr(0.35);
@@ -2367,6 +2533,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("showProfiler"))
             st.showProfiler = v->boolOr(false);
+        if (const auto* v = s->find("showAreas")) st.showAreas = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
@@ -3716,6 +3883,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
     for (const auto& n : o.camFeedObjects) fnvMixS(h, n);
     fnvMixS(h, o.textureFeed);
+    // A catch area is expanded into the baked side tables at build time; a
+    // live one additionally bakes its candidate list and an area index.
+    fnvMixS(h, o.catchArea);
+    fnvMix(h, o.catchAreaLive ? 1 : 0);
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
@@ -3742,6 +3913,14 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMix3(h, o.position), fnvMix3(h, o.color);
         fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
     }
+    // An Area's box is what mirror/portal/camera-feed target lists were
+    // expanded against at build time, so moving one changes baked tables even
+    // though the runtime also reads it live (layer zones, the In Area trigger).
+    // Folding the transform in keeps the LIVE chip honest instead of showing
+    // half the edit.
+    if (o.type == PrimitiveType::Area) {
+        fnvMix3(h, o.position), fnvMix3(h, o.rotation), fnvMix3(h, o.scale);
+    }
     return h;
 }
 
@@ -3757,6 +3936,10 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     if (o.type == PrimitiveType::Decal && o.decalProject) return false;
     if (o.type == PrimitiveType::Mirror) return false;
     if (o.type == PrimitiveType::Portal) return false;  // baked PORTALS side table
+    // Areas are referenced BY NAME from baked tables (layer zones, catch-area
+    // expansions) that only exist for authored objects - a spawned clone would
+    // be a volume nothing points at.
+    if (o.type == PrimitiveType::Area) return false;
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }
@@ -3774,6 +3957,7 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMix(h, (l.startLoaded ? 1 : 0) | (l.autoStream ? 2 : 0));
             fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
             fnvMixF(h, l.streamRadius);
+            fnvMixS(h, l.streamArea);  // baked as the zone's area object index
         }
     }
     // Animation clip edits are baked into the .tskl at build time, so a

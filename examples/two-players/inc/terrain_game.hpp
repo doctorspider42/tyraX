@@ -36,6 +36,10 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  // Camera up vector. World up unless a cutscene rolls the camera
+  // (Dutch angle); CameraInfo3D takes it and both the view matrix and
+  // the frustum planes honour it.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
   float orbitAngle;
 
   // Terrain chunks: the heightmap grid is cut into TERRAIN_CHUNK_CELLS-sized
@@ -429,6 +433,13 @@ class TerrainGame : public Tyra::Game {
   // drawn; mirrorAnimMat composes it with an animated target's animMat.
   void renderMirrors();
   void renderMirroredObject(int index);
+  // Live catch areas (docs/areas.md): refill liveCaught with the objects the
+  // area at scene index areaIndex holds right now, walking the owner slice of
+  // CATCH_CANDIDATES (everything in the scene that can move) plus the runtime
+  // spawn pool. The buffer is a member so the per-frame pass never allocates;
+  // the caller consumes it before the next call.
+  void collectLiveCaught(int areaIndex, int firstCand, int candCount);
+  std::vector<int> liveCaught;
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
@@ -452,6 +463,7 @@ class TerrainGame : public Tyra::Game {
   // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
   // traced image) as a live emissive texture.
   void renderCameraFeed();
+  void renderFeedObject(int index);
   // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
   // map for ONE reflective object - aimed by the eye->center reflection -
   // right before that object draws. Interleaving works on a single VRAM
@@ -518,6 +530,7 @@ class TerrainGame : public Tyra::Game {
   // oi is on its explicit view list) - a carried object may only be mapped
   // through a portal that will render it on the far side.
   bool portalShowsObject(int pi, int oi);
+  bool portalLiveHolds(const PortalData& p, int oi);
   // Map a world point through portal pi's pair (source local -> flip about
   // local Y -> target world), the same isometry as the teleport/camera.
   void portalMapPoint(int pi, float& x, float& y, float& z);

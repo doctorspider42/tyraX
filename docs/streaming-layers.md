@@ -74,6 +74,39 @@ vanish behind you. Walking back B→A works the same way mirrored. Requests
 are idempotent — loading an already-loaded layer or unloading an unloaded
 one does nothing, so bidirectional traffic needs no extra logic.
 
+## Auto-streaming zones (no flow graph at all)
+
+Tick **auto-stream** on a layer and the game streams it by proximity instead
+of by node: the layer loads while a player is inside its zone and unloads once
+they leave it (plus a hysteresis band, so pacing along the border doesn't
+thrash). Requests are edge-triggered — issued only when a player crosses the
+boundary — so *Set Layer Loaded* can still override a zone until the next
+crossing. With auto-stream on, the initial residency comes from where the
+player spawns, not from the *start* flag (which greys out).
+
+The zone has two shapes:
+
+- **A circle** — center X/Z + radius, typed into the row (*Center on sel.*
+  drops the center on the selected object). Infinite in Y: it covers the whole
+  column of space above and below.
+- **An Area object** — pick one in the combo next to the checkbox and the
+  zone becomes that area's box. Being a box, it **bounds height too**, so one
+  floor of a building can stream on its own; and because the area is read
+  live, a flow node that moves the area moves the zone with it. See
+  [areas.md](areas.md).
+
+Both are tested against the player's position (and player 2's while active: a
+zone loads when EITHER player enters and unloads only once both have left).
+
+**The unload band differs between the two shapes**, on purpose. A radius is a
+guess about where the room is, so the circle unloads at `radius * 1.15 + 8`
+units. An area is not a guess — the author drew the boundary — so its box only
+grows by `15% + 0.5 units per side` before unloading: step out of the doorway
+and the layer goes, instead of loading you eight units into the next room
+first. Both bands are wide enough that standing ON the edge cannot thrash.
+If you cannot see why a zone is or is not resident, turn on *Preferences >
+Build > Show areas* and the box is drawn in the game (see [areas.md](areas.md)).
+
 ## What happens to object state
 
 Unloading a layer **discards its runtime state**. When the layer comes
