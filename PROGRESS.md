@@ -10,6 +10,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (186) **Two things the owner hit while playing with areas: the unload band was
+  eight units of "why is this still loaded", and you cannot debug an invisible
+  volume.** (1) A streaming layer on an area zone loaded the instant you entered
+  but unloaded only after walking well past the edge. Cause: the area branch
+  reused the CIRCLE's hysteresis - a flat `ZONE_HYSTERESIS = 8.0` added to the
+  half extent on every axis, i.e. eight units into the next room before the
+  layer went. That constant makes sense for a radius (a guess about where the
+  room is) and no sense for a box the author drew, so the box now grows by the
+  same 15% the circle applies to `r` plus half a unit per side - enough that
+  pacing ON the edge cannot thrash the loader, small enough that the boundary
+  means what it looks like. (2) New debug preference **Show areas**
+  (`Settings::showAreas` -> `DEBUG_SHOW_AREAS`, debug profile only, next to Show
+  FPS / memory / profiler): area objects render in the GAME as wireframe boxes.
+  Implemented as twelve thin beams through the ordinary `addBox` - an edge IS a
+  box (length on one axis, thickness on the other two, parked at one of four
+  parallel corners), which keeps the transform, lighting and vertex format
+  identical to every other primitive and needed no new mesh code. A wireframe
+  and not a translucent solid on purpose: a filled volume hides the objects you
+  opened it to look at. `rebuildObjectGeometry`'s `case 17` emits nothing at all
+  when the constexpr is false, so a release build is byte-identical.
+  Verified in PCSX2. The band: a fixture with a 10x6x10 zone parked on the
+  player and a flow graph gliding it away at 3 u/s (no pad input needed - the
+  area moves, the player stands still) logged the live centre offset every 15
+  frames: `in=1` up to centerDZ 4.48, `in=0 resident=1` at 5.80, unloaded by
+  7.23 - the band edge is 6.25 (half of 10*1.15+1), so the overshoot past the
+  authored wall went from 8 units to ~1.25. The wireframe: screenshot of a
+  10x6x10 area yawed 20 degrees, drawn green around the red box it contains,
+  50 FPS. Flag off -> `DEBUG_SHOW_AREAS = false` and no geometry.
+
 - (185) **Catch areas can update every frame: walk into a mirror's area and you
   start reflecting.** (184) resolved catch areas at build on purpose - the
   Mirror philosophy - and the owner immediately hit the other half of it: a

@@ -98,6 +98,15 @@ The zone has two shapes:
 Both are tested against the player's position (and player 2's while active: a
 zone loads when EITHER player enters and unloads only once both have left).
 
+**The unload band differs between the two shapes**, on purpose. A radius is a
+guess about where the room is, so the circle unloads at `radius * 1.15 + 8`
+units. An area is not a guess — the author drew the boundary — so its box only
+grows by `15% + 0.5 units per side` before unloading: step out of the doorway
+and the layer goes, instead of loading you eight units into the next room
+first. Both bands are wide enough that standing ON the edge cannot thrash.
+If you cannot see why a zone is or is not resident, turn on *Preferences >
+Build > Show areas* and the box is drawn in the game (see [areas.md](areas.md)).
+
 ## What happens to object state
 
 Unloading a layer **discards its runtime state**. When the layer comes

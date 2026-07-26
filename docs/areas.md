@@ -60,6 +60,12 @@ can stream on its own, while a circle always covers the whole column of space.
 The initial residency at scene load is decided the same way — from the spawn
 point — so `Start loaded` stays greyed out for auto-streamed layers.
 
+The layer loads the frame a player enters. It unloads a little way *past* the
+boundary — a hysteresis band, or pacing on the edge would thrash the loader —
+but only `15% + 0.5 units per side` for an area, not the flat 8 units the
+circle adds. The circle's radius is a guess about where the room is; the box is
+a boundary you drew, so leaving it has to mean something.
+
 See [streaming layers](streaming-layers.md) for the rest of the mechanism.
 
 ## Catch areas (mirror / portal / camera feed)
@@ -159,6 +165,23 @@ area; **Who** selects whose position is tested (0 = either player, 1 = player 1,
 Compared with **Near Object** + Radius: the area is a real volume (height
 included) and it is shaped and placed visually instead of being a number that
 means nothing until you run the game.
+
+## Seeing them in the game: "Show areas"
+
+An area is invisible on the console by design — which is exactly the problem
+the moment something does not behave: *why did that layer not unload, why is
+that crate not reflecting, is the volume even where I think it is?*
+
+*Preferences > Build > **Show areas*** (debug build profile only, next to Show
+FPS / Show memory / Show frame profiler) draws every area in the game as a
+wireframe box, the same shape the editor viewport shows, tinted with the area's
+color. Twelve thin beams, built through the ordinary box primitive, so it
+costs one small object per area and nothing at all when the option is off —
+`DEBUG_SHOW_AREAS` is a `constexpr`, and with it false `rebuildObjectGeometry`
+emits no vertices for a type-17 object. Release builds never carry it.
+
+It is a wireframe rather than a translucent solid deliberately: a filled volume
+would hide the objects you opened it to look at.
 
 ## What still uses a distance, on purpose
 

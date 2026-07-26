@@ -825,6 +825,44 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
+// Debug "show areas" (DEBUG_SHOW_AREAS): an Area object has no geometry in the
+// game, so the volume you drew is invisible exactly when you need to see where
+// its edge runs - "why did this layer not unload", "why is that crate not
+// reflecting". This draws the box's 12 edges as thin beams, i.e. the same
+// wireframe the editor viewport shows. Twelve addBox calls rather than a mesh
+// of its own: an edge IS a box (its length along one axis, `t` on the other
+// two, parked at one of the four parallel corners), and going through addBox
+// keeps the transform, lighting and vertex format identical to every other
+// primitive. A wireframe and not a translucent solid on purpose - a filled
+// volume hides the very objects you opened it to look at.
+void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
+                      std::vector<Vec4>& sts, const SceneObjectData& o) {
+  const float ax = o.scale[0] < 0.0F ? -o.scale[0] : o.scale[0];
+  const float ay = o.scale[1] < 0.0F ? -o.scale[1] : o.scale[1];
+  const float az = o.scale[2] < 0.0F ? -o.scale[2] : o.scale[2];
+  float big = ax > ay ? ax : ay;
+  if (az > big) big = az;
+  float t = big * 0.012F;  // beam thickness: readable at any zone size
+  if (t < 0.04F) t = 0.04F;
+  for (int axis = 0; axis < 3; ++axis) {
+    const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+    for (int corner = 0; corner < 4; ++corner) {
+      SceneObjectData e = o;
+      e.primDetail = 1;  // a beam needs no subdivision
+      float off[3] = {0.0F, 0.0F, 0.0F};
+      off[u] = ((corner & 1) ? 0.5F : -0.5F) * o.scale[u];
+      off[v] = ((corner & 2) ? 0.5F : -0.5F) * o.scale[v];
+      const V3 w = rotated({off[0], off[1], off[2]}, o.rotation);
+      e.position[0] = o.position[0] + w.x;
+      e.position[1] = o.position[1] + w.y;
+      e.position[2] = o.position[2] + w.z;
+      e.scale[u] = t;
+      e.scale[v] = t;
+      addBox(verts, cols, sts, e);
+    }
+  }
+}
+
 // Flat unit square in the XZ plane, double-sided (visible from both faces).
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
@@ -2474,8 +2512,7 @@ void TerrainGame::updateLayerStreaming() {
       // circle. Its box bounds Y as well, so a zone can be one floor of a
       // building; the object is read LIVE, so moving the area moves the zone.
       // Tested against the same player points the flow graph measures from
-      // (player2Position falls back to player 1, so no 2P special case), and
-      // the unload edge grows the box by the band the radius path adds.
+      // (player2Position falls back to player 1, so no 2P special case).
       const int az = SCENE_LAYER_STREAM_AREA[l];
       if (az >= 0 && az < (int)runtimeObjects.size()) {
         const Vec4& a1 = scriptCtx.playerPosition;
@@ -2487,8 +2524,13 @@ void TerrainGame::updateLayerStreaming() {
           layerAutoInside[l] = 1;
           layerRequest[l] = 1;
         } else if (layerAutoInside[l] && !inside) {
-          const float band = 2.0F * ZONE_HYSTERESIS;
-          zone.scale[0] += band, zone.scale[1] += band, zone.scale[2] += band;
+          // Unload band. The circle path adds a flat ZONE_HYSTERESIS because
+          // a radius is a guess about where the room is; a box is not - the
+          // author drew the boundary, so stepping out of it has to unload
+          // rather than send you eight units into the next room first. The
+          // band is the same 15% the circle applies to r, plus half a unit,
+          // which is enough that standing ON the edge cannot thrash.
+          for (int k = 0; k < 3; ++k) zone.scale[k] = zone.scale[k] * 1.15F + 1.0F;
           if (!pointInArea(zone, a1.x, a1.y, a1.z) &&
               !pointInArea(zone, a2.x, a2.y, a2.z)) {
             layerAutoInside[l] = 0;
@@ -5515,7 +5557,12 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       case 8: break;   // sound emitter - marker only, no geometry
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
-      case 17: break;  // area - an invisible volume, editor wireframe only
+      case 17:
+        // area - an invisible volume; the debug preference draws its edges
+        // (DEBUG_SHOW_AREAS is a constexpr, so a shipping build emits nothing)
+        if (DEBUG_SHOW_AREAS)
+          addAreaWireframe(p0.vertices, p0.colors, p0.sts, o.data);
+        break;
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
