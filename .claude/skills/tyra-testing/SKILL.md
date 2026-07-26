@@ -310,17 +310,26 @@ Notes:
   That leaves a bind for **scripted** hardware debugging: a probe needs the file
   server alive, but the editor that hosts it also drives `livedbg.cmd`, and two
   writers on that file is a known hazard. Break it by hosting the server
-  yourself — the same two commands the runner issues, with `cwd = <project>/bin`
-  so the game's `host:` maps there:
+  yourself. **A game that is still running does NOT need a redeploy** — it is
+  blocked on `host:` and resumes the moment a server answers:
 
   ```bash
-  tools/ps2client/bin/ps2client.exe -h <ps2-ip> -t 10 reset
-  tools/ps2client/bin/ps2client.exe -h <ps2-ip> execee host:<name>.elf
+  cd <projectDir>/bin && ../../tools/ps2client/bin/ps2client.exe -h <ps2-ip> listen
   ```
 
-  The `execee` process IS the file server and must stay running for the whole
-  session. Use the **main checkout's** copy: a worktree path is a different
-  binary to Windows Firewall and pops a prompt nobody is watching.
+  `listen` serves the console's file traffic and nothing else — within seconds
+  `livedbg.bin` starts advancing again and captures work. (Verified: a session
+  orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
+  the game is actually gone do you need the runner's two commands —
+  `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`
+  with `cwd = <project>/bin`, that second process being the file server for the
+  whole session. Use the **main checkout's** copy of ps2client either way: a
+  worktree path is a different binary to Windows Firewall and pops a prompt
+  nobody is watching.
+
+  With the server yours and the editor closed, a probe can pin each flush in
+  turn and summarise the frame — which is how "my model shows 2 meshes" was
+  traced to a bag flush full of terrain (PROGRESS 200).
 - **Flow-graph logic, without a pad or a screenshot**: a debug build with the
   *Live Debugger* preference on (docs/live-debugger.md) writes
   `bin/livedbg.bin` every 6 frames - per-node hit counters, a ring of recent
