@@ -966,6 +966,49 @@ float iconAdvanceFor(int icon, float size) {
   return size * ICONS[icon].scale + size * 0.12F;
 }
 
+/** The one sprite every icon blit goes through. Shared on purpose: two sprites
+ * with their own Texture for the same file would put the sheet in GS VRAM
+ * twice. Handed to the repository on first use, so a project that draws no icon
+ * never pays for it. */
+Sprite* iconSheetSprite(Engine* engine) {
+  if (ICON_COUNT <= 0) return nullptr;
+  static Sprite sheet;
+  static bool ready = false;
+  if (!ready) {
+    sheet.mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* tex = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(ICON_SHEET));
+    tex->addLink(sheet.id);
+    ready = true;
+  }
+  return &sheet;
+}
+
+/** Blits icon `i` into a pixel box, untinted. The interaction prompts use this:
+ * their text is a baked sprite with a HOLE where the button goes, and the glyph
+ * is drawn here from the LIVE binding - so a rebind at runtime is reflected
+ * (docs/text-icons.md). */
+void drawIconAt(Engine* engine, int i, float x, float y, float box) {
+  if (i < 0 || i >= ICON_COUNT || box <= 0.0F) return;
+  Sprite* sp = iconSheetSprite(engine);
+  if (!sp) return;
+  const IconRect& ir = ICONS[i];
+  if (ir.h <= 0) return;
+  sp->color = Color(128.0F, 128.0F, 128.0F, 128.0F);  // neutral modulate
+  sp->size = Vec2((float)ir.w, (float)ir.h);
+  sp->offset = Vec2((float)ir.u, (float)ir.v);
+  sp->scale = box / (float)ir.h;
+  sp->position = Vec2(x, y);
+  engine->renderer.renderer2D.render(*sp);
+}
+
+/** The icon an action is bound to right now, or -1. */
+int liveIconForAction(int action) {
+  if (action < 0 || action >= INPUT_ACTION_COUNT) return -1;
+  const int pad = g_inputBind[action].pad;
+  return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
+}
+
 float fontTextWidth(int fontIdx, const char* s, float size) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs) return 0.0F;
@@ -1012,18 +1055,8 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
   const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
   const float top = cy - (float)f.lineH * k * 0.5F;
 
-  // The icon sheet rides along as a second sprite, handed to the repository
-  // (and so to VRAM) only the first time a text actually blits an icon - a
-  // project that uses no {{tokens}} never pays for it.
-  static Sprite iconSprite;
-  static bool iconReady = false;
-  if (ICON_COUNT > 0 && !iconReady) {
-    iconSprite.mode = SpriteMode::MODE_REPEAT;
-    auto* tex = engine->renderer.getTextureRepository().add(
-        FileUtils::fromCwd(ICON_SHEET));
-    tex->addLink(iconSprite.id);
-    iconReady = true;
-  }
+  // The shared icon-sheet sprite (one texture, see iconSheetSprite).
+  Sprite* iconSp = iconSheetSprite(engine);
 
   // Shadow first, then the glyphs: two passes over the same cells, the dark
   // one offset by a pixel (the baked texts get theirs at bake time instead).
@@ -1036,7 +1069,7 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
     // Icons carry their own colors (the DualShock palette for the face
     // buttons), so they draw untinted - and only on the glyph pass: a dark
     // offset copy under a colored icon just leaks a fringe around it.
-    iconSprite.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    if (iconSp) iconSp->color = Color(128.0F, 128.0F, 128.0F, 128.0F);
 
     float pen = startX;
     const char* c = s;
@@ -1047,15 +1080,15 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
         const float adv = iconAdvanceFor(icon, size);
         const float box = adv - size * 0.12F;
         const IconRect& ir = ICONS[icon];
-        if (ir.h > 0 && pass == 1) {
-          iconSprite.size = Vec2((float)ir.w, (float)ir.h);
-          iconSprite.offset = Vec2((float)ir.u, (float)ir.v);
-          iconSprite.scale = box / (float)ir.h;
+        if (ir.h > 0 && pass == 1 && iconSp) {
+          iconSp->size = Vec2((float)ir.w, (float)ir.h);
+          iconSp->offset = Vec2((float)ir.u, (float)ir.v);
+          iconSp->scale = box / (float)ir.h;
           // Sit on the line box like a capital does, not on the baseline.
-          iconSprite.position =
+          iconSp->position =
               Vec2(pen + size * 0.06F + ox,
                    top + ((float)f.lineH * k - box) * 0.5F + ox);
-          engine->renderer.renderer2D.render(iconSprite);
+          engine->renderer.renderer2D.render(*iconSp);
         }
         pen += adv;
         c += tokenLen;
@@ -1837,10 +1870,25 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-    if (useTargetIndex >= 0)
-      engine->renderer.renderer2D.render(
-          runtimeObjects[useTargetIndex].data.pickable ? pickPromptSprite
-                                                       : usePromptSprite);
+    if (useTargetIndex >= 0) {
+      const bool pick = runtimeObjects[useTargetIndex].data.pickable;
+      const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
+      engine->renderer.renderer2D.render(prompt);
+      // The prompt's button glyph is NOT in that sprite: the bake left a hole
+      // so the icon can come from the live binding, which is the only way the
+      // prompt still tells the truth after an in-game rebind.
+      const int slotAction =
+          pick ? PICK_PROMPT_ICON_ACTION : USE_PROMPT_ICON_ACTION;
+      const int icon = liveIconForAction(slotAction);
+      if (icon >= 0)
+        drawIconAt(engine, icon,
+                   prompt.position.x +
+                       (float)(pick ? PICK_PROMPT_ICON_X : USE_PROMPT_ICON_X),
+                   prompt.position.y +
+                       (float)(pick ? PICK_PROMPT_ICON_Y : USE_PROMPT_ICON_Y),
+                   (float)(pick ? PICK_PROMPT_ICON_SIZE
+                                : USE_PROMPT_ICON_SIZE));
+    }
     updateAndRenderHudTexts();
     updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the

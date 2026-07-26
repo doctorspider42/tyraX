@@ -33,6 +33,18 @@ constexpr float USE_PROMPT_H = 32.0F;
 constexpr const char* PICK_PROMPT_PATH = "hud/pickup.png";
 constexpr float PICK_PROMPT_W = 128.0F;
 constexpr float PICK_PROMPT_H = 32.0F;
+// Live glyph slot in each prompt sprite: the baked text leaves a
+// hole and the game blits the CURRENT binding's icon into it, so a
+// runtime rebind is reflected. Action index -1 = the prompt has no
+// action token and the sprite is complete on its own.
+constexpr int USE_PROMPT_ICON_ACTION = -1;
+constexpr int USE_PROMPT_ICON_X = 0;
+constexpr int USE_PROMPT_ICON_Y = 0;
+constexpr int USE_PROMPT_ICON_SIZE = 0;
+constexpr int PICK_PROMPT_ICON_ACTION = -1;
+constexpr int PICK_PROMPT_ICON_X = 0;
+constexpr int PICK_PROMPT_ICON_Y = 0;
+constexpr int PICK_PROMPT_ICON_SIZE = 0;
 
 struct HudTextData {
   const char* path;  // baked text sprite, relative to the ELF
