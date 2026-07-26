@@ -10195,6 +10195,10 @@ void App::mocapRebind() {
         mocapLiveHips_ = -1;
         for (size_t i = 0; i < liveRig.nodes.size(); ++i)
             if (liveRig.nodes[i].name == "mixamorig:Hips") mocapLiveHips_ = (int)i;
+        mocapLiveJoints_ = sk.joints;
+        mocapLiveParents_ = sk.parents;
+        mocapLiveRestRot_ = sk.restRot;
+        mocapVisionTracker_.reset();
     }
     if (!source || source->nodes.empty()) return;
 
@@ -10288,11 +10292,11 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
             convert(in[side]->pts + 6, out[side]->littleMcp);
             convert(in[side]->pts + 8, out[side]->thumbMcp);
         }
-        const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
         mocapVisionNotes_.clear();
         mocapVisionDriven_ = visionpose::applyToFrame(
-            obs, sk.joints, sk.parents, sk.restRot.data(), visionpose::Limits(),
-            mocapFrameRot_.data(), &mocapVisionTracker_, &mocapVisionNotes_);
+            obs, mocapLiveJoints_, mocapLiveParents_, mocapLiveRestRot_.data(),
+            visionpose::Limits(), mocapFrameRot_.data(), &mocapVisionTracker_,
+            &mocapVisionNotes_);
     }
 
     charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_, t);

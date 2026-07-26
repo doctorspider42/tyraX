@@ -1028,6 +1028,12 @@ private:
     bool mocapGround_ = true;         // plant the feet on the floor
     bool mocapVision_ = true;         // drive head/wrists from the phone's Vision pass
     visionpose::Tracker mocapVisionTracker_;
+    // The live skeleton's names and tree, taken once at bind. Reading them
+    // from the link per frame copies 91 strings under a mutex, 30 times a
+    // second, for data that cannot change without a rebind.
+    std::vector<std::string> mocapLiveJoints_;
+    std::vector<int> mocapLiveParents_;
+    std::vector<float> mocapLiveRestRot_;
     std::vector<std::string> mocapVisionNotes_;
     int mocapVisionDriven_ = 0;
     std::vector<float> mocapFrameRot_;  // scratch: source rotations + the heading
