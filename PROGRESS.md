@@ -10,6 +10,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (197) **A take that forgets how it was captured leans like a famous tower.**
+  Loading a clip recorded through the editor gave a character tilted about
+  thirty degrees. Measured on the file: `hips_joint` was constant, so the
+  heading had NOT been written twice as first suspected - the lean was in the
+  SPINE, 10.0 + 11.4 + 8.6 degrees off ARKit's neutral figure at frame zero,
+  accumulating up the torso.
+  So it was the uncalibrated rest pose again, in a new place - and with a
+  specific design fault behind it: `writeTake` was handed ARKit's neutral
+  skeleton as the take's rest pose no matter what, even when the session that
+  produced it had been calibrated. The calibration lived in the session and died
+  with it, so a take recorded from a perfectly good session came back wrong the
+  moment it was re-opened. The format has always had the slot; it is written
+  now, and the note says CALIBRATED or UNCALIBRATED so nobody has to wonder
+  which kind of file they just made.
+  Also: the Mocap preview starts face-on rather than at the Character
+  Generator's three-quarter angle. There you judge a silhouette; here you are
+  watching somebody standing square to a camera, and a quarter turn between the
+  two is exactly the confusion to avoid.
+
 - (196) **The last mile: a recording that can become an animation, and two
   chicken-and-egg bugs.** Owner: "I recorded a clip, where did the animation go
   and how do I put it on a model?" - a fair question with no good answer.

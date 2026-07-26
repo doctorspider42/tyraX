@@ -1098,7 +1098,11 @@ private:
     std::vector<std::vector<float>> mocapPrevTris_;
     std::vector<CharPrevTex> mocapPrevTex_;
     uint64_t mocapPrevVersion_ = 0;
-    float mocapAngle_ = 20.0f, mocapPitch_ = 6.0f, mocapZoom_ = 1.0f;
+    // Face-on, unlike the Character Generator's three-quarter view. There you
+    // are judging a silhouette; here you are watching somebody who is standing
+    // square to a camera, and the point is to compare them with the character.
+    // A quarter turn between the two is exactly the confusion to avoid.
+    float mocapAngle_ = 0.0f, mocapPitch_ = 6.0f, mocapZoom_ = 1.0f;
     // Recording buffers the SOURCE frames, not the retargeted pose: a take is
     // reusable on any character, a baked pose is not.
     bool mocapRecording_ = false;

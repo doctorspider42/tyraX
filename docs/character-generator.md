@@ -377,6 +377,13 @@ The model is re-read from disk for the bake rather than reusing the posed copy
 on screen: that copy has live rotations written into its nodes, and baking it
 would fold the current frame into the rest pose.
 
+A take **carries the rest pose it was captured against**, so a recording made
+during a calibrated session decodes to exactly what was on screen while it was
+made. That slot has always been in the format; it was being handed ARKit's
+neutral figure regardless, which is why a take recorded from a properly
+calibrated session came back leaning the moment it was re-opened - the
+calibration lived in the session and died with it.
+
 **Record** writes a `.tmocap`, and only from the live source - a file is already
 a take. It buffers the **source** frames rather than the retargeted pose,
 because a take is reusable on any character and a baked pose is not; the result

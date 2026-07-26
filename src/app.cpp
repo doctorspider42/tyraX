@@ -10761,13 +10761,23 @@ void App::mocapStopRecording() {
         name = base + "-" + std::to_string(n);
 
     std::string err;
+    // The take carries the rest pose it was CAPTURED against, which is the
+    // calibrated one when a session was calibrated. The format has always had
+    // the slot; it was being handed ARKit's neutral figure regardless, so a take
+    // recorded during a properly calibrated session came back leaning like a
+    // famous tower the moment it was re-opened - the calibration lived in the
+    // session and died with it. Writing it here means a take decodes to exactly
+    // what was on screen while it was recorded.
+    const bool calib = mocapHaveCalib_ && mocapCalibRot_.size() == sk.joints.size() * 4;
     if (!mocap::writeTake((dir / (name + ".tmocap")).string(), sk.joints, sk.parents,
-                          sk.restPos.data(), sk.restRot.data(), mocapRecTimes_, mocapRecRot_,
-                          mocapRecHips_, mocapRecRoot_, err)) {
+                          sk.restPos.data(),
+                          calib ? mocapCalibRot_.data() : sk.restRot.data(), mocapRecTimes_,
+                          mocapRecRot_, mocapRecHips_, mocapRecRoot_, err)) {
         mocapNote_ = "take: " + err;
     } else {
         mocapLastTakePath_ = (dir / (name + ".tmocap")).string();
-        mocapNote_ = "wrote res/mocap/" + name + ".tmocap (" +
+        mocapNote_ = std::string(calib ? "wrote a CALIBRATED " : "wrote an UNCALIBRATED ") +
+                     "res/mocap/" + name + ".tmocap (" +
                      std::to_string(mocapRecTimes_.size()) + " frames, " +
                      std::to_string((int)(mocapRecTimes_.back() - mocapRecTimes_.front())) +
                      " s) - Open take... it, then Add as a clip";
