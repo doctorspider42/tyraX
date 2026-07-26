@@ -221,7 +221,17 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
   }
 
   out.cosCut2 = spot.cosCutoff * spot.cosCutoff;
-  const float coneBase = objRange2 * (1.0F - out.cosCut2);
+  // The VU1/EE cone term is clamp01((t^2 - cosCut2*dist2) * invSoft). Its
+  // SIGN is the exact angular cutoff and is distance-independent, but its
+  // MAGNITUDE scales with dist2 - so sizing invSoft off the full range
+  // (objRange2 * (1 - cosCut2)) made the beam ramp up across the whole
+  // range: dim on everything close to the lamp, fully bright only near its
+  // far end. On the camera flashlight that reads as "it doesn't light what
+  // I'm looking at". Saturate at a fraction of the range instead; the
+  // cutoff ANGLE is unchanged, the edge just gets crisper.
+  constexpr float kFullBrightAt = 0.18F;  // of the range, on the axis
+  const float coneBase =
+      objRange2 * kFullBrightAt * kFullBrightAt * (1.0F - out.cosCut2);
   out.invSoft = coneBase > 1e-10F ? spot.softness / coneBase : 0.0F;
   return out;
 }

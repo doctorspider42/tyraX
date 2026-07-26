@@ -389,6 +389,12 @@ banner both, so a previously built ELF still reports.
   them in registers for the whole program (`lq` is cheap), and lane-pack
   related scalar fold state into one register's x/y/z fields (assemble
   candidates with `add.x/y/z reg, vf00, src[x]`, fold once as a vector).
+- **The spot-light cone term's magnitude scales with distance²** — only its
+  SIGN is the (exact, distance-independent) angular cutoff. Size `invSoft`
+  in `buildSpotForBag` off a FRACTION of the range, never the full range:
+  the original `softness / (objRange2 * (1 - cosCut2))` made the flashlight
+  ramp up over its whole reach — black on anything close, full brightness
+  only near the far end, i.e. "it doesn't light what I'm aiming at".
 - **Clamp vertex colors BEFORE the VU1 clipper interpolates them.** The cull
   programs run `FixColor` (mini 255 / max 0) per vertex right after the spot
   light; the clip programs feed Sutherland-Hodgman and only clamp in the

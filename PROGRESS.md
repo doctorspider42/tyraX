@@ -10,6 +10,26 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (125) **The flashlight lit the far end of its range, not what you were
+  looking at.** Owner's diagnosis while pad-walking ("the flashlight is
+  broken, it doesn't shine centrally where you look - and IT was what lit
+  that crate"). The cone term is `clamp01((t^2 - cosCut2*dist2) *
+  invSoft)`: its SIGN is the exact angular cutoff and is
+  distance-independent, but its MAGNITUDE scales with `dist2` - and
+  `buildSpotForBag` sized `invSoft` off the FULL range
+  (`softness / (objRange2 * (1 - cosCut2))`), so the beam ramped up across
+  the entire 26-unit reach: nearly black on everything close to the lamp,
+  full brightness only near the far end. On a camera flashlight that reads
+  exactly as "it doesn't light what I'm aiming at", and it also explains
+  why the batch's point lights looked right - their `invSoft` (1e4 /
+  objRange2) saturates immediately. Fix: saturate at a fraction of the
+  range instead (`kFullBrightAt = 0.18`, i.e. full brightness ~4.7 units
+  out on a 26-unit beam), which leaves the cutoff ANGLE untouched and only
+  crisps the edge. One EE-side constant in `buildSpotForBag`, so the VU1
+  programs and the EE clipper (which shares `StaPipClipperSpot`) stay in
+  sync and no micro memory is spent. **Verified**: PCSX2 SW renderer, same
+  camera as the previous boot - the terrain ahead now carries a bright
+  beam centred on the view instead of a dim near field, 50 FPS.
 - (124) **Lit objects brightened at screen edges: the VU1 clip family
   clamped colors AFTER interpolating.** Owner spotted it pad-walking the
   example ("the red crate glows brighter in the screen corner"). The cull
