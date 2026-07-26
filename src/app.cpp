@@ -4975,6 +4975,62 @@ bool App::areaCombo(const char* label, std::string& ref) {
     return changed;
 }
 
+// The whole catch-area block of a Mirror / Portal / feed Camera: the picker,
+// the "update every frame" switch and the resolved counts. `verb` names what
+// the caught objects get ("re-drawn", "shown", "in the feed") so the same
+// widget reads right in all three panels.
+bool App::catchAreaControls(SceneObject& o, const char* verb) {
+    bool committed = false;
+    if (areaCombo("Catch area", o.catchArea)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Catch every object inside an Area's box (docs/areas.md)\n"
+            "instead of listing them one by one. Resolved at build, so\n"
+            "the geometry cost stays visible; the list below still adds\n"
+            "objects from outside the area.");
+    if (o.catchArea.empty()) return committed;
+    if (ImGui::Checkbox("Update every frame", &o.catchAreaLive)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Off: the volume is emptied into a fixed list at build - an\n"
+            "object that walks in later stays out.\n"
+            "On: objects that can MOVE are re-tested every frame, so they\n"
+            "join and leave the list as they cross the boundary. Only\n"
+            "movable objects pay for it (the count below); the immovable\n"
+            "rest still resolves at build. Watch that count - each one\n"
+            "inside is a second full submission of its geometry.");
+    const std::vector<int> caught = project::areaCaughtObjects(
+        project_.objects(), o.catchArea, selectedObject_);
+    if (!o.catchAreaLive) {
+        ImGui::TextDisabled("Area holds %d object%s (%s once each)",
+                            (int)caught.size(), caught.size() == 1 ? "" : "s",
+                            verb);
+        return committed;
+    }
+    const std::set<std::string> refs =
+        project::runtimeRefNames(project_, project_.objects());
+    const std::vector<int> cands = project::areaLiveCandidates(
+        project_.objects(), selectedObject_, refs);
+    // Movable objects leave the fixed list even when they sit inside right
+    // now - the per-frame test owns them, or they would be drawn twice.
+    int fixed = 0, inside = 0;
+    for (int ci : caught) {
+        bool movable = false;
+        for (int m : cands)
+            if (m == ci) { movable = true; break; }
+        if (movable) ++inside; else ++fixed;
+    }
+    ImGui::TextDisabled("%d fixed + %d of %d movable inside now (%s once each)",
+                        fixed, inside, (int)cands.size(), verb);
+    if (ImGui::IsItemHovered() && !cands.empty()) {
+        std::string list;
+        for (size_t i = 0; i < cands.size(); ++i)
+            list += (i ? "\n" : "") + project_.objects()[cands[i]].name;
+        ImGui::SetTooltip("Re-tested every frame:\n%s", list.c_str());
+    }
+    return committed;
+}
+
 // Edits the object selected in the Project panel / viewport. Only fields the
 // game actually reads for the object's type are shown: markers (spawn point,
 // player, emitters, lights) have no geometry in the game, so texture,
@@ -5469,7 +5525,8 @@ void App::drawPropertiesWindow() {
         // What references it, so deleting/resizing one is not a guess.
         std::vector<std::string> users;
         for (const SceneObject& t : project_.objects())
-            if (t.catchArea == o.name) users.push_back(t.name);
+            if (t.catchArea == o.name)
+                users.push_back(t.name + (t.catchAreaLive ? " (live)" : ""));
         for (const SceneLayer& l : project_.active().layers)
             if (l.streamArea == o.name) users.push_back("layer " + l.name);
         for (const SceneObject& t : project_.objects())
@@ -5542,21 +5599,9 @@ void App::drawPropertiesWindow() {
             committed = true;
         }
         // Area instead of (or on top of) the hand-built list: everything the
-        // volume holds reflects. Resolved at build - the count below is what
-        // the game will actually re-draw.
-        if (areaCombo("Catch area", o.catchArea)) committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Reflect every object inside an Area's box (docs/areas.md)\n"
-                "instead of listing them one by one. Resolved at build, so\n"
-                "the geometry cost stays visible; the list below still adds\n"
-                "objects from outside the area.");
-        if (!o.catchArea.empty()) {
-            const std::vector<int> caught =
-                project::areaCaughtObjects(project_.objects(), o.catchArea, selectedObject_);
-            ImGui::TextDisabled("Area holds %d object%s (re-drawn once each)",
-                                (int)caught.size(), caught.size() == 1 ? "" : "s");
-        }
+        // volume holds reflects. The count is what the game re-draws - fixed
+        // at build unless "Update every frame" is on.
+        if (catchAreaControls(o, "re-drawn")) committed = true;
         ImGui::TextUnformatted("Reflected objects:");
         int removeAt = -1;
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i) {
@@ -5664,19 +5709,7 @@ void App::drawPropertiesWindow() {
                 "draw distances trim the cost, but big scenes pay a second\n"
                 "submission pass - watch the FPS/profiler before shipping.");
         } else {
-        if (areaCombo("Catch area", o.catchArea)) committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Show every object inside an Area's box (docs/areas.md) in\n"
-                "the through-view instead of listing them one by one.\n"
-                "Resolved at build; the list below still adds objects from\n"
-                "outside the area.");
-        if (!o.catchArea.empty()) {
-            const std::vector<int> caught =
-                project::areaCaughtObjects(project_.objects(), o.catchArea, selectedObject_);
-            ImGui::TextDisabled("Area holds %d object%s (re-drawn once each)",
-                                (int)caught.size(), caught.size() == 1 ? "" : "s");
-        }
+        if (catchAreaControls(o, "shown")) committed = true;
         ImGui::TextUnformatted("Objects visible through:");
         int removePortalAt = -1;
         for (size_t i = 0; i < o.portalObjects.size(); ++i) {
@@ -5881,19 +5914,7 @@ void App::drawPropertiesWindow() {
                 "(the first enabled one wins).");
             if (ImGui::Checkbox("Show terrain in feed", &o.camFeedTerrain))
                 committed = true;
-            if (areaCombo("Catch area", o.catchArea)) committed = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Show every object inside an Area's box (docs/areas.md)\n"
-                    "in the feed instead of listing them one by one - point\n"
-                    "an area at what the camera watches. Resolved at build;\n"
-                    "the list below still adds objects from outside it.");
-            if (!o.catchArea.empty()) {
-                const std::vector<int> caught = project::areaCaughtObjects(
-                    project_.objects(), o.catchArea, selectedObject_);
-                ImGui::TextDisabled("Area holds %d object%s (re-drawn once each)",
-                                    (int)caught.size(), caught.size() == 1 ? "" : "s");
-            }
+            if (catchAreaControls(o, "in the feed")) committed = true;
             ImGui::TextUnformatted("Objects in feed:");
             int removeAt = -1;
             for (size_t i = 0; i < o.camFeedObjects.size(); ++i) {

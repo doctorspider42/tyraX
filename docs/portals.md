@@ -20,7 +20,9 @@ between distant parts of the map.
    render budget, exactly like a Mirror's reflected-object list. Instead of
    (or on top of) listing names, set a **catch area**: everything inside an
    Area object's box joins the list, resolved at build so the count stays
-   visible — see [areas.md](areas.md). Terrain and
+   visible — or ticked to *Update every frame*, so an object that walks into
+   the volume starts showing through (and, by the crossing rule, walking
+   through) from that frame on — see [areas.md](areas.md). Terrain and
    the sky dome have their own toggle (**Terrain + sky in view**, on by
    default). Keep the list to the landmarks that sell the destination.
    Or tick **All objects in view (experimental)**: every scene object

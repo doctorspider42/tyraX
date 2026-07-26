@@ -10,6 +10,57 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (174) **Catch areas can update every frame: walk into a mirror's area and you
+  start reflecting.** (173) resolved catch areas at build on purpose - the
+  Mirror philosophy - and the owner immediately hit the other half of it: a
+  crate that rolls in front of the glass, or the player stepping up to it,
+  never joined the reflection. New per-object switch `catchAreaLive` (a
+  checkbox under the picker on Mirror / Portal / feed Camera) re-tests the
+  volume every frame instead. The whole design is about paying for it only
+  where it is real:
+  **only objects that can MOVE are re-tested.** `project::areaLiveCandidates`
+  over `project::objectRuntimeMovable` (physics / pickable / usable /
+  save-state / layer member / own graph or script / named by a flow node,
+  cutscene track or target list) is the candidate set; it bakes into a shared
+  `CATCH_CANDIDATES` table sliced per owner (`liveArea`/`firstCand`/`candCount`
+  on MirrorData, PortalData, CamFeedData) and whatever the volume holds that
+  CANNOT move stays resolved at build in the fixed list. A static room adds
+  nothing to the per-frame work. The pleasant surprise while scoping this: that
+  movable predicate is the exact complement of the immovability
+  `staticBatchEligible` relies on, so **static batching needed no change at
+  all** - a live candidate always already has the solo bag a second submission
+  needs (`batchBlockedNames` now blocks the candidate names too, explicitly,
+  so the two cannot drift). Movable objects are dropped FROM the baked list, or
+  an object sitting inside at build would be submitted twice.
+  `pointInArea` was split into `areaBasis` (center + rotated axes + half
+  extents, computed ONCE per pass, and short-circuiting the six trig calls when
+  the area is unrotated - the usual case) and `areaDistSq`, so a candidate
+  costs three dot products; `TerrainGame::collectLiveCaught` walks a slice into
+  a reused member vector and also scans the **spawn pool**, which no build-time
+  table can name. Portals run the same test in `portalCanCross` /
+  `portalShowsObject`, so the owner's rule (a portal that shows it lets it
+  through) survives. Raytraced mirrors ignore the flag - their VU0 proxies are
+  meshes baked per mirror; `portalViewAll` ignores it too. The player follows
+  *Reflect player* AND the volume. No cap on the caught count: the panel prints
+  `N fixed + K of M movable inside now` and the author watches it (explicitly
+  the owner's call - "trzeba uważać, co się robi").
+  Verified e2e in PCSX2 (Docker build clean under `-Wall`, 50 FPS): a fixture
+  mirror with a live area over three crates - one immovable, one physics body
+  inside, one physics body dropped from y=12 - logged the live set every 30
+  frames as `n=1 [4,-1]` while the third fell (dropY 11.99 -> 10.05 -> 4.58,
+  still outside: the box top is y=4 and the catch sphere is 0.5) and flipped to
+  `n=2 [4,5]` at dropY=1.57, holding there after it landed. Screenshot shows
+  all three reflected behind the glass. Codegen inspected both ways from one
+  fixture: live on -> `MIRRORS {..., liveArea 1, firstCand 0, candCount 2}`,
+  `MIRROR_TARGETS = {3}` (only the immovable crate), `CATCH_CANDIDATES = {4,5}`
+  (including the crate far outside - a candidate is about *can it move*, not
+  *is it inside*); flag off -> `liveArea -1`, `candCount 0`,
+  `MIRROR_TARGETS = {3,4}`, i.e. byte-for-byte the old behavior. All 18
+  committed example projects regenerated (they had also drifted behind (173) -
+  the generated headers gained the Area code that commit never re-emitted).
+  Editor-side visuals (the new checkbox and the count line) still want a human
+  look, same AMD-GL white-window caveat as (173).
+
 - (173) **Areas: an invisible volume you place instead of typing a distance.**
   New object type `PrimitiveType::Area = 17` (docs/areas.md) - an oriented box
   with NO geometry in the game: a wireframe in the editor (its own pass, so it

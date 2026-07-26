@@ -2411,9 +2411,37 @@ void TerrainGame::updateLayerStreaming() {
     const float px = cameraLookAt.x;
     const float pz = cameraLookAt.z;
     const bool p2 = playerTwoActive && players[1].objIndex >= 0;
+    const float ZONE_HYSTERESIS = 8.0F;  // unload band beyond the zone edge
     for (int l = 0; l < lc; ++l) {
       const float r = SCENE_LAYER_STREAM_R[l];
       if (r <= 0.0F) continue;
+      // Area zone (docs/areas.md): the layer's Area object replaces the
+      // circle. Its box bounds Y as well, so a zone can be one floor of a
+      // building; the object is read LIVE, so moving the area moves the zone.
+      // Tested against the same player points the flow graph measures from
+      // (player2Position falls back to player 1, so no 2P special case), and
+      // the unload edge grows the box by the band the radius path adds.
+      const int az = SCENE_LAYER_STREAM_AREA[l];
+      if (az >= 0 && az < (int)runtimeObjects.size()) {
+        const Vec4& a1 = scriptCtx.playerPosition;
+        const Vec4& a2 = scriptCtx.player2Position;
+        SceneObjectData zone = runtimeObjects[az].data;
+        const bool inside = pointInArea(zone, a1.x, a1.y, a1.z) ||
+                            pointInArea(zone, a2.x, a2.y, a2.z);
+        if (!layerAutoInside[l] && inside) {
+          layerAutoInside[l] = 1;
+          layerRequest[l] = 1;
+        } else if (layerAutoInside[l] && !inside) {
+          const float band = 2.0F * ZONE_HYSTERESIS;
+          zone.scale[0] += band, zone.scale[1] += band, zone.scale[2] += band;
+          if (!pointInArea(zone, a1.x, a1.y, a1.z) &&
+              !pointInArea(zone, a2.x, a2.y, a2.z)) {
+            layerAutoInside[l] = 0;
+            layerRequest[l] = 0;
+          }
+        }
+        continue;
+      }
       const float dx = px - SCENE_LAYER_STREAM_X[l];
       const float dz = pz - SCENE_LAYER_STREAM_Z[l];
       float d2 = dx * dx + dz * dz;
@@ -2423,7 +2451,7 @@ void TerrainGame::updateLayerStreaming() {
         const float e2 = dx2 * dx2 + dz2 * dz2;
         if (e2 < d2) d2 = e2;
       }
-      const float rOut = r * 1.15F + 8.0F;
+      const float rOut = r * 1.15F + ZONE_HYSTERESIS;
       if (!layerAutoInside[l] && d2 < r * r) {
         layerAutoInside[l] = 1;
         layerRequest[l] = 1;
@@ -2867,7 +2895,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
-        o.data.type == 14)                         // 14 = camera marker
+        o.data.type == 14 ||                       // 14 = camera marker
+        o.data.type == 17)                         // 17 = area (a volume, not a wall)
       continue;
     if (o.data.collision == 2) continue;  // none
     // Portal pass-through (updatePortalPass): while the walker stands in a
@@ -3169,21 +3198,35 @@ void TerrainGame::loadScene(int sceneIndex) {
     layerAutoInside.assign(lc > 0 ? lc : 0, 0);
     // Auto-streamed layers start resident only when the spawn point is
     // inside their zone; everything else follows the authored Start loaded.
-    float spawnX = 0.0F, spawnZ = 0.0F;
+    // runtimeObjects are rebuilt further down, so an area zone reads the
+    // authored transform straight out of SCENE_OBJECTS here.
+    float spawnX = 0.0F, spawnY = 0.0F, spawnZ = 0.0F;
     if (PLAYER_INDEX >= 0) {
       spawnX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
+      spawnY = SCENE_OBJECTS[PLAYER_INDEX].position[1];
       spawnZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
     } else {
       for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
         if (SCENE_OBJECTS[i].type == 4) {  // spawn point (built-in FPP)
           spawnX = SCENE_OBJECTS[i].position[0];
+          spawnY = SCENE_OBJECTS[i].position[1];
           spawnZ = SCENE_OBJECTS[i].position[2];
           break;
         }
     }
     for (int l = 0; l < lc; ++l) {
       const float r = SCENE_LAYER_STREAM_R[l];
-      if (r > 0.0F) {
+      const int az = SCENE_LAYER_STREAM_AREA[l];
+      if (r > 0.0F && az >= 0 && az < SCENE_OBJECT_COUNT) {
+        // Area zone: the spawn stands in the box (eye height included - the
+        // marker sits on the ground, so a floor-hugging box still catches it).
+        const bool inside =
+            pointInArea(SCENE_OBJECTS[az], spawnX, spawnY, spawnZ) ||
+            pointInArea(SCENE_OBJECTS[az], spawnX,
+                        spawnY + PP_EYE_HEIGHT(0), spawnZ);
+        layerTarget[l] = inside ? 1 : 0;
+        layerAutoInside[l] = inside ? 1 : 0;
+      } else if (r > 0.0F) {
         const float dx = spawnX - SCENE_LAYER_STREAM_X[l];
         const float dz = spawnZ - SCENE_LAYER_STREAM_Z[l];
         const bool inside = dx * dx + dz * dz < r * r;
@@ -3733,7 +3776,7 @@ void TerrainGame::updateUseTarget() {
     if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
-        o.data.type == 14)
+        o.data.type == 14 || o.data.type == 17)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -4703,8 +4746,8 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     if (!o.active || !o.visible) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 13 || ty == 14)
-      continue;  // markers / emitters / decals / the avatar - not blockers
+        ty == 13 || ty == 14 || ty == 17)
+      continue;  // markers / emitters / decals / areas / the avatar - not blockers
     if (o.data.collision == 2) continue;  // "none": the sweep passes through
     if (sweepPassOn) {
       // Portal pass-through for a thrown object's sweep: obstacles fully
@@ -5417,6 +5460,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       case 8: break;   // sound emitter - marker only, no geometry
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
+      case 17: break;  // area - an invisible volume, editor wireframe only
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -5927,7 +5971,7 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
   if (d.collision == 2) return false;
   const int t = d.type;
   return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
-         t != 13 && t != 14;
+         t != 13 && t != 14 && t != 17;
 }
 
 // ---------------------------------------------------------------------------
@@ -7038,6 +7082,38 @@ void TerrainGame::renderScene() {
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
 }
 
+// Live catch areas (docs/areas.md): the objects an area holds RIGHT NOW,
+// collected into liveCaught for the caller to submit on top of its fixed
+// target list. Only the owner's build-time candidate slice is walked -
+// everything that can move; whatever the volume holds that CANNOT move is
+// already in the fixed list, so a static room adds nothing to test here. The
+// area's rotated basis is built once, so a candidate costs three dot products
+// and a compare, and the area's own live transform is what is tested: move
+// the area and the volume moves with it.
+//
+// Runtime spawns are scanned separately: they exist nowhere in the scene
+// table, so no build-time list can name them.
+void TerrainGame::collectLiveCaught(int areaIndex, int firstCand,
+                                    int candCount) {
+  liveCaught.clear();
+  if (areaIndex < 0 || areaIndex >= (int)runtimeObjects.size()) return;
+  const RuntimeObject& area = runtimeObjects[areaIndex];
+  if (!area.active) return;
+  const AreaBasis basis = areaBasis(area.data);
+  for (int i = 0; i < candCount; ++i) {
+    const int ci = CATCH_CANDIDATES[firstCand + i];
+    if (ci < 0 || ci >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& o = runtimeObjects[ci];
+    if (!o.active || !o.visible) continue;
+    if (areaHoldsObject(basis, o.data)) liveCaught.push_back(ci);
+  }
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.visible || !areaCatchableType(o.data.type)) continue;
+    if (areaHoldsObject(basis, o.data)) liveCaught.push_back(i);
+  }
+}
+
 // Mirror objects (type 15): the PS2-era mirror. Every listed target is
 // submitted a SECOND time under a reflection matrix about the glass plane -
 // VU1 re-transforms the target's live vertex arrays (the same trick as the
@@ -7089,12 +7165,27 @@ void TerrainGame::renderMirrors() {
 
     for (int t = 0; t < mir.targetCount; ++t)
       renderMirroredObject(MIRROR_TARGETS[mir.firstTarget + t]);
+    // Live catch area: whatever moved into the volume since the last frame
+    // joins the reflection now (and whatever left drops out of it).
+    if (mir.liveArea >= 0) {
+      collectLiveCaught(mir.liveArea, mir.firstCand, mir.candCount);
+      for (int i = 0; i < (int)liveCaught.size(); ++i)
+        renderMirroredObject(liveCaught[i]);
+    }
     if (mir.reflectPlayer) {
       // only a visible body reflects: the third-person avatar is a normal
       // runtime object (visible only in mode 2), so the FPP player - no
       // body - is skipped by the visibility check inside
       const int pi = PLAYER_INDEXES[currentScene];
-      if (pi >= 0) renderMirroredObject(pi);
+      // A live area gates the avatar like anything else - the checkbox says
+      // the player MAY reflect, the volume says whether it does right now.
+      bool inside = true;
+      if (mir.liveArea >= 0 && pi >= 0) {
+        const RuntimeObject& area = runtimeObjects[mir.liveArea];
+        inside = area.active &&
+                 areaHoldsObject(areaBasis(area.data), runtimeObjects[pi].data);
+      }
+      if (pi >= 0 && inside) renderMirroredObject(pi);
     }
 
     // the glass quad itself, alpha-blended over the copies (its vertex
@@ -7481,25 +7572,34 @@ void TerrainGame::renderCameraFeed() {
     }
     renderTerrain();  // resident chunks - the ring follows the MAIN camera
   }
-  for (int t = 0; t < fd.viewCount; ++t) {
-    const int vi2 = CAM_FEED_VIEWS[fd.firstView + t];
-    if (vi2 < 0 || vi2 >= (int)runtimeObjects.size()) continue;
-    RuntimeObject& ro = runtimeObjects[vi2];
-    // no mirrors/portals in a feed: their surfaces are main-pass tricks
-    if (!ro.active || !ro.visible || ro.data.type == 15 ||
-        ro.data.type == 16)
-      continue;
-    if (ro.dirty) rebuildObjectGeometry(vi2);
-    ObjectGeometry& og = objectGeometry[vi2];
-    if (og.matrixMode) updateObjMat(vi2);
-    for (GeoPart& part : og.parts)
-      if (part.bag) stapip.core.render(part.bag.get());
-    if (og.animInfoBag && !og.animParts.empty())
-      for (ObjectGeometry::AnimPart& ap : og.animParts)
-        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  for (int t = 0; t < fd.viewCount; ++t)
+    renderFeedObject(CAM_FEED_VIEWS[fd.firstView + t]);
+  // Live catch area: the same volume test the mirrors run, so a prop that
+  // rolls into the camera's area shows up on the monitor.
+  if (fd.liveArea >= 0) {
+    collectLiveCaught(fd.liveArea, fd.firstCand, fd.candCount);
+    for (int i = 0; i < (int)liveCaught.size(); ++i)
+      renderFeedObject(liveCaught[i]);
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
   core.camFeed.end();
+}
+
+// One object inside the feed's env view, drawn from its live bags.
+void TerrainGame::renderFeedObject(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& ro = runtimeObjects[index];
+  // no mirrors/portals in a feed: their surfaces are main-pass tricks
+  if (!ro.active || !ro.visible || ro.data.type == 15 || ro.data.type == 16)
+    return;
+  if (ro.dirty) rebuildObjectGeometry(index);
+  ObjectGeometry& og = objectGeometry[index];
+  if (og.matrixMode) updateObjMat(index);
+  for (GeoPart& part : og.parts)
+    if (part.bag) stapip.core.render(part.bag.get());
+  if (og.animInfoBag && !og.animParts.empty())
+    for (ObjectGeometry::AnimPart& ap : og.animParts)
+      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
 }
 
 // Reflected-probe mode (ENV_PROBE_REFLECTED): one probe render PER
@@ -8088,6 +8188,14 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // so the loop already renders the mapped far half.
     for (int v = 0; v < p.viewCount; ++v)
       renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
+    // Live catch area: objects that moved into the volume show through the
+    // portal from this frame on - and portalShowsObject agrees with the same
+    // test, so the owner's rule (what a portal shows can cross it) holds.
+    if (p.liveArea >= 0) {
+      collectLiveCaught(p.liveArea, p.firstCand, p.candCount);
+      for (int i = 0; i < (int)liveCaught.size(); ++i)
+        renderViewObject(liveCaught[i]);
+    }
   }
   if (drawCarryFar) {
     RuntimeObject& co = runtimeObjects[carryIndex];
@@ -8181,7 +8289,7 @@ bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
   if (oi >= 0 && oi == thrownFreeIndex) return true;
   for (int v = 0; v < p.viewCount; ++v)
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
-  return false;
+  return portalLiveHolds(p, oi);
 }
 
 bool TerrainGame::portalShowsObject(int pi, int oi) {
@@ -8189,7 +8297,18 @@ bool TerrainGame::portalShowsObject(int pi, int oi) {
   if (p.viewAll) return true;
   for (int v = 0; v < p.viewCount; ++v)
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
-  return false;
+  return portalLiveHolds(p, oi);
+}
+
+// A single object against a portal's live catch area - the per-object twin of
+// collectLiveCaught, so "shown through" and "may cross" stay one rule. Called
+// per body per portal, so it exits before the trig on the common no-area case.
+bool TerrainGame::portalLiveHolds(const PortalData& p, int oi) {
+  if (p.liveArea < 0 || oi < 0 || oi >= (int)runtimeObjects.size())
+    return false;
+  const RuntimeObject& area = runtimeObjects[p.liveArea];
+  if (!area.active) return false;
+  return areaHoldsObject(areaBasis(area.data), runtimeObjects[oi].data);
 }
 
 void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {

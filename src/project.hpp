@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -364,6 +365,14 @@ struct SceneObject {
     // Properties panel previews with), so the second-render cost stays visible
     // to the author instead of growing silently at runtime.
     std::string catchArea;
+    // Live catch area: also re-test the volume EVERY FRAME, so an object that
+    // walks/falls/spawns into it starts reflecting (showing, feeding) there
+    // and then. Only objects that can actually move are re-tested - the
+    // build-time list still covers the immovable rest, so a static room costs
+    // nothing extra (project::areaLiveCandidates picks the movable set, which
+    // is by construction the set static batching already refuses). Ignored by
+    // raytraced mirrors: their proxy meshes are baked per mirror at build.
+    bool catchAreaLive = false;
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -510,6 +519,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.camFeedObjects == b.camFeedObjects &&
            a.textureFeed == b.textureFeed &&
            a.catchArea == b.catchArea &&
+           a.catchAreaLive == b.catchAreaLive &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
@@ -1798,6 +1808,32 @@ bool areaCatchable(PrimitiveType t);
 // itself (-1 = none). Empty for a missing/dangling area name.
 std::vector<int> areaCaughtObjects(const std::vector<SceneObject>& objs,
                                    const std::string& areaName, int exclude);
+
+// Object names reachable by something that can move, hide or re-target them at
+// runtime: same-scene flow nodes with an object-name param (writers and readers
+// alike - over-including is cheap), mirror/portal target lists, and the
+// project's cutscene tracks / camera-shot bindings (they apply to whatever
+// scene is active). Shared by static-batching eligibility and the live-catch
+// candidate set, which is why over-including stays safe in both: the first
+// costs one solo bag, the second one point test per frame.
+std::set<std::string> runtimeRefNames(const Project& p,
+                                      const std::vector<SceneObject>& objs);
+
+// Can this object's transform change (or can the object appear) after load?
+// The exact complement of the immovability static batching relies on, so a
+// live-catch candidate is by construction never a batch member - it always has
+// the solo bag a second submission needs.
+bool objectRuntimeMovable(const SceneObject& o,
+                          const std::set<std::string>& refs);
+
+// Scene-object indices a LIVE catch area (SceneObject::catchAreaLive) has to
+// re-test every frame: every catchable object that can move, in scene-table
+// order. Deliberately not filtered by the area - a candidate's whole point is
+// that it may be outside now and inside next frame. `exclude` drops the
+// referencing object itself (-1 = none).
+std::vector<int> areaLiveCandidates(const std::vector<SceneObject>& objs,
+                                    int exclude,
+                                    const std::set<std::string>& refs);
 
 // --- History file (<name>.history) ------------------------------------------
 // The undo history (up to History::kMaxEntries scene snapshots), kept next to

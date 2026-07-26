@@ -408,8 +408,10 @@ std::string objectJson(const SceneObject& o) {
     if (!o.textureFeed.empty())
         json += ", \"textureFeed\": \"" + jsonEscape(o.textureFeed) + "\"";
     // Catch area (Mirror / Portal / feed Camera); omitted when unset.
-    if (!o.catchArea.empty())
+    if (!o.catchArea.empty()) {
         json += ", \"catchArea\": \"" + jsonEscape(o.catchArea) + "\"";
+        if (o.catchAreaLive) json += ", \"catchAreaLive\": true";
+    }
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
                 ", \"reflectPlayer\": " +
@@ -2105,6 +2107,52 @@ std::vector<int> areaCaughtObjects(const std::vector<SceneObject>& objs,
     return out;
 }
 
+std::set<std::string> runtimeRefNames(const Project& p,
+                                      const std::vector<SceneObject>& objs) {
+    std::set<std::string> refs;
+    for (const SceneObject& o : objs) {
+        for (const FlowNode& n : o.flowGraph.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (t && t->strKind == FlowParamKind::ObjectName && !n.str.empty())
+                refs.insert(n.str);
+        }
+        if (o.type == PrimitiveType::Mirror)
+            for (const std::string& m : o.mirrorObjects) refs.insert(m);
+        if (o.type == PrimitiveType::Portal)
+            for (const std::string& m : o.portalObjects) refs.insert(m);
+    }
+    for (const Sequence& s : p.sequences) {
+        for (const SeqTrack& tr : s.tracks) refs.insert(tr.target);
+        for (const SeqCameraKey& k : s.cameraKeys) refs.insert(k.camera);
+    }
+    return refs;
+}
+
+bool objectRuntimeMovable(const SceneObject& o,
+                          const std::set<std::string>& refs) {
+    if (o.physics) return true;    // gravity, bounces, gets pushed
+    if (o.pickable) return true;   // carried in front of the camera, thrown
+    if (o.usable) return true;     // the highlight defers and re-submits it
+    if (o.saveState) return true;  // a loaded save repositions it
+    if (!o.layer.empty()) return true;  // streams in and out of the world
+    // Per-object logic: the graph can move self, attached scripts get a
+    // per-frame hook on this object.
+    if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return true;
+    return refs.find(o.name) != refs.end();
+}
+
+std::vector<int> areaLiveCandidates(const std::vector<SceneObject>& objs,
+                                    int exclude,
+                                    const std::set<std::string>& refs) {
+    std::vector<int> out;
+    for (size_t i = 0; i < objs.size(); ++i) {
+        if ((int)i == exclude) continue;
+        if (!areaCatchable(objs[i].type)) continue;
+        if (objectRuntimeMovable(objs[i], refs)) out.push_back((int)i);
+    }
+    return out;
+}
+
 static void readVec3(const json::Value* v, float* out) {
     if (!v || v->type != json::Value::Type::Array || v->arr.size() < 3) return;
     for (int i = 0; i < 3; ++i) out[i] = (float)v->arr[i].numberOr(out[i]);
@@ -2295,6 +2343,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("textureFeed")) o.textureFeed = v->stringOr("");
         if (const auto* v = jo.find("catchArea")) o.catchArea = v->stringOr("");
+        if (const auto* v = jo.find("catchAreaLive"))
+            o.catchAreaLive = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* mr = jo.find("mirror")) {
             if (const auto* v = mr->find("opacity")) {
                 o.mirrorOpacity = (float)v->numberOr(0.35);
@@ -3752,8 +3802,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
     for (const auto& n : o.camFeedObjects) fnvMixS(h, n);
     fnvMixS(h, o.textureFeed);
-    // A catch area is expanded into the baked side tables at build time.
+    // A catch area is expanded into the baked side tables at build time; a
+    // live one additionally bakes its candidate list and an area index.
     fnvMixS(h, o.catchArea);
+    fnvMix(h, o.catchAreaLive ? 1 : 0);
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);

@@ -176,6 +176,19 @@ expansion used by the Properties preview, the viewport mirror preview, the
 baked target tables and `batchBlockedNames`. If you add a consumer, call those
 — do not re-derive the box math.
 
+A catch area can also be **live** (`SceneObject::catchAreaLive`): the volume is
+re-tested every frame instead of only at build. The rule that makes it cheap
+and safe is worth reusing if you add another "re-submit these objects" feature:
+only `project::areaLiveCandidates` — objects that can move — is re-tested, and
+that predicate (`project::objectRuntimeMovable`, over
+`project::runtimeRefNames`) is the exact complement of the immovability
+`staticBatchEligible` relies on, so a live candidate always has the solo bag a
+second submission needs. The immovable rest stays baked in the fixed list, and
+movable objects are dropped FROM that list so nothing is submitted twice. The
+candidates bake into a shared `CATCH_CANDIDATES` table sliced per owner
+(`liveArea`/`firstCand`/`candCount` on `MirrorData`/`PortalData`/`CamFeedData`);
+`TerrainGame::collectLiveCaught` walks a slice plus the spawn pool.
+
 **Object identity: `SceneObject::id`.** Every object carries an opaque, stable
 `id` (first JSON key; part of `operator==`) — the merge/persistence key for the
 multi-user file format. It is *not* a user field and never reaches codegen
