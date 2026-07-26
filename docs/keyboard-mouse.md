@@ -3,8 +3,15 @@
 Generated games can be played with a USB keyboard and mouse — in PCSX2 out of
 the box, and on a real PS2 with USB devices plugged into the front ports.
 The feature is a project preference: *Project > Preferences > Build >
-Keyboard & mouse controls* (on by default, stored as `"keyboardMouse"` in the
-`.tyra`).
+Keyboard & mouse controls* (stored as `"keyboardMouse"` in the `.tyra`).
+
+**New projects start with it off.** A pad game gains nothing from loading three
+IRX drivers it never polls, and the console only speaks the USB HID *boot
+protocol* (see below), so this is a choice to make on purpose rather than a
+default to discover. Tick it for a keyboard/mouse game — nothing else changes,
+the pad keeps working either way. Projects created before that default keep
+whatever they saved, and projects older than the preference itself still load
+with it **on**, exactly as they did when the feature shipped for everyone.
 
 ## How it works
 

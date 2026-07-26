@@ -20,6 +20,27 @@ It only tells the importers how big a meter is here.
 The default is **1.0** — one unit is one meter — which is what every project
 saved before this existed loads as, and what every importer assumed all along.
 
+## Choosing it when the project is created
+
+The *New Project* dialog asks for it up front (**World scale > Scale**: metric,
+10 cm, 1 cm, 10 m per unit, or Custom), and `--new` takes it as a trailing
+argument. Not because it cannot be changed later — it can, and the field above
+is where — but because changing it later deliberately rescales *nothing*. A
+world already built at the wrong scale stays that size; the setting only fixes
+what arrives *after*. So the honest moment to ask is before there is any
+content, which is also when the terrain-size field can restate itself in
+metres right under the number.
+
+Whatever you pick, the **metric-by-definition defaults follow it**, because
+those numbers are metres and seconds by construction rather than by taste:
+eye height (1.8), walk speed (5 units/s), gravity (9.8), jump speed (4.5), and
+on the FPP preset's Player object the same three plus the third-person boom
+(6.0) and its height (1.6). Pick 10 units per metre and the preset player is
+18 units tall running 50 units/s — still 1.8 m at 5 m/s. Everything else is in
+units by nature (a texture's tiling, a nav cell, an AO radius) and is left
+alone. Only `project::create` does this: an existing project's numbers are
+never touched, for the same reason the setting itself rescales nothing.
+
 ## How big is that, actually?
 
 Two readouts answer this, and both speak units *and* meters:

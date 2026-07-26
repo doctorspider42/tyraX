@@ -66,7 +66,7 @@ tyrax-editor binary lives.)
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
-| `--new <name> <parentDir> [w] [d] [empty\|fpp]` | Create a fresh project |
+| `--new <name> <parentDir> [w] [d] [empty\|fpp] [unitsPerMeter]` | Create a fresh project (defaults: 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 

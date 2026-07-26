@@ -1488,9 +1488,16 @@ private:
     bool openNewProjectPopup_ = false;
     char newName_[128] = "my-game";
     char newLocation_[512] = "";
-    int newWidth_ = 64;
-    int newDepth_ = 64;
+    int newWidth_ = 100;
+    int newDepth_ = 100;
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // World scale (docs/world-scale.md), picked while the project is created -
+    // afterwards it is a setting that deliberately rescales nothing, so the
+    // honest moment to ask is before there is any content. Index into the
+    // preset list in drawNewProjectModal; the last entry is Custom, which is
+    // when newUnitsPerMeter_ is edited directly.
+    int newUnitsPreset_ = 0;  // 0 = 1 unit = 1 m
+    float newUnitsPerMeter_ = 1.0f;
     // "Add AI support": install the assistant skill files (aisupport.hpp)
     // into the fresh project. Also available later in Project Preferences.
     bool newAiClaude_ = false;
