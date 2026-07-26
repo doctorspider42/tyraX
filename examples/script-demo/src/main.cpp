@@ -1,6 +1,7 @@
 #include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <graph.h>  // graph_get_region - the PAL-picture promotion below
 #include "terrain_game.hpp"
 
 int main(int argc, char** argv) {
@@ -40,12 +41,35 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::Auto;
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i (whole frames or true field rendering), progressive 480p, or
-  // 1080i. The DTV modes need component cables on a real console and always
-  // run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p,
+  // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
+  // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::Interlaced;
+  // PAL picture (Preferences > Build > PAL picture): with the
+  // region-following interlaced mode, a PAL console (or a forced-PAL
+  // target system) boots the full-height 512-line 576i frame instead of
+  // the letterboxed NTSC-size picture. Resolved here, before engine init,
+  // so the whole boot (logo, loading screen) already runs in it; the menu
+  // "DEFAULT" display option maps back to whatever this resolves to.
+  if (false &&
+      options.displayMode == Tyra::DisplayMode::Interlaced &&
+      (options.videoMode == Tyra::VideoMode::PAL ||
+       (options.videoMode == Tyra::VideoMode::Auto &&
+        graph_get_region() == GRAPH_MODE_PAL)))
+    options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = false;
+  // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
+  // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
+  // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
+  // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
+  options.loadUsbKbdMouse = true;
+  // Experimental (Preferences > Build > Keyboard & mouse > Also over ps2link):
+  // normally the drivers are skipped under ps2link. With this on the engine
+  // reuses the USB stack of the custom TyraX ps2link (tools/ps2link-usbhid),
+  // which bakes usbd+ps2kbd+ps2mouse into its own boot - it loads none of its
+  // own. See docs/keyboard-mouse.md (Debugging on real hardware).
+  options.loadUsbKbdMouseUnderPs2Link = false;
   Tyra::Engine engine(options);
   Script_demo::TerrainGame game(&engine);
   engine.run(&game);

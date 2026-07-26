@@ -1,7 +1,6 @@
 #include "aigen.hpp"
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "platform.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -90,9 +89,17 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AmbienceName:
             return "ambience preset name (see context)";
         case FlowParamKind::LayerName: return "streaming layer name (see context)";
+        case FlowParamKind::AreaName:
+            return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
+        case FlowParamKind::InputActionName:
+            return "input action name (see context; Tools > Input Map)";
+        case FlowParamKind::KeyName:
+            return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
+                   "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
+                   "Left Ctrl, Left Alt";
         default: return "";
     }
 }
@@ -107,7 +114,18 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     if (t.trigger) {
         out.push_back("exec");
     } else if (!t.pure) {
-        in.push_back("exec");
+        if (t.execInCount > 1) {
+            // A merged node's branches are only reachable through a link's
+            // "pin", so the catalog has to name them - otherwise every graph the
+            // model writes lands on pin 0 (show / set) whatever it meant.
+            std::string s = "exec pins";
+            for (int e = 0; e < t.execInCount && e < kFlowMaxExecIn; ++e)
+                s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
+                     flowExecInLabel(t, e);
+            in.push_back(s);
+        } else {
+            in.push_back("exec");
+        }
         if (t.execThrough) out.push_back("exec (fires later - see doc)");
     }
     if (t.idIn) in.push_back("object");
@@ -118,6 +136,11 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     if (t.boolOut) out.push_back("bool");
     if (t.textIn) in.push_back("text (accepts several links)");
     if (t.textOut) out.push_back("text");
+    if (t.numIn)
+        in.push_back(flowNumFolds(t)     ? "number (accepts several links)"
+                     : t.numCount > 0 ? "number (overrides num[0])"
+                                      : "number");
+    if (t.numOut) out.push_back("number");
     auto join = [](const std::vector<std::string>& v) {
         std::string s;
         for (size_t i = 0; i < v.size(); ++i) s += (i ? ", " : "") + v[i];
@@ -176,9 +199,15 @@ static std::string graphPromptJson(const FlowGraph& fg) {
                            : l.kind == FlowLinkPos  ? "pos"
                            : l.kind == FlowLinkBool ? "bool"
                            : l.kind == FlowLinkText ? "text"
+                           : l.kind == FlowLinkNum  ? "number"
                                                     : "exec";
         o << (i ? ", " : "") << "{ \"from\": " << l.fromNode
-          << ", \"to\": " << l.toNode << ", \"kind\": \"" << kind << "\" }";
+          << ", \"to\": " << l.toNode << ", \"kind\": \"" << kind << "\"";
+        // Which branch of a merged node the link fires. Dropping it here used
+        // to silently rewrite every hide/toggle/add link to pin 0 when the
+        // model edited an existing graph.
+        if (l.toPin) o << ", \"pin\": " << l.toPin;
+        o << " }";
     }
     o << "] }";
     return o.str();
@@ -217,6 +246,13 @@ std::string systemPrompt(const Project& p, int ownerIndex,
          "- \"bool\": per-frame boolean from a bool output to a bool input "
          "(logic gates fold over ALL their wired bool inputs).\n"
          "- \"text\": a text value from a text output to a text input.\n"
+         "- \"number\": a computed number from a number output to a number "
+         "input. A number link REPLACES the target's num[0] param; the Math "
+         "nodes (Add/Subtract/Multiply/Divide) fold over ALL their wired "
+         "number inputs.\n"
+         "An exec link may carry \"pin\": N to fire a specific labeled exec "
+         "input of a merged node (the catalog lists them, e.g. Set Int has "
+         "0=set, 1=add). Omit it for the node's first pin.\n"
          "\n"
          "SEMANTICS:\n"
          "- Triggers fire their exec output; every action wired from it runs "
@@ -235,7 +271,10 @@ std::string systemPrompt(const Project& p, int ownerIndex,
          "through logic gates into On Condition (fires on the rising edge) "
          "and chain actions from it.\n"
          "- A position link into a node with X/Y/Z params overrides those "
-         "params.\n"
+         "params; a number link overrides num[0] the same way.\n"
+         "- To change a variable by an amount, prefer Set Int's \"add\" pin "
+         "(pin 1) with num[0] as the delta over reading it back through Get "
+         "Int + Add.\n"
          "- Keep graphs minimal: no unused nodes, no redundant links.\n"
          "\n"
          "NODE CATALOG (the ONLY valid \"type\" values):\n";
@@ -264,6 +303,14 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     ctxLine("Scenes", nameList(p.scenes, [](const SceneData& s) { return s.name; }));
     ctxLine("Streaming layers (this scene)",
             nameList(sc.layers, [](const SceneLayer& l) { return l.name; }));
+    {
+        // Areas are objects, so they are listed above too - called out
+        // separately because In Area's str only accepts these.
+        std::vector<std::string> areas;
+        for (const SceneObject& obj : sc.objects)
+            if (obj.type == PrimitiveType::Area) areas.push_back(obj.name);
+        ctxLine("Areas (invisible volumes, for In Area)", nameList(areas, id));
+    }
     ctxLine("Music tracks", nameList(p.music, id));
     ctxLine("Sound effects", nameList(p.sounds, id));
     ctxLine("Save values",
@@ -271,6 +318,12 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     ctxLine("Save texts",
             nameList(p.saveTexts, [](const SaveTextValue& v) { return v.name; }));
     ctxLine("Menus", nameList(p.menus, [](const GameMenu& m) { return m.name; }));
+    ctxLine("Input actions (On Action)",
+            nameList(p.input.actions,
+                     [](const InputAction& a) { return a.name; }));
+    ctxLine("Input presets (Set Input Preset)",
+            nameList(p.input.presets,
+                     [](const InputPreset& v) { return v.name; }));
     {
         // Flow event names reachable from menu entries (On Menu Event's str).
         std::vector<std::string> events;
@@ -409,6 +462,7 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                          : k == "pos"  ? FlowLinkPos
                          : k == "bool" ? FlowLinkBool
                          : k == "text" ? FlowLinkText
+                         : k == "number" ? FlowLinkNum
                                        : FlowLinkExec;
             } else {
                 auto flag = [&jl](const char* key) {
@@ -419,8 +473,10 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                          : flag("pos") ? FlowLinkPos
                          : flag("bool") ? FlowLinkBool
                          : flag("text") ? FlowLinkText
+                         : flag("number") ? FlowLinkNum
                                         : FlowLinkExec;
             }
+            if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
             // Same validity rules the graph editor prunes by.
             const FlowNodeType* from = typeOf(l.fromNode);
             const FlowNodeType* to = typeOf(l.toNode);
@@ -430,11 +486,16 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                     case FlowLinkExec:
                         ok = (from->trigger || from->execThrough) && !to->trigger &&
                              !to->pure;
+                        // A pin the target does not have would fire nothing at
+                        // all, which reads as "the node was ignored".
+                        ok = ok && l.toPin >= 0 &&
+                             l.toPin < (to->execInCount < 1 ? 1 : to->execInCount);
                         break;
                     case FlowLinkObject: ok = from->idOut && to->idIn; break;
                     case FlowLinkPos: ok = from->posOut && to->posIn; break;
                     case FlowLinkBool: ok = from->boolOut && to->boolIn; break;
                     case FlowLinkText: ok = from->textOut && to->textIn; break;
+                    case FlowLinkNum: ok = from->numOut && to->numIn; break;
                     default: ok = false; break;
                 }
             }
@@ -540,13 +601,10 @@ void Generator::finish(State s, const std::string& reply, const std::string& err
 void Generator::cancel() {
     if (!busy()) return;
     cancelRequested_ = true;
-    std::lock_guard<std::mutex> lock(jobMutex_);
-    // Closing a kill-on-close job terminates every process in it - the cmd.exe
-    // wrapper AND the node/curl children (TerminateProcess on cmd alone would
-    // orphan a token-burning backend).
-    if (job_) {
-        TerminateJobObject((HANDLE)job_, 1);
-    }
+    std::lock_guard<std::mutex> lock(procMutex_);
+    // Kills the whole tree - the shell wrapper AND the node/curl children.
+    // Killing the wrapper alone would orphan a token-burning backend.
+    if (proc_) proc_->kill();
 }
 
 // Writes `content` to a fresh file in the system temp dir; returns its path
@@ -557,7 +615,7 @@ static std::string writeTempFile(const char* tag, const std::string& content) {
     const fs::path dir = fs::temp_directory_path(ec);
     if (ec) return "";
     static std::atomic<int> counter{0};
-    const fs::path path = dir / ("tyrax-ai-" + std::to_string(GetCurrentProcessId()) +
+    const fs::path path = dir / ("tyrax-ai-" + std::to_string(platform::processId()) +
                                  "-" + std::to_string(++counter) + "-" + tag);
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (!f) return "";
@@ -616,7 +674,7 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
                 return;
             }
             tempFiles = {bodyFile, cfgFile};
-            cmdline = "curl.exe --config \"" + cfgFile + "\"";
+            cmdline = "curl --config " + platform::shellArg(cfgFile);
         } else {
             // CLI backends read the whole prompt (instructions + request)
             // from stdin via a redirect.
@@ -631,90 +689,48 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
             if (cfg.backend == "copilot") {
                 cmdline = "copilot -p \"Follow the instructions piped on "
                           "stdin. Reply with only the JSON they describe.\"";
-                if (!cfg.model.empty()) cmdline += " --model \"" + cfg.model + "\"";
-                cmdline += " < \"" + promptFile + "\"";
+                if (!cfg.model.empty())
+                    cmdline += " --model " + platform::shellArg(cfg.model);
+                cmdline += " < " + platform::shellArg(promptFile);
             } else {  // claude
                 cmdline.clear();
                 // Extended thinking in the claude CLI is budget-driven.
-                if (cfg.thinking) cmdline += "set MAX_THINKING_TOKENS=16000&& ";
+                if (cfg.thinking)
+                    cmdline += platform::envPrefix("MAX_THINKING_TOKENS", "16000");
                 cmdline += "claude -p --output-format text --max-turns 1";
-                if (!cfg.model.empty()) cmdline += " --model \"" + cfg.model + "\"";
-                cmdline += " < \"" + promptFile + "\"";
+                if (!cfg.model.empty())
+                    cmdline += " --model " + platform::shellArg(cfg.model);
+                cmdline += " < " + platform::shellArg(promptFile);
             }
         }
 
-        // --- spawn through cmd.exe (the CLIs are .cmd shims), stdout piped,
-        // stderr to a temp file so interleaving can't corrupt the reply ------
-        SECURITY_ATTRIBUTES sa{};
-        sa.nLength = sizeof(sa);
-        sa.bInheritHandle = TRUE;
-        HANDLE readPipe = nullptr, writePipe = nullptr;
-        if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
-            finish(State::Failed, "", "Could not create an output pipe.");
-            cleanup();
-            return;
-        }
-        SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+        // --- spawn through the platform shell (on Windows the CLIs are .cmd
+        // shims; everywhere the prompt arrives via a stdin redirect), stdout
+        // piped, stderr to a temp file so interleaving can't corrupt the reply.
         const std::string errFile = writeTempFile("stderr.txt", "");
         tempFiles.push_back(errFile);
-        HANDLE errHandle = CreateFileA(errFile.c_str(), GENERIC_WRITE,
-                                       FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
-                                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                                       nullptr);
 
-        STARTUPINFOA si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdOutput = writePipe;
-        si.hStdError = errHandle != INVALID_HANDLE_VALUE ? errHandle : writePipe;
-        si.hStdInput = INVALID_HANDLE_VALUE;
-
-        HANDLE job = CreateJobObjectA(nullptr, nullptr);
-        if (job) {
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
-            info.BasicLimitInformation.LimitFlags =
-                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info,
-                                    sizeof(info));
-        }
-
-        PROCESS_INFORMATION pi{};
-        std::string full = "cmd.exe /S /C \"" + cmdline + "\"";
-        BOOL ok = CreateProcessA(nullptr, full.data(), nullptr, nullptr, TRUE,
-                                 CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
-                                 nullptr, &si, &pi);
-        CloseHandle(writePipe);
-        if (errHandle != INVALID_HANDLE_VALUE) CloseHandle(errHandle);
-        if (!ok) {
-            CloseHandle(readPipe);
-            if (job) CloseHandle(job);
+        platform::Process::Options opts;
+        opts.capture = true;
+        opts.stderrFile = errFile;
+        std::shared_ptr<platform::Process> proc =
+            platform::Process::start(cmdline, opts);
+        if (!proc) {
             finish(State::Failed, "", "Could not start the backend command: " + cmdline);
             cleanup();
             return;
         }
-        if (job) AssignProcessToJobObject(job, pi.hProcess);
         {
-            std::lock_guard<std::mutex> lock(jobMutex_);
-            job_ = job;
+            std::lock_guard<std::mutex> lock(procMutex_);
+            proc_ = proc;
         }
-        ResumeThread(pi.hThread);
 
-        std::string output;
-        char buf[4096];
-        DWORD n = 0;
-        while (ReadFile(readPipe, buf, sizeof(buf), &n, nullptr) && n > 0)
-            output.append(buf, n);
-        CloseHandle(readPipe);
-        WaitForSingleObject(pi.hProcess, INFINITE);
-        DWORD code = 1;
-        GetExitCodeProcess(pi.hProcess, &code);
+        const std::string output = proc->readAll();
+        const int code = proc->wait();
         {
-            std::lock_guard<std::mutex> lock(jobMutex_);
-            job_ = nullptr;
+            std::lock_guard<std::mutex> lock(procMutex_);
+            proc_.reset();
         }
-        if (job) CloseHandle(job);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
 
         std::string errText;
         {

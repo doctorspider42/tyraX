@@ -33,7 +33,7 @@ see [Moving nodes to another project](#moving-nodes-to-another-project).
 2. Edit the file (format below), then **Custom nodes… ▸ Reload from folder**. The
    node appears in the add-menu under its `category`.
 3. Right-click the canvas → your category → your node. Wire it up, build. Your
-   code lands in `src/scripts/flow_graph.gen.cpp` exactly where the node runs.
+   code lands in `src/gen/flow_graph.gen.cpp` exactly where the node runs.
 
 ## File format
 

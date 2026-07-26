@@ -1,0 +1,1 @@
+{ "id": "bbbb000000000006", "name": "floor", "type": "box", "position": [0, 0, 5], "rotation": [0, 0, 0], "scale": [16, 0.2, 11], "color": [0.42, 0.45, 0.5], "physics": false, "collision": "none" }

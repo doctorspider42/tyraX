@@ -56,6 +56,29 @@ class RendererCorePostFx {
   /** Bloom strength: 0 = off, 128 = the blurred frame fully re-added. */
   void setBloom(const u8 strength) { bloom = strength; }
 
+  /**
+   * Bloom bright-pass threshold: 0 = off (the whole frame glows, the classic
+   * soft-focus look), 1..255 = only what is BRIGHTER than this contributes.
+   * Implemented as a flat subtract over the downsampled frame - the GS clamps
+   * at zero, so darker pixels drop out entirely and bright ones keep the
+   * excess. That is what turns a global soft glow into a halo around emissive
+   * materials (TyraX "Ke" materials) and specular hits.
+   */
+  void setBloomThreshold(const u8 level) { bloomThreshold = level; }
+  u8 getBloomThreshold() const { return bloomThreshold; }
+
+  /**
+   * How far the glow reaches: extra soften iterations over the quarter-res
+   * buffer, 1 (the original single 4-tap pass) to 4. Each iteration doubles
+   * the tap offsets, so the halo roughly doubles in radius while staying
+   * 4 blits - the cheapest way to turn a tight fringe into a real corona.
+   * Costs 4 extra GS sprites per extra iteration, no EE work and no VRAM.
+   */
+  void setBloomSpread(const u8 iterations) {
+    bloomSpread = iterations < 1 ? 1 : (iterations > 4 ? 4 : iterations);
+  }
+  u8 getBloomSpread() const { return bloomSpread; }
+
   /** Film grain strength: 0 = off, 128 = maximum. */
   void setGrain(const u8 strength) { grain = strength; }
 
@@ -210,9 +233,32 @@ class RendererCorePostFx {
   // One untextured full-screen sprite: flat RGBAQ color, blended over the
   // frame by `alpha`; `fbmsk` bits protect framebuffer bits from the write
   // (per-channel gain masks everything but its channel). Public for custom
-  // passes (flat tint / fade / lift / mix).
+  // passes (flat tint / fade / lift / mix). w/h default to the framebuffer
+  // size; pass the low-res extent to cover a quarter-res scratch buffer
+  // instead (the bloom bright-pass does).
   qword_t* flatQuad(qword_t* q, int dstVram, int dstBufW, u32 fbmsk, u8 r,
-                    u8 g, u8 b, u8 a, u64 alpha);
+                    u8 g, u8 b, u8 a, u64 alpha, int w = -1, int h = -1);
+
+  // TyraX portals: the in-place through-view mask. The destination scene
+  // renders FULL-RES into the real framebuffer right after the frame clear,
+  // scissored to the portal quad's screen bbox; the GS has no stencil, so
+  // the "shaped opening" is carved with reversed-z tricks afterwards:
+  //   portalMaskBegin - scissor the frame to the bbox and z-clear it (an
+  //     earlier portal's z-cap must not reject this view's geometry where
+  //     bboxes overlap; call before submitting the destination view).
+  //   portalMaskEnd   - re-far the bbox z (the destination depths must not
+  //     confuse the main scene), cap the quad interior at the surface depth
+  //     (z-only triangle fan, ALWAYS - walls in front still win GEQUAL over
+  //     the view, the wall behind loses, and DoF/particles see a solid
+  //     surface), repaint the still-far ring around the opening with the
+  //     clear color (GEQUAL at z=0 hits exactly the pixels the reset left
+  //     at far - the spilled destination pixels outside the quad), then
+  //     restore scissor/tests.
+  // xy = screen pixels (pairs), z = 24-bit GS depths of the quad plane.
+  // Call through RendererCore::portalViewBegin/End, which drain PATH1.
+  void portalMaskBegin(int x0, int y0, int x1, int y1);
+  void portalMaskEnd(const float* xy, const u32* z, int count, u8 clearR,
+                     u8 clearG, u8 clearB);
 
  private:
   static constexpr int noiseSize = 64;  // texels, power of two
@@ -221,6 +267,8 @@ class RendererCorePostFx {
   RendererCoreGS* gs;
   packet2_t* packet;
   u8 bloom, grain;
+  u8 bloomThreshold;  // bright-pass cut, 0 = the whole frame blooms
+  u8 bloomSpread;     // soften iterations, 1 = the original tight blur
   u8 dof;         // depth-of-field strength, 0 = off
   float dofFocus; // sharp up to this camera distance (world units)
   float dofRange; // full blur reached at dofFocus + dofRange

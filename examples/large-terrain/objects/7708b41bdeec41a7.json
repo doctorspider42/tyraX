@@ -1,0 +1,1 @@
+{ "id": "7708b41bdeec41a7", "name": "rock-150", "type": "box", "position": [-282.312, -5.942, -239.437], "rotation": [0, 300.1, 0], "scale": [3.12, 0.61, 1.35], "color": [0.414, 0.414, 0.434], "physics": false, "collision": "none", "drawDistance": 60 }

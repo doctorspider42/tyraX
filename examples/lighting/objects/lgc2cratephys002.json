@@ -1,1 +1,1 @@
-{ "id": "lgc2cratephys002", "name": "crate-2", "type": "box", "position": [3.2, 5, 10], "rotation": [0, -15, 0], "scale": [0.8, 0.8, 0.8], "color": [0.55, 0.4, 0.28], "physics": true }
+{ "id": "lgc2cratephys002", "name": "crate-2", "type": "box", "position": [3.2, 5, 10], "rotation": [0, -15, 0], "scale": [0.8, 0.8, 0.8], "color": [0.55, 0.4, 0.28], "physics": true, "physMass": 1, "physBounce": 0.35, "physFriction": 0.5, "physTumble": true, "physSleep": 3 }

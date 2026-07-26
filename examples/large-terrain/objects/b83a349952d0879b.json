@@ -1,0 +1,1 @@
+{ "id": "b83a349952d0879b", "name": "rock-805", "type": "box", "position": [-376.294, -1.899, -209.629], "rotation": [0, 120.2, 0], "scale": [2.95, 1.47, 2.66], "color": [0.385, 0.385, 0.405], "physics": false, "collision": "none", "drawDistance": 60 }

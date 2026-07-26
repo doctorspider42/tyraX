@@ -227,6 +227,107 @@ bool writePngRGBA(const std::string& dstPath, const unsigned char* rgba, int w,
     return true;
 }
 
+std::vector<unsigned char> quantizePreviewRGBA(
+    const unsigned char* pixels, int w, int h, int colors, Dither dither,
+    std::vector<unsigned char>* outPalette) {
+    std::vector<unsigned char> out;
+    if (!pixels || w < 1 || h < 1) return out;
+    if (colors != 16 && colors != 256) colors = 16;
+
+    // unique colors, weighted - identical to the shipped quantizeRGBA path
+    std::vector<uint32_t> uniques;
+    std::vector<int> counts;
+    {
+        std::vector<uint32_t> sorted((size_t)w * h);
+        std::memcpy(sorted.data(), pixels, (size_t)w * h * 4);
+        std::sort(sorted.begin(), sorted.end());
+        for (size_t i = 0; i < sorted.size();) {
+            size_t j = i;
+            while (j < sorted.size() && sorted[j] == sorted[i]) ++j;
+            uniques.push_back(sorted[i]);
+            counts.push_back((int)(j - i));
+            i = j;
+        }
+    }
+    std::vector<Px> palette;
+    const bool lossless = (int)uniques.size() <= colors;
+    if (lossless)
+        for (uint32_t u : uniques) palette.push_back(unpack(u));
+    else
+        palette = medianCut(uniques, counts, colors);
+    if (outPalette) {
+        outPalette->clear();
+        for (const Px& p : palette) {
+            outPalette->push_back(p.r);
+            outPalette->push_back(p.g);
+            outPalette->push_back(p.b);
+            outPalette->push_back(p.a);
+        }
+    }
+
+    out.resize((size_t)w * h * 4);
+    auto emit = [&](size_t i, int idx) {
+        out[i * 4 + 0] = palette[idx].r;
+        out[i * 4 + 1] = palette[idx].g;
+        out[i * 4 + 2] = palette[idx].b;
+        out[i * 4 + 3] = palette[idx].a;
+    };
+    if (lossless || dither == Dither::None) {
+        for (size_t i = 0; i < (size_t)w * h; ++i) {
+            const uint8_t* p = pixels + i * 4;
+            emit(i, nearest(palette, p[0], p[1], p[2], p[3]));
+        }
+    } else if (dither == Dither::Ordered) {
+        // 4x4 Bayer threshold; amplitude scaled to the palette coarseness
+        static const int bayer[4][4] = {
+            {0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+        const float amp = colors == 16 ? 40.0f : 18.0f;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const size_t i = (size_t)y * w + x;
+                const uint8_t* p = pixels + i * 4;
+                const float o = (bayer[y & 3][x & 3] / 16.0f - 0.5f) * amp;
+                auto c255 = [](float v) {
+                    return (int)(v < 0 ? 0 : v > 255 ? 255 : v);
+                };
+                emit(i, nearest(palette, c255(p[0] + o), c255(p[1] + o),
+                                c255(p[2] + o), p[3]));
+            }
+    } else {
+        // Floyd-Steinberg, the shipped-bake behavior (RGB error only -
+        // dithered alpha shimmers on the GS)
+        std::vector<float> err((size_t)w * h * 3, 0.0f);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const size_t i = (size_t)y * w + x;
+                const uint8_t* p = pixels + i * 4;
+                auto c255 = [](float v) {
+                    return (int)(v < 0 ? 0 : v > 255 ? 255 : v);
+                };
+                const int r = c255(p[0] + err[i * 3 + 0]);
+                const int g = c255(p[1] + err[i * 3 + 1]);
+                const int b = c255(p[2] + err[i * 3 + 2]);
+                const int idx = nearest(palette, r, g, b, p[3]);
+                emit(i, idx);
+                const float er = (float)(r - palette[idx].r);
+                const float eg = (float)(g - palette[idx].g);
+                const float eb = (float)(b - palette[idx].b);
+                auto spread = [&](int dx, int dy, float k) {
+                    if (x + dx < 0 || x + dx >= w || y + dy >= h) return;
+                    const size_t j = (size_t)(y + dy) * w + (x + dx);
+                    err[j * 3 + 0] += er * k;
+                    err[j * 3 + 1] += eg * k;
+                    err[j * 3 + 2] += eb * k;
+                };
+                spread(1, 0, 7.0f / 16.0f);
+                spread(-1, 1, 3.0f / 16.0f);
+                spread(0, 1, 5.0f / 16.0f);
+                spread(1, 1, 1.0f / 16.0f);
+            }
+    }
+    return out;
+}
+
 bool quantizeRGBA(const std::string& dstPath, const unsigned char* pixels, int w,
                   int h, int colors, std::string& error) {
     if (colors != 16 && colors != 256) {

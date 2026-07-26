@@ -9,7 +9,7 @@
 // time - cinematic cutscenes on the PS2. It is authored by scrubbing the
 // playhead and snapshotting object poses / the editor camera, previewed live
 // in the viewport, and compiled to a PS2 runtime player
-// (src/scripts/sequences.gen.cpp - a global Script) driven from the flow graph
+// (src/gen/sequences.gen.cpp - a global Script) driven from the flow graph
 // (Play Sequence / Stop Sequence nodes).
 //
 // Sequences are project-wide (like color grading / ambience presets) and, like
@@ -77,6 +77,17 @@ struct SeqCameraKey {
     float target[3] = {0.0f, 1.0f, 0.0f};
     float fov = 60.0f;   // degrees (free shots; bound shots use the entity's)
     float shake = 0.0f;  // camera shake amplitude, world units (0 = steady)
+    // Rotation about the view axis, degrees - the Dutch angle. 0 keeps the
+    // horizon level. FREE SHOTS ONLY: a shot bound to a Camera entity takes its
+    // whole view basis from that entity's rotation instead (seqCameraUpFromEuler),
+    // which already carries any tilt.
+    //
+    // Do NOT be tempted to treat a Camera entity's rotation.z as this value. The
+    // entity's Euler is applied Rz*Ry*Rx, so its Z is a rotation about the WORLD
+    // axis, applied last: on a camera pitched 40 deg, rotation.z = 90 swings
+    // where it points by 54 deg. Only for an unpitched camera do the two
+    // coincide. (Measured, not assumed.)
+    float roll = 0.0f;
     int easing = 1;
     std::string camera;  // Camera entity name; empty = free shot
 };
@@ -86,8 +97,8 @@ inline bool operator==(const SeqCameraKey& a, const SeqCameraKey& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.time == b.time && eq3(a.eye, b.eye) && eq3(a.target, b.target) &&
-           a.fov == b.fov && a.shake == b.shake && a.easing == b.easing &&
-           a.camera == b.camera;
+           a.fov == b.fov && a.shake == b.shake && a.roll == b.roll &&
+           a.easing == b.easing && a.camera == b.camera;
 }
 
 // Widescreen mask styles (Sequence::bars): solid black masks composited over
@@ -228,6 +239,132 @@ inline void seqCameraForward(const float rotDeg[3], float out[3]) {
     out[0] = cx * sy * cz + sx * sz;
     out[1] = cx * sy * sz - sx * cz;
     out[2] = cx * cy;
+}
+
+// The camera's UP vector for a view direction plus a roll about that direction
+// (degrees). Roll 0 gives the usual gravity-aligned up, so an unrolled shot is
+// bit-identical to what the engine's own hardcoded (0,1,0) produced before roll
+// existed. Looking straight up or down is degenerate for a world-up reference,
+// so the fallback basis there is built off world -Z instead.
+//
+// A THREE-WAY TWIN: this exact function is mirrored in the generated PS2 player
+// (templates.cpp) and drives the editor viewport's own basis (viewport.cpp
+// camView). Change one, change all three - a disagreement shows up as the phone
+// framing one horizon and the console rendering another.
+inline void seqCameraUp(const float fwd[3], float rollDeg, float out[3]) {
+    float f[3] = {fwd[0], fwd[1], fwd[2]};
+    const float fl = std::sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+    if (fl > 1e-8f) {
+        f[0] /= fl;
+        f[1] /= fl;
+        f[2] /= fl;
+    }
+    // right = normalize(cross(worldUp, f)); near-vertical views pick another ref
+    float ref[3] = {0.0f, 1.0f, 0.0f};
+    if (std::fabs(f[1]) > 0.9995f) {
+        ref[0] = 0.0f;
+        ref[1] = 0.0f;
+        ref[2] = -1.0f;
+    }
+    float r[3] = {ref[1] * f[2] - ref[2] * f[1], ref[2] * f[0] - ref[0] * f[2],
+                  ref[0] * f[1] - ref[1] * f[0]};
+    const float rl = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+    if (rl > 1e-8f) {
+        r[0] /= rl;
+        r[1] /= rl;
+        r[2] /= rl;
+    }
+    // up = cross(f, right)
+    const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2],
+                        f[0] * r[1] - f[1] * r[0]};
+    const float a = rollDeg * 3.14159265f / 180.0f;
+    const float c = std::cos(a), s = std::sin(a);
+    // Rotate up about the view axis: up*cos + right*sin.
+    for (int i = 0; i < 3; ++i) out[i] = u[i] * c + r[i] * s;
+}
+
+// Roll (degrees) of an arbitrary camera basis: how far `up` is rotated about
+// `fwd` away from the level up seqCameraUp(fwd, 0) would give. The inverse of
+// the above, used to turn a phone's full orientation quaternion into a roll
+// value the keyframes can store.
+inline float seqRollFromUp(const float fwd[3], const float up[3]) {
+    float level[3], right[3];
+    seqCameraUp(fwd, 0.0f, level);
+    seqCameraUp(fwd, 90.0f, right);  // rotating up by 90 deg IS the right axis
+    const float dc = up[0] * level[0] + up[1] * level[1] + up[2] * level[2];
+    const float ds = up[0] * right[0] + up[1] * right[1] + up[2] * right[2];
+    return std::atan2(ds, dc) * 180.0f / 3.14159265f;
+}
+
+// The 3x3 rotation a Camera entity's Euler describes, applied Rz*Ry*Rx exactly
+// like seqCameraForward and the editor gizmo. Row-major; its columns are the
+// entity's right / up / lens axes.
+inline void seqEulerMatrix(const float rotDeg[3], float m[9]) {
+    const float d2r = 3.14159265f / 180.0f;
+    const float sx = std::sin(rotDeg[0] * d2r), cx = std::cos(rotDeg[0] * d2r);
+    const float sy = std::sin(rotDeg[1] * d2r), cy = std::cos(rotDeg[1] * d2r);
+    const float sz = std::sin(rotDeg[2] * d2r), cz = std::cos(rotDeg[2] * d2r);
+    m[0] = cz * cy;
+    m[1] = cz * sy * sx - sz * cx;
+    m[2] = cz * sy * cx + sz * sx;
+    m[3] = sz * cy;
+    m[4] = sz * sy * sx + cz * cx;
+    m[5] = sz * sy * cx - cz * sx;
+    m[6] = -sy;
+    m[7] = cy * sx;
+    m[8] = cy * cx;
+}
+
+// A Camera entity's UP vector - the middle column of the above. A bound shot
+// uses this instead of seqCameraUp: the entity's orientation already fixes the
+// whole basis, so its tilt needs no separate roll channel. Mirrored in the
+// generated PS2 player.
+inline void seqCameraUpFromEuler(const float rotDeg[3], float out[3]) {
+    float m[9];
+    seqEulerMatrix(rotDeg, m);
+    out[0] = m[1];
+    out[1] = m[4];
+    out[2] = m[7];
+}
+
+// Euler (deg, Rz*Ry*Rx) reproducing a given lens direction AND up vector - the
+// inverse of the pair above, used to bake a phone recording (which has a real
+// roll) into a Camera entity's rotation track. `up` need not be exactly
+// perpendicular to `fwd`; it is orthogonalized.
+inline void seqEulerFromBasis(const float fwd[3], const float up[3], float outRotDeg[3]) {
+    auto norm = [](float v[3]) {
+        const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (l > 1e-8f) {
+            v[0] /= l;
+            v[1] /= l;
+            v[2] /= l;
+        }
+    };
+    float f[3] = {fwd[0], fwd[1], fwd[2]};
+    norm(f);
+    float u[3] = {up[0], up[1], up[2]};
+    const float d = u[0] * f[0] + u[1] * f[1] + u[2] * f[2];
+    for (int i = 0; i < 3; ++i) u[i] -= f[i] * d;  // Gram-Schmidt against the lens
+    norm(u);
+    // right = cross(up, fwd) - matches seqEulerMatrix's column order
+    const float r[3] = {u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2],
+                        u[0] * f[1] - u[1] * f[0]};
+    // m = [r u f] by column; invert the Rz*Ry*Rx composition
+    const float r2d = 180.0f / 3.14159265f;
+    float sy = -r[2];
+    sy = sy < -1.0f ? -1.0f : (sy > 1.0f ? 1.0f : sy);
+    const float ry = std::asin(sy);
+    if (std::fabs(sy) > 0.99999f) {
+        // Gimbal lock: the lens points along +-world X, so yaw and roll are the
+        // same rotation. Pin roll to 0 and put everything in yaw.
+        outRotDeg[0] = std::atan2(-f[1], u[1]) * r2d;
+        outRotDeg[1] = ry * r2d;
+        outRotDeg[2] = 0.0f;
+        return;
+    }
+    outRotDeg[0] = std::atan2(u[2], f[2]) * r2d;  // rx from cy*sx, cy*cx
+    outRotDeg[1] = ry * r2d;
+    outRotDeg[2] = std::atan2(r[1], r[0]) * r2d;  // rz from sz*cy, cz*cy
 }
 
 // Inverse of seqCameraForward for the no-roll case: the Euler rotation (deg,

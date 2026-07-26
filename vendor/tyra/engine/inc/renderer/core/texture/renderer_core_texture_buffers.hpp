@@ -30,6 +30,16 @@ struct RendererCoreTextureBuffers {
    * Used in: 4bpp, 8bpp (otherwise nullptr).
    */
   texbuffer_t* clut;
+
+  /**
+   * Modified by TyraX: monotonic bind counter at the last useTexture() of
+   * this allocation. Only meaningful on the entries RendererCoreTexture
+   * keeps in its residency list (copies handed to callers are snapshots) -
+   * it is what the eviction policy sorts on, and comparing it against the
+   * sequence number the current frame started at answers "was this bound
+   * this frame?".
+   */
+  u32 lastUsedSeq;
 };
 
 }  // namespace Tyra

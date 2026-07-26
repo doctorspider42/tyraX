@@ -9,7 +9,7 @@ description: TyraX flow graphs - the visual logic scripts attached to scene obje
 
 A flow graph is a CryEngine-style visual script. **Every scene object owns its
 own graph** (stored inside its `objects/<id>.json` under `"flowGraph"`); at
-build time all graphs compile into `src/scripts/flow_graph.gen.cpp` - one
+build time all graphs compile into `src/gen/flow_graph.gen.cpp` - one
 script class per graph. There is no interpreter on the PS2: graphs become
 plain C++.
 
@@ -45,14 +45,18 @@ over guessing from this file.
   button names, free text (meaning per node type in `--list-nodes`).
 - `num[4]`: numeric parameters (labels per node type).
 - `kind`: `"exec"` (execution flow), `"object"` (object reference), `"pos"`
-  (XYZ), `"bool"` (per-frame condition), `"text"` (string value).
+  (XYZ), `"bool"` (per-frame condition), `"text"` (string value), `"number"`
+  (a computed float).
+- `pin`: on an exec link only - which labeled exec input of a merged node it
+  fires (e.g. Set Int has `0`=set, `1`=add). Omit for the first pin.
+  `--list-nodes` names the pins of every merged node.
 - The editor's native storage uses bool flags (`"data"`, `"pos"`, `"bool"`,
-  `"text"`) instead of `"kind"`; `--apply-graph` accepts both.
+  `"text"`, `"number"`) instead of `"kind"`; `--apply-graph` accepts both.
 
 ## Semantics you must respect
 
-- **Triggers** (On Start, On Button, Near Object, On Used, Every N Seconds, On
-  Animation Finished, On Condition, On Menu Event) have an exec **output**;
+- **Triggers** (On Start, On Button, Near Object, In Area, On Used, Every N
+  Seconds, On Animation Finished, On Condition, On Menu Event) have an exec **output**;
   **actions** have only an exec **input** - to run several actions, wire each
   of them from the trigger (they run in link order). The only non-trigger exec
   outputs are the "fires later" ones (Delay's after-timeout, Raycast's
@@ -63,13 +67,27 @@ over guessing from this file.
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge
   back to execution with **On Condition** (fires on the rising edge).
-- A position link into a node with X/Y/Z params overrides those params.
+- A position link into a node with X/Y/Z params overrides those params; a
+  **number** link overrides the target's `num[0]` the same way. Number sources
+  are Number / Get Int / Get Save Value; Add/Subtract/Multiply/Divide fold over
+  **all** their wired number inputs (with one input wired, `num[0]` is the
+  second operand); Number At Least bridges to the bool plane and Number To Text
+  to the text plane.
+- To change a variable BY an amount, prefer Set Int's `"pin": 1` (add) with
+  `num[0]` as the delta over reading it back through Get Int + Add.
 - `Spawn Object`'s object output is the **clone**; `Raycast`'s outputs are
   latched at cast time. Both may yield "no object" - downstream actions are
   guarded automatically.
 - Names in `str` must match the project exactly - get them from
   `"{TYRAX_EXE}" --dump <projectDir>` (objects, scenes, layers, music, sounds,
-  save values/texts, menus, texts, gradings, ambiences, sequences).
+  save values/texts, menus, texts, gradings, ambiences, sequences, input
+  actions/presets).
+- **Buttons: prefer On Action over On Button.** `On Action` names an *input
+  action* from the project's Input Map ("jump", "sprint", ...) and follows
+  whatever that action is bound to, including a binding preset switch and a
+  player's own in-game rebind. `On Button` is the raw pad button and `On Key`
+  the raw USB keyboard key - use those only when a fixed physical button is
+  really what is wanted (a debug/cheat key).
 
 ## AI generation
 

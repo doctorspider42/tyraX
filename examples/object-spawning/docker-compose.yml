@@ -2,7 +2,7 @@ name: object-spawning
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-5c72951d
+    name: tyra-engine-abf473e4
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "F:/Projects/tyra-editor/.claude/worktrees/clipping-handler-ee-vu-744ff5/vendor/tyra:/engine-src:ro"
+      - "D:/tyra-editor/.claude/worktrees/custom-screen-effects-9a26d4/vendor/tyra:/engine-src:ro"
