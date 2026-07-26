@@ -252,6 +252,22 @@ follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
 missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
 — fine, generated games don't use them.
 
+## The VU1 packet tap (`src/renderer/3d/pipeline/static/core/stapip_vu_tap.*`)
+
+TyraX addition: the editor can ask for one VU1 DMA chain and decode it
+(docs/devkit.md, PROGRESS 188). The engine side is deliberately tiny — a **null
+function pointer** (`Tyra::g_vuPacketHook`) and the branch that tests it in
+`StaPipQBufferRenderer::sendPacket()`, i.e. once per bag flush, never per vertex.
+The capture itself lives in the generated game's devkit TU, so a release build
+links none of it.
+
+**The rule that bites**: the pipeline sends vertex arrays **by reference** — a
+`ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at *another* address,
+with the tag itself being ONE quadword. So (1) any chain walker advances by 1 for
+those tags and `1 + qwc` only for inline `cnt`/`next`, or it decodes data as tags;
+and (2) anything that wants the geometry must dereference **on the EE**, while
+those addresses are live — the hook copies each referenced block along.
+
 ## The EE crash handler (`src/debug/crash_handler.cpp`) — and its vector traps
 
 TyraX addition (docs/devkit.md in the editor repo): turns a real CPU exception

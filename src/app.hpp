@@ -16,6 +16,7 @@
 #include "matbake.hpp"
 #include "isoexport.hpp"
 #include "elfsym.hpp"
+#include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
@@ -1722,6 +1723,13 @@ private:
     DbgCrash dbgCrash_;
     size_t dbgCrashSize_ = 0;   // last seen size of crash.txt (change = new)
     double dbgCrashNextRead_ = 0.0;
+    // VU1 packet capture (docs/devkit.md): "show me what the EE actually fed
+    // VU1 for one draw". Armed from the Debugger's VU tab; the game answers with
+    // bin/vucap.bin, decoded by src/vucap.hpp.
+    vucap::Capture dbgVuCap_;
+    size_t dbgVuCapSize_ = 0;
+    float dbgVuYaw_ = 0.6f, dbgVuPitch_ = 0.35f, dbgVuZoom_ = 1.0f;
+    void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();
     // "The game stopped reporting": the devkit heartbeat died without a crash

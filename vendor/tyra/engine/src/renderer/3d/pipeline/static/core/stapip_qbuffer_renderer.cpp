@@ -17,6 +17,7 @@
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
 #include "packet2/packet2_tyra_utils.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
 
 // #define TYRA_QBUFF_RENDERER_VERBOSE_LOG 1
 
@@ -715,6 +716,13 @@ void StaPipQBufferRenderer::sendPacket() {
 
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
+
+  // TyraX: the VU1 packet tap (docs/devkit.md). Null in any build whose devkit
+  // layer does not exist, so this is one load + branch per bag flush and the
+  // capture code is not linked at all.
+  if (g_vuPacketHook)
+    g_vuPacketHook(currentPacket->base, packet2_get_qw_count(currentPacket),
+                   "");  // the program is in the packet's MSCAL address
 
   // dma_wait_fast(); // This have no impact on performance
 

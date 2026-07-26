@@ -157,6 +157,55 @@ the preference exists so nobody's debug build changes behaviour by surprise.
 Since installation is also what LINKS the handler out of `libtyra.a`, a project
 that leaves it off carries none of it - and neither does any release build.
 
+## Seeing what VU1 was fed
+
+VU1 debugging is blind by nature: you cannot print from a microprogram and its
+output goes straight to the GS. But its **input** is ours - every vertex the
+static pipeline draws leaves the EE as one DMA chain built by
+`StaPipQBufferRenderer::sendPacket()`. The devkit taps exactly that.
+
+*Debugger > VU > "Capture next VU1 packet"* asks the game for the next chain; it
+lands as `bin/vucap.bin` and the editor decodes it:
+
+- the **chain itself**, tag by tag and VIF code by VIF code - `STCYCL`, the
+  `UNPACK`s with their VU1 destination addresses, `FLUSH`, and the `MSCAL` that
+  names the microprogram entry point;
+- every **UNPACKed block**, read back as floats (the scales, the GIF tag, the
+  matrices, the vertex arrays);
+- and a **wireframe** of the vertex stream - drag to orbit, wheel to zoom -
+  drawn from the exact numbers that went to VU1, in model space, as packed.
+
+A real capture from a terrain chunk reads:
+
+```
+frame 1669, 73 quadwords, 36 unpacks, 7 triangles
+microprogram start: 176
+[   0] DMAtag cnt  qwc=2 (inline)
+[   0]   VIF UNPACK V4_32   num=2  -> VU1 addr 0 (+TOPS)
+[   3] DMAtag ref  qwc=21 (data by reference)
+[   3]   VIF UNPACK V4_32   num=21 -> VU1 addr 2 (+TOPS)
+[   5]   VIF MSCAL      num=0 imm=176
+vertex stream: 21 vertices
+  v0  95.827 -5.757 0.000 1.000
+```
+
+Headless: `tyrax-editor --dump-vucap <projectDir>` prints the same decode, which
+is how the parser is tested without the GUI.
+
+**The one thing that made this non-trivial**: the pipeline sends vertex arrays
+**by reference** - a `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at
+*another* address, with the tag itself being a single quadword. Two consequences,
+both learned the hard way: a walker must advance by 1 for those tags (and by
+`1 + qwc` only for the inline `cnt`/`next` kinds) or it starts reading data as
+tags; and the capture has to **follow those references on the EE**, while the
+addresses are still live, or the editor receives the structure with none of the
+geometry. The tap copies each referenced block along and the file carries an index
+of them.
+
+Cost: the engine holds a **null function pointer** and the branch that tests it,
+once per bag flush - the capture code lives in the generated devkit TU, so a
+release build links none of it (and the audit says so).
+
 ## What is not here yet
 
 - **Named memory.** The unstripped `.elf.sym` copy now exists, so a symbol-driven
@@ -166,8 +215,11 @@ that leaves it off carries none of it - and neither does any release build.
   and GS VRAM residency, but prints them as text (see
   [profiling.md](profiling.md), [gs-vram.md](gs-vram.md)); streaming them over
   this channel would make them curves next to the object watches.
-- **EE/VU instruction-level debugging.** Deliberately out of scope: PCSX2 already
+- **VU1's OWN output.** The capture shows what VU1 was *fed*. Reading back what
+  it produced means snapshotting VU1 data memory (a VIF1 reverse transfer with the
+  pipeline stalled) - the next step, and a bigger one.
+- **EE/VU instruction-level stepping.** Deliberately out of scope: PCSX2 already
   has a debugger, and on real hardware the sane path is a GDB stub over ps2link
   rather than a hand-rolled disassembler. What this devkit does instead is show
-  the *game's own* state — objects, graphs, variables, timers — which is where
-  the bugs of a project like this actually live.
+  the *game's own* state — objects, graphs, variables, timers, and now the packets
+  — which is where the bugs of a project like this actually live.

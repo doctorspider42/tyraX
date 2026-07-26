@@ -80,7 +80,8 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
-- [The devkit, and its zero-cost promise](devkit.md) - the three live channels
+- [The devkit, and its zero-cost promise](devkit.md) - the live channels, the
+  crash reporting, the VU1 packet inspector, and the release audit; the three live channels
   (Live Link / Live Debugger / Live Logic) as one development kit, what a debug
   build actually costs in code and RAM, and the release audit that PROVES a
   shipped ELF carries none of it (`--audit-release`, run automatically after

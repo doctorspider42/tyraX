@@ -258,6 +258,15 @@ Notes:
   was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
   editor and the probe must not both drive `livedbg.cmd` at once (the editor
   rewrites it whenever it goes missing or its state changes).
+- **Inspect what went to VU1**: arm a capture (Debugger > VU, or command flag
+  bit 3 in `livedbg.cmd`) and the game writes `bin/vucap.bin`;
+  `tyrax-editor --dump-vucap <projectDir>` prints the decoded chain (DMA tags,
+  VIF codes, UNPACK destinations, the MSCAL entry point) and the first vertices.
+  That CLI is how the decoder is verified without the GUI - a healthy capture
+  shows `UNPACK V4_32 -> VU1 addr 0` for the scales, referenced `num=21` blocks
+  for the double-buffered vertex data, and model-space positions with w=1.0. If
+  you see tags like `refe qwc=32789` or float garbage, the walker lost sync (see
+  the by-reference rule in tyra-engine-dev).
 - **Symbolize an address from a running/crashed game**: `tyrax-editor
   --symbolize <projectDir> 0x...` runs the container's
   `mips64r5900el-ps2-elf-addr2line` against `bin/<name>.elf.sym`, the unstripped

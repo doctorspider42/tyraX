@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "elfsym.hpp"
+#include "vucap.hpp"
 #include "app.hpp"
 #include "project.hpp"
 #include "runner.hpp"
@@ -552,7 +553,51 @@ static int symbolizeFromCli(int argc, char** argv) {
     return symErr.empty() ? 0 : 1;
 }
 
+// Headless helper:
+//   tyrax-editor.exe --dump-vucap <projectDir>
+//
+// Decodes bin/vucap.bin - the VU1 DMA chain the game handed over - so the
+// packet inspector can be checked without the GUI. See docs/devkit.md.
+static int dumpVuCapFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --dump-vucap <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    const std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    vucap::Capture cap;
+    const std::string path =
+        (std::filesystem::path(p.dir) / "bin" / "vucap.bin").string();
+    if (!vucap::load(path, cap)) {
+        std::fprintf(stderr, "error: %s (%s)\n", cap.error.c_str(), path.c_str());
+        return 1;
+    }
+    std::printf("frame %u, %d quadwords, %d unpacks, %d triangles\n", cap.frame,
+                cap.qw, (int)cap.unpacks.size(), cap.triangleCount());
+    for (int a : cap.mscal) std::printf("microprogram start: %d\n", a);
+    for (const vucap::Step& st : cap.steps)
+        std::printf("[%4u] %s\n", st.offsetQw, st.text.c_str());
+    for (size_t i = 0; i < cap.unpacks.size(); ++i) {
+        const vucap::Unpack& u = cap.unpacks[i];
+        std::printf("unpack %zu: %s x%d -> VU1 %u, %zu words\n", i,
+                    u.format.c_str(), u.count, u.vuAddr, u.words.size());
+    }
+    if (const std::vector<float>* v = cap.vertices()) {
+        std::printf("vertex stream: %zu vertices\n", v->size() / 4);
+        for (size_t i = 0; i < v->size() / 4 && i < 6; ++i)
+            std::printf("  v%zu  %.3f %.3f %.3f %.3f\n", i, (*v)[i * 4],
+                        (*v)[i * 4 + 1], (*v)[i * 4 + 2], (*v)[i * 4 + 3]);
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
+        return dumpVuCapFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--symbolize") == 0)
         return symbolizeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--audit-release") == 0)

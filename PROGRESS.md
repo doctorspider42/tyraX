@@ -10,6 +10,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (188) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
+  with the geometry** (docs/devkit.md). User request - "debugowanie VU to zawsze
+  była jebaczka, jakby był podgląd tego co VU wygenerowało...". You cannot print
+  from a microprogram and its output goes straight to the GS, but its INPUT is
+  ours: every vertex the static pipeline draws leaves the EE as one DMA chain
+  from `StaPipQBufferRenderer::sendPacket()`. So that is where the tap went.
+  **The seam** (`vendor/tyra/.../stapip_vu_tap.hpp`): the engine carries a NULL
+  function pointer plus the branch that tests it, once per bag flush - the
+  capture code lives in the generated devkit TU, so a release build links none of
+  it (the zero-cost rule from 186 holds, and the audit watches it).
+  **The editor side** (`src/vucap.{hpp,cpp}`, no GL/ImGui) decodes the chain: DMA
+  tags, VIF codes (STCYCL / FLUSH / MSCAL / UNPACK with format + VU1 destination
+  address), every UNPACKed block read back as floats, and the vertex stream drawn
+  as an orbitable **wireframe** in the new Debugger "VU" tab. `--dump-vucap`
+  prints the same decode headlessly, which is how the parser was tested.
+  **The two things that made it real work**, both found by looking at a live
+  capture instead of guessing: the pipeline sends vertex arrays **by reference**
+  (a `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at ANOTHER address,
+  the tag itself being one quadword), so (a) a chain walker must advance by 1 for
+  those and `1 + qwc` only for inline `cnt`/`next` - my first version advanced
+  past 21 phantom quadwords and started decoding data as tags, producing tags
+  like `refe qwc=32789` and float garbage; and (b) the capture has to FOLLOW
+  those references on the EE while the addresses are live, or the editor gets the
+  structure with none of the geometry. The tap now copies each referenced block
+  along and the file carries an index of them (format v2).
+  **Verified in PCSX2** end to end: armed a capture on the running fixture, the
+  game logged `VU capture: 73 qw chain + 24 referenced block(s)`, and the decode
+  reads exactly like the pipeline it came from - `UNPACK V4_32 num=2 -> VU1 addr
+  0` (scales + GIF tag, inline), two referenced `V4_32 num=21` blocks at VU1 addr
+  2 and 23 (double-buffered vertex data), `FLUSH`, `MSCAL 176` (the microprogram
+  entry point), and a vertex stream of 21 real model-space positions in triangle
+  triples (`95.827 -5.757 0.000 1.000`, sharing vertices pairwise as a split quad
+  does). **Not verified**: the wireframe view itself (the machine's blank-editor
+  state from 184) and real hardware.
+
 - (187) **Crashes stop being invisible: TYRAX banners, an EE crash handler with
   a symbolized backtrace, and a post-mortem from the devkit's own history**
   (docs/devkit.md). User question, and the honest answer was "nothing nice

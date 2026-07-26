@@ -115,6 +115,9 @@ struct Command {
     // the fire needs (the default), true = resume the game afterwards, so
     // anything the branch ARMS (a Delay, a glide) actually gets frames to run.
     bool fireAndRun = false;
+    // Ask the game to hand over the next VU1 DMA chain (docs/devkit.md). The
+    // game grabs one packet and writes bin/vucap.bin; one-shot, like `fire`.
+    bool captureVu = false;
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once

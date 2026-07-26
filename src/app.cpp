@@ -4785,6 +4785,8 @@ void App::attachProject() {
     dbgNextTick_ = dbgSymNextRead_ = 0.0;
     dbgCrash_ = DbgCrash();
     dbgCrashSize_ = 0;
+    dbgVuCap_ = vucap::Capture();
+    dbgVuCapSize_ = 0;
     dbgLostGame_ = false;
     dbgCrashNextRead_ = 0.0;
     // Live Logic is per project too: the built-graph list, the last patch and
@@ -20764,6 +20766,28 @@ void App::liveLinkTick() {
 // bin/crash.txt, written by the game's crash handler (docs/devkit.md). Parsed
 // rather than just shown, so the addresses can be turned into names and the
 // devkit's own history can be put next to them.
+// bin/vucap.bin: one VU1 DMA chain the game handed over. Re-read only when the
+// file changed, so an armed capture shows up by itself.
+void App::dbgReadVuCapture() {
+    namespace fs = std::filesystem;
+    if (!hasProject_) return;
+    const fs::path path = fs::path(project_.dir) / "bin" / "vucap.bin";
+    std::error_code ec;
+    const auto sz = fs::file_size(path, ec);
+    const size_t size = ec ? 0 : (size_t)sz;
+    if (size == dbgVuCapSize_) return;
+    dbgVuCapSize_ = size;
+    if (!size) {
+        dbgVuCap_ = vucap::Capture();
+        return;
+    }
+    vucap::load(path.string(), dbgVuCap_);
+    if (dbgVuCap_.loaded)
+        statusMessage_ = "VU capture: " + std::to_string(dbgVuCap_.qw) +
+                         " quadwords, " + std::to_string(dbgVuCap_.triangleCount()) +
+                         " triangles";
+}
+
 void App::dbgReadCrashReport() {
     namespace fs = std::filesystem;
     if (!hasProject_) return;
@@ -20935,6 +20959,7 @@ void App::livedbgTick() {
     if (now >= dbgCrashNextRead_) {
         dbgCrashNextRead_ = now + 0.4;
         dbgReadCrashReport();
+        dbgReadVuCapture();
     }
 
     // The symbol table is a build artifact of codegen (src/gen/livedbg.sym).
@@ -21073,6 +21098,7 @@ void App::livedbgTick() {
             dbgCmd_.stepFrames = 0;
             dbgCmd_.stepUntilFire = false;
             dbgCmd_.fireAndRun = false;
+            dbgCmd_.captureVu = false;
         }
     }
 }
@@ -21717,6 +21743,114 @@ void App::drawDebuggerWindow() {
                 }
                 ImGui::EndTable();
             }
+        }
+        ImGui::EndTabItem();
+    }
+
+    // VU: what the EE actually fed VU1 for one draw - the DMA chain decoded,
+    // and the vertex stream it carried drawn as a wireframe. VU1 debugging is
+    // otherwise blind (no printf, output straight to the GS), and this is the
+    // half we own (docs/devkit.md).
+    if (ImGui::BeginTabItem("VU")) {
+        ImGui::BeginDisabled(!live);
+        if (ImGui::Button("Capture next VU1 packet")) {
+            dbgCmd_.captureVu = true;
+            dbgCmdWritten_ = false;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Asks the game for the next DMA chain it sends to VU1: the "
+                "scales, the\nGIF tag, the matrices and the vertex stream, "
+                "exactly as packed.");
+        if (!dbgVuCap_.loaded) {
+            ImGui::TextWrapped(
+                "No capture yet. %s",
+                dbgVuCap_.error.empty() ? "" : dbgVuCap_.error.c_str());
+        } else {
+            ImGui::Text("frame %u  |  %d quadwords  |  %d unpack(s)  |  %d tri",
+                        dbgVuCap_.frame, dbgVuCap_.qw,
+                        (int)dbgVuCap_.unpacks.size(),
+                        dbgVuCap_.triangleCount());
+            if (!dbgVuCap_.mscal.empty()) {
+                std::string progs;
+                for (size_t i = 0; i < dbgVuCap_.mscal.size(); ++i)
+                    progs += (i ? ", " : "") + std::to_string(dbgVuCap_.mscal[i]);
+                ImGui::TextDisabled("microprogram start address(es): %s",
+                                    progs.c_str());
+            }
+
+            // The wireframe: the captured positions are model space, so this is
+            // its own little orbit view rather than an overlay on the scene.
+            const std::vector<float>* verts = dbgVuCap_.vertices();
+            if (verts && verts->size() >= 12) {
+                const float h = scaled(220.0f);
+                const ImVec2 size(ImGui::GetContentRegionAvail().x, h);
+                const ImVec2 org = ImGui::GetCursorScreenPos();
+                ImGui::InvisibleButton("##vuview", size);
+                if (ImGui::IsItemActive()) {
+                    dbgVuYaw_ += ImGui::GetIO().MouseDelta.x * 0.01f;
+                    dbgVuPitch_ += ImGui::GetIO().MouseDelta.y * 0.01f;
+                }
+                if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f)
+                    dbgVuZoom_ = ImClamp(
+                        dbgVuZoom_ * (1.0f + ImGui::GetIO().MouseWheel * 0.1f),
+                        0.1f, 20.0f);
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(org, ImVec2(org.x + size.x, org.y + size.y),
+                                  IM_COL32(18, 20, 24, 255), scaled(3.0f));
+                // Fit the soup in the box, then spin it with the mouse.
+                float lo[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
+                float hi[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+                const size_t n = verts->size() / 4;
+                for (size_t i = 0; i < n; ++i)
+                    for (int a = 0; a < 3; ++a) {
+                        lo[a] = ImMin(lo[a], (*verts)[i * 4 + a]);
+                        hi[a] = ImMax(hi[a], (*verts)[i * 4 + a]);
+                    }
+                const float cx = (lo[0] + hi[0]) * 0.5f;
+                const float cy = (lo[1] + hi[1]) * 0.5f;
+                const float cz = (lo[2] + hi[2]) * 0.5f;
+                float extent = 0.001f;
+                for (int a = 0; a < 3; ++a) extent = ImMax(extent, hi[a] - lo[a]);
+                const float scale = (ImMin(size.x, size.y) * 0.38f) / extent *
+                                    dbgVuZoom_;
+                const float cyaw = cosf(dbgVuYaw_), syaw = sinf(dbgVuYaw_);
+                const float cp = cosf(dbgVuPitch_), sp = sinf(dbgVuPitch_);
+                auto project = [&](size_t vi) {
+                    const float x = (*verts)[vi * 4 + 0] - cx;
+                    const float y = (*verts)[vi * 4 + 1] - cy;
+                    const float z = (*verts)[vi * 4 + 2] - cz;
+                    const float rx = x * cyaw + z * syaw;
+                    const float rz = -x * syaw + z * cyaw;
+                    const float ry = y * cp - rz * sp;
+                    return ImVec2(org.x + size.x * 0.5f + rx * scale,
+                                  org.y + size.y * 0.5f - ry * scale);
+                };
+                dl->PushClipRect(org, ImVec2(org.x + size.x, org.y + size.y), true);
+                const size_t tris = n / 3;
+                for (size_t t = 0; t < tris && t < 4000; ++t) {
+                    const ImVec2 a = project(t * 3 + 0);
+                    const ImVec2 b = project(t * 3 + 1);
+                    const ImVec2 c = project(t * 3 + 2);
+                    const ImU32 col = IM_COL32(120, 210, 255, 150);
+                    dl->AddLine(a, b, col);
+                    dl->AddLine(b, c, col);
+                    dl->AddLine(c, a, col);
+                }
+                dl->PopClipRect();
+                ImGui::TextDisabled(
+                    "%zu vertices, %zu triangles - drag to orbit, wheel to zoom. "
+                    "Model space, as packed.",
+                    n, tris);
+            }
+
+            // The chain itself, decoded.
+            if (ImGui::BeginChild("##vusteps", ImVec2(0, scaled(160.0f)), true)) {
+                for (const vucap::Step& st : dbgVuCap_.steps)
+                    ImGui::TextUnformatted(st.text.c_str());
+            }
+            ImGui::EndChild();
         }
         ImGui::EndTabItem();
     }
