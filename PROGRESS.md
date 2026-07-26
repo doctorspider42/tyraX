@@ -10,6 +10,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (196) **The VU panel showed the same capture forever** (reported by the owner:
+  "every VU frame dump shows me the same result with this geometry"). Two causes,
+  both real, and the screenshot named the first one: the header said *frame 2551*
+  while the game was running at frame 4876.
+  1. **The editor re-read `bin/vucap.bin` only when its SIZE changed.** A second
+     capture of the same draw is the same length down to the byte - the chain is
+     built from the same bag and the VU1 memory tail is a fixed 16 KiB - so every
+     capture after the first was a no-op while the game kept overwriting the file.
+     It keys on `last_write_time` now. A half-written file (the game writes it
+     from inside a frame, in several `fwrite`s) is detected by its missing 16 KiB
+     VU1-memory tail and retried rather than committed, and the button says
+     "waiting for the game..." until the answer to *your* click lands, because two
+     captures legitimately look alike.
+  2. **The wireframe drew one mesh out of a dozen.** One flush is a whole bag: the
+     chain carries a position stream per mesh, and the preview showed the largest
+     one - which, being model space, is byte-identical from frame to frame no
+     matter where the camera is. The decoder now lists every position stream
+     (`vertexUnpacks`) and the panel gets a mesh slider; they cannot be drawn
+     together, each mesh being in its own model space. Positions are told apart
+     from the same-sized ST/Q array beside them by their w component (the pipeline
+     packs `(x, y, z, 1.0)`), with the old largest-V4_32 rule kept as a fallback so
+     an unrecognised chain still previews something.
+  *Verified* end to end in PCSX2 rather than by reading the code: a scratch FPP
+  project (a two-node graph attached to the player, since a project with no
+  runnable node generates no devkit layer at all and therefore no capture), then
+  a ~90-line Python probe writing `livedbg.cmd` with the capture bit three times
+  in a row. Result: `size=24576` all three times, frames 661 / 805 / 955, three
+  distinct mtimes - the size-keyed cache proven dead, the timestamp key proven
+  live. `--dump-vucap` on those captures lists **12 position streams** in one
+  flush (11 of 21 verts, 2 of 3) where the panel used to show exactly one, and a
+  deliberately truncated copy decodes without `hasVuMem` and without crashing,
+  which is the torn-read guard's trigger. The GUI panel itself is *not*
+  screenshot-verified: driving it needs clicks, and this machine still renders
+  the editor window blank (see 187).
+
 - (195) **A textured terrain drew PURE BLACK on real hardware while PCSX2 was
   fine** - reported with a photo of a physical console: sky, the house, and
   black where the ground should be ("should be the project's default colour").

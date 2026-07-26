@@ -175,6 +175,23 @@ lands as `bin/vucap.bin` and the editor decodes it:
 - and a **wireframe** of the vertex stream - drag to orbit, wheel to zoom -
   drawn from the exact numbers that went to VU1, in model space, as packed.
 
+**One flush is a whole bag, not a mesh.** The chain above carries a dozen
+position streams - one per mesh the bag flushed - and each is in its OWN model
+space, so they cannot be drawn together. The panel lists them (`N mesh(es)`) and
+the slider picks which one the wireframe shows; `--dump-vucap` prints the same
+list. Positions are told apart from the same-sized ST/Q array that follows them
+by their w component: the pipeline packs `(x, y, z, 1.0)` and nothing else in
+the chain has a constant 1.0 there.
+
+**Two captures in a row look identical, and that is not a bug** - the model-space
+geometry of a given mesh does not depend on the camera. What moves between
+captures is the frame number, the MVP, and the staged GS vertices. (It *was* a
+bug for a while on the editor side: the panel re-read `vucap.bin` only when its
+SIZE changed, and a second capture of the same draw is the same length down to
+the byte - so the panel showed the first capture forever while the game happily
+overwrote the file. It keys on the timestamp now, and says "waiting for the
+game..." until the answer to your click actually lands.)
+
 A real capture from a terrain chunk reads:
 
 ```
@@ -185,7 +202,10 @@ microprogram start: 176
 [   3] DMAtag ref  qwc=21 (data by reference)
 [   3]   VIF UNPACK V4_32   num=21 -> VU1 addr 2 (+TOPS)
 [   5]   VIF MSCAL      num=0 imm=176
-vertex stream: 21 vertices
+position streams (meshes) in this flush: 12
+  mesh 0: unpack 1, 21 verts (7 triangles) -> VU1 2
+  ...
+largest vertex stream: 21 vertices (7 triangles)
   v0  95.827 -5.757 0.000 1.000
 ```
 

@@ -74,8 +74,14 @@ struct Capture {
     std::vector<Unpack> unpacks;
     std::vector<int> mscal;        // microprogram start addresses seen
     int vertexUnpack = -1;         // index into `unpacks`: the vertex stream
+    /** Every position stream in the chain, in send order - one per mesh. A
+     * flush carries a whole bag, so a busy frame puts a dozen meshes in here;
+     * showing only the biggest one made every capture look identical. */
+    std::vector<int> vertexUnpacks;
     /** Vertices of the biggest V4_32 unpack, as triangles (3 per triangle). */
     const std::vector<float>* vertices() const;
+    /** Positions of mesh `i` of `vertexUnpacks`, same layout. */
+    const std::vector<float>* verticesOf(int i) const;
     int triangleCount() const;
 
     // --- v3: what VU1 left behind ------------------------------------------

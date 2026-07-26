@@ -586,8 +586,17 @@ static int dumpVuCapFromCli(int argc, char** argv) {
         std::printf("unpack %zu: %s x%d -> VU1 %u, %zu words\n", i,
                     u.format.c_str(), u.count, u.vuAddr, u.words.size());
     }
+    // One flush carries a whole bag, so the chain holds one position stream per
+    // mesh - list them all, not just the biggest (that is what the GUI draws).
+    std::printf("position streams (meshes) in this flush: %zu\n",
+                cap.vertexUnpacks.size());
+    for (size_t m = 0; m < cap.vertexUnpacks.size(); ++m) {
+        const vucap::Unpack& u = cap.unpacks[cap.vertexUnpacks[m]];
+        std::printf("  mesh %zu: unpack %d, %d verts (%d triangles) -> VU1 %u\n",
+                    m, cap.vertexUnpacks[m], u.count, u.count / 3, u.vuAddr);
+    }
     if (const std::vector<float>* v = cap.vertices()) {
-        std::printf("input vertex stream: %zu vertices (%d triangles)\n",
+        std::printf("largest vertex stream: %zu vertices (%d triangles)\n",
                     v->size() / 4, cap.triangleCount());
         for (size_t i = 0; i < v->size() / 4 && i < 4; ++i)
             std::printf("  in v%zu  %.3f %.3f %.3f\n", i, (*v)[i * 4],

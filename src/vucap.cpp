@@ -71,6 +71,13 @@ const std::vector<float>* Capture::vertices() const {
     return &unpacks[vertexUnpack].floats;
 }
 
+const std::vector<float>* Capture::verticesOf(int i) const {
+    if (i < 0 || i >= (int)vertexUnpacks.size()) return nullptr;
+    const int u = vertexUnpacks[i];
+    if (u < 0 || u >= (int)unpacks.size()) return nullptr;
+    return &unpacks[u].floats;
+}
+
 int Capture::triangleCount() const {
     const std::vector<float>* v = vertices();
     return v ? (int)(v->size() / 4) / 3 : 0;
@@ -433,16 +440,37 @@ bool load(const std::string& path, Capture& out) {
         if (id == 0 || id == 7) break;  // refe / end terminate the chain
     }
 
-    // The vertex stream is the largest V4_32 unpack: the small blocks are the
-    // scales, the GIF tag and the matrices.
-    size_t best = 0;
+    // Which unpacks are POSITIONS? One flush carries a whole bag - a dozen
+    // meshes, each sending its positions and then a second same-sized V4_32
+    // array (ST/Q). They are told apart by the w component: the pipeline packs
+    // positions as (x, y, z, 1.0) and nothing else in the chain has a constant
+    // 1.0 there. Everything that passes is a mesh of its own, in send order.
     for (size_t i = 0; i < out.unpacks.size(); ++i) {
-        if (out.unpacks[i].format.rfind("V4_32", 0) != 0) continue;
+        const Unpack& u = out.unpacks[i];
+        if (u.format.rfind("V4_32", 0) != 0) continue;
+        const size_t items = u.floats.size() / 4;
+        if (items < 3 || items % 3 != 0) continue;
+        bool positions = true;
+        for (size_t k = 0; k < items && positions; ++k)
+            positions = u.floats[k * 4 + 3] == 1.0f;
+        if (positions) out.vertexUnpacks.push_back((int)i);
+    }
+    // The one the header counts and the host reference is diffed against stays
+    // the largest stream, so the numbers below mean what they always did.
+    size_t best = 0;
+    for (int i : out.vertexUnpacks)
         if (out.unpacks[i].floats.size() > best) {
             best = out.unpacks[i].floats.size();
-            out.vertexUnpack = (int)i;
+            out.vertexUnpack = i;
         }
-    }
+    if (out.vertexUnpack < 0)  // nothing looked like positions: old rule
+        for (size_t i = 0; i < out.unpacks.size(); ++i) {
+            if (out.unpacks[i].format.rfind("V4_32", 0) != 0) continue;
+            if (out.unpacks[i].floats.size() > best) {
+                best = out.unpacks[i].floats.size();
+                out.vertexUnpack = (int)i;
+            }
+        }
     // v3 tail: the whole of VU1 data memory after the run.
     if (ver >= 3u) {
         const unsigned char* memAt =

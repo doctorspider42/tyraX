@@ -1737,7 +1737,11 @@ private:
     // bin/vucap.bin, decoded by src/vucap.hpp.
     vucap::Capture dbgVuCap_;
     size_t dbgVuCapSize_ = 0;
+    long long dbgVuCapStamp_ = 0;  // last_write_time of the file we decoded
+    int dbgVuCapTorn_ = 0;         // consecutive incomplete reads of that file
+    bool dbgVuCapWaiting_ = false;  // a capture was asked for, none arrived yet
     float dbgVuYaw_ = 0.6f, dbgVuPitch_ = 0.35f, dbgVuZoom_ = 1.0f;
+    int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();

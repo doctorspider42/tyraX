@@ -4787,6 +4787,9 @@ void App::attachProject() {
     dbgCrashSize_ = 0;
     dbgVuCap_ = vucap::Capture();
     dbgVuCapSize_ = 0;
+    dbgVuCapStamp_ = 0;
+    dbgVuCapTorn_ = 0;
+    dbgVuCapWaiting_ = false;
     dbgLostGame_ = false;
     dbgCrashNextRead_ = 0.0;
     // Live Logic is per project too: the built-graph list, the last patch and
@@ -21035,6 +21038,13 @@ void App::liveLinkTick() {
 // devkit's own history can be put next to them.
 // bin/vucap.bin: one VU1 DMA chain the game handed over. Re-read only when the
 // file changed, so an armed capture shows up by itself.
+//
+// "Changed" has to mean the timestamp, not the size: the game overwrites the
+// file in place and a second capture of the same draw is the SAME LENGTH down
+// to the byte (the chain is built from the same bag, and the VU1 memory tail is
+// a fixed 16 KiB). Keying the cache on size alone made every capture after the
+// first a no-op - the panel kept showing frame N forever while the game happily
+// wrote frames N+1, N+2, ... over it.
 void App::dbgReadVuCapture() {
     namespace fs = std::filesystem;
     if (!hasProject_) return;
@@ -21042,17 +21052,36 @@ void App::dbgReadVuCapture() {
     std::error_code ec;
     const auto sz = fs::file_size(path, ec);
     const size_t size = ec ? 0 : (size_t)sz;
-    if (size == dbgVuCapSize_) return;
-    dbgVuCapSize_ = size;
+    std::error_code wec;
+    const auto wt = fs::last_write_time(path, wec);
+    const long long stamp =
+        wec ? 0 : (long long)wt.time_since_epoch().count();
+    if (size == dbgVuCapSize_ && stamp == dbgVuCapStamp_) return;
     if (!size) {
+        dbgVuCapSize_ = size;
+        dbgVuCapStamp_ = stamp;
+        dbgVuCapTorn_ = 0;
         dbgVuCap_ = vucap::Capture();
         return;
     }
-    vucap::load(path.string(), dbgVuCap_);
+    // The game writes this file from inside a frame, in several fwrite()s, so a
+    // poll can land on a half-written one. A v3 capture always ends with the
+    // 16 KiB VU1 memory tail: no tail means we read it too early, so leave the
+    // stamp alone and try again next poll rather than committing a torn decode.
+    // A file that stays incomplete (a truncated write, not a race) is committed
+    // after a few tries so the error is visible instead of silently ignored.
+    vucap::Capture cap;
+    const bool ok = vucap::load(path.string(), cap);
+    if (ok && !cap.hasVuMem && ++dbgVuCapTorn_ < 4) return;
+    dbgVuCapSize_ = size;
+    dbgVuCapStamp_ = stamp;
+    dbgVuCapTorn_ = 0;
+    dbgVuCap_ = std::move(cap);
+    dbgVuCapWaiting_ = false;
     if (dbgVuCap_.loaded)
-        statusMessage_ = "VU capture: " + std::to_string(dbgVuCap_.qw) +
-                         " quadwords, " + std::to_string(dbgVuCap_.triangleCount()) +
-                         " triangles";
+        statusMessage_ = "VU capture: frame " + std::to_string(dbgVuCap_.frame) +
+                         ", " + std::to_string(dbgVuCap_.qw) + " quadwords, " +
+                         std::to_string(dbgVuCap_.triangleCount()) + " triangles";
 }
 
 void App::dbgReadCrashReport() {
@@ -22019,10 +22048,12 @@ void App::drawDebuggerWindow() {
     // otherwise blind (no printf, output straight to the GS), and this is the
     // half we own (docs/devkit.md).
     if (ImGui::BeginTabItem("VU")) {
+        if (!live) dbgVuCapWaiting_ = false;  // nobody left to answer
         ImGui::BeginDisabled(!live);
         if (ImGui::Button("Capture next VU1 packet")) {
             dbgCmd_.captureVu = true;
             dbgCmdWritten_ = false;
+            dbgVuCapWaiting_ = true;
         }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered())
@@ -22030,15 +22061,21 @@ void App::drawDebuggerWindow() {
                 "Asks the game for the next DMA chain it sends to VU1: the "
                 "scales, the\nGIF tag, the matrices and the vertex stream, "
                 "exactly as packed.");
+        // Two captures of the same draw look alike; say plainly whether what is
+        // on screen is the answer to the last click or still the previous one.
+        if (dbgVuCapWaiting_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("waiting for the game...");
+        }
         if (!dbgVuCap_.loaded) {
             ImGui::TextWrapped(
                 "No capture yet. %s",
                 dbgVuCap_.error.empty() ? "" : dbgVuCap_.error.c_str());
         } else {
-            ImGui::Text("frame %u  |  %d quadwords  |  %d unpack(s)  |  %d tri",
+            ImGui::Text("frame %u  |  %d quadwords  |  %d unpack(s)  |  %d mesh(es)",
                         dbgVuCap_.frame, dbgVuCap_.qw,
                         (int)dbgVuCap_.unpacks.size(),
-                        dbgVuCap_.triangleCount());
+                        (int)dbgVuCap_.vertexUnpacks.size());
             if (!dbgVuCap_.mscal.empty()) {
                 std::string progs;
                 for (size_t i = 0; i < dbgVuCap_.mscal.size(); ++i)
@@ -22047,9 +22084,26 @@ void App::drawDebuggerWindow() {
                                     progs.c_str());
             }
 
+            // One flush is a whole bag: a dozen meshes, each with its own
+            // position stream. Pick which one the preview draws - they cannot
+            // be drawn together, every mesh being in its OWN model space.
+            const int meshes = (int)dbgVuCap_.vertexUnpacks.size();
+            dbgVuMesh_ = meshes ? ImClamp(dbgVuMesh_, 0, meshes - 1) : 0;
+            if (meshes > 1) {
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                ImGui::SliderInt("##vumesh", &dbgVuMesh_, 0, meshes - 1,
+                                 "mesh %d");
+                ImGui::SameLine();
+                const vucap::Unpack& mu =
+                    dbgVuCap_.unpacks[dbgVuCap_.vertexUnpacks[dbgVuMesh_]];
+                ImGui::TextDisabled("of %d in this flush - %d verts, VU1 addr %u",
+                                    meshes, mu.count, mu.vuAddr);
+            }
+
             // The wireframe: the captured positions are model space, so this is
             // its own little orbit view rather than an overlay on the scene.
-            const std::vector<float>* verts = dbgVuCap_.vertices();
+            const std::vector<float>* verts =
+                meshes ? dbgVuCap_.verticesOf(dbgVuMesh_) : dbgVuCap_.vertices();
             if (verts && verts->size() >= 12) {
                 const float h = scaled(220.0f);
                 const ImVec2 size(ImGui::GetContentRegionAvail().x, h);
