@@ -832,8 +832,14 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
+  // lighting cannot draw a spot smaller than the mesh tessellation, so
+  // looking down at your own feet lit nothing (the cone footprint is
+  // smaller than a terrain cell). That patch follows the view ray's
+  // terrain hit instead.
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
+  void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
   // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA

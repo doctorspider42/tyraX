@@ -1360,8 +1360,14 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
+  // lighting cannot draw a spot smaller than the mesh tessellation, so
+  // looking down at your own feet lit nothing (the cone footprint is
+  // smaller than a terrain cell). That patch follows the view ray's
+  // terrain hit instead.
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
+  void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
   // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA
@@ -2256,8 +2262,14 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
+  // lighting cannot draw a spot smaller than the mesh tessellation, so
+  // looking down at your own feet lit nothing (the cone footprint is
+  // smaller than a terrain cell). That patch follows the view ray's
+  // terrain hit instead.
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
+  void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
   // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA
@@ -7737,12 +7749,21 @@ void TerrainGame::setupLightPools() {
   lightPools.clear();
   if (!beamCoronaTex) return;
   constexpr int kCells = 4;
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
-    const SceneObjectData& d = SCENE_OBJECTS[i];
-    if (d.type != 9 || !d.lightDynamic) continue;
+  // One pool per dynamic point light, plus a last one (objIndex -1) that
+  // follows the camera flashlight's terrain hit.
+  int poolCount = 1;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
+      ++poolCount;
+  lightPools.reserve(poolCount);
+  for (int i = 0; i <= SCENE_OBJECT_COUNT; ++i) {
+    if (i < SCENE_OBJECT_COUNT) {
+      const SceneObjectData& d = SCENE_OBJECTS[i];
+      if (d.type != 9 || !d.lightDynamic) continue;
+    }
     lightPools.emplace_back();
     LightPool& b = lightPools.back();
-    b.objIndex = i;
+    b.objIndex = i < SCENE_OBJECT_COUNT ? i : -1;  // -1 = the flashlight
     b.mat.identity();
     b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
@@ -7785,10 +7806,88 @@ void TerrainGame::setupLightPools() {
 // Per frame: drop each dynamic light's pool onto the terrain under it
 // (terrain-conforming corners), tint by the light color and breathe with
 // its level (flicker / Set Light / hidden) through the additive FIX.
+void TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
+                                 float lift) {
+  constexpr int kCells = 4;
+  int v = 0;
+  for (int iz = 0; iz < kCells; ++iz) {
+    for (int ix = 0; ix < kCells; ++ix) {
+      const float x0 = cx + ((float)ix / kCells - 0.5F) * 2.0F * r;
+      const float x1 = cx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * r;
+      const float z0 = cz + ((float)iz / kCells - 0.5F) * 2.0F * r;
+      const float z1 = cz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * r;
+      b.verts[v + 0] = Vec4(x0, terrainHeightAt(x0, z0) + lift, z0, 1.0F);
+      b.verts[v + 1] = Vec4(x1, terrainHeightAt(x1, z0) + lift, z0, 1.0F);
+      b.verts[v + 2] = Vec4(x1, terrainHeightAt(x1, z1) + lift, z1, 1.0F);
+      b.verts[v + 3] = b.verts[v + 0];
+      b.verts[v + 4] = b.verts[v + 2];
+      b.verts[v + 5] = Vec4(x0, terrainHeightAt(x0, z1) + lift, z1, 1.0F);
+      v += 6;
+    }
+  }
+}
+
 void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
-  constexpr int kCells = 4;
   for (LightPool& b : lightPools) {
+    if (b.objIndex < 0) {
+      // The camera flashlight. Per-vertex lighting cannot draw a spot
+      // smaller than the mesh tessellation, so aiming at your own feet
+      // (a footprint well under one terrain cell) lit nothing at all.
+      // Follow the view ray to the terrain and put a pool there instead.
+      if (!g_flashEnabled || !g_flashOn) continue;
+      float dx = cameraLookAt.x - cameraPosition.x;
+      float dy = cameraLookAt.y - cameraPosition.y;
+      float dz = cameraLookAt.z - cameraPosition.z;
+      const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (dl < 0.0001F) continue;
+      dx /= dl, dy /= dl, dz /= dl;
+      // Fixed-step march + a short bisection, like the flare's occlusion
+      // ray; no hit inside the beam's reach = nothing to light.
+      float hit = -1.0F, prev = 0.0F;
+      for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
+        if (cameraPosition.y + dy * t <=
+            terrainHeightAt(cameraPosition.x + dx * t,
+                            cameraPosition.z + dz * t)) {
+          float lo = prev, hi2 = t;
+          for (int k2 = 0; k2 < 6; ++k2) {
+            const float mid = (lo + hi2) * 0.5F;
+            if (cameraPosition.y + dy * mid <=
+                terrainHeightAt(cameraPosition.x + dx * mid,
+                                cameraPosition.z + dz * mid))
+              hi2 = mid;
+            else
+              lo = mid;
+          }
+          hit = hi2;
+          break;
+        }
+        prev = t;
+      }
+      if (hit < 0.0F) continue;
+      const float gx = cameraPosition.x + dx * hit;
+      const float gz = cameraPosition.z + dz * hit;
+      // Cone footprint at that distance, widened a little for the soft
+      // edge and floored so a straight-down look still gets a visible
+      // puddle. Grazing angles stretch the real footprint - the round
+      // patch is the PS2-era approximation, not a projection.
+      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      float r = hit * tanA * 1.7F;
+      if (r < 0.7F) r = 0.7F;
+      if (r > 8.0F) r = 8.0F;
+      buildPoolPatch(b, gx, gz, r, 0.045F);
+      b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
+      // Fade out over the last third of the reach so the pool dies with
+      // the per-vertex beam instead of ending on a hard circle.
+      float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
+      fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
+      const float fix = 110.0F * fade;
+      if (fix < 1.0F) continue;
+      b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
+      b.bag->bboxVersion = ++g_bboxStamp;
+      stapip.core.render(b.bag.get());
+      continue;
+    }
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
     const RuntimeObject& ro = runtimeObjects[b.objIndex];
     if (!ro.active || !ro.visible) continue;
@@ -7801,25 +7900,8 @@ void TerrainGame::updateAndRenderLightPools() {
       }
     const float k = d.lightBright * level;
     if (k <= 0.01F) continue;
-    const float cx = d.position[0], cz = d.position[2];
-    const float r = d.lightRadius * 0.9F;
-    const float lift = 0.04F;  // under the shadows' 0.05/0.06
-    int v = 0;
-    for (int iz = 0; iz < kCells; ++iz) {
-      for (int ix = 0; ix < kCells; ++ix) {
-        const float x0 = cx + ((float)ix / kCells - 0.5F) * 2.0F * r;
-        const float x1 = cx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * r;
-        const float z0 = cz + ((float)iz / kCells - 0.5F) * 2.0F * r;
-        const float z1 = cz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * r;
-        b.verts[v + 0] = Vec4(x0, terrainHeightAt(x0, z0) + lift, z0, 1.0F);
-        b.verts[v + 1] = Vec4(x1, terrainHeightAt(x1, z0) + lift, z0, 1.0F);
-        b.verts[v + 2] = Vec4(x1, terrainHeightAt(x1, z1) + lift, z1, 1.0F);
-        b.verts[v + 3] = b.verts[v + 0];
-        b.verts[v + 4] = b.verts[v + 2];
-        b.verts[v + 5] = Vec4(x0, terrainHeightAt(x0, z1) + lift, z1, 1.0F);
-        v += 6;
-      }
-    }
+    buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
+                   0.04F);  // under the shadows' 0.05/0.06
     b.color.set(128.0F * d.color[0], 128.0F * d.color[1], 128.0F * d.color[2],
                 128.0F);
     float fix = 96.0F * (k > 1.4F ? 1.4F : k);
@@ -17829,12 +17911,21 @@ bool projectUsesFlare(const Project& p) {
 bool projectUsesBeams(const Project& p) {
     // Dynamic lights count too: their ground pools draw with the same corona
     // sprite (the terrain opts out of the per-chunk light pick, so the pool
-    // is how a scene light reaches the ground smoothly).
+    // is how a scene light reaches the ground smoothly). So does the camera
+    // flashlight - its pool is what lets you light your own feet, which
+    // per-vertex lighting cannot do (the footprint is smaller than a
+    // terrain cell). A Set Flashlight node can turn one on at runtime, so
+    // that counts as well.
     for (const SceneData& sc : p.scenes)
-        for (const SceneObject& o : sc.objects)
+        for (const SceneObject& o : sc.objects) {
             if (o.type == PrimitiveType::PointLight &&
                 (o.lightBeam != 0 || o.lightDynamic))
                 return true;
+            if (o.type == PrimitiveType::Player && o.flashlightEnabled)
+                return true;
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetFlashlight") return true;
+        }
     return false;
 }
 
