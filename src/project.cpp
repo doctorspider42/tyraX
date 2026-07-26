@@ -1838,6 +1838,15 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.settings.liveLink = true;
     out.settings.keyboardMouse = false;
 
+    // PAL picture ON: on a PAL console the region-following interlaced mode
+    // boots the full-height 576i frame (512 rendered lines) instead of the
+    // letterboxed NTSC-sized picture - the "full PAL" of European releases,
+    // and the whole point of a 50 Hz signal. It costs ~380 KB of GS VRAM and
+    // nothing at all on an NTSC console, which still gets its own 448 lines.
+    // Existing projects keep the letterboxed picture (the field reads as false)
+    // because turning it on retroactively would change what they output.
+    out.settings.palFullHeight = true;
+
     // World scale, chosen when the project is created because the alternative
     // is discovering it after the world is built. The metric-by-definition
     // numbers scale with it, so the FPP preset is a 1.8 m player at any scale

@@ -1,8 +1,9 @@
 #include "elfsym.hpp"
 
+#include "platform.hpp"
+
 #include <cstring>
 #include <cstdio>
-#include <direct.h>
 #include <fstream>
 #include <sstream>
 
@@ -241,22 +242,21 @@ std::vector<Location> symbolize(const std::string& projectDir,
         "\" 2>&1";
 
     // Run it in the project directory (that is where docker-compose.yml lives).
-    std::string prev;
-    {
-        char cwd[1024] = {0};
-        if (_getcwd(cwd, sizeof(cwd))) prev = cwd;
-    }
-    if (_chdir(projectDir.c_str()) != 0) {
-        if (error) *error = "cannot enter " + projectDir;
+    // platform::Process takes the working directory as an option, so this needs
+    // no chdir of our own process - and no _popen/_chdir/_getcwd, which are
+    // Windows spellings that do not exist on Linux (platform.cpp is the one
+    // place OS differences live; see the tyra-editor-dev skill).
+    platform::Process::Options opts;
+    opts.cwd = projectDir;
+    opts.capture = true;
+    std::string text;
+    if (auto proc = platform::Process::start(cmd, opts)) {
+        text = proc->readAll();
+        proc->wait();
+    } else if (error) {
+        *error = "cannot run the toolchain in " + projectDir;
         return out;
     }
-    std::string text;
-    if (FILE* pipe = _popen(cmd.c_str(), "r")) {
-        char line[512];
-        while (fgets(line, sizeof(line), pipe)) text += line;
-        _pclose(pipe);
-    }
-    if (!prev.empty()) _chdir(prev.c_str());
 
     if (text.empty()) {
         if (error)
