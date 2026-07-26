@@ -123,6 +123,12 @@ decimation tolerance — a world-unit distance — scales with it. The modal
 prints the recorded path length both ways ("4.80 m walked → 24.0 units") and
 offers a **World scale** button to snap back if you tuned the field by hand.
 
+The **live phone camera** (docs/phone-camera.md) maps through the same struct,
+so it seeds the same way — the moment a phone connects, not on every recentre,
+because re-seeding later would overwrite a value you tuned while watching the
+shot. Its recording tolerance follows the factor too. The same **World scale**
+button sits next to the Phone Camera window's Scale field.
+
 ## Adding something that reads the real world
 
 Anything new that imports real-world measurements (a motion-capture format, a

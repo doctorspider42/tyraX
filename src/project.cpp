@@ -1226,6 +1226,7 @@ static void writeSequencesSection(std::ostream& json, const Project& p) {
                  << ", \"eye\": " << fmtVec3(k.eye) << ", \"target\": " << fmtVec3(k.target)
                  << ", \"fov\": " << fmtFloat(k.fov)
                  << (k.shake > 0.0f ? ", \"shake\": " + fmtFloat(k.shake) : "")
+                 << (k.roll != 0.0f ? ", \"roll\": " + fmtFloat(k.roll) : "")
                  << (k.camera.empty() ? "" : ", \"camera\": \"" + jsonEscape(k.camera) + "\"")
                  << ", \"ease\": " << k.easing << " }";
         }
@@ -3015,6 +3016,7 @@ static void readSequencesSection(const json::Value& root, Project& out) {
                     readVec3(jck.find("target"), k.target);
                     if (const auto* v = jck.find("fov")) k.fov = (float)v->numberOr(60.0);
                     if (const auto* v = jck.find("shake")) k.shake = (float)v->numberOr(0.0);
+                    if (const auto* v = jck.find("roll")) k.roll = (float)v->numberOr(0.0);
                     if (const auto* v = jck.find("camera")) k.camera = v->stringOr("");
                     if (const auto* v = jck.find("ease")) k.easing = (int)v->numberOr(1.0);
                     s.cameraKeys.push_back(k);
