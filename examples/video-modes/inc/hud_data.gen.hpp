@@ -23,14 +23,16 @@ constexpr int HUD_BLOOM_LAYER = -1;
 constexpr int HUD_GRAIN_LAYER = -1;
 
 // The USE prompt sprite (shown while looking at a usable object)
-constexpr const char* USE_PROMPT_PATH = "hud/use-text.png";
+constexpr const char* USE_PROMPT_PATH = "hud/use.png";
 constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
 constexpr float USE_PROMPT_Y = 0.755714F;
 constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels
 constexpr float USE_PROMPT_H = 32.0F;
 // The "PICK UP" variant, shown instead for pickable objects
-// (same placement; replace res/hud/pickup.png to customize)
+// (same screen position as USE; its own text/image and size)
 constexpr const char* PICK_PROMPT_PATH = "hud/pickup.png";
+constexpr float PICK_PROMPT_W = 128.0F;
+constexpr float PICK_PROMPT_H = 32.0F;
 
 struct HudTextData {
   const char* path;  // baked text sprite, relative to the ELF

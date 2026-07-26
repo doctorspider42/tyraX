@@ -3606,8 +3606,11 @@ void TerrainGame::init() {
   // "PICK UP" variant, shown instead when the looked-at object is pickable.
   // Same placement; its own texture (hud/pickup.png, replace to customize).
   pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
-  pickPromptSprite.size = usePromptSprite.size;
-  pickPromptSprite.position = usePromptSprite.position;
+  pickPromptSprite.size = Vec2(PICK_PROMPT_W, PICK_PROMPT_H);
+  // Same screen position as USE, re-centred for its own size.
+  pickPromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - PICK_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - PICK_PROMPT_H * 0.5F);
   auto* pickTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(PICK_PROMPT_PATH));
   pickTexture->addLink(pickPromptSprite.id);
@@ -12097,8 +12100,11 @@ void TerrainGame::init() {
   // "PICK UP" variant, shown instead when the looked-at object is pickable.
   // Same placement; its own texture (hud/pickup.png, replace to customize).
   pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
-  pickPromptSprite.size = usePromptSprite.size;
-  pickPromptSprite.position = usePromptSprite.position;
+  pickPromptSprite.size = Vec2(PICK_PROMPT_W, PICK_PROMPT_H);
+  // Same screen position as USE, re-centred for its own size.
+  pickPromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - PICK_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - PICK_PROMPT_H * 0.5F);
   auto* pickTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(PICK_PROMPT_PATH));
   pickTexture->addLink(pickPromptSprite.id);
@@ -19916,13 +19922,32 @@ static std::string hudDataHeader(const Project& p) {
     if (usePath.rfind("res/", 0) == 0) usePath = usePath.substr(4);
     if (usePath.empty()) usePath = "hud/use.png";
     float useW = p.usePrompt.size[0], useH = p.usePrompt.size[1];
-    if (!p.usePromptText.text.empty()) {
+    if (p.usePromptIsText && !p.usePromptText.text.empty()) {
         int tw = 0, th = 0;
         if (menubake::textLayout(p.usePromptText, p, tw, th)) {
             usePath = "hud/use-text.png";
             useW = (float)tw;
             useH = (float)th;
         }
+    }
+    // PICK UP: same rule, its own file/size. It shares the USE prompt's screen
+    // position, so only the size can differ.
+    std::string pickPath = p.pickPromptImage;
+    if (pickPath.rfind("res/", 0) == 0) pickPath = pickPath.substr(4);
+    if (pickPath.empty()) pickPath = "hud/pickup.png";
+    float pickW = useW, pickH = useH;
+    if (p.pickPromptIsText && !p.pickPromptText.text.empty()) {
+        int tw = 0, th = 0;
+        if (menubake::textLayout(p.pickPromptText, p, tw, th)) {
+            pickPath = "hud/pick-text.png";
+            pickW = (float)tw;
+            pickH = (float)th;
+        }
+    } else if (!p.usePromptIsText) {
+        // Both on images: the pickup sprite kept the USE prompt's box, which is
+        // what it always did.
+        pickW = p.usePrompt.size[0];
+        pickH = p.usePrompt.size[1];
     }
     out << "\n// The USE prompt sprite (shown while looking at a usable object)\n"
         << "constexpr const char* USE_PROMPT_PATH = \"" << usePath << "\";\n"
@@ -19933,8 +19958,10 @@ static std::string hudDataHeader(const Project& p) {
         << ";  // on-screen pixels\n"
         << "constexpr float USE_PROMPT_H = " << floatLit(useH) << ";\n"
         << "// The \"PICK UP\" variant, shown instead for pickable objects\n"
-           "// (same placement; replace res/hud/pickup.png to customize)\n"
-           "constexpr const char* PICK_PROMPT_PATH = \"hud/pickup.png\";\n";
+           "// (same screen position as USE; its own text/image and size)\n"
+        << "constexpr const char* PICK_PROMPT_PATH = \"" << pickPath << "\";\n"
+        << "constexpr float PICK_PROMPT_W = " << floatLit(pickW) << ";\n"
+        << "constexpr float PICK_PROMPT_H = " << floatLit(pickH) << ";\n";
 
     // On-screen texts, baked to res/hud/text-*.png sprites by the editor
     // (menubake). Shown/hidden by the Show Text / Hide Text flow nodes.

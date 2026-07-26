@@ -96,7 +96,10 @@
     { "name": "crosshair", "image": "res/ui/crosshair.png", "pos": [0.5, 0.5], "size": [24, 24], "texW": 0, "texH": 0, "texQuant": "" }
   ],
   "usePrompt": { "image": "", "pos": [0.5, 0.596], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
-  "usePromptText": { "text": "New text", "size": 16, "color": [1, 1, 1], "shadow": true },
+  "usePromptIsText": false,
+  "usePromptText": { "text": "{{use}} USE", "size": 16, "color": [1, 1, 1], "shadow": true },
+  "pickPromptIsText": false,
+  "pickPromptText": { "text": "{{use}} PICK UP", "size": 20, "color": [1, 1, 1], "shadow": true },
   "hudTexts": [
     { "name": "options-hint", "text": "SELECT: graphics options", "pos": [0.5, 0.93], "size": 13, "color": [1, 0.95, 0.7], "shadow": true, "visibleAtStart": false }
   ],

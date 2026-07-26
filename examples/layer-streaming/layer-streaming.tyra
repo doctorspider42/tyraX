@@ -89,7 +89,10 @@
   ],
   "hud": [],
   "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
-  "usePromptText": { "text": "New text", "size": 16, "color": [1, 1, 1], "shadow": true },
+  "usePromptIsText": false,
+  "usePromptText": { "text": "{{use}} USE", "size": 16, "color": [1, 1, 1], "shadow": true },
+  "pickPromptIsText": false,
+  "pickPromptText": { "text": "{{use}} PICK UP", "size": 20, "color": [1, 1, 1], "shadow": true },
   "hudTexts": [],
   "textIcons": [
     { "name": "cross", "path": "res/hud/icon-cross.png" },

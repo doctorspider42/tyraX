@@ -60,23 +60,30 @@ Unlike font glyphs, icons keep **their own colors** — a colored button glyph
 should look like that button, and a custom PNG should look like what you drew.
 They are not tinted with the color of the text they sit in.
 
-## The USE prompt
+## The interaction prompts
 
-*Tools > UI Editor > USE prompt* has a **Prompt text** field, and a fresh project
-starts at `{{use}} Use` — so the prompt shows the button to press instead of a
-generic "USE", and it follows a rebind of the `use` action. Non-empty text wins
-over the image: the build rasterizes it to `res/hud/use-text.png` and points the
-prompt sprite there, so the game still draws exactly one sprite. Clear the field
-to go back to the image (the built-in `res/hud/use.png` or your own).
+*Tools > UI Editor > USE prompt* holds both of them - the **USE prompt** and the
+**PICK UP** variant shown instead when the looked-at object is pickable - and
+each is explicitly either **Text** or **Image** (a radio pair, not "text when the
+field is not empty": flipping to the image to compare should not throw away what
+you typed).
 
-Existing projects keep their image until you fill the field in — flipping them to
-text would have restyled every project's HUD behind the user's back. The field
-offers the default with one click.
+A fresh project starts both on text, at `{{use}} USE` and `{{use}} PICK UP`, so a
+prompt says which button to press and follows a rebind of the `use` action.
 
-Because the prompt is a baked sprite, its `{{use}}` is resolved at **build** time
-from the default preset: a player who rebinds `use` in-game sees the old glyph on
-the prompt until the next build. That is the same snapshot rule as every other
-baked text.
+Either way the build produces one sprite per prompt and the game draws it the
+same: text is rasterized to `res/hud/use-text.png` / `res/hud/pick-text.png` and
+the prompt just points there. The two share the USE prompt's screen position; in
+text mode each is sized by its own bake, in image mode PICK UP rides in the USE
+prompt's box.
+
+Existing projects stay on their images until you flip the switch - turning them
+into text would have restyled every project's HUD behind the user's back.
+
+Because a prompt is a baked sprite, its `{{use}}` is resolved at **build** time
+from the default preset: a player who rebinds `use` in-game keeps seeing the old
+glyph on the prompt until the next build. That is the same snapshot rule as every
+other baked text.
 
 ## Adding your own
 

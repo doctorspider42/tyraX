@@ -45,6 +45,24 @@ Each finished feature lands as its own commit.
   pad keys instead (K = Cross, I = Triangle): capture arms (`PRESS...`), Triangle
   is captured, and the row redraws as the green triangle glyph. The USE prompt
   bakes to "□ Use" with the pink Square glyph (the `use` action's binding).
+  Second round on the same review: the prompts became a pair with an EXPLICIT
+  text/image mode (radio buttons, not "text wins when non-empty" - flipping to
+  the image to compare must not throw away the text), **PICK UP** got its own
+  text (`{{use}} PICK UP`) plus its own image override and its own baked size
+  (`PICK_PROMPT_W/H` - it used to borrow the USE prompt's box), and the default
+  text is the classic word with the glyph rather than `HudText`'s "New text",
+  which is what was showing up in the field. That placeholder also revealed a
+  migration bug of my own making: an interim build wrote a default-constructed
+  prompt text AND its mode flag into every project it saved, so older projects
+  flipped to a prompt reading "New text". The reader now drops that exact string
+  (nobody types it into a prompt) *after* applying the flags - doing it before
+  left the bogus flag in charge - and the committed examples were put back on
+  their built-in sprites. The Button icons manager also gained a preview that
+  falls back to the built-in DRAWING when the PNG has not been baked yet (a fresh
+  project showed an empty column), a hover blow-up, and a per-icon **Default**
+  button that resets the scale and deletes the generated PNG so the next build
+  redraws it. The scaffolded OPTIONS root now opens at game start unless another
+  menu already claims the title screen.
   Also merged origin/main (#138-#151: asset browser, world scale, lightmaps,
   trees, emissive, ortho views, VRAM manager) - `kSectionCount` needed 15 after
   main's ModelUnits met this branch's Input, the same one-short trap as the last

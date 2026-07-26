@@ -1337,12 +1337,24 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // The generated drawing of a built-in text icon as a GL texture. Lets the
+    // Button icons manager preview an icon whose PNG the project has not baked
+    // yet, and show what "restore default" gives back. Null for a name that is
+    // not one of the built-ins.
+    const HudTexture* builtinIconTexture(const std::string& iconName);
+    // Puts one icon back to its built-in state: default path + scale, and the
+    // generated PNG deleted so the next build (and the preview) redraws it.
+    void restoreDefaultTextIcon(TextIcon& icon);
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);
     // The embedded built-in USE prompt sprite (viewport overlay preview).
     const HudTexture* builtinUseTexture();
     HudTexture builtinUseTex_;
+    // Built-in text-icon drawings as GL textures, so the Button icons manager
+    // previews an icon before its PNG exists (they are generated at the first
+    // build). Keyed by icon name; cleared with the decoded-icon cache.
+    std::map<std::string, HudTexture> builtinIconTex_;
     // Viewport overlay textures of the HUD texts, re-baked on content change.
     struct TextTexture {
         unsigned tex = 0;

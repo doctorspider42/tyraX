@@ -8845,6 +8845,43 @@ const App::HudTexture* App::builtinUseTexture() {
     return &builtinUseTex_;
 }
 
+// The built-in drawing of a text icon as a GL texture (lazy, process lifetime).
+// The manager needs this because the icon PNGs are generated at the first build:
+// before that there is no file to preview, and after a "restore default" the
+// file is deliberately gone until the next build.
+const App::HudTexture* App::builtinIconTexture(const std::string& iconName) {
+    auto it = builtinIconTex_.find(iconName);
+    if (it != builtinIconTex_.end())
+        return it->second.tex ? &it->second : nullptr;
+
+    HudTexture entry;
+    std::vector<unsigned char> rgba;
+    const int px = menubake::kIconBakeSize;
+    if (menubake::bakeBuiltinIconRGBA(iconName, px, rgba)) {
+        glGenTextures(1, &entry.tex);
+        glBindTexture(GL_TEXTURE_2D, entry.tex);
+        glUploadTexRgba(px, px, rgba.data());
+        entry.w = entry.h = px;
+    }
+    builtinIconTex_[iconName] = entry;
+    return entry.tex ? &builtinIconTex_[iconName] : nullptr;
+}
+
+// Restore one icon to how a fresh project would have it: the generated path and
+// scale 1, with the PNG removed so the built-in drawing comes back (the next
+// build re-creates it; the preview falls back to the drawing meanwhile).
+void App::restoreDefaultTextIcon(TextIcon& icon) {
+    const std::string def = "res/hud/" + menubake::iconFileName(icon.name);
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::path(project_.dir) / def, ec);
+    if (!icon.path.empty() && icon.path != def)
+        hudTexCache_.erase(icon.path);
+    hudTexCache_.erase(def);
+    icon.path = def;
+    icon.scale = 1.0f;
+    menubake::clearIconImageCache();
+}
+
 // A HUD text as a GL texture for the viewport overlay, re-baked when its
 // content changes (keyed by name; a handful of small textures at most).
 const App::HudTexture* App::hudTextTexture(const HudText& t) {
@@ -9067,12 +9104,27 @@ void App::drawTextIconsModal() {
         TextIcon& ic = project_.textIcons[i];
         ImGui::PushID(i);
 
-        // Preview: the project's PNG once it exists (after the first build),
-        // otherwise nothing to show yet - the built-in is drawn at bake time.
-        if (const HudTexture* t = ic.path.empty() ? nullptr : hudTexture(ic.path))
-            ImGui::Image((ImTextureID)(intptr_t)t->tex, ImVec2(row, row));
+        // Preview: the project's PNG when it exists, otherwise the built-in
+        // drawing - the PNGs are only generated at the first build, so without
+        // the fallback a fresh project would show an empty column.
+        const HudTexture* prev =
+            ic.path.empty() ? nullptr : hudTexture(ic.path);
+        const bool fromFile = prev != nullptr;
+        if (!prev) prev = builtinIconTexture(ic.name);
+        if (prev)
+            ImGui::Image((ImTextureID)(intptr_t)prev->tex, ImVec2(row, row));
         else
             ImGui::Dummy(ImVec2(row, row));
+        if (ImGui::IsItemHovered()) {
+            // Bigger, on the dark tooltip background - the row thumbnail is
+            // 28px and these are 48px drawings.
+            ImGui::BeginTooltip();
+            ImGui::Image((ImTextureID)(intptr_t)prev->tex,
+                         ImVec2(scaled(96.0f), scaled(96.0f)));
+            ImGui::TextUnformatted(fromFile ? ic.path.c_str()
+                                            : "built-in drawing (no PNG yet)");
+            ImGui::EndTooltip();
+        }
         ImGui::SameLine();
 
         {
@@ -9125,6 +9177,26 @@ void App::drawTextIconsModal() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", ic.path.empty() ? "(no image yet)"
                                                     : ic.path.c_str());
+        ImGui::SameLine();
+
+        // Per-icon reset: only a built-in name has a default to go back to.
+        const std::string defPath = "res/hud/" + menubake::iconFileName(ic.name);
+        const bool isBuiltin = builtinIconTexture(ic.name) != nullptr;
+        ImGui::BeginDisabled(!isBuiltin);
+        if (ImGui::SmallButton("Default")) {
+            restoreDefaultTextIcon(ic);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                isBuiltin
+                    ? "Back to the built-in glyph: resets the scale, points the\n"
+                      "icon at %s and deletes that file so the\n"
+                      "next build redraws it."
+                    : "Only the built-in pad-button icons have a default to\n"
+                      "restore - this one is yours.",
+                defPath.c_str());
         ImGui::SameLine();
         if (ImGui::SmallButton("x")) {
             project_.textIcons.erase(project_.textIcons.begin() + i);
@@ -10515,124 +10587,134 @@ void App::drawUiEditorWindow() {
     } else if (uiFxSel_ == 3) {
         // --- the pinned USE prompt ------------------------------------------
         HudImage& h = project_.usePrompt;
-        ImGui::SeparatorText("USE prompt");
+        ImGui::SeparatorText("Interaction prompts");
         ImGui::TextWrapped(
-            "Shown while the player looks at a usable object up close. "
-            "Always draws above the HUD stack (and under menus); cannot be "
-            "deleted. Pickable objects show a \"PICK UP\" variant at the "
-            "same placement (replace res/hud/pickup.png to customize it).");
+            "Shown while the player looks at a usable object up close - the "
+            "\"PICK UP\" variant instead when the object is pickable. Both draw "
+            "above the HUD stack (and under menus) at the same screen position, "
+            "and neither can be deleted.");
         ImGui::Spacing();
         ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-
-        // Text prompt. Non-empty wins over the image, and it is what a fresh
-        // project starts with ("{{use}} Use") - a prompt that shows the button
-        // is worth more than a generic "USE", and {{use}} follows a rebind.
-        HudText& upt = project_.usePromptText;
-        ImGui::SeparatorText("Text");
-        {
-            char buf[128];
-            std::snprintf(buf, sizeof(buf), "%s", upt.text.c_str());
-            ImGui::SetNextItemWidth(scaled(240.0f));
-            if (ImGui::InputText("Prompt text##use", buf, sizeof(buf)))
-                upt.text = buf;
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Baked to a sprite at build. Empty = use the image below\n"
-                "instead. {{use}} draws the glyph of whatever the \"use\"\n"
-                "action is bound to (docs/text-icons.md), so the prompt\n"
-                "follows a rebind; {{cross}} pins a fixed button.");
-        if (upt.text.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Use \"{{use}} Use\"")) {
-                upt.text = "{{use}} Use";
-                if (upt.size < 8) upt.size = 20;
+            ImGui::SetTooltip("Shared by both prompts (normalized, center "
+                              "anchor).");
+
+        // One prompt's content: TEXT or IMAGE as an explicit choice, so flipping
+        // to the image to compare does not throw away the text you typed. Text
+        // can carry a button glyph that follows the binding, which is why a
+        // fresh project starts there (docs/text-icons.md).
+        auto promptUi = [&](const char* title, const char* id, bool& isText,
+                            HudText& txt, std::string& imagePath,
+                            HudImage* bakeOf, const char* builtinNote) {
+            ImGui::PushID(id);
+            ImGui::SeparatorText(title);
+            int mode = isText ? 0 : 1;
+            if (ImGui::RadioButton("Text", &mode, 0)) {
+                isText = true;
                 changed = true;
             }
-        } else {
-            ImGui::SetNextItemWidth(scaled(110.0f));
-            if (ImGui::DragInt("Text size##use", &upt.size, 0.5f, 8, 48, "%d px"))
-                changed = true;
             ImGui::SameLine();
-            if (ImGui::ColorEdit3("Color##useprompt", upt.color,
-                                  ImGuiColorEditFlags_NoInputs))
+            if (ImGui::RadioButton("Image", &mode, 1)) {
+                isText = false;
                 changed = true;
-            ImGui::SameLine();
-            if (ImGui::Checkbox("Shadow##useprompt", &upt.shadow)) changed = true;
-            changed |= fontCombo(upt.font);
-            // The baked canvas sizes the sprite, so the image Size below would
-            // only stretch it - say so instead of offering a fight.
-            ImGui::TextDisabled("Sized by the baked text (the Size below is "
-                                "for image mode).");
-            if (const HudTexture* t = hudTextTexture(upt))
-                ImGui::Image((ImTextureID)(intptr_t)t->tex,
-                             ImVec2(scaled((float)t->w), scaled((float)t->h)));
-        }
+            }
 
-        ImGui::DragFloat2("Size (px)##use", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-
-        ImGui::SeparatorText("Image");
-        if (!upt.text.empty())
-            ImGui::TextDisabled("(unused while the text above is set)");
-        if (h.imagePath.empty()) {
-            ImGui::TextDisabled("Built-in \"USE\" sprite (res/hud/use.png).");
-            if (ImGui::Button("Custom image (PNG)...")) {
-                const std::string src = pickPngFile();
-                if (!src.empty()) {
-                    const std::filesystem::path srcPath(src);
-                    const std::string fileName =
-                        sanitizeAssetName(srcPath.filename().string());
-                    const std::filesystem::path destDir =
-                        std::filesystem::path(project_.dir) / "res" / "hud";
-                    std::error_code ec;
-                    std::filesystem::create_directories(destDir, ec);
-                    std::filesystem::copy_file(
-                        srcPath, destDir / fileName,
-                        std::filesystem::copy_options::overwrite_existing, ec);
-                    if (!ec) {
-                        h.imagePath = "res/hud/" + fileName;
-                        hudTexCache_.erase(h.imagePath);  // reload if replaced
-                        changed = true;
-                    } else {
-                        statusMessage_ =
-                            "USE prompt import failed: " + ec.message();
+            if (isText) {
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "%s", txt.text.c_str());
+                ImGui::SetNextItemWidth(scaled(240.0f));
+                if (ImGui::InputText("Text##prompt", buf, sizeof(buf)))
+                    txt.text = buf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Baked to a sprite at build (the PS2 has no font).\n"
+                        "{{use}} draws the glyph of whatever the \"use\" action\n"
+                        "is bound to, so the prompt follows a rebind;\n"
+                        "{{cross}} pins a fixed button. See docs/text-icons.md.");
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                if (ImGui::DragInt("Size##prompt", &txt.size, 0.5f, 8, 48,
+                                   "%d px"))
+                    changed = true;
+                ImGui::SameLine();
+                if (ImGui::ColorEdit3("Color##prompt", txt.color,
+                                      ImGuiColorEditFlags_NoInputs))
+                    changed = true;
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Shadow##prompt", &txt.shadow))
+                    changed = true;
+                changed |= fontCombo(txt.font);
+                if (txt.text.empty())
+                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                       "Empty - the image is used instead.");
+                else if (const HudTexture* t = hudTextTexture(txt))
+                    ImGui::Image((ImTextureID)(intptr_t)t->tex,
+                                 ImVec2(scaled((float)t->w),
+                                        scaled((float)t->h)));
+                ImGui::TextDisabled("The baked text sizes the sprite.");
+            } else {
+                if (imagePath.empty()) {
+                    ImGui::TextDisabled("%s", builtinNote);
+                } else {
+                    ImGui::TextDisabled("Custom: %s", imagePath.c_str());
+                    if (const HudTexture* t = hudTexture(imagePath))
+                        ImGui::Image((ImTextureID)(intptr_t)t->tex,
+                                     ImVec2(scaled((float)t->w),
+                                            scaled((float)t->h)));
+                }
+                if (ImGui::Button(imagePath.empty() ? "Custom image (PNG)..."
+                                                    : "Replace image (PNG)...")) {
+                    const std::string src = pickPngFile();
+                    if (!src.empty()) {
+                        const std::filesystem::path srcPath(src);
+                        const std::string fileName =
+                            sanitizeAssetName(srcPath.filename().string());
+                        const std::filesystem::path destDir =
+                            std::filesystem::path(project_.dir) / "res" / "hud";
+                        std::error_code ec;
+                        std::filesystem::create_directories(destDir, ec);
+                        std::filesystem::copy_file(
+                            srcPath, destDir / fileName,
+                            std::filesystem::copy_options::overwrite_existing,
+                            ec);
+                        if (!ec) {
+                            imagePath = "res/hud/" + fileName;
+                            hudTexCache_.erase(imagePath);  // reload if replaced
+                            changed = true;
+                        } else {
+                            statusMessage_ =
+                                "Prompt image import failed: " + ec.message();
+                        }
                     }
                 }
-            }
-        } else {
-            ImGui::TextDisabled("Custom: %s", h.imagePath.c_str());
-            if (ImGui::Button("Replace image (PNG)...")) {
-                const std::string src = pickPngFile();
-                if (!src.empty()) {
-                    const std::filesystem::path srcPath(src);
-                    const std::string fileName =
-                        sanitizeAssetName(srcPath.filename().string());
-                    const std::filesystem::path destDir =
-                        std::filesystem::path(project_.dir) / "res" / "hud";
-                    std::error_code ec;
-                    std::filesystem::create_directories(destDir, ec);
-                    std::filesystem::copy_file(
-                        srcPath, destDir / fileName,
-                        std::filesystem::copy_options::overwrite_existing, ec);
-                    if (!ec) {
-                        h.imagePath = "res/hud/" + fileName;
-                        hudTexCache_.erase(h.imagePath);
+                if (!imagePath.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset to built-in")) {
+                        imagePath.clear();
                         changed = true;
                     }
                 }
+                // Size + the texture bake only apply to the USE prompt's own
+                // HudImage; the PICK UP image rides on the same box.
+                if (bakeOf) {
+                    ImGui::DragFloat2("Size (px)##prompt", bakeOf->size, 1.0f,
+                                      1.0f, 512.0f, "%.0f");
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (!imagePath.empty()) changed |= hudBakeControls(*bakeOf);
+                } else {
+                    ImGui::TextDisabled("Drawn in the USE prompt's box.");
+                }
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Reset to built-in")) {
-                h.imagePath.clear();
-                changed = true;
-            }
-            // The bake (pow2 resize + quantization) only applies to custom
-            // images; the built-in sprite is already a valid PS2 texture.
-            changed |= hudBakeControls(h);
-        }
+            ImGui::PopID();
+        };
+
+        promptUi("USE prompt", "useprompt", project_.usePromptIsText,
+                 project_.usePromptText, h.imagePath, &h,
+                 "Built-in \"USE\" sprite (res/hud/use.png).");
+        promptUi("PICK UP prompt", "pickprompt", project_.pickPromptIsText,
+                 project_.pickPromptText, project_.pickPromptImage, nullptr,
+                 "Built-in \"PICK UP\" sprite (res/hud/pickup.png).");
     } else if (uiFxSel_ == 4 && selectedText_ >= 0 &&
                selectedText_ < (int)project_.hudTexts.size()) {
         // --- a triggerable on-screen text -----------------------------------
@@ -18257,6 +18339,13 @@ int addOptionsMenuPages(Project& p) {
     GameMenu root;
     root.name = uniqueName("options");
     root.title = "OPTIONS";
+    // Opens at game start, so the scaffold is something you can see immediately
+    // instead of a menu nothing reaches yet. Skipped when another menu already
+    // claims the title screen - codegen takes the FIRST one, so setting it twice
+    // would silently pick a winner.
+    bool titleTaken = false;
+    for (const GameMenu& o : p.menus) titleTaken |= o.titleScreen;
+    root.titleScreen = !titleTaken;
     root.entries.push_back(MenuEntry{"AUDIO", MenuEntry::OpenMenu, audio, 0.0f});
     root.entries.push_back(MenuEntry{"CONTROLS", MenuEntry::OpenMenu, controls, 0.0f});
     root.entries.push_back(MenuEntry{"DISPLAY", MenuEntry::OpenMenu, display, 0.0f});
@@ -18310,8 +18399,9 @@ void App::drawMenusWindow() {
             "AUDIO / CONTROLS / DISPLAY submenus, each pre-filled with\n"
             "ready-made setting rows (volume, deadzone, aim curve,\n"
             "display mode + an APPLY row that commits it, aspect).\n"
-            "Style and edit them like any menu. Key rebinding is NOT\n"
-            "included - add it deliberately with + Option block >\n"
+            "The root opens at game start (unless another menu already\n"
+            "does). Style and edit them like any menu. Key rebinding is\n"
+            "NOT included - add it deliberately with + Option block >\n"
             "Key bindings.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {

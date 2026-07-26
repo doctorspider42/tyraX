@@ -1113,6 +1113,18 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
 }
 
+// A prompt text's starting state. HudText's own default is "New text" (right
+// for the HUD-texts list, nonsense in a prompt field), so the prompts carry the
+// classic word plus the button glyph - "{{use}} USE" reads as the old sprite did
+// and follows a rebind (docs/text-icons.md).
+inline HudText defaultPromptText(const char* name, const char* text) {
+    HudText t;
+    t.name = name;
+    t.text = text;
+    t.size = 20;
+    return t;
+}
+
 // A progress bar on a loading screen (Tools > Loading Screens). Continuous =
 // a track quad with a fill quad growing left-to-right with load progress.
 // Quantized = `segments` cells lighting up one per completed 1/segments step;
@@ -1593,15 +1605,26 @@ struct Project {
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).
     // Always present - the UI Editor edits it but cannot delete it.
     HudImage usePrompt = defaultUsePrompt();
-    // The USE prompt as TEXT instead of an image (Tools > UI Editor > USE
-    // prompt). Non-empty `text` wins over usePrompt.imagePath: the build
-    // rasterizes it to res/hud/use-text.png and points the prompt sprite there,
-    // so the game runtime is unchanged - it still draws one sprite. Text means
-    // the prompt can carry a button glyph that follows the binding, which is why
-    // a fresh project starts at "{{use}} Use" (docs/text-icons.md). Empty =
-    // the classic image path. Its `pos` is unused (the prompt's own position
-    // applies); size/color/font/shadow are the text's.
-    HudText usePromptText;
+    // The two interaction prompts (Tools > UI Editor > USE prompt) are each
+    // either TEXT or an IMAGE - an explicit mode, not "text wins when non-empty":
+    // switching to the image to compare should not mean losing the text you
+    // typed. Text is the interesting mode because it can carry a button glyph
+    // that follows the binding, which is why a fresh project starts on it
+    // ("{{use}} Use" / "{{use}} Pick up", docs/text-icons.md).
+    //
+    // Either way the build produces ONE sprite per prompt and the game draws it
+    // the same: text is rasterized to res/hud/use-text.png / pick-text.png and
+    // the prompt simply points there. The texts' `pos` is unused (the USE
+    // prompt's own position places both); size/color/font/shadow are the text's.
+    bool usePromptIsText = false;
+    HudText usePromptText = defaultPromptText("use-prompt", "{{use}} USE");
+    // The "PICK UP" prompt, shown instead of USE while the looked-at object is
+    // pickable. It shares the USE prompt's screen position; `pickPromptImage`
+    // empty = the built-in res/hud/pickup.png.
+    bool pickPromptIsText = false;
+    HudText pickPromptText =
+        defaultPromptText("pick-prompt", "{{use}} PICK UP");
+    std::string pickPromptImage;
     // On-screen texts baked to sprites at build, triggered by the Show Text /
     // Hide Text flow nodes (Tools > UI Editor > Texts).
     std::vector<HudText> hudTexts;

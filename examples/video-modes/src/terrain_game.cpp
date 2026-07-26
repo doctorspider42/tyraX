@@ -1490,8 +1490,11 @@ void TerrainGame::init() {
   // "PICK UP" variant, shown instead when the looked-at object is pickable.
   // Same placement; its own texture (hud/pickup.png, replace to customize).
   pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
-  pickPromptSprite.size = usePromptSprite.size;
-  pickPromptSprite.position = usePromptSprite.position;
+  pickPromptSprite.size = Vec2(PICK_PROMPT_W, PICK_PROMPT_H);
+  // Same screen position as USE, re-centred for its own size.
+  pickPromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - PICK_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - PICK_PROMPT_H * 0.5F);
   auto* pickTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(PICK_PROMPT_PATH));
   pickTexture->addLink(pickPromptSprite.id);

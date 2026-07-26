@@ -976,15 +976,26 @@ static void writeHudSection(std::ostream& json, const Project& p) {
          << fmtFloat(p.usePrompt.size[0]) << ", " << fmtFloat(p.usePrompt.size[1])
          << "], \"texW\": " << p.usePrompt.texW << ", \"texH\": " << p.usePrompt.texH
          << ", \"texQuant\": \"" << p.usePrompt.texQuant << "\" }";
-    // The USE prompt as text: non-empty wins over the image (the build
-    // bakes it to res/hud/use-text.png and points the sprite there).
-    if (!p.usePromptText.text.empty()) {
-        const HudText& t = p.usePromptText;
-        json << ",\n  \"usePromptText\": { \"text\": \"" << jsonEscape(t.text)
-             << "\", \"size\": " << t.size << ", \"color\": " << fmtVec3(t.color)
+    // The two prompts: an explicit text/image mode plus the text itself, so
+    // flipping to the image keeps whatever text was typed.
+    auto writePromptText = [&](const char* key, const HudText& t) {
+        json << ",\n  \"" << key << "\": { \"text\": \""
+             << jsonEscape(t.text) << "\", \"size\": " << t.size
+             << ", \"color\": " << fmtVec3(t.color)
              << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
              << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
-    }
+    };
+    json << ",\n  \"usePromptIsText\": "
+         << (p.usePromptIsText ? "true" : "false");
+    if (!p.usePromptText.text.empty())
+        writePromptText("usePromptText", p.usePromptText);
+    json << ",\n  \"pickPromptIsText\": "
+         << (p.pickPromptIsText ? "true" : "false");
+    if (!p.pickPromptText.text.empty())
+        writePromptText("pickPromptText", p.pickPromptText);
+    if (!p.pickPromptImage.empty())
+        json << ",\n  \"pickPromptImage\": \""
+             << jsonEscape(p.pickPromptImage) << "\"";
     json << ",\n  \"hudTexts\": [";
     for (size_t i = 0; i < p.hudTexts.size(); ++i) {
         const HudText& t = p.hudTexts[i];
@@ -1799,9 +1810,10 @@ std::string create(Project& out, const std::string& name, const std::string& par
     // what to press rather than a generic "USE" - and follows a rebind. Only on
     // create: flipping an existing project from its image to text would restyle
     // it behind the user's back (the UI Editor offers the switch instead).
-    out.usePromptText.name = "use-prompt";
-    out.usePromptText.text = "{{use}} Use";
-    out.usePromptText.size = 20;
+    // Both prompts start as TEXT (the defaults carry the button glyph); the
+    // strings themselves come from the members' initializers.
+    out.usePromptIsText = true;
+    out.pickPromptIsText = true;
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
@@ -2880,21 +2892,53 @@ static void readHudSection(const json::Value& root, Project& out) {
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }
-    // The USE prompt as text (empty text = the classic image path).
-    out.usePromptText = HudText{};
-    out.usePromptText.name = "use-prompt";
-    if (const auto* upt = root.find("usePromptText");
-        upt && upt->type == json::Value::Type::Object) {
-        HudText& t = out.usePromptText;
-        if (const auto* v = upt->find("text")) t.text = v->stringOr("");
-        if (const auto* v = upt->find("size")) t.size = (int)v->numberOr(16);
+    // The two interaction prompts. Their mode is explicit; a project written
+    // before the flag existed is migrated by the rule that was in force then
+    // ("non-empty text wins"), so it keeps the look it had.
+    // Returns true when the project actually carried this text - the pre-flag
+    // migration rule ("non-empty text wins") may only fire then, or every older
+    // project would flip to text mode showing the default.
+    auto readPromptText = [&](const char* key, HudText& t) {
+        const auto* jt = root.find(key);
+        if (!jt || jt->type != json::Value::Type::Object) return false;
+        if (const auto* v = jt->find("text")) t.text = v->stringOr("");
+        if (const auto* v = jt->find("size")) t.size = (int)v->numberOr(16);
         if (t.size < 8) t.size = 8;
         if (t.size > 48) t.size = 48;
-        readVec3(upt->find("color"), t.color);
-        if (const auto* v = upt->find("font")) t.font = v->stringOr("");
-        if (const auto* v = upt->find("shadow"))
+        readVec3(jt->find("color"), t.color);
+        if (const auto* v = jt->find("font")) t.font = v->stringOr("");
+        if (const auto* v = jt->find("shadow"))
             t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
-    }
+        return true;
+    };
+    out.usePromptText = defaultPromptText("use-prompt", "{{use}} USE");
+    out.pickPromptText = defaultPromptText("pick-prompt", "{{use}} PICK UP");
+    bool hadUseText = readPromptText("usePromptText", out.usePromptText);
+    bool hadPickText = readPromptText("pickPromptText", out.pickPromptText);
+    // Mode: the stored flag when there is one, otherwise the pre-flag rule
+    // ("non-empty text wins") so an older project keeps the look it had.
+    out.usePromptIsText = hadUseText && !out.usePromptText.text.empty();
+    out.pickPromptIsText = hadPickText && !out.pickPromptText.text.empty();
+    if (const auto* v = root.find("usePromptIsText"))
+        out.usePromptIsText = v->boolOr(false);
+    if (const auto* v = root.find("pickPromptIsText"))
+        out.pickPromptIsText = v->boolOr(false);
+    // "New text" is HudText's own default and can only have got in here from an
+    // interim build that default-constructed a prompt text and then wrote it out
+    // (flag included). Nobody types that into a prompt, so restore the real
+    // default and fall back to the image - AFTER the flags, or the bogus flag
+    // would keep the placeholder on screen.
+    auto dropPlaceholder = [](HudText& t, bool& isText, const char* def) {
+        if (t.text != "New text") return;
+        t.text = def;
+        isText = false;
+    };
+    dropPlaceholder(out.usePromptText, out.usePromptIsText, "{{use}} USE");
+    dropPlaceholder(out.pickPromptText, out.pickPromptIsText,
+                    "{{use}} PICK UP");
+    out.pickPromptImage.clear();
+    if (const auto* v = root.find("pickPromptImage"))
+        out.pickPromptImage = v->stringOr("");
 
     out.textIcons.clear();
     if (const auto* icons = root.find("textIcons");
@@ -4386,23 +4430,38 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
-    // The USE prompt as text: baked like a HUD text, into a fixed file the
-    // codegen points the prompt sprite at. Removed when the text is cleared so
-    // res/ never ships a sprite nothing draws.
+    // The interaction prompts in text mode: baked like a HUD text into a fixed
+    // file the codegen points the sprite at. Removed when the prompt is not on
+    // text, so res/ never ships a sprite nothing draws.
     {
-        const fs::path path = fs::path(p.dir) / "res" / "hud" / "use-text.png";
-        std::error_code ec;
-        if (!p.usePromptText.text.empty()) {
+        struct PromptBake {
+            const char* file;
+            const HudText* text;
+            bool on;
+            const char* label;
+        };
+        const PromptBake bakes[] = {
+            {"use-text.png", &p.usePromptText,
+             p.usePromptIsText && !p.usePromptText.text.empty(), "USE"},
+            {"pick-text.png", &p.pickPromptText,
+             p.pickPromptIsText && !p.pickPromptText.text.empty(), "PICK UP"},
+        };
+        for (const PromptBake& b : bakes) {
+            const fs::path path = fs::path(p.dir) / "res" / "hud" / b.file;
+            std::error_code ec;
+            if (!b.on) {
+                fs::remove(path, ec);
+                continue;
+            }
             std::vector<unsigned char> png;
-            if (!menubake::bakeTextPNG(p.usePromptText, p, png))
-                return "USE prompt text bake failed (no usable TTF font found)";
+            if (!menubake::bakeTextPNG(*b.text, p, png))
+                return std::string(b.label) +
+                       " prompt text bake failed (no usable TTF font found)";
             fs::create_directories(path.parent_path(), ec);
             std::ofstream f(path, std::ios::binary);
-            if (!f) return "Cannot write USE prompt text: " + path.string();
+            if (!f) return "Cannot write prompt text: " + path.string();
             f.write(reinterpret_cast<const char*>(png.data()),
                     (std::streamsize)png.size());
-        } else {
-            fs::remove(path, ec);
         }
     }
 
