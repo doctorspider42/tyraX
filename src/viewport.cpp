@@ -1131,6 +1131,10 @@ void Viewport::shutdown() {
     if (treePrevLeafTex_) glDeleteTextures(1, &treePrevLeafTex_);
     clearModelCache();
     clearTexCache();
+    clearThumbCache();
+    if (thumbFbo_) glDeleteFramebuffers(1, &thumbFbo_);
+    if (thumbColor_) glDeleteTextures(1, &thumbColor_);
+    if (thumbDepth_) glDeleteRenderbuffers(1, &thumbDepth_);
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
@@ -1279,6 +1283,32 @@ void Viewport::camRay(const CamView& c, float u, float v, float o[3],
     dir = normalize(dir);
     for (int k = 0; k < 3; ++k) o[k] = c.eye[k];
     d[0] = dir.x, d[1] = dir.y, d[2] = dir.z;
+}
+
+bool Viewport::projectToImage(const float world[3], float& outU,
+                              float& outV) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+    const CamView c = camView(fbWidth_, fbHeight_);
+    const float d[3] = {world[0] - c.eye[0], world[1] - c.eye[1],
+                        world[2] - c.eye[2]};
+    const float x = d[0] * c.right[0] + d[1] * c.right[1] + d[2] * c.right[2];
+    const float y = d[0] * c.up[0] + d[1] * c.up[1] + d[2] * c.up[2];
+    const float z = d[0] * c.fwd[0] + d[1] * c.fwd[1] + d[2] * c.fwd[2];
+    float ndcX, ndcY;
+    if (c.ortho) {
+        // A parallel view draws what is behind the camera too (the depth range
+        // straddles the eye), so depth does not gate the projection here.
+        if (c.halfH < 1e-6f) return false;
+        ndcX = x / (c.halfH * c.aspect);
+        ndcY = y / c.halfH;
+    } else {
+        if (z <= 1e-4f) return false;  // behind the eye / on the plane
+        ndcX = x / (z * c.tanHalf * c.aspect);
+        ndcY = y / (z * c.tanHalf);
+    }
+    outU = (ndcX + 1.0f) * 0.5f;
+    outV = (1.0f - ndcY) * 0.5f;
+    return true;
 }
 
 bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const {
@@ -2048,6 +2078,7 @@ void Viewport::setProjectDir(const std::string& dir) {
     projectDir_ = dir;
     clearModelCache();
     clearTexCache();
+    clearThumbCache();  // another project's files, same relative paths
 }
 
 void Viewport::setProjectedDecals(
@@ -2176,6 +2207,7 @@ void Viewport::clearTexCache() {
 void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
+    clearThumbCache();  // browser thumbnails are baked from those caches
     emisGlowCache_.clear();  // .mtl emission re-read on the next frame
 }
 
@@ -4243,6 +4275,195 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     // The scene pass re-poses every visible instance from its own clock, so
     // hijacking the shared VBOs for this preview cannot desync anything.
     return prevTex_;
+}
+
+void Viewport::ensureThumbFramebuffer() {
+    const int s = kAssetThumbSize;
+    if (thumbFbo_) return;
+    glGenFramebuffers(1, &thumbFbo_);
+    glGenTextures(1, &thumbColor_);
+    glGenRenderbuffers(1, &thumbDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, thumbColor_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, s, s, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, thumbDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, s, s);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           thumbColor_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, thumbDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "asset thumbnail framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Viewport::clearThumbCache() {
+    for (auto& [path, tex] : thumbCache_)
+        if (tex) glDeleteTextures(1, &tex);
+    thumbCache_.clear();
+}
+
+uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
+    if (!program_ || relPath.empty()) return 0;
+
+    std::string ext = std::filesystem::path(relPath).extension().string();
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+
+    // Images are their own thumbnail: the shared texture cache already holds
+    // exactly the pixels the scene samples, so nothing is rendered or copied.
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
+        ext == ".bmp") {
+        auto it = texCache_.find(relPath);
+        if (it != texCache_.end()) return it->second;
+        return render ? glTexture(relPath) : 0;
+    }
+
+    const bool isObj = ext == ".obj";
+    const bool isAnim = ext == ".glb" || ext == ".fbx";
+    const bool isMtl = ext == ".mtl";
+    if (!isObj && !isAnim && !isMtl) return 0;
+
+    auto cached = thumbCache_.find(relPath);
+    if (cached != thumbCache_.end()) return cached->second;
+    if (!render) return 0;
+
+    // Collect what to draw first: an unreadable file caches a 0 and never
+    // touches the framebuffer.
+    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
+    if (isObj && (!model || model->parts.empty())) model = nullptr;
+    if (isAnim && anim && !anim->ok) anim = nullptr;
+    if (!model && !anim && !material) {
+        thumbCache_[relPath] = 0;
+        return 0;
+    }
+    if (anim) uploadAnimPose(*anim, 0, anim->baked.frameCount, 0.0f);
+
+    const int s = kAssetThumbSize;
+    ensureThumbFramebuffer();
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    glViewport(0, 0, s, s);
+    // Transparent background: the tile shows the browser's own panel color
+    // behind the asset, so a grid reads as one surface instead of 200 boxes.
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(program_);
+    glUniform1i(uLightCount_, 0);
+    glUniform1i(uAoOn_, 0);
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uFlashOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);
+    glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+    glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
+                    uint32_t texture, const float* ke, uint32_t reflTex,
+                    float reflStrength, bool reflSky, bool alpha) {
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uAoSelfObj_, -1);
+        glUniform1i(uAoGround_, 0);
+        glUniform1i(uAoReceive_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform3f(uEmissive_, ke ? ke[0] : 0.0f, ke ? ke[1] : 0.0f,
+                    ke ? ke[2] : 0.0f);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+
+    // Frame the asset's own bounds; a material rides the unit sphere.
+    Vec3 center{0.0f, 0.0f, 0.0f};
+    float radius = 0.72f;
+    if (model) {
+        center = {(model->mn[0] + model->mx[0]) * 0.5f,
+                  (model->mn[1] + model->mx[1]) * 0.5f,
+                  (model->mn[2] + model->mx[2]) * 0.5f};
+        const float ex = model->mx[0] - model->mn[0],
+                    ey = model->mx[1] - model->mn[1],
+                    ez = model->mx[2] - model->mn[2];
+        radius = 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez);
+    } else if (anim) {
+        const glbparser::Baked& b = anim->baked;
+        center = {(b.min[0] + b.max[0]) * 0.5f, (b.min[1] + b.max[1]) * 0.5f,
+                  (b.min[2] + b.max[2]) * 0.5f};
+        const float ex = b.max[0] - b.min[0], ey = b.max[1] - b.min[1],
+                    ez = b.max[2] - b.min[2];
+        radius = 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez);
+    }
+    if (radius < 0.05f) radius = 0.05f;
+
+    const float dist = radius * 2.35f;
+    const float pitch = 22.0f * kPi / 180.0f, yaw = 35.0f * kPi / 180.0f;
+    const Vec3 eye{center.x + dist * std::cos(pitch) * std::cos(yaw),
+                   center.y + dist * std::sin(pitch),
+                   center.z + dist * std::cos(pitch) * std::sin(yaw)};
+    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // The matcap path derives its camera basis from the fog uniforms.
+        const Vec3 f = normalize(sub(center, eye));
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, f.x, f.y, f.z);
+    }
+    const Mat4 proj = perspective(45.0f * kPi / 180.0f, 1.0f,
+                                  std::max(0.01f, dist * 0.01f),
+                                  dist + radius * 4.0f + 50.0f);
+    const Mat4 viewProj = mul(proj, view);
+
+    if (model) {
+        for (const ModelPart& part : model->parts)
+            draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, part.tex, part.ke,
+                 part.reflTex, part.reflStrength, part.reflSky, part.alpha);
+    } else if (anim) {
+        for (const AnimModelDraw::Part& part : anim->parts)
+            draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, part.tex, nullptr, 0,
+                 0.0f, false, false);
+    } else {
+        draw(sphere_, viewProj, material->kd[0], material->kd[1],
+             material->kd[2], material->tex, material->ke, material->reflTex,
+             material->reflStrength, material->reflSky, false);
+    }
+
+    glBindVertexArray(0);
+
+    // Framebuffer -> the asset's own texture. The FBO is still bound for
+    // reading, so this is a pure GPU copy of the square just drawn.
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 0, 0, s, s, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    thumbCache_[relPath] = tex;
+    return tex;
 }
 
 // Ray/triangle sweep over the CPU copy of the last material-preview geometry.

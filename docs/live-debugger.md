@@ -169,7 +169,7 @@ to strip out later.
 - **The watch is read-only.** Values are reported, not editable; changing them
   from the editor would need a second command channel and is not implemented.
 - **ps2link** serves the same file channel and the code paths are identical, but
-  the verified target is PCSX2 (see the PROGRESS entry).
+  the verified target is PCSX2 (see PROGRESS 180).
 - Sequences, object scripts and custom `.flownode` C++ bodies are not
   instrumented beyond the node that invokes them.
 

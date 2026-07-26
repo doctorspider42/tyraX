@@ -11,6 +11,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game reads a binary model instead of your `.obj`, what that means for
   your files and the disc, distance mesh LOD for static geometry, and
   authoring your own LOD meshes instead of letting the build decimate.
+- [World scale: units, meters and imports](world-scale.md) - what a unit is
+  worth in this project, why a model or a camera take can land several times
+  too small, the per-asset real-world size recorded at import, the viewport
+  measuring tape and the object Size readout, and how to work out the scale
+  your world is actually at.
 - [Object scripts (Unity-style components)](object-scripts.md) - writing
   C++ scripts and attaching them to objects, the ObjectScript lifecycle
   (`self`, onStart/onUpdate/onUsed), ScriptContext reference, Empty
@@ -50,6 +55,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   **bright-pass threshold** and **spread** that turn the frame-wide soft glow
   into a halo, and **baked emissive light** - the emitter lighting the terrain,
   walls and props around it, the ambient-occlusion machinery in reverse.
+- [Asset Browser](asset-browser.md) - the file manager over the project's
+  `res/` tree: folders, thumbnails, type filters and search, the reference
+  census that says who uses an asset (and which ones nothing does), moving
+  files with their references following, drag & drop into the scene, safe
+  renames, and why a texture never moves away from its material.
 - [Materials: model preview, duplication and texture painting](material-painting.md) -
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern

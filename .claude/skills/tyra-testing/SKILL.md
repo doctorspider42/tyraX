@@ -254,7 +254,7 @@ Notes:
   replaces the whole editor for scripted verification**: read the snapshot to
   assert which nodes ran how often and what the variables hold, and write a
   command to prove Pause freezes the counters, Step frame advances exactly
-  one frame, or a force-fire runs a trigger's branch (that is how entry 177
+  one frame, or a force-fire runs a trigger's branch (that is how entry 180
   was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
   editor and the probe must not both drive `livedbg.cmd` at once (the editor
   rewrites it whenever it goes missing or its state changes).
@@ -267,7 +267,7 @@ Notes:
   `bin/livelogic.bin` - i.e. do exactly what `App::liveLogicTick` does. Combined
   with the Live Debugger's telemetry that gives a fully scripted end-to-end
   check of hot-patched logic: measure a node's fire RATE before and after the
-  patch (entry 178). **When a patch half-works** (the visible effect lands but
+  patch (entry 181). **When a patch half-works** (the visible effect lands but
   debug keys/state look wrong), suspect the wire STRIDE first, and check that
   `build/tyrax-editor.exe` was rebuilt before the `--build` that generated the
   game's parser - a stale editor binary generates a stale interpreter.
