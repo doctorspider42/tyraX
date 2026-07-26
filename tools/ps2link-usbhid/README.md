@@ -1,10 +1,35 @@
-# Custom ps2link with USB keyboard + mouse
+# Custom ps2link for TyraX
 
 A drop-in replacement for **ps2link** (the network debug loader that backs the
-editor's *Run on PS2* / F6 deploy) that bakes the USB HID stack —
-`usbd` + `ps2kbd` + `ps2mouse` — into its own boot. With it, a game deployed
-over the network can use a **keyboard and mouse** on real hardware; stock
-ps2link can't (see below).
+editor's *Run on PS2* / F6 deploy). It bakes two things into ps2link's own
+boot that stock ps2link does not carry:
+
+1. the **USB HID stack** — `usbd` + `ps2kbd` + `ps2mouse` — so a game deployed
+   over the network can use a **keyboard and mouse** on real hardware;
+2. **`ps2ips.irx`**, the EE-facing RPC server for the IP stack, so a game
+   deployed over the network can open **sockets**.
+
+(The folder is still named `ps2link-usbhid` for its first purpose.)
+
+## Why the socket module is needed
+
+ps2link already boots `netman` + `smap` + `ps2ip-nm` and keeps them resident,
+so the IP stack is up while your game runs — and the game's toolchain ships
+`libps2ips`, the EE-side client for it. That looks like sockets for free, and
+it is not: `libps2ips` binds by RPC to **`ps2ips.irx`**, which stock ps2link
+never loads. Measured, not guessed — a spike calling `ps2ip_init()` in a game
+deployed over stock ps2link **hangs there forever**, waiting for an RPC server
+that does not exist. The log stops at the call and the game never reaches its
+first frame.
+
+With `ps2ips.irx` resident, that bind has something to answer it. This is the
+groundwork for the devkit talking to the editor over a socket instead of
+polling files over `host:` — every devkit file operation is a network
+round-trip today, which is why the debugger is sluggish on hardware and why a
+capture takes about a second and a half.
+
+**Sockets in a game are NOT verified yet** — this build makes the module
+resident; the game-side transport is the next step.
 
 ## Why this is needed
 

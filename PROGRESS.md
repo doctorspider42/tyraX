@@ -8,7 +8,50 @@ Each finished feature lands as its own commit.
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
+## In progress
+
+- **A socket transport for the devkit on real hardware.** Everything the devkit
+  does over ps2link is a file operation, and every file operation is a network
+  round-trip: the game polls `livedbg.cmd` on a 25-tick cooldown and a VU
+  capture takes about a second and a half to land. The target is a UDP channel
+  instead - commands arriving within a frame, telemetry pushed every frame,
+  captures streamed. Step one is done and pushed (below); the game-side
+  transport is next, and the file path stays as the fallback the emulator uses
+  (PCSX2 runs no ps2link at all).
+
 ## Also done after the marathon
+
+- (208) **ps2link now carries the module a game needs to open a socket.** The
+  premise looked like a free lunch: ps2link already boots `netman` + `smap` +
+  `ps2ip-nm` and keeps them resident, and the game's toolchain ships
+  `libps2ips`, the EE-side client for that stack. So a game deployed over the
+  network should be able to open a UDP socket with no ps2link change at all.
+  **It hangs.** A throwaway spike - a script that calls `ps2ip_init()`, opens a
+  datagram socket and sends a heartbeat to the editor's PC once a second, built
+  against `-lps2ips` and deployed to the owner's console - printed
+  `SPIKE: ps2ip_init()...` and stopped there. No return, no first frame, no
+  datagram at the listener. `libps2ips` binds by **RPC** to `ps2ips.irx`, a
+  module stock ps2link never loads, so the bind waits for a server that does
+  not exist.
+  The fix is three mechanical edits in the same shape as the USB HID patch this
+  tool already applies (`ee/Makefile`, `ee/irx_variables.h`, `ee/ps2link.c`):
+  bake `ps2ips.irx` in and `SifExecModuleBuffer` it right after the stack it
+  fronts. `-lps2ips` also joins the generated debug Makefile - unreferenced
+  archive members are not linked, so a build that never opens a socket pays
+  nothing.
+  *Verified*: the patch applies cleanly to a fresh pinned clone and builds
+  through `./build.ps1 -Clean` in the ps2dev image, with `ps2ips_irx.o` on the
+  link line (287924-byte `ps2link.elf`). **Not verified**: that a game can then
+  actually open a socket - that needs the new ps2link flashed onto the console's
+  boot medium, which is a hands-on step. The spike itself stays out of the repo;
+  it lives in the session scratchpad.
+  Two operational notes fell out of the session and are in the tyra-testing
+  skill: a `reset` aimed at a console whose game is starving needs a **long
+  client timeout** (`-t 25`) to get through - the client has to drain the game's
+  file traffic first, and `-t 10` gives up before that - and the whole
+  experiment cost nothing on the emulator side, because PCSX2 runs no ps2link,
+  which is exactly the asymmetry that keeps the file transport alive as the
+  fallback.
 
 - (207) **Measured: ps2link's extra commands are not the free lunch they look
   like.** Before building anything on them, the question was whether the tools

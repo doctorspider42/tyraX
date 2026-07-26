@@ -16595,7 +16595,13 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     const bool dbgProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{BUILD_CFLAGS}}", dbgProfile ? "-g" : "");
     s = replaceAll(s, "{{KEEPSYM}}", dbgProfile ? "1" : "0");
-    s = replaceAll(s, "{{BUILD_LIBS}}", dbgProfile ? " -leedebug" : "");
+    // -lps2ips is the EE-side client of the ps2ip stack ps2link already keeps
+    // resident on the IOP: it is what lets a debug build talk to the editor over
+    // a SOCKET instead of polling files (docs/devkit.md). Unreferenced archive
+    // members are not linked, so a build that never opens a socket pays nothing
+    // for having it on the line.
+    s = replaceAll(s, "{{BUILD_LIBS}}",
+                   dbgProfile ? " -leedebug -lps2ips" : "");
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
     s = replaceAll(s, "{{TERRAIN_VIEW_DISTANCE}}", floatLit(st.terrainViewDistance));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));

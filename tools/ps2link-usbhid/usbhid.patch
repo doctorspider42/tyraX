@@ -1,22 +1,27 @@
 diff --git a/ee/Makefile b/ee/Makefile
-index 2eb1e7e..444074e 100644
+index 2eb1e7e..ca0b8d3 100644
 --- a/ee/Makefile
 +++ b/ee/Makefile
-@@ -9,6 +9,9 @@ EE_LIBS += -lpatches -ldebug
+@@ -9,6 +9,14 @@ EE_LIBS += -lpatches -ldebug
  IRX_FILES += ioptrap.irx ps2dev9.irx poweroff.irx
  IRX_FILES += ps2ip.irx netman.irx smap.irx udptty.irx
  IRX_FILES += ps2link.irx
 +# TyraX: bake in the USB HID stack (usbd + keyboard + mouse). These ship
 +# prebuilt in $(PS2SDK)/iop/irx/ and are picked up by the generic %_irx.c rule.
 +IRX_FILES += usbd.irx ps2kbd.irx ps2mouse.irx
++# TyraX: ps2ips.irx is the RPC SERVER the EE's libps2ips binds to. The
++# stack (ps2ip-nm) is resident already, but without this module an EE
++# client's ps2ip_init() waits for an RPC server that never answers - so a
++# game deployed over ps2link cannot open a socket at all.
++IRX_FILES += ps2ips.irx
  EE_OBJS += $(IRX_FILES:.irx=_irx.o) ps2ip_nm_irx.o
  
  # Compile with -Werror
 diff --git a/ee/irx_variables.h b/ee/irx_variables.h
-index 0cf38a6..14cbb38 100644
+index 0cf38a6..2a646d9 100644
 --- a/ee/irx_variables.h
 +++ b/ee/irx_variables.h
-@@ -34,4 +34,16 @@ extern unsigned int size_smap_irx;
+@@ -34,4 +34,21 @@ extern unsigned int size_smap_irx;
  extern unsigned char udptty_irx[];
  extern unsigned int size_udptty_irx;
  
@@ -32,12 +37,30 @@ index 0cf38a6..14cbb38 100644
 +extern unsigned char ps2mouse_irx[];
 +extern unsigned int size_ps2mouse_irx;
 +
++/* TyraX: the EE-facing RPC server for the resident IP stack, so a game
++ * over ps2link can use sockets instead of polling files over host:. */
++extern unsigned char ps2ips_irx[];
++extern unsigned int size_ps2ips_irx;
++
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..d5afa34 100644
+index d566140..0597848 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
-@@ -176,13 +176,28 @@ static void loadModules(void)
+@@ -167,6 +167,12 @@ static void loadModules(void)
+     dbgscr_printf("Exec ps2ip module. (%x,%d) ", (unsigned int)ps2ip_nm_irx, size_ps2ip_nm_irx);
+     SifExecModuleBuffer(ps2ip_nm_irx, size_ps2ip_nm_irx, if_conf_len, &if_conf[0], &ret);
+     dbgscr_printf("[%d] returned\n", ret);
++    /* TyraX: the EE-facing RPC server for the stack just loaded. libps2ips on
++     * the EE binds to THIS; without it a game's ps2ip_init() hangs forever
++     * waiting for an RPC server, which is exactly what a socket spike did. */
++    dbgscr_printf("Exec ps2ips module. (%x,%d) ", (unsigned int)ps2ips_irx, size_ps2ips_irx);
++    SifExecModuleBuffer(ps2ips_irx, size_ps2ips_irx, 0, NULL, &ret);
++    dbgscr_printf("[%d] returned\n", ret);
+     dbgscr_printf("Exec udptty module. (%x,%d) ", (unsigned int)udptty_irx, size_udptty_irx);
+     SifExecModuleBuffer(&udptty_irx, size_udptty_irx, 0, NULL, &ret);
+     dbgscr_printf("[%d] returned\n", ret);
+@@ -176,13 +182,28 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
@@ -67,7 +90,7 @@ index d566140..d5afa34 100644
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
      scr_printf("Initializing...\n");
  }
-@@ -211,7 +226,9 @@ void _libcglue_rtc_update() {}
+@@ -211,7 +232,9 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers

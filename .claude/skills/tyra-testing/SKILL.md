@@ -366,11 +366,17 @@ Notes:
   `listen` serves the console's file traffic and nothing else — within seconds
   `livedbg.bin` starts advancing again and captures work.
 
-  **Do not send ps2client COMMANDS at a console with a game loaded.** Measured
-  the hard way: with a game running (or starving), any client that connects is
-  immediately conscripted as its file server and the command never reaches
-  ps2link — `reset` and `dumpmem` both returned -1 while the game's `host:` opens
-  scrolled past. Attaching a `listen` server first does let a command through,
+  **A `reset` aimed at a console whose game is starving needs a LONG client
+  timeout.** The connecting client is conscripted as that game's file server
+  first and only then gets its command in, so `-t 10` gives up before the
+  command lands (`exit -1`, the game's `host:` opens scrolling past) while
+  `-t 25` goes through (`exit 0`, "unmounting"). Retry rather than conclude the
+  console is unreachable.
+
+  **Do not send other ps2client COMMANDS at a console with a game loaded.**
+  Measured the hard way: `dumpmem` never reaches ps2link the same way, and when
+  a `listen` server was attached first so a command COULD get through, that
+  command **froze the game**. Attaching a `listen` server first does let a command through,
   and **the one that got through froze the game**. The reliable sequence is the
   runner's: nothing else attached, `reset` (exit 0 only when the link is free),
   then `execee`. And ps2link's extra commands are **not** the free lunch the
