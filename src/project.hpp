@@ -15,8 +15,8 @@
 #include "sequence.hpp"
 
 struct TerrainConfig {
-    int width = 64;   // world units, X axis
-    int depth = 64;   // world units, Z axis
+    int width = 100;  // world units, X axis
+    int depth = 100;  // world units, Z axis
 };
 
 // One paintable terrain layer above the base (the scene's terrain material).
@@ -551,7 +551,10 @@ struct ProjectSettings {
     // forces 60 Hz, "pal" forces 50 Hz (gameplay speed is wall-clock
     // normalized via g_frameScale in the generated game, so both play the
     // same). The "debug" profile unlocks the on-screen FPS / free-RAM
-    // overlays; "release" strips them from the build.
+    // overlays and the Live Link poller; "release" strips them from the build.
+    // NOTE these are the values a project that predates the key loads as, NOT
+    // the new-project defaults - project::create() starts a fresh project in
+    // "debug" (you author with Live Link, then switch to release for the disc).
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
 
@@ -615,6 +618,12 @@ struct ProjectSettings {
     // console. Skipped automatically on ps2link deploys - a second usbd on
     // an IOP that may already run one (ps2link booted from a USB stick)
     // wedges the USB stack.
+    //
+    // true here is what a project that predates the key loads as (the feature
+    // was retroactively on for everyone); project::create() starts a fresh
+    // project with it OFF - a pad game pays nothing for drivers it never uses,
+    // and the console only speaks the USB HID boot protocol anyway, so this is
+    // a choice to make deliberately (docs/keyboard-mouse.md).
     bool keyboardMouse = true;
 
     // Experimental (debug): keep keyboard/mouse working on a "Run on PS2"
@@ -1846,9 +1855,15 @@ namespace project {
 // and the <name>.tyra project file. `preset` picks the starting content:
 //   "empty" - orbit camera, no objects.
 //   "fpp"   - FPP game template with a single Player entity in the center.
+// `unitsPerMeter` is the project's world scale (ProjectSettings::unitsPerMeter,
+// docs/world-scale.md); the metric-by-definition FPP/physics defaults (eye
+// height, walk speed, gravity, jump) are multiplied by it so the preset player
+// is person-sized whatever scale the project chose. Decided here and not later
+// because changing the scale afterwards deliberately rescales nothing.
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& preset = "empty");
+                   const TerrainConfig& terrain, const std::string& preset = "empty",
+                   float unitsPerMeter = 1.0f);
 
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
