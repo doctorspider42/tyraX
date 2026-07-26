@@ -631,7 +631,11 @@ void revealInFileManager(const std::string& path) {
     std::error_code ec;
     const bool isFile = fs::is_regular_file(path, ec);
 #ifdef _WIN32
-    const std::string arg = isFile ? "/select,\"" + path + "\"" : "\"" + path + "\"";
+    // explorer.exe wants '\' - it silently opens the default folder instead of
+    // selecting anything when handed a mixed path the file APIs accept.
+    const std::string native = fs::path(path).make_preferred().string();
+    const std::string arg =
+        isFile ? "/select,\"" + native + "\"" : "\"" + native + "\"";
     ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
 #else
     // The freedesktop FileManager1 interface is what actually selects an entry

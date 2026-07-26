@@ -487,7 +487,7 @@ calls `glTexImage2D` with data re-arms that crash for whatever feature owns it
 non-RGBA formats (the R32F heightmap) do the same two steps inline.
 
 ### 4b. Paths and shell command lines are cross-platform hazards
-The editor builds for Windows AND Linux, and three habits that were harmless
+The editor builds for Windows AND Linux, and four habits that were harmless
 while it was Windows-only now break silently:
 
 - **Never hand-join a path with `"\\"`.** Outside Windows a backslash is an
@@ -500,6 +500,19 @@ while it was Windows-only now break silently:
   system convert). This bit the first Linux run twice - a fresh project came
   out as ~30 files literally named `src\gen\flow_graph.gen.cpp`, and PCSX2
   was handed `.../name\bin\name.elf`.
+- **Never hand-roll the join either, and never assume a path is normalized.**
+  `std::filesystem::path(dir) / rel` CONCATENATES - it does not normalize - so
+  on Windows a forward-slashed `rel` leaves a MIXED path
+  (`C:\proj\bin/proj.elf`). The C++/CRT file APIs accept that, which is what
+  makes it dangerous: every `fs::exists()` and every asset load passes, so the
+  editor believes the path is good, while an **external program** may reject it.
+  PCSX2 v2.6.3 does exactly that (`Requested boot ELF ... does not exist` for
+  an ELF it boots under the all-backslash spelling), and `explorer.exe
+  /select,"<mixed>"` silently opens the default folder instead. `filePath()`
+  therefore ends in `make_preferred()`, `App::assetAbs` delegates to it instead
+  of repeating the join, and `platform::revealInFileManager` normalizes at the
+  OS boundary. So: join through `filePath()`, and normalize anything you build
+  by hand before it leaves the process (PROGRESS 189).
 - **Anything nested inside a command line goes through `platform::shellArg()`.**
   `cmd.exe` expands nothing inside double quotes, so the Runner's
   `docker ... sh -c "<script>"` used to reach the container verbatim. `/bin/sh`

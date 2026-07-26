@@ -1825,15 +1825,27 @@ struct Project {
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
+    // Handed to PCSX2 (and ps2client) on a command line, so it must come out
+    // natively separated - see filePath().
     std::string elfPath() const { return filePath("bin/" + elfName()); }
 
     // A project-relative path (always stored forward-slashed: "res/models/x.obj")
-    // as a real filesystem path. ALWAYS use this instead of `dir + "\\" + rel` -
-    // outside Windows a backslash is an ordinary FILENAME character, so the
-    // hand-join silently names a file that does not exist and the asset just
-    // fails to load.
+    // as a real filesystem path in the platform's OWN separators. ALWAYS use
+    // this instead of `dir + "\\" + rel` - outside Windows a backslash is an
+    // ordinary FILENAME character, so the hand-join silently names a file that
+    // does not exist and the asset just fails to load.
+    //
+    // The make_preferred() is not cosmetic. Plain `path(dir) / relative` leaves
+    // a MIXED path on Windows ("C:\proj\bin/proj.elf"): the CRT and
+    // std::filesystem accept it, so every load and every fs::exists() check
+    // passes, but an external program need not - PCSX2 v2.6.3 answers
+    // "Requested boot ELF ... does not exist" for exactly the ELF it boots
+    // fine when the same path is spelled "C:\proj\bin\proj.elf" - which is
+    // what broke Build & Run on Windows entirely. Anything handed to another
+    // process must be natively separated, and normalizing here is what makes
+    // that true for every caller.
     std::string filePath(const std::string& relative) const {
-        return (std::filesystem::path(dir) / relative).string();
+        return (std::filesystem::path(dir) / relative).make_preferred().string();
     }
 };
 

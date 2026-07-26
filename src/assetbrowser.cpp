@@ -144,7 +144,10 @@ ImU32 kindColor(int kind) {
 }  // namespace
 
 std::string App::assetAbs(const std::string& rel) const {
-    return (fs::path(project_.dir) / rel).string();
+    // One join, one spelling: filePath() is what keeps the result natively
+    // separated, which matters as soon as a path leaves the process (the
+    // Reveal button hands it to explorer.exe, which ignores a mixed one).
+    return project_.filePath(rel);
 }
 
 App::AssetKind App::assetKindOf(const std::string& rel) {
