@@ -46,6 +46,8 @@
 #include <ImGuizmo.h>
 #include <imnodes.h>
 
+#include "icon_gen.hpp"  // kIconPng (built from resources/icon.png)
+
 #include "platform.hpp"
 
 // ---------------------------------------------------------------------------
@@ -368,12 +370,50 @@ static uintmax_t estimateAdpcmBytes(uintmax_t wavFileBytes) {
     return wavFileBytes * 2 / 7;
 }
 
+// The editor's desktop identity. It is one string on purpose: the window's
+// Wayland app id, its X11 WM_CLASS, and the basename of the .desktop file and
+// the icon platform::installDesktopEntry writes all have to agree, or the
+// desktop cannot connect the running window to its icon.
+static constexpr const char* kAppId = "tyrax-editor";
+
+// Window/taskbar icon from the baked-in resources/icon.png.
+//
+// Windows needs nothing here - GLFW's Win32 backend loads the GLFW_ICON
+// resource out of the .exe into the window class (resources/app.rc). On X11
+// this is what puts the icon on the window; on Wayland there is no protocol
+// for it at all, so GLFW reports GLFW_FEATURE_UNAVAILABLE and the icon comes
+// from the desktop entry instead - checking the platform first keeps that
+// expected case out of the error callback.
+static void applyWindowIcon(GLFWwindow* window) {
+#ifndef _WIN32
+    if (!window || glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) return;
+    int w = 0, h = 0, comp = 0;
+    stbi_uc* pixels = stbi_load_from_memory(appicon::kIconPng,
+                                            (int)appicon::kIconPngSize, &w, &h, &comp, 4);
+    if (!pixels) return;
+    const GLFWimage image{w, h, pixels};
+    glfwSetWindowIcon(window, 1, &image);
+    stbi_image_free(pixels);
+#else
+    (void)window;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 
 int App::run(const std::string& initialProjectDir) {
     glfwSetErrorCallback([](int code, const char* msg) {
         std::fprintf(stderr, "GLFW error %d: %s\n", code, msg);
     });
+
+    // The desktop entry has to exist before the window does: a Wayland
+    // compositor resolves the icon by matching the surface's app id against
+    // the installed .desktop files, and it looks exactly once, at map time.
+    // No-op on Windows (the icon is a resource inside the .exe).
+    platform::installDesktopEntry(
+        kAppId, "TyraX", "Edit PS2 scenes and flow graphs, then build and run the game",
+        appicon::kIconPng, appicon::kIconPngSize);
+
     if (!glfwInit()) return 1;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -381,6 +421,12 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    // What the desktop matches the window against to find the entry above -
+    // the app id on Wayland, the WM_CLASS pair on X11. Both hints are accepted
+    // (and ignored) by the Win32 backend, so no #ifdef is needed.
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID, kAppId);
+    glfwWindowHintString(GLFW_X11_CLASS_NAME, kAppId);
+    glfwWindowHintString(GLFW_X11_INSTANCE_NAME, kAppId);
 
     // Size is the restore-size when the user un-maximizes.
     window_ = glfwCreateWindow(1600, 900, "TyraX", nullptr, nullptr);
@@ -389,6 +435,7 @@ int App::run(const std::string& initialProjectDir) {
         glfwTerminate();
         return 1;
     }
+    applyWindowIcon(window_);
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1);
 
@@ -618,6 +665,7 @@ void App::drawUI() {
     drawTerrainWindow();
     drawUiEditorWindow();
     drawFontManagerWindow();
+    drawInputMapWindow();
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
     drawLoadingScreenWindow();
@@ -1044,6 +1092,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
+            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::Separator();
             if (ImGui::MenuItem("Tree Generator...")) {
@@ -2279,11 +2328,22 @@ void App::drawViewportWindow() {
             // layout aid, drawn whenever the overlay is on.
             {
                 const HudImage& up = project_.usePrompt;
+                // Text mode wins over the image and is sized by its own bake -
+                // the same rule the build follows, so this preview matches.
+                const HudTexture* t = nullptr;
+                float size[2] = {up.size[0], up.size[1]};
+                if (!project_.usePromptText.text.empty()) {
+                    t = hudTextTexture(project_.usePromptText);
+                    if (t) {
+                        size[0] = (float)t->w;
+                        size[1] = (float)t->h;
+                    }
+                } else {
+                    t = up.imagePath.empty() ? builtinUseTexture()
+                                             : hudTexture(up.imagePath);
+                }
                 ImVec2 pMin, pMax;
-                screenRect(up.pos, up.size, pMin, pMax);
-                const HudTexture* t = up.imagePath.empty()
-                                          ? builtinUseTexture()
-                                          : hudTexture(up.imagePath);
+                screenRect(up.pos, size, pMin, pMax);
                 if (t)
                     dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
                 else
@@ -3172,6 +3232,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "terrain") return &showTerrainEditor_;
     if (key == "ui") return &showUiEditor_;
     if (key == "fonts") return &showFontManager_;
+    if (key == "input") return &showInputMap_;
     if (key == "menus") return &showMenusEditor_;
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
@@ -3458,7 +3519,14 @@ void App::commitChange() {
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
-    if (history_.push({project_.scenes})) setDirty(true);
+    // The undo snapshot only carries the SCENES, so push() returns false for an
+    // edit to any project-wide collection - menus, the Input Map, gradings,
+    // sequences, save values... Dirtying on push alone therefore left those
+    // edits with a dark save icon and NO prompt on exit, i.e. quietly losable.
+    // A commit is by definition an edit worth saving, so mark dirty either way;
+    // push() still decides whether it becomes an undo step.
+    history_.push({project_.scenes});
+    setDirty(true);
 }
 
 void App::setDirty(bool dirty) {
@@ -8227,6 +8295,49 @@ void App::drawFlowGraphWindow() {
                 }
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::InputActionName) {
+            // Configurable input (Tools > Input Map): the action, not a button.
+            const char* current = n.str.empty() ? "(pick an action)" : n.str.c_str();
+            if (ImGui::BeginCombo("Action", current)) {
+                for (const InputAction& a : project_.input.actions) {
+                    const std::string label =
+                        a.label.empty() ? a.name : a.label + "  (" + a.name + ")";
+                    if (ImGui::Selectable(label.c_str(), a.name == n.str)) {
+                        n.str = a.name;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (!n.str.empty() && !project_.input.findAction(n.str)) {
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                   "unknown action - the trigger never fires");
+            } else if (const InputAction* a = project_.input.findAction(n.str)) {
+                ImGui::TextDisabled("bound to %s",
+                                    inputBindingLabel(project_.input.resolve(a->name))
+                                        .c_str());
+            }
+        } else if (t->strKind == FlowParamKind::KeyName) {
+            if (ImGui::BeginCombo("Key", n.str.empty() ? "(pick a key)"
+                                                       : n.str.c_str())) {
+                for (const InputKeyName& k : inputKeyNames())
+                    if (ImGui::Selectable(k.label, n.str == k.label)) {
+                        n.str = k.label;
+                        changed = true;
+                    }
+                ImGui::EndCombo();
+            }
+            ImGui::TextDisabled("USB keyboard (Preferences > Build)");
+        } else if (n.type == "SetInputPreset") {
+            const char* current = n.str.empty() ? "(pick a preset)" : n.str.c_str();
+            if (ImGui::BeginCombo("Preset", current)) {
+                for (const InputPreset& pr : project_.input.presets)
+                    if (ImGui::Selectable(pr.name.c_str(), pr.name == n.str)) {
+                        n.str = pr.name;
+                        changed = true;
+                    }
+                ImGui::EndCombo();
+            }
         } else if (n.type == "Animation") {
             // Clip picker when the resolved target is an animated .glb model
             // (explicit object wired/named, or self); free text otherwise.
@@ -9005,6 +9116,15 @@ void App::drawFlowGraphWindow() {
                     n.id = fg.nextId++;
                     n.type = t.key;
                     if (t.strKind == FlowParamKind::Button) n.str = "Cross";
+                    // A fresh On Action / Set Input Preset starts on something
+                    // that exists, so it compiles before the user touches it.
+                    if (t.strKind == FlowParamKind::InputActionName &&
+                        !project_.input.actions.empty())
+                        n.str = project_.input.actions.front().name;
+                    if (t.strKind == FlowParamKind::KeyName) n.str = "Space";
+                    if (std::string(t.key) == "SetInputPreset" &&
+                        !project_.input.presets.empty())
+                        n.str = project_.input.presets.front().name;
                     if (t.numKind == FlowParamKind::Color)
                         n.num[0] = n.num[1] = n.num[2] = 1.0f;
                     if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
@@ -9179,6 +9299,43 @@ const App::HudTexture* App::builtinUseTexture() {
     return &builtinUseTex_;
 }
 
+// The built-in drawing of a text icon as a GL texture (lazy, process lifetime).
+// The manager needs this because the icon PNGs are generated at the first build:
+// before that there is no file to preview, and after a "restore default" the
+// file is deliberately gone until the next build.
+const App::HudTexture* App::builtinIconTexture(const std::string& iconName) {
+    auto it = builtinIconTex_.find(iconName);
+    if (it != builtinIconTex_.end())
+        return it->second.tex ? &it->second : nullptr;
+
+    HudTexture entry;
+    std::vector<unsigned char> rgba;
+    const int px = menubake::kIconBakeSize;
+    if (menubake::bakeBuiltinIconRGBA(iconName, px, rgba)) {
+        glGenTextures(1, &entry.tex);
+        glBindTexture(GL_TEXTURE_2D, entry.tex);
+        glUploadTexRgba(px, px, rgba.data());
+        entry.w = entry.h = px;
+    }
+    builtinIconTex_[iconName] = entry;
+    return entry.tex ? &builtinIconTex_[iconName] : nullptr;
+}
+
+// Restore one icon to how a fresh project would have it: the generated path and
+// scale 1, with the PNG removed so the built-in drawing comes back (the next
+// build re-creates it; the preview falls back to the drawing meanwhile).
+void App::restoreDefaultTextIcon(TextIcon& icon) {
+    const std::string def = "res/hud/" + menubake::iconFileName(icon.name);
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::path(project_.dir) / def, ec);
+    if (!icon.path.empty() && icon.path != def)
+        hudTexCache_.erase(icon.path);
+    hudTexCache_.erase(def);
+    icon.path = def;
+    icon.scale = 1.0f;
+    menubake::clearIconImageCache();
+}
+
 // A HUD text as a GL texture for the viewport overlay, re-baked when its
 // content changes (keyed by name; a handful of small textures at most).
 const App::HudTexture* App::hudTextTexture(const HudText& t) {
@@ -9322,6 +9479,283 @@ void App::renameFont(int index, const std::string& newName) {
                 const FlowNodeType* ft = flowNodeType(fn.type);
                 if (ft && ft->strKind == FlowParamKind::FontName) follow(fn.str);
             }
+}
+
+// Input actions are referenced by name (preset bindings, On Action nodes, menu
+// rebind rows), so a rename has to follow into all three or the reference
+// silently stops resolving.
+void App::renameInputAction(int index, const std::string& newName) {
+    if (index < 0 || index >= (int)project_.input.actions.size()) return;
+    const std::string oldName = project_.input.actions[index].name;
+    if (newName == oldName || newName.empty()) return;
+    project_.input.actions[index].name = newName;
+    for (InputPreset& pr : project_.input.presets)
+        for (InputBinding& b : pr.bindings)
+            if (b.action == oldName) b.action = newName;
+    for (GameMenu& m : project_.menus)
+        for (MenuEntry& e : m.entries)
+            if (e.bindAction == oldName) e.bindAction = newName;
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (ft && ft->strKind == FlowParamKind::InputActionName &&
+                    fn.str == oldName)
+                    fn.str = newName;
+            }
+}
+
+// Presets are referenced by name from the Set Input Preset node only.
+void App::renameInputPreset(int index, const std::string& newName) {
+    if (index < 0 || index >= (int)project_.input.presets.size()) return;
+    const std::string oldName = project_.input.presets[index].name;
+    if (newName == oldName || newName.empty()) return;
+    project_.input.presets[index].name = newName;
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes)
+                if (fn.type == "SetInputPreset" && fn.str == oldName)
+                    fn.str = newName;
+}
+
+// The `{{ }}` button that sits next to every text field a placeholder can go
+// into. It is the legend for the syntax (docs/text-icons.md) - the tokens this
+// project actually understands, each with the glyph it draws - and inserting one
+// beats remembering how it was spelled.
+bool App::textTokenPicker(const char* id, std::string& text) {
+    bool changed = false;
+    ImGui::PushID(id);
+    if (ImGui::SmallButton("{{ }}")) ImGui::OpenPopup("##tokens");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Insert a button glyph. An ACTION token follows whatever it is\n"
+            "bound to; an ICON token pins one specific button or image.\n"
+            "See docs/text-icons.md.");
+
+    if (ImGui::BeginPopup("##tokens")) {
+        const float sz = scaled(20.0f);
+        // The row for one token: its glyph, the token itself, and a note.
+        auto row = [&](const std::string& token, const std::string& iconName,
+                       const char* note) {
+            const HudTexture* t = nullptr;
+            for (const TextIcon& ic : project_.textIcons)
+                if (ic.name == iconName && !ic.path.empty()) {
+                    t = hudTexture(ic.path);
+                    break;
+                }
+            if (!t) t = builtinIconTexture(iconName);
+            if (t)
+                ImGui::Image((ImTextureID)(intptr_t)t->tex, ImVec2(sz, sz));
+            else
+                ImGui::Dummy(ImVec2(sz, sz));
+            ImGui::SameLine();
+            if (ImGui::Selectable(token.c_str(), false, 0,
+                                  ImVec2(scaled(150.0f), 0.0f))) {
+                text += token;
+                changed = true;
+                ImGui::CloseCurrentPopup();
+            }
+            if (note && *note) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", note);
+            }
+        };
+
+        ImGui::TextDisabled("Actions - follow the current binding");
+        ImGui::Separator();
+        for (const InputAction& a : project_.input.actions) {
+            const InputBinding b = project_.input.resolve(a.name);
+            row("{{" + a.name + "}}", textIconNameForPad(b.pad),
+                b.pad.empty() ? "(unbound)" : b.pad.c_str());
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled("Icons - one fixed button or image");
+        ImGui::Separator();
+        for (const TextIcon& ic : project_.textIcons)
+            row("{{" + ic.name + "}}", ic.name, nullptr);
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// Tools > UI Editor > Button icons. The registry of `{{name}}` placeholders
+// (docs/text-icons.md): every text in the project - HUD texts, menu titles and
+// labels, loading screens, Display Text nodes - substitutes them for an image.
+// The pad-button set is seeded and its PNGs are generated at build, so
+// overriding one is just pointing it at your own file.
+void App::drawTextIconsModal() {
+    ImGui::SetNextWindowSize(ImVec2(scaled(600.0f), scaled(440.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::BeginPopupModal("Button icons")) return;
+
+    bool changed = false;
+    ImGui::TextWrapped(
+        "Write {{name}} in any text to splice an icon in. {{action:jump}} draws "
+        "whatever that action is bound to right now (Tools > Input Map), so a "
+        "prompt stays correct after the player rebinds. An unknown name stays "
+        "on screen as literal text.");
+    ImGui::Spacing();
+
+    ImGui::BeginChild("##iconlist", ImVec2(0, -scaled(72.0f)),
+                      ImGuiChildFlags_Borders);
+    const float row = scaled(28.0f);
+    for (int i = 0; i < (int)project_.textIcons.size(); ++i) {
+        TextIcon& ic = project_.textIcons[i];
+        ImGui::PushID(i);
+
+        // Preview: the project's PNG when it exists, otherwise the built-in
+        // drawing - the PNGs are only generated at the first build, so without
+        // the fallback a fresh project would show an empty column.
+        const HudTexture* prev =
+            ic.path.empty() ? nullptr : hudTexture(ic.path);
+        const bool fromFile = prev != nullptr;
+        if (!prev) prev = builtinIconTexture(ic.name);
+        if (prev)
+            ImGui::Image((ImTextureID)(intptr_t)prev->tex, ImVec2(row, row));
+        else
+            ImGui::Dummy(ImVec2(row, row));
+        if (ImGui::IsItemHovered()) {
+            // Bigger, on the dark tooltip background - the row thumbnail is
+            // 28px and these are 48px drawings.
+            ImGui::BeginTooltip();
+            ImGui::Image((ImTextureID)(intptr_t)prev->tex,
+                         ImVec2(scaled(96.0f), scaled(96.0f)));
+            ImGui::TextUnformatted(fromFile ? ic.path.c_str()
+                                            : "built-in drawing (no PNG yet)");
+            ImGui::EndTooltip();
+        }
+        ImGui::SameLine();
+
+        {
+            char buf[48];
+            std::snprintf(buf, sizeof(buf), "%s", ic.name.c_str());
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::InputText("##name", buf, sizeof(buf))) {
+                // The name IS the placeholder, so it must stay unique - a clash
+                // would make {{x}} ambiguous.
+                std::string want = buf;
+                bool clash = want.empty();
+                for (int k = 0; k < (int)project_.textIcons.size(); ++k)
+                    if (k != i && project_.textIcons[k].name == want) clash = true;
+                if (!clash) ic.name = want;
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("{{%s}}", ic.name.c_str());
+        ImGui::SameLine();
+
+        ImGui::SetNextItemWidth(scaled(70.0f));
+        if (ImGui::DragFloat("##scale", &ic.scale, 0.02f, 0.2f, 4.0f, "%.2fx"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Drawn height relative to the text it sits in.");
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton("PNG...")) {
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "hud";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    ic.path = "res/hud/" + fileName;
+                    hudTexCache_.erase(ic.path);
+                    menubake::clearIconImageCache();
+                    changed = true;
+                }
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", ic.path.empty() ? "(no image yet)"
+                                                    : ic.path.c_str());
+        ImGui::SameLine();
+
+        // Per-icon reset: only a built-in name has a default to go back to.
+        const std::string defPath = "res/hud/" + menubake::iconFileName(ic.name);
+        const bool isBuiltin = builtinIconTexture(ic.name) != nullptr;
+        ImGui::BeginDisabled(!isBuiltin);
+        if (ImGui::SmallButton("Default")) {
+            restoreDefaultTextIcon(ic);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                isBuiltin
+                    ? "Back to the built-in glyph: resets the scale, points the\n"
+                      "icon at %s and deletes that file so the\n"
+                      "next build redraws it."
+                    : "Only the built-in pad-button icons have a default to\n"
+                      "restore - this one is yours.",
+                defPath.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) {
+            project_.textIcons.erase(project_.textIcons.begin() + i);
+            menubake::clearIconImageCache();
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    if (ImGui::Button("+ Add icon")) {
+        TextIcon ic;
+        std::string base = "icon";
+        ic.name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const TextIcon& e : project_.textIcons) taken |= (e.name == ic.name);
+            if (!taken) break;
+            ic.name = base + "-" + std::to_string(n);
+        }
+        project_.textIcons.push_back(std::move(ic));
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Restore pad buttons")) {
+        // Only adds what is missing (project::ensureTextIcons).
+        project::ensureTextIcons(project_);
+        menubake::clearIconImageCache();
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Re-adds any missing pad-button icon. Never touches\n"
+                          "an icon you already have.");
+    ImGui::SameLine();
+    if (ImGui::Button("Regenerate built-in PNGs")) {
+        // Deletes the generated files so the next build redraws them - the way
+        // back after overwriting one by hand.
+        std::error_code ec;
+        for (const TextIcon& ic : project_.textIcons) {
+            if (ic.path != "res/hud/" + menubake::iconFileName(ic.name)) continue;
+            std::filesystem::remove(
+                std::filesystem::path(project_.dir) / ic.path, ec);
+            hudTexCache_.erase(ic.path);
+        }
+        menubake::clearIconImageCache();
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Deletes the generated icon-*.png files; the next\n"
+                          "build redraws them. Use it to undo a hand-edit.");
+    ImGui::SameLine();
+    if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+
+    // Not on the undo stack (like the rest of the UI Editor), but still unsaved
+    // work - dirty, not an immediate write.
+    if (changed) setDirty(true);
+    ImGui::EndPopup();
 }
 
 // Tools > Font Manager: the project's typefaces. Every text (HUD texts, menus,
@@ -9510,6 +9944,301 @@ void App::drawFontManagerWindow() {
     if (project_.fonts.size() <= 1 && ImGui::IsItemHovered())
         ImGui::SetTooltip("The default font cannot be deleted - it is what\n"
                           "every unset font reference resolves to.");
+    ImGui::EndGroup();
+
+    if (changed) commitChange();
+    ImGui::End();
+}
+
+// One action's bindings inside one preset: a pad-button, a keyboard-key and a
+// mouse-button picker, each with a "(none)" entry - an action may be bound to
+// any combination, and all of them fire it.
+bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
+    bool changed = false;
+    InputBinding& b = preset.at(action.name);
+
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    if (ImGui::BeginCombo("Pad button",
+                          b.pad.empty() ? "(none)" : b.pad.c_str())) {
+        if (ImGui::Selectable("(none)", b.pad.empty())) {
+            b.pad.clear();
+            changed = true;
+        }
+        for (int i = 0; i < 16; ++i)
+            if (ImGui::Selectable(kPadButtonNames[i], b.pad == kPadButtonNames[i])) {
+                b.pad = kPadButtonNames[i];
+                changed = true;
+            }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    const char* keyLabel = b.key ? inputKeyLabel(b.key) : "(none)";
+    if (ImGui::BeginCombo("Keyboard key", *keyLabel ? keyLabel : "(none)")) {
+        if (ImGui::Selectable("(none)", b.key == 0)) {
+            b.key = 0;
+            changed = true;
+        }
+        for (const InputKeyName& k : inputKeyNames())
+            if (ImGui::Selectable(k.label, b.key == k.code)) {
+                b.key = k.code;
+                changed = true;
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(USB keyboard)");
+
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    if (ImGui::Combo("Mouse button", &b.mouse,
+                     "(none)\0Left\0Right\0Middle\0"))
+        changed = true;
+
+    ImGui::TextDisabled("Resolves to: %s", inputBindingLabel(b).c_str());
+    return changed;
+}
+
+// Tools > Input Map (docs/input-bindings.md). Left: the project's named
+// actions. Right: the selected action's identity plus its binding in each
+// preset. The presets are what "bindings per project" means; a player's own
+// rebinds happen in-game through a menu Rebind key row and never touch this.
+void App::drawInputMapWindow() {
+    if (!showInputMap_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(680.0f), scaled(460.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Input Map", &showInputMap_)) {
+        ImGui::End();
+        return;
+    }
+
+    InputMap& im = project_.input;
+    if (im.presets.empty()) im.presets.push_back(InputPreset{});
+    if (inputPresetSel_ < 0 || inputPresetSel_ >= (int)im.presets.size())
+        inputPresetSel_ = 0;
+    if (im.activePreset < 0 || im.activePreset >= (int)im.presets.size())
+        im.activePreset = 0;
+
+    bool changed = false;
+
+    // --- left: the action list -------------------------------------------
+    ImGui::BeginChild("##inputactions", ImVec2(scaled(200.0f), 0),
+                      ImGuiChildFlags_Borders);
+    for (size_t i = 0; i < im.actions.size(); ++i) {
+        ImGui::PushID((int)i);
+        const InputAction& a = im.actions[i];
+        std::string label = a.label.empty() ? a.name : a.label;
+        if (a.role == InputAction::RoleNone) label += "  *";  // custom action
+        if (ImGui::Selectable(label.c_str(), inputActionSel_ == (int)i))
+            inputActionSel_ = (int)i;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "%s\nBound to: %s\n%s", a.name.c_str(),
+                inputBindingLabel(im.presets[inputPresetSel_].at(a.name)).c_str(),
+                a.role == InputAction::RoleNone
+                    ? "Custom action - only the On Action flow trigger reads it."
+                    : "Built-in role - the generated game reads it directly.");
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    if (inputActionSel_ < 0 || inputActionSel_ >= (int)im.actions.size())
+        inputActionSel_ = 0;
+
+    if (im.actions.empty()) {
+        ImGui::TextWrapped(
+            "This project has no input actions. \"Restore built-ins\" brings "
+            "back the standard set (jump / use / sprint / menu navigation).");
+    } else {
+        InputAction& a = im.actions[inputActionSel_];
+        {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", a.label.c_str());
+            ImGui::SetNextItemWidth(scaled(200.0f));
+            if (ImGui::InputText("Label", buf, sizeof(buf))) a.label = buf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        {
+            // The name is the reference key (flow nodes, menu rows), so a
+            // rename has to follow into them - and must stay unique.
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", a.name.c_str());
+            ImGui::SetNextItemWidth(scaled(200.0f));
+            if (ImGui::InputText("Name", buf, sizeof(buf))) {
+                std::string want = buf;
+                bool clash = want.empty();
+                for (size_t i = 0; i < im.actions.size(); ++i)
+                    if ((int)i != inputActionSel_ && im.actions[i].name == want)
+                        clash = true;
+                if (!clash) renameInputAction(inputActionSel_, want);
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(referenced by name)");
+
+        // Role: which built-in behavior the action drives. Reassigning is
+        // allowed (that is how you move "sprint" onto a custom action).
+        {
+            static const char* kRoleLabels =
+                "(custom - flow graph only)\0Jump\0Use\0Throw\0Sprint\0"
+                "Fly up (noclip)\0Fly down (noclip)\0Menu confirm\0Menu back\0"
+                "Pause menu\0Alternate (load slot)\0Menu up\0Menu down\0"
+                "Menu left\0Menu right\0Move forward\0Move back\0Move left\0"
+                "Move right\0";
+            ImGui::SetNextItemWidth(scaled(220.0f));
+            if (ImGui::Combo("Role", &a.role, kRoleLabels)) changed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What the generated game uses this action for. Only one\n"
+                    "action per role reaches the game (the first one wins);\n"
+                    "\"custom\" actions exist purely for the On Action trigger.");
+            // A duplicated role is silently dropped at codegen - say so here.
+            const int owner = im.roleIndex(a.role);
+            if (a.role != InputAction::RoleNone && owner != inputActionSel_)
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                   "\"%s\" already owns this role - this "
+                                   "action is inert",
+                                   im.actions[owner].label.c_str());
+        }
+        if (ImGui::Checkbox("Player may rebind it in-game", &a.rebindable))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Off = a menu \"Rebind key\" row shows the binding but refuses\n"
+                "to change it. Keep the menu navigation actions off, or a bad\n"
+                "rebind can lock the player out of the menu that would fix it.\n"
+                "In-game rebinding covers the PAD button only; the keyboard and\n"
+                "mouse bindings below stay exactly as you author them here.");
+
+        // --- presets ------------------------------------------------------
+        ImGui::SeparatorText("Bindings per preset");
+        if (ImGui::BeginTabBar("##presets")) {
+            for (size_t i = 0; i < im.presets.size(); ++i) {
+                ImGui::PushID((int)i);
+                std::string title = im.presets[i].name;
+                if ((int)i == im.activePreset) title += " *";
+                if (ImGui::BeginTabItem(title.c_str())) {
+                    inputPresetSel_ = (int)i;
+                    changed |= inputBindingRow(im.presets[i], a);
+                    ImGui::EndTabItem();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTabBar();
+        }
+    }
+
+    // --- preset management ------------------------------------------------
+    ImGui::SeparatorText("Presets");
+    {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s",
+                      im.presets[inputPresetSel_].name.c_str());
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        if (ImGui::InputText("Preset name", buf, sizeof(buf))) {
+            // Flow-graph Set Input Preset nodes reference presets by name.
+            renameInputPreset(inputPresetSel_, buf);
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ImGui::SetNextItemWidth(scaled(160.0f));
+    {
+        std::string items;
+        for (const InputPreset& pr : im.presets) {
+            items += pr.name;
+            items.push_back('\0');
+        }
+        items.push_back('\0');
+        if (ImGui::Combo("Preset at game start", &im.activePreset, items.c_str()))
+            changed = true;
+    }
+    if (ImGui::Button("+ Add preset")) {
+        // A new preset starts as a copy of the edited one - the point of a
+        // preset is a few deliberate differences, not a blank slate.
+        InputPreset np = im.presets[inputPresetSel_];
+        std::string base = "preset";
+        np.name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const InputPreset& pr : im.presets) taken |= (pr.name == np.name);
+            if (!taken) break;
+            np.name = base + "-" + std::to_string(n);
+        }
+        im.presets.push_back(std::move(np));
+        inputPresetSel_ = (int)im.presets.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(im.presets.size() <= 1);
+    if (ImGui::Button("Delete preset")) {
+        im.presets.erase(im.presets.begin() + inputPresetSel_);
+        if (inputPresetSel_ >= (int)im.presets.size())
+            inputPresetSel_ = (int)im.presets.size() - 1;
+        if (im.activePreset >= (int)im.presets.size()) im.activePreset = 0;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Actions");
+    if (ImGui::Button("+ Add action")) {
+        InputAction na;
+        std::string base = "action";
+        na.name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const InputAction& e : im.actions) taken |= (e.name == na.name);
+            if (!taken) break;
+            na.name = base + "-" + std::to_string(n);
+        }
+        na.label = na.name;
+        im.actions.push_back(std::move(na));
+        inputActionSel_ = (int)im.actions.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(im.actions.empty());
+    if (ImGui::Button("Delete action")) {
+        const std::string gone = im.actions[inputActionSel_].name;
+        im.actions.erase(im.actions.begin() + inputActionSel_);
+        for (InputPreset& pr : im.presets)
+            for (size_t i = 0; i < pr.bindings.size();)
+                if (pr.bindings[i].action == gone)
+                    pr.bindings.erase(pr.bindings.begin() + i);
+                else
+                    ++i;
+        if (inputActionSel_ >= (int)im.actions.size())
+            inputActionSel_ = (int)im.actions.size() - 1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Restore built-ins")) {
+        // Only adds what is missing (project::ensureInputActions) - existing
+        // bindings are never overwritten.
+        project::ensureInputActions(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Re-adds any missing built-in action (jump, use,\n"
+                          "sprint, menu navigation...) with its default\n"
+                          "binding. Never changes an action you already have.");
+
+    ImGui::Separator();
+    if (ImGui::Checkbox("Allow in-game rebinding", &im.allowRebind))
+        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Master switch for the menu \"Rebind key\" rows.\n"
+                          "Off = the rows display bindings read-only.");
+    ImGui::SetNextItemWidth(scaled(160.0f));
+    if (ImGui::DragFloat("Sprint speed", &project_.settings.sprintMultiplier,
+                         0.02f, 1.0f, 4.0f, "%.2fx"))
+        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Walk-speed multiplier while the sprint action is\n"
+                          "held. 1.00x switches sprinting off without\n"
+                          "unbinding the button.");
     ImGui::EndGroup();
 
     if (changed) commitChange();
@@ -10086,6 +10815,19 @@ void App::drawUiEditorWindow() {
             "Baked to PNG sprites at build (the PS2 engine has no font).\n"
             "Show/hide them from the flow graph: Show Text / Hide Text.");
 
+    // Inline text icons. They belong to no single element - ANY text in the
+    // project can splice one in - so they get their own modal rather than a
+    // slot in the screen stack.
+    ImGui::SeparatorText("Button icons");
+    if (ImGui::SmallButton("Manage icons..."))
+        ImGui::OpenPopup("Button icons");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Images any text can splice in with a {{name}} placeholder:\n"
+            "\"Press {{cross}} to jump\". {{action:jump}} draws whatever\n"
+            "that action is bound to right now. Seeded with the pad buttons.");
+    drawTextIconsModal();
+
     // Custom screen effects loaded from screen-effects/*.screenfx. Effects not
     // yet placed in the stack are offered here with a "+ Add"; management
     // (reload / scaffold / jump) mirrors the Flow Graph "Custom nodes..." menu.
@@ -10346,75 +11088,136 @@ void App::drawUiEditorWindow() {
     } else if (uiFxSel_ == 3) {
         // --- the pinned USE prompt ------------------------------------------
         HudImage& h = project_.usePrompt;
-        ImGui::SeparatorText("USE prompt");
+        ImGui::SeparatorText("Interaction prompts");
         ImGui::TextWrapped(
-            "Shown while the player looks at a usable object up close. "
-            "Always draws above the HUD stack (and under menus); cannot be "
-            "deleted. Pickable objects show a \"PICK UP\" variant at the "
-            "same placement (replace res/hud/pickup.png to customize it).");
+            "Shown while the player looks at a usable object up close - the "
+            "\"PICK UP\" variant instead when the object is pickable. Both draw "
+            "above the HUD stack (and under menus) at the same screen position, "
+            "and neither can be deleted.");
         ImGui::Spacing();
         ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat2("Size (px)##use", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Shared by both prompts (normalized, center "
+                              "anchor).");
 
-        ImGui::SeparatorText("Image");
-        if (h.imagePath.empty()) {
-            ImGui::TextDisabled("Built-in \"USE\" sprite (res/hud/use.png).");
-            if (ImGui::Button("Custom image (PNG)...")) {
-                const std::string src = pickPngFile();
-                if (!src.empty()) {
-                    const std::filesystem::path srcPath(src);
-                    const std::string fileName =
-                        sanitizeAssetName(srcPath.filename().string());
-                    const std::filesystem::path destDir =
-                        std::filesystem::path(project_.dir) / "res" / "hud";
-                    std::error_code ec;
-                    std::filesystem::create_directories(destDir, ec);
-                    std::filesystem::copy_file(
-                        srcPath, destDir / fileName,
-                        std::filesystem::copy_options::overwrite_existing, ec);
-                    if (!ec) {
-                        h.imagePath = "res/hud/" + fileName;
-                        hudTexCache_.erase(h.imagePath);  // reload if replaced
-                        changed = true;
-                    } else {
-                        statusMessage_ =
-                            "USE prompt import failed: " + ec.message();
-                    }
-                }
-            }
-        } else {
-            ImGui::TextDisabled("Custom: %s", h.imagePath.c_str());
-            if (ImGui::Button("Replace image (PNG)...")) {
-                const std::string src = pickPngFile();
-                if (!src.empty()) {
-                    const std::filesystem::path srcPath(src);
-                    const std::string fileName =
-                        sanitizeAssetName(srcPath.filename().string());
-                    const std::filesystem::path destDir =
-                        std::filesystem::path(project_.dir) / "res" / "hud";
-                    std::error_code ec;
-                    std::filesystem::create_directories(destDir, ec);
-                    std::filesystem::copy_file(
-                        srcPath, destDir / fileName,
-                        std::filesystem::copy_options::overwrite_existing, ec);
-                    if (!ec) {
-                        h.imagePath = "res/hud/" + fileName;
-                        hudTexCache_.erase(h.imagePath);
-                        changed = true;
-                    }
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Reset to built-in")) {
-                h.imagePath.clear();
+        // One prompt's content: TEXT or IMAGE as an explicit choice, so flipping
+        // to the image to compare does not throw away the text you typed. Text
+        // can carry a button glyph that follows the binding, which is why a
+        // fresh project starts there (docs/text-icons.md).
+        auto promptUi = [&](const char* title, const char* id, bool& isText,
+                            HudText& txt, std::string& imagePath,
+                            HudImage* bakeOf, const char* builtinNote) {
+            ImGui::PushID(id);
+            ImGui::SeparatorText(title);
+            int mode = isText ? 0 : 1;
+            if (ImGui::RadioButton("Text", &mode, 0)) {
+                isText = true;
                 changed = true;
             }
-            // The bake (pow2 resize + quantization) only applies to custom
-            // images; the built-in sprite is already a valid PS2 texture.
-            changed |= hudBakeControls(h);
-        }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Image", &mode, 1)) {
+                isText = false;
+                changed = true;
+            }
+
+            if (isText) {
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "%s", txt.text.c_str());
+                ImGui::SetNextItemWidth(scaled(240.0f));
+                if (ImGui::InputText("Text##prompt", buf, sizeof(buf)))
+                    txt.text = buf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+                changed |= textTokenPicker("prompttok", txt.text);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Baked to a sprite at build (the PS2 has no font).\n"
+                        "{{use}} draws the glyph of whatever the \"use\" action\n"
+                        "is bound to, so the prompt follows a rebind;\n"
+                        "{{cross}} pins a fixed button. See docs/text-icons.md.");
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                if (ImGui::DragInt("Size##prompt", &txt.size, 0.5f, 8, 48,
+                                   "%d px"))
+                    changed = true;
+                ImGui::SameLine();
+                if (ImGui::ColorEdit3("Color##prompt", txt.color,
+                                      ImGuiColorEditFlags_NoInputs))
+                    changed = true;
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Shadow##prompt", &txt.shadow))
+                    changed = true;
+                changed |= fontCombo(txt.font);
+                if (txt.text.empty())
+                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                       "Empty - the image is used instead.");
+                else if (const HudTexture* t = hudTextTexture(txt))
+                    ImGui::Image((ImTextureID)(intptr_t)t->tex,
+                                 ImVec2(scaled((float)t->w),
+                                        scaled((float)t->h)));
+                ImGui::TextDisabled("The baked text sizes the sprite.");
+            } else {
+                if (imagePath.empty()) {
+                    ImGui::TextDisabled("%s", builtinNote);
+                } else {
+                    ImGui::TextDisabled("Custom: %s", imagePath.c_str());
+                    if (const HudTexture* t = hudTexture(imagePath))
+                        ImGui::Image((ImTextureID)(intptr_t)t->tex,
+                                     ImVec2(scaled((float)t->w),
+                                            scaled((float)t->h)));
+                }
+                if (ImGui::Button(imagePath.empty() ? "Custom image (PNG)..."
+                                                    : "Replace image (PNG)...")) {
+                    const std::string src = pickPngFile();
+                    if (!src.empty()) {
+                        const std::filesystem::path srcPath(src);
+                        const std::string fileName =
+                            sanitizeAssetName(srcPath.filename().string());
+                        const std::filesystem::path destDir =
+                            std::filesystem::path(project_.dir) / "res" / "hud";
+                        std::error_code ec;
+                        std::filesystem::create_directories(destDir, ec);
+                        std::filesystem::copy_file(
+                            srcPath, destDir / fileName,
+                            std::filesystem::copy_options::overwrite_existing,
+                            ec);
+                        if (!ec) {
+                            imagePath = "res/hud/" + fileName;
+                            hudTexCache_.erase(imagePath);  // reload if replaced
+                            changed = true;
+                        } else {
+                            statusMessage_ =
+                                "Prompt image import failed: " + ec.message();
+                        }
+                    }
+                }
+                if (!imagePath.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset to built-in")) {
+                        imagePath.clear();
+                        changed = true;
+                    }
+                }
+                // Size + the texture bake only apply to the USE prompt's own
+                // HudImage; the PICK UP image rides on the same box.
+                if (bakeOf) {
+                    ImGui::DragFloat2("Size (px)##prompt", bakeOf->size, 1.0f,
+                                      1.0f, 512.0f, "%.0f");
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (!imagePath.empty()) changed |= hudBakeControls(*bakeOf);
+                } else {
+                    ImGui::TextDisabled("Drawn in the USE prompt's box.");
+                }
+            }
+            ImGui::PopID();
+        };
+
+        promptUi("USE prompt", "useprompt", project_.usePromptIsText,
+                 project_.usePromptText, h.imagePath, &h,
+                 "Built-in \"USE\" sprite (res/hud/use.png).");
+        promptUi("PICK UP prompt", "pickprompt", project_.pickPromptIsText,
+                 project_.pickPromptText, project_.pickPromptImage, nullptr,
+                 "Built-in \"PICK UP\" sprite (res/hud/pickup.png).");
     } else if (uiFxSel_ == 4 && selectedText_ >= 0 &&
                selectedText_ < (int)project_.hudTexts.size()) {
         // --- a triggerable on-screen text -----------------------------------
@@ -10448,6 +11251,7 @@ void App::drawUiEditorWindow() {
                                           ImVec2(-1.0f, 80.0f * uiScaleApplied_)))
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            changed |= textTokenPicker("hudtexttok", t.text);
         }
         changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(120.0f);
@@ -10572,7 +11376,10 @@ void App::drawUiEditorWindow() {
     }
     ImGui::EndChild();
 
-    if (changed) saveAll("Saved");  // UI edits are not on the undo stack
+    // UI edits are not on the undo stack, but they ARE unsaved work: mark the
+    // project dirty like every other editor instead of writing to disk behind
+    // the user's back, so the save icon lights up and closing asks.
+    if (changed) setDirty(true);
     ImGui::End();
 }
 
@@ -18677,6 +19484,45 @@ void addOptionBlock(Project& p, GameMenu& m, int kind) {
     m.entries.push_back(std::move(en));
 }
 
+// A save value by name, created with `def` when the project has none yet.
+// Returns the name, so a caller can assign it straight into MenuEntry::param.
+std::string ensureSaveValue(Project& p, const std::string& name, float def) {
+    for (const SaveValue& sv : p.saveValues)
+        if (sv.name == name) return name;
+    SaveValue sv;
+    sv.name = name;
+    sv.value = def;
+    p.saveValues.push_back(std::move(sv));
+    return name;
+}
+
+// Scaffold a CONTROLS page: one "Rebind key" row per rebindable input action,
+// plus a preset picker when the project has more than one preset. This is the
+// whole in-game key-assignment story wired up in one click
+// (docs/input-bindings.md).
+void addRebindRows(Project& p, GameMenu& m) {
+    if (p.input.presets.size() > 1) {
+        MenuEntry pr;
+        pr.label = "PRESET";
+        pr.action = MenuEntry::Choice;
+        pr.settingBind = MenuEntry::BindInputPreset;
+        pr.param = ensureSaveValue(p, "input-preset",
+                                   (float)p.input.activePreset);
+        for (const InputPreset& e : p.input.presets) pr.options.push_back(e.name);
+        m.entries.push_back(std::move(pr));
+    }
+    for (const InputAction& a : p.input.actions) {
+        if (!a.rebindable) continue;
+        if ((int)m.entries.size() >= menubake::kMaxEntries) break;
+        MenuEntry en;
+        en.label = a.label.empty() ? a.name : a.label;
+        en.action = MenuEntry::RebindKey;
+        en.bindAction = a.name;
+        en.param = ensureSaveValue(p, "bind-" + a.name, 0.0f);
+        m.entries.push_back(std::move(en));
+    }
+}
+
 // The plain "APPLY" action row that commits a display-mode row's staged
 // selection (MenuEntry::ApplyVideo) - inserted next to the DISPLAY block.
 MenuEntry makeApplyVideoEntry() {
@@ -18718,11 +19564,22 @@ int addOptionsMenuPages(Project& p) {
         return p.menus.back().name;
     };
     const std::string audio = makeSub("options-audio", "AUDIO", 0, 1);
+    // CONTROLS carries the stick settings only. Key rebinding is deliberately
+    // NOT scaffolded: it needs one save value per action and most projects want
+    // a fixed control scheme, so it stays an explicit choice
+    // (+ Option block > Key bindings). See docs/input-bindings.md.
     const std::string controls = makeSub("options-controls", "CONTROLS", 2, 3);
     const std::string display = makeSub("options-display", "DISPLAY", 4, 5, true);
     GameMenu root;
     root.name = uniqueName("options");
     root.title = "OPTIONS";
+    // Opens at game start, so the scaffold is something you can see immediately
+    // instead of a menu nothing reaches yet. Skipped when another menu already
+    // claims the title screen - codegen takes the FIRST one, so setting it twice
+    // would silently pick a winner.
+    bool titleTaken = false;
+    for (const GameMenu& o : p.menus) titleTaken |= o.titleScreen;
+    root.titleScreen = !titleTaken;
     root.entries.push_back(MenuEntry{"AUDIO", MenuEntry::OpenMenu, audio, 0.0f});
     root.entries.push_back(MenuEntry{"CONTROLS", MenuEntry::OpenMenu, controls, 0.0f});
     root.entries.push_back(MenuEntry{"DISPLAY", MenuEntry::OpenMenu, display, 0.0f});
@@ -18776,7 +19633,10 @@ void App::drawMenusWindow() {
             "AUDIO / CONTROLS / DISPLAY submenus, each pre-filled with\n"
             "ready-made setting rows (volume, deadzone, aim curve,\n"
             "display mode + an APPLY row that commits it, aspect).\n"
-            "Style and edit them like any menu.");
+            "The root opens at game start (unless another menu already\n"
+            "does). Style and edit them like any menu. Key rebinding is\n"
+            "NOT included - add it deliberately with + Option block >\n"
+            "Key bindings.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);
@@ -18869,6 +19729,8 @@ void App::drawMenusWindow() {
     if (ImGui::InputText("Title", titleBuf, sizeof(titleBuf))) m.title = titleBuf;
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::SameLine();
+    changed |= textTokenPicker("titletok", m.title);
+    ImGui::SameLine();
     ImGui::ColorEdit3("Accent", m.accent, ImGuiColorEditFlags_NoInputs);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
@@ -18940,13 +19802,21 @@ void App::drawMenusWindow() {
     // of stock Windows fonts (existence-checked) / import a new TTF.
     changed |= fontCombo(m.font);
     {
-        int sizes[2] = {m.titleSize, m.entrySize};
-        ImGui::SetNextItemWidth(scaled(140.0f));
-        if (ImGui::DragInt2("Title / entry size", sizes, 0.2f, 8, 48)) {
-            m.titleSize = sizes[0] < 10 ? 10 : sizes[0] > 48 ? 48 : sizes[0];
-            m.entrySize = sizes[1] < 8 ? 8 : sizes[1] > 32 ? 32 : sizes[1];
-        }
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::DragInt("Title size", &m.titleSize, 0.2f, 10, 48, "%d px"))
+            changed = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::DragInt("Row size", &m.entrySize, 0.2f, 8, 32, "%d px"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Entry text height, and with it the row pitch and the cursor.\n"
+                "Any {{glyph}} in a label scales with it too.");
+        if (m.titleSize < 10) m.titleSize = 10;
+        if (m.titleSize > 48) m.titleSize = 48;
+        if (m.entrySize < 8) m.entrySize = 8;
+        if (m.entrySize > 32) m.entrySize = 32;
     }
 
     if (menuPreviewClipped_)
@@ -19045,7 +19915,7 @@ void App::drawMenusWindow() {
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
         "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice",         "Apply video mode"};
+        "Choice",         "Apply video mode",  "Rebind key"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -19074,8 +19944,10 @@ void App::drawMenusWindow() {
         if (ImGui::InputText("##label", labelBuf, sizeof(labelBuf))) en.label = labelBuf;
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
+        changed |= textTokenPicker("labeltok", en.label);
+        ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames, 10)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames, 11)) {
             en.param.clear();
             en.optionModes.clear();
             // Stateful rows start with a sensible option set; everything
@@ -19140,6 +20012,44 @@ void App::drawMenusWindow() {
                     "Save value holding the state (the option index).\n"
                     "Its default is the initial state; flow graphs react\n"
                     "via Value At Least -> On Condition.");
+        } else if (en.action == MenuEntry::RebindKey) {
+            // Two references: WHICH action to rebind, and the save value the
+            // player's override is persisted in (docs/input-bindings.md).
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::BeginCombo("##rebindaction", en.bindAction.empty()
+                                                        ? "<action>"
+                                                        : en.bindAction.c_str())) {
+                for (const InputAction& a : project_.input.actions) {
+                    if (!a.rebindable) continue;  // not offered to the player
+                    if (ImGui::Selectable(a.name.c_str(), a.name == en.bindAction)) {
+                        en.bindAction = a.name;
+                        if (en.label == "New entry" || en.label.empty())
+                            en.label = a.label;
+                        // Give the row its backing save value straight away -
+                        // without one the override cannot persist.
+                        if (en.param.empty())
+                            en.param =
+                                ensureSaveValue(project_, "bind-" + a.name, 0.0f);
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Input Map action this row rebinds. Only actions marked\n"
+                    "\"Player may rebind it in-game\" are listed.\n"
+                    "The row covers the PAD button only - keyboard/mouse keys\n"
+                    "stay as the Input Map authored them (that support is\n"
+                    "experimental and gets its own menu later).");
+            ImGui::SameLine();
+            paramCombo("##rebindvalue", "<value>", project_.saveValues,
+                       [](const SaveValue& v) -> const std::string& { return v.name; });
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Save value the override is stored in (an inputCodes\n"
+                    "index; 0 = the project's preset binding). Persists in\n"
+                    "memory card saves like every other menu state.");
         } else if (en.action == MenuEntry::ApplyVideo) {
             ImGui::TextDisabled("(?)");
             if (ImGui::IsItemHovered())
@@ -19302,7 +20212,7 @@ void App::drawMenusWindow() {
             if (ImGui::Combo("Bind##optbind", &en.settingBind,
                              "None\0Music volume\0Sound volume\0Deadzone\0"
                              "Stick curve\0Display mode\0Widescreen\0"
-                             "Player count\0")) {
+                             "Player count\0Input preset\0")) {
                 // Display rows carry an explicit option->mode table (edited
                 // above); every other bind maps by option position.
                 if (en.settingBind == MenuEntry::BindDisplayMode) {
@@ -19311,6 +20221,13 @@ void App::drawMenusWindow() {
                         en.optionModes[o] = (int)(o < 4 ? o : 4);
                 } else {
                     en.optionModes.clear();
+                }
+                // An input-preset row's options ARE the presets, in order -
+                // the option index is the preset index at runtime.
+                if (en.settingBind == MenuEntry::BindInputPreset) {
+                    en.options.clear();
+                    for (const InputPreset& pr : project_.input.presets)
+                        en.options.push_back(pr.name);
                 }
                 changed = true;
             }
@@ -19325,7 +20242,8 @@ void App::drawMenusWindow() {
                     "its mode from a dropdown;\n"
                     "add an Apply video mode row so switching waits for APPLY),\n"
                     "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
-                    "mode + a second Player object). None = a plain save-value\n"
+                    "mode + a second Player object), input preset (the Tools >\n"
+                    "Input Map presets, in order). None = a plain save-value\n"
                     "row (flow graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
@@ -19354,6 +20272,19 @@ void App::drawMenusWindow() {
                     addOptionBlock(project_, m, b);
                     changed = true;
                 }
+            ImGui::Separator();
+            if (ImGui::Selectable("Key bindings (all rebindable actions)")) {
+                // One Rebind key row per action + a preset picker: the whole
+                // controls page (docs/input-bindings.md).
+                addRebindRows(project_, m);
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Adds a \"Rebind key\" row for every Input Map action\n"
+                    "marked \"Player may rebind it in-game\", each backed by\n"
+                    "its own save value, plus a preset picker when the project\n"
+                    "has more than one preset.");
             ImGui::Separator();
             if (ImGui::Selectable("Apply video mode (row)")) {
                 m.entries.push_back(makeApplyVideoEntry());
@@ -21804,6 +22735,13 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Input");
+    ImGui::DragFloat("Sprint speed", &prefSettings_.sprintMultiplier, 0.02f, 1.0f,
+                     4.0f, "%.2fx");
+    prefHelp(
+        "Walk-speed multiplier while the \"sprint\" input action is held\n"
+        "(Tools > Input Map - pad R2 / Left Shift by default). 1.00x turns\n"
+        "sprinting off without unbinding the button. A third-person avatar\n"
+        "crosses its run threshold while sprinting, so it plays the run clip.");
     ImGui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
                        "%.2f");
     ImGui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,

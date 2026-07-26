@@ -7,8 +7,10 @@ namespace Portals {
 // 3 open menu (submenu), 4 set save value, 5 add to save value,
 // 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save
 // value holding the option index), 9 apply video mode (commits
-// the display-mode row's staged selection). param = resolved
-// index, -1 = unknown target.
+// the display-mode row's staged selection), 10 rebind an input
+// action (param = the save value holding the override code,
+// inputAction = which action; docs/input-bindings.md). param =
+// resolved index, -1 = unknown target.
 struct MenuEntryData {
   int action;
   int param;
@@ -17,7 +19,11 @@ struct MenuEntryData {
   int cell;         // first cell in the value strip (-1 = none)
   int bind;         // option-block binding (applyMenuBindings):
                     // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,
-                    // 4 stick curve, 5 display mode, 6 widescreen
+                    // 4 stick curve, 5 display mode, 6 widescreen,
+                    // 7 player count, 8 input preset
+  // action 10 only: the INPUT_ACTION index the row rebinds (-1 =
+  // unknown action - the row then does nothing).
+  int inputAction;
   // bind 5 only: the Tyra::DisplayMode each option drives
   // (optionCount ints; -1 = the project-default boot mode).
   // Null = the option index itself.
@@ -39,38 +45,42 @@ struct MenuData {
   // cell's left edge relative to the panel's left edge.
   const char* values;
   int valueCellW, valueCellH, valuePitch, valueX;
+  // FONTS index the panel was baked with. A rebind row draws its
+  // current binding as runtime text from this font's glyph atlas
+  // (Project::atlasFontIndices bakes one for such menus).
+  int font;
 };
 
 constexpr int MENU_COUNT = 4;
 
 // menu "options-audio"
 constexpr MenuEntryData MENU_0_ENTRIES[2] = {
-    {8, 0, 0.0F, 5, 0, 1, nullptr},  // MUSIC
-    {8, 1, 0.0F, 5, 5, 2, nullptr},  // SOUND
+    {8, 0, 0.0F, 5, 0, 1, -1, nullptr},  // MUSIC
+    {8, 1, 0.0F, 5, 5, 2, -1, nullptr},  // SOUND
 };
 // menu "options-controls"
 constexpr MenuEntryData MENU_1_ENTRIES[2] = {
-    {8, 2, 0.0F, 5, 0, 3, nullptr},  // DEADZONE
-    {8, 3, 0.0F, 3, 5, 4, nullptr},  // AIM CURVE
+    {8, 2, 0.0F, 5, 0, 3, -1, nullptr},  // DEADZONE
+    {8, 3, 0.0F, 3, 5, 4, -1, nullptr},  // AIM CURVE
 };
 // menu "options-display"
 constexpr MenuEntryData MENU_2_ENTRIES[2] = {
-    {8, 4, 0.0F, 5, 0, 5, nullptr},  // DISPLAY
-    {7, 5, 0.0F, 2, 5, 6, nullptr},  // ASPECT
+    {8, 4, 0.0F, 5, 0, 5, -1, nullptr},  // DISPLAY
+    {7, 5, 0.0F, 2, 5, 6, -1, nullptr},  // ASPECT
 };
 // menu "options"
 constexpr MenuEntryData MENU_3_ENTRIES[4] = {
-    {3, 0, 0.0F, 0, -1, 0, nullptr},  // AUDIO
-    {3, 1, 0.0F, 0, -1, 0, nullptr},  // CONTROLS
-    {3, 2, 0.0F, 0, -1, 0, nullptr},  // DISPLAY
-    {0, -1, 0.0F, 0, -1, 0, nullptr},  // CLOSE
+    {3, 0, 0.0F, 0, -1, 0, -1, nullptr},  // AUDIO
+    {3, 1, 0.0F, 0, -1, 0, -1, nullptr},  // CONTROLS
+    {3, 2, 0.0F, 0, -1, 0, -1, nullptr},  // DISPLAY
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},  // CLOSE
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/options-audio.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-audio-values.png", 128, 24, 32, 104},  // options-audio
-    {"menus/options-controls.png", 256, 128, 114, 44, 24, 2, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-controls-values.png", 128, 24, 32, 104},  // options-controls
-    {"menus/options-display.png", 256, 128, 114, 44, 24, 2, MENU_2_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-display-values.png", 128, 24, 32, 104},  // options-display
-    {"menus/options.png", 256, 256, 162, 44, 24, 4, MENU_3_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0},  // options
+    {"menus/options-audio.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-audio-values.png", 128, 24, 32, 104, -1},  // options-audio
+    {"menus/options-controls.png", 256, 128, 114, 44, 24, 2, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-controls-values.png", 128, 24, 32, 104, -1},  // options-controls
+    {"menus/options-display.png", 256, 128, 114, 44, 24, 2, MENU_2_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-display-values.png", 128, 24, 32, 104, -1},  // options-display
+    {"menus/options.png", 256, 256, 162, 44, 24, 4, MENU_3_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, -1},  // options
 };
 
 constexpr int TITLE_MENU = -1;
