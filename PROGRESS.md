@@ -10,6 +10,48 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (189) **Feet on the floor: a ground solve for every retarget.** The owner's
+  brief was "the most expensive possible solution, take an epoch, as long as the
+  result knocks you off your feet", and the feet were the place to start: it
+  needs no new capture, it is entirely host-side, and it is the most visible
+  thing wrong with a retargeted pose.
+  **Rotations do not know where the ground is.** That is not a mocap problem, it
+  is a retarget problem - a clean Mixamo clip on a body of different proportions
+  sinks the ankle exactly as happily. On the owner's take the character's foot
+  went **147 mm through the floor**, slid 36 mm a frame while standing, and sat
+  37 degrees off level because ARKit never solves the ankle and the foot follows
+  the shin rigidly.
+  `GroundOptions` decides per frame whether each foot is STANDING - low enough
+  and slow enough - and if it is, puts the ankle back where it was set down,
+  levels the sole to the heading it was set down with, and bends the leg with a
+  two-bone solve to reach. Four choices are load-bearing: hysteresis in BOTH
+  directions (a foot hovering at one threshold flickers every other frame); the
+  IK ROTATES the world rotations the pose already had rather than rebuilding
+  them, so whatever twist the source put in the leg survives; the knee pole comes
+  from the pose itself, because an invented direction flips the joint; and the
+  leg may never straighten completely, since at full extension there is no knee
+  direction left to solve with.
+  **Measured, on the real take**: planted-foot slide 36.4 -> **0.9 mm** mean,
+  deepest through the floor 146.8 -> **4.0 mm**, sole off level 37.3 -> **1.0
+  deg** mean. The peak sole angle stays 61 degrees and that is the intent - it is
+  the single frame of first contact, before the ease-in runs.
+  **The control mattered more than the result.** Run against the generated walk
+  cycle, the solve came back a bit-exact no-op - which turned out to be because
+  the procedural clips are authored by `addLocomotion` and never touch the
+  retarget path at all. They measure 22.7 mm of slide and 20 mm through the
+  floor, so they would benefit; they are still left alone, deliberately, because
+  a stateful plant across a clip that has to LOOP seamlessly risks breaking a
+  shipped feature for a gain invisible at PS2 range. Stated rather than silently
+  skipped.
+  **One scare, resolved by arithmetic.** In that take the character's left foot
+  never comes within 94 mm of the floor while the right goes 147 mm through it -
+  a 240 mm asymmetry where the source has only 23 mm. The character's rig is
+  symmetric to 0.00 mm, and the hips bob 177 mm in that recording: a small
+  difference in each leg's maximum extension becomes a large difference in how
+  low each ankle ever gets, whenever the moments of full extension and of low
+  hips do not coincide. The performer stood on his right leg with the left held
+  bent. A foot that is never put down is never planted, which is correct.
+
 - (188) **Four complaints about the first live session, one bug.** The owner
   pointed a phone at a person, watched the character copy them, and reported:
   the legs are shuffled, the hands do not move, the head does not move, and the

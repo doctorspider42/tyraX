@@ -1023,6 +1023,7 @@ private:
     int mocapSourceKind_ = 0;         // 0 none, 1 file, 2 live link
     uint64_t mocapLiveSkelSeq_ = 0;   // the phone skeleton mocapBind_ was built from
     int mocapLiveHips_ = -1;          // where the heading is composed in
+    bool mocapGround_ = true;         // plant the feet on the floor
     std::vector<float> mocapFrameRot_;  // scratch: source rotations + the heading
     std::string mocapTake_;           // the file being played back
     float mocapTime_ = 0.0f;

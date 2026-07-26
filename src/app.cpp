@@ -9972,6 +9972,14 @@ void App::drawCharacterGeneratorWindow() {
             if (ImGui::Checkbox("In place", &p.retarget.inPlace)) dirty = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Strip horizontal root motion - the game moves the character.");
+            if (ImGui::Checkbox("Feet on the floor", &p.retarget.ground.enabled)) dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Plant a standing foot and level its sole.\n"
+                    "Rotations alone do not know where the floor is: a source rig\n"
+                    "of different proportions puts the foot through it or above it,\n"
+                    "and a source that never solves the ankle (ARKit does not)\n"
+                    "points the toe at whatever the shin is doing.");
         }
     }
 
@@ -10192,6 +10200,7 @@ void App::mocapRebind() {
 
     std::vector<std::string> notes;
     charanim::RetargetOptions opts;
+    opts.ground.enabled = mocapGround_;
     mocapBind_ = charanim::prepareLive(*source, mocapSkel_, opts, notes);
     for (const std::string& n : notes) mocapNote_ = n;
     if (!mocapBind_.valid() && mocapNote_.empty())
@@ -10241,7 +10250,7 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
         src = mocapFrameRot_.data();
     }
 
-    charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_);
+    charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_, t);
     charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
     ++mocapPrevVersion_;
 
@@ -10398,7 +10407,14 @@ void App::drawMocapWindow() {
         ImGui::SameLine();
         if (ImGui::Button("Recentre")) charanim::resetLiveOrigin(mocapBind_);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Put the character back where it started.\nUse it after tracking is lost and regained.");
+            ImGui::SetTooltip("Put the character back where it started.\n"
+                              "Use it after tracking is lost and regained.");
+        if (ImGui::Checkbox("Feet on the floor", &mocapGround_)) mocapRebind();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Plant a standing foot and level its sole. ARKit never solves\n"
+                "the ankle, so without this the foot follows the shin rigidly\n"
+                "and a lifted knee comes with a pointed toe.");
     }
 
     // --- recording ------------------------------------------------------------

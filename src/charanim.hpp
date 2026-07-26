@@ -57,6 +57,31 @@ struct Params {
 // in the bind pose.
 void addLocomotion(glbparser::Skel& skel, const Params& p);
 
+// Puts the feet on the floor. Motion capture gives joint ROTATIONS, and a
+// rotation-only pose has no idea where the ground is: a source that never
+// solves the ankle (ARKit does not - see mocap.hpp) leaves the foot rigidly
+// following the shin, so a lifted knee comes with a pointed toe and a standing
+// foot skates across the floor by however much the hips estimate wobbles.
+//
+// This is not a fudge over bad data - EVERY rotation-driven retarget needs it,
+// including a clean Mixamo clip on a character of different proportions, where
+// the same rotations put a shorter leg through the floor.
+struct GroundOptions {
+    bool enabled = true;
+    // A foot below `plantHeight` and slower than `plantSpeed` is standing on
+    // something. It stays planted until it rises past `releaseHeight` - the gap
+    // is hysteresis, and without it a foot hovering at the threshold flickers
+    // between planted and free every other frame.
+    float plantHeight = 0.045f;    // metres
+    float releaseHeight = 0.090f;  // metres
+    float plantSpeed = 0.45f;      // metres/second
+    float blend = 0.10f;           // seconds to ease a plant in or out
+    // The leg may not straighten completely: at full extension the two-bone
+    // solve has no knee direction left and the joint snaps through.
+    float maxReach = 0.985f;
+    float floorY = 0.0f;           // the character's own space; chargen binds feet here
+};
+
 struct RetargetOptions {
     // Mixamo exports at 24-30 fps with a key on every frame for all ~65 bones.
     // The PS2 evaluates keys on the EE, so resampling to a rate a PS2 game
@@ -68,6 +93,7 @@ struct RetargetOptions {
     // Drop clips shorter than this (Mixamo merges leave a 0-second "mixamo.com"
     // clip that is just the bind pose).
     float minSeconds = 0.05f;
+    GroundOptions ground;
 };
 
 // Retargets every clip of `source` onto `skel`, replacing its clips. Both rigs
@@ -123,15 +149,20 @@ LiveRetarget prepareLive(const glbparser::Skel& source, const glbparser::Skel& t
 // translation for the hips; the first frame it is seen becomes the origin the
 // rest are measured against, so a performer standing anywhere maps onto a
 // character standing where it was placed.
+// `timeSeconds` is the frame's own timestamp and drives the ground solve, which
+// is stateful (a plant persists between frames and eases in and out). Pass the
+// stream's or the clip's time; frames arriving out of order or with the clock
+// jumping backwards simply restart the plant.
 void applyLive(const LiveRetarget& binding, const float* srcLocalRot, const float* hipsWorld,
-               glbparser::Skel& target);
+               glbparser::Skel& target, float timeSeconds = -1.0f);
 
 // Forgets where the performer was, so the NEXT frame carrying a hips position
 // becomes the new origin. Needed whenever the stream jumps rather than moves:
 // tracking was lost and reacquired, somebody else stepped in front of the
 // camera, or the operator simply wants the character back where it was placed.
 // (The clip path calls this between clips - each take starts from its own first
-// frame, which is why the two paths agree.)
+// frame, which is why the two paths agree.) It also forgets which feet were
+// planted, for the same reason: a jump is not a step.
 void resetLiveOrigin(const LiveRetarget& binding);
 
 // Linear-blend skinning on the host: poses EVERY part at `time` of `clipIndex`

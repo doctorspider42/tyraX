@@ -87,6 +87,25 @@ Quat alignTo(const Vec& fromIn, const Vec& toIn) {
     return normalized({c[0], c[1], c[2], 1.0f + d});
 }
 
+// Shortest-arc interpolation. The sign fix is not optional: between q and -q -
+// the same orientation - the long way round is a limb swinging through the
+// body, which is the same trap the clip writer guards against.
+Quat slerp(const Quat& a, Quat b, float t) {
+    float d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    if (d < 0.0f) {
+        b = {-b.x, -b.y, -b.z, -b.w};
+        d = -d;
+    }
+    if (d > 0.9995f)
+        return normalized({a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t,
+                           a.w + (b.w - a.w) * t});
+    const float theta = std::acos(d);
+    const float s = std::sin(theta);
+    const float wa = std::sin((1.0f - t) * theta) / s, wb = std::sin(t * theta) / s;
+    return normalized({a.x * wa + b.x * wb, a.y * wa + b.y * wb, a.z * wa + b.z * wb,
+                       a.w * wa + b.w * wb});
+}
+
 // --- the rig ---------------------------------------------------------------
 
 enum Role {
@@ -619,6 +638,22 @@ struct LiveRetarget::State {
     // everything after is measured against it.
     mutable float hipsBase[3] = {0, 0, 0};
     mutable bool haveBase = false;
+
+    GroundOptions ground;
+    // The ground solve remembers things between frames: whether a foot is
+    // standing, where it was put down, and how far through easing in or out it
+    // is. That makes it the one stateful part of the retarget, which is why the
+    // clip path resets it per clip alongside the root motion.
+    struct Foot {
+        bool planted = false;
+        float weight = 0.0f;       // 0 free, 1 fully locked
+        Vec at{0, 0, 0};           // where the ankle was set down
+        Vec fwd{0, 0, 1};          // the heading it was set down with
+        Vec prevAnkle{0, 0, 0};
+        bool havePrev = false;
+    };
+    mutable Foot foot[2];
+    mutable float lastTime = -1.0f;
 };
 
 int LiveRetarget::matchedBones() const { return state ? state->matched : 0; }
@@ -658,6 +693,172 @@ Frame frameFromSource(const LiveRetarget::State& st, const std::vector<Quat>& lo
 // Writes one Frame into the character's node transforms. buildClip does the
 // same conversion per key into channels; this does it into the nodes, which is
 // what poseMesh reads when no clip is playing.
+// --- the ground solve -------------------------------------------------------
+//
+// Everything above this point is rotations, and rotations know nothing about
+// the floor. Given a rotation-only pose, the ankle lands wherever the chain of
+// hip and knee angles happens to put it - which is close to right for the
+// performer's proportions and wrong for the character's, drifts with every
+// wobble in the hips estimate, and (when the source does not solve the ankle at
+// all, as ARKit does not) points the toe at whatever the shin is doing.
+//
+// The fix is the standard one and it is worth stating plainly: decide whether a
+// foot is STANDING, and if it is, put it back where it was put down and level
+// it, then bend the leg to reach. The three pieces below are plant detection,
+// a two-bone solve, and the ankle's own orientation.
+
+// Where a role sits in world space, given the frame's world rotations. Bind
+// rotations are identity here, so a bone's offset from its parent is a pure
+// position difference and the whole chain is offsets rotated by their parents.
+Vec worldPos(const Rig& rig, const Frame& f, const float* hipsOffset, int role) {
+    // The chain from the hips down to this role, in order.
+    int chain[8];
+    int n = 0;
+    for (int r = role; r >= 0 && n < 8; r = kParentRole[r]) chain[n++] = r;
+    Vec p{rig.pos[Hips][0] + hipsOffset[0], rig.pos[Hips][1] + hipsOffset[1],
+          rig.pos[Hips][2] + hipsOffset[2]};
+    for (int i = n - 1; i > 0; --i) {
+        const int parent = chain[i], child = chain[i - 1];
+        const Vec offset{rig.pos[child][0] - rig.pos[parent][0],
+                         rig.pos[child][1] - rig.pos[parent][1],
+                         rig.pos[child][2] - rig.pos[parent][2]};
+        const Vec r = rotate(f.get(parent), offset);
+        p = {p[0] + r[0], p[1] + r[1], p[2] + r[2]};
+    }
+    return p;
+}
+
+float dist(const Vec& a, const Vec& b) {
+    const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// Two bones from `root` to `target`, bending toward `pole`. Writes the new
+// world rotations of the upper and lower bone by ROTATING the ones the pose
+// already had - which keeps whatever twist the source put in them, instead of
+// rebuilding an orientation and throwing the roll away.
+void twoBoneIk(const Vec& root, const Vec& target, const Vec& pole, float upperLen,
+               float lowerLen, float maxReach, const Vec& upperDirNow, const Vec& lowerDirNow,
+               Quat& upperWorld, Quat& lowerWorld) {
+    const float reach = (upperLen + lowerLen) * maxReach;
+    Vec toTarget{target[0] - root[0], target[1] - root[1], target[2] - root[2]};
+    float d = std::sqrt(toTarget[0] * toTarget[0] + toTarget[1] * toTarget[1] +
+                        toTarget[2] * toTarget[2]);
+    if (d < 1e-5f) return;
+    const float minD = std::fabs(upperLen - lowerLen) + 1e-3f;
+    const float clamped = std::min(std::max(d, minD), reach);
+    const Vec u{toTarget[0] / d, toTarget[1] / d, toTarget[2] / d};
+
+    // The knee lies off the root-to-target line by `h`, in the direction of the
+    // pole with the along-the-line part removed.
+    const float along = (upperLen * upperLen - lowerLen * lowerLen + clamped * clamped) /
+                        (2.0f * clamped);
+    const float h = std::sqrt(std::max(0.0f, upperLen * upperLen - along * along));
+    const float pd = pole[0] * u[0] + pole[1] * u[1] + pole[2] * u[2];
+    Vec bend = norm({pole[0] - u[0] * pd, pole[1] - u[1] * pd, pole[2] - u[2] * pd});
+    if (bend[0] == 0 && bend[1] == 0 && bend[2] == 0) return;  // pole parallel to the line
+
+    const Vec knee{root[0] + u[0] * along + bend[0] * h, root[1] + u[1] * along + bend[1] * h,
+                   root[2] + u[2] * along + bend[2] * h};
+    const Vec newUpper = norm({knee[0] - root[0], knee[1] - root[1], knee[2] - root[2]});
+    const Vec end{root[0] + u[0] * clamped, root[1] + u[1] * clamped, root[2] + u[2] * clamped};
+    const Vec newLower = norm({end[0] - knee[0], end[1] - knee[1], end[2] - knee[2]});
+
+    upperWorld = normalized(mul(alignTo(upperDirNow, newUpper), upperWorld));
+    lowerWorld = normalized(mul(alignTo(lowerDirNow, newLower), lowerWorld));
+}
+
+// Puts both feet on the floor, in place, in the frame's WORLD rotations - so
+// everything downstream (the local conversion, the clip writer, the live
+// preview) sees an ordinary pose and needs to know nothing about this.
+void groundFeet(const LiveRetarget::State& st, Frame& f, float t) {
+    const GroundOptions& g = st.ground;
+    if (!g.enabled) return;
+    const Rig& rig = st.rig;
+
+    float dt = 1.0f / 30.0f;
+    if (t >= 0.0f && st.lastTime >= 0.0f) {
+        const float raw = t - st.lastTime;
+        // A clock that jumps backwards, or stalls, must not divide anything.
+        dt = raw > 1e-4f && raw < 0.5f ? raw : 1.0f / 30.0f;
+    }
+    if (t >= 0.0f) st.lastTime = t;
+
+    for (int side = 0; side < 2; ++side) {
+        const int upLeg = side == 0 ? UpLegL : UpLegR;
+        const int leg = side == 0 ? LegL : LegR;
+        const int foot = side == 0 ? FootL : FootR;
+        const int toe = side == 0 ? ToeL : ToeR;
+        if (!rig.has[upLeg] || !rig.has[leg] || !rig.has[foot]) continue;
+
+        LiveRetarget::State::Foot& mem = st.foot[side];
+        const Vec hip = worldPos(rig, f, f.hipsOffset, upLeg);
+        const Vec knee = worldPos(rig, f, f.hipsOffset, leg);
+        Vec ankle = worldPos(rig, f, f.hipsOffset, foot);
+        const Vec toeTip = rig.has[toe] ? worldPos(rig, f, f.hipsOffset, toe) : ankle;
+
+        // How high the ankle sits above the floor in the BIND pose is the foot's
+        // own thickness, and the only sane zero: a character with thick soles
+        // would otherwise be judged permanently airborne.
+        const float restHeight = rig.pos[foot][1] - g.floorY;
+        const float height = ankle[1] - g.floorY - restHeight;
+
+        float speed = 0.0f;
+        if (mem.havePrev) speed = dist(ankle, mem.prevAnkle) / dt;
+        mem.prevAnkle = ankle;
+        mem.havePrev = true;
+
+        // Plant, with hysteresis in BOTH directions: a low, slow foot goes down
+        // and only a clearly raised one comes up.
+        if (!mem.planted) {
+            if (height <= g.plantHeight && speed <= g.plantSpeed) {
+                mem.planted = true;
+                mem.at = {ankle[0], g.floorY + restHeight, ankle[2]};
+                const Vec fwd = norm({toeTip[0] - ankle[0], 0.0f, toeTip[2] - ankle[2]});
+                mem.fwd = (fwd[0] == 0 && fwd[2] == 0) ? Vec{0, 0, 1} : fwd;
+            }
+        } else if (height >= g.releaseHeight) {
+            mem.planted = false;
+        }
+
+        const float step = g.blend > 1e-4f ? dt / g.blend : 1.0f;
+        mem.weight = mem.planted ? std::min(1.0f, mem.weight + step)
+                                 : std::max(0.0f, mem.weight - step);
+        if (mem.weight <= 1e-4f) continue;
+
+        // Where the ankle should be: where it was put down, eased in.
+        const float w = mem.weight;
+        const Vec want{ankle[0] + (mem.at[0] - ankle[0]) * w, ankle[1] + (mem.at[1] - ankle[1]) * w,
+                       ankle[2] + (mem.at[2] - ankle[2]) * w};
+
+        // The knee keeps pointing where the pose already had it pointing, which
+        // is what stops the solve inventing a direction and flipping the joint.
+        const Vec pole = norm({knee[0] - (hip[0] + ankle[0]) * 0.5f,
+                               knee[1] - (hip[1] + ankle[1]) * 0.5f,
+                               knee[2] - (hip[2] + ankle[2]) * 0.5f});
+        Quat upperWorld = f.get(upLeg), lowerWorld = f.get(leg);
+        twoBoneIk(hip, want, pole, dist(hip, knee), dist(knee, ankle), g.maxReach,
+                  norm({knee[0] - hip[0], knee[1] - hip[1], knee[2] - hip[2]}),
+                  norm({ankle[0] - knee[0], ankle[1] - knee[1], ankle[2] - knee[2]}), upperWorld,
+                  lowerWorld);
+        f.put(upLeg, upperWorld);
+        f.put(leg, lowerWorld);
+
+        // The ankle itself: level the sole and keep the heading it was set down
+        // with. This is the part that matters most when the source never solved
+        // the ankle - without it a planted foot still pitches with the shin.
+        if (rig.has[toe]) {
+            const Vec ankleNow = worldPos(rig, f, f.hipsOffset, foot);
+            const Vec toeNow = worldPos(rig, f, f.hipsOffset, toe);
+            const Vec cur = norm({toeNow[0] - ankleNow[0], toeNow[1] - ankleNow[1],
+                                  toeNow[2] - ankleNow[2]});
+            const Vec flat = mem.fwd;
+            const Quat levelled = normalized(mul(alignTo(cur, flat), f.get(foot)));
+            f.put(foot, normalized(slerp(f.get(foot), levelled, w)));
+        }
+    }
+}
+
 void applyFrame(const LiveRetarget::State& st, const Frame& f, glbparser::Skel& target) {
     for (int role = 0; role < RoleCount; ++role) {
         const int node = st.rig.node[role];
@@ -701,6 +902,7 @@ std::shared_ptr<LiveRetarget::State> bindSource(const glbparser::Skel& source,
     st->srcBindGlobal = globalRotations(st->srcParent, st->srcBindLocal);
     const float srcHeight = source.max[1] - source.min[1];
     st->heightScale = srcHeight > 0.1f ? st->rig.height / srcHeight : 1.0f;
+    st->ground = opts.ground;
 
     // Rest directions on both sides, in world space, and the rotation between
     // them. The source's come from its own bind pose (positions composed
@@ -749,11 +951,19 @@ LiveRetarget prepareLive(const glbparser::Skel& source, const glbparser::Skel& t
 }
 
 void resetLiveOrigin(const LiveRetarget& binding) {
-    if (binding.valid()) binding.state->haveBase = false;
+    if (!binding.valid()) return;
+    binding.state->haveBase = false;
+    // A stream that JUMPS has not moved its feet, it has been given new ones:
+    // holding a plant across the jump would drag the leg to wherever the foot
+    // used to be, and the whole point of a recentre is that nothing is carried
+    // over.
+    binding.state->foot[0] = LiveRetarget::State::Foot();
+    binding.state->foot[1] = LiveRetarget::State::Foot();
+    binding.state->lastTime = -1.0f;
 }
 
 void applyLive(const LiveRetarget& binding, const float* srcLocalRot, const float* hipsWorld,
-               glbparser::Skel& target) {
+               glbparser::Skel& target, float timeSeconds) {
     if (!binding.valid() || !srcLocalRot) return;
     const LiveRetarget::State& st = *binding.state;
 
@@ -762,7 +972,9 @@ void applyLive(const LiveRetarget& binding, const float* srcLocalRot, const floa
         local[i] = normalized({srcLocalRot[i * 4], srcLocalRot[i * 4 + 1],
                                srcLocalRot[i * 4 + 2], srcLocalRot[i * 4 + 3]});
 
-    applyFrame(st, frameFromSource(st, local, hipsWorld), target);
+    Frame f = frameFromSource(st, local, hipsWorld);
+    groundFeet(st, f, timeSeconds);
+    applyFrame(st, f, target);
 }
 
 int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const RetargetOptions& opts,
@@ -786,8 +998,15 @@ int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const Retarge
         frames.reserve(times.size());
 
         // Root motion is measured from each clip's own first sample, so a take
-        // starts where the performer was rather than snapping to bind.
+        // starts where the performer was rather than snapping to bind. The
+        // ground solve is stateful in the same way and for the same reason - a
+        // foot planted at the end of one clip is not planted at the start of the
+        // next - so the two are forgotten together, and that pairing is what
+        // keeps this path and the live one producing identical poses.
         st.haveBase = false;
+        st.foot[0] = LiveRetarget::State::Foot();
+        st.foot[1] = LiveRetarget::State::Foot();
+        st.lastTime = -1.0f;
 
         for (float t : times) {
             std::vector<Quat> local = srcBindLocal;
@@ -811,7 +1030,9 @@ int retarget(const glbparser::Skel& source, glbparser::Skel& skel, const Retarge
             // The one place the conversion lives - the live path calls this
             // very function, which is what keeps a streamed pose and a baked
             // clip from being two implementations of one idea.
-            frames.push_back(frameFromSource(st, local, haveHipsT ? hipsT : nullptr));
+            Frame f = frameFromSource(st, local, haveHipsT ? hipsT : nullptr);
+            groundFeet(st, f, t);
+            frames.push_back(f);
         }
 
         glbparser::SkelClip built = buildClip(clip.name, rig, bindHips, times, frames);

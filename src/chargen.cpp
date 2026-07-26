@@ -691,7 +691,8 @@ bool Params::operator==(const Params& o) const {
            clothes == o.clothes && shoes == o.shoes && hair == o.hair &&
            clothingDetail == o.clothingDetail && animations == o.animations && anim == o.anim &&
            animSource == o.animSource && retarget.fps == o.retarget.fps &&
-           retarget.inPlace == o.retarget.inPlace && name == o.name;
+           retarget.inPlace == o.retarget.inPlace &&
+           retarget.ground.enabled == o.retarget.ground.enabled && name == o.name;
 }
 
 std::string dataDir() {

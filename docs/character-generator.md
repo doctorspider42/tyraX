@@ -363,6 +363,47 @@ each of the performer's bones and the character's, after retargeting, is
 wrong, that number is where to start - if it is zero, the character is doing
 precisely what the source said, and the source is what to argue with.
 
+### Feet on the floor
+
+Rotations do not know where the ground is. A retarget applies the performer's
+joint angles to a body with its own proportions, so the ankle lands wherever
+that chain of angles happens to put it - which on a real take meant **147 mm
+below the floor**. Add a source that never solves the ankle, and the foot
+follows the shin rigidly: a lifted knee comes with a pointed toe, like a dancer.
+
+*Feet on the floor* (on by default, in both the Character Generator's retarget
+options and the Mocap window) decides per frame whether each foot is **standing**
+- low enough and slow enough - and if it is, puts the ankle back where it was set
+down, levels the sole, and bends the leg with a two-bone solve to reach. Leaving
+a plant needs a clearly higher foot than entering one; without that hysteresis a
+foot hovering at the threshold flickers every other frame. The knee keeps
+pointing where the pose already had it pointing, which is what stops the solve
+inventing a direction and flipping the joint, and the leg is never allowed to
+straighten completely, because at full extension there is no knee direction left.
+
+Measured on a real 9.5-second take, for the foot that was actually on the ground:
+
+| | off | on |
+|---|---|---|
+| slide while planted (mean) | 36.4 mm | **0.9 mm** |
+| deepest through the floor | 146.8 mm | 4.0 mm |
+| sole off level while down (mean) | 37.3° | **1.0°** |
+
+The peak sole angle stays at 61° because that is the single frame of first
+contact, before the ease-in has run - which is the intent, not a shortfall.
+
+Two boundaries worth stating. The solve runs on the **retarget** path, so it
+covers Mixamo imports, `.tmocap` files and the live link, but **not the
+procedural idle/walk/run/jump**, which are authored analytically by a different
+function; those measure 22.7 mm of slide and 20 mm through the floor, and
+running a stateful plant over a clip that has to loop seamlessly is a way to
+break a working feature for a gain nobody can see at PS2 range. And a foot the
+performer never puts down never plants - correctly. In the take above the left
+foot stayed bent the whole time and the character's left foot never came within
+94 mm of the floor; the hips bob 177 mm in that recording, which is enough for a
+23 mm difference in leg extension between the two sides to become a 240 mm
+difference in how low each ankle ever gets.
+
 ### Two things real data broke that Mixamo clips never did
 
 Both were found by importing an actual take and looking at it, which is the
