@@ -10184,6 +10184,9 @@ void App::mocapRebind() {
             return;
         }
         source = &liveRig;
+        mocapLiveHips_ = -1;
+        for (size_t i = 0; i < liveRig.nodes.size(); ++i)
+            if (liveRig.nodes[i].name == "mixamorig:Hips") mocapLiveHips_ = (int)i;
     }
     if (!source || source->nodes.empty()) return;
 
@@ -10214,17 +10217,44 @@ void App::mocapRebind() {
     ++mocapPrevVersion_;
 }
 
-void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t) {
+void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
+                          const float* rootRot) {
     if (!mocapBind_.valid() || !rot) return;
-    charanim::applyLive(mocapBind_, rot, haveHips ? hips : nullptr, mocapSkel_);
+    const int joints = mocapBind_.sourceNodeCount();
+
+    // The body's HEADING rides the anchor, not the hips joint - ARKit holds the
+    // hips joint's own rotation constant to the last bit while a performer turns
+    // a full circle. Composing it in here is what lets the character turn round;
+    // everything below the hips inherits it when the source globals compose.
+    // The file path does the same thing when it decodes a take, so both feeds
+    // hand applyLive the same meaning.
+    const float* src = rot;
+    if (rootRot && mocapLiveHips_ >= 0 && mocapLiveHips_ < joints) {
+        mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+        const float* a = rootRot;
+        const float* b = &mocapFrameRot_[(size_t)mocapLiveHips_ * 4];
+        const float w[4] = {a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+                            a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+                            a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+                            a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]};
+        std::memcpy(&mocapFrameRot_[(size_t)mocapLiveHips_ * 4], w, sizeof(w));
+        src = mocapFrameRot_.data();
+    }
+
+    charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_);
     charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
     ++mocapPrevVersion_;
 
     if (!mocapRecording_) return;
-    const int joints = mocapBind_.sourceNodeCount();
     mocapRecTimes_.push_back(t);
+    // The RAW rotations, with the heading kept separate exactly as the file
+    // format keeps it - a take must decode to what the phone sent, not to what
+    // this window happened to compose for its preview.
     mocapRecRot_.insert(mocapRecRot_.end(), rot, rot + (size_t)joints * 4);
     for (int k = 0; k < 3; ++k) mocapRecHips_.push_back(haveHips ? hips[k] : 0.0f);
+    const float ident[4] = {0, 0, 0, 1};
+    const float* rr = rootRot ? rootRot : ident;
+    mocapRecRoot_.insert(mocapRecRoot_.end(), rr, rr + 4);
 }
 
 void App::mocapStopRecording() {
@@ -10234,6 +10264,8 @@ void App::mocapStopRecording() {
         mocapRecTimes_.clear();
         mocapRecRot_.clear();
         mocapRecHips_.clear();
+    mocapRecRoot_.clear();
+        mocapRecRoot_.clear();
         return;
     }
     const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
@@ -10254,7 +10286,7 @@ void App::mocapStopRecording() {
     std::string err;
     if (!mocap::writeTake((dir / (name + ".tmocap")).string(), sk.joints, sk.parents,
                           sk.restPos.data(), sk.restRot.data(), mocapRecTimes_, mocapRecRot_,
-                          mocapRecHips_, err)) {
+                          mocapRecHips_, mocapRecRoot_, err)) {
         mocapNote_ = "take: " + err;
     } else {
         mocapNote_ = "wrote res/mocap/" + name + ".tmocap (" +
@@ -10264,6 +10296,7 @@ void App::mocapStopRecording() {
     mocapRecTimes_.clear();
     mocapRecRot_.clear();
     mocapRecHips_.clear();
+    mocapRecRoot_.clear();
 }
 
 // Tools > Mocap: a performer drives a character in the editor, live off the
@@ -10325,6 +10358,11 @@ void App::drawMocapWindow() {
                     mocapTake_ = file;
                     mocapRebind();
                     mocapPlaying_ = true;
+                    // The reader says which mapped bones the take never moves.
+                    // Showing it is the difference between a user concluding the
+                    // retarget is broken and a user knowing ARKit did not solve
+                    // a wrist.
+                    for (const std::string& w : mocapSource_.warnings) mocapNote_ = w;
                 }
             }
         }
@@ -10373,6 +10411,9 @@ void App::drawMocapWindow() {
             mocapRecTimes_.clear();
             mocapRecRot_.clear();
             mocapRecHips_.clear();
+            mocapRecRoot_.clear();
+    mocapRecRoot_.clear();
+        mocapRecRoot_.clear();
             mocapRecording_ = true;
             mocapNote_.clear();
         }
@@ -10458,7 +10499,8 @@ void App::drawMocapWindow() {
             // lost between two repaints.
             for (const phonecam::BodyFrame& f : phoneCam_.drainBodyFrames()) {
                 if ((int)f.rot.size() / 4 != mocapBind_.sourceNodeCount()) continue;
-                mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t);
+                mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t,
+                                f.haveRootRot ? f.rootRot : nullptr);
             }
         }
     }

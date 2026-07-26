@@ -93,6 +93,16 @@ struct Reader {
     }
 };
 
+// a then b, both (x, y, z, w).
+void quatMul(const float* a, const float* b, float* out) {
+    const float ax = a[0], ay = a[1], az = a[2], aw = a[3];
+    const float bx = b[0], by = b[1], bz = b[2], bw = b[3];
+    out[0] = aw * bx + ax * bw + ay * bz - az * by;
+    out[1] = aw * by - ax * bz + ay * bw + az * bx;
+    out[2] = aw * bz + ax * by - ay * bx + az * bw;
+    out[3] = aw * bw - ax * bx - ay * by - az * bz;
+}
+
 // Translation + rotation out of a local transform. Scale is dropped on
 // purpose: ARKit's skeleton scale estimation puts the performer's limb lengths
 // in here, and a retarget applies ROTATIONS to a body that has its own
@@ -252,11 +262,13 @@ void putTrs(std::ostream& f, const float* t, const float* r) {
 bool writeTake(const std::string& path, const std::vector<std::string>& jointNames,
                const std::vector<int>& parents, const float* restPos, const float* restRot,
                const std::vector<float>& times, const std::vector<float>& rot,
-               const std::vector<float>& hips, std::string& error) {
+               const std::vector<float>& hips, const std::vector<float>& rootRot,
+               std::string& error) {
     const size_t n = jointNames.size();
     const size_t frames = times.size();
     if (!n || parents.size() != n || !restPos || !restRot || !frames ||
-        rot.size() != frames * n * 4 || hips.size() != frames * 3) {
+        rot.size() != frames * n * 4 || hips.size() != frames * 3 ||
+        (!rootRot.empty() && rootRot.size() != frames * 4)) {
         error = "take is inconsistent (" + std::to_string(n) + " joints, " +
                 std::to_string(frames) + " frames)";
         return false;
@@ -283,7 +295,8 @@ bool writeTake(const std::string& path, const std::vector<std::string>& jointNam
     for (size_t fr = 0; fr < frames; ++fr) {
         putF32(f, times[fr] - times.front());            // rebased to zero
         const float ident[4] = {0, 0, 0, 1};
-        putTrs(f, &hips[fr * 3], ident);                 // the anchor's transform
+        // The anchor: where the body is AND which way it faces.
+        putTrs(f, &hips[fr * 3], rootRot.empty() ? ident : &rootRot[fr * 4]);
         for (size_t i = 0; i < n; ++i)
             putTrs(f, restPos + i * 3, &rot[(fr * n + i) * 4]);
     }
@@ -377,6 +390,8 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
         const float t = r.f32();
         float root[16];
         r.mat4(root);
+        float rootTr[3], rootQ[4];
+        decompose(root, rootTr, rootQ);
         if (!r.ok) {
             error = "take truncated at frame " + std::to_string(frame) + " of " +
                     std::to_string(frameCount);
@@ -391,16 +406,54 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
             }
             float tr[3], q[4];
             decompose(m, tr, q);
+            // ARKit puts the body's HEADING on the anchor, not on the hips: the
+            // hips joint's own rotation is constant to the last bit across a
+            // take in which the performer turned a full circle. Composing the
+            // anchor onto the hips is what makes the character turn at all -
+            // without it every frame faces the direction the first one did, and
+            // a performer who walks a circle is retargeted as one marching on
+            // the spot. Everything below the hips inherits it for free.
+            if ((int)i == hips) {
+                float world[4];
+                quatMul(rootQ, q, world);
+                std::memcpy(q, world, sizeof(world));
+            }
             rot[i].times.push_back(t);
             rot[i].values.insert(rot[i].values.end(), {q[0], q[1], q[2], q[3]});
-            // The hips carry the body's motion through the world - it lives on
-            // the anchor, not on the joint, which sits at the skeleton origin.
+            // The hips also carry the body's motion through the world, and that
+            // lives on the anchor too - the joint sits at the skeleton origin.
             if ((int)i == hips) {
                 hipsMove.times.push_back(t);
                 hipsMove.values.insert(hipsMove.values.end(),
                                        {root[12] + tr[0], root[13] + tr[1], root[14] + tr[2]});
             }
         }
+    }
+
+    // Which mapped bones did the source never actually move? ARKit's body
+    // tracking does not solve every joint it reports: across a nine-second take
+    // in which the performer walked and turned, the wrists, ankles and the head
+    // relative to the neck were constant TO THE BIT. That is not a bug here and
+    // there is nothing to fix in the retarget - but it is the difference between
+    // "the character's hands are broken" and "the source has no wrist data", so
+    // it is measured out of each take rather than assumed or left to be
+    // rediscovered.
+    std::vector<std::string> frozen;
+    for (const glbparser::SkelChannel& ch : rot) {
+        if (ch.path != 1 || ch.node < 0 || ch.node >= (int)out.nodes.size()) continue;
+        if (ch.values.size() < 8) continue;
+        bool moved = false;
+        for (size_t k = 4; k < ch.values.size() && !moved; ++k)
+            if (std::fabs(ch.values[k] - ch.values[k % 4]) > 1e-4f) moved = true;
+        const std::string& name = out.nodes[ch.node].name;
+        if (!moved && name.rfind("mixamorig:", 0) == 0) frozen.push_back(name.substr(10));
+    }
+    if (!frozen.empty()) {
+        std::string list;
+        for (const std::string& f : frozen) list += (list.empty() ? "" : ", ") + f;
+        out.warnings.push_back("the source never moves " + list +
+                               " - ARKit does not solve those joints, so they follow their "
+                               "parent bone rigidly");
     }
 
     for (glbparser::SkelChannel& ch : rot) clip.channels.push_back(std::move(ch));

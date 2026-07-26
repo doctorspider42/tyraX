@@ -330,6 +330,39 @@ against. The phone joins the same server, port and handshake `tyrax-cam` uses;
 `body: true` at hello is how `src/phonecam.cpp` tells the two apps apart. The
 layout is written down in the phone repo's `PROTOCOL.md`.
 
+### What ARKit does not solve, and how you find out
+
+Point a phone at somebody and four things go wrong at once. Three of them are
+one bug and one is not a bug at all, and telling them apart took measuring the
+recording rather than staring at the character.
+
+**The body would not turn round.** ARKit keeps the body's heading on the
+*anchor*, not on the hips joint: across a nine-second take in which the
+performer walked a full circle, `hips_joint`'s own rotation was constant **to
+the bit**, while the anchor swung 177 degrees. Both paths threw that rotation
+away and kept only the anchor's position, so a performer walking a circle
+retargeted as one marching on the spot. The heading is now composed onto the
+hips - on decode for a file, in the window for a live frame - and everything
+below the hips inherits it for free. The phone sends it as four floats beside
+the hips position; `writeTake` stores it, or a recorded live take would lose the
+turn all over again.
+
+**The hands, the head and the feet do not move** - and there is nothing to fix.
+Over 277 frames, these joints' local rotations never changed by so much as a
+float bit: both wrists, both ankles, both toe joints, and the head relative to
+the neck. ARKit reports them, it does not *solve* them. The head still turns,
+because it inherits the neck chain (which moves about 10 degrees in that take);
+the wrists and ankles follow their parent bone rigidly, which is why a lifted
+knee comes with a pointed foot. `mocap::load` measures this per take and says
+so, because "the source has no wrist data" and "the retarget is broken" look
+identical on screen and are not the same problem.
+
+**The limbs themselves are exact.** Measured, not assumed: the angle between
+each of the performer's bones and the character's, after retargeting, is
+**0.0 degrees** for every limb across every frame sampled. When a pose looks
+wrong, that number is where to start - if it is zero, the character is doing
+precisely what the source said, and the source is what to argue with.
+
 ### Two things real data broke that Mixamo clips never did
 
 Both were found by importing an actual take and looking at it, which is the

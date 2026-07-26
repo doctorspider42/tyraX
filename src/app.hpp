@@ -506,7 +506,8 @@ private:
     void mocapRebind();
     // One frame in: retarget it onto the character, and append it to the take
     // when recording.
-    void mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t);
+    void mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
+                         const float* rootRot = nullptr);
     void mocapStopRecording();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
@@ -1021,6 +1022,8 @@ private:
     glbparser::Skel mocapSource_;     // file playback: the take as a source rig
     int mocapSourceKind_ = 0;         // 0 none, 1 file, 2 live link
     uint64_t mocapLiveSkelSeq_ = 0;   // the phone skeleton mocapBind_ was built from
+    int mocapLiveHips_ = -1;          // where the heading is composed in
+    std::vector<float> mocapFrameRot_;  // scratch: source rotations + the heading
     std::string mocapTake_;           // the file being played back
     float mocapTime_ = 0.0f;
     bool mocapPlaying_ = false;
@@ -1034,7 +1037,8 @@ private:
     bool mocapRecording_ = false;
     std::vector<float> mocapRecTimes_;
     std::vector<float> mocapRecRot_;   // frames * joints * 4
-    std::vector<float> mocapRecHips_;  // frames * 3
+    std::vector<float> mocapRecHips_;
+    std::vector<float> mocapRecRoot_;  // frames * 3
     char mocapName_[64] = "take";
 
     float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;

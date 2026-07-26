@@ -57,12 +57,19 @@ const char* mixamoName(const std::string& arkitJoint);
 // path from motion to animation.
 //
 // `restPos`/`restRot` are the skeleton's rest pose (joints*3, joints*4).
-// `times` is one entry per frame; `rot` is frames*joints*4 and `hips`
-// frames*3. Per-joint translation comes from the rest pose - a body's bones do
-// not change length mid-take, and the reader decomposes what it is given.
+// `times` is one entry per frame; `rot` is frames*joints*4, `hips` frames*3 and
+// `rootRot` frames*4. Per-joint translation comes from the rest pose - a body's
+// bones do not change length mid-take, and the reader decomposes what it is
+// given.
+//
+// `rootRot` is the body's HEADING and may be empty only for a source that has
+// none. ARKit keeps the heading on the anchor rather than the hips joint, so a
+// take written with identity here records a performer who turned a full circle
+// as one marching on the spot.
 bool writeTake(const std::string& path, const std::vector<std::string>& jointNames,
                const std::vector<int>& parents, const float* restPos, const float* restRot,
                const std::vector<float>& times, const std::vector<float>& rot,
-               const std::vector<float>& hips, std::string& error);
+               const std::vector<float>& hips, const std::vector<float>& rootRot,
+               std::string& error);
 
 }  // namespace mocap

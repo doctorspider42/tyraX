@@ -129,6 +129,12 @@ struct BodyFrame {
     std::vector<float> rot;         // joints * 4, same order as the skeleton
     float hips[3] = {0, 0, 0};
     bool haveHips = false;
+    // The body's HEADING. ARKit keeps it on the anchor, not on the hips joint -
+    // whose own rotation is constant to the last bit through a take in which the
+    // performer turned a full circle - so a frame without this is a frame in
+    // which the character cannot turn around.
+    float rootRot[4] = {0, 0, 0, 1};
+    bool haveRootRot = false;
     bool tracked = true;            // false = ARKit lost the body this frame
 };
 

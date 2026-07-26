@@ -10,6 +10,37 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (188) **Four complaints about the first live session, one bug.** The owner
+  pointed a phone at a person, watched the character copy them, and reported:
+  the legs are shuffled, the hands do not move, the head does not move, and the
+  character never turns round. Each was measured out of his own 9.5-second take
+  rather than guessed at, with a throwaway reader that asks only "what actually
+  MOVES in this recording".
+  **The heading is on the ANCHOR, not on the hips joint.** Across a take in
+  which he walked a full circle, `hips_joint`'s own rotation was constant *to
+  the bit* while the anchor swung 177 degrees and its heading covered 358. Both
+  paths kept the anchor's position and dropped its rotation, so a performer
+  walking a circle retargeted as one marching on the spot. Composed onto the
+  hips now - on decode for a file, in the Mocap window for a live frame - and
+  everything below inherits it. `writeTake` stores it too, or recording a live
+  session would lose the turn a second time. The phone sends it as four floats
+  beside the hips position; the `.tmocap` file already carried it and nobody was
+  reading it.
+  **The hands, head and feet are not a bug.** Over 277 frames both wrists, both
+  ankles, both toe joints and the head-relative-to-neck never changed by a float
+  bit. ARKit *reports* those joints and does not *solve* them. There is nothing
+  to fix in the retarget, so `mocap::load` now measures it per take and says
+  which bones the source never moves - "the source has no wrist data" and "the
+  retarget is broken" look identical on screen, and only one of them is worth
+  anyone's afternoon.
+  **The legs were the retarget being right.** A second harness compares, per
+  frame, the angle between the performer's bone and the character's after
+  retargeting: **0.0 degrees on every limb**. The pose was exactly what the
+  source said. What made it read as shuffled was the missing heading (a torso
+  that never turns while the legs step around it) plus rigid ankles pointing the
+  feet like a dancer. Worth keeping: when a retargeted pose looks wrong, that
+  angle decides in one run whether to debug the code or the data.
+
 - (187) **The phone-side sender: the live link actually streams** (tyrax-mocap
   v1.0.4). (184) and (185) built the editor's half - the transport, the window,
   the per-frame retarget - against a feed nothing was producing yet. The app now

@@ -412,6 +412,7 @@ void Link::workerMain() {
                 f.rot.resize(joints * 4);
                 std::memcpy(f.rot.data(), e.frame.bin.data(), joints * 4 * sizeof(float));
                 f.haveHips = readVec(msg, "h", f.hips, 3);
+                f.haveRootRot = readVec(msg, "r", f.rootRot, 4);
                 std::lock_guard<std::mutex> lk(mutex_);
                 bodyFrames_.push_back(std::move(f));
                 while (bodyFrames_.size() > kMaxPendingPoses) bodyFrames_.pop_front();
