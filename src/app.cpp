@@ -108,7 +108,31 @@ struct EditorConfig {
     // The axis-view gizmo in the viewport's top-right corner. On by default;
     // it can be turned off because it sits where HUD authoring wants space.
     bool axisGizmo = true;
+    // Phone camera link (docs/phone-camera.md). Which port is free and how
+    // much the Wi-Fi here can carry are properties of this machine, so the
+    // whole thing is machine config rather than project data. The pairing code
+    // persists so a paired phone keeps working across editor restarts.
+    phonecam::PreviewPrefs phoneCam;
+    int phoneCamPort = (int)phonecam::kDefaultPort;
+    std::string phoneCamCode;      // 6 digits; generated on first use
+    bool phoneCamRequireCode = true;
+    // TV safe-area guides (docs/safe-areas.md) - a viewing aid like axisGizmo,
+    // so it belongs to the installation, not to the project.
+    bool safeAreaOn = false;
+    bool safeFrame = true, safeAction = true, safeTitle = true;
+    bool safeCentre = false, safeBothRegions = false;
+    int safeAspect = 0;  // 0 follow project, 1 = 4:3, 2 = 16:9
+    float safeOpacity = 0.55f;
+    // Project folders opened most recently, most-recent first (the welcome
+    // screen's list). Machine-global like everything else here: which projects
+    // this PC has seen is a property of the PC, not of any one project.
+    std::vector<std::string> recentProjects;
 };
+
+// How many entries the recent-projects list keeps. Ten fills the welcome
+// screen without scrolling and is about as far back as "continue where I left
+// off" is still useful.
+static constexpr size_t kMaxRecentProjects = 10;
 
 static std::filesystem::path editorConfigPath() {
     const char* base = getenv("LOCALAPPDATA");
@@ -155,7 +179,31 @@ static EditorConfig loadEditorConfig() {
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
         else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
+        else if (match("phoneCamPort", v)) cfg.phoneCamPort = toI(v, cfg.phoneCamPort);
+        else if (match("phoneCamCode", v)) cfg.phoneCamCode = v;
+        else if (match("phoneCamRequireCode", v)) cfg.phoneCamRequireCode = toI(v, 1) != 0;
+        else if (match("phoneCamMaxW", v)) cfg.phoneCam.maxWidth = toI(v, cfg.phoneCam.maxWidth);
+        else if (match("phoneCamMaxH", v)) cfg.phoneCam.maxHeight = toI(v, cfg.phoneCam.maxHeight);
+        else if (match("phoneCamFps", v)) cfg.phoneCam.fps = toI(v, cfg.phoneCam.fps);
+        else if (match("phoneCamQuality", v)) cfg.phoneCam.quality = toI(v, cfg.phoneCam.quality);
+        else if (match("safeAreaOn", v)) cfg.safeAreaOn = toI(v, 0) != 0;
+        else if (match("safeFrame", v)) cfg.safeFrame = toI(v, 1) != 0;
+        else if (match("safeAction", v)) cfg.safeAction = toI(v, 1) != 0;
+        else if (match("safeTitle", v)) cfg.safeTitle = toI(v, 1) != 0;
+        else if (match("safeCentre", v)) cfg.safeCentre = toI(v, 0) != 0;
+        else if (match("safeBothRegions", v)) cfg.safeBothRegions = toI(v, 0) != 0;
+        else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
+        else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
+        else if (match("phoneCamSmoothing", v))
+            cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
+        // One line per entry, written in list order (most recent first).
+        else if (match("recentProject", v)) {
+            if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
+                cfg.recentProjects.push_back(v);
+        }
     }
+    if (cfg.phoneCamPort < 1024 || cfg.phoneCamPort > 65535)
+        cfg.phoneCamPort = (int)phonecam::kDefaultPort;
     if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
 }
@@ -188,7 +236,47 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
       << "matEdSplit=" << cfg.matEdSplit << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
-      << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n";
+      << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n"
+      << "phoneCamPort=" << cfg.phoneCamPort << "\n"
+      << "phoneCamCode=" << cfg.phoneCamCode << "\n"
+      << "phoneCamRequireCode=" << (cfg.phoneCamRequireCode ? 1 : 0) << "\n"
+      << "phoneCamMaxW=" << cfg.phoneCam.maxWidth << "\n"
+      << "phoneCamMaxH=" << cfg.phoneCam.maxHeight << "\n"
+      << "phoneCamFps=" << cfg.phoneCam.fps << "\n"
+      << "phoneCamQuality=" << cfg.phoneCam.quality << "\n"
+      << "safeAreaOn=" << (cfg.safeAreaOn ? 1 : 0) << "\n"
+      << "safeFrame=" << (cfg.safeFrame ? 1 : 0) << "\n"
+      << "safeAction=" << (cfg.safeAction ? 1 : 0) << "\n"
+      << "safeTitle=" << (cfg.safeTitle ? 1 : 0) << "\n"
+      << "safeCentre=" << (cfg.safeCentre ? 1 : 0) << "\n"
+      << "safeBothRegions=" << (cfg.safeBothRegions ? 1 : 0) << "\n"
+      << "safeAspect=" << cfg.safeAspect << "\n"
+      << "safeOpacity=" << cfg.safeOpacity << "\n"
+      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
+    for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
+}
+
+// The name a project folder shows under, and whether it is still a project at
+// all: the <name>.tyra stem (project::load finds the manifest the same way),
+// empty when the folder is gone or holds no manifest.
+static std::string projectManifestName(const std::string& dir) {
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (entry.is_regular_file(ec) && entry.path().extension() == ".tyra")
+            return entry.path().stem().string();
+    }
+    return "";
+}
+
+// Dedupe key for a recent-projects entry: the same folder can arrive spelled
+// two ways (the Open dialog and the New Project modal disagree on slashes and
+// Windows does not care about case), and the list must not grow a second row
+// for a project it already has.
+static std::string recentProjectKey(const std::string& dir) {
+    std::string k = std::filesystem::path(dir).lexically_normal().string();
+    while (!k.empty() && (k.back() == '\\' || k.back() == '/')) k.pop_back();
+    for (char& c : k) c = (char)tolower((unsigned char)c);
+    return k;
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -403,6 +491,26 @@ int App::run(const std::string& initialProjectDir) {
         matEdSplit_ = cfg.matEdSplit;
         placementSnap_ = cfg.placementSnap;
         showAxisGizmo_ = cfg.axisGizmo;
+        phoneCamPrefs_ = cfg.phoneCam;
+        phoneCamPort_ = cfg.phoneCamPort;
+        phoneCamCode_ = cfg.phoneCamCode;
+        phoneCamRequireCode_ = cfg.phoneCamRequireCode;
+        showSafeArea_ = cfg.safeAreaOn;
+        safeArea_.frame = cfg.safeFrame;
+        safeArea_.action = cfg.safeAction;
+        safeArea_.title = cfg.safeTitle;
+        safeArea_.centre = cfg.safeCentre;
+        safeArea_.bothRegions = cfg.safeBothRegions;
+        safeArea_.aspect = cfg.safeAspect;
+        safeArea_.opacity = cfg.safeOpacity;
+        // Probe the recent projects once, here: the welcome screen draws this
+        // list every frame and must not scan the disk to do it.
+        for (const std::string& dir : cfg.recentProjects) {
+            RecentProject r;
+            r.dir = dir;
+            probeRecentProject(r);
+            recentProjects_.push_back(r);
+        }
     }
     applyUiScale();
 
@@ -429,13 +537,7 @@ int App::run(const std::string& initialProjectDir) {
         std::string dir = initialProjectDir;
         if (std::filesystem::path(dir).extension() == ".tyra")
             dir = std::filesystem::path(dir).parent_path().string();
-        Project p;
-        if (project::load(p, dir).empty()) {
-            project_ = p;
-            hasProject_ = true;
-            applyProjectToViewport();
-            attachProject();  // resets dirty + window title
-        }
+        openProjectAt(dir);  // failure leaves the welcome screen up
     }
 
     while (true) {
@@ -555,6 +657,11 @@ void App::drawUI() {
     // session end) - the only place session state meets project_/ImGui.
     sessionTick();
 
+    // Drain the phone camera link (poses, phone-side buttons, connect/drop) and
+    // re-bake a running recording. Same contract as sessionTick: the only place
+    // link data meets project_/ImGui.
+    phoneCamTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -577,6 +684,7 @@ void App::drawUI() {
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
+    drawPhoneCamWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
@@ -684,10 +792,18 @@ void App::applyUiScale() {
 // {uiScaleUser_, nav_} would wipe the emulator path / PS2 IP on the next
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
+    std::vector<std::string> recent;
+    recent.reserve(recentProjects_.size());
+    for (const RecentProject& r : recentProjects_) recent.push_back(r.dir);
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_, placementSnap_, showAxisGizmo_});
+                      matEdSplit_, placementSnap_, showAxisGizmo_,
+                      phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
+                      phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
+                      safeArea_.action, safeArea_.title, safeArea_.centre,
+                      safeArea_.bothRegions, safeArea_.aspect,
+                      safeArea_.opacity, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -996,6 +1112,7 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::EndMenu();
         }
 
@@ -1418,6 +1535,121 @@ void App::updateNavOverlay() {
     viewport_.setNavOverlay(&navGrid_, navOverlayVersion_);
 }
 
+// Fit a path into maxW pixels by dropping characters from the FRONT: the tail
+// (the project's own folder) is what identifies it, the drive root is not.
+// Binary search over the cut - the fit is monotonic, and this runs per row
+// per frame.
+static std::string ellipsizePathLeft(const std::string& s, float maxW) {
+    if (ImGui::CalcTextSize(s.c_str()).x <= maxW) return s;
+    size_t lo = 0, hi = s.size();  // smallest cut that fits
+    while (lo < hi) {
+        const size_t mid = (lo + hi) / 2;
+        if (ImGui::CalcTextSize(("..." + s.substr(mid)).c_str()).x <= maxW)
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    // Never cut inside a UTF-8 sequence - a path can carry accented folder
+    // names, and half a codepoint draws as garbage.
+    while (lo < s.size() && ((unsigned char)s[lo] & 0xC0) == 0x80) ++lo;
+    return "..." + s.substr(lo);
+}
+
+// The Viewport's content before anything is open: the two ways in, plus the
+// recent-projects list so the usual next step - carry on with the project from
+// last time - is one click instead of a file dialog. Entries whose folder is
+// gone stay listed (greyed) rather than being swept: a project on an unplugged
+// drive is not a mistake, and the x is right there when it really is.
+void App::drawWelcomeScreen() {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    ImGui::Dummy(ImVec2(0, scaled(24)));
+    ImGui::Indent(scaled(30));
+
+    ImGui::TextDisabled("No project open.");
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+    const ImVec2 bsz(scaled(160), 0);
+    if (ImGui::Button("New project...", bsz)) requestNewProject();
+    ImGui::SameLine();
+    if (ImGui::Button("Open project...", bsz)) requestOpenProject();
+    ImGui::SameLine();
+    ImGui::TextDisabled("Ctrl+N / Ctrl+O");
+
+    ImGui::Dummy(ImVec2(0, scaled(12)));
+    ImGui::SeparatorText("Recent projects");
+    if (recentProjects_.empty()) {
+        ImGui::TextDisabled("Empty - the projects you open show up here.");
+        ImGui::Unindent(scaled(30));
+        return;
+    }
+
+    // Resolved after the loop: opening a project (or dropping an entry)
+    // rewrites recentProjects_, which we are iterating.
+    int openIndex = -1, forgetIndex = -1;
+    const float listW = ImMin(ImGui::GetContentRegionAvail().x, scaled(560));
+    const float lineH = ImGui::GetTextLineHeight();
+    const float rowH = lineH * 2.0f + st.FramePadding.y * 2.0f + scaled(4);
+    const float textX = st.FramePadding.x + scaled(4);
+    const ImU32 colName = ImGui::GetColorU32(ImGuiCol_Text);
+    const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    for (int i = 0; i < (int)recentProjects_.size(); ++i) {
+        const RecentProject& r = recentProjects_[i];
+        ImGui::PushID(i + 7100);
+        const ImVec2 row = ImGui::GetCursorScreenPos();
+        if (ImGui::Selectable("##recent", false, ImGuiSelectableFlags_AllowOverlap,
+                              ImVec2(listW, rowH)))
+            openIndex = i;
+        // The row shows a shortened path, so the tooltip carries the full one.
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s", r.dir.c_str(),
+                              r.valid ? "" : "\n(no .tyra project file here)");
+        const ImVec2 after = ImGui::GetCursorScreenPos();
+
+        // Name over path, both drawn straight into the draw list: as ImGui
+        // items they would register their own (long) width and give the panel
+        // a horizontal scrollbar. The clip rect keeps a deep path inside the
+        // row instead of running under the x button.
+        const float textW = listW - textX - scaled(34);  // up to the x button
+        const ImVec4 clip(row.x + textX, row.y, row.x + textX + textW, row.y + rowH);
+        const std::string title = r.valid ? r.name : r.name + "   (missing)";
+        const std::string path = ellipsizePathLeft(r.dir, textW);
+        dl->AddText(nullptr, 0.0f, ImVec2(row.x + textX, row.y + st.FramePadding.y),
+                    r.valid ? colName : colDim, title.c_str(), nullptr, 0.0f, &clip);
+        dl->AddText(nullptr, 0.0f,
+                    ImVec2(row.x + textX, row.y + st.FramePadding.y + lineH), colDim,
+                    path.c_str(), nullptr, 0.0f, &clip);
+
+        // Remove from the list. Nothing on disk is touched - the entry is a
+        // shortcut, not the project.
+        ImGui::SetCursorScreenPos(
+            ImVec2(row.x + listW - scaled(26), row.y + (rowH - lineH) * 0.5f));
+        if (ImGui::SmallButton("x")) forgetIndex = i;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Remove from this list (the project itself stays on disk)");
+        ImGui::SetCursorScreenPos(after);
+        ImGui::PopID();
+    }
+
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ImGui::TextDisabled("Click a project to open it. x only forgets the entry.");
+    ImGui::Unindent(scaled(30));
+
+    // An open wins over a drop in the same frame (they can't both be clicked,
+    // but the drop would shift the index the open reads).
+    if (openIndex < 0 && forgetIndex >= 0) forgetRecentProject(forgetIndex);
+    if (openIndex >= 0) {
+        const std::string dir = recentProjects_[openIndex].dir;
+        const std::string err = openProjectAt(dir);
+        if (!err.empty()) {
+            // Moved/deleted since it was probed: say so and mark the row, but
+            // keep it - the user decides whether it is worth forgetting.
+            probeRecentProject(recentProjects_[openIndex]);
+            MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+        }
+    }
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1428,11 +1660,7 @@ void App::drawViewportWindow() {
     ImGui::PopStyleVar();
 
     if (!hasProject_) {
-        ImGui::Dummy(ImVec2(0, 40));
-        ImGui::Indent(30);
-        ImGui::TextDisabled("No project open.");
-        ImGui::TextDisabled("File > New Project (Ctrl+N) to create one.");
-        ImGui::Unindent(30);
+        drawWelcomeScreen();
         ImGui::End();
         return;
     }
@@ -1501,12 +1729,22 @@ void App::drawViewportWindow() {
             renderList = &pasteRenderScratch_;
         }
         const std::vector<SceneObject>& renderObjects = *renderList;
+        // Phone camera link: while a phone is streaming a pose and driving, IT
+        // is the camera - ahead of the cutscene preview and the look-through
+        // camera both, because the person holding it is framing the shot and a
+        // playhead flying the same lane would fight them for it.
+        phoneCamPushed_ = false;
+        if (phoneDrive_ && phoneHasPose_ && phoneCam_.connected()) {
+            viewport_.setCameraOverride(phoneEye_, phoneTarget_, phoneFov_,
+                                        phoneRoll_);
+            phoneCamPushed_ = true;
+        }
         // Look-through camera ("View:" overlay / camera Properties): render
         // from the chosen Camera entity's pose + FOV. The cutscene camera
         // track wins while it previews; reading the POSED objects means a
         // dollied camera entity is followed live. A stale name (deleted
         // entity) falls back to the free orbit camera.
-        if (!seqCameraPushed_) {
+        if (!seqCameraPushed_ && !phoneCamPushed_) {
             const SceneObject* cam = nullptr;
             if (!lookThroughCam_.empty())
                 for (const SceneObject& o : renderObjects)
@@ -1519,7 +1757,12 @@ void App::drawViewportWindow() {
                 float fwd[3], at[3];
                 seqCameraForward(cam->rotation, fwd);
                 for (int c = 0; c < 3; ++c) at[c] = cam->position[c] + fwd[c];
-                viewport_.setCameraOverride(cam->position, at, cam->cameraFov);
+                // Look through it exactly as the game would, tilt included - a
+                // rolled Camera entity should look rolled here too.
+                float eu[3];
+                seqCameraUpFromEuler(cam->rotation, eu);
+                viewport_.setCameraOverride(cam->position, at, cam->cameraFov,
+                                            seqRollFromUp(fwd, eu));
             } else {
                 viewport_.clearCameraOverride();
             }
@@ -1529,8 +1772,12 @@ void App::drawViewportWindow() {
         // sequence films from; otherwise the single looked-through camera.
         {
             std::vector<std::string> hideCams;
-            if (seqCameraPushed_ && selectedSequence_ >= 0 &&
-                selectedSequence_ < (int)project_.sequences.size()) {
+            if (phoneCamPushed_) {
+                // Recording into a Camera entity puts that entity exactly where
+                // the view is, so it would fill the frame.
+                if (!phoneRecTarget_.empty()) hideCams.push_back(phoneRecTarget_);
+            } else if (seqCameraPushed_ && selectedSequence_ >= 0 &&
+                       selectedSequence_ < (int)project_.sequences.size()) {
                 for (const SeqCameraKey& k :
                      project_.sequences[selectedSequence_].cameraKeys)
                     if (!k.camera.empty()) hideCams.push_back(k.camera);
@@ -1543,6 +1790,10 @@ void App::drawViewportWindow() {
         updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
+        // Phone camera link: stream THIS frame to the connected device, so the
+        // phone is a viewfinder onto the editor's own image rather than a
+        // second, subtly different render.
+        phoneCamPushPreview();
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
@@ -1586,10 +1837,14 @@ void App::drawViewportWindow() {
                                   IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
         }
 
+        // TV safe-area guides, over the image like the cutscene bars.
+        drawSafeAreaOverlay(imgPos, avail);
+
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
         // would otherwise fall through and change the selection.
-        const bool overAxisGizmo = drawAxisGizmo(imgPos, avail);
+        const bool overAxisGizmo = drawAxisGizmo(imgPos, avail) |
+                                   drawViewportGear(imgPos, avail);
 
         // --- Terrain sculpting / painting brush (shared raycast + ring) ---
         const bool brushMode = sculptMode_ || paintMode_;
@@ -2444,6 +2699,186 @@ void App::drawViewportWindow() {
     ImGui::End();
 }
 
+// --- TV safe areas -----------------------------------------------------------
+// A CRT does not show the whole picture: the tube is scanned past the edges of
+// the visible glass ("overscan"), and how much varies per set. The broadcast
+// convention that survived it is two insets - action safe at 90% (nothing
+// important outside) and title safe at 80% (text inside) - which is what these
+// guides draw. PAL and NTSC share those fractions; where they genuinely differ
+// is the PICTURE HEIGHT, and only when this project targets full-height PAL
+// (see `bothRegions` below).
+void App::drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size) {
+    if (!showSafeArea_ || size.x < 32.0f || size.y < 32.0f) return;
+    const SafeAreaCfg& c = safeArea_;
+    if (!c.frame && !c.action && !c.title && !c.centre && !c.bothRegions) return;
+
+    // The console outputs a fixed aspect regardless of how the viewport is
+    // docked, so the guides must be drawn inside THAT rectangle - fitted into
+    // the image like a TV picture inside a wider monitor.
+    const bool wide = c.aspect == 0 ? project_.settings.widescreen : (c.aspect == 2);
+    const float tvAspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float w = size.x, h = size.x / tvAspect;
+    if (h > size.y) {
+        h = size.y;
+        w = size.y * tvAspect;
+    }
+    const ImVec2 tl(pos.x + (size.x - w) * 0.5f, pos.y + (size.y - h) * 0.5f);
+    const ImVec2 br(tl.x + w, tl.y + h);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float a = c.opacity < 0.0f ? 0.0f : (c.opacity > 1.0f ? 1.0f : c.opacity);
+    auto col = [&](int r, int g, int b, float mul) {
+        return IM_COL32(r, g, b, (int)(255.0f * a * mul));
+    };
+    auto inset = [&](float keep) {
+        const float ix = w * (1.0f - keep) * 0.5f, iy = h * (1.0f - keep) * 0.5f;
+        return std::pair<ImVec2, ImVec2>{ImVec2(tl.x + ix, tl.y + iy),
+                                        ImVec2(br.x - ix, br.y - iy)};
+    };
+
+    // Everything outside the console's picture is not going to be on the TV at
+    // all - dim it so the framing that matters reads clearly.
+    if (c.frame && (w < size.x - 1.0f || h < size.y - 1.0f)) {
+        const ImU32 shade = col(0, 0, 0, 0.55f);
+        if (tl.y > pos.y) dl->AddRectFilled(pos, ImVec2(pos.x + size.x, tl.y), shade);
+        if (br.y < pos.y + size.y)
+            dl->AddRectFilled(ImVec2(pos.x, br.y), ImVec2(pos.x + size.x, pos.y + size.y), shade);
+        if (tl.x > pos.x) dl->AddRectFilled(ImVec2(pos.x, tl.y), ImVec2(tl.x, br.y), shade);
+        if (br.x < pos.x + size.x)
+            dl->AddRectFilled(ImVec2(br.x, tl.y), ImVec2(pos.x + size.x, br.y), shade);
+    }
+    if (c.frame) {
+        dl->AddRect(tl, br, col(255, 255, 255, 0.85f), 0.0f, 0, scaled(1.5f));
+        const char* lbl = wide ? "16:9" : "4:3";
+        dl->AddText(ImVec2(tl.x + scaled(5.0f), tl.y + scaled(3.0f)),
+                    col(255, 255, 255, 0.8f), lbl);
+    }
+    // PAL's full-height frame shows 512 rendered lines where NTSC shows 448, so
+    // the SAME scene reveals more at the top and bottom in Europe. Only draw the
+    // difference when the project actually asks for it - otherwise both regions
+    // get the identical letterboxed picture and a second rectangle would be a
+    // lie. See ProjectSettings::palFullHeight.
+    if (c.bothRegions && project_.settings.palFullHeight &&
+        project_.settings.displayMode == "interlaced") {
+        const float ntscFrac = 448.0f / 512.0f;
+        const auto [nt, nb] = inset(1.0f);
+        const float iy = h * (1.0f - ntscFrac) * 0.5f;
+        dl->AddRect(ImVec2(nt.x, nt.y + iy), ImVec2(nb.x, nb.y - iy),
+                    col(120, 200, 255, 0.9f), 0.0f, 0, scaled(1.5f));
+        dl->AddText(ImVec2(nt.x + scaled(5.0f), nt.y + iy + scaled(3.0f)),
+                    col(120, 200, 255, 0.9f), "NTSC picture");
+    }
+    if (c.action) {
+        const auto [p0, p1] = inset(0.90f);
+        dl->AddRect(p0, p1, col(255, 210, 90, 0.9f), 0.0f, 0, scaled(1.0f));
+        dl->AddText(ImVec2(p0.x + scaled(4.0f), p0.y + scaled(2.0f)),
+                    col(255, 210, 90, 0.85f), "action 90%");
+    }
+    if (c.title) {
+        const auto [p0, p1] = inset(0.80f);
+        dl->AddRect(p0, p1, col(120, 235, 140, 0.9f), 0.0f, 0, scaled(1.0f));
+        dl->AddText(ImVec2(p0.x + scaled(4.0f), p0.y + scaled(2.0f)),
+                    col(120, 235, 140, 0.85f), "title 80%");
+    }
+    if (c.centre) {
+        const ImU32 gc = col(255, 255, 255, 0.35f);
+        const float cx = (tl.x + br.x) * 0.5f, cy = (tl.y + br.y) * 0.5f;
+        const float arm = scaled(11.0f);
+        dl->AddLine(ImVec2(cx - arm, cy), ImVec2(cx + arm, cy), gc, scaled(1.0f));
+        dl->AddLine(ImVec2(cx, cy - arm), ImVec2(cx, cy + arm), gc, scaled(1.0f));
+        for (int i = 1; i <= 2; ++i) {  // rule of thirds
+            const float x = tl.x + w * (i / 3.0f), y = tl.y + h * (i / 3.0f);
+            dl->AddLine(ImVec2(x, tl.y), ImVec2(x, br.y), gc, scaled(1.0f));
+            dl->AddLine(ImVec2(tl.x, y), ImVec2(br.x, y), gc, scaled(1.0f));
+        }
+    }
+}
+
+// The viewport's gear: overlay/guide switches live here rather than on the
+// toolbar, so they cost no screen space until wanted.
+bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
+    const float pad = scaled(8.0f);
+    const float btn = scaled(22.0f);
+    if (size.x < btn * 4.0f || size.y < btn * 4.0f) return false;
+    ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, pos.y + size.y - btn - pad));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.35f));
+    const bool clicked = ImGui::Button("##viewgear", ImVec2(btn, btn));
+    ImGui::PopStyleColor();
+    const bool hovered = ImGui::IsItemHovered();
+    // A gear glyph is not in the default font, so draw one: a ring plus teeth.
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 c(pos.x + pad + btn * 0.5f, pos.y + size.y - btn * 0.5f - pad);
+        const ImU32 col = IM_COL32(235, 235, 235, hovered ? 255 : 190);
+        const float r = btn * 0.26f;
+        dl->AddCircle(c, r, col, 12, scaled(1.6f));
+        for (int i = 0; i < 6; ++i) {
+            const float t = (float)i / 6.0f * 6.2831853f;
+            const float cx = std::cos(t), sy = std::sin(t);
+            dl->AddLine(ImVec2(c.x + cx * r, c.y + sy * r),
+                        ImVec2(c.x + cx * (r + btn * 0.14f), c.y + sy * (r + btn * 0.14f)),
+                        col, scaled(1.6f));
+        }
+    }
+    if (hovered) ImGui::SetTooltip("Viewport guides (TV safe areas)");
+    if (clicked) ImGui::OpenPopup("##viewguides");
+    if (ImGui::BeginPopup("##viewguides")) {
+        ImGui::SeparatorText("TV safe areas");
+        ImGui::Checkbox("Show guides", &showSafeArea_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A television crops the edges of the picture\n"
+                              "(overscan). These are the broadcast insets that\n"
+                              "survived it - keep anything important inside.");
+        ImGui::BeginDisabled(!showSafeArea_);
+        ImGui::Checkbox("Picture frame", &safeArea_.frame);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The rectangle the console actually outputs, with\n"
+                              "everything outside it dimmed. The viewport is\n"
+                              "whatever shape you docked it; the TV is not.");
+        ImGui::Checkbox("Action safe (90%)", &safeArea_.action);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Nothing important - a character, a pickup, the\n"
+                              "crosshair - outside this.");
+        ImGui::Checkbox("Title safe (80%)", &safeArea_.title);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Text and HUD readouts inside this, or a set with\n"
+                              "heavy overscan clips them.");
+        ImGui::Checkbox("Centre + thirds", &safeArea_.centre);
+        static const char* kAspects[] = {"Follow project", "4:3", "16:9"};
+        ImGui::SetNextItemWidth(scaled(140.0f));
+        ImGui::Combo("Aspect", &safeArea_.aspect, kAspects, 3);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Follow project reads Preferences > Widescreen.\n"
+                              "Force the other one to check how the same shot\n"
+                              "frames there without changing the project.");
+        // Only meaningful when the two regions really do show different amounts
+        // of picture, which in this engine means region-following interlaced
+        // output with the PAL-picture preference on.
+        const bool palDiff = project_.settings.palFullHeight &&
+                             project_.settings.displayMode == "interlaced";
+        ImGui::BeginDisabled(!palDiff);
+        ImGui::Checkbox("NTSC picture inside PAL", &safeArea_.bothRegions);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                palDiff ? "This project boots full-height PAL on a PAL console:\n"
+                          "512 rendered lines against NTSC's 448, so Europe sees\n"
+                          "MORE at the top and bottom. The inner box is what an\n"
+                          "NTSC set shows."
+                        : "Only differs when the project targets full-height PAL\n"
+                          "(Preferences > PAL picture, with the region-following\n"
+                          "interlaced mode). Otherwise both regions get the same\n"
+                          "letterboxed picture and a second box would be a lie.");
+        ImGui::SetNextItemWidth(scaled(140.0f));
+        ImGui::SliderFloat("Opacity", &safeArea_.opacity, 0.1f, 1.0f, "%.2f");
+        ImGui::EndDisabled();
+        if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return true;
+    }
+    return hovered;
+}
+
 // The measuring tape's own drawing: the segment between the two points with
 // its endpoints, and a readout at the midpoint. Everything is placed through
 // Viewport::projectToImage, so it tracks the image under any projection.
@@ -2807,6 +3242,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
     if (key == "weapons") return &showWeaponEditor_;
+    if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     return nullptr;
 }
@@ -2817,7 +3253,8 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
-    "anim",     "tree",     "assets",   "weapons"};
+    "anim",     "tree",     "phonecam", "assets",
+    "weapons"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -3126,6 +3563,54 @@ void App::requestExit() {
         exitConfirmed_ = true;
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
     }
+}
+
+// --- Recent projects -------------------------------------------------------
+
+void App::probeRecentProject(RecentProject& r) {
+    r.name = projectManifestName(r.dir);
+    r.valid = !r.name.empty();
+    // A vanished folder still shows its own name - an unreadable path alone
+    // tells the user nothing about which project it was.
+    if (!r.valid) r.name = std::filesystem::path(r.dir).filename().string();
+    if (r.name.empty()) r.name = r.dir;
+}
+
+void App::rememberRecentProject(const std::string& dir) {
+    if (dir.empty()) return;
+    const std::string key = recentProjectKey(dir);
+    for (size_t i = 0; i < recentProjects_.size();) {
+        if (recentProjectKey(recentProjects_[i].dir) == key)
+            recentProjects_.erase(recentProjects_.begin() + i);
+        else
+            ++i;
+    }
+    RecentProject r;
+    r.dir = dir;
+    probeRecentProject(r);
+    recentProjects_.insert(recentProjects_.begin(), r);
+    if (recentProjects_.size() > kMaxRecentProjects)
+        recentProjects_.resize(kMaxRecentProjects);
+    saveGlobalConfig();
+}
+
+void App::forgetRecentProject(int index) {
+    if (index < 0 || index >= (int)recentProjects_.size()) return;
+    recentProjects_.erase(recentProjects_.begin() + index);
+    saveGlobalConfig();  // the list only ever lives in editor.ini
+}
+
+std::string App::openProjectAt(const std::string& dir) {
+    Project p;
+    std::string err = project::load(p, dir);
+    if (!err.empty()) return err;
+    project_ = p;
+    hasProject_ = true;
+    applyProjectToViewport();
+    attachProject();  // resets dirty + window title
+    // project_.dir, not `dir`: load normalizes it (and accepts a .tyra path).
+    rememberRecentProject(project_.dir);
+    return {};
 }
 
 void App::requestOpenProject() {
@@ -4178,6 +4663,18 @@ void App::addPortal() {
     o.scale[0] = 1.6f, o.scale[1] = 2.4f, o.scale[2] = 1.0f;
     o.color[0] = 0.95f, o.color[1] = 0.55f, o.color[2] = 0.2f;
     o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
+    saveAll("Saved");
+}
+void App::addArea() {
+    addObject(PrimitiveType::Area);
+    SceneObject& o = project_.objects().back();
+    // A room-sized box resting on the ground, cool green so the wireframe
+    // reads as "volume", not "prop".
+    o.position[1] = 2.0f;
+    o.scale[0] = 8.0f, o.scale[1] = 4.0f, o.scale[2] = 8.0f;
+    o.color[0] = 0.3f, o.color[1] = 0.95f, o.color[2] = 0.5f;
+    o.collisionMode = 2;  // a volume, never a wall
+    o.castShadow = false;  // no geometry - nothing to occlude with
     saveAll("Saved");
 }
 void App::addSavePoint() {
@@ -5235,6 +5732,15 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Save point")) addSavePoint();
         // Cutscene Director shot marker (bind camera-track keys to it)
         if (ImGui::MenuItem("Camera")) addObject(PrimitiveType::Camera);
+        // Invisible volume: layer streaming zones, mirror/portal/feed target
+        // sets, In Area triggers (docs/areas.md).
+        if (ImGui::MenuItem("Area")) addArea();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Invisible box - a wireframe here, nothing in the game.\n"
+                "Point a streaming layer's zone, a mirror/portal/camera-feed\n"
+                "target list or an In Area trigger at it instead of typing\n"
+                "distances.");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Effects")) {
@@ -5636,30 +6142,42 @@ void App::drawLayersSection() {
                 "the zone below, unload it when they leave - GTA-style zone\n"
                 "streaming, no flow graph needed.");
         if (l.autoStream) {
+            // Zone shape: an Area object's box, or the circle below it
+            // (docs/areas.md). The area also bounds Y, so a zone can be one
+            // floor of a building.
             ImGui::SameLine();
-            float center[2] = {l.streamX, l.streamZ};
-            ImGui::SetNextItemWidth(110.0f);
-            if (ImGui::DragFloat2("##zonexz", center, 0.5f, 0.0f, 0.0f, "%.0f")) {
-                l.streamX = center[0];
-                l.streamZ = center[1];
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone center (world X, Z)");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(70.0f);
-            ImGui::DragFloat("##zoner", &l.streamRadius, 0.5f, 1.0f, 4096.0f,
-                             "r %.0f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone radius (world units)");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Center on sel.") && selectedObject_ >= 0 &&
-                selectedObject_ < (int)sc.objects.size()) {
-                l.streamX = sc.objects[selectedObject_].position[0];
-                l.streamZ = sc.objects[selectedObject_].position[2];
-                committed = true;
-            }
+            ImGui::SetNextItemWidth(scaled(150));
+            if (areaCombo("##zonearea", l.streamArea)) committed = true;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Move the zone center to the selected object");
+                ImGui::SetTooltip(
+                    "Zone shape: an Area object's box (bounds height too, and\n"
+                    "follows the area if it moves). <none> = the circle below.");
+            if (l.streamArea.empty()) {
+                ImGui::SameLine();
+                float center[2] = {l.streamX, l.streamZ};
+                ImGui::SetNextItemWidth(scaled(110));
+                if (ImGui::DragFloat2("##zonexz", center, 0.5f, 0.0f, 0.0f, "%.0f")) {
+                    l.streamX = center[0];
+                    l.streamZ = center[1];
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone center (world X, Z)");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(70));
+                ImGui::DragFloat("##zoner", &l.streamRadius, 0.5f, 1.0f, 4096.0f,
+                                 "r %.0f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone radius (world units)");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Center on sel.") && selectedObject_ >= 0 &&
+                    selectedObject_ < (int)sc.objects.size()) {
+                    l.streamX = sc.objects[selectedObject_].position[0];
+                    l.streamZ = sc.objects[selectedObject_].position[2];
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Move the zone center to the selected object");
+            }
         }
         ImGui::PopID();
     }
@@ -5707,8 +6225,98 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Camera: return "Camera";
         case PrimitiveType::Mirror: return "Mirror";
         case PrimitiveType::Portal: return "Portal";
+        case PrimitiveType::Area: return "Area";
     }
     return "Object";
+}
+
+// Area reference picker (docs/areas.md): the scene's Area objects plus
+// <none>. Used for a catch area (Mirror / Portal / feed Camera) and for a
+// streaming layer's zone; a dangling name shows in red so a deleted area is
+// obvious instead of silently catching nothing.
+bool App::areaCombo(const char* label, std::string& ref) {
+    bool changed = false;
+    const bool dangling =
+        !ref.empty() && !project::findArea(project_.objects(), ref);
+    const std::string current = ref.empty() ? "<none>" : ref;
+    if (dangling) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
+    if (ImGui::BeginCombo(label, dangling ? (current + " (missing)").c_str()
+                                          : current.c_str())) {
+        if (ImGui::Selectable("<none>", ref.empty()) && !ref.empty()) {
+            ref.clear();
+            changed = true;
+        }
+        int areas = 0;
+        for (const SceneObject& t : project_.objects()) {
+            if (t.type != PrimitiveType::Area) continue;
+            ++areas;
+            if (ImGui::Selectable(t.name.c_str(), t.name == ref) && ref != t.name) {
+                ref = t.name;
+                changed = true;
+            }
+        }
+        if (!areas)
+            ImGui::TextDisabled("No areas in this scene -\nAdd object > Gameplay > Area.");
+        ImGui::EndCombo();
+    }
+    if (dangling) ImGui::PopStyleColor();
+    return changed;
+}
+
+// The whole catch-area block of a Mirror / Portal / feed Camera: the picker,
+// the "update every frame" switch and the resolved counts. `verb` names what
+// the caught objects get ("re-drawn", "shown", "in the feed") so the same
+// widget reads right in all three panels.
+bool App::catchAreaControls(SceneObject& o, const char* verb) {
+    bool committed = false;
+    if (areaCombo("Catch area", o.catchArea)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Catch every object inside an Area's box (docs/areas.md)\n"
+            "instead of listing them one by one. Resolved at build, so\n"
+            "the geometry cost stays visible; the list below still adds\n"
+            "objects from outside the area.");
+    if (o.catchArea.empty()) return committed;
+    if (ImGui::Checkbox("Update every frame", &o.catchAreaLive)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Off: the volume is emptied into a fixed list at build - an\n"
+            "object that walks in later stays out.\n"
+            "On: objects that can MOVE are re-tested every frame, so they\n"
+            "join and leave the list as they cross the boundary. Only\n"
+            "movable objects pay for it (the count below); the immovable\n"
+            "rest still resolves at build. Watch that count - each one\n"
+            "inside is a second full submission of its geometry.");
+    const std::vector<int> caught = project::areaCaughtObjects(
+        project_.objects(), o.catchArea, selectedObject_);
+    if (!o.catchAreaLive) {
+        ImGui::TextDisabled("Area holds %d object%s (%s once each)",
+                            (int)caught.size(), caught.size() == 1 ? "" : "s",
+                            verb);
+        return committed;
+    }
+    const std::set<std::string> refs =
+        project::runtimeRefNames(project_, project_.objects());
+    const std::vector<int> cands = project::areaLiveCandidates(
+        project_.objects(), selectedObject_, refs);
+    // Movable objects leave the fixed list even when they sit inside right
+    // now - the per-frame test owns them, or they would be drawn twice.
+    int fixed = 0, inside = 0;
+    for (int ci : caught) {
+        bool movable = false;
+        for (int m : cands)
+            if (m == ci) { movable = true; break; }
+        if (movable) ++inside; else ++fixed;
+    }
+    ImGui::TextDisabled("%d fixed + %d of %d movable inside now (%s once each)",
+                        fixed, inside, (int)cands.size(), verb);
+    if (ImGui::IsItemHovered() && !cands.empty()) {
+        std::string list;
+        for (size_t i = 0; i < cands.size(); ++i)
+            list += (i ? "\n" : "") + project_.objects()[cands[i]].name;
+        ImGui::SetTooltip("Re-tested every frame:\n%s", list.c_str());
+    }
+    return committed;
 }
 
 // Edits the object selected in the Project panel / viewport. Only fields the
@@ -5795,6 +6403,21 @@ void App::drawPropertiesWindow() {
             // A weapon's viewmodel is a scene object by name (docs/weapons.md).
             for (WeaponDef& w : project_.weapons)
                 if (w.viewModel == from) w.viewModel = o.name;
+            // Area references (docs/areas.md): catch areas, streaming-layer
+            // zones and In Area nodes all point at an area by name.
+            if (o.type == PrimitiveType::Area) {
+                for (SceneObject& m : project_.objects()) {
+                    if (m.catchArea == from) m.catchArea = o.name;
+                    for (FlowNode& fn : m.flowGraph.nodes) {
+                        const FlowNodeType* t = flowNodeType(fn.type);
+                        if (t && t->strKind == FlowParamKind::AreaName &&
+                            fn.str == from)
+                            fn.str = o.name;
+                    }
+                }
+                for (SceneLayer& l : project_.active().layers)
+                    if (l.streamArea == from) l.streamArea = o.name;
+            }
         }
     }
 
@@ -5984,18 +6607,21 @@ void App::drawPropertiesWindow() {
     // Portal: transform places the surface (+Z = the visible/entry face),
     // color tints an inactive surface; the portal block sits further down.
     const bool isPortal = o.type == PrimitiveType::Portal;
+    // Area: the transform IS the volume (scale = the box size), color tints
+    // its wireframe. Nothing else applies - it has no geometry in the game.
+    const bool isArea = o.type == PrimitiveType::Area;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
         o.type == PrimitiveType::Emitter) {
-        ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
+        ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // How big that actually is. A primitive is a UNIT shape, so its scale
         // is its size in world units - and the world scale turns that into
@@ -6021,7 +6647,7 @@ void App::drawPropertiesWindow() {
     // texture tint for decals, marker/frustum tint for camera entities, glass
     // tint for mirrors, inactive-surface tint for portals. The remaining
     // markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -6299,6 +6925,48 @@ void App::drawPropertiesWindow() {
                 "receives shadows from others. Rebuild to see it in-game.");
     }
 
+    if (isArea) {
+        ImGui::SeparatorText("Area");
+        ImGui::TextDisabled(
+            "An invisible box: this wireframe is its whole appearance and the\n"
+            "game draws nothing. Nobody collides with it. Point things at it\n"
+            "by name instead of typing distances:");
+        ImGui::BulletText("A streaming layer's zone (Project panel > Layers)");
+        ImGui::BulletText("A mirror / portal / camera feed's target list");
+        ImGui::BulletText("The In Area flow trigger (Triggers > In Area)");
+        // What references it, so deleting/resizing one is not a guess.
+        std::vector<std::string> users;
+        for (const SceneObject& t : project_.objects())
+            if (t.catchArea == o.name)
+                users.push_back(t.name + (t.catchAreaLive ? " (live)" : ""));
+        for (const SceneLayer& l : project_.active().layers)
+            if (l.streamArea == o.name) users.push_back("layer " + l.name);
+        for (const SceneObject& t : project_.objects())
+            for (const FlowNode& n : t.flowGraph.nodes)
+                if (n.type == "InArea" && n.str == o.name)
+                    users.push_back(t.name + " (In Area)");
+        if (users.empty()) {
+            ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f),
+                               "Nothing references this area yet.");
+        } else {
+            std::string list;
+            for (size_t i = 0; i < users.size(); ++i)
+                list += (i ? ", " : "") + users[i];
+            ImGui::TextDisabled("Used by: %s", list.c_str());
+        }
+        // Catch preview: the same call codegen bakes with.
+        const std::vector<int> caught =
+            project::areaCaughtObjects(project_.objects(), o.name, -1);
+        ImGui::TextDisabled("Catches %d object%s as a target list",
+                            (int)caught.size(), caught.size() == 1 ? "" : "s");
+        if (ImGui::IsItemHovered() && !caught.empty()) {
+            std::string list;
+            for (size_t i = 0; i < caught.size(); ++i)
+                list += (i ? "\n" : "") + project_.objects()[caught[i]].name;
+            ImGui::SetTooltip("%s", list.c_str());
+        }
+    }
+
     if (isMirror) {
         ImGui::SeparatorText("Mirror");
         ImGui::TextDisabled(
@@ -6342,6 +7010,10 @@ void App::drawPropertiesWindow() {
             o.collisionMode = solid ? 0 : 2;
             committed = true;
         }
+        // Area instead of (or on top of) the hand-built list: everything the
+        // volume holds reflects. The count is what the game re-draws - fixed
+        // at build unless "Update every frame" is on.
+        if (catchAreaControls(o, "re-drawn")) committed = true;
         ImGui::TextUnformatted("Reflected objects:");
         int removeAt = -1;
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i) {
@@ -6449,6 +7121,7 @@ void App::drawPropertiesWindow() {
                 "draw distances trim the cost, but big scenes pay a second\n"
                 "submission pass - watch the FPS/profiler before shipping.");
         } else {
+        if (catchAreaControls(o, "shown")) committed = true;
         ImGui::TextUnformatted("Objects visible through:");
         int removePortalAt = -1;
         for (size_t i = 0; i < o.portalObjects.size(); ++i) {
@@ -6653,6 +7326,7 @@ void App::drawPropertiesWindow() {
                 "(the first enabled one wins).");
             if (ImGui::Checkbox("Show terrain in feed", &o.camFeedTerrain))
                 committed = true;
+            if (catchAreaControls(o, "in the feed")) committed = true;
             ImGui::TextUnformatted("Objects in feed:");
             int removeAt = -1;
             for (size_t i = 0; i < o.camFeedObjects.size(); ++i) {
@@ -7036,7 +7710,7 @@ void App::drawMultiProperties() {
     ImGui::Text("%d objects selected", (int)objs.size());
     {
         std::string tally;
-        for (int t = 0; t <= (int)PrimitiveType::Empty; ++t) {
+        for (int t = 0; t < kPrimitiveTypeCount; ++t) {
             int n = 0;
             for (auto* p : objs)
                 if ((int)p->type == t) ++n;
@@ -7066,6 +7740,8 @@ void App::drawMultiProperties() {
         const bool decal = o.type == PrimitiveType::Decal;
         const bool mirror =
             o.type == PrimitiveType::Mirror || o.type == PrimitiveType::Portal;
+        // Areas: transform + color are the whole object (the box and its wire).
+        const bool area = o.type == PrimitiveType::Area;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -7082,12 +7758,12 @@ void App::drawMultiProperties() {
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot && (solid || empty || decal || mirror ||
+        allRot = allRot && (solid || empty || decal || mirror || area ||
                             o.type == PrimitiveType::Camera ||
                             (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
-        allScale = allScale && (solid || empty || decal || mirror ||
+        allScale = allScale && (solid || empty || decal || mirror || area ||
                                 o.type == PrimitiveType::Emitter);
-        allColor = allColor && (solid || empty || decal || mirror ||
+        allColor = allColor && (solid || empty || decal || mirror || area ||
                                 o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::PointLight ||
                                 o.type == PrimitiveType::Camera);
@@ -7827,6 +8503,11 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::AreaName) {
+            // In Area: pick one of the scene's Area objects (docs/areas.md).
+            if (areaCombo("Area", n.str)) changed = true;
+            if (n.str.empty())
+                ImGui::TextDisabled("Pick an area - the node\ncompiles out without one.");
         } else if (t->strKind == FlowParamKind::SaveValue) {
             if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SaveValue& v : project_.saveValues) {
@@ -8528,6 +9209,13 @@ void App::drawFlowGraphWindow() {
                     if (t.strKind == FlowParamKind::LayerName &&
                         !project_.active().layers.empty())
                         n.str = project_.active().layers.front().name;
+                    // In Area starts on the scene's first area, if any.
+                    if (t.strKind == FlowParamKind::AreaName)
+                        for (const SceneObject& a : project_.objects())
+                            if (a.type == PrimitiveType::Area) {
+                                n.str = a.name;
+                                break;
+                            }
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
                     if (std::string(t.key) == "Raycast") n.num[0] = 50.0f;  // max dist
@@ -12208,14 +12896,16 @@ void App::cutsceneAutoKey() {
     }
 }
 
-// Applies the loaded camera take to a sequence. Free target -> camera-lane
-// shots (replace or append). A Camera-entity target -> the take is baked into
-// that entity's transform track (position = eye, rotation = the Euler whose
-// +Z lens points along the recorded view), the entity's FOV is set from the
-// take, and a bound camera key is ensured so the shot dollies along the path.
+// Applies a camera take to a sequence. Free target -> camera-lane shots
+// (replace or append). A Camera-entity target -> the take is baked into that
+// entity's transform track (position = eye, rotation = the Euler whose +Z lens
+// points along the recorded view), the entity's FOV is set from the take, and a
+// bound camera key is ensured so the shot dollies along the path.
 // Returns the first key time, or -1 on no-op.
-float App::applyCamTake(Sequence& s, bool replace) {
-    std::vector<SeqCameraKey> baked = bakeCamTake(seqTake_, seqTakeMap_, &seqTakeStats_);
+float App::applyCamTake(Sequence& s, bool replace, const CamTake& take,
+                        const CamTakeMapping& map, const std::string& target,
+                        CamTakeBakeStats& stats) {
+    std::vector<SeqCameraKey> baked = bakeCamTake(take, map, &stats);
     if (baked.empty()) return -1.0f;
     auto sortCam = [&]() {
         std::sort(s.cameraKeys.begin(), s.cameraKeys.end(),
@@ -12224,7 +12914,7 @@ float App::applyCamTake(Sequence& s, bool replace) {
                   });
     };
 
-    if (seqTakeTarget_.empty()) {
+    if (target.empty()) {
         // free camera shots on the camera lane
         if (replace)
             s.cameraKeys = baked;
@@ -12251,7 +12941,17 @@ float App::applyCamTake(Sequence& s, bool replace) {
         for (int c = 0; c < 3; ++c) o.position[c] = k.eye[c];
         const float dir[3] = {k.target[0] - k.eye[0], k.target[1] - k.eye[1],
                               k.target[2] - k.eye[2]};
-        seqEulerFromForward(dir, o.rotation);
+        // Carry the recorded roll: a Camera entity has no separate roll channel,
+        // so the tilt has to live inside its Euler. seqEulerFromBasis inverts the
+        // entity's own Rz*Ry*Rx, so the baked rotation reproduces the filmed
+        // basis exactly - lens direction AND lean.
+        if (k.roll != 0.0f) {
+            float up[3];
+            seqCameraUp(dir, k.roll, up);
+            seqEulerFromBasis(dir, up, o.rotation);
+        } else {
+            seqEulerFromForward(dir, o.rotation);
+        }
         if (i > 0)
             for (int c = 0; c < 3; ++c) {
                 while (o.rotation[c] - prevRot[c] > 180.0f) o.rotation[c] -= 360.0f;
@@ -12264,13 +12964,13 @@ float App::applyCamTake(Sequence& s, bool replace) {
     // find (or create) the object track that drives this camera entity
     SeqTrack* track = nullptr;
     for (SeqTrack& tr : s.tracks)
-        if (tr.target == seqTakeTarget_) {
+        if (tr.target == target) {
             track = &tr;
             break;
         }
     if (!track) {
         SeqTrack tr;
-        tr.target = seqTakeTarget_;
+        tr.target = target;
         s.tracks.push_back(std::move(tr));
         track = &s.tracks.back();
     }
@@ -12282,27 +12982,31 @@ float App::applyCamTake(Sequence& s, bool replace) {
     track->keys = std::move(objKeys);
     // set the entity's FOV from the take (active-scene object of that name)
     for (SceneObject& o : project_.objects())
-        if (o.name == seqTakeTarget_ && o.type == PrimitiveType::Camera) {
-            if (seqTakeStats_.fovDeg > 0.0f) o.cameraFov = seqTakeStats_.fovDeg;
+        if (o.name == target && o.type == PrimitiveType::Camera) {
+            if (stats.fovDeg > 0.0f) o.cameraFov = stats.fovDeg;
             break;
         }
     // ensure a bound camera key so the entity is actually filmed
     bool bound = false;
     for (const SeqCameraKey& k : s.cameraKeys)
-        if (k.camera == seqTakeTarget_) {
+        if (k.camera == target) {
             bound = true;
             break;
         }
     if (!bound) {
         SeqCameraKey k;
         k.time = track->keys.front().time;
-        k.camera = seqTakeTarget_;
+        k.camera = target;
         k.easing = 0;
         s.cameraKeys.push_back(k);
         sortCam();
     }
     s.cameraEnabled = true;
     return track->keys.front().time;
+}
+
+float App::applyCamTake(Sequence& s, bool replace) {
+    return applyCamTake(s, replace, seqTake_, seqTakeMap_, seqTakeTarget_, seqTakeStats_);
 }
 
 // "From view" for take import: drop the take's first sample at the preview
@@ -12319,6 +13023,591 @@ void App::takeOriginAimFromView() {
     while (y > 180.0f) y -= 360.0f;
     while (y < -180.0f) y += 360.0f;
     seqTakeMap_.yawDeg = y;
+}
+
+// --- Phone camera link -----------------------------------------------------------
+// The phone as a viewfinder (docs/phone-camera.md): phonecam::Link runs the
+// network side on a worker thread, this block is the UI half - the per-frame
+// drain, the live camera override, the preview stream and the recording that
+// turns phone motion into Cutscene Director camera keys.
+
+float App::projectFrameRate() const {
+    // Fixed display modes pin the refresh regardless of the video system; only
+    // the region-following ones follow it (see ProjectSettings::displayMode).
+    const std::string& dm = project_.settings.displayMode;
+    if (dm == "progressive" || dm == "1080i") return 60.0f;
+    if (dm == "pal576") return 50.0f;
+    return project_.settings.videoSystem == "pal" ? 50.0f : 60.0f;
+}
+
+void App::startPhoneCam() {
+    if (phoneCamCode_.empty()) phoneCamCode_ = phonecam::newPairCode();
+    phonecam::Config cfg;
+    cfg.port = (uint16_t)phoneCamPort_;
+    cfg.pairCode = phoneCamRequireCode_ ? phoneCamCode_ : std::string();
+    cfg.projectName = hasProject_ ? project_.name : std::string();
+    phoneCam_.setPreviewDefaults(phoneCamPrefs_);
+    phoneCam_.start(cfg);
+    phoneHasPose_ = false;
+    saveGlobalConfig();
+    statusMessage_ = "Phone camera link listening on port " +
+                     std::to_string(phoneCamPort_);
+}
+
+void App::stopPhoneCam() {
+    if (phoneRec_) stopPhoneRecording();
+    phoneCam_.stop();
+    phoneHasPose_ = false;
+    phoneCamPushed_ = false;
+    statusMessage_ = "Phone camera link stopped";
+}
+
+// The Camera entity the phone starts from, or nullptr when the target is "free
+// camera shots" (then the editor's own viewpoint is the start).
+const SceneObject* App::phoneStartCamera() const {
+    if (phoneRecTarget_.empty()) return nullptr;
+    for (const SceneObject& o : project_.objects())
+        if (o.name == phoneRecTarget_ && o.type == PrimitiveType::Camera) return &o;
+    return nullptr;  // stale name (renamed/deleted): fall back to the view
+}
+
+// Puts the phone camera back at its start and aims it there. With a Camera entity
+// selected THAT is the start - the pose it was placed at, aim and tilt included -
+// so recentring returns to where you put the camera in the scene, not to wherever
+// the editor's orbit camera happens to be. Without one, the editor's viewpoint is
+// the start (currentCamera() deliberately reads the ORBIT camera, ignoring the
+// override the phone itself installed, so it means "the vantage point I framed").
+void App::phoneCamRecenter() {
+    if (!phoneHasPose_) return;
+    float eye[3], at[3], targetRoll = 0.0f;
+    if (const SceneObject* cam = phoneStartCamera()) {
+        float fwd[3], eu[3];
+        seqCameraForward(cam->rotation, fwd);
+        seqCameraUpFromEuler(cam->rotation, eu);
+        for (int c = 0; c < 3; ++c) {
+            eye[c] = cam->position[c];
+            at[c] = cam->position[c] + fwd[c];
+        }
+        // Start tilted exactly as the camera was placed, so the phone's own lean
+        // is measured from there rather than from level.
+        targetRoll = seqRollFromUp(fwd, eu);
+    } else {
+        viewport_.currentCamera(eye, at);
+    }
+    for (int c = 0; c < 3; ++c) {
+        phoneMap_.origin[c] = eye[c];
+        phoneMap_.anchor[c] = phonePose_.pos[c];
+    }
+    phoneMap_.hasAnchor = true;
+    // However you happen to be holding the phone now maps to the start's tilt.
+    phoneMap_.anchorRoll = camSampleRollDeg(phonePose_) - targetRoll;
+    const float viewYaw =
+        std::atan2(at[0] - eye[0], at[2] - eye[2]) * 180.0f / 3.14159265f;
+    float y = viewYaw - camSampleYawDeg(phonePose_);
+    while (y > 180.0f) y -= 360.0f;
+    while (y < -180.0f) y += 360.0f;
+    phoneMap_.yawDeg = y;
+}
+
+// Picks the Camera entity to view from / record into, and immediately jumps there.
+// One selection on purpose: "I want the view from cam-1" and "the recording goes
+// into cam-1" are the same intent, and two controls would only let them disagree.
+void App::selectPhoneCamera(const std::string& name) {
+    if (phoneRec_) return;  // never move the target out from under a recording
+    phoneRecTarget_ = name;
+    phoneCamRecenter();
+    statusMessage_ = name.empty() ? "Phone camera: free shots from the editor view"
+                                  : "Phone camera starts from \"" + name + "\"";
+}
+
+// Flies the mapping's start point along the CURRENT view basis, so a nudge the
+// phone describes as "left a bit" means left as seen on its screen. The anchor
+// is deliberately untouched: moving the origin moves the camera bodily while the
+// phone's own motion stays relative to wherever it now is.
+void App::movePhoneStart(const float delta[3]) {
+    float fwd[3] = {phoneTarget_[0] - phoneEye_[0], phoneTarget_[1] - phoneEye_[1],
+                    phoneTarget_[2] - phoneEye_[2]};
+    const float fl = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+    if (fl > 1e-6f)
+        for (int c = 0; c < 3; ++c) fwd[c] /= fl;
+    float up[3];
+    seqCameraUp(fwd, phoneRoll_, up);
+    // right = cross(fwd, up)
+    const float right[3] = {fwd[1] * up[2] - fwd[2] * up[1],
+                            fwd[2] * up[0] - fwd[0] * up[2],
+                            fwd[0] * up[1] - fwd[1] * up[0]};
+    for (int c = 0; c < 3; ++c)
+        phoneMap_.origin[c] +=
+            right[c] * delta[0] + up[c] * delta[1] + fwd[c] * delta[2];
+}
+
+bool App::startPhoneRecording() {
+    if (phoneRec_) return true;
+    if (!hasProject_) {
+        statusMessage_ = "Open a project before recording a camera move";
+        return false;
+    }
+    if (selectedSequence_ < 0 || selectedSequence_ >= (int)project_.sequences.size()) {
+        statusMessage_ = "Select a cutscene in the Cutscene Director first";
+        return false;
+    }
+    if (!phoneCam_.connected() || !phoneHasPose_) {
+        statusMessage_ = "No phone is streaming a pose yet";
+        return false;
+    }
+    // Validate the target: a stale name (renamed/deleted camera) would bake a
+    // track nothing films from.
+    if (!phoneRecTarget_.empty()) {
+        bool ok = false;
+        for (const SceneObject& o : project_.objects())
+            if (o.name == phoneRecTarget_ && o.type == PrimitiveType::Camera) ok = true;
+        if (!ok) phoneRecTarget_.clear();
+    }
+    phoneRecSeq_ = selectedSequence_;
+    Sequence& s = project_.sequences[phoneRecSeq_];
+    phoneRecBaseCam_ = s.cameraKeys;
+    phoneRecBaseDuration_ = s.duration;
+    phoneRecPlayhead_ = phoneRecAtPlayhead_ ? seqPlayhead_ : 0.0f;
+    phoneTake_ = CamTake{};
+    phoneTake_.source = "Phone camera link";
+    phoneTake_.fps = 0.0f;  // irregular by nature - it is a network stream
+    phoneTake_.samples.push_back(phonePose_);  // t = 0 is where the phone is now
+    phoneRecStats_ = CamTakeBakeStats{};
+    phoneRecBakedAt_ = 0.0;
+    phoneRec_ = true;
+    seqPlaying_ = false;  // the phone owns the clock while it records
+    seqPlayhead_ = phoneRecPlayhead_;
+    statusMessage_ = "Recording camera from " + phoneCam_.device().name;
+    return true;
+}
+
+void App::stopPhoneRecording() {
+    if (!phoneRec_) return;
+    bakePhoneRecording();
+    phoneRec_ = false;
+    if (phoneRecStats_.keyCount > 0) {
+        // One undo step for the whole recording - every live re-bake before
+        // this deliberately left the history alone.
+        commitChange();
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "Recorded %d camera keys over %.2f s",
+                      phoneRecStats_.keyCount, phoneRecStats_.duration);
+        statusMessage_ = buf;
+        seqPlayhead_ = phoneRecPlayhead_;
+    } else {
+        statusMessage_ = "Recording produced no keys (too short?)";
+    }
+}
+
+void App::bakePhoneRecording() {
+    if (!phoneRec_ || !hasProject_) return;
+    if (phoneRecSeq_ < 0 || phoneRecSeq_ >= (int)project_.sequences.size()) return;
+    if (phoneTake_.samples.size() < 2) return;
+    Sequence& s = project_.sequences[phoneRecSeq_];
+    CamTakeMapping map = phoneMap_;
+    map.timeOffset = phoneRecPlayhead_;
+    switch (phoneDensityMode_) {
+        case 0:  // every game frame gets a key
+            map.keyRate = projectFrameRate();
+            break;
+        case 1:
+            map.keyRate = phoneDensity_ > 0.1f ? phoneDensity_ : 0.1f;
+            break;
+        default:  // no density: decimate by the take importer's tolerance
+            map.keyRate = 0.0f;
+            map.tolerance = phoneTolerance_;
+            break;
+    }
+    // Restore the pre-recording lane, then lay this take on top (see
+    // phoneRecBaseCam_) - a live re-bake must be idempotent.
+    s.cameraKeys = phoneRecBaseCam_;
+    applyCamTake(s, false, phoneTake_, map, phoneRecTarget_, phoneRecStats_);
+    float lastT = phoneRecBaseDuration_;
+    for (const SeqCameraKey& k : s.cameraKeys) lastT = std::max(lastT, k.time);
+    for (const SeqTrack& tr : s.tracks)
+        if (tr.target == phoneRecTarget_ && !tr.keys.empty())
+            lastT = std::max(lastT, tr.keys.back().time);
+    s.duration = lastT;
+    setDirty(true);  // transient edit: no undo snapshot until the recording ends
+}
+
+void App::phoneCamTick() {
+    for (phonecam::Event& e : phoneCam_.drainEvents()) {
+        switch (e.type) {
+            case phonecam::Event::Type::Connected:
+                statusMessage_ = e.device.name + " connected" +
+                                 (e.device.sixDof ? "" : " (orientation only)");
+                phoneHasPose_ = false;  // re-anchor on the first pose
+                // ARKit reports metres, so the project's world scale IS the
+                // mapping scale (docs/world-scale.md) - exactly what opening a
+                // take file seeds. A connection is this path's "open": seeding
+                // it later would fight a hand-tuned value, seeding it never
+                // would make a metre walked one unit in a project where a metre
+                // is ten. The tolerance is a world-unit distance, so it follows.
+                phoneMap_.scale = project_.settings.unitsPerMeter;
+                phoneTolerance_ = 0.05f * project_.settings.unitsPerMeter;
+                break;
+            case phonecam::Event::Type::Disconnected:
+                if (phoneRec_) stopPhoneRecording();
+                phoneHasPose_ = false;
+                phoneCamPushed_ = false;
+                statusMessage_ = (e.device.name.empty() ? std::string("Phone")
+                                                        : e.device.name) +
+                                 " disconnected" +
+                                 (e.text.empty() ? "" : " (" + e.text + ")");
+                break;
+            case phonecam::Event::Type::Command:
+                if (e.text == phonecam::kCmdRecord) startPhoneRecording();
+                else if (e.text == phonecam::kCmdStop) stopPhoneRecording();
+                else if (e.text == phonecam::kCmdRecenter) phoneCamRecenter();
+                break;
+            case phonecam::Event::Type::MoveStart:
+                movePhoneStart(e.vec);
+                break;
+            case phonecam::Event::Type::SelectCamera:
+                selectPhoneCamera(e.text);
+                break;
+            case phonecam::Event::Type::Error:
+                statusMessage_ = "Phone camera link: " + e.text;
+                break;
+        }
+    }
+
+    const std::vector<CamTakeSample> poses = phoneCam_.drainPoses();
+    if (!poses.empty()) {
+        phonePose_ = poses.back();
+        phonePoseAt_ = ImGui::GetTime();
+        if (!phoneHasPose_) {
+            // First pose of a connection: pin the anchor here and aim the path
+            // along the current view, so the phone starts framed on what the
+            // editor camera was already looking at.
+            phoneHasPose_ = true;
+            phoneCamRecenter();
+        }
+        if (phoneRec_)
+            phoneTake_.samples.insert(phoneTake_.samples.end(), poses.begin(),
+                                      poses.end());
+    }
+    if (phoneHasPose_) {
+        float anchor[3];
+        camTakeAnchor(phoneTake_, phoneMap_, anchor);
+        mapCamSample(phonePose_, phoneMap_, anchor, phoneEye_, phoneTarget_,
+                     &phoneRoll_);
+        phoneFov_ = phonePose_.fovDeg > 1.0f ? phonePose_.fovDeg : 60.0f;
+    }
+
+    // Live re-bake at 15 Hz: enough for the dopesheet to visibly fill up while
+    // you move, cheap enough not to matter (a few hundred samples).
+    if (phoneRec_) {
+        const double now = ImGui::GetTime();
+        if (now - phoneRecBakedAt_ > 1.0 / 15.0) {
+            phoneRecBakedAt_ = now;
+            bakePhoneRecording();
+        }
+    }
+
+    if (phoneCam_.connected()) {
+        phonecam::Status st;
+        st.recording = phoneRec_;
+        st.time = phoneRec_ ? (float)phoneTake_.duration() : seqPlayhead_;
+        st.keys = phoneRec_ ? phoneRecStats_.keyCount : 0;
+        if (hasProject_ && selectedSequence_ >= 0 &&
+            selectedSequence_ < (int)project_.sequences.size())
+            st.sequence = project_.sequences[selectedSequence_].name;
+        st.target = phoneRecTarget_;
+        for (const SceneObject& o : project_.objects())
+            if (o.type == PrimitiveType::Camera) st.cameras.push_back(o.name);
+        st.density = phoneDensityMode_ == 0 ? projectFrameRate()
+                     : phoneDensityMode_ == 1 ? phoneDensity_
+                                              : 0.0f;
+        st.driving = phoneCamPushed_;
+        phoneCam_.setStatus(st);
+    }
+}
+
+// Tools > Phone Camera: hosting controls, what the phone has to be told to
+// connect, and the live mapping. Recording lives in the Cutscene Director -
+// this window is the link itself.
+void App::drawPhoneCamWindow() {
+    if (!showPhoneCamWindow_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(430), scaled(520)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Phone Camera", &showPhoneCamWindow_)) {
+        ImGui::End();
+        return;
+    }
+
+    const bool up = phoneCam_.listening();
+    const bool live = phoneCam_.connected();
+    const phonecam::DeviceInfo dev = phoneCam_.device();
+
+    // --- state line ---------------------------------------------------------
+    if (phoneCam_.state() == phonecam::Link::State::Error) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error");
+        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
+    } else if (live) {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Connected");
+        ImGui::SameLine();
+        ImGui::Text("- %s", dev.name.c_str());
+    } else if (up) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Waiting for a phone");
+    } else {
+        ImGui::TextDisabled("Not hosting");
+    }
+
+    if (!up) {
+        if (ImGui::Button("Start link", ImVec2(scaled(120), 0))) startPhoneCam();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80.0f));
+        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0))
+            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Require code", &phoneCamRequireCode_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Off accepts any device on this network - fine at a\n"
+                              "desk of your own, wrong in a shared office.");
+    } else {
+        if (ImGui::Button("Stop link", ImVec2(scaled(120), 0))) stopPhoneCam();
+        if (live) {
+            ImGui::SameLine();
+            if (ImGui::Button("Disconnect")) phoneCam_.disconnectDevice();
+        }
+    }
+
+    // --- what to type into the phone ---------------------------------------
+    if (up) {
+        ImGui::SeparatorText("Connect the phone to");
+        const std::vector<std::string> ips = wire::localIPv4();
+        if (ips.empty()) {
+            ImGui::TextDisabled("No LAN address found - is this machine on Wi-Fi?");
+        }
+        for (const std::string& ip : ips) {
+            const std::string addr = ip + ":" + std::to_string(phoneCam_.port());
+            ImGui::PushID(ip.c_str());
+            ImGui::Text("%s", addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) ImGui::SetClipboardText(addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy URL"))
+                ImGui::SetClipboardText(("http://" + addr).c_str());
+            ImGui::PopID();
+        }
+        if (phoneCamRequireCode_) {
+            ImGui::Text("Pairing code: %s", phoneCamCode_.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("New code")) {
+                phoneCamCode_ = phonecam::newPairCode();
+                saveGlobalConfig();
+                statusMessage_ =
+                    "New pairing code - restart the link for it to take effect";
+            }
+        }
+        ImGui::TextDisabled("The phone app is github.com/doctorspider42/tyrax-cam\n"
+                            "(sideloaded). Opening the http:// address in any\n"
+                            "browser gives a test client that shows the same\n"
+                            "stream and can fake a pose.");
+    }
+
+    // --- the connected device ----------------------------------------------
+    if (live) {
+        ImGui::SeparatorText("Device");
+        if (!dev.model.empty()) ImGui::Text("Model: %s", dev.model.c_str());
+        if (!dev.client.empty()) ImGui::Text("App: %s", dev.client.c_str());
+        if (!dev.address.empty()) ImGui::Text("Address: %s", dev.address.c_str());
+        ImGui::Text("Tracking: %s",
+                    dev.sixDof ? "6DoF (position + rotation)" : "rotation only");
+        if (!dev.sixDof && ImGui::IsItemHovered())
+            ImGui::SetTooltip("This device reports no world position, so the camera\n"
+                              "turns in place instead of walking.");
+        const double age = ImGui::GetTime() - phonePoseAt_;
+        if (phoneHasPose_ && age < 1.0) {
+            ImGui::Text("Stream: %llu poses", (unsigned long long)phoneCam_.poseCount());
+            ImGui::Text("Pose: %.2f %.2f %.2f m", phonePose_.pos[0], phonePose_.pos[1],
+                        phonePose_.pos[2]);
+            ImGui::Text("Camera: %.1f %.1f %.1f", phoneEye_[0], phoneEye_[1],
+                        phoneEye_[2]);
+        } else {
+            ImGui::TextDisabled(phoneHasPose_ ? "Stream stalled" : "No pose yet");
+        }
+    }
+
+    // --- mapping ------------------------------------------------------------
+    ImGui::SeparatorText("Camera");
+    // Which Camera entity the phone views from AND records into - one control,
+    // because they are one intent. Picking one jumps the phone to where that
+    // camera was placed, and Recentre returns there.
+    {
+        const std::string label =
+            phoneRecTarget_.empty() ? "Free shots (from the editor view)"
+                                    : phoneRecTarget_;
+        ImGui::BeginDisabled(phoneRec_);
+        ImGui::SetNextItemWidth(scaled(230.0f));
+        if (ImGui::BeginCombo("View from", label.c_str())) {
+            if (ImGui::Selectable("Free shots (from the editor view)",
+                                  phoneRecTarget_.empty()))
+                selectPhoneCamera(std::string());
+            bool any = false;
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) any = true;
+            if (any) ImGui::Separator();
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera)
+                    if (ImGui::Selectable(o.name.c_str(), phoneRecTarget_ == o.name))
+                        selectPhoneCamera(o.name);
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                phoneRec_ ? "Locked while recording."
+                          : "The phone starts from this camera's placed pose -\n"
+                            "position, aim and tilt - and Recentre returns there.\n"
+                            "The recording goes into the same camera's track.\n"
+                            "Also selectable on the phone.");
+        if (!phoneRecTarget_.empty() && !phoneStartCamera())
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
+                               "\"%s\" is not in this scene - using the editor view.",
+                               phoneRecTarget_.c_str());
+    }
+    if (ImGui::Checkbox("Drive the viewport camera", &phoneDrive_)) {
+        if (!phoneDrive_) phoneCamPushed_ = false;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The phone's motion moves the editor camera (and so the\n"
+                          "image it is streaming). Off leaves the viewport under\n"
+                          "your own control while the link stays up.");
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::DragFloat("Scale", &phoneMap_.scale, 0.02f, 0.01f, 1000.0f, "%.2f u/m");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Game units per real metre. Seeded from the project's\n"
+                          "world scale when the phone connects; raise it to cover\n"
+                          "more map from the same room.");
+    // Same affordance as the take-import modal: the project's world scale is the
+    // right answer, so hand-tuning it away needs one click back.
+    if (phoneMap_.scale != project_.settings.unitsPerMeter) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("World scale"))
+            phoneMap_.scale = project_.settings.unitsPerMeter;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Back to the project's %.3f units per meter\n"
+                              "(Project Preferences > World).",
+                              project_.settings.unitsPerMeter);
+    }
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    if (ImGui::Button("Recentre")) phoneCamRecenter();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(phoneRecTarget_.empty()
+                              ? "Back to the editor's own camera, aimed where the\n"
+                                "viewport is looking. Everything the phone does\n"
+                                "is relative to this point."
+                              : "Back to where the selected camera was PLACED -\n"
+                                "its position, aim and tilt. Everything the phone\n"
+                                "does is relative to that pose, and Move only\n"
+                                "offsets from it.");
+    // The start point, editable directly: Recentre snaps it to the viewport
+    // camera, but a shot often wants an exact spot - and the phone can fly it
+    // too (its Move mode), which writes the same three numbers.
+    if (ImGui::DragFloat3("Start point", phoneMap_.origin, 0.1f))
+        phoneMap_.hasAnchor = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Where the phone's motion starts from. Drag to place it\n"
+                          "exactly, or fly it live from the app (its Move button).\n"
+                          "Moving this slides the camera bodily; the phone's own\n"
+                          "motion stays relative to wherever it ends up.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("From view")) {
+        float eye[3], at[3];
+        viewport_.currentCamera(eye, at);
+        for (int c = 0; c < 3; ++c) phoneMap_.origin[c] = eye[c];
+        phoneMap_.hasAnchor = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Move the start point to the editor camera, leaving the\n"
+                          "aim alone (Recentre does both).");
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::DragFloat("Yaw", &phoneMap_.yawDeg, 1.0f, -360.0f, 360.0f, "%.0f deg");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Which way the phone's forward points in the scene.\n"
+                          "Recentre sets this from the viewport view.");
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    ImGui::SliderFloat("Tilt", &phoneMap_.rollScale, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How much of the phone's own tilt about the lens axis\n"
+                          "reaches the shot (the Dutch angle). 1 films the lean\n"
+                          "as held, 0 pins the horizon level and throws hand\n"
+                          "tremble away. Recentre makes the way you are holding\n"
+                          "it right now count as level.");
+    ImGui::SameLine();
+    ImGui::Text("roll %.1f deg", phoneRoll_);
+
+    // --- preview stream -----------------------------------------------------
+    ImGui::SeparatorText("Preview stream");
+    bool prefsChanged = false;
+    static const char* kSizes[] = {"256", "320", "480", "640", "960"};
+    static const int kSizeVals[] = {256, 320, 480, 640, 960};
+    int sizeIdx = 2;
+    for (int i = 0; i < 5; ++i)
+        if (phoneCamPrefs_.maxWidth == kSizeVals[i]) sizeIdx = i;
+    ImGui::SetNextItemWidth(scaled(90.0f));
+    if (ImGui::Combo("Max size", &sizeIdx, kSizes, 5)) {
+        phoneCamPrefs_.maxWidth = phoneCamPrefs_.maxHeight = kSizeVals[sizeIdx];
+        prefsChanged = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Long-edge cap of the streamed image. The phone can ask\n"
+                          "for its own value, which then wins.");
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    if (ImGui::SliderInt("fps", &phoneCamPrefs_.fps, 1, 30)) prefsChanged = true;
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    if (ImGui::SliderInt("JPEG quality", &phoneCamPrefs_.quality, 20, 90))
+        prefsChanged = true;
+    ImGui::SetNextItemWidth(scaled(140.0f));
+    if (ImGui::SliderInt("Smoothing", &phoneCamPrefs_.smoothing, 0,
+                         phonecam::kMaxSmoothing,
+                         phoneCamPrefs_.smoothing == 0 ? "%d (lowest latency)" : "%d"))
+        prefsChanged = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Frames allowed in flight beyond the one being sent.\n"
+            "0 is the least delay but the most stutter: one hitch in\n"
+            "encoding or on the Wi-Fi costs a whole frame interval,\n"
+            "because the next grab window is missed. 1-2 keeps the\n"
+            "cadence even for that many frames of delay (~%.0f ms each\n"
+            "at %d fps). The oldest frame is dropped when full, so the\n"
+            "delay never grows past this.",
+            1000.0f / (float)(phoneCamPrefs_.fps > 0 ? phoneCamPrefs_.fps : 15),
+            phoneCamPrefs_.fps);
+    if (prefsChanged) {
+        phoneCam_.setPreviewDefaults(phoneCamPrefs_);
+        saveGlobalConfig();
+    }
+
+    ImGui::Separator();
+    if (phoneRec_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.4f, 1.0f), "RECORDING");
+        ImGui::SameLine();
+        ImGui::Text("%.2f s, %d keys", (float)phoneTake_.duration(),
+                    phoneRecStats_.keyCount);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop")) stopPhoneRecording();
+    } else {
+        ImGui::TextDisabled("Record the move into keyframes in\n"
+                            "Tools > Cutscene Director > Phone camera.");
+    }
+    ImGui::End();
+}
+
+void App::phoneCamPushPreview() {
+    if (!phoneCam_.connected() || !phoneCam_.previewWanted()) return;
+    const phonecam::PreviewPrefs p = phoneCam_.preview();
+    const double now = ImGui::GetTime();
+    const double period = 1.0 / (double)(p.fps > 0 ? p.fps : 15);
+    if (now - phonePreviewAt_ < period) return;
+    phonePreviewAt_ = now;
+    std::vector<unsigned char> rgb;
+    int w = 0, h = 0;
+    if (viewport_.grabPreviewRgb(p.maxWidth, p.maxHeight, rgb, w, h))
+        phoneCam_.pushPreview(w, h, rgb.data());
 }
 
 // Poses a copy of the active scene's objects at the playhead using the SAME
@@ -12423,7 +13712,7 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
                       return a.time < b.time;
                   });
         const int n = (int)ck.size();
-        auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+        auto shot = [&](int i, float eye[3], float at[3], float& fov, float& roll) {
             const SeqCameraKey& k = ck[i];
             const SceneObject* cam = nullptr;
             if (!k.camera.empty())
@@ -12440,35 +13729,47 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
                     at[c] = cam->position[c] + fwd[c];
                 }
                 fov = cam->cameraFov;
+                // A bound shot's tilt is the entity's own orientation, turned
+                // into the same scalar channel free shots interpolate - exactly
+                // what the generated player's rollOf does.
+                float eu[3];
+                seqCameraUpFromEuler(cam->rotation, eu);
+                roll = seqRollFromUp(fwd, eu);
             } else {
                 for (int c = 0; c < 3; ++c) eye[c] = k.eye[c], at[c] = k.target[c];
                 fov = k.fov;
+                roll = k.roll;
             }
         };
         int i = 0;
         while (i < n - 1 && t >= ck[i + 1].time) ++i;
-        float e0[3], a0[3], f0, shake;
-        shot(i, e0, a0, f0);
+        float e0[3], a0[3], f0, r0, shake;
+        shot(i, e0, a0, f0, r0);
         shake = ck[i].shake;
         if (t > ck[i].time && i < n - 1) {
             const float span = ck[i + 1].time - ck[i].time;
             const float u = span > 1e-6f ? (t - ck[i].time) / span : 0.0f;
             const float w = seqEase(ck[i].easing, u);
-            float e1[3], a1[3], f1;
-            shot(i + 1, e1, a1, f1);
+            float e1[3], a1[3], f1, r1;
+            shot(i + 1, e1, a1, f1, r1);
             for (int c = 0; c < 3; ++c) {
                 e0[c] += (e1[c] - e0[c]) * w;
                 a0[c] += (a1[c] - a0[c]) * w;
             }
             f0 += (f1 - f0) * w;
             shake += (ck[i + 1].shake - shake) * w;
+            // Short way round, like the generated player.
+            float dr = r1 - r0;
+            while (dr > 180.0f) dr -= 360.0f;
+            while (dr < -180.0f) dr += 360.0f;
+            r0 += dr * w;
         }
         if (shake > 0.0f) {
             float off[3];
             seqShakeOffset(t, shake, off);
             for (int c = 0; c < 3; ++c) e0[c] += off[c], a0[c] += off[c];
         }
-        viewport_.setCameraOverride(e0, a0, f0);
+        viewport_.setCameraOverride(e0, a0, f0, r0);
         seqCameraPushed_ = true;
     } else if (seqCameraPushed_) {
         viewport_.clearCameraOverride();
@@ -12708,6 +14009,107 @@ void App::drawCutsceneWindow() {
                     s.cameraKeys.empty() ? 0.0f : s.cameraKeys.back().time;
                 if (lastT > s.duration) s.duration = lastT;
                 changed = true;
+            }
+        }
+    }
+
+    // --- Phone camera (live recording) --------------------------------------
+    // The other half of the phone story: instead of importing a finished file,
+    // record the move as it happens (docs/phone-camera.md). The link itself
+    // lives in Tools > Phone Camera; this is where a take lands in a sequence.
+    if (ImGui::CollapsingHeader("Phone camera",
+                                phoneRec_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        if (!phoneCam_.listening()) {
+            ImGui::TextDisabled("Hold your phone, watch the shot on its screen and\n"
+                                "record the camera move straight into this cutscene.");
+            if (ImGui::Button("Open Phone Camera...")) showPhoneCamWindow_ = true;
+        } else {
+            // Target: a Camera entity (a real dolly the game films from) or the
+            // camera lane's free shots - same choice the take importer offers.
+            bool anyCam = false;
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) anyCam = true;
+            const std::string targetLabel =
+                phoneRecTarget_.empty() ? "Free camera shots" : phoneRecTarget_;
+            ImGui::SetNextItemWidth(scaled(190.0f));
+            if (ImGui::BeginCombo("Into", targetLabel.c_str())) {
+                if (ImGui::Selectable("Free camera shots", phoneRecTarget_.empty()))
+                    phoneRecTarget_.clear();
+                if (anyCam) ImGui::Separator();
+                for (const SceneObject& o : project_.objects())
+                    if (o.type == PrimitiveType::Camera)
+                        if (ImGui::Selectable(o.name.c_str(), phoneRecTarget_ == o.name))
+                            phoneRecTarget_ = o.name;
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A Camera entity records into its transform track, so\n"
+                                  "the game films from a camera that dollies along your\n"
+                                  "path. Free shots write the camera lane directly.");
+
+            // Keyframe density. "Project frame rate" is the sync-with-the-game
+            // option: one key per rendered frame, so nothing is interpolated.
+            static const char* kDensNames[] = {"Project frame rate", "Custom rate",
+                                               "Optimize (tolerance)"};
+            ImGui::SetNextItemWidth(scaled(190.0f));
+            ImGui::Combo("Keyframes", &phoneDensityMode_, kDensNames, 3);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How densely the move is sampled into keys.\n"
+                                  "Project frame rate = one key per game frame (exact,\n"
+                                  "biggest table). Custom rate = keys per second.\n"
+                                  "Optimize = no fixed rate; drop keys the PS2's own\n"
+                                  "interpolation already reproduces within an error\n"
+                                  "bound (the smallest table).");
+            ImGui::SameLine(0.0f, scaled(12.0f));
+            if (phoneDensityMode_ == 0) {
+                ImGui::Text("%.0f keys/s", projectFrameRate());
+            } else if (phoneDensityMode_ == 1) {
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                ImGui::DragFloat("##dens", &phoneDensity_, 0.5f, 0.5f, 60.0f,
+                                 "%.1f keys/s");
+            } else {
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                ImGui::SliderFloat("##tol", &phoneTolerance_, 0.005f, 1.0f, "%.3f u",
+                                   ImGuiSliderFlags_Logarithmic);
+            }
+            ImGui::Checkbox("Start at playhead", &phoneRecAtPlayhead_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Recorded keys begin at the playhead instead of at\n"
+                                  "t = 0, so a move can be dropped after an existing\n"
+                                  "shot.");
+
+            if (phoneRec_) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.13f, 0.17f, 1.0f));
+                if (ImGui::Button("Stop recording", ImVec2(scaled(140), 0)))
+                    stopPhoneRecording();
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.4f, 1.0f),
+                                   "REC  %.2f s  %d keys", (float)phoneTake_.duration(),
+                                   phoneRecStats_.keyCount);
+                if (phoneRecSeq_ != selectedSequence_)
+                    ImGui::TextDisabled("(recording into \"%s\")",
+                                        phoneRecSeq_ >= 0 &&
+                                                phoneRecSeq_ < (int)project_.sequences.size()
+                                            ? project_.sequences[phoneRecSeq_].name.c_str()
+                                            : "?");
+                if (phoneRecStats_.keyCount > 600)
+                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
+                                       "%d keys is a big table - consider a lower "
+                                       "density.", phoneRecStats_.keyCount);
+            } else {
+                const bool canRec = phoneCam_.connected() && phoneHasPose_;
+                ImGui::BeginDisabled(!canRec);
+                if (ImGui::Button("Record", ImVec2(scaled(140), 0)))
+                    startPhoneRecording();
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (!phoneCam_.connected())
+                    ImGui::TextDisabled("Waiting for the phone to connect...");
+                else if (!phoneHasPose_)
+                    ImGui::TextDisabled("Waiting for a pose...");
+                else
+                    ImGui::TextDisabled("The phone's REC button does this too.");
             }
         }
     }
@@ -13333,6 +14735,19 @@ void App::drawCutsceneWindow() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Handheld camera shake amplitude in world units\n"
                               "(interpolates between shots; 0 = steady).");
+        // Roll only means something for a free shot: a bound one takes its whole
+        // basis from the Camera entity's orientation.
+        if (k.camera.empty()) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(100.0f));
+            if (ImGui::DragFloat("Roll", &k.roll, 0.5f, -180.0f, 180.0f, "%.1f deg")) {}
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Dutch angle - rotation about the view axis\n"
+                                  "(interpolates between shots; 0 = level\n"
+                                  "horizon). A shot bound to a Camera entity\n"
+                                  "tilts with that entity instead.");
+        }
 
         // Every shot films from a Camera entity. (Legacy free shots from older
         // projects still play - their stored eye/look-at is the fallback - but
@@ -19707,6 +21122,7 @@ void App::drawNewProjectModal() {
                 hasProject_ = true;
                 applyProjectToViewport();
                 attachProject();  // resets dirty + window title
+                rememberRecentProject(project_.dir);
                 ImGui::CloseCurrentPopup();
             } else {
                 newProjectError_ = err;
@@ -20226,6 +21642,15 @@ void App::drawPreferencesModal() {
         "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
         "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
+        "box, the way the editor viewport shows it. Areas have no geometry on\n"
+        "the console by design, which is exactly why \"why did that layer not\n"
+        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
+        "puts the volume back on screen. Stripped from release builds.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();
@@ -21165,14 +22590,8 @@ void App::openProjectDialog() {
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
-    Project p;
-    std::string err = project::load(p, dir);
-    if (err.empty()) {
-        project_ = p;
-        hasProject_ = true;
-        applyProjectToViewport();
-        attachProject();  // resets dirty + window title
-    } else {
+    const std::string err = openProjectAt(dir);
+    if (!err.empty()) {
         runner_.clearLog();
         // Surface the error in the Output window via the runner log is hacky;
         // show a popup instead on next frame. Simple approach: message box.

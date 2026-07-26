@@ -24,6 +24,13 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+- [Areas (invisible volumes)](areas.md) - the box-shaped object that has no
+  geometry in the game and replaces hand-typed distances: streaming-layer
+  zones that bound height too, mirror / portal / camera-feed target lists
+  picked up by volume instead of one name at a time (optionally re-tested
+  every frame, so things that move join and leave), and the In Area trigger
+  (rising edge + a live "inside" bool). Also: which radii deliberately stay
+  radii.
 - [Orthographic and axis views](orthographic-views.md) - the viewport's
   parallel projection and the six locked Top/Bottom/Front/Back/Right/Left
   views: the clickable axis gizmo in the corner, the other three ways to
@@ -99,11 +106,21 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   per-object health, death actions and NPC auto-fire;
   the fourteen Combat flow nodes and their trigger timing; the procedural
   weapon-model generator; and exactly what a project without combat pays.
+- [TV safe areas](safe-areas.md) - the viewport guides (behind the gear) for
+  framing something a television will not crop: the console's picture rectangle,
+  action- and title-safe insets, and the one case where PAL really does show more
+  than NTSC.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and
-  decimation controls in the import modal, and the acquisition/bake split that
-  keeps the door open for live phone streaming.
+  decimation controls in the import modal, and the acquisition/bake split the
+  live link below plugs into.
+- [Phone camera (live viewfinder)](phone-camera.md) - the companion iOS app as
+  a viewfinder: the editor hosts a LAN link, the phone shows a live JPEG stream
+  of the viewport and its ARKit pose drives that camera, and the Cutscene
+  Director records the move into keyframes at a chosen density. Covers pairing
+  and firewall, the mapping controls, the recording options and table-size
+  budget, the WebSocket protocol, and the built-in browser test client.
 - [AI flow-graph generation](ai-flow-graph.md) - describing game logic in
   plain language and letting an AI backend (Claude CLI, Copilot CLI or the
   OpenAI API) build the graph: backend/model/thinking preferences, what the

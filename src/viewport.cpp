@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <utility>
 
 #include <filesystem>
@@ -1148,6 +1149,8 @@ void Viewport::shutdown() {
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
+    if (grabFbo_) glDeleteFramebuffers(1, &grabFbo_);
+    if (grabTex_) glDeleteTextures(1, &grabTex_);
 }
 
 void Viewport::setGrading(bool enabled, const CompiledGrading& g) {
@@ -1236,6 +1239,13 @@ Viewport::CamView Viewport::camView(int width, int height) const {
         fwd = normalize(sub(tgt, e));
         fovDeg = camFov_;
         c.eye[0] = e.x, c.eye[1] = e.y, c.eye[2] = e.z;
+        // Roll: the up hint IS the rolled up. seqCameraUp returns a vector
+        // perpendicular to fwd, and the basis below re-derives up from it
+        // unchanged, so this lands exactly the tilt the console will render.
+        const float f3[3] = {fwd.x, fwd.y, fwd.z};
+        float rolled[3];
+        seqCameraUp(f3, camRoll_, rolled);
+        upHint = {rolled[0], rolled[1], rolled[2]};
     } else {
         const Vec3 e{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
                      tgt.y + distance_ * std::sin(pitch_),
@@ -1930,8 +1940,13 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
     const Vec3 eye{ro[0], ro[1], ro[2]};
     const Vec3 dir{rd[0], rd[1], rd[2]};
 
-    int best = -1;
-    float bestT = 1e9f;
+    // Areas are picked only when the click hits nothing else: an area big
+    // enough to enclose a room has its front face closer to the camera than
+    // everything inside it, so ranking it with the rest would make the volume
+    // swallow every click in the room. Click empty space inside it (or the
+    // Scene tree) to select the area itself.
+    int best = -1, bestArea = -1;
+    float bestT = 1e9f, bestAreaT = 1e9f;
     for (size_t i = 0; i < objects.size(); ++i) {
         if (hiddenAt(i)) continue;  // hidden layers are unclickable
         const SceneObject& o = objects[i];
@@ -1943,12 +1958,18 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
         ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
 
         const float t = rayUnitBox(lo, ld);
-        if (t > 0.0f && t < bestT) {
+        if (t <= 0.0f) continue;
+        if (o.type == PrimitiveType::Area) {
+            if (t < bestAreaT) {
+                bestAreaT = t;
+                bestArea = (int)i;
+            }
+        } else if (t < bestT) {
             bestT = t;
             best = (int)i;
         }
     }
-    return best;
+    return best >= 0 ? best : bestArea;
 }
 
 bool Viewport::placementRaycast(float u, float v,
@@ -3286,6 +3307,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             if ((o.type == PrimitiveType::Mirror ||
                  o.type == PrimitiveType::Portal) && !asLines)
                 continue;
+            // Areas have no geometry in ANY view mode - their own pass below
+            // draws the box outline (drawing them here would fill the volume
+            // and hide whatever it encloses).
+            if (o.type == PrimitiveType::Area) continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -3463,11 +3488,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             refl.m[12] = 2.0f * d * n.x;
             refl.m[13] = 2.0f * d * n.y;
             refl.m[14] = 2.0f * d * n.z;
-            for (const std::string& tname : m.mirrorObjects) {
-                int ti = -1;
+            // Explicit list + the catch area's contents, exactly what codegen
+            // bakes into MIRROR_TARGETS (project::areaCaughtObjects is the one
+            // implementation both sides call).
+            std::vector<int> targets;
+            for (const std::string& tname : m.mirrorObjects)
                 for (size_t k = 0; k < objects.size(); ++k)
-                    if (objects[k].name == tname) { ti = (int)k; break; }
-                if (ti < 0 || hiddenAt((size_t)ti)) continue;
+                    if (objects[k].name == tname) {
+                        targets.push_back((int)k);
+                        break;
+                    }
+            for (int k : project::areaCaughtObjects(objects, m.catchArea, (int)mi)) {
+                bool listed = false;
+                for (int e : targets) listed |= (e == k);
+                if (!listed) targets.push_back(k);
+            }
+            for (int ti : targets) {
+                if (hiddenAt((size_t)ti)) continue;
                 aoSelfObj = ti;  // the copy keeps its source's self-exclusion
                 aoGroundOn = true;
                 drawReflected(objects[(size_t)ti],
@@ -3545,6 +3582,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     if (navOverlayOn_ && navOverlayMesh_.vertexCount)
         draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
              nullptr, false, 0.4f);
+
+    // Areas (docs/areas.md): the invisible trigger/selection volume, drawn as
+    // the wireframe of its box in the object color - the object's whole
+    // appearance in the editor and nothing at all in the game.
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
+        draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), o.color[0],
+             o.color[1], o.color[2]);
+    }
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).
@@ -3667,11 +3714,73 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        lastImageFbo_ = gradeFbo_;
         return gradeTex_;
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    lastImageFbo_ = fbo_;
     return colorTex_;
+}
+
+// --- Phone camera readback -------------------------------------------------------
+
+void Viewport::ensureGrabFramebuffer(int width, int height) {
+    if (grabFbo_ && width == grabW_ && height == grabH_) return;
+    grabW_ = width;
+    grabH_ = height;
+    if (!grabFbo_) glGenFramebuffers(1, &grabFbo_);
+    if (!grabTex_) glGenTextures(1, &grabTex_);
+    glBindTexture(GL_TEXTURE_2D, grabTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, grabFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, grabTex_, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "phone-camera grab framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+bool Viewport::grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
+                              int& outW, int& outH) {
+    if (!lastImageFbo_ || fbWidth_ <= 0 || fbHeight_ <= 0) return false;
+    if (maxW < 16) maxW = 16;
+    if (maxH < 16) maxH = 16;
+    // Fit the viewport aspect inside the cap so the phone sees the same
+    // framing (letterboxing, if any, is the app's business - never a crop).
+    const float scale = std::min((float)maxW / (float)fbWidth_,
+                                 (float)maxH / (float)fbHeight_);
+    int w = scale < 1.0f ? (int)(fbWidth_ * scale + 0.5f) : fbWidth_;
+    int h = scale < 1.0f ? (int)(fbHeight_ * scale + 0.5f) : fbHeight_;
+    w = std::max(w, 16);
+    h = std::max(h, 16);
+    ensureGrabFramebuffer(w, h);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, lastImageFbo_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, grabFbo_);
+    glBlitFramebuffer(0, 0, fbWidth_, fbHeight_, 0, 0, w, h, GL_COLOR_BUFFER_BIT,
+                      GL_LINEAR);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, grabFbo_);
+    // Tightly packed rows - the JPEG encoder wants w*3 stride, and the default
+    // 4-byte pack alignment would pad every odd width.
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    std::vector<unsigned char> rows((size_t)w * h * 3);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, rows.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+    // GL hands back bottom-up rows; everything downstream (JPEG, the phone)
+    // is top-down.
+    outRgb.resize(rows.size());
+    const size_t stride = (size_t)w * 3;
+    for (int y = 0; y < h; ++y)
+        std::memcpy(outRgb.data() + (size_t)y * stride,
+                    rows.data() + (size_t)(h - 1 - y) * stride, stride);
+    outW = w;
+    outH = h;
+    return true;
 }
 
 // Material Editor live preview: gradient backdrop, checker floor and one unit

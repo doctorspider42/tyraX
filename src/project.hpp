@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -104,7 +105,19 @@ enum class PrimitiveType {
     // transform - a seamless corridor between two parts of the map. See
     // portalTarget / portalObjects below and docs/portals.md.
     Portal = 16,
+    // Area: an invisible oriented box (the unit cube under the object's
+    // position/rotation/scale) with no geometry in the game - the editor draws
+    // its wireframe only. It replaces hand-typed distances: point a streaming
+    // layer's zone, a mirror's reflected set, a portal's through-view set or a
+    // camera feed's view set at an Area instead of a radius or a hand-built
+    // list, and use the In Area flow trigger for volume triggers.
+    // See docs/areas.md.
+    Area = 17,
 };
+
+// One past the last PrimitiveType value - loops over "every object type" (the
+// multi-select tally) bound on this instead of a hardcoded member.
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Area + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -346,6 +359,25 @@ struct SceneObject {
     // "mirror:<name>" = a raytraced mirror's traced image. Renames remap.
     std::string textureFeed;
 
+    // Catch area (docs/areas.md): name of an Area object whose volume selects
+    // this object's target list instead of (well, on top of) the hand-built
+    // one. Read for the three types that carry such a list - Mirror
+    // (mirrorObjects), Portal (portalObjects), Camera feed (camFeedObjects) -
+    // which is why one field serves all three: an object is only ever one of
+    // them. Empty = no area. Renames remap; a dangling name catches nothing.
+    // Resolved at BUILD time (project::areaCaughtObjects, the same call the
+    // Properties panel previews with), so the second-render cost stays visible
+    // to the author instead of growing silently at runtime.
+    std::string catchArea;
+    // Live catch area: also re-test the volume EVERY FRAME, so an object that
+    // walks/falls/spawns into it starts reflecting (showing, feeding) there
+    // and then. Only objects that can actually move are re-tested - the
+    // build-time list still covers the immovable rest, so a static room costs
+    // nothing extra (project::areaLiveCandidates picks the movable set, which
+    // is by construction the set static batching already refuses). Ignored by
+    // raytraced mirrors: their proxy meshes are baked per mirror at build.
+    bool catchAreaLive = false;
+
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
     // skipped) - a hard list instead of a radius, so the geometry cost is
@@ -516,6 +548,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
            a.camFeedObjects == b.camFeedObjects &&
            a.textureFeed == b.textureFeed &&
+           a.catchArea == b.catchArea &&
+           a.catchAreaLive == b.catchAreaLive &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
@@ -591,6 +625,11 @@ struct ProjectSettings {
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
                                 // (scene / highlight / particles / whole frame)
+    // Debug profile only: draw Area objects (docs/areas.md) in the game as
+    // wireframe boxes. An area has no geometry on the console by design, which
+    // is exactly why "why did the layer not unload / why is that not
+    // reflecting" is hard to see - this puts the volume back on screen.
+    bool showAreas = false;
     // Debug profile only: compile the Live Link poller into the game, so the
     // editor can stream scene edits into the running game (docs/live-link.md).
     // Off = the game never reads livelink.bin and the editor never writes it -
@@ -841,7 +880,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
-           a.showProfiler == b.showProfiler &&
+           a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.liveLink == b.liveLink &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
@@ -1146,13 +1185,19 @@ struct SceneLayer {
     bool autoStream = false;
     float streamX = 0.0f, streamZ = 0.0f;  // zone center, world units
     float streamRadius = 60.0f;            // load within this range
+    // Zone shape: the name of an Area object in this scene (docs/areas.md)
+    // whose oriented box IS the zone, replacing the (streamX, streamZ) +
+    // streamRadius circle. Empty / dangling = the circle. Unlike the circle
+    // the box also bounds Y, so a zone can cover one floor of a building; the
+    // area is read live, so a moved area moves the zone with it.
+    std::string streamArea;
 };
 
 inline bool operator==(const SceneLayer& a, const SceneLayer& b) {
     return a.name == b.name && a.startLoaded == b.startLoaded &&
            a.editorVisible == b.editorVisible && a.autoStream == b.autoStream &&
            a.streamX == b.streamX && a.streamZ == b.streamZ &&
-           a.streamRadius == b.streamRadius;
+           a.streamRadius == b.streamRadius && a.streamArea == b.streamArea;
 }
 
 // A scene: its own objects (each with its flow graph), its own terrain
@@ -2099,6 +2144,61 @@ void moveTerrainLayer(Project& p, int idx, int dir);  // dir = -1 up / +1 down; 
 
 std::string saveSplat(const Project& p);
 void loadSplat(Project& p);  // silent no-op when the file is absent
+
+// --- Areas (PrimitiveType::Area, docs/areas.md) ------------------------------
+// An Area is an invisible oriented box: the unit cube under the object's
+// position/rotation/scale, exactly what the editor draws as a wireframe. These
+// three helpers are the ONE implementation every consumer shares - the
+// Properties/Layers previews, codegen (mirror/portal/camera-feed target lists,
+// the streaming-layer zone) and the generated game's point test (emitted from
+// areaContainsPointSource() so the runtime cannot drift from the host).
+
+// The Area object named `name` in an object list (nullptr = none/not an Area).
+// Takes the raw vector, not a SceneData, so the viewport - which only ever
+// sees the active scene's objects - shares the same resolution.
+const SceneObject* findArea(const std::vector<SceneObject>& objs,
+                            const std::string& name);
+
+// Is the world point inside the area's box?
+bool areaContainsPoint(const SceneObject& area, float x, float y, float z);
+
+// Types an area may catch: everything the game draws as static geometry (the
+// same set the mirror/portal pickers offer). Markers have nothing to render or
+// reflect, so an area never picks them up.
+bool areaCatchable(PrimitiveType t);
+
+// Scene-object indices the named area catches, in scene-table order: catchable
+// objects whose bounding sphere (half the largest scale axis, the USE picker's
+// approximation) touches the volume. `exclude` drops the referencing object
+// itself (-1 = none). Empty for a missing/dangling area name.
+std::vector<int> areaCaughtObjects(const std::vector<SceneObject>& objs,
+                                   const std::string& areaName, int exclude);
+
+// Object names reachable by something that can move, hide or re-target them at
+// runtime: same-scene flow nodes with an object-name param (writers and readers
+// alike - over-including is cheap), mirror/portal target lists, and the
+// project's cutscene tracks / camera-shot bindings (they apply to whatever
+// scene is active). Shared by static-batching eligibility and the live-catch
+// candidate set, which is why over-including stays safe in both: the first
+// costs one solo bag, the second one point test per frame.
+std::set<std::string> runtimeRefNames(const Project& p,
+                                      const std::vector<SceneObject>& objs);
+
+// Can this object's transform change (or can the object appear) after load?
+// The exact complement of the immovability static batching relies on, so a
+// live-catch candidate is by construction never a batch member - it always has
+// the solo bag a second submission needs.
+bool objectRuntimeMovable(const SceneObject& o,
+                          const std::set<std::string>& refs);
+
+// Scene-object indices a LIVE catch area (SceneObject::catchAreaLive) has to
+// re-test every frame: every catchable object that can move, in scene-table
+// order. Deliberately not filtered by the area - a candidate's whole point is
+// that it may be outside now and inside next frame. `exclude` drops the
+// referencing object itself (-1 = none).
+std::vector<int> areaLiveCandidates(const std::vector<SceneObject>& objs,
+                                    int exclude,
+                                    const std::set<std::string>& refs);
 
 // --- History file (<name>.history) ------------------------------------------
 // The undo history (up to History::kMaxEntries scene snapshots), kept next to

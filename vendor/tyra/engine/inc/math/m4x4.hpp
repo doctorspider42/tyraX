@@ -91,6 +91,16 @@ class M4x4 {
   static M4x4 lookAt(const Vec4& position, const Vec4& target);
   static void lookAt(M4x4* res, const Vec4& position, const Vec4& target);
 
+  /**
+   * Modified by TyraX: same, with an explicit up vector, so a camera can roll
+   * about its view axis (cutscene Dutch angles - the two-argument form derives
+   * the up vector from world +Y and cannot express one). CameraInfo3D already
+   * carries an `up` that defaults to (0, 1, 0), and Renderer3DFrustumPlanes
+   * already culls against it; only the view matrix was ignoring it.
+   */
+  static void lookAt(M4x4* res, const Vec4& position, const Vec4& target,
+                     const Vec4& up);
+
   void print() const;
   void print(const char* name) const;
   void print(const std::string& name) const { print(name.c_str()); }

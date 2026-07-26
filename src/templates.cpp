@@ -510,6 +510,12 @@ constexpr bool DEBUG_SHOW_MEM = {{DEBUG_SHOW_MEM}};
 // / renderScene). This is the profiling harness used to diagnose the
 // usable-highlight cost, wired in as a shippable debug option.
 constexpr bool DEBUG_SHOW_PROFILER = {{DEBUG_SHOW_PROFILER}};
+// Draw Area objects (type 17, docs/areas.md) as wireframe boxes in the game.
+// They have no geometry in a shipping build by design, which is precisely why
+// a zone that will not unload or a catch area that misses a prop is hard to
+// diagnose from inside the game. Guarded by this constexpr, so a build with it
+// false emits no vertices at all (see rebuildObjectGeometry case 17).
+constexpr bool DEBUG_SHOW_AREAS = {{DEBUG_SHOW_AREAS}};
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -553,6 +559,10 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  // Camera up vector. World up unless a cutscene rolls the camera
+  // (Dutch angle); CameraInfo3D takes it and both the view matrix and
+  // the frustum planes honour it.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
   float orbitAngle;
 
   // Terrain chunks: the heightmap grid is cut into TERRAIN_CHUNK_CELLS-sized
@@ -953,6 +963,13 @@ class TerrainGame : public Tyra::Game {
   // drawn; mirrorAnimMat composes it with an animated target's animMat.
   void renderMirrors();
   void renderMirroredObject(int index);
+  // Live catch areas (docs/areas.md): refill liveCaught with the objects the
+  // area at scene index areaIndex holds right now, walking the owner slice of
+  // CATCH_CANDIDATES (everything in the scene that can move) plus the runtime
+  // spawn pool. The buffer is a member so the per-frame pass never allocates;
+  // the caller consumes it before the next call.
+  void collectLiveCaught(int areaIndex, int firstCand, int candCount);
+  std::vector<int> liveCaught;
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
@@ -976,6 +993,7 @@ class TerrainGame : public Tyra::Game {
   // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
   // traced image) as a live emissive texture.
   void renderCameraFeed();
+  void renderFeedObject(int index);
   // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
   // map for ONE reflective object - aimed by the eye->center reflection -
   // right before that object draws. Interleaving works on a single VRAM
@@ -1042,6 +1060,7 @@ class TerrainGame : public Tyra::Game {
   // oi is on its explicit view list) - a carried object may only be mapped
   // through a portal that will render it on the far side.
   bool portalShowsObject(int pi, int oi);
+  bool portalLiveHolds(const PortalData& p, int oi);
   // Map a world point through portal pi's pair (source local -> flip about
   // local Y -> target world), the same isometry as the teleport/camera.
   void portalMapPoint(int pi, float& x, float& y, float& z);
@@ -1379,6 +1398,10 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  // Camera up vector. World up unless a cutscene rolls the camera
+  // (Dutch angle); CameraInfo3D takes it and both the view matrix and
+  // the frustum planes honour it.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
   float playerX, playerZ, yaw, pitch;
   float playerY, playerVelY;  // feet height + vertical velocity (physics)
 
@@ -1780,6 +1803,13 @@ class TerrainGame : public Tyra::Game {
   // drawn; mirrorAnimMat composes it with an animated target's animMat.
   void renderMirrors();
   void renderMirroredObject(int index);
+  // Live catch areas (docs/areas.md): refill liveCaught with the objects the
+  // area at scene index areaIndex holds right now, walking the owner slice of
+  // CATCH_CANDIDATES (everything in the scene that can move) plus the runtime
+  // spawn pool. The buffer is a member so the per-frame pass never allocates;
+  // the caller consumes it before the next call.
+  void collectLiveCaught(int areaIndex, int firstCand, int candCount);
+  std::vector<int> liveCaught;
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
@@ -1803,6 +1833,7 @@ class TerrainGame : public Tyra::Game {
   // objects with an OBJECT_FEEDS row sample it (or a raytraced mirror's
   // traced image) as a live emissive texture.
   void renderCameraFeed();
+  void renderFeedObject(int index);
   // Reflected-probe mode (ENV_PROBE_REFLECTED): re-render the shared env
   // map for ONE reflective object - aimed by the eye->center reflection -
   // right before that object draws. Interleaving works on a single VRAM
@@ -1869,6 +1900,7 @@ class TerrainGame : public Tyra::Game {
   // oi is on its explicit view list) - a carried object may only be mapped
   // through a portal that will render it on the far side.
   bool portalShowsObject(int pi, int oi);
+  bool portalLiveHolds(const PortalData& p, int oi);
   // Map a world point through portal pi's pair (source local -> flip about
   // local Y -> target world), the same isometry as the teleport/camera.
   void portalMapPoint(int pi, float& x, float& y, float& z);
@@ -3010,6 +3042,44 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
+// Debug "show areas" (DEBUG_SHOW_AREAS): an Area object has no geometry in the
+// game, so the volume you drew is invisible exactly when you need to see where
+// its edge runs - "why did this layer not unload", "why is that crate not
+// reflecting". This draws the box's 12 edges as thin beams, i.e. the same
+// wireframe the editor viewport shows. Twelve addBox calls rather than a mesh
+// of its own: an edge IS a box (its length along one axis, `t` on the other
+// two, parked at one of the four parallel corners), and going through addBox
+// keeps the transform, lighting and vertex format identical to every other
+// primitive. A wireframe and not a translucent solid on purpose - a filled
+// volume hides the very objects you opened it to look at.
+void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
+                      std::vector<Vec4>& sts, const SceneObjectData& o) {
+  const float ax = o.scale[0] < 0.0F ? -o.scale[0] : o.scale[0];
+  const float ay = o.scale[1] < 0.0F ? -o.scale[1] : o.scale[1];
+  const float az = o.scale[2] < 0.0F ? -o.scale[2] : o.scale[2];
+  float big = ax > ay ? ax : ay;
+  if (az > big) big = az;
+  float t = big * 0.012F;  // beam thickness: readable at any zone size
+  if (t < 0.04F) t = 0.04F;
+  for (int axis = 0; axis < 3; ++axis) {
+    const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+    for (int corner = 0; corner < 4; ++corner) {
+      SceneObjectData e = o;
+      e.primDetail = 1;  // a beam needs no subdivision
+      float off[3] = {0.0F, 0.0F, 0.0F};
+      off[u] = ((corner & 1) ? 0.5F : -0.5F) * o.scale[u];
+      off[v] = ((corner & 2) ? 0.5F : -0.5F) * o.scale[v];
+      const V3 w = rotated({off[0], off[1], off[2]}, o.rotation);
+      e.position[0] = o.position[0] + w.x;
+      e.position[1] = o.position[1] + w.y;
+      e.position[2] = o.position[2] + w.z;
+      e.scale[u] = t;
+      e.scale[v] = t;
+      addBox(verts, cols, sts, e);
+    }
+  }
+}
+
 // Flat unit square in the XZ plane, double-sided (visible from both faces).
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
@@ -3843,6 +3913,9 @@ void TerrainGame::loop() {
   if (scriptCtx.cameraOverride) {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
+    cameraUp = scriptCtx.cameraUp;
+  } else {
+    cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -3869,7 +3942,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
-  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     // Split screen (two players): the scene renders twice, top half from
@@ -3890,7 +3963,7 @@ void TerrainGame::loop() {
       const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
       cameraPosition = players[1].camPos;
       cameraLookAt = players[1].camLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       core.splitView.begin(1);
       splitSecondPass = true;  // reuse this frame's anim poses/skins
       renderScene();
@@ -3898,7 +3971,7 @@ void TerrainGame::loop() {
       core.splitView.end();
       cameraPosition = savedPos;
       cameraLookAt = savedLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
       renderScene();
@@ -4605,9 +4678,41 @@ void TerrainGame::updateLayerStreaming() {
     const float px = cameraLookAt.x;
     const float pz = cameraLookAt.z;
     const bool p2 = playerTwoActive && players[1].objIndex >= 0;
+    const float ZONE_HYSTERESIS = 8.0F;  // unload band beyond the zone edge
     for (int l = 0; l < lc; ++l) {
       const float r = SCENE_LAYER_STREAM_R[l];
       if (r <= 0.0F) continue;
+      // Area zone (docs/areas.md): the layer's Area object replaces the
+      // circle. Its box bounds Y as well, so a zone can be one floor of a
+      // building; the object is read LIVE, so moving the area moves the zone.
+      // Tested against the same player points the flow graph measures from
+      // (player2Position falls back to player 1, so no 2P special case).
+      const int az = SCENE_LAYER_STREAM_AREA[l];
+      if (az >= 0 && az < (int)runtimeObjects.size()) {
+        const Vec4& a1 = scriptCtx.playerPosition;
+        const Vec4& a2 = scriptCtx.player2Position;
+        SceneObjectData zone = runtimeObjects[az].data;
+        const bool inside = pointInArea(zone, a1.x, a1.y, a1.z) ||
+                            pointInArea(zone, a2.x, a2.y, a2.z);
+        if (!layerAutoInside[l] && inside) {
+          layerAutoInside[l] = 1;
+          layerRequest[l] = 1;
+        } else if (layerAutoInside[l] && !inside) {
+          // Unload band. The circle path adds a flat ZONE_HYSTERESIS because
+          // a radius is a guess about where the room is; a box is not - the
+          // author drew the boundary, so stepping out of it has to unload
+          // rather than send you eight units into the next room first. The
+          // band is the same 15% the circle applies to r, plus half a unit,
+          // which is enough that standing ON the edge cannot thrash.
+          for (int k = 0; k < 3; ++k) zone.scale[k] = zone.scale[k] * 1.15F + 1.0F;
+          if (!pointInArea(zone, a1.x, a1.y, a1.z) &&
+              !pointInArea(zone, a2.x, a2.y, a2.z)) {
+            layerAutoInside[l] = 0;
+            layerRequest[l] = 0;
+          }
+        }
+        continue;
+      }
       const float dx = px - SCENE_LAYER_STREAM_X[l];
       const float dz = pz - SCENE_LAYER_STREAM_Z[l];
       float d2 = dx * dx + dz * dz;
@@ -4617,7 +4722,7 @@ void TerrainGame::updateLayerStreaming() {
         const float e2 = dx2 * dx2 + dz2 * dz2;
         if (e2 < d2) d2 = e2;
       }
-      const float rOut = r * 1.15F + 8.0F;
+      const float rOut = r * 1.15F + ZONE_HYSTERESIS;
       if (!layerAutoInside[l] && d2 < r * r) {
         layerAutoInside[l] = 1;
         layerRequest[l] = 1;
@@ -5061,7 +5166,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
-        o.data.type == 14)                         // 14 = camera marker
+        o.data.type == 14 ||                       // 14 = camera marker
+        o.data.type == 17)                         // 17 = area (a volume, not a wall)
       continue;
     if (o.data.collision == 2) continue;  // none
     // Portal pass-through (updatePortalPass): while the walker stands in a
@@ -5363,21 +5469,35 @@ void TerrainGame::loadScene(int sceneIndex) {
     layerAutoInside.assign(lc > 0 ? lc : 0, 0);
     // Auto-streamed layers start resident only when the spawn point is
     // inside their zone; everything else follows the authored Start loaded.
-    float spawnX = 0.0F, spawnZ = 0.0F;
+    // runtimeObjects are rebuilt further down, so an area zone reads the
+    // authored transform straight out of SCENE_OBJECTS here.
+    float spawnX = 0.0F, spawnY = 0.0F, spawnZ = 0.0F;
     if (PLAYER_INDEX >= 0) {
       spawnX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
+      spawnY = SCENE_OBJECTS[PLAYER_INDEX].position[1];
       spawnZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
     } else {
       for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
         if (SCENE_OBJECTS[i].type == 4) {  // spawn point (built-in FPP)
           spawnX = SCENE_OBJECTS[i].position[0];
+          spawnY = SCENE_OBJECTS[i].position[1];
           spawnZ = SCENE_OBJECTS[i].position[2];
           break;
         }
     }
     for (int l = 0; l < lc; ++l) {
       const float r = SCENE_LAYER_STREAM_R[l];
-      if (r > 0.0F) {
+      const int az = SCENE_LAYER_STREAM_AREA[l];
+      if (r > 0.0F && az >= 0 && az < SCENE_OBJECT_COUNT) {
+        // Area zone: the spawn stands in the box (eye height included - the
+        // marker sits on the ground, so a floor-hugging box still catches it).
+        const bool inside =
+            pointInArea(SCENE_OBJECTS[az], spawnX, spawnY, spawnZ) ||
+            pointInArea(SCENE_OBJECTS[az], spawnX,
+                        spawnY + PP_EYE_HEIGHT(0), spawnZ);
+        layerTarget[l] = inside ? 1 : 0;
+        layerAutoInside[l] = inside ? 1 : 0;
+      } else if (r > 0.0F) {
         const float dx = spawnX - SCENE_LAYER_STREAM_X[l];
         const float dz = spawnZ - SCENE_LAYER_STREAM_Z[l];
         const bool inside = dx * dx + dz * dz < r * r;
@@ -6135,7 +6255,7 @@ void TerrainGame::updateUseTarget() {
     if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
-        o.data.type == 14)
+        o.data.type == 14 || o.data.type == 17)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -7105,8 +7225,8 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     if (!o.active || !o.visible) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 13 || ty == 14)
-      continue;  // markers / emitters / decals / the avatar - not blockers
+        ty == 13 || ty == 14 || ty == 17)
+      continue;  // markers / emitters / decals / areas / the avatar - not blockers
     if (o.data.collision == 2) continue;  // "none": the sweep passes through
     if (sweepPassOn) {
       // Portal pass-through for a thrown object's sweep: obstacles fully
@@ -7826,6 +7946,12 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       case 8: break;   // sound emitter - marker only, no geometry
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
+      case 17:
+        // area - an invisible volume; the debug preference draws its edges
+        // (DEBUG_SHOW_AREAS is a constexpr, so a shipping build emits nothing)
+        if (DEBUG_SHOW_AREAS)
+          addAreaWireframe(p0.vertices, p0.colors, p0.sts, o.data);
+        break;
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -8336,7 +8462,7 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
   if (d.collision == 2) return false;
   const int t = d.type;
   return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
-         t != 13 && t != 14;
+         t != 13 && t != 14 && t != 17;
 }
 
 // ---------------------------------------------------------------------------
@@ -9224,7 +9350,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag) stapip.core.render(part.bag.get());
     }
-    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
   }
 
@@ -9450,6 +9576,38 @@ void TerrainGame::renderScene() {
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
 }
 
+// Live catch areas (docs/areas.md): the objects an area holds RIGHT NOW,
+// collected into liveCaught for the caller to submit on top of its fixed
+// target list. Only the owner's build-time candidate slice is walked -
+// everything that can move; whatever the volume holds that CANNOT move is
+// already in the fixed list, so a static room adds nothing to test here. The
+// area's rotated basis is built once, so a candidate costs three dot products
+// and a compare, and the area's own live transform is what is tested: move
+// the area and the volume moves with it.
+//
+// Runtime spawns are scanned separately: they exist nowhere in the scene
+// table, so no build-time list can name them.
+void TerrainGame::collectLiveCaught(int areaIndex, int firstCand,
+                                    int candCount) {
+  liveCaught.clear();
+  if (areaIndex < 0 || areaIndex >= (int)runtimeObjects.size()) return;
+  const RuntimeObject& area = runtimeObjects[areaIndex];
+  if (!area.active) return;
+  const AreaBasis basis = areaBasis(area.data);
+  for (int i = 0; i < candCount; ++i) {
+    const int ci = CATCH_CANDIDATES[firstCand + i];
+    if (ci < 0 || ci >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& o = runtimeObjects[ci];
+    if (!o.active || !o.visible) continue;
+    if (areaHoldsObject(basis, o.data)) liveCaught.push_back(ci);
+  }
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.visible || !areaCatchableType(o.data.type)) continue;
+    if (areaHoldsObject(basis, o.data)) liveCaught.push_back(i);
+  }
+}
+
 // Mirror objects (type 15): the PS2-era mirror. Every listed target is
 // submitted a SECOND time under a reflection matrix about the glass plane -
 // VU1 re-transforms the target's live vertex arrays (the same trick as the
@@ -9501,12 +9659,27 @@ void TerrainGame::renderMirrors() {
 
     for (int t = 0; t < mir.targetCount; ++t)
       renderMirroredObject(MIRROR_TARGETS[mir.firstTarget + t]);
+    // Live catch area: whatever moved into the volume since the last frame
+    // joins the reflection now (and whatever left drops out of it).
+    if (mir.liveArea >= 0) {
+      collectLiveCaught(mir.liveArea, mir.firstCand, mir.candCount);
+      for (int i = 0; i < (int)liveCaught.size(); ++i)
+        renderMirroredObject(liveCaught[i]);
+    }
     if (mir.reflectPlayer) {
       // only a visible body reflects: the third-person avatar is a normal
       // runtime object (visible only in mode 2), so the FPP player - no
       // body - is skipped by the visibility check inside
       const int pi = PLAYER_INDEXES[currentScene];
-      if (pi >= 0) renderMirroredObject(pi);
+      // A live area gates the avatar like anything else - the checkbox says
+      // the player MAY reflect, the volume says whether it does right now.
+      bool inside = true;
+      if (mir.liveArea >= 0 && pi >= 0) {
+        const RuntimeObject& area = runtimeObjects[mir.liveArea];
+        inside = area.active &&
+                 areaHoldsObject(areaBasis(area.data), runtimeObjects[pi].data);
+      }
+      if (pi >= 0 && inside) renderMirroredObject(pi);
     }
 
     // the glass quad itself, alpha-blended over the copies (its vertex
@@ -9893,25 +10066,34 @@ void TerrainGame::renderCameraFeed() {
     }
     renderTerrain();  // resident chunks - the ring follows the MAIN camera
   }
-  for (int t = 0; t < fd.viewCount; ++t) {
-    const int vi2 = CAM_FEED_VIEWS[fd.firstView + t];
-    if (vi2 < 0 || vi2 >= (int)runtimeObjects.size()) continue;
-    RuntimeObject& ro = runtimeObjects[vi2];
-    // no mirrors/portals in a feed: their surfaces are main-pass tricks
-    if (!ro.active || !ro.visible || ro.data.type == 15 ||
-        ro.data.type == 16)
-      continue;
-    if (ro.dirty) rebuildObjectGeometry(vi2);
-    ObjectGeometry& og = objectGeometry[vi2];
-    if (og.matrixMode) updateObjMat(vi2);
-    for (GeoPart& part : og.parts)
-      if (part.bag) stapip.core.render(part.bag.get());
-    if (og.animInfoBag && !og.animParts.empty())
-      for (ObjectGeometry::AnimPart& ap : og.animParts)
-        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  for (int t = 0; t < fd.viewCount; ++t)
+    renderFeedObject(CAM_FEED_VIEWS[fd.firstView + t]);
+  // Live catch area: the same volume test the mirrors run, so a prop that
+  // rolls into the camera's area shows up on the monitor.
+  if (fd.liveArea >= 0) {
+    collectLiveCaught(fd.liveArea, fd.firstCand, fd.candCount);
+    for (int i = 0; i < (int)liveCaught.size(); ++i)
+      renderFeedObject(liveCaught[i]);
   }
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.camFeed.end();
+}
+
+// One object inside the feed's env view, drawn from its live bags.
+void TerrainGame::renderFeedObject(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& ro = runtimeObjects[index];
+  // no mirrors/portals in a feed: their surfaces are main-pass tricks
+  if (!ro.active || !ro.visible || ro.data.type == 15 || ro.data.type == 16)
+    return;
+  if (ro.dirty) rebuildObjectGeometry(index);
+  ObjectGeometry& og = objectGeometry[index];
+  if (og.matrixMode) updateObjMat(index);
+  for (GeoPart& part : og.parts)
+    if (part.bag) stapip.core.render(part.bag.get());
+  if (og.animInfoBag && !og.animParts.empty())
+    for (ObjectGeometry::AnimPart& ap : og.animParts)
+      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
 }
 
 // Reflected-probe mode (ENV_PROBE_REFLECTED): one probe render PER
@@ -10042,7 +10224,7 @@ void TerrainGame::renderObjectProbe(int index) {
     for (GeoPart& part : objectGeometry[ri].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
 }
 
@@ -10500,6 +10682,14 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // so the loop already renders the mapped far half.
     for (int v = 0; v < p.viewCount; ++v)
       renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
+    // Live catch area: objects that moved into the volume show through the
+    // portal from this frame on - and portalShowsObject agrees with the same
+    // test, so the owner's rule (what a portal shows can cross it) holds.
+    if (p.liveArea >= 0) {
+      collectLiveCaught(p.liveArea, p.firstCand, p.candCount);
+      for (int i = 0; i < (int)liveCaught.size(); ++i)
+        renderViewObject(liveCaught[i]);
+    }
   }
   if (drawCarryFar) {
     RuntimeObject& co = runtimeObjects[carryIndex];
@@ -10509,7 +10699,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     co.dirty = true;  // main pass rebuilds at the real (near) position
   }
   portalExitPlaneOn = false;
-  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
                      (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
   return true;
@@ -10593,7 +10783,7 @@ bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
   if (oi >= 0 && oi == thrownFreeIndex) return true;
   for (int v = 0; v < p.viewCount; ++v)
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
-  return false;
+  return portalLiveHolds(p, oi);
 }
 
 bool TerrainGame::portalShowsObject(int pi, int oi) {
@@ -10601,7 +10791,18 @@ bool TerrainGame::portalShowsObject(int pi, int oi) {
   if (p.viewAll) return true;
   for (int v = 0; v < p.viewCount; ++v)
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
-  return false;
+  return portalLiveHolds(p, oi);
+}
+
+// A single object against a portal's live catch area - the per-object twin of
+// collectLiveCaught, so "shown through" and "may cross" stay one rule. Called
+// per body per portal, so it exits before the trig on the common no-area case.
+bool TerrainGame::portalLiveHolds(const PortalData& p, int oi) {
+  if (p.liveArea < 0 || oi < 0 || oi >= (int)runtimeObjects.size())
+    return false;
+  const RuntimeObject& area = runtimeObjects[p.liveArea];
+  if (!area.active) return false;
+  return areaHoldsObject(areaBasis(area.data), runtimeObjects[oi].data);
 }
 
 void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {
@@ -12449,6 +12650,9 @@ void TerrainGame::loop() {
   if (scriptCtx.cameraOverride) {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
+    cameraUp = scriptCtx.cameraUp;
+  } else {
+    cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -12475,7 +12679,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
-  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     // Split screen (two players): the scene renders twice, top half from
@@ -12496,7 +12700,7 @@ void TerrainGame::loop() {
       const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
       cameraPosition = players[1].camPos;
       cameraLookAt = players[1].camLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       core.splitView.begin(1);
       splitSecondPass = true;  // reuse this frame's anim poses/skins
       renderScene();
@@ -12504,7 +12708,7 @@ void TerrainGame::loop() {
       core.splitView.end();
       cameraPosition = savedPos;
       cameraLookAt = savedLook;
-      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
       renderScene();
@@ -13237,6 +13441,10 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  // Camera up vector. World up unless a cutscene rolls the camera
+  // (Dutch angle); CameraInfo3D takes it and both the view matrix and
+  // the frustum planes honour it.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
   float orbitAngle;
 
   std::vector<Tyra::Vec4> vertices;
@@ -13288,7 +13496,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
-  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     stapip.core.render(bag.get());
@@ -13456,6 +13664,9 @@ struct ScriptContext {
   bool cameraOverride = false;
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
+  // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene
+  // without roll renders exactly as it did before roll existed.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
 
   // Cutscene presentation, also written by the sequence player every frame a
   // cutscene is active (and zeroed when it ends): widescreen mask style
@@ -14490,38 +14701,41 @@ static std::string aoDataHeader(const Project& p) {
 // covers them by rebuilding a batch whenever a member is dirtied.
 
 // Object names referenced anywhere that can move, hide, re-target or
-// re-submit an object at runtime: same-scene flow-graph nodes with an
-// object-name param (writers and readers alike - over-excluding is safe,
-// the cost is one solo bag), mirror target lists, portal view lists, and
-// cutscene tracks /
-// camera-shot bindings (project-wide, they apply to whatever scene is
-// active). Patrol waypoint PREFIXES are deliberately not expanded: the AI
-// only reads waypoint positions, it never mutates the waypoint object.
+// re-submit an object at runtime - flow-node object params, mirror/portal
+// lists, cutscene tracks and camera-shot bindings (project::runtimeRefNames,
+// shared with the live-catch candidate set), plus what a catch area holds.
+// Over-excluding is safe: the cost is one solo bag. Patrol waypoint PREFIXES
+// are deliberately not expanded: the AI only reads waypoint positions, it
+// never mutates the waypoint object.
+// (Mirror target lists and portal view lists re-submit their objects through
+// per-object solo bags - a batched member has no solo bag and simply vanishes
+// from the reflection / through-view. Only particles survived the portal case,
+// and the missing wall around the target portal then read as seeing through
+// two portals at once.)
 static std::set<std::string> batchBlockedNames(const Project& p,
                                                const SceneData& sc) {
-    std::set<std::string> refs;
+    std::set<std::string> refs = project::runtimeRefNames(p, sc.objects);
+    // A catch area (docs/areas.md) expands into those same lists at build, so
+    // everything it holds is re-submitted the same way and must stay out of
+    // the batch too. A LIVE area additionally re-tests every movable object in
+    // the scene, so those are blocked as well - they are the ones that can
+    // walk in later. (project::objectRuntimeMovable is the complement of the
+    // rules right below, so this second set is already covered; blocking it
+    // explicitly keeps the two from drifting apart.)
+    std::set<std::string> extra;
     for (const SceneObject& o : sc.objects) {
-        for (const FlowNode& n : o.flowGraph.nodes) {
-            const FlowNodeType* t = flowNodeType(n.type);
-            if (t && t->strKind == FlowParamKind::ObjectName && !n.str.empty())
-                refs.insert(n.str);
-        }
-        if (o.type == PrimitiveType::Mirror)
-            for (const std::string& m : o.mirrorObjects) refs.insert(m);
-        // Portal view lists re-submit their objects through renderPortalView's
-        // per-object solo bags - a batched member has no solo bag and simply
-        // vanishes from the through-view (only particles survived; the missing
-        // wall around the target portal then read as seeing through two
-        // portals at once).
-        if (o.type == PrimitiveType::Portal)
-            for (const std::string& m : o.portalObjects) refs.insert(m);
+        if (o.catchArea.empty()) continue;
+        for (int ti : project::areaCaughtObjects(sc.objects, o.catchArea, -1))
+            extra.insert(sc.objects[ti].name);
+        if (!o.catchAreaLive) continue;
+        for (int ci : project::areaLiveCandidates(sc.objects, -1, refs))
+            extra.insert(sc.objects[ci].name);
     }
-    for (const Sequence& s : p.sequences) {
-        for (const SeqTrack& tr : s.tracks) refs.insert(tr.target);
-        for (const SeqCameraKey& k : s.cameraKeys) refs.insert(k.camera);
-    }
+    refs.insert(extra.begin(), extra.end());
     // A weapon's viewmodel is re-posed in front of the camera every frame
     // (docs/weapons.md) - the same reason a sequence target cannot batch.
+    // Kept here rather than in runtimeRefNames: a viewmodel is referenced by a
+    // WEAPON, not by another object, so it is not a live-catch candidate.
     for (const WeaponDef& w : p.weapons)
         if (!w.viewModel.empty()) refs.insert(w.viewModel);
     return refs;
@@ -14561,6 +14775,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
            "#pragma once\n"
            "\n"
+           "#include <math.h>  // pointInArea (areas, type 17)\n"
+           "\n"
            "namespace "
         << ns
         << " {\n"
@@ -14573,6 +14789,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             // 15=mirror (glass quad; reflections via MIRRORS below)\n"
            "             // 16=portal (linked surface; through-view + teleport\n"
            "             //    via PORTALS below)\n"
+           "             // 17=area (invisible volume, no geometry/collision:\n"
+           "             //    layer zones, In Area triggers - pointInArea below)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -14640,6 +14858,112 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int hitFx;       // impact burst override: 0 = the weapon decides,\n"
            "                   // 1 sparks, 2 blood, 3 dust, 4 none\n"
            "};\n"
+           "\n"
+           // Areas (type 17) live here, in the always-regenerated data header,
+           // because BOTH generated TUs test them: terrain_game.cpp (streaming
+           // layer zones) and flow_graph.gen.cpp (the In Area trigger). One
+           // definition = no runtime twin to keep in sync with the host, which
+           // is project::areaContainsPoint.
+           "// An Area object's box (type 17): the unit cube under\n"
+           "// position/rotation/scale, exactly the wireframe the editor draws.\n"
+           "// Rotation order X, then Y, then Z - the rotated axes are\n"
+           "// orthonormal, so projecting the offset onto each and comparing\n"
+           "// against the half extent needs no matrix inverse. Split out of the\n"
+           "// point test so a caller testing MANY points against ONE area (a\n"
+           "// live catch area, docs/areas.md) pays for the trig once, not per\n"
+           "// object. Host twin: project.cpp's areaDistSq.\n"
+           "struct AreaBasis {\n"
+           "  float o[3];   // center\n"
+           "  float ax[3];  // rotated unit axes\n"
+           "  float ay[3];\n"
+           "  float az[3];\n"
+           "  float h[3];   // half extents\n"
+           "};\n"
+           "inline AreaBasis areaBasis(const SceneObjectData& d) {\n"
+           "  AreaBasis b;\n"
+           "  for (int i = 0; i < 3; ++i) {\n"
+           "    b.o[i] = d.position[i];\n"
+           "    b.h[i] = 0.5F * (d.scale[i] < 0.0F ? -d.scale[i] : d.scale[i]);\n"
+           "  }\n"
+           "  // Unrotated is the common case (and the only one a layer zone\n"
+           "  // ever needs): skip six trig calls for it.\n"
+           "  if (d.rotation[0] == 0.0F && d.rotation[1] == 0.0F &&\n"
+           "      d.rotation[2] == 0.0F) {\n"
+           "    b.ax[0] = 1.0F, b.ax[1] = 0.0F, b.ax[2] = 0.0F;\n"
+           "    b.ay[0] = 0.0F, b.ay[1] = 1.0F, b.ay[2] = 0.0F;\n"
+           "    b.az[0] = 0.0F, b.az[1] = 0.0F, b.az[2] = 1.0F;\n"
+           "    return b;\n"
+           "  }\n"
+           "  const float k = 3.14159265F / 180.0F;\n"
+           "  const float cx = cosf(d.rotation[0] * k);\n"
+           "  const float sx = sinf(d.rotation[0] * k);\n"
+           "  const float cy = cosf(d.rotation[1] * k);\n"
+           "  const float sy = sinf(d.rotation[1] * k);\n"
+           "  const float cz = cosf(d.rotation[2] * k);\n"
+           "  const float sz = sinf(d.rotation[2] * k);\n"
+           "  // Columns of Rz*Ry*Rx = the rotated unit axes.\n"
+           "  b.ax[0] = cy * cz, b.ax[1] = cy * sz, b.ax[2] = -sy;\n"
+           "  b.ay[0] = sx * sy * cz - cx * sz, b.ay[1] = sx * sy * sz + cx * cz,\n"
+           "  b.ay[2] = sx * cy;\n"
+           "  b.az[0] = cx * sy * cz + sx * sz, b.az[1] = cx * sy * sz - sx * cz,\n"
+           "  b.az[2] = cx * cy;\n"
+           "  return b;\n"
+           "}\n"
+           "\n"
+           "// Squared distance from a world point to the area's box; 0 inside.\n"
+           "inline float areaDistSq(const AreaBasis& b, float px, float py,\n"
+           "                        float pz) {\n"
+           "  const float dx = px - b.o[0];\n"
+           "  const float dy = py - b.o[1];\n"
+           "  const float dz = pz - b.o[2];\n"
+           "  const float t[3] = {dx * b.ax[0] + dy * b.ax[1] + dz * b.ax[2],\n"
+           "                      dx * b.ay[0] + dy * b.ay[1] + dz * b.ay[2],\n"
+           "                      dx * b.az[0] + dy * b.az[1] + dz * b.az[2]};\n"
+           "  float out = 0.0F;\n"
+           "  for (int i = 0; i < 3; ++i) {\n"
+           "    const float a = t[i] < 0.0F ? -t[i] : t[i];\n"
+           "    const float over = a - b.h[i];\n"
+           "    if (over > 0.0F) out += over * over;\n"
+           "  }\n"
+           "  return out;\n"
+           "}\n"
+           "\n"
+           "// Is the world point inside the area's box?\n"
+           "// Host twin: project::areaContainsPoint (project.cpp).\n"
+           "inline bool pointInArea(const SceneObjectData& d, float px, float py,\n"
+           "                       float pz) {\n"
+           "  return areaDistSq(areaBasis(d), px, py, pz) <= 0.0F;\n"
+           "}\n"
+           "\n"
+           "// The bounding sphere an area catches an OBJECT by: half its largest\n"
+           "// scale axis, so a prop only partly inside still counts. Host twin:\n"
+           "// project::areaCaughtObjects (project.cpp) - the two must agree or a\n"
+           "// live catch area would take a different set than the build-time\n"
+           "// preview showed.\n"
+           "inline float objectCatchRadius(const SceneObjectData& d) {\n"
+           "  float r = d.scale[0] < 0.0F ? -d.scale[0] : d.scale[0];\n"
+           "  const float sy = d.scale[1] < 0.0F ? -d.scale[1] : d.scale[1];\n"
+           "  const float sz = d.scale[2] < 0.0F ? -d.scale[2] : d.scale[2];\n"
+           "  if (sy > r) r = sy;\n"
+           "  if (sz > r) r = sz;\n"
+           "  return r * 0.5F;\n"
+           "}\n"
+           "\n"
+           "// Types an area may catch: everything drawn as scene geometry.\n"
+           "// Markers have nothing to reflect or show. Host twin:\n"
+           "// project::areaCatchable (project.cpp).\n"
+           "inline bool areaCatchableType(int t) {\n"
+           "  return t == 0 || t == 1 || t == 2 || t == 3 || t == 5 || t == 10 ||\n"
+           "         t == 12 || t == 13;\n"
+           "}\n"
+           "\n"
+           "// Does the area hold this object right now (the live catch test)?\n"
+           "inline bool areaHoldsObject(const AreaBasis& b,\n"
+           "                            const SceneObjectData& d) {\n"
+           "  const float r = objectCatchRadius(d);\n"
+           "  return areaDistSq(b, d.position[0], d.position[1], d.position[2]) <=\n"
+           "         r * r;\n"
+           "}\n"
            "\n";
 
     // One object table per scene; the game indexes everything through
@@ -14846,7 +15170,26 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     layerFloatTable("SCENE_LAYER_STREAM_RADII", [](const SceneLayer& l) {
         return l.autoStream ? l.streamRadius : 0.0f;
     });
-    out << "\n";
+    // Area zones (docs/areas.md): the scene-table index of the layer's Area
+    // object, -1 = the circle above. The game tests the live object (a moved
+    // area moves its zone), so this is an index, not a baked box.
+    out << "constexpr int SCENE_LAYER_STREAM_AREAS[SCENE_COUNT][SCENE_MAX_LAYERS] = {";
+    for (int si = 0; si < sceneCount; ++si) {
+        out << (si ? ", {" : "{");
+        for (int li = 0; li < maxLayers; ++li) {
+            const auto& layers = p.scenes[si].layers;
+            int idx = -1;
+            if (li < (int)layers.size() && layers[li].autoStream &&
+                !layers[li].streamArea.empty()) {
+                const SceneObject* a =
+                    project::findArea(p.scenes[si].objects, layers[li].streamArea);
+                if (a) idx = (int)(a - p.scenes[si].objects.data());
+            }
+            out << (li ? ", " : "") << idx;
+        }
+        out << "}";
+    }
+    out << "};\n\n";
 
     // Raytraced-mirror model proxies: decimate a model submesh to a small
     // triangle budget for the VU0 tracer. Source verts are objparser's flat
@@ -15046,6 +15389,85 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 out.push_back(byArea[k].second * 3 + c);
     };
 
+    // Which objects a live catch area (SceneObject::catchAreaLive) has to
+    // re-test every frame. runtimeRefNames walks every graph in the scene, so
+    // it is computed once per scene here rather than once per mirror/portal.
+    std::vector<std::set<std::string>> sceneRefs;
+    for (int si = 0; si < sceneCount; ++si)
+        sceneRefs.push_back(project::runtimeRefNames(p, p.scenes[si].objects));
+    // The catch area's own scene-table index (the game reads its LIVE
+    // transform, so moving the area moves the volume), -1 = none/dangling.
+    auto areaIndexOf = [](const SceneData& sc, const std::string& name) {
+        if (name.empty()) return -1;
+        for (size_t i = 0; i < sc.objects.size(); ++i)
+            if (sc.objects[i].type == PrimitiveType::Area &&
+                sc.objects[i].name == name)
+                return (int)i;
+        return -1;
+    };
+    auto liveCandsFor = [&](int si, const SceneObject& owner,
+                            size_t ownerIdx) -> std::vector<int> {
+        if (!owner.catchAreaLive) return {};
+        if (areaIndexOf(p.scenes[si], owner.catchArea) < 0) return {};
+        return project::areaLiveCandidates(p.scenes[si].objects, (int)ownerIdx,
+                                           sceneRefs[si]);
+    };
+
+    // Target lists (mirror reflections, portal through-views, camera feeds)
+    // resolve names to scene-table indices at build. A catch area
+    // (SceneObject::catchArea, docs/areas.md) adds every object its volume
+    // holds to the same list - resolved here, once, so the second-render cost
+    // stays a build-time fact the editor can show. Duplicates between the
+    // explicit list and the area collapse. When the area is LIVE, whatever it
+    // holds that can still move is left OUT of this list: the per-frame test
+    // owns those, and baking them here too would submit them twice.
+    auto appendTargets = [&](int si, const SceneObject& owner, size_t ownerIdx,
+                             const std::vector<std::string>& names) {
+        const SceneData& sc = p.scenes[si];
+        const std::vector<int> live = liveCandsFor(si, owner, ownerIdx);
+        std::vector<int> out;
+        auto add = [&out](int idx) {
+            for (int e : out)
+                if (e == idx) return;
+            out.push_back(idx);
+        };
+        for (const std::string& name : names)
+            for (size_t ti = 0; ti < sc.objects.size(); ++ti)
+                if (ti != ownerIdx && sc.objects[ti].name == name) {
+                    add((int)ti);
+                    break;
+                }
+        for (int idx : project::areaCaughtObjects(sc.objects, owner.catchArea,
+                                                  (int)ownerIdx)) {
+            bool isLive = false;
+            for (int c : live)
+                if (c == idx) { isLive = true; break; }
+            if (!isLive) add(idx);
+        }
+        return out;
+    };
+
+    // CATCH_CANDIDATES: the per-owner slices the live test walks. Filled by
+    // the mirror / camera-feed / portal blocks below and emitted once at the
+    // end, the same flat side-table shape as their target lists. An object
+    // already in the owner's baked list is dropped here - it renders
+    // unconditionally, so re-testing it could only draw it twice.
+    std::ostringstream candTable;
+    int candTotal = 0;
+    auto appendCands = [&](const std::vector<int>& cands,
+                           const std::vector<int>& baked) {
+        const int first = candTotal;
+        for (int ci : cands) {
+            bool already = false;
+            for (int b : baked)
+                if (b == ci) { already = true; break; }
+            if (already) continue;
+            candTable << (candTotal ? ", " : "") << ci;
+            ++candTotal;
+        }
+        return std::pair<int, int>(first, candTotal - first);
+    };
+
     // Mirror objects (type 15): a flat side-table keyed by (scene, object)
     // like OBJECT_SCRIPT_ATTACHES, so SceneObjectData stays a fixed POD.
     // Target names resolve to scene-table indices here; a dangling name (the
@@ -15059,19 +15481,29 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 const SceneObject& o = objs[oi];
                 if (o.type != PrimitiveType::Mirror) continue;
                 const int first = targetCount;
-                for (const std::string& name : o.mirrorObjects)
-                    for (size_t ti = 0; ti < objs.size(); ++ti) {
-                        if (ti == oi || objs[ti].name != name) continue;
-                        targets << (targetCount ? ", " : "") << ti;
-                        ++targetCount;
-                        break;
-                    }
+                const std::vector<int> baked =
+                    appendTargets(si, o, oi, o.mirrorObjects);
+                for (int ti : baked) {
+                    targets << (targetCount ? ", " : "") << ti;
+                    ++targetCount;
+                }
+                // Raytraced mirrors keep a build-time list: their proxies are
+                // decimated meshes baked per mirror right below, so the traced
+                // set cannot change while the game runs.
+                const std::pair<int, int> cand =
+                    o.mirrorRaytraced ? std::pair<int, int>(0, 0)
+                                      : appendCands(liveCandsFor(si, o, oi), baked);
                 infos << (mirrorCount ? ",\n    " : "    ") << "{" << si << ", "
                       << oi << ", " << floatLit(o.mirrorOpacity) << ", "
                       << (o.mirrorReflectPlayer ? 1 : 0) << ", " << first << ", "
                       << (targetCount - first) << ", "
                       << (o.mirrorRaytraced ? 1 : 0) << ", " << o.mirrorRtSize
-                      << "},  // " << o.name;
+                      << ", "
+                      << (o.catchAreaLive && !o.mirrorRaytraced
+                              ? areaIndexOf(p.scenes[si], o.catchArea)
+                              : -1)
+                      << ", " << cand.first << ", " << cand.second << "},  // "
+                      << o.name;
                 ++mirrorCount;
             }
         }
@@ -15087,11 +15519,15 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int targetCount;\n"
                "  int raytraced;      // 1 = VU0-raytraced sphere proxies (PoC)\n"
                "  int rtSize;         // traced image edge, texels (32..512)\n"
+               "  int liveArea;       // live catch area's scene index, -1 = none\n"
+               "  int firstCand;      // first entry in CATCH_CANDIDATES\n"
+               "  int candCount;\n"
                "};\n"
             << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
             << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)
             << "] = {\n"
-            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0, 0, 64}")
+            << (mirrorCount ? infos.str()
+                            : "    {0, -1, 0.0F, 0, 0, 0, 0, 64, -1, 0, 0}")
             << "\n};\n"
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
@@ -15116,14 +15552,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 if (o.type != PrimitiveType::Mirror || !o.mirrorRaytraced)
                     continue;
                 std::vector<size_t> modelTargets;  // static + animated, <= 2
-                for (const std::string& name : o.mirrorObjects)
-                    for (size_t ti = 0; ti < objs.size(); ++ti)
-                        if (ti != oi && objs[ti].name == name &&
-                            objs[ti].type == PrimitiveType::Model &&
-                            modelTargets.size() < 2) {
-                            modelTargets.push_back(ti);
-                            break;
-                        }
+                // Same resolved list the MIRRORS table used, so an
+                // area-caught model traces as a mesh proxy like a listed one.
+                for (int ti : appendTargets(si, o, oi, o.mirrorObjects)) {
+                    if (modelTargets.size() >= 2) break;
+                    if (objs[ti].type == PrimitiveType::Model)
+                        modelTargets.push_back((size_t)ti);
+                }
                 if (modelTargets.empty()) continue;
                 // Vu0Raytracer::MaxTriangles across the mirror's proxies
                 const int budget = 36 / (int)modelTargets.size();
@@ -15270,17 +15705,22 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 }
                 feedCam = (int)oi;
                 const int first = viewCount;
-                for (const std::string& name : objs[oi].camFeedObjects)
-                    for (size_t ti = 0; ti < objs.size(); ++ti) {
-                        if (ti == oi || objs[ti].name != name) continue;
-                        views << (viewCount ? ", " : "") << ti;
-                        ++viewCount;
-                        break;
-                    }
+                const std::vector<int> baked =
+                    appendTargets(si, objs[oi], oi, objs[oi].camFeedObjects);
+                for (int ti : baked) {
+                    views << (viewCount ? ", " : "") << ti;
+                    ++viewCount;
+                }
+                const std::pair<int, int> cand =
+                    appendCands(liveCandsFor(si, objs[oi], oi), baked);
                 feeds << (feedCount ? ",\n    " : "    ") << "{" << si << ", "
                       << oi << ", " << floatLit(objs[oi].cameraFov) << ", "
                       << (objs[oi].camFeedTerrain ? 1 : 0) << ", " << first
-                      << ", " << (viewCount - first) << "},  // "
+                      << ", " << (viewCount - first) << ", "
+                      << (objs[oi].catchAreaLive
+                              ? areaIndexOf(p.scenes[si], objs[oi].catchArea)
+                              : -1)
+                      << ", " << cand.first << ", " << cand.second << "},  // "
                       << objs[oi].name;
                 ++feedCount;
             }
@@ -15320,11 +15760,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int showTerrain;  // 1 = sky + terrain under the view list\n"
                "  int firstView;    // first entry in CAM_FEED_VIEWS\n"
                "  int viewCount;\n"
+               "  int liveArea;     // live catch area's scene index, -1 = none\n"
+               "  int firstCand;    // first entry in CATCH_CANDIDATES\n"
+               "  int candCount;\n"
                "};\n"
             << "constexpr int CAM_FEED_COUNT = " << feedCount << ";\n"
             << "constexpr CamFeedData CAM_FEEDS["
             << (feedCount ? feedCount : 1) << "] = {\n"
-            << (feedCount ? feeds.str() : "    {0, -1, 60.0F, 1, 0, 0}")
+            << (feedCount ? feeds.str() : "    {0, -1, 60.0F, 1, 0, 0, -1, 0, 0}")
             << "\n};\n"
             << "constexpr int CAM_FEED_VIEWS[" << (viewCount ? viewCount : 1)
             << "] = {" << (viewCount ? views.str() : "-1") << "};\n"
@@ -15365,19 +15808,28 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                             break;
                         }
                 const int first = viewCount;
-                for (const std::string& name : o.portalObjects)
-                    for (size_t ti = 0; ti < objs.size(); ++ti) {
-                        if (ti == oi || objs[ti].name != name) continue;
-                        views << (viewCount ? ", " : "") << ti;
-                        ++viewCount;
-                        break;
-                    }
+                const std::vector<int> baked =
+                    appendTargets(si, o, oi, o.portalObjects);
+                for (int ti : baked) {
+                    views << (viewCount ? ", " : "") << ti;
+                    ++viewCount;
+                }
+                // viewAll already shows everything - a live area would only
+                // add a per-frame test whose answer never matters.
+                const std::pair<int, int> cand =
+                    o.portalViewAll ? std::pair<int, int>(0, 0)
+                                    : appendCands(liveCandsFor(si, o, oi), baked);
                 infos << (portalCount ? ",\n    " : "    ") << "{" << si << ", "
                       << oi << ", " << target << ", "
                       << (o.portalShowTerrain ? 1 : 0) << ", "
                       << (o.portalTeleportObjects ? 1 : 0) << ", "
                       << (o.portalViewAll ? 1 : 0) << ", " << first << ", "
-                      << (viewCount - first) << "},  // " << o.name;
+                      << (viewCount - first) << ", "
+                      << (o.catchAreaLive && !o.portalViewAll
+                              ? areaIndexOf(p.scenes[si], o.catchArea)
+                              : -1)
+                      << ", " << cand.first << ", " << cand.second << "},  // "
+                      << o.name;
                 ++portalCount;
             }
         }
@@ -15396,16 +15848,30 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "                        //     (experimental; list ignored)\n"
                "  int firstView;        // first entry in PORTAL_VIEW_OBJECTS\n"
                "  int viewCount;\n"
+               "  int liveArea;         // live catch area's scene index, -1 = none\n"
+               "  int firstCand;        // first entry in CATCH_CANDIDATES\n"
+               "  int candCount;\n"
                "};\n"
             << "constexpr int PORTAL_COUNT = " << portalCount << ";\n"
             << "constexpr PortalData PORTALS[" << (portalCount ? portalCount : 1)
             << "] = {\n"
-            << (portalCount ? infos.str() : "    {0, -1, -1, 0, 0, 0, 0, 0}")
+            << (portalCount ? infos.str()
+                            : "    {0, -1, -1, 0, 0, 0, 0, 0, -1, 0, 0}")
             << "\n};\n"
             << "constexpr int PORTAL_VIEW_OBJECTS["
             << (viewCount ? viewCount : 1) << "] = {"
             << (viewCount ? views.str() : "-1") << "};\n\n";
     }
+
+    // Live catch areas (docs/areas.md): the slices MIRRORS / CAM_FEEDS /
+    // PORTALS point at with firstCand/candCount. Only objects that can MOVE
+    // are here - whatever an area holds that cannot is already baked into the
+    // owner's fixed target list, so a static room adds nothing to test.
+    out << "// Objects a live catch area re-tests every frame (collectLiveCaught\n"
+           "// in the game cpp). Indices are scene-table indices, sliced per\n"
+           "// owner by MirrorData/CamFeedData/PortalData::firstCand.\n"
+        << "constexpr int CATCH_CANDIDATES[" << (candTotal ? candTotal : 1)
+        << "] = {" << (candTotal ? candTable.str() : "-1") << "};\n\n";
 
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
     // indexes this list; res/sfx/x.wav -> sfx/x.adpcm next to the ELF)
@@ -15826,6 +16292,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LAYER_STREAM_X SCENE_LAYER_STREAM_XS[g_activeScene]
 #define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
 #define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
+#define SCENE_LAYER_STREAM_AREA SCENE_LAYER_STREAM_AREAS[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -16129,6 +16596,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    debugProfile && st.showMemory ? "true" : "false");
     s = replaceAll(s, "{{DEBUG_SHOW_PROFILER}}",
                    debugProfile && st.showProfiler ? "true" : "false");
+    s = replaceAll(s, "{{DEBUG_SHOW_AREAS}}",
+                   debugProfile && st.showAreas ? "true" : "false");
     s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
     s = replaceAll(s, "{{ENGINE_HASH}}", engineSourceHash());
     // Custom screen effect dispatch injected into the frame loop (empty when
@@ -16226,8 +16695,13 @@ std::string sequencesScript(const Project& p) {
            "// dolly it); eye/at hold the entity's authored pose as the fallback\n"
            "// when its scene is not the active one. fov is the entity's for bound\n"
            "// shots, the key's own for free ones. shake = handheld amplitude.\n"
+           "// roll = the Dutch angle in degrees, rotation about the view axis.\n"
+           "// Free shots carry the authored value; a shot BOUND to a Camera\n"
+           "// entity leaves it 0 and takes its tilt from that entity's own\n"
+           "// orientation instead (see the runtime's rollOf).\n"
            "struct CamKey { float t; float eye[3]; float at[3]; float fov;\n"
-           "                float shake; int ease; int camScene; int camObj; };\n"
+           "                float shake; float roll; int ease; int camScene;\n"
+           "                int camObj; };\n"
            "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
            "             int hidePlayer;  // hide the third-person avatar while playing\n"
            "             int bars; int skippable; float fadeIn; float fadeOut;\n"
@@ -16302,14 +16776,18 @@ std::string sequencesScript(const Project& p) {
                         rr = {-1, -1};  // stale/non-camera binding: free shot
                     }
                 }
+                // A bound shot's tilt comes from the entity's orientation at
+                // runtime, so its key roll stays 0 - baking one in would add to
+                // the entity's own and double the lean.
+                const float roll = rr.first >= 0 ? 0.0f : k.roll;
                 out << (ci ? ", " : "") << "{" << floatLit(k.time) << ", " << v3(eye)
                     << ", " << v3(at) << ", " << floatLit(fov) << ", "
-                    << floatLit(k.shake) << ", " << k.easing << ", " << rr.first
-                    << ", " << rr.second << "}";
+                    << floatLit(k.shake) << ", " << floatLit(roll) << ", "
+                    << k.easing << ", " << rr.first << ", " << rr.second << "}";
                 if (!k.camera.empty()) out << " /* \"" << k.camera << "\" */";
             }
             if (ck.empty())
-                out << "{0.0F, {0,0,0}, {0,0,0}, 60.0F, 0.0F, 0, -1, -1}";
+                out << "{0.0F, {0,0,0}, {0,0,0}, 60.0F, 0.0F, 0.0F, 0, -1, -1}";
         }
         out << "};\n\n";
     }
@@ -16455,7 +16933,40 @@ class SequenceDirector : public Script {
       // CURRENT pose (object tracks already ran this frame, so a keyframed
       // camera entity gives a dolly/crane move); the +Z lens direction math
       // mirrors seqCameraForward in src/sequence.hpp.
-      auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+      // Camera up for a view direction plus a roll about it - mirrors
+      // seqCameraUp in src/sequence.hpp. Roll 0 gives world up, so an unrolled
+      // cutscene renders exactly as it did before roll existed.
+      auto upFor = [](const float fwd[3], float roll, float out[3]) {
+        float f[3] = {fwd[0], fwd[1], fwd[2]};
+        const float fl = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+        if (fl > 1e-8F) { f[0] /= fl; f[1] /= fl; f[2] /= fl; }
+        float ref[3] = {0.0F, 1.0F, 0.0F};
+        if (f[1] > 0.9995F || f[1] < -0.9995F) {
+          ref[0] = 0.0F; ref[1] = 0.0F; ref[2] = -1.0F;
+        }
+        float r[3] = {ref[1] * f[2] - ref[2] * f[1],
+                      ref[2] * f[0] - ref[0] * f[2],
+                      ref[0] * f[1] - ref[1] * f[0]};
+        const float rl = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+        if (rl > 1e-8F) { r[0] /= rl; r[1] /= rl; r[2] /= rl; }
+        const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2],
+                            f[0] * r[1] - f[1] * r[0]};
+        const float a = roll * 3.14159265F / 180.0F;
+        const float ca = cosf(a), sa = sinf(a);
+        for (int j = 0; j < 3; ++j) out[j] = u[j] * ca + r[j] * sa;
+      };
+      // Inverse: an arbitrary basis's roll - mirrors seqRollFromUp. Used to turn
+      // a bound Camera entity's own orientation into the same scalar channel the
+      // free shots interpolate.
+      auto rollOf = [&](const float fwd[3], const float up[3]) {
+        float lv[3], rt[3];
+        upFor(fwd, 0.0F, lv);
+        upFor(fwd, 90.0F, rt);
+        const float dc = up[0] * lv[0] + up[1] * lv[1] + up[2] * lv[2];
+        const float ds = up[0] * rt[0] + up[1] * rt[1] + up[2] * rt[2];
+        return atan2f(ds, dc) * 180.0F / 3.14159265F;
+      };
+      auto shot = [&](int i, float eye[3], float at[3], float& fov, float& roll) {
         const CamKey& c = k[i];
         if (c.camObj >= 0 && c.camScene == ctx.scene &&
             c.camObj < ctx.objectCount) {
@@ -16473,31 +16984,45 @@ class SequenceDirector : public Script {
             eye[j] = o.data.position[j];
             at[j] = o.data.position[j] + fwd[j];
           }
+          // The entity's own up (Rz*Ry*Rx applied to +Y - the middle column of
+          // seqEulerMatrix) turned into a roll, so a tilted camera object leans
+          // the shot. NOT c.roll: rotation.z is a world-axis rotation applied
+          // last, not a lens-axis roll, and only coincides with one when the
+          // camera is unpitched.
+          const float eu[3] = {cz * sy * sx - sz * cx, sz * sy * sx + cz * cx,
+                               cy * sx};
+          roll = rollOf(fwd, eu);
         } else {
           for (int j = 0; j < 3; ++j) {
             eye[j] = c.eye[j];
             at[j] = c.at[j];
           }
+          roll = c.roll;
         }
         fov = c.fov;
       };
       int i = 0;
       while (i < n - 1 && t >= k[i + 1].t) ++i;
-      float eye[3], at[3], fov;
-      shot(i, eye, at, fov);
+      float eye[3], at[3], fov, roll;
+      shot(i, eye, at, fov, roll);
       float shake = k[i].shake;
       if (t > k[i].t && i < n - 1) {
         const float span = k[i + 1].t - k[i].t;
         const float u = span > 1e-6F ? (t - k[i].t) / span : 0.0F;
         const float w = seqEase(k[i].ease, u);
-        float eye1[3], at1[3], fov1;
-        shot(i + 1, eye1, at1, fov1);
+        float eye1[3], at1[3], fov1, roll1;
+        shot(i + 1, eye1, at1, fov1, roll1);
         for (int j = 0; j < 3; ++j) {
           eye[j] += (eye1[j] - eye[j]) * w;
           at[j] += (at1[j] - at[j]) * w;
         }
         fov += (fov1 - fov) * w;
         shake += (k[i + 1].shake - shake) * w;
+        // Take the short way round, or a shot crossing +-180 deg spins.
+        float dr = roll1 - roll;
+        while (dr > 180.0F) dr -= 360.0F;
+        while (dr < -180.0F) dr += 360.0F;
+        roll += dr * w;
       }
       if (shake > 0.0F) {
         // handheld noise - mirrors seqShakeOffset in src/sequence.hpp
@@ -16516,6 +17041,14 @@ class SequenceDirector : public Script {
       ctx.cameraAt.x = at[0];
       ctx.cameraAt.y = at[1];
       ctx.cameraAt.z = at[2];
+      {
+        const float fwd[3] = {at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]};
+        float up[3];
+        upFor(fwd, roll, up);
+        ctx.cameraUp.x = up[0];
+        ctx.cameraUp.y = up[1];
+        ctx.cameraUp.z = up[2];
+      }
       applyFov(ctx, fov);
     }
     // Presentation: bars slide in/out over the sequence's reveal times
@@ -16782,6 +17315,7 @@ std::string flowGraphScript(const Project& p) {
     bool anyTextNode = false;
     bool anyRaycast = false;
     bool anyDynText = false;
+    bool anyInArea = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
@@ -16789,6 +17323,7 @@ std::string flowGraphScript(const Project& p) {
                     anyTextNode |= (t->textIn || t->textOut);
                 anyRaycast |= (n.type == "Raycast");
                 anyDynText |= (n.type == "DisplayText");
+                anyInArea |= (n.type == "InArea");
             }
     const bool anyNav = anyNavAiNode(p);
 
@@ -16839,8 +17374,8 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
     if (!o.active || !o.visible || i == player) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 14)
-      continue;  // markers/emitters, not geometry
+        ty == 14 || ty == 17)
+      continue;  // markers/emitters/areas, not geometry
     // bounding sphere: half the largest scale axis (matches the USE picker)
     float half = o.data.scale[0];
     if (o.data.scale[1] > half) half = o.data.scale[1];
@@ -16884,6 +17419,31 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
   hitPos[0] = ox + dx * best;
   hitPos[1] = oy + dy * best;
   hitPos[2] = oz + dz * best;
+}
+)";
+    }
+
+    if (anyInArea) {
+        out << R"(
+// In Area trigger (docs/areas.md): is the requested player inside the Area
+// object's box? who 0 = either player, 1 = player 1, 2 = player 2 (false
+// while player 2 is out). The box comes from the LIVE object, so a moving
+// area drags its trigger volume along; an area on an unloaded streaming
+// layer is inactive and triggers nothing. pointInArea is generated into
+// scene_data.hpp - the layer-zone test uses the very same function.
+static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
+  if (idx < 0 || idx >= ctx.objectCount || !ctx.objects[idx].active)
+    return false;
+  const SceneObjectData& d = ctx.objects[idx].data;
+  const bool in1 = pointInArea(d, ctx.playerPosition.x, ctx.playerPosition.y,
+                               ctx.playerPosition.z);
+  if (who == 1) return in1;
+  const bool in2 =
+      ctx.player2Active && pointInArea(d, ctx.player2Position.x,
+                                       ctx.player2Position.y,
+                                       ctx.player2Position.z);
+  if (who == 2) return in2;
+  return in1 || in2;
 }
 )";
     }
@@ -16964,6 +17524,13 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             if (layers[i].name == name) return (int)i;
         return -1;
     };
+    // In Area names an Area object (type 17) of the owning scene; anything
+    // else (missing, or a non-area object of that name) resolves to -1 and the
+    // node compiles out with a comment.
+    auto areaIndexOf = [&](const std::string& name) {
+        const SceneObject* a = project::findArea(p.scenes[si].objects, name);
+        return a ? (int)(a - p.scenes[si].objects.data()) : -1;
+    };
     for (size_t ownerIdx = 0; ownerIdx < sceneObjs.size(); ++ownerIdx) {
         const FlowGraph& fg = sceneObjs[ownerIdx].flowGraph;
         if (fg.empty()) continue;
@@ -17002,7 +17569,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 cur = src;
             }
             const FlowNodeType* ct = flowNodeType(cur->type);
-            if (ct && ct->strKind == FlowParamKind::ObjectName && !cur->str.empty())
+            // An area name (In Area) is a scene-object name too, so its
+            // object output resolves to the area itself instead of falling
+            // through to self.
+            if (ct && !cur->str.empty() &&
+                (ct->strKind == FlowParamKind::ObjectName ||
+                 ct->strKind == FlowParamKind::AreaName))
                 return objectIndex(cur->str);
             return (int)ownerIdx;  // self
         };
@@ -17142,6 +17714,14 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const int idx = resolveTarget(n);
                 if (idx < 0) return "false";
                 return "(ctx.objects[" + std::to_string(idx) + "].visible)";
+            }
+            if (n.type == "InArea") {
+                // the live "inside right now" condition (the exec output fires
+                // on its rising edge in the trigger scan below)
+                const int idx = areaIndexOf(n.str);
+                if (idx < 0) return "false";
+                return "flowInArea(ctx, " + std::to_string(idx) + ", " +
+                       intLit(n.num[0]) + ")";
             }
             if (n.type == "OnPlayerSeen") {
                 // the live "seen right now" condition (the exec output fires
@@ -18214,6 +18794,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     << "].data.position[2];\n      const bool isNear = dx * dx + dz * dz < "
                     << floatLit(r * r) << ";\n      if (isNear && !" << flag << ") {\n"
                     << body << "      }\n      " << flag << " = isNear;\n    }\n";
+            } else if (n.type == "InArea") {
+                // rising edge of the volume test (like NearObject's radius)
+                const int idx = areaIndexOf(n.str);
+                if (idx < 0) {
+                    clsOut << "    // node " << n.id << " (InArea): unknown area '"
+                           << n.str << "'\n";
+                    continue;
+                }
+                const std::string flag = "inArea" + std::to_string(n.id);
+                members << "  bool " << flag << " = false;\n";
+                flagResets << "      " << flag << " = false;\n";
+                clsOut << "    {\n      const bool isIn = flowInArea(ctx, "
+                       << idx << ", " << intLit(n.num[0])
+                       << ");\n      if (isIn && !" << flag << ") {\n"
+                       << body << "      }\n      " << flag << " = isIn;\n    }\n";
             } else if (n.type == "OnPlayerSeen") {
                 // rising edge of the vision condition (like NearObject)
                 const std::string dyn = targetExpr(n);
