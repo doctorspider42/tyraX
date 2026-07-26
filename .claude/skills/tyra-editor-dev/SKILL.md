@@ -140,6 +140,15 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
 
+**An asset path the GAME will open must be `lexically_normal()`.** The PS2
+cannot walk `..`, and a Wavefront reference is resolved relative to the file
+that named it — so joining a `.mtl`'s folder with its `map_Kd` yields
+`materials/../textures/x.png` unless you normalize. PCSX2's `host:` fs resolves
+that through the OS, so the bug is **invisible in the emulator and black on
+hardware** (PROGRESS 195, `project::resolveTerrainMaterial`). The bake copies
+files to their normalized location, so normalizing is also what keeps codegen
+and `bin/` agreeing.
+
 **Any new field that stores an asset path** (a `res/...` file: a model, a
 material, a texture, a WAV, a TTF) must join **`App::retargetAssetPath`**
 (assetbrowser.cpp), or the Asset Browser's move/rename breaks it silently -

@@ -800,9 +800,17 @@ TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matR
     for (int i = 0; i < 3; ++i) out.kd[i] = m.kd[i];
     out.tile[0] = m.scale[0];
     out.tile[1] = m.scale[1];
-    // map_Kd is relative to the .mtl's own directory.
+    // map_Kd is relative to the .mtl's own directory - and the result must be
+    // NORMALIZED, because a material one folder over yields "materials/../
+    // textures/x.png" and **the PS2 cannot walk ".."**. PCSX2 hides this
+    // completely (its host: fs resolves the path through the OS) while a disc
+    // has no such entry at all, so the texture silently fails to load on real
+    // hardware only. texbake already copies the file to its normalized
+    // location, so this is also what makes the two agree.
     if (!m.texture.empty())
-        out.texture = (fs::path(matRel).parent_path() / m.texture).generic_string();
+        out.texture = (fs::path(matRel).parent_path() / m.texture)
+                          .lexically_normal()
+                          .generic_string();
     return out;
 }
 

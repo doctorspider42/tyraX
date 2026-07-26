@@ -10,6 +10,43 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (195) **A textured terrain drew PURE BLACK on real hardware while PCSX2 was
+  fine** - reported with a photo of a physical console: sky, the house, and
+  black where the ground should be ("should be the project's default colour").
+  Three separate defects on one path, all of them emulator-invisible.
+  **(1) The path the game is told to open could contain `..`.** A terrain
+  material's `map_Kd` is relative to the .mtl's own folder, so a texture one
+  directory over resolved to `materials/../textures/x.png` - and **the PS2
+  cannot walk `..`** (the same invariant the Asset Browser enforces for
+  Wavefront siblings). PCSX2's `host:` fs resolves it through the OS and shows
+  nothing wrong; a disc has no such entry at all. `resolveTerrainMaterial` now
+  emits a `lexically_normal()` path, which is also where texbake had already
+  copied the file - the two used to disagree.
+  **(2) A missing texture drew the ground black.** `buildTerrainChunk` decided
+  `textured` from the BUILD-time `TERRAIN_TEXTURE >= 0` and scaled the vertex
+  colours for a GS modulate (128 = 1.0), but the bind further down also required
+  the texture to be *loaded* - so a failed load left colours scaled for a
+  modulate that never happened. **Measured A/B** in PCSX2 with the baked PNG
+  deleted from `bin/`: before, the ground sampled **(0, 0, 0)** over the whole
+  lower frame; after, **(234, 234, 234)**, i.e. the material's Kd at full scale
+  - the "default colour" the owner expected. `textured` now means "actually
+  loaded", so the colour scale, the additive-light rescale (`emisK`) and the bind
+  can no longer disagree.
+  **(3) Nothing re-armed a chunk when its texture landed later.** Scene textures
+  come through the one-job-per-frame stream queue; `loadScene` drains that queue
+  before building any chunk, so boot was safe, but a chunk built during play (the
+  streamed ring, layer residency) got no texture bag and would only ever be
+  fixed by leaving the view rect and coming back. A completed terrain-texture job
+  now frees the built chunks so the ordinary budgeted pass rebuilds them (buffers
+  keep their capacity - a rebuild, not an allocation).
+  **Verified**: a scratch project given a red/blue checker terrain texture still
+  renders it at full brightness in PCSX2 after the change (sampled (231,36,37) /
+  (36,36,232) - no halving), the normalized path appears in
+  `texture_data.gen.hpp` as `textures/ground.png`, and the game builds on the PS2
+  toolchain. **Not verified**: the owner's actual console (no hardware here), so
+  which of the three was *their* trigger is unconfirmed - (1) is the likely one
+  if the project deploys from a disc.
+
 - (194) **ImGui ID conflict in the Debugger's object watch** (reported by the
   owner with the "3 visible items with conflicting ID" popup on screen). The
   per-axis position plots were three `PlotLines` calls sharing the label
