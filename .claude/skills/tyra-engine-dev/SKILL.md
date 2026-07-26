@@ -28,7 +28,7 @@ Rules:
 - **LF line endings only** under `vendor/tyra/**` — enforced by
   `.gitattributes`; the `vclpp` VU1 preprocessor chokes on CRLF. Don't fight it.
 - The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, and tyra's
-  non-engine parts) is git-ignored and cloned by `setup.ps1` — never edit those.
+  non-engine parts) is git-ignored and cloned by `setup.ps1` / `setup.sh` — never edit those.
 
 ## How an engine change reaches the game
 

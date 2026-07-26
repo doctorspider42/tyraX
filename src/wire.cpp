@@ -1,7 +1,50 @@
 #include "wire.hpp"
 
+#include "platform.hpp"
+
+// Sockets are the one subsystem where the platform difference is a matter of
+// SPELLING rather than shape - Winsock2 is BSD sockets with different type
+// names, a different error channel and its own poll(). So instead of routing
+// them through platform.hpp (which would mean re-inventing a socket API), the
+// Winsock names are mapped onto POSIX right here and the transport below is
+// written once against them.
+// The one error code the two stacks genuinely disagree on: a non-blocking
+// connect() that has not completed yet reports WSAEWOULDBLOCK on Winsock and
+// EINPROGRESS on POSIX (where EWOULDBLOCK means something else entirely). Every
+// other WOULDBLOCK check below - send, recv - is EAGAIN on both.
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#define TX_CONNECT_PENDING WSAEWOULDBLOCK
+#else
+#include <arpa/inet.h>
+#include <cerrno>
+#include <fcntl.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+using SOCKET = int;
+#define INVALID_SOCKET (-1)
+#define WSAPOLLFD struct pollfd
+#define WSAGetLastError() (errno)
+#define WSAEWOULDBLOCK EWOULDBLOCK
+#define WSAEADDRINUSE EADDRINUSE
+#define TX_CONNECT_PENDING EINPROGRESS
+// POLLRDNORM/POLLWRNORM are XOPEN extensions; on a strict-conformance build
+// they may be absent, and POLLIN/POLLOUT mean the same thing for TCP.
+#ifndef POLLRDNORM
+#define POLLRDNORM POLLIN
+#endif
+#ifndef POLLWRNORM
+#define POLLWRNORM POLLOUT
+#endif
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -11,6 +54,26 @@
 #include <utility>
 
 namespace wire {
+
+namespace {
+
+#ifndef _WIN32
+inline int closesocket(SOCKET s) { return ::close(s); }
+inline int WSAPoll(WSAPOLLFD* fds, unsigned long n, int timeoutMs) {
+    return ::poll(fds, (nfds_t)n, timeoutMs);
+}
+#endif
+
+// SIGPIPE is ignored process-wide (platform.cpp), but say so explicitly where
+// the platform offers the per-call flag: a send() to a peer that vanished must
+// come back as an error, never as a signal.
+#if defined(MSG_NOSIGNAL)
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+constexpr int kSendFlags = 0;
+#endif
+
+}  // namespace
 
 uint64_t fnv1a64(const void* data, size_t len, uint64_t seed) {
     constexpr uint64_t kPrime = 1099511628211ull;
@@ -90,23 +153,35 @@ namespace {
 
 // Process-wide Winsock init, done lazily on first transport construction.
 // Never torn down - WSACleanup at exit buys nothing and can race other users.
+// A no-op where the socket API needs no initialization.
 void ensureWinsock() {
+#ifdef _WIN32
     static const int once = [] {
         WSADATA wsa;
         return WSAStartup(MAKEWORD(2, 2), &wsa);
     }();
     (void)once;
+#endif
 }
 
 std::string wsaError(const char* what) {
+#ifdef _WIN32
     return std::string(what) + " failed (WSA error " + std::to_string(WSAGetLastError()) +
            ")";
+#else
+    return std::string(what) + " failed (" + std::strerror(errno) + ")";
+#endif
 }
 
 void configureSocket(SOCKET s) {
+#ifdef _WIN32
     u_long nonBlocking = 1;
     ioctlsocket(s, FIONBIO, &nonBlocking);
-    BOOL noDelay = TRUE;
+#else
+    const int flags = ::fcntl(s, F_GETFL, 0);
+    if (flags >= 0) ::fcntl(s, F_SETFL, flags | O_NONBLOCK);
+#endif
+    const int noDelay = 1;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*)&noDelay, sizeof(noDelay));
 }
 
@@ -370,13 +445,13 @@ class TcpTransport final : public Transport {
         addr.sin_port = htons(port);
         if (::bind(s, (sockaddr*)&addr, sizeof(addr)) != 0) {
             const int err = WSAGetLastError();
-            ::closesocket(s);
+            closesocket(s);
             return err == WSAEADDRINUSE ? "port is already in use"
-                                        : "bind failed (WSA error " + std::to_string(err) + ")";
+                                       : wsaError("bind");
         }
         if (::listen(s, 8) != 0) {
             std::string e = wsaError("listen");
-            ::closesocket(s);
+            closesocket(s);
             return e;
         }
         configureSocket(s);
@@ -402,10 +477,10 @@ class TcpTransport final : public Transport {
             return wsaError("socket");
         }
         configureSocket(s);
-        int rc = ::connect(s, res->ai_addr, (int)res->ai_addrlen);
+        int rc = ::connect(s, res->ai_addr, (socklen_t)res->ai_addrlen);
         freeaddrinfo(res);
-        if (rc != 0 && WSAGetLastError() != WSAEWOULDBLOCK) {
-            ::closesocket(s);
+        if (rc != 0 && WSAGetLastError() != TX_CONNECT_PENDING) {
+            closesocket(s);
             return wsaError("connect");
         }
         // Non-blocking connect: wait for writability (or failure) up to the
@@ -415,14 +490,14 @@ class TcpTransport final : public Transport {
         pfd.events = POLLOUT;
         rc = WSAPoll(&pfd, 1, timeoutMs);
         if (rc <= 0 || (pfd.revents & (POLLERR | POLLHUP))) {
-            ::closesocket(s);
+            closesocket(s);
             return rc == 0 ? "connection timed out" : "connection refused";
         }
         int soErr = 0;
-        int len = sizeof(soErr);
+        socklen_t len = sizeof(soErr);
         getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&soErr, &len);
         if (soErr != 0) {
-            ::closesocket(s);
+            closesocket(s);
             return "connection failed (error " + std::to_string(soErr) + ")";
         }
         Conn c;
@@ -450,16 +525,16 @@ class TcpTransport final : public Transport {
             fdPeer.push_back(-1);
         }
         for (auto& [id, c] : conns_) {
-            SHORT ev = POLLRDNORM;
+            short ev = POLLRDNORM;
             if (!c.outbuf.empty()) ev |= POLLWRNORM;
             fds.push_back({c.sock, ev, 0});
             fdPeer.push_back(id);
         }
         if (fds.empty()) {
-            if (timeoutMs > 0) Sleep((DWORD)timeoutMs);
+            if (timeoutMs > 0) platform::sleepMs(timeoutMs);
             return;
         }
-        const int rc = WSAPoll(fds.data(), (ULONG)fds.size(), timeoutMs);
+        const int rc = WSAPoll(fds.data(), (unsigned long)fds.size(), timeoutMs);
         if (rc <= 0) return;
 
         std::vector<PeerId> dead;
@@ -517,15 +592,15 @@ class TcpTransport final : public Transport {
         if (it == conns_.end()) return;
         // Best-effort: let queued bytes (the "bye" frame) reach the OS first.
         flushSend(it->second);
-        ::closesocket(it->second.sock);
+        closesocket(it->second.sock);
         conns_.erase(it);
     }
 
     void close() override {
-        for (auto& [id, c] : conns_) ::closesocket(c.sock);
+        for (auto& [id, c] : conns_) closesocket(c.sock);
         conns_.clear();
         if (listener_ != INVALID_SOCKET) {
-            ::closesocket(listener_);
+            closesocket(listener_);
             listener_ = INVALID_SOCKET;
         }
     }
@@ -534,7 +609,7 @@ class TcpTransport final : public Transport {
     void acceptPending(std::vector<Event>& out) {
         for (;;) {
             sockaddr_in addr{};
-            int alen = sizeof(addr);
+            socklen_t alen = sizeof(addr);
             SOCKET s = ::accept(listener_, (sockaddr*)&addr, &alen);
             if (s == INVALID_SOCKET) break;
             configureSocket(s);
@@ -564,8 +639,9 @@ class TcpTransport final : public Transport {
     // False = the connection failed and must be dropped.
     bool flushSend(Conn& c) {
         while (!c.outbuf.empty()) {
-            const int n = ::send(c.sock, c.outbuf.data(),
-                                 (int)std::min(c.outbuf.size(), (size_t)256 * 1024), 0);
+            const auto n = ::send(c.sock, c.outbuf.data(),
+                                  std::min(c.outbuf.size(), (size_t)256 * 1024),
+                                  kSendFlags);
             if (n > 0) {
                 c.outbuf.erase(0, (size_t)n);
                 continue;
@@ -578,7 +654,7 @@ class TcpTransport final : public Transport {
     bool drainRecv(PeerId id, Conn& c, std::vector<Event>& out) {
         char buf[64 * 1024];
         for (;;) {
-            const int n = ::recv(c.sock, buf, sizeof(buf), 0);
+            const auto n = ::recv(c.sock, buf, sizeof(buf), 0);
             if (n > 0) {
                 if (!feedDecoder(id, c, buf, (size_t)n, out)) return false;
                 continue;
@@ -638,7 +714,7 @@ class TcpTransport final : public Transport {
         // was never announced, so it must not produce a Disconnected either -
         // Connected/Disconnected have to stay a matched bracket.
         const bool announced = !it->second.ws || it->second.ws->announced;
-        ::closesocket(it->second.sock);
+        closesocket(it->second.sock);
         conns_.erase(it);
         if (!announced) return;
         Event e;
@@ -668,6 +744,27 @@ std::unique_ptr<Transport> makeWebSocketTransport(std::string httpPage) {
 std::vector<std::string> localIPv4() {
     ensureWinsock();
     std::vector<std::string> out;
+#ifndef _WIN32
+    // getifaddrs walks the real interfaces. Not just "more precise" here -
+    // the gethostname route below reports 127.0.1.1 and nothing else on the
+    // many distros that put the host name in /etc/hosts, which would leave
+    // the collaboration and phone-camera panels with no address to show.
+    ifaddrs* ifa = nullptr;
+    if (getifaddrs(&ifa) == 0) {
+        for (ifaddrs* a = ifa; a; a = a->ifa_next) {
+            if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET) continue;
+            if (!(a->ifa_flags & IFF_UP) || (a->ifa_flags & IFF_LOOPBACK)) continue;
+            char ip[64] = {0};
+            const auto* sin = reinterpret_cast<sockaddr_in*>(a->ifa_addr);
+            inet_ntop(AF_INET, &sin->sin_addr, ip, sizeof(ip));
+            std::string s = ip;
+            if (s.empty() || s.rfind("127.", 0) == 0) continue;
+            if (std::find(out.begin(), out.end(), s) == out.end()) out.push_back(s);
+        }
+        freeifaddrs(ifa);
+    }
+    return out;
+#else
     // GetAdaptersAddresses would be more precise, but a UDP-connect trick plus
     // gethostname enumeration keeps us dependency-light. Enumerate via
     // getaddrinfo on the host name; loopback filtered out.
@@ -690,6 +787,7 @@ std::vector<std::string> localIPv4() {
     }
     freeaddrinfo(res);
     return out;
+#endif
 }
 
 }  // namespace wire

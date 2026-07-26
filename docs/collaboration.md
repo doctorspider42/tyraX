@@ -75,10 +75,11 @@ Known v1 limitations:
   in-memory model + the project's files, minus `bin/`, `obj/`, `.git/`,
   `.res-baked/`, `*.history`); the client fetches only hashes it lacks.
   Host-side hashes are memoized across sessions
-  (`%LOCALAPPDATA%\tyra-editor\hash-cache.json`), so hosting a huge project
+  (`hash-cache.json` in the editor config folder - `%LOCALAPPDATA%\tyra-editor`
+  on Windows, `~/.config/tyra-editor` elsewhere), so hosting a huge project
   does not rehash unchanged assets every time.
 - Client cache: joined projects materialize under
-  `%LOCALAPPDATA%\tyra-editor\remote-cache\<projectId>\project` (override in
+  `<editor config folder>/remote-cache/<projectId>/project` (override in
   *Edit > Preferences > Collaboration sessions*), with `cache.json` recording
   size/hash/mtime per synced file. Only files that cache recorded are ever
   deleted by a re-sync — local build outputs are never touched.
