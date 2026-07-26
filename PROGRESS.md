@@ -10,6 +10,73 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (182) **The devkit gets a receipt: a release build provably carries none of
+  it - plus armed-timer reporting, Fire-and-continue, per-frame object watches
+  and a visible breakpoint marker** (docs/devkit.md). The user's condition for
+  going further with debugging tools was blunt and correct: "make sure we don't
+  pay for it later - in release nothing of the debug code loads, no memory, none
+  of it". So this entry is half feature, half proof.
+  **The proof.** `src/elfsym.{hpp,cpp}` is a small ELF32 reader (sections,
+  symbols, section bytes). On top of it, `elfsym::auditRelease` scans a built ELF
+  for anything the three live layers would leave behind and reports the cost in
+  numbers. Two signals, because the PS2 toolchain STRIPS the symbol table (so
+  symbol matching alone would silently always pass): each generated devkit
+  runtime now plants a deliberate `TXDEVKIT-<layer>` marker string
+  (`__attribute__((used))` so -O3 keeps it), and the channel file names
+  (`livedbg.bin`, `livelogic.bin`, ...) are the independent second signal - the
+  polling code cannot exist without them. `--audit-release <dir>` exits 0/1 so a
+  script can gate a release, and **every release build audits itself** in the
+  Runner and prints the verdict into the build log.
+  **Measured** (same project, same assets, only the profile changed): debug =
+  text 1848 KiB / bss 284 KiB and four devkit findings; release = text 1830 KiB /
+  bss 139 KiB and *clean*. So the devkit costs ~18 KiB of code and ~145 KiB of
+  RAM while working, and nothing in what ships. The audit was also negative-
+  tested: run against the debug ELF it correctly FAILS and names the four
+  strings, which is the only way to know the check can fail at all.
+  **The bug the user reported**, and it was not the breakpoint: with `On Button
+  -> Delay 1s -> Set Int`, force-firing the trigger never hit a breakpoint on the
+  Set Int, while the same graph without the Delay did. A `Delay` does not wait -
+  it arms a countdown that advances one frame at a time, and a force-fire on a
+  HALTED game deliberately runs exactly one frame (a halted game runs no scripts,
+  so nobody would ever check `forced()`). One frame arms the timer; then
+  everything freezes again and the branch behind it never comes. Fixed on both
+  sides of the confusion: (a) every armed countdown is now REPORTED - the graphs
+  call `livedbg::timer(key, framesLeft)` each frame (native and interpreted
+  alike), the snapshot carries them, and the panel says "1 armed timer, next in
+  1.2 s" with the frames left shown on the node itself; (b) **Fire and continue**
+  (node context menu, or Shift+click on Fire) fires the branch AND resumes, so
+  the countdown reaches zero. Ordering trap found on the console: the timer list
+  must be cleared AFTER the flush, not at the top of the tick - the graphs report
+  while they run, i.e. after the pump, so clearing first flushed an empty list
+  every time (it did, until measured).
+  **Object watch.** The editor can name up to 8 runtime objects; the game samples
+  them EVERY FRAME (position/rotation/scale/color + visible/active/dirty) into a
+  per-object ring it flushes whole, so what arrives is a true 50 Hz curve instead
+  of one point per flush. New Debugger tab "Objects": live values, a plot per
+  axis over ~30 s, and the path drawn **in the viewport** as a trail (projected
+  app-side from `Viewport::viewMatrix/projMatrix` - no renderer change) with a
+  head dot for "here it is now".
+  **The breakpoint marker was invisible for a real reason** (user: "it shows up
+  under the node and is hard to see"): imnodes runs its editor in a CHILD window,
+  and a child renders on top of its parent's content - so everything drawn into
+  the Flow Graph window's draw list after `EndNodeEditor` sat UNDERNEATH the
+  nodes. The badges now go into their own borderless, input-less overlay child
+  laid over the canvas (a later sibling child draws on top), and the marker moved
+  out of the title bar into an IDE-style gutter left of the node: a ringed dot
+  plus a bar down the node's left edge, yellow with a pulsing halo when the game
+  is stopped on it.
+  **Verified** in PCSX2 on the entry-180/181 fixture: armed timer reported as
+  `(key 4, 51 frames)` matching the 1 s Delay; object watch delivering 6
+  consecutive per-frame samples per flush (50 Hz under a 6-frame cadence) with
+  the frame numbers strictly +1; and then both new features against a STRUCTURAL
+  hot patch - a `Move Object By` node that does not exist in the built ELF was
+  compiled by the editor, patched in, and the watch showed the object's X climb
+  0.5 units/s frame by frame (6.0 -> 7.5 over 3 s). Release audit clean, debug
+  audit correctly dirty. **Not verified here**: the editor's own panels and the
+  new overlay/trail drawing (the machine is still in the blank-editor-window
+  state of entry 180 - the data paths behind them are the ones measured above),
+  and ps2link on real hardware.
+
 - (181) **Live Logic: editing a flow graph changes the RUNNING game - the last
   thing in the pipeline that always needed a rebuild** (docs/live-logic.md).
   Graphs compile to C++, so editing one meant Docker + make + reboot. Now the

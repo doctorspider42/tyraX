@@ -1745,6 +1745,69 @@ void App::drawViewportWindow() {
                                   IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
         }
 
+        // Devkit object trails (docs/devkit.md): the path a watched object
+        // actually took in the RUNNING game, drawn over the viewport image.
+        // Projected here rather than in GL - the viewport hands out its view and
+        // projection matrices, and an ImDrawList polyline is exact enough for a
+        // debug trail (and costs no renderer changes).
+        if (dbgShowTrails_ && !dbgObjWatch_.empty() &&
+            (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted)) {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float* V = viewport_.viewMatrix();
+            const float* P = viewport_.projMatrix();
+            auto project = [&](const float* w, ImVec2& out) {
+                // column-major 4x4, world -> clip
+                float e[4] = {0, 0, 0, 0};
+                for (int r = 0; r < 4; ++r) {
+                    float v = 0.0f;
+                    for (int c = 0; c < 3; ++c) v += V[c * 4 + r] * w[c];
+                    e[r] = v + V[12 + r];
+                }
+                float c4[4] = {0, 0, 0, 0};
+                for (int r = 0; r < 4; ++r) {
+                    float v = 0.0f;
+                    for (int c = 0; c < 4; ++c) v += P[c * 4 + r] * e[c];
+                    c4[r] = v;
+                }
+                if (c4[3] <= 0.0001f) return false;  // behind the eye
+                out = ImVec2(imgPos.x + (c4[0] / c4[3] * 0.5f + 0.5f) * avail.x,
+                             imgPos.y + (0.5f - c4[1] / c4[3] * 0.5f) * avail.y);
+                return true;
+            };
+            dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y),
+                             true);
+            for (size_t ti = 0; ti < dbgObjWatch_.size(); ++ti) {
+                const DbgObjTrack& t = dbgObjWatch_[ti];
+                if (t.samples.size() < 2) continue;
+                // A colour per watched object, stable across frames.
+                static const ImU32 kCols[] = {
+                    IM_COL32(90, 200, 255, 220),  IM_COL32(255, 170, 80, 220),
+                    IM_COL32(150, 240, 130, 220), IM_COL32(240, 130, 220, 220),
+                    IM_COL32(255, 230, 110, 220), IM_COL32(120, 160, 255, 220),
+                    IM_COL32(255, 120, 120, 220), IM_COL32(170, 255, 230, 220)};
+                const ImU32 col = kCols[ti % 8];
+                ImVec2 prev;
+                bool havePrev = false;
+                for (const livedbg::ObjSample& sm : t.samples) {
+                    ImVec2 cur;
+                    if (!project(sm.pos, cur)) {
+                        havePrev = false;
+                        continue;
+                    }
+                    if (havePrev) dl->AddLine(prev, cur, col, scaled(1.5f));
+                    prev = cur;
+                    havePrev = true;
+                }
+                // The head of the trail: where it is right now.
+                if (havePrev) {
+                    dl->AddCircleFilled(prev, scaled(4.0f), col);
+                    dl->AddCircle(prev, scaled(4.0f), IM_COL32(20, 20, 20, 180), 0,
+                                  scaled(1.0f));
+                }
+            }
+            dl->PopClipRect();
+        }
+
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
         // would otherwise fall through and change the selection.
@@ -8422,17 +8485,24 @@ void App::drawFlowGraphWindow() {
     const bool editorHovered = ImNodes::IsEditorHovered();
     ImNodes::EndNodeEditor();
 
-    // Live Debugger badges, drawn over the finished canvas: a red breakpoint
-    // dot on the left of the title bar, the cumulative hit count under the
-    // node's bottom-right corner, and a fading ring around whatever just ran.
-    // Clipped to the canvas by hand - this draw list belongs to the window, so
-    // a node scrolled out of view would otherwise paint over the rest of the UI.
+    // Live Debugger badges: a breakpoint marker in a gutter LEFT of the node
+    // plus a bar down its edge, the cumulative hit count under the bottom-right
+    // corner, and a fading ring around whatever just ran.
+    //
+    // These go into their own borderless, input-less child window laid over the
+    // canvas rect - NOT into the Flow Graph window's draw list. imnodes runs its
+    // editor in a child window, and a child renders ON TOP of its parent's
+    // content, so anything drawn into the parent list after EndNodeEditor ends
+    // up UNDERNEATH the nodes (that is exactly why the first breakpoint dot was
+    // barely visible). A later sibling child draws on top of an earlier one.
     if (dbgOverlay) {
+        ImGui::SetCursorScreenPos(dbgCanvasMin);
+        ImGui::BeginChild("##dbg_overlay", dbgCanvasSize, false,
+                          ImGuiWindowFlags_NoInputs |
+                              ImGuiWindowFlags_NoBackground |
+                              ImGuiWindowFlags_NoScrollbar |
+                              ImGuiWindowFlags_NoScrollWithMouse);
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->PushClipRect(dbgCanvasMin,
-                         ImVec2(dbgCanvasMin.x + dbgCanvasSize.x,
-                                dbgCanvasMin.y + dbgCanvasSize.y),
-                         true);
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || (t->pure && !t->trigger)) continue;  // pure data node
@@ -8450,14 +8520,30 @@ void App::drawFlowGraphWindow() {
                             scaled(6.0f), 0, scaled(2.0f) + scaled(1.5f) * g);
             }
             if (bp) {
-                const float r = scaled(5.0f);
-                const ImVec2 c(p.x + r * 0.6f, p.y + r * 0.6f);
                 const bool stopped = dbgState_ == DbgState::Halted &&
                                      dbgSnap_.breakKey == key;
-                dl->AddCircleFilled(c, r,
-                                    stopped ? IM_COL32(255, 210, 90, 255)
-                                            : IM_COL32(225, 70, 60, 255));
-                dl->AddCircle(c, r, IM_COL32(20, 20, 20, 200), 0, scaled(1.5f));
+                const ImU32 col = stopped ? IM_COL32(255, 205, 70, 255)
+                                          : IM_COL32(230, 60, 55, 255);
+                // Edge bar: readable even zoomed out, when a dot is one pixel.
+                dl->AddRectFilled(ImVec2(p.x - scaled(2.0f), p.y),
+                                  ImVec2(p.x + scaled(2.0f), p.y + d.y), col,
+                                  scaled(2.0f));
+                // Gutter marker, like a breakpoint in an IDE: outside the node
+                // so it never fights the title text, with a dark ring for
+                // contrast against any background.
+                const float r = scaled(7.0f);
+                const ImVec2 c(p.x - r - scaled(4.0f), p.y + scaled(9.0f));
+                dl->AddCircleFilled(c, r + scaled(1.5f), IM_COL32(15, 15, 18, 220));
+                dl->AddCircleFilled(c, r, col);
+                dl->AddCircle(c, r, IM_COL32(255, 255, 255, 90), 0, scaled(1.0f));
+                if (stopped) {
+                    // Halted here: a pulsing halo, so the eye finds it at once.
+                    const float t2 = (float)ImGui::GetTime();
+                    const float pulse = 0.5f + 0.5f * sinf(t2 * 6.0f);
+                    dl->AddCircle(c, r + scaled(3.0f) + scaled(2.0f) * pulse,
+                                  ImColor(1.0f, 0.85f, 0.35f, 0.35f + 0.4f * pulse),
+                                  0, scaled(2.0f));
+                }
             }
             if (key >= 0 && key < (int)dbgSnap_.hits.size() &&
                 dbgSnap_.hits[key] > 0) {
@@ -8474,7 +8560,7 @@ void App::drawFlowGraphWindow() {
                             buf);
             }
         }
-        dl->PopClipRect();
+        ImGui::EndChild();
     }
 
     // Rest the mouse on a node to get its description (FlowNodeType::desc -
@@ -8728,9 +8814,20 @@ void App::drawFlowGraphWindow() {
                 const bool live = dbgState_ == DbgState::Running ||
                                   dbgState_ == DbgState::Halted;
                 if (ct->trigger) {
-                    if (ImGui::MenuItem("Fire now in the running game", nullptr,
-                                        false, live && key >= 0))
-                        dbgFireNode(key);
+                    if (ImGui::MenuItem("Fire now (one frame)", nullptr, false,
+                                        live && key >= 0))
+                        dbgFireNode(key, false);
+                    if (ImGui::MenuItem("Fire and continue", nullptr, false,
+                                        live && key >= 0))
+                        dbgFireNode(key, true);
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip(
+                            "Use this when the branch only ARMS something - a "
+                            "Delay, a Move Object To glide.\n"
+                            "One frame is enough "
+                            "to run the branch, but a countdown needs the game "
+                            "to keep\n"
+                            "running to reach zero.");
                 }
                 if (!live)
                     ImGui::TextDisabled(
@@ -19484,13 +19581,44 @@ float App::dbgNodeHeat(int key) const {
     return (float)(ImGui::GetTime() - dbgHeat_[key]);
 }
 
-void App::dbgFireNode(int key) {
+void App::dbgFireNode(int key, bool andRun) {
     if (key < 0) return;
     for (uint16_t k : dbgFireQueue_)
         if (k == (uint16_t)key) return;
     if ((int)dbgFireQueue_.size() >= livedbg::kMaxForced) return;
     dbgFireQueue_.push_back((uint16_t)key);
+    dbgCmd_.fireAndRun = andRun;
     dbgCmdWritten_ = false;
+}
+
+bool App::dbgIsWatched(int objectIndex) const {
+    for (const DbgObjTrack& t : dbgObjWatch_)
+        if (t.index == objectIndex) return true;
+    return false;
+}
+
+void App::dbgToggleObjectWatch(int objectIndex) {
+    for (size_t i = 0; i < dbgObjWatch_.size(); ++i)
+        if (dbgObjWatch_[i].index == objectIndex) {
+            dbgObjWatch_.erase(dbgObjWatch_.begin() + i);
+            dbgCmdWritten_ = false;  // the game's sample list must follow
+            return;
+        }
+    if ((int)dbgObjWatch_.size() >= livedbg::kMaxWatchObjects) return;
+    DbgObjTrack t;
+    t.index = objectIndex;
+    const auto& objs = project_.objects();
+    if (objectIndex >= 0 && objectIndex < (int)objs.size())
+        t.name = objs[objectIndex].name;
+    dbgObjWatch_.push_back(std::move(t));
+    dbgCmdWritten_ = false;
+}
+
+int App::dbgTimerFrames(int key) const {
+    if (key < 0) return -1;
+    for (const auto& t : dbgSnap_.timers)
+        if (t.first == key) return t.second;
+    return -1;
 }
 
 void App::livedbgTick() {
@@ -19540,6 +19668,7 @@ void App::livedbgTick() {
             dbgPrevHits_.clear();
             dbgTimeline_.clear();
             dbgScrub_ = -1;
+            for (DbgObjTrack& t : dbgObjWatch_) t.samples.clear();
             dbgCmdWritten_ = false;  // re-arm the breakpoints in the new run
         }
         // FPS from the editor's own wall clock across two snapshots: what the
@@ -19567,6 +19696,22 @@ void App::livedbgTick() {
                 if (snap.hits[i] != dbgPrevHits_[i]) dbgHeat_[i] = now;
         dbgPrevHits_ = snap.hits;
         dbgTimeline_.ingest(snap);
+        // Fold the watched-object samples into their tracks (the game flushes
+        // its ring, so each sample arrives exactly once; a restarted game is
+        // handled by the reset above).
+        for (const livedbg::ObjWatch& w : snap.objects)
+            for (DbgObjTrack& t : dbgObjWatch_) {
+                if (t.index != w.index) continue;
+                for (const livedbg::ObjSample& sm : w.samples) {
+                    if (!t.samples.empty() && sm.frame <= t.samples.back().frame)
+                        continue;
+                    t.samples.push_back(sm);
+                }
+                if (t.samples.size() > kDbgTrackSamples)
+                    t.samples.erase(t.samples.begin(),
+                                    t.samples.begin() +
+                                        (t.samples.size() - kDbgTrackSamples));
+            }
         dbgSnap_ = std::move(snap);
         dbgSnapTime_ = now;
     }
@@ -19592,6 +19737,9 @@ void App::livedbgTick() {
             (int)want.breakpoints.size() < livedbg::kMaxBreakpoints)
             want.breakpoints.push_back((uint16_t)n.key);
     want.fire = dbgFireQueue_;
+    want.watchObjects.clear();
+    for (const DbgObjTrack& t : dbgObjWatch_)
+        if (t.index >= 0) want.watchObjects.push_back((uint16_t)t.index);
     const bool missing = !fs::exists(binDir / "livedbg.cmd");
     if (!dbgCmdWritten_ || missing || !want.sameStateAs(dbgCmd_)) {
         want.seq = dbgCmd_.seq + 1;
@@ -19605,6 +19753,7 @@ void App::livedbgTick() {
             dbgCmd_.fire.clear();
             dbgCmd_.stepFrames = 0;
             dbgCmd_.stepUntilFire = false;
+            dbgCmd_.fireAndRun = false;
         }
     }
 }
@@ -19904,6 +20053,30 @@ void App::drawDebuggerWindow() {
             "the fastest way to find out what actually runs next.");
     ImGui::EndDisabled();
 
+    // Armed countdowns, right under the transport: a Delay only advances on
+    // frames that RUN, so a halted game (or a single-frame Fire) leaves the
+    // branch behind it looking dead. Saying so here is cheaper than a doc.
+    if (live && !dbgSnap_.timers.empty()) {
+        const float fps = dbgFps_ > 1.0f ? dbgFps_ : 50.0f;
+        int soonest = 1 << 30;
+        for (const auto& t : dbgSnap_.timers)
+            soonest = ImMin(soonest, t.second);
+        ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f),
+                           "\xe2\x8f\xb1 %d armed timer%s, next in %.1fs",
+                           (int)dbgSnap_.timers.size(),
+                           dbgSnap_.timers.size() == 1 ? "" : "s",
+                           soonest / fps);
+        if (dbgState_ == DbgState::Halted) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(frozen - Continue for it to fire)");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Delay nodes counting down. They only advance while the game "
+                "runs:\nafter a one-frame Fire, or while stopped, the branch "
+                "after a Delay never comes.");
+    }
+
     // --- tabs --------------------------------------------------------------
     if (!ImGui::BeginTabBar("##dbgtabs")) {
         ImGui::End();
@@ -20111,14 +20284,25 @@ void App::drawDebuggerWindow() {
                     else
                         ImGui::TextDisabled("-");
                     ImGui::TableSetColumnIndex(3);
+                    const int armed = dbgTimerFrames(key);
                     if (t->trigger && key >= 0) {
                         ImGui::BeginDisabled(!live);
-                        if (ImGui::SmallButton("Fire")) dbgFireNode(key);
+                        if (ImGui::SmallButton("Fire"))
+                            dbgFireNode(key, ImGui::GetIO().KeyShift);
                         ImGui::EndDisabled();
                         if (ImGui::IsItemHovered())
                             ImGui::SetTooltip(
                                 "Runs everything wired to this trigger in the "
-                                "running game, once.");
+                                "running game, once.\n"
+                                "Shift+click = fire AND "
+                                "continue, so a Delay in the branch gets frames "
+                                "to finish.");
+                    } else if (armed > 0) {
+                        // An armed countdown is the usual reason a branch looks
+                        // dead: show it counting instead of leaving a blank.
+                        ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f),
+                                           "%d f (%.1fs)", armed,
+                                           armed / (dbgFps_ > 1.0f ? dbgFps_ : 50.0f));
                     } else if (age < FLT_MAX) {
                         ImGui::TextDisabled("%.1fs ago", age);
                     }
@@ -20126,6 +20310,97 @@ void App::drawDebuggerWindow() {
                 }
                 ImGui::EndTable();
             }
+        }
+        ImGui::EndTabItem();
+    }
+
+    // Objects: what the game's own RuntimeObject holds for a watched object,
+    // sampled every frame - live values plus a curve per axis. This is the
+    // answer to "where is it ACTUALLY, and what did it do a second ago".
+    if (ImGui::BeginTabItem("Objects")) {
+        const auto& objs = project_.objects();
+        ImGui::BeginDisabled(selectedObject_ < 0 ||
+                             selectedObject_ >= (int)objs.size() ||
+                             ((int)dbgObjWatch_.size() >= livedbg::kMaxWatchObjects &&
+                              !dbgIsWatched(selectedObject_)));
+        if (ImGui::SmallButton(dbgIsWatched(selectedObject_) ? "- Unwatch selected"
+                                                            : "+ Watch selected"))
+            dbgToggleObjectWatch(selectedObject_);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::Checkbox("Trails in viewport", &dbgShowTrails_);
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d/%d", (int)dbgObjWatch_.size(),
+                            livedbg::kMaxWatchObjects);
+        if (dbgObjWatch_.empty()) {
+            ImGui::Separator();
+            ImGui::TextWrapped(
+                "Nothing watched. Select an object and click \"+ Watch "
+                "selected\" - the game will report its position, rotation, "
+                "scale, color and flags EVERY frame, and the path it takes is "
+                "drawn in the viewport.");
+        }
+        for (size_t i = 0; i < dbgObjWatch_.size(); ++i) {
+            DbgObjTrack& t = dbgObjWatch_[i];
+            ImGui::PushID((int)i);
+            ImGui::Separator();
+            const std::string label =
+                (t.index >= 0 && t.index < (int)objs.size() ? objs[t.index].name
+                                                            : t.name) +
+                "  (#" + std::to_string(t.index) + ")";
+            ImGui::TextUnformatted(label.c_str());
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - scaled(26.0f));
+            if (ImGui::SmallButton("x")) {
+                dbgToggleObjectWatch(t.index);
+                ImGui::PopID();
+                break;
+            }
+            if (t.samples.empty()) {
+                ImGui::TextDisabled("waiting for samples...");
+                ImGui::PopID();
+                continue;
+            }
+            const livedbg::ObjSample& s = t.samples.back();
+            ImGui::Text("pos %.2f, %.2f, %.2f", s.pos[0], s.pos[1], s.pos[2]);
+            ImGui::Text("rot %.1f, %.1f, %.1f   scale %.2f, %.2f, %.2f",
+                        s.rot[0], s.rot[1], s.rot[2], s.scale[0], s.scale[1],
+                        s.scale[2]);
+            ImGui::Text("color %.2f, %.2f, %.2f", s.color[0], s.color[1],
+                        s.color[2]);
+            ImGui::SameLine();
+            ImGui::TextColored(s.visible ? ImVec4(0.45f, 0.85f, 0.5f, 1.0f)
+                                         : ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                               s.visible ? "visible" : "hidden");
+            if (!s.active) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.4f, 1.0f), "inactive");
+            }
+            // One plot per axis, over the whole kept history - ImGui's own
+            // PlotLines is enough and costs nothing to maintain.
+            const int n = (int)t.samples.size();
+            static std::vector<float> series;
+            for (int axis = 0; axis < 3; ++axis) {
+                series.resize(n);
+                float lo = FLT_MAX, hi = -FLT_MAX;
+                for (int k = 0; k < n; ++k) {
+                    series[k] = t.samples[k].pos[axis];
+                    lo = ImMin(lo, series[k]);
+                    hi = ImMax(hi, series[k]);
+                }
+                if (hi - lo < 0.01f) {  // a flat line still deserves a scale
+                    const float mid = (hi + lo) * 0.5f;
+                    lo = mid - 0.5f;
+                    hi = mid + 0.5f;
+                }
+                char overlay[48];
+                std::snprintf(overlay, sizeof(overlay), "%c  %.2f .. %.2f",
+                              "XYZ"[axis], lo, hi);
+                ImGui::PlotLines("##plot", series.data(), n, 0, overlay, lo, hi,
+                                 ImVec2(-FLT_MIN, scaled(38.0f)));
+            }
+            ImGui::TextDisabled("%d samples (%.1fs of history)", n,
+                                n / (dbgFps_ > 1.0f ? dbgFps_ : 50.0f));
+            ImGui::PopID();
         }
         ImGui::EndTabItem();
     }

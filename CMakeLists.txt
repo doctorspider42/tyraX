@@ -67,6 +67,7 @@ add_executable(tyrax-editor
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
+    src/elfsym.cpp
     src/livedbg.cpp
     src/livelogic.cpp
     src/matbake.cpp

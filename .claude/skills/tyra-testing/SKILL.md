@@ -258,6 +258,12 @@ Notes:
   was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
   editor and the probe must not both drive `livedbg.cmd` at once (the editor
   rewrites it whenever it goes missing or its state changes).
+- **Prove a release build is devkit-free**: `tyrax-editor --audit-release
+  <projectDir>` reads the built ELF and exits 0 (clean) / 1 (something leaked),
+  printing text/data/bss so the debug-vs-release cost is a number. Every release
+  build also runs it and logs the verdict. **Negative-test it too** - run it
+  against a DEBUG ELF and confirm it fails and names the findings, otherwise a
+  broken check reads exactly like a clean build (entry 182).
 - **Live Logic patches without the GUI**: `livelogic.cpp` has no GUI
   dependency, so a ~100-line host harness (link it against the editor's
   `build/CMakeFiles/tyrax-editor.dir/src/*.obj` minus `app`/`viewport`/

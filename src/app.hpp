@@ -1597,7 +1597,28 @@ private:
     // Seconds since a node last fired (FLT_MAX = not since the game started).
     float dbgNodeHeat(int key) const;
     // Fires the whole branch under a trigger in the running game, once.
-    void dbgFireNode(int key);
+    // `andRun` resumes the game afterwards instead of running a single frame -
+    // needed whenever the branch only ARMS something (a Delay, a glide), which
+    // then needs frames to finish.
+    void dbgFireNode(int key, bool andRun = false);
+    // Frames left on an armed countdown for this node key (-1 = not armed).
+    int dbgTimerFrames(int key) const;
+
+    // Object watch (docs/devkit.md): the editor names up to
+    // livedbg::kMaxWatchObjects runtime objects and the game samples them every
+    // frame; the samples accumulate here into a per-object history the panel
+    // plots and the viewport draws as a trail. Session state (indices belong to
+    // the running build), not saved with the project.
+    struct DbgObjTrack {
+        int index = -1;               // runtime object index
+        std::string name;             // for display when the object is renamed
+        std::vector<livedbg::ObjSample> samples;  // oldest first, capped
+    };
+    std::vector<DbgObjTrack> dbgObjWatch_;
+    bool dbgShowTrails_ = true;       // draw watched paths in the viewport
+    void dbgToggleObjectWatch(int objectIndex);
+    bool dbgIsWatched(int objectIndex) const;
+    static constexpr size_t kDbgTrackSamples = 1500;  // ~30 s at 50 Hz
 
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.

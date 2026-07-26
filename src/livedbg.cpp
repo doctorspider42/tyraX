@@ -10,7 +10,7 @@ namespace livedbg {
 namespace {
 
 constexpr uint32_t kSnapMagic = 0x42445854;  // "TXDB" little-endian
-constexpr uint32_t kSnapVersion = 1;
+constexpr uint32_t kSnapVersion = 3;
 constexpr int kSnapHeader = 64;
 constexpr uint32_t kCmdMagic = 0x43445854;  // "TXDC"
 constexpr uint32_t kCmdVersion = 1;
@@ -109,16 +109,22 @@ bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out) {
     const int nodeCount = rd<int32_t>(b + 28);
     const int varCount = rd<int32_t>(b + 32);
     const int eventCount = rd<int32_t>(b + 36);
+    const int timerCount = rd<int32_t>(b + 52);
+    const int objCount = rd<int32_t>(b + 60);
     s.hash = (uint64_t)rd<uint32_t>(b + 40) |
              ((uint64_t)rd<uint32_t>(b + 44) << 32);
     if (nodeCount < 0 || nodeCount > kMaxNodes) return false;
     if (varCount < 0 || varCount > 4096) return false;
     if (eventCount < 0 || eventCount > kMaxEvents) return false;
+    if (timerCount < 0 || timerCount > kMaxNodes) return false;
+    if (objCount < 0 || objCount > kMaxWatchObjects) return false;
 
-    // Exact size + footer echo of seq: a torn write fails one of the two.
+    // Minimum size (the watched-object block is variable and is bounds-checked
+    // as it is walked; the footer echo below is what catches a torn write).
     const size_t need = (size_t)kSnapHeader + (size_t)nodeCount * 4 +
-                        (size_t)eventCount * 4 + (size_t)varCount * 12 + 4;
-    if (bytes.size() != need) return false;
+                        (size_t)eventCount * 4 + (size_t)varCount * 12 +
+                        (size_t)timerCount * 4 + 4;
+    if (bytes.size() < need) return false;
     const unsigned char* p = b + kSnapHeader;
     s.hits.resize(nodeCount);
     for (int i = 0; i < nodeCount; ++i, p += 4) s.hits[i] = rd<uint32_t>(p);
@@ -134,6 +140,34 @@ bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out) {
     }
     s.vars.resize((size_t)varCount * 3);
     for (int i = 0; i < varCount * 3; ++i, p += 4) s.vars[i] = rd<float>(p);
+    s.timers.reserve(timerCount);
+    for (int i = 0; i < timerCount; ++i, p += 4)
+        s.timers.emplace_back((int)rd<uint16_t>(p), (int)rd<uint16_t>(p + 2));
+    // Watched objects: (index, sampleCount) then that many 56-byte samples.
+    for (int i = 0; i < objCount; ++i) {
+        if (p + 4 > bytes.data() + bytes.size()) return false;
+        ObjWatch w;
+        w.index = (int)(int16_t)rd<uint16_t>(p);
+        const int n = (int)rd<uint16_t>(p + 2);
+        p += 4;
+        if (n < 0 || n > kObjRing) return false;
+        if (p + (size_t)n * 56 > bytes.data() + bytes.size()) return false;
+        w.samples.reserve(n);
+        for (int k = 0; k < n; ++k, p += 56) {
+            ObjSample sm;
+            sm.frame = rd<uint32_t>(p);
+            for (int a = 0; a < 3; ++a) sm.pos[a] = rd<float>(p + 4 + a * 4);
+            for (int a = 0; a < 3; ++a) sm.rot[a] = rd<float>(p + 16 + a * 4);
+            for (int a = 0; a < 3; ++a) sm.scale[a] = rd<float>(p + 28 + a * 4);
+            for (int a = 0; a < 3; ++a) sm.color[a] = rd<float>(p + 40 + a * 4);
+            const uint32_t f = rd<uint32_t>(p + 52);
+            sm.visible = (f & 1u) != 0;
+            sm.active = (f & 2u) != 0;
+            sm.dirty = (f & 4u) != 0;
+            w.samples.push_back(sm);
+        }
+        s.objects.push_back(std::move(w));
+    }
     if (rd<uint32_t>(p) != (s.seq ^ kFooterXor)) return false;
 
     out = std::move(s);
@@ -153,7 +187,8 @@ bool readSnapshot(const std::string& path, Snapshot& out) {
 bool Command::sameStateAs(const Command& o) const {
     return halt == o.halt && stepUntilFire == o.stepUntilFire &&
            stepFrames == o.stepFrames && breakpoints == o.breakpoints &&
-           fire == o.fire;
+           fire == o.fire && fireAndRun == o.fireAndRun &&
+           watchObjects == o.watchObjects;
 }
 
 std::vector<unsigned char> encodeCommand(const Command& c) {
@@ -162,13 +197,15 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     put32(v, kCmdMagic);
     put32(v, kCmdVersion);
     put32(v, c.seq);
-    put32(v, (c.halt ? 1u : 0u) | (c.stepUntilFire ? 2u : 0u));
+    put32(v, (c.halt ? 1u : 0u) | (c.stepUntilFire ? 2u : 0u) |
+                 (c.fireAndRun ? 4u : 0u));
     put32(v, (uint32_t)(int32_t)c.stepFrames);
     put32(v, (uint32_t)(int32_t)c.breakpoints.size());
     put32(v, (uint32_t)(int32_t)c.fire.size());
-    put32(v, 0);  // reserved
+    put32(v, (uint32_t)(int32_t)c.watchObjects.size());
     for (uint16_t k : c.breakpoints) put16(v, k);
     for (uint16_t k : c.fire) put16(v, k);
+    for (uint16_t k : c.watchObjects) put16(v, k);
     put32(v, c.seq ^ kFooterXor);
     return v;
 }

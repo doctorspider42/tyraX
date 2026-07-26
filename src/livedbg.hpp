@@ -57,6 +57,24 @@ struct Event {
     uint32_t frame = 0;
 };
 
+/** One frame of a watched object's runtime state. */
+struct ObjSample {
+    uint32_t frame = 0;
+    float pos[3] = {0, 0, 0};
+    float rot[3] = {0, 0, 0};
+    float scale[3] = {1, 1, 1};
+    float color[3] = {1, 1, 1};
+    bool visible = true;
+    bool active = true;
+    bool dirty = false;
+};
+
+/** A watched object: its runtime index plus the samples of this flush. */
+struct ObjWatch {
+    int index = -1;
+    std::vector<ObjSample> samples;
+};
+
 /** bin/livedbg.bin - what the running game reports. */
 struct Snapshot {
     uint32_t seq = 0;    // flush counter; unchanged = nothing new to read
@@ -68,6 +86,15 @@ struct Snapshot {
     std::vector<uint32_t> hits;  // cumulative fire count per node key
     std::vector<Event> events;   // recent fires, oldest first
     std::vector<float> vars;     // 3 floats per watch variable
+    // Armed timers: (node key, frames left) for every Delay counting down right
+    // now - the answer to "I fired the trigger and nothing happened", which is
+    // usually a Delay that never got frames to count.
+    std::vector<std::pair<int, int>> timers;
+    // Watched objects: what the game's own RuntimeObject actually holds,
+    // sampled EVERY FRAME into a ring and flushed in one go - so the editor can
+    // draw a real 50 Hz curve (and a trail in the viewport), not the 8 Hz the
+    // flush cadence would give. Oldest sample first.
+    std::vector<ObjWatch> objects;
 };
 
 /** Decodes a snapshot. Torn/partial writes fail the size + footer checks and
@@ -84,9 +111,15 @@ struct Command {
     uint32_t seq = 0;
     bool halt = false;         // freeze the game now
     bool stepUntilFire = false;  // run until any instrumented node fires
+    // Force-fire while the game is stopped: false = run exactly the one frame
+    // the fire needs (the default), true = resume the game afterwards, so
+    // anything the branch ARMS (a Delay, a glide) actually gets frames to run.
+    bool fireAndRun = false;
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once
+    // Runtime object indices to sample every frame (see Snapshot::objects).
+    std::vector<uint16_t> watchObjects;
 
     /** Everything except `seq` - the editor rewrites the file only when this
      * changes (a resend of the same state would re-run a step). */
@@ -134,5 +167,7 @@ constexpr int kMaxNodes = 1024;       // instrumented nodes (hit-table size)
 constexpr int kMaxBreakpoints = 64;   // breakpoints the game tracks at once
 constexpr int kMaxForced = 8;         // force-fire keys per command
 constexpr int kMaxEvents = 192;       // event ring the game flushes
+constexpr int kMaxWatchObjects = 8;   // objects sampled per frame
+constexpr int kObjRing = 32;          // per-object sample ring in the game
 
 }  // namespace livedbg

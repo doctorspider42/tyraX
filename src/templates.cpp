@@ -17801,6 +17801,15 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 flagResets << "      " << var << " = 0;\n";
                 clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
                        << linkedActions(n.id, "      ") << "    }\n";
+                // Tell the debugger this countdown is armed, so "I fired the
+                // trigger and nothing happened" has a visible answer instead of
+                // being a guess (a Delay only advances on frames that RUN).
+                if (dbgOn) {
+                    const int tk = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
+                    if (tk >= 0)
+                        clsOut << "    livedbg::timer(" << tk << ", " << var
+                               << ");\n";
+                }
             } else if (n.type == "DisplayText") {
                 // The wired text is a live value (a save value, a counter), so
                 // re-read it every frame the slot is on - that is what makes
@@ -18357,6 +18366,12 @@ namespace {{NS}} {
 namespace livelogic {
 namespace {
 
+// Release-audit marker: `elfsym::auditRelease` (and `--audit-release`) looks
+// for "TXDEVKIT-" in a shipped ELF's string data. The PS2 toolchain strips the
+// symbol table, so a DESIGNED marker is what makes "this build carries no
+// devkit code" a check instead of a hope. `used` keeps it through -O3.
+const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livelogic";
+
 const unsigned int LP_MAGIC = 0x504C5854U;  // "TXLP"
 const unsigned int LP_VERSION = 1U;
 const int LP_HEADER = 32;
@@ -18703,6 +18718,8 @@ void runProgram(ScriptContext& ctx, const Prog& pr) {
           runBlock(ctx, pr, in.blockRef);
         }
       }
+      // A patched Delay reports its countdown exactly like a compiled one.
+      if (in.dbgKey != 0xFFFF) livedbg::timer(in.dbgKey, (int)st[in.state]);
     } else if (in.op == OP_MoveObjectTo && st[in.state] > 0.0F) {
       if (in.obj < 0 || in.obj >= ctx.objectCount) continue;
       float target[3];
@@ -18927,6 +18944,11 @@ bool halted();
  * (Debugger > "Fire"), OR'd into the node's own trigger condition. */
 bool forced(int key);
 
+/** Reports an armed countdown (a Delay) so the editor can show "43 frames
+ * left" instead of leaving you wondering why nothing happened. Called once per
+ * frame per Delay node with its current counter; 0 = not armed. */
+void timer(int key, int framesLeft);
+
 /** Per-frame pump. The generated loop calls tickFromLoop() before anything
  * reads halted(); tickFromScript() is the fallback for projects that took
  * ownership of terrain_game.cpp (it does nothing once the loop hook is seen).
@@ -18954,6 +18976,7 @@ namespace livedbg {
 inline void hit(int) {}
 inline bool halted() { return false; }
 inline bool forced(int) { return false; }
+inline void timer(int, int) {}
 inline void tickFromLoop(ScriptContext&) {}
 inline void tickFromScript(ScriptContext&) {}
 
@@ -18991,8 +19014,11 @@ namespace {{NS}} {
 namespace livedbg {
 namespace {
 
+// Release-audit marker - see the note in live_logic.gen.cpp.
+const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livedbg";
+
 const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
-const unsigned int SNAP_VERSION = 1U;
+const unsigned int SNAP_VERSION = 3U;
 const int SNAP_HEADER = 64;
 const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
 const unsigned int CMD_VERSION = 1U;
@@ -19005,6 +19031,8 @@ const int FLOW_VARS = {{FLOW_VARS}};  // how many of those are flow variables
 const int EVENTS = {{EVENTS}};    // event-ring capacity
 const int MAX_BP = {{MAX_BP}};    // breakpoints tracked at once
 const int MAX_FIRE = {{MAX_FIRE}};  // force-fire keys per command
+const int MAX_WATCH = {{MAX_WATCH}};  // objects sampled every frame
+const int OBJ_RING = {{OBJ_RING}};    // samples kept per watched object
 // Identity of the symbol table this ELF was built from (src/gen/livedbg.sym).
 // The editor compares it with the file on disk: a mismatch means the graphs
 // moved since this build, so node keys would point at the wrong nodes.
@@ -19026,6 +19054,26 @@ unsigned short bp[MAX_BP] = {};
 int bpCount = 0;
 unsigned short forcedKeys[MAX_FIRE] = {};
 int forcedCount = 0;
+bool fireAndRun = false;  // a force-fire that resumes instead of stepping once
+// Armed countdowns, refreshed every frame by the graphs themselves.
+unsigned short timerKey[MAX_BP] = {};
+unsigned short timerLeft[MAX_BP] = {};
+int timerCount = 0;
+
+// Watched objects (docs/devkit.md): the editor names a few runtime indices and
+// the game samples them EVERY frame into a ring, so what reaches the editor is
+// a real per-frame curve instead of one value per flush. 13 floats + a frame
+// number per sample; the flags ride in the last slot as a bitfield.
+short watchIdx[MAX_WATCH];
+int watchCount = 0;
+struct ObjSample {
+  unsigned int frame;
+  float pos[3], rot[3], scale[3], color[3];
+  unsigned int flags;
+};
+ObjSample watchRing[MAX_WATCH][OBJ_RING];
+int watchRingNext[MAX_WATCH] = {};
+int watchRingCount[MAX_WATCH] = {};
 
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
@@ -19035,7 +19083,8 @@ bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
 
 // One static snapshot buffer - the EE has no business allocating per flush.
-unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 + 4];
+unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 +
+                      MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) + 4];
 
 inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -19070,19 +19119,45 @@ void pollCommand() {
   if (magic != CMD_MAGIC || version != CMD_VERSION) return;
   if (seq == cmdSeq) return;  // already applied
   if (bpc < 0 || bpc > MAX_BP || firec < 0 || firec > MAX_FIRE) return;
-  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + 4)) return;
+  int watchLen;
+  memcpy(&watchLen, c + 28, 4);
+  if (watchLen < 0 || watchLen > MAX_WATCH) return;
+  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2 + 4))
+    return;
   unsigned int foot;
-  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2, 4);
+  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2, 4);
   if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
 
   cmdSeq = seq;
+  int watchc;
+  memcpy(&watchc, c + 28, 4);
+  if (watchc < 0 || watchc > MAX_WATCH) watchc = 0;
   bpCount = bpc;
   for (int i = 0; i < bpc; ++i) memcpy(&bp[i], c + CMD_HEADER + i * 2, 2);
   forcedCount = firec;
   for (int i = 0; i < firec; ++i)
     memcpy(&forcedKeys[i], c + CMD_HEADER + bpc * 2 + i * 2, 2);
+  // The watch list changed? Start its rings over - mixing samples of two
+  // different objects in one ring would draw a curve that never happened.
+  {
+    const unsigned char* w = c + CMD_HEADER + bpc * 2 + firec * 2;
+    bool same = watchc == watchCount;
+    for (int i = 0; i < watchc && same; ++i) {
+      short v;
+      memcpy(&v, w + i * 2, 2);
+      same = watchIdx[i] == v;
+    }
+    if (!same) {
+      watchCount = watchc;
+      for (int i = 0; i < watchc; ++i) {
+        memcpy(&watchIdx[i], w + i * 2, 2);
+        watchRingNext[i] = watchRingCount[i] = 0;
+      }
+    }
+  }
   const bool halt = (flags & 1U) != 0;
   stepUntilFire = (flags & 2U) != 0;
+  fireAndRun = (flags & 4U) != 0;
   stepFrames = steps;
   haltRequested = halt;
   if (!halt) breakKey = -1;
@@ -19109,9 +19184,9 @@ void flush(ScriptContext& ctx) {
   unsigned int total = 0;
   for (int i = 0; i < NODES; ++i) total += hits[i];
   put32(p + 48, total);
-  memcpy(p + 52, &stepFrames, 4);
-  put32(p + 56, 0U);
-  put32(p + 60, 0U);
+  memcpy(p + 52, &timerCount, 4);
+  memcpy(p + 56, &stepFrames, 4);
+  memcpy(p + 60, &watchCount, 4);
   p += SNAP_HEADER;
   for (int i = 0; i < NODES; ++i, p += 4) put32(p, hits[i]);
   // Oldest first, each with its AGE in frames - the editor rebuilds absolute
@@ -19128,6 +19203,28 @@ void flush(ScriptContext& ctx) {
     float v[3];
     readVar(ctx, i, v);
     memcpy(p, v, 12);
+  }
+  for (int i = 0; i < timerCount; ++i, p += 4) {
+    put16(p, timerKey[i]);
+    put16(p + 2, timerLeft[i]);
+  }
+  // Watched objects: (index, sampleCount) + the ring, oldest sample first.
+  for (int i = 0; i < watchCount; ++i) {
+    put16(p, (unsigned short)watchIdx[i]);
+    put16(p + 2, (unsigned short)watchRingCount[i]);
+    p += 4;
+    const int start = watchRingCount[i] == OBJ_RING ? watchRingNext[i] : 0;
+    for (int k = 0; k < watchRingCount[i]; ++k, p += 56) {
+      const ObjSample& sm = watchRing[i][(start + k) % OBJ_RING];
+      put32(p, sm.frame);
+      memcpy(p + 4, sm.pos, 12);
+      memcpy(p + 16, sm.rot, 12);
+      memcpy(p + 28, sm.scale, 12);
+      memcpy(p + 40, sm.color, 12);
+      put32(p + 52, sm.flags);
+    }
+    watchRingCount[i] = 0;  // flushed: the editor has these frames now
+    watchRingNext[i] = 0;
   }
   put32(p, outSeq ^ FOOTER_XOR);
   p += 4;
@@ -19149,10 +19246,36 @@ void tickImpl(ScriptContext& ctx) {
     pollCommand();
   }
 
-  // A force-fire that arrives while the game is stopped runs exactly the one
-  // frame its keys are armed for. Without this it would do nothing at all: a
-  // halted game runs no scripts, so nobody would ever ask forced().
-  if (forcedCount > 0 && haltRequested && stepFrames == 0) stepFrames = 1;
+  // A force-fire that arrives while the game is stopped needs frames to run in:
+  // a halted game runs no scripts, so nobody would ever ask forced(). One frame
+  // is enough for the branch itself; "fire and run" resumes instead, which is
+  // what anything the branch ARMS (a Delay, a glide) needs to finish.
+  if (forcedCount > 0 && haltRequested && stepFrames == 0) {
+    if (fireAndRun) {
+      haltRequested = false;
+      breakKey = -1;
+      flushNow = true;
+    } else {
+      stepFrames = 1;
+    }
+  }
+  // Sample the watched objects - every frame, not every flush, so the editor
+  // can draw what actually happened between two flushes.
+  for (int i = 0; i < watchCount; ++i) {
+    const int idx = watchIdx[i];
+    if (idx < 0 || idx >= ctx.objectCount) continue;
+    const RuntimeObject& o = ctx.objects[idx];
+    ObjSample& sm = watchRing[i][watchRingNext[i]];
+    sm.frame = frameNo;
+    memcpy(sm.pos, o.data.position, 12);
+    memcpy(sm.rot, o.data.rotation, 12);
+    memcpy(sm.scale, o.data.scale, 12);
+    memcpy(sm.color, o.data.color, 12);
+    sm.flags = (o.visible ? 1U : 0U) | (o.active ? 2U : 0U) |
+               (o.dirty ? 4U : 0U);
+    watchRingNext[i] = (watchRingNext[i] + 1) % OBJ_RING;
+    if (watchRingCount[i] < OBJ_RING) ++watchRingCount[i];
+  }
 
   if (stepFrames > 0) {
     // Step: this frame runs, and the last one of the batch stops again.
@@ -19174,6 +19297,12 @@ void tickImpl(ScriptContext& ctx) {
     flushNow = false;
     flush(ctx);
   }
+  // Clear the armed-timer list only AFTER the flush: the graphs report their
+  // countdowns while they run, i.e. after this pump - so at flush time the list
+  // holds the PREVIOUS frame's reports, which is the freshest complete set
+  // there is. Clearing at the top of the tick would flush an empty list every
+  // time (it did, until this was measured on the console).
+  timerCount = 0;
 }
 
 // The fallback pump is a plain global Script: it runs only in projects whose
@@ -19228,6 +19357,15 @@ bool forced(int key) {
   return false;
 }
 
+void timer(int key, int framesLeft) {
+  if (framesLeft <= 0 || key < 0 || key >= NODES) return;
+  if (timerCount >= MAX_BP) return;  // more armed timers than we report
+  timerKey[timerCount] = (unsigned short)key;
+  timerLeft[timerCount] =
+      framesLeft > 65535 ? (unsigned short)65535 : (unsigned short)framesLeft;
+  ++timerCount;
+}
+
 void tickFromLoop(ScriptContext& ctx) {
   loopHook = true;
   tickImpl(ctx);
@@ -19271,6 +19409,9 @@ static std::string liveDebugSource(const Project& p) {
     s = replaceAll(s, "{{EVENTS}}", std::to_string(livedbg::kMaxEvents));
     s = replaceAll(s, "{{MAX_BP}}", std::to_string(livedbg::kMaxBreakpoints));
     s = replaceAll(s, "{{MAX_FIRE}}", std::to_string(livedbg::kMaxForced));
+    s = replaceAll(s, "{{MAX_WATCH}}",
+                   std::to_string(livedbg::kMaxWatchObjects));
+    s = replaceAll(s, "{{OBJ_RING}}", std::to_string(livedbg::kObjRing));
     s = replaceAll(s, "{{HASH_LO}}",
                    std::to_string((unsigned int)(syms.hash & 0xFFFFFFFFULL)));
     s = replaceAll(s, "{{HASH_HI}}",

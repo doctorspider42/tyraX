@@ -10,6 +10,7 @@
 
 #include "aigen.hpp"
 #include "aisupport.hpp"
+#include "elfsym.hpp"
 #include "app.hpp"
 #include "project.hpp"
 #include "runner.hpp"
@@ -476,7 +477,47 @@ static int aiSupportFromCli(int argc, char** argv) {
     return status.rfind("error:", 0) == 0 ? 1 : 0;
 }
 
+// Headless helper:
+//   tyrax-editor.exe --audit-release <projectDir>
+//
+// The devkit's promise is that a shipped (release) game pays NOTHING for the
+// debugging layers - no code, no static arrays, not even the file names they
+// use. This checks the claim against the built ELF instead of trusting it: it
+// lists any devkit symbol or string that survived, and prints what the binary
+// actually costs. Exit code 0 = clean, 1 = something leaked (so it can gate a
+// release in a script). See docs/devkit.md.
+static int auditReleaseFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --audit-release <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    const std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const elfsym::Audit a = elfsym::auditRelease(p.elfPath());
+    std::printf("%s\n", a.summary().c_str());
+    if (!a.error.empty()) return 1;
+    if (p.settings.buildProfile != "release")
+        std::printf(
+            "note: this project's build profile is \"%s\" - a debug build is "
+            "SUPPOSED to carry the devkit.\n",
+            p.settings.buildProfile.c_str());
+    for (const elfsym::AuditFinding& f : a.findings)
+        std::printf("  %-52s %s%s\n", f.what.c_str(), f.where.c_str(),
+                    f.bytes ? (" (" + std::to_string(f.bytes) + " B)").c_str() : "");
+    if (a.clean)
+        std::printf(
+            "No trace of Live Link / Live Debugger / Live Logic in this "
+            "binary.\n");
+    return a.clean ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "--audit-release") == 0)
+        return auditReleaseFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
@@ -498,6 +539,8 @@ int main(int argc, char** argv) {
             "tyrax-editor [projectDir]                 open the GUI\n"
             "  --new <name> <parentDir> [w] [d] [empty|fpp]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
+            "  --audit-release <projectDir>            prove a release ELF "
+            "carries no devkit code\n"
             "  --resave <projectDir>\n"
             "  --refresh-gen <projectDir>\n"
             "AI-agent tools (docs/ai-tools.md):\n"

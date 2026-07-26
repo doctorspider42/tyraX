@@ -71,6 +71,21 @@ time a node can report itself, its own action has already happened. That is the
 honest granularity of this design, and it is what the editor shows ("HALTED at
 *chest · On Used*").
 
+### Delays, and why a Fire can look like it did nothing
+
+A `Delay` node does not wait - it **arms a countdown** that advances one frame at
+a time, and the branch after it belongs to that countdown, not to the trigger.
+So on a stopped game (or after a plain *Fire*, which runs exactly one frame) the
+branch behind a `Delay` never comes: nothing counted.
+
+Two things make that visible instead of mysterious:
+
+- every armed countdown is reported, so the panel says **"⏱ 1 armed timer, next
+  in 1.2 s"** (and the Nodes tab shows the frames left on the node itself);
+- **Fire and continue** (right-click a trigger, or Shift-click the Fire button)
+  fires the branch AND resumes the game, so the countdown reaches zero and your
+  breakpoint on the node after it hits.
+
 ### The panel
 
 - **Watch** — every flow variable in the project (Set/Get Int, Bool, Position
@@ -81,8 +96,16 @@ honest granularity of this design, and it is what the editor shows ("HALTED at
   the slider) to inspect that frame. While rewound, the **graph overlay replays
   that frame** instead of the live one — the same drawing code, driven by
   history. ~900 frames are kept (about 15–18 seconds of PAL game time).
-- **Nodes** — the current graph's runnable nodes: hit counts, breakpoints, Fire.
+- **Objects** — up to 8 watched runtime objects, sampled **every frame** by the
+  game: live position / rotation / scale / color / flags, a curve per axis over
+  ~30 s of history, and a **trail in the viewport** showing the path it took
+  (the head dot is where it is right now). Watch the selected object with one
+  button; see [devkit.md](devkit.md).
+- **Nodes** — the current graph's runnable nodes: hit counts, breakpoints, Fire,
+  and the frames left on an armed `Delay`.
 - **Breakpoints** — the whole project's list; click one to jump to its node.
+- **Logic** — what [Live Logic](live-logic.md) has hot-patched, and what still
+  needs a build.
 
 ### Firing a trigger from the editor
 

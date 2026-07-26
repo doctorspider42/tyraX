@@ -1,6 +1,7 @@
 #include "runner.hpp"
 
 #include "isoexport.hpp"
+#include "elfsym.hpp"
 #include "pcsx2_config.hpp"
 #include "texbake.hpp"
 #include "wavconvert.hpp"
@@ -848,6 +849,18 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
                 }
                 if (superseded) fs::remove(it->path(), ec);
             }
+        }
+
+        // Every release build audits itself: the devkit (Live Link / Live
+        // Debugger / Live Logic) claims to cost a shipped game nothing, and a
+        // claim that is never checked rots. This reads the ELF that was just
+        // produced and says so in the build log, with the real numbers - see
+        // docs/devkit.md and `--audit-release`.
+        if (ok && p.settings.buildProfile == "release") {
+            const elfsym::Audit audit = elfsym::auditRelease(p.elfPath());
+            appendLine("[editor] " + audit.summary());
+            for (const elfsym::AuditFinding& f : audit.findings)
+                appendLine("[editor]   leaked: " + f.what + " (" + f.where + ")");
         }
 
         appendLine(ok ? "[editor] === Build OK ==="
