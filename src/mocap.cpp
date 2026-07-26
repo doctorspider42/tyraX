@@ -410,8 +410,15 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
             headingBase[3] = rootAbs[3];
             haveHeadingBase = true;
         }
+        // A_t * conj(A_0), NOT conj(A_0) * A_t. Quaternions do not commute and
+        // the difference is exactly which frame the relative rotation lives in:
+        // left-multiplying expresses it in the FIRST FRAME'S anchor basis, and
+        // ARKit's anchor basis is not the world's - it is the same convention
+        // that makes "hips -> spine" point sideways. The character's bind is in
+        // world space, so a rotation handed to it about axes ninety degrees off
+        // does not turn the body, it tumbles it.
         float rootQ[4];
-        quatMul(headingBase, rootAbs, rootQ);
+        quatMul(rootAbs, headingBase, rootQ);
         if (!r.ok) {
             error = "take truncated at frame " + std::to_string(frame) + " of " +
                     std::to_string(frameCount);
@@ -503,11 +510,24 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
             worst = std::max(worst, 2.0f * std::acos(d) * 57.2957795f);
         }
         if (worst > 5.0f) {
-            char buf[192];
+            // Repairable, and exactly so. ARKit holds this joint at its REST
+            // value for the whole of any take, so whatever else is in the
+            // channel is the heading that a buggy writer folded in - and the
+            // anchor slot, which is untouched, still has it. Putting the rest
+            // value back therefore removes the duplicate without guessing:
+            // there is exactly one thing the channel is allowed to contain.
+            //
+            // Repairing rather than refusing, because the alternative is asking
+            // somebody to perform a take again for a defect in the recorder.
+            glbparser::SkelChannel& ch2 = rot[hips];
+            for (size_t k = 0; k + 3 < ch2.values.size(); k += 4)
+                std::memcpy(&ch2.values[k], out.nodes[hips].r, 4 * sizeof(float));
+            char buf[224];
             std::snprintf(buf, sizeof(buf),
-                          "hips_joint rotates %.0f degrees in this take, which ARKit never "
-                          "does - the heading looks baked in AND stored separately, so it "
-                          "will be applied twice. Re-record it.",
+                          "hips_joint rotated %.0f degrees in this take, which ARKit never "
+                          "does - an older recorder folded the heading into it while also "
+                          "storing it on the anchor, so it would have been applied twice. "
+                          "Repaired on load; the take itself is still the old one.",
                           worst);
             out.warnings.push_back(buf);
         }

@@ -11361,21 +11361,22 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
             mocapHeadingBase_[3] = rootRot[3];
             mocapHaveHeadingBase_ = true;
         }
+        // rootRot * conj(base), not conj(base) * rootRot: left-multiplying would
+        // express the turn in the FIRST FRAME'S anchor basis, and ARKit's anchor
+        // basis is not the world's. The character's bind is in world space, so
+        // that mismatch tumbles the body instead of turning it.
+        const float* a = rootRot;
         const float* h = mocapHeadingBase_;
-        const float rel[4] = {h[3] * rootRot[0] + h[0] * rootRot[3] + h[1] * rootRot[2] -
-                                  h[2] * rootRot[1],
-                              h[3] * rootRot[1] - h[0] * rootRot[2] + h[1] * rootRot[3] +
-                                  h[2] * rootRot[0],
-                              h[3] * rootRot[2] + h[0] * rootRot[1] - h[1] * rootRot[0] +
-                                  h[2] * rootRot[3],
-                              h[3] * rootRot[3] - h[0] * rootRot[0] - h[1] * rootRot[1] -
-                                  h[2] * rootRot[2]};
-        const float* a = rel;
+        const float rel[4] = {a[3] * h[0] + a[0] * h[3] + a[1] * h[2] - a[2] * h[1],
+                              a[3] * h[1] - a[0] * h[2] + a[1] * h[3] + a[2] * h[0],
+                              a[3] * h[2] + a[0] * h[1] - a[1] * h[0] + a[2] * h[3],
+                              a[3] * h[3] - a[0] * h[0] - a[1] * h[1] - a[2] * h[2]};
+        const float* c = rel;
         const float* b = &mocapFrameRot_[(size_t)mocapLiveHips_ * 4];
-        const float w[4] = {a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
-                            a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
-                            a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
-                            a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]};
+        const float w[4] = {c[3] * b[0] + c[0] * b[3] + c[1] * b[2] - c[2] * b[1],
+                            c[3] * b[1] - c[0] * b[2] + c[1] * b[3] + c[2] * b[0],
+                            c[3] * b[2] + c[0] * b[1] - c[1] * b[0] + c[2] * b[3],
+                            c[3] * b[3] - c[0] * b[0] - c[1] * b[1] - c[2] * b[2]};
         std::memcpy(&mocapFrameRot_[(size_t)mocapLiveHips_ * 4], w, sizeof(w));
         src = mocapFrameRot_.data();
     }

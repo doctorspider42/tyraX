@@ -10,6 +10,28 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (199) **The heading was also being applied in the wrong FRAME.** Repairing
+  the doubled heading (198) left the character still tumbling, which said the
+  duplicate was real but not the whole story - and the rest was a
+  non-commutativity mistake of mine, one character wide.
+  The relative heading was composed as `conj(A0) * At`. That expresses the turn
+  in the FIRST FRAME'S ANCHOR BASIS, and ARKit's anchor basis is not the
+  world's - it is the same convention that makes "hips -> spine" measure
+  sideways rather than up (195). The character's bind is in world space, so it
+  was being handed a rotation about axes ninety degrees off its own: a body
+  given that does not turn, it topples. It is `At * conj(A0)` now, which is the
+  same turn expressed in the world both rigs actually share.
+  Both halves are needed and neither alone is enough, which is why the first fix
+  looked like it had failed. Verified against the T-pose take, where the answer
+  is known: still perfectly upright, arms level - the change does not disturb a
+  take whose anchor barely moves, and rescues one whose anchor swings 160
+  degrees.
+  Takes recorded by the older code are **repaired on load** rather than
+  rejected: ARKit holds `hips_joint` at its rest value for a whole take, so
+  anything else in that channel is the folded-in heading, and putting the rest
+  value back removes the duplicate exactly. Asking somebody to perform a take
+  again for a defect in the recorder is the wrong way round.
+
 - (198) **The heading written twice: a recorded take that tumbles.** Live
   preview correct, the SAME motion re-imported doing somersaults - which
   localises the fault precisely, since only what reaches the file can differ.
