@@ -11451,12 +11451,28 @@ void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, fl
 
     if (!mocapRecording_) return;
     mocapRecTimes_.push_back(t);
-    // The heading stays separate, exactly as the file format keeps it. The
-    // Vision solve does NOT: it is part of acquiring the pose, not of moving it
-    // onto a character, so a recorded take must contain the head and wrists it
-    // solved - otherwise importing the file later would silently lose them.
-    const float* store = mocapVision_ && src == mocapFrameRot_.data() ? src : rot;
-    mocapRecRot_.insert(mocapRecRot_.end(), store, store + (size_t)joints * 4);
+    // What goes in the file, and the two halves pull opposite ways.
+    //
+    // The Vision solve SHOULD be stored: it is part of acquiring the pose, not
+    // of moving it onto a character, so a take without it would silently lose
+    // the head and wrists when re-imported.
+    //
+    // The heading must NOT be, and this is where it went wrong: it is composed
+    // into the hips rotation for the preview, while the file ALSO carries the
+    // anchor in its own slot - so storing the composed frame wrote the heading
+    // twice and the loader applied it twice. Measured on a take that produced
+    // it, `hips_joint` swung 160.9 degrees; ARKit never moves that joint at all,
+    // by a single float bit, in any raw recording. A body given its own heading
+    // twice does not lean, it tumbles.
+    //
+    // So: the frame as improved, with the hips rotation put back to raw.
+    mocapRecFrame_.assign(joints * 4, 0.0f);
+    const float* improved = src ? src : rot;
+    std::memcpy(mocapRecFrame_.data(), improved, (size_t)joints * 4 * sizeof(float));
+    if (mocapLiveHips_ >= 0 && mocapLiveHips_ < joints)
+        std::memcpy(&mocapRecFrame_[(size_t)mocapLiveHips_ * 4], rot + mocapLiveHips_ * 4,
+                    4 * sizeof(float));
+    mocapRecRot_.insert(mocapRecRot_.end(), mocapRecFrame_.begin(), mocapRecFrame_.end());
     for (int k = 0; k < 3; ++k) mocapRecHips_.push_back(haveHips ? hips[k] : 0.0f);
     const float ident[4] = {0, 0, 0, 1};
     const float* rr = rootRot ? rootRot : ident;

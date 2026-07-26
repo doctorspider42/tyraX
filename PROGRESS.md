@@ -10,6 +10,27 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (198) **The heading written twice: a recorded take that tumbles.** Live
+  preview correct, the SAME motion re-imported doing somersaults - which
+  localises the fault precisely, since only what reaches the file can differ.
+  `hips_joint` swings **160.9 degrees** in the offending take. ARKit does not
+  move that joint - not "hardly", but constant to the last float bit across
+  whole takes in which the performer turned a full circle, because the heading
+  lives on the anchor. So the heading had been folded into the hips AND stored
+  in the anchor slot, and the loader applied it twice.
+  The cause was a condition doing two jobs: `mocapVision_ && src ==
+  mocapFrameRot_` decided whether to store the improved frame, but `src` also
+  points at that buffer once the HEADING has been composed into it. With Vision
+  on, the composed frame went to disk. Recording now stores the frame as
+  improved with the hips rotation put back to raw - Vision's contribution kept,
+  the heading left in the one slot that owns it.
+  **I had tested this hypothesis and cleared it**, on the older take, which had
+  been recorded when the condition happened to be false: hips swing 0.0, theory
+  discarded. The right question asked of the wrong file. The loader now refuses
+  to be quiet about it - a take whose hips joint rotates more than 5 degrees is
+  flagged on import, because that signature is impossible in real ARKit data and
+  finding it a third time from a screenshot would be nobody's good afternoon.
+
 - (197) **A take that forgets how it was captured leans like a famous tower.**
   Loading a clip recorded through the editor gave a character tilted about
   thirty degrees. Measured on the file: `hips_joint` was constant, so the

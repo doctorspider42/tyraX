@@ -1,8 +1,10 @@
 #include "mocap.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <ostream>
@@ -481,6 +483,35 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
     if (hips < 0)
         out.warnings.push_back(
             "take has no hips_joint - it will not retarget (is it really an ARKit body take?)");
+
+    // ARKit does not move hips_joint. Not "hardly" - measured across whole
+    // takes in which the performer walked and turned a full circle, its own
+    // rotation is constant to the last float bit, because the body's heading
+    // lives on the ANCHOR. So a take whose hips joint rotates was written by
+    // something that folded the heading into it, and since the anchor carries
+    // the heading too, the loader is about to apply it twice. That does not
+    // lean a character, it tumbles it. Say so rather than let it be rediscovered
+    // from a screenshot.
+    if (hips >= 0 && hips < (int)rot.size()) {
+        const glbparser::SkelChannel& ch = rot[hips];
+        float worst = 0.0f;
+        for (size_t k = 4; k + 3 < ch.values.size(); k += 4) {
+            float d = 0.0f;
+            for (int c = 0; c < 4; ++c) d += ch.values[k + c] * ch.values[c];
+            d = std::fabs(d);
+            if (d > 1.0f) d = 1.0f;
+            worst = std::max(worst, 2.0f * std::acos(d) * 57.2957795f);
+        }
+        if (worst > 5.0f) {
+            char buf[192];
+            std::snprintf(buf, sizeof(buf),
+                          "hips_joint rotates %.0f degrees in this take, which ARKit never "
+                          "does - the heading looks baked in AND stored separately, so it "
+                          "will be applied twice. Re-record it.",
+                          worst);
+            out.warnings.push_back(buf);
+        }
+    }
     return true;
 }
 

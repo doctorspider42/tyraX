@@ -1126,7 +1126,8 @@ private:
     std::vector<float> mocapRecTimes_;
     std::vector<float> mocapRecRot_;   // frames * joints * 4
     std::vector<float> mocapRecHips_;
-    std::vector<float> mocapRecRoot_;  // frames * 3
+    std::vector<float> mocapRecRoot_;
+    std::vector<float> mocapRecFrame_;   // scratch: what one recorded frame stores  // frames * 3
     char mocapName_[64] = "take";
 
     float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
