@@ -271,7 +271,7 @@ Notes:
   though: to reach a panel that needs a menu click, pre-open it by adding its key
   to the active layout's `open` list in the project's `.tyra`
   (`kLayoutWindowKeys` in app.cpp has the names — `"drone"`, `"tree"`,
-  `"material"`, …). PROGRESS 190 used exactly this to verify a new tool window
+  `"material"`, …). PROGRESS 191 used exactly this to verify a new tool window
   end-to-end without a human at the keyboard.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
@@ -310,7 +310,7 @@ Notes:
   GS load.
 - **Audio**: the *editor's* own audio (the Drone Generator's audition,
   `src/audiopreview.cpp`) is testable directly — a host harness can open the
-  device and print peak levels (PROGRESS 190), and the generator's DSP needs no
+  device and print peak levels (PROGRESS 191), and the generator's DSP needs no
   device at all: link `dronegen.cpp` alone, render a preset and measure the
   samples. For the GAME's audio, EE-side logs are invisible, so meter the PCSX2
   process instead —
