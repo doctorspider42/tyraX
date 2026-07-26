@@ -10,6 +10,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (202) **A static model's vertex count, next to its triangle count.** Owner's
+  ask, and the properties panel was inconsistent about it: an animated `.glb`
+  reported "%d verts", a static `.obj` reported triangles only. Now it shows
+  both, plus the **unique position count**, because those are three different
+  measurements and the gap between them is worth seeing: vertices are what
+  reaches VU1 (three per triangle, corners split wherever a normal, UV or
+  material differs), positions are the `v` count the modelling tool showed. A
+  hovered tooltip says so, and ties it to the chunk size *Debugger > Stats*
+  reports. `Model::positionCount` was already parsed and simply never surfaced.
+  *Verified* with a harness over `objparser.cpp.obj` on the owner's own model:
+  `Cottage_FREE.obj` is **4281 triangles, 12843 vertices, 3351 unique
+  positions** - a 1.28x split factor. Which closes the loop on 200/201: 12843
+  vertices at 108 per VU1 chunk is ~119 chunks, exactly the scatter the flush
+  map showed, and 80% of that frame's 16101 vertices.
+
 - (201) **The frame's vital signs, and a map of its draws.** Owner's ask after
   200 ("okienko ze statami... ile miejsca w VU, co się da"), and the answer to
   the 37-flush problem it left behind. **Not one number here is newly measured**

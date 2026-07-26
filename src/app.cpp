@@ -5596,7 +5596,9 @@ const App::ModelInfo& App::modelInfo(const std::string& relPath,
             : (std::filesystem::path(project_.dir) / materialRel).string();
     if (objparser::load(full.string(), model, overrideMtl)) {
         info.ok = true;
-        info.tris = model.vertexCount() / 3;
+        info.verts = model.vertexCount();
+        info.tris = info.verts / 3;
+        info.positions = model.positionCount;
         // texture paths resolve relative to the file that defined them: the
         // override .mtl when one is assigned, the model otherwise
         const std::filesystem::path texBase =
@@ -6904,7 +6906,25 @@ void App::drawPropertiesWindow() {
         // - read-only summary
         const ModelInfo& info = modelInfo(o.modelPath, o.materialPath);
         if (info.ok) {
-            ImGui::TextDisabled("%d triangles, materials (from .mtl):", info.tris);
+            // Both vertex counts: the one the PS2 pays for and the one the
+            // modelling tool showed you. Animated models report theirs a few
+            // lines up, so static ones saying only "triangles" was the odd
+            // one out.
+            if (info.positions && info.positions * 3 != info.verts)
+                ImGui::TextDisabled("%d triangles, %d vertices (%d unique "
+                                    "positions)",
+                                    info.tris, info.verts, info.positions);
+            else
+                ImGui::TextDisabled("%d triangles, %d vertices", info.tris,
+                                    info.verts);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Vertices are what reaches VU1: three per triangle, with a "
+                    "corner split\nwherever its normal, UV or material "
+                    "differs - so this is above the\nmodelling tool's count, "
+                    "and it is the number the pipeline cuts into\nVU1-sized "
+                    "chunks (Debugger > Stats says how big those are).");
+            ImGui::TextDisabled("materials (from .mtl):");
             for (const ModelInfo::MaterialLine& m : info.materials) {
                 if (m.missing)
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),

@@ -430,6 +430,13 @@ private:
     struct ModelInfo {
         bool ok = false;
         int tris = 0;
+        // Two different vertex counts, and the difference is the point:
+        // `verts` is what actually goes to VU1 (three per triangle, corners
+        // split wherever a normal/UV/material does), `positions` is the obj
+        // `v` count the modelling tool shows. A model whose verts are far
+        // above 3x positions is paying for split corners.
+        int verts = 0;
+        int positions = 0;
         struct MaterialLine {
             std::string text;      // "name (texture.png)" / "name (color)"
             bool missing = false;  // the referenced texture file is absent
