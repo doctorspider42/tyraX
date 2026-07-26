@@ -815,6 +815,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
          << ",\n"
+         << "    \"liveLogic\": " << (p.settings.liveLogic ? "true" : "false")
+         << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -2347,6 +2349,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.showProfiler = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
+        if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
@@ -3779,6 +3782,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_logic.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\live_logic.gen.hpp" ||
+            f.relativePath == "src\\gen\\livelogic.built" ||
             f.relativePath == "src\\gen\\live_debug.gen.cpp" ||
             f.relativePath == "inc\\scripts\\live_debug.gen.hpp" ||
             f.relativePath == "src\\gen\\livedbg.sym" ||

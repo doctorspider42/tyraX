@@ -70,6 +70,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [Live Logic (edit a flow graph with no rebuild)](live-logic.md) - the
+  flow-graph interpreter debug builds carry: what the editor can hot-patch into
+  a running game and what still needs a build, the pre-resolved instruction
+  format, how a patched graph shares state (and debugger keys) with compiled
+  ones, and the cost.
 - [Live Debugger (step through the running game's logic)](live-debugger.md) -
   breakpoints on flow-graph nodes, pause/step/step-node of a game running on
   the console, the live node highlighting and hit counters in the Flow Graph,

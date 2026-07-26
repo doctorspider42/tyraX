@@ -555,6 +555,10 @@ void App::drawUI() {
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
 
+    // Hot-patch edited flow graphs into the running game (throttled; writes
+    // only when the compiled program actually changed).
+    liveLogicTick();
+
     // Drain collaboration-session events (peer joins/leaves, sync completion,
     // session end) - the only place session state meets project_/ImGui.
     sessionTick();
@@ -975,6 +979,18 @@ void App::drawMenuBar() {
                     "the editor (docs/live-debugger.md).\n"
                     "Open the panel with "
                     "Tools > Debugger (F9) or the DBG chip in the toolbar.");
+            if (ImGui::MenuItem("Live Logic", nullptr,
+                                project_.settings.liveLogic)) {
+                project_.settings.liveLogic = !project_.settings.liveLogic;
+                commitChange();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Edit a flow graph and the RUNNING game changes - no "
+                    "rebuild.\nThe editor compiles the graph itself and a debug "
+                    "build interprets it;\ngraphs the interpreter cannot "
+                    "express are named in the Debugger's Logic tab\n"
+                    "(docs/live-logic.md).");
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip(
                     "Mirror scene edits (move/rotate/scale/recolor objects, "
@@ -1322,6 +1338,49 @@ void App::drawToolbar() {
         const float textW = ImGui::CalcTextSize(label).x;
         const float chipW = dotR * 2.0f + 4.0f + textW;
         if (ImGui::InvisibleButton("##tb_livedbg", ImVec2(chipW, h)))
+            showDebugger_ = true;
+        if (ImGui::IsItemHovered())
+            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
+                              ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
+        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
+                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                    c, label);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    }
+
+    // Live Logic chip: only interesting once graphs differ from the build -
+    // blue "LOGIC (n)" = n graphs are running from the editor's patch instead
+    // of their compiled C++, amber "LOGIC (rebuild)" = an edited graph uses
+    // something the interpreter cannot run. Clicking opens the Debugger's
+    // Logic tab.
+    if (project_.settings.buildProfile == "debug" &&
+        project_.settings.liveLogic &&
+        (liveLogicState_ == LogicState::Patched ||
+         liveLogicState_ == LogicState::Blocked)) {
+        const bool blocked = liveLogicState_ == LogicState::Blocked;
+        char label[48];
+        if (blocked)
+            std::snprintf(label, sizeof(label), "LOGIC (rebuild)");
+        else
+            std::snprintf(label, sizeof(label), "LOGIC (%d)",
+                          liveLogicPatchCount_);
+        const ImU32 c = blocked ? IM_COL32(240, 175, 70, 255)
+                                : IM_COL32(110, 190, 245, 255);
+        const char* tip =
+            blocked ? "Live Logic: an edited graph uses nodes the interpreter "
+                      "cannot run\n(audio, AI, animation, spawning, runtime "
+                      "text...) - Build & Run (F5).\nClick for the list."
+                    : "Live Logic: these graphs were compiled by the editor and "
+                      "are running\nin the game right now, with no rebuild. "
+                      "Click to see them.";
+        ImGui::SameLine(0.0f, gapPair);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float dotR = h * 0.14f;
+        const float textW = ImGui::CalcTextSize(label).x;
+        const float chipW = dotR * 2.0f + 4.0f + textW;
+        if (ImGui::InvisibleButton("##tb_livelogic", ImVec2(chipW, h)))
             showDebugger_ = true;
         if (ImGui::IsItemHovered())
             dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
@@ -4004,6 +4063,15 @@ void App::attachProject() {
     dbgSnapTime_ = dbgSnapPrevTime_ = 0.0;
     dbgSnapPrevFrame_ = 0;
     dbgNextTick_ = dbgSymNextRead_ = 0.0;
+    // Live Logic is per project too: the built-graph list, the last patch and
+    // the sequence counter all belong to the project that was open.
+    liveLogicState_ = LogicState::Off;
+    liveLogicBuilt_ = livelogic::BuiltList();
+    liveLogicLastPayload_.clear();
+    liveLogicBlocked_.clear();
+    liveLogicPatchCount_ = 0;
+    liveLogicSeq_ = (uint32_t)std::time(nullptr);
+    liveLogicNextTick_ = liveLogicBuiltNextRead_ = 0.0;
     history_.reset({project_.scenes});
     // The history file restores the undo stack when it is in sync with the
     // project file; otherwise we start fresh (and write a new one).
@@ -19152,6 +19220,117 @@ void App::livedbgTick() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Live Logic (docs/live-logic.md): compile every edited graph into the
+// interpreter's IR and stream it to the running game. The heavy lifting is in
+// livelogic.cpp; this is the "when to (re)compile and write" half.
+// ---------------------------------------------------------------------------
+void App::liveLogicTick() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !project_.settings.liveLogic ||
+        project_.settings.buildProfile != "debug") {
+        liveLogicState_ = LogicState::Off;
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (now < liveLogicNextTick_) return;
+    liveLogicNextTick_ = now + 0.15;  // recompiling every graph is not free
+
+    // What the running ELF compiled natively (codegen writes it at build start).
+    if (now >= liveLogicBuiltNextRead_) {
+        liveLogicBuiltNextRead_ = now + 1.5;
+        livelogic::BuiltList list;
+        if (livelogic::loadBuiltList(
+                (fs::path(project_.dir) / "src" / "gen" / "livelogic.built")
+                    .string(),
+                list))
+            liveLogicBuilt_ = std::move(list);
+    }
+    if (!liveLogicBuilt_.loaded) {
+        liveLogicState_ = LogicState::NoBuild;
+        return;
+    }
+
+    // Every graph that differs from the built one needs a patch; the ones the
+    // IR cannot express are reported instead (the chip goes amber).
+    std::vector<livelogic::Program> programs;
+    liveLogicBlocked_.clear();
+    for (size_t si = 0; si < project_.scenes.size(); ++si) {
+        const SceneData& sc = project_.scenes[si];
+        for (size_t oi = 0; oi < sc.objects.size(); ++oi) {
+            const SceneObject& o = sc.objects[oi];
+            if (o.flowGraph.empty()) continue;
+            const uint64_t live = livelogic::graphHash(o.flowGraph);
+            uint64_t built = 0;
+            bool wasBuilt = false;
+            for (const livelogic::BuiltGraph& g : liveLogicBuilt_.graphs)
+                if (g.scene == (int)si && g.objectId == o.id) {
+                    built = g.hash;
+                    wasBuilt = true;
+                    break;
+                }
+            if (wasBuilt && built == live) continue;  // native copy is correct
+            const livelogic::Capability cap =
+                livelogic::capability(project_, sc, o.flowGraph);
+            if (!cap.patchable) {
+                std::string why;
+                for (size_t i = 0; i < cap.reasons.size(); ++i)
+                    why += (i ? ", " : "") + cap.reasons[i];
+                liveLogicBlocked_.emplace_back(o.name, why);
+                continue;
+            }
+            if (!wasBuilt) {
+                // A graph added since the build: the object itself may not even
+                // exist in the running game. Live Link spawns new objects but
+                // cannot give them logic, so this is a rebuild case.
+                liveLogicBlocked_.emplace_back(
+                    o.name, "the graph did not exist at build time");
+                continue;
+            }
+            livelogic::Program prog;
+            if (!livelogic::compile(project_, (int)si, oi, prog)) {
+                liveLogicBlocked_.emplace_back(o.name, "the graph did not compile");
+                continue;
+            }
+            // Debug keys, so a patched graph still lights up in the Debugger.
+            for (livelogic::Block& b : prog.blocks)
+                if (const int k = dbgKeyFor((int)si, o.id, b.nodeId); k >= 0)
+                    b.dbgKey = (uint16_t)k;
+            for (livelogic::Instr& in : prog.instrs)
+                if (const int k = dbgKeyFor((int)si, o.id, in.nodeId); k >= 0)
+                    in.dbgKey = (uint16_t)k;
+            if ((int)programs.size() < livelogic::kMaxPrograms)
+                programs.push_back(std::move(prog));
+        }
+    }
+    liveLogicPatchCount_ = (int)programs.size();
+    liveLogicState_ = !liveLogicBlocked_.empty() ? LogicState::Blocked
+                      : programs.empty()         ? LogicState::InSync
+                                                 : LogicState::Patched;
+
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    const fs::path patch = binDir / "livelogic.bin";
+    if (programs.empty()) {
+        // Back in sync (or nothing patchable): remove the patch so the game
+        // hands its graphs back to the compiled scripts.
+        if (!liveLogicLastPayload_.empty() || fs::exists(patch)) {
+            std::error_code ec;
+            fs::remove(patch, ec);
+            liveLogicLastPayload_.clear();
+        }
+        return;
+    }
+
+    // Bytes first, seq second: an unchanged program must not rewrite the file
+    // (the game would re-apply it and reset every graph's state).
+    std::vector<unsigned char> body = livelogic::encode(programs, 0);
+    if (body == liveLogicLastPayload_ && fs::exists(patch)) return;
+    const uint32_t seq = ++liveLogicSeq_;
+    const std::vector<unsigned char> file = livelogic::encode(programs, seq);
+    if (livelogic::write(patch.string(), file).empty())
+        liveLogicLastPayload_ = std::move(body);
+}
+
 // Tools > Debugger (F9). The state of the running game's logic: what fired,
 // what the variables hold, where it is stopped - plus the transport controls
 // and the breakpoint list. The graph itself is the other half of this UI (the
@@ -19557,6 +19736,68 @@ void App::drawDebuggerWindow() {
                     ImGui::PopID();
                 }
                 ImGui::EndTable();
+            }
+        }
+        ImGui::EndTabItem();
+    }
+
+    // Logic: what is currently hot-patched into the running game, and what
+    // still needs a rebuild (docs/live-logic.md).
+    if (ImGui::BeginTabItem("Logic")) {
+        if (!project_.settings.liveLogic) {
+            ImGui::TextWrapped(
+                "Live Logic is off for this project - editing a graph needs a "
+                "rebuild.");
+            if (ImGui::Checkbox("Live Logic (project setting)",
+                                &project_.settings.liveLogic))
+                commitChange();
+        } else {
+            switch (liveLogicState_) {
+                case LogicState::Off:
+                    ImGui::TextDisabled(
+                        "Release profile - graphs run as compiled C++ only.");
+                    break;
+                case LogicState::NoBuild:
+                    ImGui::TextWrapped(
+                        "No built-graph list yet. Build & Run (F5) once; after "
+                        "that, editing a graph takes effect in the running game "
+                        "without another build.");
+                    break;
+                case LogicState::InSync:
+                    ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.6f, 1.0f),
+                                       "In sync with the build - nothing to "
+                                       "patch.");
+                    ImGui::TextWrapped(
+                        "Edit any graph and it is compiled and streamed into the "
+                        "running game within a fraction of a second.");
+                    break;
+                case LogicState::Patched:
+                    ImGui::TextColored(ImVec4(0.45f, 0.8f, 1.0f, 1.0f),
+                                       "%d graph(s) running from the editor's "
+                                       "patch",
+                                       liveLogicPatchCount_);
+                    ImGui::TextWrapped(
+                        "Their compiled C++ stands down while the patch is "
+                        "live; a rebuild folds the edits back into native "
+                        "code.");
+                    break;
+                case LogicState::Blocked:
+                    ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
+                                       "Rebuild needed");
+                    break;
+            }
+            if (!liveLogicBlocked_.empty()) {
+                ImGui::Separator();
+                ImGui::TextWrapped(
+                    "These edited graphs cannot be hot-patched - the "
+                    "interpreter has no instruction for what they use:");
+                for (const auto& e : liveLogicBlocked_) {
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("%s - %s", e.first.c_str(),
+                                       e.second.c_str());
+                }
+                ImGui::TextDisabled(
+                    "Build & Run (F5) and everything is native again.");
             }
         }
         ImGui::EndTabItem();
@@ -20663,6 +20904,17 @@ void App::drawPreferencesModal() {
         "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
         "counter bump per fired node plus one small file write every few\n"
         "frames; release builds carry none of it. Tools > Debugger (F9).");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
+        "changes the RUNNING game with no rebuild: the editor compiles the\n"
+        "graph itself and streams the instructions next to the ELF\n"
+        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
+        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
+        "build - the Debugger's Logic tab names them. Release builds compile\n"
+        "every graph to native C++ and carry no interpreter.");
     prefHelp(
         "Debug builds poll livelink.bin next to the ELF so the editor can\n"
         "stream scene edits into the running game (docs/live-link.md). Turn\n"

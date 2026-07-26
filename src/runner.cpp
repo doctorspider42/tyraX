@@ -285,6 +285,9 @@ bool Runner::launchPCSX2(const Project& p) {
     // a tick of the new game coming up.
     fs::remove(fs::path(p.dir) / "bin" / "livedbg.bin", logEc);
     fs::remove(fs::path(p.dir) / "bin" / "livedbg.cmd", logEc);
+    // Live Logic: the fresh build compiles every graph natively again, so
+    // a leftover patch would make the game interpret a stale program.
+    fs::remove(fs::path(p.dir) / "bin" / "livelogic.bin", logEc);
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -477,6 +480,7 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "log.txt", logEc);
     fs::remove(fs::path(binDir) / "livedbg.bin", logEc);
     fs::remove(fs::path(binDir) / "livedbg.cmd", logEc);
+    fs::remove(fs::path(binDir) / "livelogic.bin", logEc);
 
     // ps2link passes execee arguments in a non-standard way that the game's
     // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied

@@ -52,6 +52,12 @@ copy-back, so prefer it.
   Preferences > Build > Profile) - if `bin/log.txt` stays empty, check the
   profile.
 
+- **Editing a flow graph does NOT always need a build**: with the *Live Logic*
+  preference on (debug profile), the editor compiles an edited graph itself and
+  the running game switches to it within a fraction of a second
+  (`bin/livelogic.bin`). Graphs using nodes the interpreter does not implement
+  (audio, AI, animation, spawning, runtime text, custom nodes) still need
+  `--build`; the editor's Debugger > Logic tab names them.
 - **Flow-graph logic**: a debug build with the *Live Debugger* preference on
   reports every trigger and action it runs into `bin/livedbg.bin`, and the
   editor can set breakpoints / stop / step / force-fire a trigger through

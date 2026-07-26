@@ -14,6 +14,7 @@
 #include "matbake.hpp"
 #include "isoexport.hpp"
 #include "livedbg.hpp"
+#include "livelogic.hpp"
 #include "placement.hpp"
 #include "project.hpp"
 #include "runner.hpp"
@@ -1358,6 +1359,33 @@ private:
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     void livedbgTick();
     void drawDebuggerWindow();
+
+    // Live Logic (docs/live-logic.md): flow-graph HOT PATCHING. The editor
+    // compiles every graph that differs from what the running ELF was built
+    // with (src/gen/livelogic.built, emitted by codegen) into the pre-resolved
+    // instruction list in livelogic.hpp and writes bin/livelogic.bin; the
+    // game's interpreter runs those graphs instead of their compiled C++.
+    // liveLogicTick() (each frame from drawUI, self-throttled) recompiles when
+    // the project changed and rewrites the patch only when its bytes change.
+    // Graphs the IR cannot express (audio, AI, animation, spawning, text...)
+    // are listed per graph in liveLogicBlocked_ and still need a rebuild.
+    enum class LogicState {
+        Off,        // release build, preference off, or no project
+        NoBuild,    // no built-graph list yet (build once)
+        InSync,     // nothing differs from the build - nothing to patch
+        Patched,    // N graphs are running from the editor's patch
+        Blocked     // an edited graph cannot be hot-patched (rebuild needed)
+    };
+    LogicState liveLogicState_ = LogicState::Off;
+    livelogic::BuiltList liveLogicBuilt_;
+    std::vector<unsigned char> liveLogicLastPayload_;
+    uint32_t liveLogicSeq_ = 0;
+    int liveLogicPatchCount_ = 0;
+    // Per unpatchable graph: "object name" -> why (node titles, deduped).
+    std::vector<std::pair<std::string, std::string>> liveLogicBlocked_;
+    double liveLogicNextTick_ = 0.0;
+    double liveLogicBuiltNextRead_ = 0.0;
+    void liveLogicTick();
     // Breakpoints are stored as "<objectId>:<nodeId>" in the project (editor
     // state), and resolved to the game's integer keys through dbgSyms_.
     std::string dbgBreakpointKey(const std::string& objectId, int nodeId) const;

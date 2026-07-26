@@ -258,6 +258,19 @@ Notes:
   was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
   editor and the probe must not both drive `livedbg.cmd` at once (the editor
   rewrites it whenever it goes missing or its state changes).
+- **Live Logic patches without the GUI**: `livelogic.cpp` has no GUI
+  dependency, so a ~100-line host harness (link it against the editor's
+  `build/CMakeFiles/tyrax-editor.dir/src/*.obj` minus `app`/`viewport`/
+  `gl_loader`/`main`, plus `vendor/ufbx/ufbx.c.obj` and your own
+  `STB_IMAGE_IMPLEMENTATION` TU) can `project::load` a project, edit graph
+  params in memory, `livelogic::compile` + `encode` and write
+  `bin/livelogic.bin` - i.e. do exactly what `App::liveLogicTick` does. Combined
+  with the Live Debugger's telemetry that gives a fully scripted end-to-end
+  check of hot-patched logic: measure a node's fire RATE before and after the
+  patch (entry 178). **When a patch half-works** (the visible effect lands but
+  debug keys/state look wrong), suspect the wire STRIDE first, and check that
+  `build/tyrax-editor.exe` was rebuilt before the `--build` that generated the
+  game's parser - a stale editor binary generates a stale interpreter.
 - **The editor window sometimes renders WHITE on this machine** (title bar
   only, capture is blank) - a GL present quirk, not a code regression. The
   check that settles it costs 30 seconds: capture

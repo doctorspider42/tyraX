@@ -24,6 +24,7 @@
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
+#include "livelogic.hpp"  // Live Logic IR - the interpreter is generated from it
 #include "menubake.hpp"
 #include "meshlod.hpp"
 #include "navmesh.hpp"
@@ -16424,6 +16425,16 @@ bool liveDebugOn(const Project& p, const DbgSymbols& syms) {
     return liveDebugEnabled(p) && !syms.nodes.empty();
 }
 
+// Live Logic (docs/live-logic.md) is the same shape of switch: a debug-profile
+// feature behind its own preference, and pointless with nothing to patch.
+bool liveLogicOn(const Project& p) {
+    if (p.settings.buildProfile != "debug" || !p.settings.liveLogic) return false;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (!o.flowGraph.empty()) return true;
+    return false;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -16572,6 +16583,10 @@ std::string flowGraphScript(const Project& p) {
     if (dbgOn)
         out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
                "hits / halt / force-fire\n";
+    const bool logicOn = liveLogicOn(p);
+    if (logicOn)
+        out << "#include \"scripts/live_logic.gen.hpp\"  // Live Logic: a "
+               "patched graph runs on the interpreter\n";
     out << "\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
@@ -17746,6 +17761,13 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                         "(the loop's own pause covers the rest).\n"
                         "    if (livedbg::halted()) return;\n"
                       : "")
+            << (logicOn ? "    // Live Logic: while the editor has a patch for "
+                          "this graph, the\n    // interpreter runs it instead "
+                          "of this compiled copy.\n"
+                          "    if (livelogic::patched(" +
+                              std::to_string(si) + ", " +
+                              std::to_string(ownerIdx) + ")) return;\n"
+                        : "")
             << "    if (ctx.sceneGeneration != generation) {\n"
                "      // scene was (re)loaded - back to the initial state\n"
                "      generation = ctx.sceneGeneration;\n"
@@ -18079,8 +18101,782 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
         out << "}\n";
     }
 
+    // Live Logic: the interpreter runs patched graphs from another translation
+    // unit, so it reaches the flow variables (statics above) through these.
+    // Same shape as the debugger's watch table, both directions.
+    if (logicOn) {
+        auto guard = [&](const char* arr, size_t n) {
+            return "index >= 0 && index < " + std::to_string(n);
+        };
+        out << "\n// Live Logic (docs/live-logic.md): flow-variable access for "
+               "the\n// interpreter - patched graphs read and write the very "
+               "same arrays the\n// compiled ones do, so a hot-patched graph "
+               "shares state with the rest.\n";
+        out << "void flowLiveSetVarInt(int index, int value) {\n";
+        if (intVars.empty())
+            out << "  (void)index; (void)value;\n";
+        else
+            out << "  if (" << guard("flowInt", intVars.size())
+                << ") flowInt[index] = value;\n";
+        out << "}\n";
+        out << "void flowLiveSetVarBool(int index, bool value) {\n";
+        if (boolVars.empty())
+            out << "  (void)index; (void)value;\n";
+        else
+            out << "  if (" << guard("flowBool", boolVars.size())
+                << ") flowBool[index] = value;\n";
+        out << "}\n";
+        out << "void flowLiveSetVarPos(int index, const float* v3) {\n";
+        if (posVars.empty())
+            out << "  (void)index; (void)v3;\n";
+        else
+            out << "  if (" << guard("flowPos", posVars.size())
+                << ")\n    for (int a = 0; a < 3; ++a) flowPos[index][a] = "
+                   "v3[a];\n";
+        out << "}\n";
+        out << "int flowLiveGetVarInt(int index) {\n";
+        if (intVars.empty())
+            out << "  (void)index;\n  return 0;\n";
+        else
+            out << "  return " << guard("flowInt", intVars.size())
+                << " ? flowInt[index] : 0;\n";
+        out << "}\n";
+        out << "bool flowLiveGetVarBool(int index) {\n";
+        if (boolVars.empty())
+            out << "  (void)index;\n  return false;\n";
+        else
+            out << "  return " << guard("flowBool", boolVars.size())
+                << " ? flowBool[index] : false;\n";
+        out << "}\n";
+        out << "void flowLiveGetVarPos(int index, float* out3) {\n";
+        if (posVars.empty())
+            out << "  (void)index; (void)out3;\n";
+        else
+            out << "  if (" << guard("flowPos", posVars.size())
+                << ")\n    for (int a = 0; a < 3; ++a) out3[a] = "
+                   "flowPos[index][a];\n";
+        out << "}\n";
+    }
+
     out << "\n}  // namespace " << ns << "\n\n" << registrations.str();
     return out.str();
+}
+
+// ---------------------------------------------------------------------------
+// Live Logic: inc/scripts/live_logic.gen.hpp + src/gen/live_logic.gen.cpp +
+// src/gen/livelogic.built (docs/live-logic.md).
+//
+// The interpreter that lets a flow graph change WITHOUT a rebuild. The editor
+// compiles an edited graph into the pre-resolved instruction list defined in
+// src/livelogic.hpp and writes it to bin/livelogic.bin; this runtime loads it,
+// makes the natively compiled script for that graph stand down
+// (`livelogic::patched`), and runs the instructions itself.
+//
+// The opcode numbering, the block kinds and the condition ops all come from
+// livelogic.hpp - the enums below are GENERATED from it, and a missing
+// interpreter case is a build error rather than a silently dead opcode.
+// ---------------------------------------------------------------------------
+
+// Interpreter bodies, keyed by the opcode name livelogic.hpp declares. Written
+// against: `in` (the instruction), `ctx`, `o` (RuntimeObject* target, null when
+// the index is out of range), `pos` (the resolved position operand), `st` (the
+// program's state slots). Each body must behave exactly like the C++ that
+// flowGraphScript emits for the same node - these are twins.
+static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies() {
+    static const std::vector<std::pair<std::string, std::string>> v = {
+        {"OP_SetObjectVisible",
+         "      if (!o) break;\n"
+         "      if (in.pin == 1) o->visible = false;\n"
+         "      else if (in.pin == 2) o->visible = !o->visible;\n"
+         "      else o->visible = true;\n"},
+        {"OP_MoveObjectBy",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) o->data.position[a] += in.num[a];\n"
+         "      o->restFrames = 0;\n"
+         "      o->dirty = true;\n"},
+        {"OP_SetObjectColor",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) o->data.color[a] = in.num[a];\n"
+         "      o->dirty = true;\n"},
+        {"OP_SetPosition",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) o->data.position[a] = pos[a];\n"
+         "      o->restFrames = 0;\n"
+         "      o->dirty = true;\n"},
+        {"OP_MoveObjectTo",
+         "      // arms the glide; the per-frame pass below moves the object\n"
+         "      if (in.state != 0xFFFF) st[in.state] = 1.0F;\n"},
+        {"OP_TeleportPlayer",
+         "      ctx.teleport = true;\n"
+         "      ctx.teleportPos = Tyra::Vec4(pos[0], pos[1], pos[2]);\n"
+         "      if (o) ctx.teleportYaw = o->data.rotation[1];\n"},
+        {"OP_SetSky",
+         "      ctx.skyColor = Tyra::Color(in.num[0] * 255.0F, in.num[1] * "
+         "255.0F,\n                                 in.num[2] * 255.0F);\n"},
+        {"OP_Delay",
+         "      if (in.state != 0xFFFF) st[in.state] = (float)everyFrames(in.num[0]);\n"},
+        {"OP_Log",
+         "      {\n"
+         "        char msg[96];\n"
+         "        int n = in.strLen < (int)sizeof(msg) - 1 ? in.strLen\n"
+         "                                                : (int)sizeof(msg) - 1;\n"
+         "        if (in.strOff + n > strCount) n = 0;\n"
+         "        memcpy(msg, strPool + in.strOff, n);\n"
+         "        msg[n] = '\\0';\n"
+         "        TYRA_LOG(msg);\n"
+         "      }\n"},
+        {"OP_SetVarInt",
+         "      flowLiveSetVarInt(in.aux, (int)in.num[0]);\n"},
+        {"OP_SetVarBool",
+         "      flowLiveSetVarBool(in.aux, in.num[0] != 0.0F);\n"},
+        {"OP_SetVarPos", "      flowLiveSetVarPos(in.aux, pos);\n"},
+        {"OP_SetValue",
+         "      if (ctx.saveValues && in.aux >= 0 && in.aux < ctx.saveValueCount)\n"
+         "        ctx.saveValues[in.aux] = in.num[0];\n"},
+        {"OP_AddValue",
+         "      if (ctx.saveValues && in.aux >= 0 && in.aux < ctx.saveValueCount)\n"
+         "        ctx.saveValues[in.aux] += in.num[0];\n"},
+        {"OP_SetTextVisible",
+         "      if (ctx.textRequest && in.aux >= 0 && in.aux < ctx.textCount) {\n"
+         "        ctx.textRequest[in.aux] = in.pin == 1 ? 0 : 1;\n"
+         "        if (in.pin != 1 && ctx.textDuration)\n"
+         "          ctx.textDuration[in.aux] = in.num[0] > 0.0F ? in.num[0] : 0.0F;\n"
+         "      }\n"},
+        {"OP_SetHudVisible",
+         "      ctx.hudVisible = in.pin == 1   ? false\n"
+         "                       : in.pin == 2 ? !ctx.hudVisible\n"
+         "                                     : true;\n"},
+        {"OP_SwitchScene", "      ctx.requestScene = in.aux;\n"},
+        {"OP_SetFog", "      ctx.fog = in.num[0] != 0.0F ? 1 : 0;\n"},
+        {"OP_SetBloom",
+         "      {\n"
+         "        int v = (int)(in.num[0] * 128.0F + 0.5F);\n"
+         "        ctx.bloom = v < 0 ? 0 : (v > 255 ? 255 : v);\n"
+         "      }\n"},
+        {"OP_SetGrain",
+         "      {\n"
+         "        int v = (int)(in.num[0] * 128.0F + 0.5F);\n"
+         "        ctx.grain = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
+         "      }\n"},
+        {"OP_SetParticles", "      ctx.particles = in.num[0] != 0.0F ? 1 : 0;\n"},
+    };
+    return v;
+}
+
+static const char* TPL_LIVE_LOGIC_HPP_ON = R"LGC(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Logic hooks (docs/live-logic.md): the interpreter that runs flow graphs
+// the editor patched into this game while it was running. Implemented in
+// src/gen/live_logic.gen.cpp.
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+
+// Flow-variable access for the interpreter. The variables are statics inside
+// flow_graph.gen.cpp (the TU that owns them), so patched graphs reach them
+// through these - emitted next to the arrays themselves.
+void flowLiveSetVarInt(int index, int value);
+void flowLiveSetVarBool(int index, bool value);
+void flowLiveSetVarPos(int index, const float* v3);
+int flowLiveGetVarInt(int index);
+bool flowLiveGetVarBool(int index);
+void flowLiveGetVarPos(int index, float* out3);
+
+namespace livelogic {
+
+/** Per-frame pump: polls bin/livelogic.bin and runs every patched graph. */
+void tick(ScriptContext& ctx);
+
+/** True while a patch replaces the graph of object `objectIndex` in `scene` -
+ * the natively compiled script for it stands down that frame. */
+bool patched(int scene, int objectIndex);
+
+}  // namespace livelogic
+}  // namespace {{NS}}
+)LGC";
+
+static const char* TPL_LIVE_LOGIC_HPP_OFF = R"LGC(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Logic hooks, compiled out: this is a release build or the "Live Logic"
+// preference is off, so flow graphs run only as the C++ they were compiled to
+// and `patched()` is a compile-time false. See docs/live-logic.md.
+#pragma once
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+namespace livelogic {
+
+inline void tick(ScriptContext&) {}
+inline bool patched(int, int) { return false; }
+
+}  // namespace livelogic
+}  // namespace {{NS}}
+)LGC";
+
+static std::string liveLogicHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    return replaceAll(liveLogicOn(p) ? TPL_LIVE_LOGIC_HPP_ON
+                                     : TPL_LIVE_LOGIC_HPP_OFF,
+                      "{{NS}}", ns);
+}
+
+static const char* TPL_LIVE_LOGIC_CPP = R"LGC(// Generated by TyraX. Do not edit - regenerated on every build.
+// Live Logic runtime (docs/live-logic.md): the flow-graph INTERPRETER. Debug
+// builds with Project > Preferences > Build > "Live Logic" on; otherwise this
+// file is an empty translation unit.
+//
+// A flow graph normally becomes C++ in flow_graph.gen.cpp, which is why
+// editing one used to mean a Docker rebuild. The editor can instead COMPILE a
+// graph itself - into the pre-resolved instruction list documented in the
+// editor's src/livelogic.hpp - and drop it next to the ELF as livelogic.bin,
+// on the same host: filesystem Live Link and the Live Debugger already use.
+// This runtime loads that patch, tells the native script for the same graph to
+// stand down (`patched()`), and runs the instructions.
+//
+// Everything is pre-resolved by the editor: object references are runtime
+// indices, variables/save values/HUD texts/scenes are table indices, positions
+// are literal / variable / object operands, and conditions are a tiny RPN
+// program. So the interpreter has no name lookups, no allocation and no
+// parsing beyond one memcpy pass - it is a switch over opcodes.
+//
+// The opcode numbering below is GENERATED from the editor's livelogic.hpp, and
+// so is every dispatch case; the two ends cannot drift apart silently.
+#include <tyra>
+#include <cstdio>
+#include <cstring>
+#include <math.h>
+
+#include "scripts/script.hpp"
+#include "scripts/live_logic.gen.hpp"
+#include "scripts/live_debug.gen.hpp"
+
+namespace {{NS}} {
+namespace livelogic {
+namespace {
+
+const unsigned int LP_MAGIC = 0x504C5854U;  // "TXLP"
+const unsigned int LP_VERSION = 1U;
+const int LP_HEADER = 32;
+const unsigned int LP_FOOTER_XOR = 0x5A5A5A5AU;
+
+const int MAX_PROGRAMS = {{MAX_PROGRAMS}};
+const int MAX_BLOCKS = {{MAX_BLOCKS}};
+const int MAX_INSTRS = {{MAX_INSTRS}};
+const int MAX_COND = {{MAX_COND}};
+const int MAX_STRINGS = {{MAX_STRINGS}};
+const int MAX_STATE = {{MAX_STATE}};
+const int COND_STACK = {{COND_STACK}};
+
+// --- the IR, generated from the editor's livelogic.hpp ----------------------
+{{ENUMS}}
+enum { PK_Literal = 0, PK_VarPos = 1, PK_ObjectPos = 2 };
+
+// Wire layout, field for field as livelogic::encode writes it: 28 bytes per
+// block, 50 per instruction (the offsets below are the contract).
+const int BLK_STRIDE = 28;
+const int INS_STRIDE = 50;
+
+struct Blk {
+  unsigned char kind;
+  unsigned short nodeId;
+  short obj, aux;
+  float p[2];
+  unsigned short first, count, condOff, state, dbgKey;
+};
+
+struct Ins {
+  unsigned char op, pin;
+  unsigned short nodeId;
+  short obj, aux, blockRef;
+  unsigned char posKind;
+  short posIndex;
+  unsigned short state, dbgKey, strOff, strLen;
+  float num[4];
+  float posLit[3];
+};
+
+struct Prog {
+  unsigned long long id;  // owner object's stable id hash
+  int scene;
+  int objIdx;  // resolved at load / on scene reload (-1 = not in this scene)
+  unsigned short blockFirst, blockCount;
+  unsigned short instrFirst, instrCount;
+  unsigned short condFirst, stateFirst;
+};
+
+Prog progs[MAX_PROGRAMS];
+Blk blocks[MAX_BLOCKS];
+Ins instrs[MAX_INSTRS];
+unsigned char cond[MAX_COND];
+char strPool[MAX_STRINGS];
+float state[MAX_STATE];
+int progCount = 0, blockCount = 0, instrCount = 0, condCount = 0, strCount = 0;
+
+unsigned int lastSeq = 0;
+unsigned int lastGen = 0xFFFFFFFFU;  // scene generation the state belongs to
+int cooldown = 1;
+
+// One static read buffer - the EE does not allocate for this.
+unsigned char buf[LP_HEADER + 8 + MAX_PROGRAMS * 24 + MAX_BLOCKS * BLK_STRIDE +
+                  MAX_INSTRS * INS_STRIDE + MAX_COND + MAX_STRINGS + 4];
+
+inline unsigned int rd32(const unsigned char* p) {
+  unsigned int v;
+  memcpy(&v, p, 4);
+  return v;
+}
+inline unsigned short rd16(const unsigned char* p) {
+  unsigned short v;
+  memcpy(&v, p, 2);
+  return v;
+}
+inline float rdF(const unsigned char* p) {
+  float v;
+  memcpy(&v, p, 4);
+  return v;
+}
+
+// The pad button a trigger names, in the editor's padButtons() order.
+bool padClicked(ScriptContext& ctx, int idx) {
+  const Tyra::PadButtons& c = ctx.engine->pad.getClicked();
+  switch (idx) {
+{{PAD_CASES}}    default: break;
+  }
+  return false;
+}
+
+// Resolve a program's owner object index from its stable id hash (renames and
+// reorders are non-events; a missing object parks the program).
+void resolveOwners(ScriptContext& ctx) {
+  const unsigned long long* table = SCENE_OBJECT_ID_TABLES[ctx.scene];
+  const int n = SCENE_OBJECT_COUNTS[ctx.scene];
+  for (int i = 0; i < progCount; ++i) {
+    progs[i].objIdx = -1;
+    if (progs[i].scene != ctx.scene) continue;
+    for (int k = 0; k < n; ++k)
+      if (table[k] == progs[i].id) {
+        progs[i].objIdx = k;
+        break;
+      }
+  }
+}
+
+// Fresh state for every program: OnStart not yet fired, timers armed for the
+// first frame (the native scripts start their Every-N counters at 1 too),
+// edges clear.
+void resetState() {
+  for (int i = 0; i < MAX_STATE; ++i) state[i] = 0.0F;
+  for (int i = 0; i < blockCount; ++i) {
+    const Blk& b = blocks[i];
+    if (b.kind == BK_EverySeconds && b.state != 0xFFFF) {
+      // find the owning program to offset the slot
+      for (int pi = 0; pi < progCount; ++pi)
+        if (i >= progs[pi].blockFirst &&
+            i < progs[pi].blockFirst + progs[pi].blockCount)
+          state[progs[pi].stateFirst + b.state] = 1.0F;
+    }
+  }
+}
+
+bool parse(const unsigned char* b, int size) {
+  if (size < LP_HEADER + 4) return false;
+  if (rd32(b) != LP_MAGIC || rd32(b + 4) != LP_VERSION) return false;
+  const unsigned int seq = rd32(b + 8);
+  const unsigned int bodyLen = rd32(b + 12);
+  if ((int)(LP_HEADER + bodyLen + 4) != size) return false;
+  if (rd32(b + LP_HEADER + bodyLen) != (seq ^ LP_FOOTER_XOR)) return false;
+  if (seq == lastSeq) return false;  // already applied
+
+  const unsigned char* p = b + LP_HEADER;
+  const int nProg = (int)rd32(p);
+  const int poolLen = (int)rd32(p + 4);
+  p += 8;
+  if (nProg < 0 || nProg > MAX_PROGRAMS) return false;
+  if (poolLen < 0 || poolLen > MAX_STRINGS) return false;
+
+  progCount = blockCount = instrCount = condCount = 0;
+  int stateNext = 0;
+  for (int i = 0; i < nProg; ++i) {
+    Prog pr;
+    memcpy(&pr.id, p, 8);
+    p += 8;
+    pr.scene = (int)rd32(p);
+    p += 4;
+    const int nBlk = rd16(p);
+    const int nIns = rd16(p + 2);
+    const int nCond = rd16(p + 4);
+    const int nState = rd16(p + 6);
+    p += 8;
+    if (blockCount + nBlk > MAX_BLOCKS || instrCount + nIns > MAX_INSTRS ||
+        condCount + nCond > MAX_COND || stateNext + nState > MAX_STATE)
+      return false;
+    pr.objIdx = -1;
+    pr.blockFirst = (unsigned short)blockCount;
+    pr.blockCount = (unsigned short)nBlk;
+    pr.instrFirst = (unsigned short)instrCount;
+    pr.instrCount = (unsigned short)nIns;
+    pr.condFirst = (unsigned short)condCount;
+    pr.stateFirst = (unsigned short)stateNext;
+    stateNext += nState;
+
+    for (int k = 0; k < nBlk; ++k, p += BLK_STRIDE) {
+      Blk& bk = blocks[blockCount++];
+      bk.kind = p[0];
+      bk.nodeId = rd16(p + 2);
+      bk.obj = (short)rd16(p + 4);
+      bk.aux = (short)rd16(p + 6);
+      bk.p[0] = rdF(p + 8);
+      bk.p[1] = rdF(p + 12);
+      bk.first = rd16(p + 16);
+      bk.count = rd16(p + 18);
+      bk.condOff = rd16(p + 20);
+      bk.state = rd16(p + 22);
+      bk.dbgKey = rd16(p + 24);
+    }
+    for (int k = 0; k < nIns; ++k, p += INS_STRIDE) {
+      Ins& in = instrs[instrCount++];
+      in.op = p[0];
+      in.pin = p[1];
+      in.nodeId = rd16(p + 2);
+      in.obj = (short)rd16(p + 4);
+      in.aux = (short)rd16(p + 6);
+      in.blockRef = (short)rd16(p + 8);
+      in.posKind = p[10];
+      in.posIndex = (short)rd16(p + 12);
+      in.state = rd16(p + 14);
+      in.dbgKey = rd16(p + 16);
+      in.strOff = rd16(p + 18);
+      in.strLen = rd16(p + 20);
+      for (int a = 0; a < 4; ++a) in.num[a] = rdF(p + 22 + a * 4);
+      for (int a = 0; a < 3; ++a) in.posLit[a] = rdF(p + 38 + a * 4);
+    }
+    memcpy(cond + condCount, p, nCond);
+    condCount += nCond;
+    p += nCond;
+    progs[progCount++] = pr;
+  }
+  memcpy(strPool, p, poolLen);
+  strCount = poolLen;
+
+  lastSeq = seq;
+  resetState();
+  TYRA_LOG("LiveLogic: patched ", progCount, " graph(s), ", instrCount,
+           " instruction(s)");
+  return true;
+}
+
+void poll(ScriptContext& ctx) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livelogic.bin").c_str(), "rb");
+  if (!f) {
+    // The editor removed the patch (graphs back to what was built): hand the
+    // graphs back to their native scripts.
+    if (progCount > 0) {
+      progCount = blockCount = instrCount = condCount = strCount = 0;
+      lastSeq = 0;
+      TYRA_LOG("LiveLogic: patch withdrawn - native scripts resume");
+    }
+    return;
+  }
+  const size_t got = fread(buf, 1, sizeof(buf), f);
+  fclose(f);
+  if (parse(buf, (int)got)) resolveOwners(ctx);
+}
+
+float* stateOf(const Prog& pr) { return state + pr.stateFirst; }
+
+void resolvePos(ScriptContext& ctx, const Ins& in, float* out) {
+  out[0] = in.posLit[0];
+  out[1] = in.posLit[1];
+  out[2] = in.posLit[2];
+  if (in.posKind == PK_VarPos) {
+    flowLiveGetVarPos(in.posIndex, out);
+  } else if (in.posKind == PK_ObjectPos && in.posIndex >= 0 &&
+             in.posIndex < ctx.objectCount) {
+    const float* s = ctx.objects[in.posIndex].data.position;
+    out[0] = s[0];
+    out[1] = s[1];
+    out[2] = s[2];
+  }
+}
+
+// The bool plane as RPN over a tiny stack (sources push, gates fold the top n).
+bool evalCond(ScriptContext& ctx, const Prog& pr, int off) {
+  bool stack[COND_STACK];
+  int sp = 0;
+  const unsigned char* p = cond + pr.condFirst + off;
+  const unsigned char* end = cond + condCount;
+  while (p < end) {
+    const unsigned char op = *p++;
+    if (op == CO_End) break;
+    if (op == CO_IsVisible || op == CO_VarBool) {
+      const short a = (short)rd16(p);
+      p += 2;
+      bool v = false;
+      if (op == CO_IsVisible)
+        v = a >= 0 && a < ctx.objectCount && ctx.objects[a].visible;
+      else
+        v = flowLiveGetVarBool(a);
+      if (sp < COND_STACK) stack[sp++] = v;
+      continue;
+    }
+    if (op == CO_VarAtLeast || op == CO_ValueAtLeast) {
+      const short a = (short)rd16(p);
+      const float thr = rdF(p + 2);
+      p += 6;
+      bool v = false;
+      if (op == CO_VarAtLeast)
+        v = a >= 0 && (float)flowLiveGetVarInt(a) >= thr;
+      else
+        v = ctx.saveValues && a >= 0 && a < ctx.saveValueCount &&
+            ctx.saveValues[a] >= thr;
+      if (sp < COND_STACK) stack[sp++] = v;
+      continue;
+    }
+    // A gate: fold the top `n` values.
+    int n = *p++;
+    if (n > sp) n = sp;
+    bool all = true, any = false;
+    int ones = 0;
+    for (int i = 0; i < n; ++i) {
+      const bool v = stack[sp - 1 - i];
+      all = all && v;
+      any = any || v;
+      if (v) ++ones;
+    }
+    sp -= n;
+    bool r = false;
+    if (op == CO_And) r = all;
+    else if (op == CO_Or) r = any;
+    else if (op == CO_Not) r = !any;
+    else if (op == CO_Nand) r = !all;
+    else if (op == CO_Xor) r = (ones & 1) != 0;
+    else if (op == CO_Xnor) r = (ones & 1) == 0;
+    if (sp < COND_STACK) stack[sp++] = r;
+  }
+  return sp > 0 ? stack[sp - 1] : false;
+}
+
+void runBlock(ScriptContext& ctx, const Prog& pr, int localBlock);
+
+void exec(ScriptContext& ctx, const Prog& pr, const Ins& in) {
+  if (in.dbgKey != 0xFFFF) livedbg::hit(in.dbgKey);
+  RuntimeObject* o = (in.obj >= 0 && in.obj < ctx.objectCount)
+                         ? &ctx.objects[in.obj]
+                         : (RuntimeObject*)0;
+  float pos[3];
+  resolvePos(ctx, in, pos);
+  float* st = stateOf(pr);
+  (void)o;
+  (void)st;
+  switch (in.op) {
+{{OP_CASES}}    default: break;
+  }
+}
+
+void runBlock(ScriptContext& ctx, const Prog& pr, int localBlock) {
+  if (localBlock < 0 || localBlock >= pr.blockCount) return;
+  const Blk& bk = blocks[pr.blockFirst + localBlock];
+  if (bk.dbgKey != 0xFFFF) livedbg::hit(bk.dbgKey);
+  for (int i = 0; i < bk.count; ++i) {
+    const int idx = pr.instrFirst + bk.first + i;
+    if (idx < 0 || idx >= instrCount) break;
+    exec(ctx, pr, instrs[idx]);
+  }
+}
+
+void runProgram(ScriptContext& ctx, const Prog& pr) {
+  float* st = stateOf(pr);
+  // Per-frame instruction state, ticked before the triggers - exactly the
+  // order the native scripts use (anything armed this frame starts counting on
+  // the NEXT one).
+  for (int i = 0; i < pr.instrCount; ++i) {
+    const Ins& in = instrs[pr.instrFirst + i];
+    if (in.state == 0xFFFF) continue;
+    if (in.op == OP_Delay) {
+      if (st[in.state] > 0.0F) {
+        st[in.state] -= 1.0F;
+        if (st[in.state] <= 0.0F) {
+          st[in.state] = 0.0F;
+          runBlock(ctx, pr, in.blockRef);
+        }
+      }
+    } else if (in.op == OP_MoveObjectTo && st[in.state] > 0.0F) {
+      if (in.obj < 0 || in.obj >= ctx.objectCount) continue;
+      float target[3];
+      resolvePos(ctx, in, target);
+      float* p = ctx.objects[in.obj].data.position;
+      const float dx = target[0] - p[0], dy = target[1] - p[1],
+                  dz = target[2] - p[2];
+      const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+      const float speed = in.num[3] > 0.001F ? in.num[3] : 2.0F;
+      const float step = speed * g_frameDt;
+      if (dist <= step) {
+        p[0] = target[0];
+        p[1] = target[1];
+        p[2] = target[2];
+        st[in.state] = 0.0F;
+      } else if (dist > 0.0001F) {
+        p[0] += dx / dist * step;
+        p[1] += dy / dist * step;
+        p[2] += dz / dist * step;
+      }
+      ctx.objects[in.obj].dirty = true;
+    }
+  }
+
+  for (int b = 0; b < pr.blockCount; ++b) {
+    const Blk& bk = blocks[pr.blockFirst + b];
+    if (bk.kind == BK_Delay) continue;  // armed, not scanned
+    bool fire = false;
+    switch (bk.kind) {
+      case BK_OnStart:
+        if (bk.state != 0xFFFF && st[bk.state] == 0.0F) {
+          st[bk.state] = 1.0F;
+          fire = true;
+        }
+        break;
+      case BK_EverySeconds:
+        if (bk.state != 0xFFFF) {
+          st[bk.state] -= 1.0F;
+          if (st[bk.state] <= 0.0F) {
+            st[bk.state] = (float)everyFrames(bk.p[0]);
+            fire = true;
+          }
+        }
+        break;
+      case BK_OnButton:
+        fire = padClicked(ctx, bk.aux);
+        break;
+      case BK_NearObject: {
+        if (bk.obj < 0 || bk.obj >= ctx.objectCount) break;
+        const float* op2 = ctx.objects[bk.obj].data.position;
+        const float dx = ctx.playerPosition.x - op2[0];
+        const float dz = ctx.playerPosition.z - op2[2];
+        const bool isNear = dx * dx + dz * dz < bk.p[0] * bk.p[0];
+        if (bk.state != 0xFFFF) {
+          fire = isNear && st[bk.state] == 0.0F;
+          st[bk.state] = isNear ? 1.0F : 0.0F;
+        }
+        break;
+      }
+      case BK_OnCondition: {
+        const bool c = evalCond(ctx, pr, bk.condOff);
+        if (bk.state != 0xFFFF) {
+          fire = c && st[bk.state] == 0.0F;
+          st[bk.state] = c ? 1.0F : 0.0F;
+        }
+        break;
+      }
+      default: break;
+    }
+    if (fire) runBlock(ctx, pr, b);
+  }
+}
+
+}  // namespace
+
+bool patched(int scene, int objectIndex) {
+  for (int i = 0; i < progCount; ++i)
+    if (progs[i].scene == scene && progs[i].objIdx == objectIndex) return true;
+  return false;
+}
+
+void tick(ScriptContext& ctx) {
+  // A scene (re)load resets every program's state and re-resolves the owners.
+  if (ctx.sceneGeneration != lastGen) {
+    lastGen = ctx.sceneGeneration;
+    resetState();
+    resolveOwners(ctx);
+  }
+  // Over ps2link every fopen is a network round-trip; PCSX2's host filesystem
+  // is plain local IO, so poll ~10x/s there.
+  if (--cooldown <= 0) {
+    cooldown = Tyra::IrxLoader::keepIopResident ? 25 : 6;
+    poll(ctx);
+  }
+  for (int i = 0; i < progCount; ++i)
+    if (progs[i].scene == ctx.scene && progs[i].objIdx >= 0)
+      runProgram(ctx, progs[i]);
+}
+
+namespace {
+// The pump is an ordinary global Script, so it needs nothing from the game
+// loop (and stops with everything else while the Live Debugger holds the game).
+class LiveLogicPump : public Script {
+ public:
+  void update(ScriptContext& ctx) override { tick(ctx); }
+};
+LiveLogicPump g_pump;
+const bool g_pumpRegistered = []() {
+  getScripts().push_back(&g_pump);
+  return true;
+}();
+}  // namespace
+
+}  // namespace livelogic
+}  // namespace {{NS}}
+)LGC";
+
+static std::string liveLogicSource(const Project& p) {
+    if (!liveLogicOn(p)) {
+        std::string why = "the \"Live Logic\" preference is off";
+        if (p.settings.buildProfile != "debug") why = "this is a release build";
+        else if (p.settings.liveLogic)
+            why = "no object has a flow graph to patch";
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// Live Logic: nothing to compile here - " +
+               why +
+               ".\n// See docs/live-logic.md (Project > Preferences > "
+               "Build).\n";
+    }
+
+    // The enums, straight from the editor's livelogic.hpp - the numbering the
+    // patch file uses cannot be restated by hand here.
+    std::ostringstream enums;
+    auto emitEnum = [&](const std::vector<std::string>& names) {
+        enums << "enum {";
+        for (size_t i = 0; i < names.size(); ++i)
+            enums << (i ? ", " : " ") << names[i] << " = " << i;
+        enums << " };\n";
+    };
+    emitEnum(livelogic::blockKindNames());
+    emitEnum(livelogic::opNames());
+    emitEnum(livelogic::condOpNames());
+
+    std::ostringstream pad;
+    const auto& buttons = livelogic::padButtons();
+    for (size_t i = 0; i < buttons.size(); ++i)
+        pad << "    case " << i << ": return c." << buttons[i] << " != 0;\n";
+
+    // One dispatch case per opcode, in enum order. A missing body is a BUILD
+    // ERROR, not a silently dead opcode.
+    std::ostringstream cases;
+    for (const std::string& name : livelogic::opNames()) {
+        const std::string* body = nullptr;
+        for (const auto& e : liveLogicOpBodies())
+            if (e.first == name) body = &e.second;
+        if (!body) {
+            cases << "#error Live Logic: no interpreter case for " << name
+                  << " (add one to liveLogicOpBodies in templates.cpp)\n";
+            continue;
+        }
+        cases << "    case " << name << ":\n" << *body << "      break;\n";
+    }
+
+    std::string s = TPL_LIVE_LOGIC_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{ENUMS}}", enums.str());
+    s = replaceAll(s, "{{PAD_CASES}}", pad.str());
+    s = replaceAll(s, "{{OP_CASES}}", cases.str());
+    s = replaceAll(s, "{{MAX_PROGRAMS}}", std::to_string(livelogic::kMaxPrograms));
+    s = replaceAll(s, "{{MAX_BLOCKS}}", std::to_string(livelogic::kMaxBlocks));
+    s = replaceAll(s, "{{MAX_INSTRS}}", std::to_string(livelogic::kMaxInstrs));
+    s = replaceAll(s, "{{MAX_COND}}", std::to_string(livelogic::kMaxCond));
+    s = replaceAll(s, "{{MAX_STRINGS}}", std::to_string(livelogic::kMaxStrings));
+    s = replaceAll(s, "{{MAX_STATE}}", std::to_string(livelogic::kMaxStateSlots));
+    s = replaceAll(s, "{{COND_STACK}}", std::to_string(livelogic::kCondStack));
+    return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -21366,6 +22162,9 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\gen\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"inc\\scripts\\live_logic.gen.hpp", liveLogicHeader(p)},
+        {"src\\gen\\live_logic.gen.cpp", liveLogicSource(p)},
+        {"src\\gen\\livelogic.built", livelogic::builtListText(p)},
         {"inc\\scripts\\live_debug.gen.hpp", liveDebugHeader(p)},
         {"src\\gen\\live_debug.gen.cpp", liveDebugSource(p)},
         {"src\\gen\\livedbg.sym", liveDebugSymFile(p)},

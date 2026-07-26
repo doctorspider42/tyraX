@@ -570,6 +570,12 @@ struct ProjectSettings {
     // livedbg.bin / livedbg.cmd are never touched by either side.
     bool liveDebug = true;
 
+    // Debug profile only: compile the Live Logic interpreter into the game, so
+    // the editor can hot-patch an edited flow graph into the RUNNING game with
+    // no rebuild (docs/live-logic.md). Off = graphs only ever run as the C++
+    // they were compiled to.
+    bool liveLogic = true;
+
     // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
     // drivers and maps keys/mouse onto a virtual pad (bindings live in the
     // generated controls.hpp). Works in PCSX2 (the editor configures its
@@ -796,6 +802,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
+           a.liveLogic == b.liveLogic &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&
