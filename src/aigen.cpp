@@ -90,6 +90,8 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AmbienceName:
             return "ambience preset name (see context)";
         case FlowParamKind::LayerName: return "streaming layer name (see context)";
+        case FlowParamKind::AreaName:
+            return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
@@ -264,6 +266,14 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     ctxLine("Scenes", nameList(p.scenes, [](const SceneData& s) { return s.name; }));
     ctxLine("Streaming layers (this scene)",
             nameList(sc.layers, [](const SceneLayer& l) { return l.name; }));
+    {
+        // Areas are objects, so they are listed above too - called out
+        // separately because In Area's str only accepts these.
+        std::vector<std::string> areas;
+        for (const SceneObject& obj : sc.objects)
+            if (obj.type == PrimitiveType::Area) areas.push_back(obj.name);
+        ctxLine("Areas (invisible volumes, for In Area)", nameList(areas, id));
+    }
     ctxLine("Music tracks", nameList(p.music, id));
     ctxLine("Sound effects", nameList(p.sounds, id));
     ctxLine("Save values",

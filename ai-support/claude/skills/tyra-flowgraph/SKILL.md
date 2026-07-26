@@ -51,8 +51,8 @@ over guessing from this file.
 
 ## Semantics you must respect
 
-- **Triggers** (On Start, On Button, Near Object, On Used, Every N Seconds, On
-  Animation Finished, On Condition, On Menu Event) have an exec **output**;
+- **Triggers** (On Start, On Button, Near Object, In Area, On Used, Every N
+  Seconds, On Animation Finished, On Condition, On Menu Event) have an exec **output**;
   **actions** have only an exec **input** - to run several actions, wire each
   of them from the trigger (they run in link order). The only non-trigger exec
   outputs are the "fires later" ones (Delay's after-timeout, Raycast's
