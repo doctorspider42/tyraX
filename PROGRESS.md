@@ -63,6 +63,24 @@ Each finished feature lands as its own commit.
   button that resets the scale and deletes the generated PNG so the next build
   redraws it. The scaffolded OPTIONS root now opens at game start unless another
   menu already claims the title screen.
+  Third round, and it turned up a **data-loss bug that predates this branch**:
+  `commitChange()` marked the project dirty only when `History::push` accepted a
+  new snapshot, and that snapshot carries **only the scenes** - so editing any
+  project-wide collection (menus, the Input Map, gradings, sequences, save
+  values...) left the save icon dark and, worse, no "unsaved changes" prompt on
+  exit. Those edits were quietly losable. commitChange now dirties
+  unconditionally (push still decides whether it becomes an undo step), and the
+  UI Editor + icon manager stopped writing to disk behind the user's back on
+  every keystroke - they mark dirty like everything else. Verified in the GUI:
+  "+ Add action" in the Input Map turns the toolbar save icon amber (it stayed
+  grey before) and a close request now raises "Unsaved Changes".
+  Also from that round: the shoulder/Start/Select icons dropped their border and
+  draw the LABEL ONLY - at text size the border left the letters unreadable on a
+  TV, and "L1+R1 Aim" / "R2" now read cleanly in-game; a **`{{ }}` picker** next
+  to every placeholder-capable field lists the project's tokens with their
+  glyphs (the legend the syntax was missing, and it inserts them); and the Menu
+  Editor's text sizes became two labelled sliders that say icons scale with them
+  (they always did - the control was just a cramped unlabelled DragInt2).
   Also merged origin/main (#138-#151: asset browser, world scale, lightmaps,
   trees, emissive, ortho views, VRAM manager) - `kSectionCount` needed 15 after
   main's ModelUnits met this branch's Input, the same one-short trap as the last

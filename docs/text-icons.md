@@ -13,7 +13,10 @@ labels, Toggle/Choice option labels, loading-screen texts and *Display Text*
 nodes — because both text renderers understand the placeholder, not just one of
 them.
 
-Managed in *Tools > UI Editor > **Button icons***.
+Managed in *Tools > UI Editor > **Button icons***. Every field a placeholder can
+go into has a **`{{ }}`** button next to it that lists the tokens this project
+understands, each with the glyph it draws - the legend for the syntax, and one
+click inserts the token so there is nothing to remember.
 
 ## Two forms
 
@@ -46,10 +49,16 @@ resolves the action's pad button and then looks up the icon named after it
 (lowercased).
 
 The images are **drawn by the editor**, not shipped as blobs: the face buttons
-are geometry in the DualShock colors (blue ✕, red ○, pink □, green △), the
-shoulder/Start/Select ones a plate with a label, the d-pad four an arrow. They
-are written into `res/hud/icon-<name>.png` on the first build and never
-overwritten after that.
+are geometry in the DualShock colors (blue ✕, red ○, pink □, green △), the d-pad
+four an arrow, and the shoulder/Start/Select ones their **label alone** - a
+border around "R2" ate so much of the icon at text size that the letters were
+unreadable on a TV, so the label gets the whole box instead. They are written
+into `res/hud/icon-<name>.png` on the first build and never overwritten after
+that.
+
+Icons scale with the text they sit in, so a menu's *Row size* (Menu Editor) or a
+text's own size grows the glyphs with the letters. A per-icon *Scale* nudges one
+that needs to sit bigger or smaller than the rest.
 
 **Overriding an icon is just replacing that PNG** — or pointing the entry at your
 own file with *PNG...* in the icon manager. *Regenerate built-in PNGs* deletes

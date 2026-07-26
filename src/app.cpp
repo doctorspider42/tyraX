@@ -3251,7 +3251,14 @@ void App::commitChange() {
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
-    if (history_.push({project_.scenes})) setDirty(true);
+    // The undo snapshot only carries the SCENES, so push() returns false for an
+    // edit to any project-wide collection - menus, the Input Map, gradings,
+    // sequences, save values... Dirtying on push alone therefore left those
+    // edits with a dark save icon and NO prompt on exit, i.e. quietly losable.
+    // A commit is by definition an edit worth saving, so mark dirty either way;
+    // push() still decides whether it becomes an undo step.
+    history_.push({project_.scenes});
+    setDirty(true);
 }
 
 void App::setDirty(bool dirty) {
@@ -9079,6 +9086,67 @@ void App::renameInputPreset(int index, const std::string& newName) {
                     fn.str = newName;
 }
 
+// The `{{ }}` button that sits next to every text field a placeholder can go
+// into. It is the legend for the syntax (docs/text-icons.md) - the tokens this
+// project actually understands, each with the glyph it draws - and inserting one
+// beats remembering how it was spelled.
+bool App::textTokenPicker(const char* id, std::string& text) {
+    bool changed = false;
+    ImGui::PushID(id);
+    if (ImGui::SmallButton("{{ }}")) ImGui::OpenPopup("##tokens");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Insert a button glyph. An ACTION token follows whatever it is\n"
+            "bound to; an ICON token pins one specific button or image.\n"
+            "See docs/text-icons.md.");
+
+    if (ImGui::BeginPopup("##tokens")) {
+        const float sz = scaled(20.0f);
+        // The row for one token: its glyph, the token itself, and a note.
+        auto row = [&](const std::string& token, const std::string& iconName,
+                       const char* note) {
+            const HudTexture* t = nullptr;
+            for (const TextIcon& ic : project_.textIcons)
+                if (ic.name == iconName && !ic.path.empty()) {
+                    t = hudTexture(ic.path);
+                    break;
+                }
+            if (!t) t = builtinIconTexture(iconName);
+            if (t)
+                ImGui::Image((ImTextureID)(intptr_t)t->tex, ImVec2(sz, sz));
+            else
+                ImGui::Dummy(ImVec2(sz, sz));
+            ImGui::SameLine();
+            if (ImGui::Selectable(token.c_str(), false, 0,
+                                  ImVec2(scaled(150.0f), 0.0f))) {
+                text += token;
+                changed = true;
+                ImGui::CloseCurrentPopup();
+            }
+            if (note && *note) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", note);
+            }
+        };
+
+        ImGui::TextDisabled("Actions - follow the current binding");
+        ImGui::Separator();
+        for (const InputAction& a : project_.input.actions) {
+            const InputBinding b = project_.input.resolve(a.name);
+            row("{{" + a.name + "}}", textIconNameForPad(b.pad),
+                b.pad.empty() ? "(unbound)" : b.pad.c_str());
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled("Icons - one fixed button or image");
+        ImGui::Separator();
+        for (const TextIcon& ic : project_.textIcons)
+            row("{{" + ic.name + "}}", ic.name, nullptr);
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
 // Tools > UI Editor > Button icons. The registry of `{{name}}` placeholders
 // (docs/text-icons.md): every text in the project - HUD texts, menu titles and
 // labels, loading screens, Display Text nodes - substitutes them for an image.
@@ -9252,8 +9320,9 @@ void App::drawTextIconsModal() {
     ImGui::SameLine();
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
 
-    // UI Editor content is saved, not undone - same as the rest of this window.
-    if (changed) saveAll("Icons saved");
+    // Not on the undo stack (like the rest of the UI Editor), but still unsaved
+    // work - dirty, not an immediate write.
+    if (changed) setDirty(true);
     ImGui::EndPopup();
 }
 
@@ -10627,6 +10696,8 @@ void App::drawUiEditorWindow() {
                 if (ImGui::InputText("Text##prompt", buf, sizeof(buf)))
                     txt.text = buf;
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+                changed |= textTokenPicker("prompttok", txt.text);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(
                         "Baked to a sprite at build (the PS2 has no font).\n"
@@ -10748,6 +10819,7 @@ void App::drawUiEditorWindow() {
                                           ImVec2(-1.0f, 80.0f * uiScaleApplied_)))
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            changed |= textTokenPicker("hudtexttok", t.text);
         }
         changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(120.0f);
@@ -10872,7 +10944,10 @@ void App::drawUiEditorWindow() {
     }
     ImGui::EndChild();
 
-    if (changed) saveAll("Saved");  // UI edits are not on the undo stack
+    // UI edits are not on the undo stack, but they ARE unsaved work: mark the
+    // project dirty like every other editor instead of writing to disk behind
+    // the user's back, so the save icon lights up and closing asks.
+    if (changed) setDirty(true);
     ImGui::End();
 }
 
@@ -18495,6 +18570,8 @@ void App::drawMenusWindow() {
     if (ImGui::InputText("Title", titleBuf, sizeof(titleBuf))) m.title = titleBuf;
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::SameLine();
+    changed |= textTokenPicker("titletok", m.title);
+    ImGui::SameLine();
     ImGui::ColorEdit3("Accent", m.accent, ImGuiColorEditFlags_NoInputs);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
@@ -18566,13 +18643,21 @@ void App::drawMenusWindow() {
     // of stock Windows fonts (existence-checked) / import a new TTF.
     changed |= fontCombo(m.font);
     {
-        int sizes[2] = {m.titleSize, m.entrySize};
-        ImGui::SetNextItemWidth(scaled(140.0f));
-        if (ImGui::DragInt2("Title / entry size", sizes, 0.2f, 8, 48)) {
-            m.titleSize = sizes[0] < 10 ? 10 : sizes[0] > 48 ? 48 : sizes[0];
-            m.entrySize = sizes[1] < 8 ? 8 : sizes[1] > 32 ? 32 : sizes[1];
-        }
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::DragInt("Title size", &m.titleSize, 0.2f, 10, 48, "%d px"))
+            changed = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::DragInt("Row size", &m.entrySize, 0.2f, 8, 32, "%d px"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Entry text height, and with it the row pitch and the cursor.\n"
+                "Any {{glyph}} in a label scales with it too.");
+        if (m.titleSize < 10) m.titleSize = 10;
+        if (m.titleSize > 48) m.titleSize = 48;
+        if (m.entrySize < 8) m.entrySize = 8;
+        if (m.entrySize > 32) m.entrySize = 32;
     }
 
     if (menuPreviewClipped_)
@@ -18699,6 +18784,8 @@ void App::drawMenusWindow() {
         ImGui::SetNextItemWidth(scaled(140.0f));
         if (ImGui::InputText("##label", labelBuf, sizeof(labelBuf))) en.label = labelBuf;
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        changed |= textTokenPicker("labeltok", en.label);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
         if (ImGui::Combo("##action", &en.action, kActionNames, 11)) {

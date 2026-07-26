@@ -1345,6 +1345,12 @@ private:
     // Puts one icon back to its built-in state: default path + scale, and the
     // generated PNG deleted so the next build (and the preview) redraws it.
     void restoreDefaultTextIcon(TextIcon& icon);
+    // A "{{ }}" button next to a text field: opens the list of placeholders this
+    // project understands (actions first - they follow the binding - then the
+    // icons), each with its glyph, and appends the chosen one. This is the
+    // legend for the placeholder syntax as much as it is an insert helper.
+    // Returns true when it changed `text`.
+    bool textTokenPicker(const char* id, std::string& text);
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);

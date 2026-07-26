@@ -520,22 +520,16 @@ bool bakeBuiltinIconRGBA(const std::string& name, int px,
             }, kIconWhite);
         }
     } else {
-        // L1/L2/L3/R1/R2/R3/Start/Select: a plate with the label on it. The
-        // plate fills nearly the whole icon box and the label nearly the plate:
-        // these draw at TEXT height (15-24px on a TV), where every pixel of
-        // label size is the difference between "R2" and a grey smudge.
-        const bool wide = name == "start" || name == "select";
-        const float hw = s * 0.47f;
-        const float hh = wide ? s * 0.30f : s * 0.34f;
-        fillSdf(out, px, [&](float x, float y) {
-            return std::fabs(roundRectDist(x, y, c, c, hw, hh, s * 0.11f)) -
-                   s * 0.045f;
-        }, kIconWhite);
+        // L1/L2/L3/R1/R2/R3/Start/Select: the LABEL ONLY, no plate around it.
+        // These draw at text height (15-24px on a TV), where a border stole so
+        // much of the box that the letters inside it were unreadable - the label
+        // alone can be half again as tall and actually says "R2".
         std::string label = name;
         for (char& ch : label) ch = (char)toupper((unsigned char)ch);
         if (label == "START") label = "STA";
         if (label == "SELECT") label = "SEL";
-        drawIconLabel(out, px, label.c_str(), wide ? 0.36f : 0.44f);
+        drawIconLabel(out, px, label.c_str(),
+                      label.size() >= 3 ? 0.52f : 0.74f);
     }
     return true;
 }
