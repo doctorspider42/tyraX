@@ -28,7 +28,7 @@ Rules:
 - **LF line endings only** under `vendor/tyra/**` — enforced by
   `.gitattributes`; the `vclpp` VU1 preprocessor chokes on CRLF. Don't fight it.
 - The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, and tyra's
-  non-engine parts) is git-ignored and cloned by `setup.ps1` — never edit those.
+  non-engine parts) is git-ignored and cloned by `setup.ps1` / `setup.sh` — never edit those.
 
 ## How an engine change reaches the game
 
@@ -255,7 +255,7 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
 ## The VU1 packet tap (`src/renderer/3d/pipeline/static/core/stapip_vu_tap.*`)
 
 TyraX addition: the editor can ask for one VU1 DMA chain and decode it
-(docs/devkit.md, PROGRESS 191). The engine side is deliberately tiny — a **null
+(docs/devkit.md, PROGRESS 195). The engine side is deliberately tiny — a **null
 function pointer** (`Tyra::g_vuPacketHook`) and the branch that tests it in
 `StaPipQBufferRenderer::sendPacket()`, i.e. once per bag flush, never per vertex.
 The capture itself lives in the generated game's devkit TU, so a release build
@@ -268,7 +268,7 @@ pipeline stall, so the devkit installs it for one frame and uninstalls itself fr
 inside the callback. Two things to know before using it for verification: VU1
 memory holds only the **last** MVP uploaded, and **one flush carries several
 meshes in one chain** — so pairing an input block with an output packet needs a
-single-bag flush plus the object-data chain, which is not done yet (PROGRESS 192).
+single-bag flush plus the object-data chain, which is not done yet (PROGRESS 196).
 
 **The rule that bites**: the pipeline sends vertex arrays **by reference** — a
 `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at *another* address,

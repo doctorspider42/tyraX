@@ -116,7 +116,7 @@ each compiled script folds away.
 - **A patched graph is interpreted**, so it is slower than compiled C++ — matters
   only for something running hundreds of instructions per frame.
 - ps2link (real hardware) uses the same code path on a 25-frame poll; the
-  verified target is PCSX2 (see PROGRESS 188).
+  verified target is PCSX2 (see PROGRESS 192).
 
 ## Related
 

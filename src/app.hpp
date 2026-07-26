@@ -30,7 +30,7 @@ struct GLFWwindow;
 
 // Viewport navigation preferences. These are a machine/muscle-memory property,
 // not project data, so they live in the global editor config (editor.ini in
-// %LOCALAPPDATA%), never in the per-project .tyra. See NavConfig persistence in
+// the editor config dir), never in the per-project .tyra. See NavConfig persistence in
 // app.cpp.
 enum class NavScheme {
     Default = 0,  // tyra: LMB/RMB orbit, MMB pan
@@ -497,6 +497,16 @@ private:
     // fontPath changed. Only the Font Manager resolves real files.
     bool fontSourceCombo(std::string& fontPath);
     void drawFontManagerWindow();
+    // Tools > UI Editor > Button icons: the {{name}} placeholders any text can
+    // splice an image into (docs/text-icons.md). A modal, not a panel section:
+    // it wants room for a preview grid.
+    void drawTextIconsModal();
+    // Tools > Input Map (docs/input-bindings.md): the named actions every
+    // gameplay button goes through, plus the per-project binding presets.
+    void drawInputMapWindow();
+    // One action's pad / key / mouse pickers inside `preset`. Returns true when
+    // something changed (the caller commits).
+    bool inputBindingRow(InputPreset& preset, const InputAction& action);
     // Tools > Tree Generator: procedural low-poly tree authoring with a live
     // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
     // into res/models/trees and drops a Model object in - see treegen.hpp.
@@ -528,6 +538,10 @@ private:
     // Renames a font and follows the reference into every text, menu and
     // Display Text node, the way HUD text renames do.
     void renameFont(int index, const std::string& newName);
+    // Same for input actions / binding presets: the name is the reference key
+    // (preset bindings, On Action nodes, menu rebind rows, Set Input Preset).
+    void renameInputAction(int index, const std::string& newName);
+    void renameInputPreset(int index, const std::string& newName);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -800,7 +814,7 @@ private:
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
     // Collaboration (editor.ini): the name other session participants see
-    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    // (empty = the OS user name) and the remote-project cache root (empty = default).
     std::string globalDisplayName_;
     std::string globalSessionCacheDir_;
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
@@ -971,6 +985,9 @@ private:
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
+    bool showInputMap_ = false;
+    int inputActionSel_ = 0;  // row selected in the Input Map action list
+    int inputPresetSel_ = 0;  // preset tab being edited
 
     // Live Debugger panel (Tools > Debugger, the DBG toolbar chip, or the
     // built-in "Debugger" window layout).
@@ -1470,12 +1487,30 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // The generated drawing of a built-in text icon as a GL texture. Lets the
+    // Button icons manager preview an icon whose PNG the project has not baked
+    // yet, and show what "restore default" gives back. Null for a name that is
+    // not one of the built-ins.
+    const HudTexture* builtinIconTexture(const std::string& iconName);
+    // Puts one icon back to its built-in state: default path + scale, and the
+    // generated PNG deleted so the next build (and the preview) redraws it.
+    void restoreDefaultTextIcon(TextIcon& icon);
+    // A "{{ }}" button next to a text field: opens the list of placeholders this
+    // project understands (actions first - they follow the binding - then the
+    // icons), each with its glyph, and appends the chosen one. This is the
+    // legend for the placeholder syntax as much as it is an insert helper.
+    // Returns true when it changed `text`.
+    bool textTokenPicker(const char* id, std::string& text);
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);
     // The embedded built-in USE prompt sprite (viewport overlay preview).
     const HudTexture* builtinUseTexture();
     HudTexture builtinUseTex_;
+    // Built-in text-icon drawings as GL textures, so the Button icons manager
+    // previews an icon before its PNG exists (they are generated at the first
+    // build). Keyed by icon name; cleared with the decoded-icon cache.
+    std::map<std::string, HudTexture> builtinIconTex_;
     // Viewport overlay textures of the HUD texts, re-baked on content change.
     struct TextTexture {
         unsigned tex = 0;
@@ -1511,9 +1546,16 @@ private:
     bool openNewProjectPopup_ = false;
     char newName_[128] = "my-game";
     char newLocation_[512] = "";
-    int newWidth_ = 64;
-    int newDepth_ = 64;
+    int newWidth_ = 100;
+    int newDepth_ = 100;
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // World scale (docs/world-scale.md), picked while the project is created -
+    // afterwards it is a setting that deliberately rescales nothing, so the
+    // honest moment to ask is before there is any content. Index into the
+    // preset list in drawNewProjectModal; the last entry is Custom, which is
+    // when newUnitsPerMeter_ is edited directly.
+    int newUnitsPreset_ = 0;  // 0 = 1 unit = 1 m
+    float newUnitsPerMeter_ = 1.0f;
     // "Add AI support": install the assistant skill files (aisupport.hpp)
     // into the fresh project. Also available later in Project Preferences.
     bool newAiClaude_ = false;

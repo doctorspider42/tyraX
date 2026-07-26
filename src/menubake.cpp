@@ -1,5 +1,6 @@
 #include "menubake.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -10,7 +11,9 @@
 #include <stb_image_write.h>
 #include <stb_image.h>  // implementation lives in app.cpp
 
-#include <windows.h>
+#include <filesystem>
+
+#include "platform.hpp"
 
 namespace menubake {
 
@@ -54,27 +57,24 @@ Font* loadFontFile(const std::string& path) {
     return &f;
 }
 
-std::string windowsFontPath(const std::string& name) {
-    char windir[MAX_PATH] = {};
-    GetWindowsDirectoryA(windir, MAX_PATH);
-    return std::string(windir) + "\\Fonts\\" + name;
-}
-
 // A font by path: project-relative when the path has a separator
-// ("res/fonts/x.ttf"), a Windows font by bare file name ("impact.ttf"),
-// falling back to the default chain when unset or unreadable.
+// ("res/fonts/x.ttf"), a system font by bare file name ("impact.ttf"), falling
+// back to the platform's default chain when unset or unreadable. A project
+// authored on another OS therefore keeps working: its bare name simply does
+// not resolve here and the fallback takes over, rather than the bake failing.
 Font* resolveFontPath(const std::string& fontPath, const std::string& projectDir) {
     if (!fontPath.empty()) {
         const bool projectRelative =
             fontPath.find('/') != std::string::npos ||
             fontPath.find('\\') != std::string::npos;
-        const std::string full = projectRelative && !projectDir.empty()
-                                     ? projectDir + "\\" + fontPath
-                                     : windowsFontPath(fontPath);
+        const std::string full =
+            projectRelative && !projectDir.empty()
+                ? (std::filesystem::path(projectDir) / fontPath).string()
+                : platform::systemFontPath(fontPath);
         if (Font* f = loadFontFile(full)) return f;
     }
-    for (const char* name : {"consolab.ttf", "arialbd.ttf", "arial.ttf"})
-        if (Font* f = loadFontFile(windowsFontPath(name))) return f;
+    for (const std::string& name : platform::fallbackFontFiles())
+        if (Font* f = loadFontFile(platform::systemFontPath(name))) return f;
     return nullptr;
 }
 
@@ -130,56 +130,193 @@ struct Canvas {
     }
 };
 
-float textWidth(Font& f, const std::string& text, float pixelHeight) {
+// --- Inline text icons ------------------------------------------------------
+// Every baked text goes through textWidth/drawText below, so teaching those two
+// about `{{name}}` placeholders (docs/text-icons.md) gives menus, HUD texts,
+// loading screens and value strips icon support at once. Passing proj = null
+// (the default) keeps a call site pure text - the built-in icon LABELS use that,
+// so an icon can never recurse into itself.
+
+// A decoded icon, cached for the process: bakes and editor previews ask for the
+// same handful of icons over and over. Keyed by name; clearIconImageCache()
+// drops it when the UI Editor repoints or regenerates one.
+struct IconImg {
+    std::vector<unsigned char> px;  // RGBA
+    int w = 0, h = 0;
+};
+
+std::map<std::string, IconImg>& iconImgCache() {
+    static std::map<std::string, IconImg> c;
+    return c;
+}
+
+// The image for a TextIcon name: the project's PNG if it has one, else the
+// built-in drawing. Null when neither exists (the token then stays literal).
+const IconImg* iconImage(const Project& p, const std::string& name) {
+    auto& cache = iconImgCache();
+    auto it = cache.find(name);
+    if (it != cache.end()) return it->second.w > 0 ? &it->second : nullptr;
+
+    const TextIcon* icon = nullptr;
+    for (const TextIcon& ic : p.textIcons)
+        if (ic.name == name) { icon = &ic; break; }
+    IconImg& img = cache[name];
+    if (!icon) return nullptr;
+    if (!icon->path.empty() && !p.dir.empty()) {
+        const std::string full = p.dir + "\\" + icon->path;
+        int w = 0, h = 0, comp = 0;
+        if (unsigned char* px = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
+            img.px.assign(px, px + (size_t)w * h * 4);
+            img.w = w;
+            img.h = h;
+            stbi_image_free(px);
+            return &img;
+        }
+    }
+    // No file yet (a fresh project before the first build): draw the built-in.
+    if (bakeBuiltinIconRGBA(name, kIconBakeSize, img.px)) {
+        img.w = img.h = kIconBakeSize;
+        return &img;
+    }
+    img.px.clear();
+    img.w = img.h = 0;
+    return nullptr;
+}
+
+// Drawn height + advance of an icon inside text of `pixelHeight`. Icons are
+// square and sit on the cap height, with a small gap so they never touch a
+// neighbouring glyph.
+float iconAdvance(const Project& p, const std::string& name, float pixelHeight) {
+    float scale = 1.0f;
+    for (const TextIcon& ic : p.textIcons)
+        if (ic.name == name) { scale = ic.scale; break; }
+    return pixelHeight * scale + pixelHeight * 0.12f;
+}
+
+// The runs of a text: plain when proj is null, icon-aware otherwise.
+std::vector<TextRun> textRuns(const Project* proj, const std::string& text) {
+    if (!proj) return {TextRun{text, ""}};
+    std::vector<TextRun> runs = parseTextIcons(text, proj->input);
+    for (TextRun& r : runs) {
+        if (r.icon.empty() || iconImage(*proj, r.icon)) continue;
+        // Not an icon name: give it one more chance as an ACTION name, which is
+        // the `{{use}}` shorthand for `{{action:use}}`.
+        const std::string viaAction = textIconForAction(r.icon, proj->input);
+        if (!viaAction.empty() && iconImage(*proj, viaAction)) {
+            r.action = r.icon;  // the token WAS an action - remember which
+            r.icon = viaAction;
+            continue;
+        }
+        // Neither: stay visible as text, so a typo shows up on screen instead
+        // of silently vanishing.
+        r.text = "{{" + r.icon + "}}";
+        r.icon.clear();
+    }
+    return runs;
+}
+
+float textWidth(Font& f, const std::string& text, float pixelHeight,
+                const Project* proj = nullptr) {
     const float scale = stbtt_ScaleForPixelHeight(&f.info, pixelHeight);
     float x = 0;
-    size_t i = 0;
-    int prev = 0;
-    while (i < text.size()) {
-        const int cp = nextCodepoint(text, i);
-        int adv = 0, lsb = 0;
-        stbtt_GetCodepointHMetrics(&f.info, cp, &adv, &lsb);
-        if (prev) x += scale * stbtt_GetCodepointKernAdvance(&f.info, prev, cp);
-        x += scale * adv;
-        prev = cp;
+    for (const TextRun& run : textRuns(proj, text)) {
+        if (!run.icon.empty()) {
+            x += iconAdvance(*proj, run.icon, pixelHeight);
+            continue;
+        }
+        size_t i = 0;
+        int prev = 0;
+        while (i < run.text.size()) {
+            const int cp = nextCodepoint(run.text, i);
+            int adv = 0, lsb = 0;
+            stbtt_GetCodepointHMetrics(&f.info, cp, &adv, &lsb);
+            if (prev) x += scale * stbtt_GetCodepointKernAdvance(&f.info, prev, cp);
+            x += scale * adv;
+            prev = cp;
+        }
     }
     return x;
 }
 
 // Draws text with its baseline placed so the cap sits around y (top of the
-// line box); x is the left edge, or the center when centered = true.
+// line box); x is the left edge, or the center when centered = true. With proj
+// set, `{{name}}` placeholders draw the icon tinted in `color`.
+// skipIcons: advance past icon tokens without drawing them. The drop-shadow
+// pass of a HUD text uses it - the icons carry their own colors, so a dark
+// offset copy underneath would only leak a colored fringe around them.
+// skipActionIcons: skip only the tokens that resolved through an ACTION and
+// leave every other icon composited in. That is what a prompt bakes with: the
+// action glyphs become live slots the game fills, while a plain `{{cross}}` in
+// the same string is not rebindable and has no reason to cost a runtime quad.
 void drawText(Canvas& canvas, Font& f, float x, int yTop, const std::string& text,
-              float pixelHeight, RGBA color, bool centered) {
+              float pixelHeight, RGBA color, bool centered,
+              const Project* proj = nullptr, bool skipIcons = false,
+              bool skipActionIcons = false) {
     const float scale = stbtt_ScaleForPixelHeight(&f.info, pixelHeight);
     int ascent = 0, descent = 0, lineGap = 0;
     stbtt_GetFontVMetrics(&f.info, &ascent, &descent, &lineGap);
     const int baseline = yTop + (int)(ascent * scale + 0.5f);
+    const int capH = (int)(ascent * scale + 0.5f);
 
-    if (centered) x -= textWidth(f, text, pixelHeight) * 0.5f;
+    if (centered) x -= textWidth(f, text, pixelHeight, proj) * 0.5f;
 
     float penX = x;
-    size_t i = 0;
-    int prev = 0;
-    while (i < text.size()) {
-        const int cp = nextCodepoint(text, i);
-        int adv = 0, lsb = 0;
-        stbtt_GetCodepointHMetrics(&f.info, cp, &adv, &lsb);
-        if (prev)
-            penX += scale * stbtt_GetCodepointKernAdvance(&f.info, prev, cp);
-
-        int gw = 0, gh = 0, gx = 0, gy = 0;
-        unsigned char* bitmap = stbtt_GetCodepointBitmap(&f.info, scale, scale,
-                                                         cp, &gw, &gh, &gx, &gy);
-        if (bitmap) {
-            const int ox = (int)(penX + 0.5f) + gx;
-            const int oy = baseline + gy;
-            for (int by = 0; by < gh; ++by)
-                for (int bx = 0; bx < gw; ++bx)
-                    canvas.blend(ox + bx, oy + by, color, bitmap[by * gw + bx]);
-            stbtt_FreeBitmap(bitmap, nullptr);
+    for (const TextRun& run : textRuns(proj, text)) {
+        if (!run.icon.empty()) {
+            const IconImg* img = iconImage(*proj, run.icon);
+            const float adv = iconAdvance(*proj, run.icon, pixelHeight);
+            const float box = adv - pixelHeight * 0.12f;
+            const bool skip =
+                skipIcons || (skipActionIcons && !run.action.empty());
+            if (img && !skip) {
+                const int side = (int)(box + 0.5f);
+                const int ox = (int)(penX + pixelHeight * 0.06f + 0.5f);
+                const int oy = yTop + (capH - side) / 2;
+                // Icons keep their OWN colors (the face buttons are the
+                // DualShock palette, and a user PNG is whatever they drew), so
+                // unlike glyphs they are not tinted with the text color.
+                for (int y = 0; y < side; ++y)
+                    for (int xx = 0; xx < side; ++xx) {
+                        const float u = (xx + 0.5f) * img->w / side;
+                        const float v = (y + 0.5f) * img->h / side;
+                        int sx = (int)u, sy = (int)v;
+                        if (sx < 0) sx = 0;
+                        if (sy < 0) sy = 0;
+                        if (sx >= img->w) sx = img->w - 1;
+                        if (sy >= img->h) sy = img->h - 1;
+                        const unsigned char* q =
+                            &img->px[((size_t)sy * img->w + sx) * 4];
+                        canvas.blend(ox + xx, oy + y, RGBA{q[0], q[1], q[2], 255},
+                                     q[3]);
+                    }
+            }
+            penX += adv;
+            continue;
         }
-        penX += scale * adv;
-        prev = cp;
+        size_t i = 0;
+        int prev = 0;
+        while (i < run.text.size()) {
+            const int cp = nextCodepoint(run.text, i);
+            int adv = 0, lsb = 0;
+            stbtt_GetCodepointHMetrics(&f.info, cp, &adv, &lsb);
+            if (prev)
+                penX += scale * stbtt_GetCodepointKernAdvance(&f.info, prev, cp);
+
+            int gw = 0, gh = 0, gx = 0, gy = 0;
+            unsigned char* bitmap = stbtt_GetCodepointBitmap(
+                &f.info, scale, scale, cp, &gw, &gh, &gx, &gy);
+            if (bitmap) {
+                const int ox = (int)(penX + 0.5f) + gx;
+                const int oy = baseline + gy;
+                for (int by = 0; by < gh; ++by)
+                    for (int bx = 0; bx < gw; ++bx)
+                        canvas.blend(ox + bx, oy + by, color,
+                                     bitmap[by * gw + bx]);
+                stbtt_FreeBitmap(bitmap, nullptr);
+            }
+            penX += scale * adv;
+            prev = cp;
+        }
     }
 }
 
@@ -188,7 +325,230 @@ void pngWriteCallback(void* context, void* data, int size) {
     out->insert(out->end(), (unsigned char*)data, (unsigned char*)data + size);
 }
 
+// --- Built-in icon drawing --------------------------------------------------
+// Analytic coverage, 4x4 supersampled: the icons are generated once per project
+// at a fixed size and then scaled by every consumer, so a clean edge here is
+// worth more than speed. All of them draw white; the caller tints.
+
+// Signed distance to a line segment, used for every stroke (the X, the d-pad
+// arms, the triangle edges).
+float segDist(float px, float py, float ax, float ay, float bx, float by) {
+    const float vx = bx - ax, vy = by - ay;
+    const float len2 = vx * vx + vy * vy;
+    float t = len2 > 0.0f ? ((px - ax) * vx + (py - ay) * vy) / len2 : 0.0f;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    const float dx = px - (ax + vx * t), dy = py - (ay + vy * t);
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+// Coverage of a shape described by a signed-distance function: inside = d < 0.
+// 4x4 samples per pixel, so a diagonal stroke lands soft instead of jagged.
+// Writes `col` where it covers - the face buttons carry the DualShock colors, so
+// unlike font glyphs these pixels are NOT tinted by the text they sit in.
+template <typename Sdf>
+void fillSdf(std::vector<unsigned char>& px, int size, Sdf sdf, RGBA col) {
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x) {
+            int hits = 0;
+            for (int sy = 0; sy < 4; ++sy)
+                for (int sx = 0; sx < 4; ++sx) {
+                    const float fx = (float)x + (sx + 0.5f) / 4.0f;
+                    const float fy = (float)y + (sy + 0.5f) / 4.0f;
+                    if (sdf(fx, fy) < 0.0f) ++hits;
+                }
+            if (hits == 0) continue;
+            const int cov = hits * 255 / 16;
+            unsigned char* p = px.data() + (size_t)(y * size + x) * 4;
+            const int a = cov > p[3] ? cov : p[3];  // union with what is there
+            p[0] = col.r;
+            p[1] = col.g;
+            p[2] = col.b;
+            p[3] = (unsigned char)a;
+        }
+}
+
+// Rounded-rect distance (r = corner radius); negative inside.
+float roundRectDist(float px, float py, float cx, float cy, float hw, float hh,
+                    float r) {
+    const float dx = std::fabs(px - cx) - (hw - r);
+    const float dy = std::fabs(py - cy) - (hh - r);
+    const float ax = dx > 0.0f ? dx : 0.0f;
+    const float ay = dy > 0.0f ? dy : 0.0f;
+    const float outside = std::sqrt(ax * ax + ay * ay);
+    const float inside = (dx > dy ? dx : dy);
+    return (outside > 0.0f ? outside : inside) - r;
+}
+
+// The DualShock symbol colors. Only the four face buttons are colored on a real
+// pad; the shoulder, d-pad and Start/Select glyphs are plain light grey, which
+// also keeps them readable on any menu background.
+constexpr RGBA kIconWhite{240, 244, 250, 255};
+constexpr RGBA kIconCross{104, 138, 225, 255};     // blue
+constexpr RGBA kIconCircle{228, 84, 92, 255};      // red
+constexpr RGBA kIconSquare{224, 118, 186, 255};    // pink
+constexpr RGBA kIconTriangle{92, 202, 168, 255};   // green
+
+// Draws a label centered in the icon (shoulder buttons, Start/Select). Uses the
+// default font chain - these icons ship with the editor, not with a project, so
+// they must not depend on a project font.
+void drawIconLabel(std::vector<unsigned char>& px, int size,
+                   const char* label, float heightFrac) {
+    Font* f = resolveFontPath("", "");
+    if (!f) return;
+    Canvas canvas{&px, size, size};
+    const float pixels = size * heightFrac;
+    const float w = textWidth(*f, label, pixels);
+    int ascent = 0, descent = 0, lineGap = 0;
+    const float scale = stbtt_ScaleForPixelHeight(&f->info, pixels);
+    stbtt_GetFontVMetrics(&f->info, &ascent, &descent, &lineGap);
+    const int capH = (int)(ascent * scale + 0.5f);
+    drawText(canvas, *f, (size - w) * 0.5f, (size - capH) / 2, label, pixels,
+             kIconWhite, false);
+}
+
 }  // namespace
+
+const std::vector<std::string>& builtinIconNames() {
+    // The pad buttons, in kPadButtonNames order (input.hpp) - the order the
+    // Input Map lists buttons in, so the two windows read the same way.
+    static const std::vector<std::string> v = [] {
+        std::vector<std::string> out;
+        for (int i = 0; i < 16; ++i)
+            out.push_back(textIconNameForPad(kPadButtonNames[i]));
+        return out;
+    }();
+    return v;
+}
+
+bool bakeBuiltinIconRGBA(const std::string& name, int px,
+                         std::vector<unsigned char>& out) {
+    if (px < 8 || px > 256) return false;
+    bool known = false;
+    for (const std::string& n : builtinIconNames()) known |= (n == name);
+    if (!known) return false;
+
+    out.assign((size_t)px * px * 4, 0);
+    const float s = (float)px;
+    const float c = s * 0.5f;
+    // Face buttons and the d-pad sit in a ring; the shoulder/Start/Select ones
+    // are plates, which is how a real pad reads at a glance.
+    const float ringR = s * 0.44f;
+    const float ringT = s * 0.075f;  // ring stroke half-width
+    auto ring = [&](float x, float y) {
+        return std::fabs(std::sqrt((x - c) * (x - c) + (y - c) * (y - c)) -
+                         ringR) -
+               ringT;
+    };
+    // Inner glyphs are drawn thinner than the ring: at 16px on a TV the ring
+    // carries the shape and a fat inner stroke just fills the hole in.
+    // Thin: the inner shapes are OUTLINES, and at this radius a fat stroke
+    // closes the hole and turns the circle into a bullseye.
+    const float stroke = s * 0.042f;  // inner glyph stroke half-width
+    const float gr = s * 0.23f;       // inner glyph "radius" (axis-aligned)
+    // Clearance rule: an inner glyph must stop short of the ring's inner edge
+    // (ringR - ringT). A shape whose extreme points are DIAGONAL reaches
+    // sqrt(2) further than its radius suggests, so the X and the square use a
+    // smaller one - at gr they touched the ring and read as one blob.
+    const float diagR = s * 0.16f;   // X arms (the widest diagonal reach)
+    const float sqR = s * 0.185f;    // square half-side
+
+    if (name == "cross") {
+        fillSdf(out, px, ring, kIconCross);
+        fillSdf(out, px, [&](float x, float y) {
+            const float a = segDist(x, y, c - diagR, c - diagR, c + diagR,
+                                    c + diagR);
+            const float b = segDist(x, y, c - diagR, c + diagR, c + diagR,
+                                    c - diagR);
+            return (a < b ? a : b) - stroke * 1.2f;
+        }, kIconCross);
+    } else if (name == "circle") {
+        fillSdf(out, px, ring, kIconCircle);
+        fillSdf(out, px, [&](float x, float y) {
+            return std::fabs(std::sqrt((x - c) * (x - c) + (y - c) * (y - c)) -
+                             gr * 0.91f) -
+                   stroke;
+        }, kIconCircle);
+    } else if (name == "square") {
+        fillSdf(out, px, ring, kIconSquare);
+        fillSdf(out, px, [&](float x, float y) {
+            return std::fabs(roundRectDist(x, y, c, c, sqR, sqR, s * 0.02f)) -
+                   stroke;
+        }, kIconSquare);
+    } else if (name == "triangle") {
+        fillSdf(out, px, ring, kIconTriangle);
+        fillSdf(out, px, [&](float x, float y) {
+            // equilateral-ish, sitting on its base
+            const float tr = gr * 0.92f;
+            const float tx = c, ty = c - tr * 1.12f;
+            const float bl = c - tr, br = c + tr, by = c + tr * 0.72f;
+            const float d1 = segDist(x, y, tx, ty, br, by);
+            const float d2 = segDist(x, y, br, by, bl, by);
+            const float d3 = segDist(x, y, bl, by, tx, ty);
+            const float d = d1 < d2 ? (d1 < d3 ? d1 : d3) : (d2 < d3 ? d2 : d3);
+            return d - stroke;
+        }, kIconTriangle);
+    } else if (name.rfind("dpad", 0) == 0) {
+        fillSdf(out, px, ring, kIconWhite);
+        // A solid ARROW, not a cross with a highlighted arm: the four
+        // directions have to be told apart at 16px on a TV, and a marked arm
+        // reads as the same plus sign in all four icons. A bare "dpad" (no
+        // direction) keeps the cross.
+        int dx = 0, dy = 0;
+        if (name == "dpadup") dy = -1;
+        else if (name == "dpaddown") dy = 1;
+        else if (name == "dpadleft") dx = -1;
+        else if (name == "dpadright") dx = 1;
+        if (dx == 0 && dy == 0) {
+            fillSdf(out, px, [&](float x, float y) {
+                const float a = segDist(x, y, c - gr, c, c + gr, c);
+                const float b = segDist(x, y, c, c - gr, c, c + gr);
+                return (a < b ? a : b) - s * 0.055f;
+            }, kIconWhite);
+        } else {
+            // Filled triangle: tip along (dx,dy), base perpendicular to it.
+            const float tipX = c + dx * gr, tipY = c + dy * gr;
+            const float baseX = c - dx * gr * 0.75f, baseY = c - dy * gr * 0.75f;
+            const float px1 = baseX - dy * gr * 0.85f;
+            const float py1 = baseY - dx * gr * 0.85f;
+            const float px2 = baseX + dy * gr * 0.85f;
+            const float py2 = baseY + dx * gr * 0.85f;
+            fillSdf(out, px, [&](float x, float y) {
+                // Inside test by consistent winding, then a soft edge from the
+                // nearest edge distance (all three edges wind the same way).
+                auto side = [&](float ax, float ay, float bx, float by) {
+                    return (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+                };
+                const float s1 = side(tipX, tipY, px1, py1);
+                const float s2 = side(px1, py1, px2, py2);
+                const float s3 = side(px2, py2, tipX, tipY);
+                const bool in = (s1 >= 0 && s2 >= 0 && s3 >= 0) ||
+                                (s1 <= 0 && s2 <= 0 && s3 <= 0);
+                return in ? -1.0f : 1.0f;
+            }, kIconWhite);
+        }
+    } else {
+        // L1/L2/L3/R1/R2/R3/Start/Select: the LABEL ONLY, no plate around it.
+        // These draw at text height (15-24px on a TV), where a border stole so
+        // much of the box that the letters inside it were unreadable - the label
+        // alone can be half again as tall and actually says "R2".
+        std::string label = name;
+        for (char& ch : label) ch = (char)toupper((unsigned char)ch);
+        if (label == "START") label = "STA";
+        if (label == "SELECT") label = "SEL";
+        drawIconLabel(out, px, label.c_str(),
+                      label.size() >= 3 ? 0.52f : 0.74f);
+    }
+    return true;
+}
+
+bool bakeBuiltinIconPNG(const std::string& name, int px,
+                        std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    if (!bakeBuiltinIconRGBA(name, px, rgba)) return false;
+    png.clear();
+    stbi_write_png_to_func(pngWriteCallback, &png, px, px, 4, rgba.data(), px * 4);
+    return !png.empty();
+}
 
 namespace {
 
@@ -208,7 +568,8 @@ std::vector<FittedImage> fitImages(const GameMenu& menu,
         const MenuImage& mi = menu.images[i];
         if (mi.path.empty()) continue;
         int w = 0, h = 0, comp = 0;
-        const std::string full = projectDir + "\\" + mi.path;
+        const std::string full =
+            (std::filesystem::path(projectDir) / mi.path).string();
         if (!stbi_info(full.c_str(), &w, &h, &comp) || w <= 0 || h <= 0) continue;
         if (mi.slot == MenuImage::Background) {
             out[i] = {panelW, 0};  // stretched over the content at bake time
@@ -291,6 +652,12 @@ std::string textFileName(const std::string& textName) {
     return "text-" + sanitizeName(textName, "text") + ".png";
 }
 
+std::string iconFileName(const std::string& iconName) {
+    return "icon-" + sanitizeName(iconName, "icon") + ".png";
+}
+
+void clearIconImageCache() { iconImgCache().clear(); }
+
 // Bilinear-sample `src` (sw x sh RGBA) into the canvas rect - used for the
 // custom menu image in both placements.
 static void drawImageScaled(Canvas& canvas, const unsigned char* src, int sw,
@@ -351,7 +718,7 @@ bool bakePanelRGBA(const GameMenu& menu, const Project& p,
     for (size_t i = 0; i < menu.images.size(); ++i) {
         if (menu.images[i].path.empty() || p.dir.empty()) continue;
         int comp = 0;
-        const std::string full = p.dir + "\\" + menu.images[i].path;
+        const std::string full = p.filePath(menu.images[i].path);
         pixels[i] = stbi_load(full.c_str(), &srcW[i], &srcH[i], &comp, 4);
     }
 
@@ -392,7 +759,7 @@ bool bakePanelRGBA(const GameMenu& menu, const Project& p,
     drawFlowSlot(MenuImage::AboveTitle, y);
     if (menu.showTitle) {
         drawText(canvas, *font, w * 0.5f, y, menu.title, (float)menu.titleSize,
-                 accent, true);
+                 accent, true, &p);
         canvas.fillRect(16, y + menu.titleSize + 5, w - 16, y + menu.titleSize + 6,
                         separator);
         y += menu.titleSize + 18;
@@ -403,7 +770,7 @@ bool bakePanelRGBA(const GameMenu& menu, const Project& p,
 
     for (int i = 0; i < entries; ++i)
         drawText(canvas, *font, 56, l.row0Y + i * l.rowH + 2, menu.entries[i].label,
-                 (float)menu.entrySize, kText, false);
+                 (float)menu.entrySize, kText, false, &p);
 
     int below = l.row0Y + entries * l.rowH + 4;
     drawFlowSlot(MenuImage::BelowEntries, below);
@@ -507,9 +874,10 @@ bool bakeValueStripRGBA(const GameMenu& menu, const Project& p,
             // Right-aligned inside the cell (inset 4px), same y offset as the
             // entry labels in the panel rows (drawText's yTop + 2).
             const int top = (l.firstCell[i] + o) * l.pitch;
-            const float tw = textWidth(*font, labels[o], (float)menu.entrySize);
+            const float tw =
+                textWidth(*font, labels[o], (float)menu.entrySize, &p);
             drawText(canvas, *font, (float)(l.cellW - 4) - tw, top + 2, labels[o],
-                     (float)menu.entrySize, kText, false);
+                     (float)menu.entrySize, kText, false, &p);
         }
     }
     return true;
@@ -542,10 +910,11 @@ void overlayValuePreview(const GameMenu& menu, const Project& p,
         if (cur >= (int)labels.size()) cur = (int)labels.size() - 1;
         // The game places the cell's right edge 24px from the panel's right
         // border, text inset 4px -> right-aligned at panelW - 28.
-        const float tw = textWidth(*font, labels[cur], (float)menu.entrySize);
+        const float tw =
+            textWidth(*font, labels[cur], (float)menu.entrySize, &p);
         drawText(canvas, *font, (float)(pl.panelW - 28) - tw,
                  pl.row0Y + i * pl.rowH + 2, labels[cur], (float)menu.entrySize,
-                 kText, false);
+                 kText, false, &p);
     }
 }
 
@@ -584,7 +953,7 @@ bool textLayout(const HudText& text, const Project& p, int& w, int& h) {
     const int lineH = text.size + 4;
     float maxW = 8.0f;
     for (const auto& line : lines) {
-        const float lw = textWidth(*font, line, (float)text.size);
+        const float lw = textWidth(*font, line, (float)text.size, &p);
         if (lw > maxW) maxW = lw;
     }
     // +2px for the shadow offset and glyph overhang
@@ -616,11 +985,106 @@ bool bakeTextRGBA(const HudText& text, const Project& p,
     for (const auto& line : lines) {
         if (text.shadow)
             drawText(canvas, *font, w * 0.5f + 1, y + 1, line, (float)text.size,
-                     shadow, true);
-        drawText(canvas, *font, w * 0.5f, y, line, (float)text.size, color, true);
+                     shadow, true, &p, /*skipIcons=*/true);
+        drawText(canvas, *font, w * 0.5f, y, line, (float)text.size, color, true,
+                 &p);
         y += lineH;
     }
     return true;
+}
+
+// --- Interaction prompts ----------------------------------------------------
+// Same bake as a HUD text with one difference: EVERY action token is left as a
+// hole and its box reported, so the game can blit the CURRENT binding's glyph
+// there (see the header). "Press {{use}} to open" and "{{use}} use /
+// {{throw}} throw" both work - the walk below mirrors drawText's pen exactly,
+// so a slot lands wherever the glyph would have been baked, on whichever line.
+
+bool promptLayout(const HudText& text, const Project& p, int& w, int& h,
+                  std::vector<PromptIconSlot>& slots) {
+    slots.clear();
+    Font* font = resolveFontNamed(p, text.font);
+    if (!font) return false;
+    if (!textLayout(text, p, w, h)) return false;
+
+    int ascent = 0, descent = 0, lineGap = 0;
+    const float scale = stbtt_ScaleForPixelHeight(&font->info, (float)text.size);
+    stbtt_GetFontVMetrics(&font->info, &ascent, &descent, &lineGap);
+    const int capH = (int)(ascent * scale + 0.5f);
+
+    const auto lines = splitLines(text.text);
+    const int lineH = text.size + 4;
+    int yTop = (h - (int)lines.size() * lineH) / 2;
+    for (const auto& line : lines) {
+        // The glyphs occupy their slots in the layout either way, so the full
+        // width (icons included) is what centres the line - as in the bake.
+        const float full = textWidth(*font, line, (float)text.size, &p);
+        float penX = w * 0.5f - full * 0.5f;
+        for (const TextRun& run : textRuns(&p, line)) {
+            if (run.icon.empty()) {
+                // Kerning restarts at every run boundary in drawText, so a
+                // per-run width sums to the same pen position.
+                penX += textWidth(*font, run.text, (float)text.size, nullptr);
+                continue;
+            }
+            const float adv = iconAdvance(p, run.icon, (float)text.size);
+            if (!run.action.empty()) {
+                PromptIconSlot s;
+                s.action = run.action;
+                s.size = (int)(adv - text.size * 0.12f + 0.5f);
+                s.x = (int)(penX + text.size * 0.06f + 0.5f);
+                s.y = yTop + (capH - s.size) / 2;
+                slots.push_back(s);
+            }
+            penX += adv;
+        }
+        yTop += lineH;
+    }
+    return true;
+}
+
+bool bakePromptRGBA(const HudText& text, const Project& p,
+                    std::vector<unsigned char>& out, int& w, int& h,
+                    std::vector<PromptIconSlot>& slots) {
+    Font* font = resolveFontNamed(p, text.font);
+    if (!font) return false;
+    if (!promptLayout(text, p, w, h, slots)) return false;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+
+    auto clamp255 = [](float v) {
+        return (unsigned char)(v < 0 ? 0 : v > 1 ? 255 : v * 255.0f + 0.5f);
+    };
+    const RGBA color{clamp255(text.color[0]), clamp255(text.color[1]),
+                     clamp255(text.color[2]), 255};
+    const RGBA shadow{10, 12, 16, 210};
+
+    const auto lines = splitLines(text.text);
+    const int lineH = text.size + 4;
+    int y = (h - (int)lines.size() * lineH) / 2;
+    for (const auto& line : lines) {
+        // The shadow pass skips ALL icons as usual (a dark copy under a colored
+        // glyph only leaks a fringe); the main pass skips the ACTION ones only,
+        // so they become the game's live slots and any other icon still bakes.
+        if (text.shadow)
+            drawText(canvas, *font, w * 0.5f + 1, y + 1, line, (float)text.size,
+                     shadow, true, &p, /*skipIcons=*/true);
+        drawText(canvas, *font, w * 0.5f, y, line, (float)text.size, color, true,
+                 &p, /*skipIcons=*/false, /*skipActionIcons=*/true);
+        y += lineH;
+    }
+    return true;
+}
+
+bool bakePromptPNG(const HudText& text, const Project& p,
+                   std::vector<unsigned char>& png,
+                   std::vector<PromptIconSlot>& slots) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakePromptRGBA(text, p, rgba, w, h, slots)) return false;
+    png.clear();
+    stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(), w * 4);
+    return !png.empty();
 }
 
 bool bakeTextPNG(const HudText& text, const Project& p,
@@ -759,6 +1223,104 @@ bool bakeAtlasPNG(const GameFont& font, const Project& p,
     return stbi_write_png_to_func(pngWriteCallback, &png, layout.texW,
                                   layout.texH, 4, rgba.data(),
                                   layout.texW * 4) != 0;
+}
+
+namespace {
+
+// One icon's pixels at `cell` x `cell`: the user's PNG when it exists (so
+// overriding an icon is just replacing the file), otherwise the built-in
+// drawing. Empty when neither is available - the icon is then dropped from the
+// atlas and its token renders as literal text.
+bool iconPixels(const TextIcon& icon, const std::string& projectDir, int cell,
+                std::vector<unsigned char>& out) {
+    if (!icon.path.empty() && !projectDir.empty()) {
+        const std::string full = projectDir + "\\" + icon.path;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load(full.c_str(), &w, &h, &comp, 4);
+        if (px) {
+            out.assign((size_t)cell * cell * 4, 0);
+            Canvas canvas{&out, cell, cell};
+            drawImageScaled(canvas, px, w, h, 0, 0, cell, cell);
+            stbi_image_free(px);
+            return true;
+        }
+    }
+    return bakeBuiltinIconRGBA(icon.name, cell, out);
+}
+
+}  // namespace
+
+IconAtlasLayout iconAtlasLayout(const Project& p) {
+    IconAtlasLayout l;
+    // 32px cells: the icons draw at text height (15-24px on a PS2 screen), so a
+    // bigger sheet would only cost VRAM. Icons without usable pixels are left
+    // out here AND by the baker - same loop, so rects never drift.
+    l.cell = 32;
+    for (const TextIcon& ic : p.textIcons) {
+        if (ic.name.empty()) continue;
+        bool dup = false;
+        for (const IconAtlasEntry& e : l.icons) dup |= (e.name == ic.name);
+        if (dup) continue;
+        std::vector<unsigned char> px;
+        if (!iconPixels(ic, p.dir, l.cell, px)) continue;
+        l.icons.push_back(IconAtlasEntry{ic.name, 0, 0, l.cell, l.cell});
+    }
+    if (l.icons.empty()) {
+        l.texW = l.texH = 0;
+        return l;
+    }
+    // Squarish grid, both dimensions pow2 and capped at the 512px PS2 limit.
+    int cols = 1;
+    while (cols * cols < (int)l.icons.size()) ++cols;
+    l.texW = 32;
+    while (l.texW < cols * l.cell && l.texW < 512) l.texW *= 2;
+    l.cols = l.texW / l.cell;
+    if (l.cols < 1) l.cols = 1;
+    const int rows = ((int)l.icons.size() + l.cols - 1) / l.cols;
+    l.texH = 32;
+    while (l.texH < rows * l.cell && l.texH < 512) l.texH *= 2;
+    for (size_t i = 0; i < l.icons.size(); ++i) {
+        l.icons[i].u = (int)(i % (size_t)l.cols) * l.cell;
+        l.icons[i].v = (int)(i / (size_t)l.cols) * l.cell;
+        if (l.icons[i].v + l.cell > l.texH) l.clipped = true;
+    }
+    return l;
+}
+
+bool bakeIconAtlasRGBA(const Project& p, std::vector<unsigned char>& out,
+                       IconAtlasLayout& layout) {
+    layout = iconAtlasLayout(p);
+    if (layout.icons.empty() || layout.texW <= 0) return false;
+    out.assign((size_t)layout.texW * layout.texH * 4, 0);
+    for (const IconAtlasEntry& e : layout.icons) {
+        if (e.v + layout.cell > layout.texH) break;  // clipped
+        const TextIcon* src = nullptr;
+        for (const TextIcon& ic : p.textIcons)
+            if (ic.name == e.name) { src = &ic; break; }
+        if (!src) continue;
+        std::vector<unsigned char> px;
+        if (!iconPixels(*src, p.dir, layout.cell, px)) continue;
+        for (int y = 0; y < layout.cell; ++y)
+            for (int x = 0; x < layout.cell; ++x) {
+                const unsigned char* s =
+                    px.data() + (size_t)(y * layout.cell + x) * 4;
+                unsigned char* d =
+                    out.data() +
+                    (size_t)((e.v + y) * layout.texW + (e.u + x)) * 4;
+                d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
+            }
+    }
+    return true;
+}
+
+bool bakeIconAtlasPNG(const Project& p, std::vector<unsigned char>& png) {
+    IconAtlasLayout layout;
+    std::vector<unsigned char> rgba;
+    if (!bakeIconAtlasRGBA(p, rgba, layout)) return false;
+    png.clear();
+    stbi_write_png_to_func(pngWriteCallback, &png, layout.texW, layout.texH, 4,
+                           rgba.data(), layout.texW * 4);
+    return !png.empty();
 }
 
 }  // namespace menubake

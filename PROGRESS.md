@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (202) **A static model's vertex count, next to its triangle count.** Owner's
+- (206) **A static model's vertex count, next to its triangle count.** Owner's
   ask, and the properties panel was inconsistent about it: an animated `.glb`
   reported "%d verts", a static `.obj` reported triangles only. Now it shows
   both, plus the **unique position count**, because those are three different
@@ -21,12 +21,12 @@ Each finished feature lands as its own commit.
   reports. `Model::positionCount` was already parsed and simply never surfaced.
   *Verified* with a harness over `objparser.cpp.obj` on the owner's own model:
   `Cottage_FREE.obj` is **4281 triangles, 12843 vertices, 3351 unique
-  positions** - a 1.28x split factor. Which closes the loop on 200/201: 12843
+  positions** - a 1.28x split factor. Which closes the loop on 204/205: 12843
   vertices at 108 per VU1 chunk is ~119 chunks, exactly the scatter the flush
   map showed, and 80% of that frame's 16101 vertices.
 
-- (201) **The frame's vital signs, and a map of its draws.** Owner's ask after
-  200 ("okienko ze statami... ile miejsca w VU, co się da"), and the answer to
+- (205) **The frame's vital signs, and a map of its draws.** Owner's ask after
+  204 ("okienko ze statami... ile miejsca w VU, co się da"), and the answer to
   the 37-flush problem it left behind. **Not one number here is newly measured**
   - the engine counts frames and VRAM residency, the VU1 tap sees every draw,
   the scene knows its objects; they were counted on the console and never
@@ -48,7 +48,7 @@ Each finished feature lands as its own commit.
   a curiosity: the pipeline cuts a mesh at exactly the VU1 buffer's capacity for
   its vertex layout, so that number IS the capacity (108 on the owner's scene,
   24 on the test fixture) - the answer to "how much room is there in VU1?" that
-  200 could only reach by hand.
+  204 could only reach by hand.
   **Positions are counted on the EE as "the UNPACK to VU1 address 2"**, checked
   against three different microprograms on hardware first; the tap walks tags
   only, never vertex data.
@@ -64,17 +64,17 @@ Each finished feature lands as its own commit.
   scripted `ps2client reset` will not take while the previous game still holds
   the link - F6 from the editor does): 50 fps, **37 bag flushes, 3401
   quadwords, 16101 vertices in one frame**, largest stream **108** - the VU1
-  capacity figure 200 had to derive by reading engine source. VRAM 0.73 MB free
+  capacity figure 204 had to derive by reading engine source. VRAM 0.73 MB free
   with 3 textures resident, 5502 binds against 5498 hits and **zero evictions**
   (that scene is not thrashing; it is simply large). The object counts match
   the project exactly - 3 active of 35 pool slots, 2 visible, the third being
   the invisible FPP player marker. The flush map named the model's draws on
   sight: flush 23 at 1380 vertices, then 30, 25, 26, 33 - all 108-vertex chunks
   of the same cottage. The panel itself is unscreenshotted as ever (blank
-  editor window, see 187).
+  editor window, see 191).
 
-- (200) **Reading a frame off the owner's real PS2, and what "my model shows 2
-  meshes" actually was.** The tooling from 197-199 got its first real use, on
+- (204) **Reading a frame off the owner's real PS2, and what "my model shows 2
+  meshes" actually was.** The tooling from 201-203 got its first real use, on
   hardware, against a scene the owner built: a 3351-vertex `Cottage_FREE.obj`
   that the VU panel kept showing as a couple of tiny meshes.
   **Two answers, neither of them a bug.** The capture was **bag flush 0 of 37**,
@@ -99,7 +99,7 @@ Each finished feature lands as its own commit.
   every flush, so a one-line-per-flush summary (index, quadwords, meshes,
   vertices) would put that table in the panel instead of a 37-step script.
 
-- (199) **Session pointers: a running editor says what it has open.** 198 could
+- (203) **Session pointers: a running editor says what it has open.** 202 could
   only guess from `editor.ini`, and the owner's own machine broke it twice over
   in one sitting: their project lives in `F:\Tyra-Projects` (not the default
   folder the scan knows), and it never reached the recent list at all despite
@@ -135,7 +135,7 @@ Each finished feature lands as its own commit.
   `bin/ps2link.run` marker. Linux paths are written but **untested**: the editor
   is a Windows build today, so that half is compile-shaped, not proven.
 
-- (198) **`--debug-state`: which project is this machine actually debugging?**
+- (202) **`--debug-state`: which project is this machine actually debugging?**
   Owner's question, and it was a fair one: asked about "the last VU capture" of
   the scene they had open, the honest answer was that finding it meant guessing
   at paths - a search of the obvious folders in this session turned up nothing,
@@ -164,7 +164,7 @@ Each finished feature lands as its own commit.
   "cannot open output file tyrax-editor.exe: Permission denied" - the check
   binary was linked under another name instead of killing their session.
 
-- (197) **Making the VU capture actually answer questions** (owner, after 196:
+- (201) **Making the VU capture actually answer questions** (owner, after 196:
   "the meshes in there do not tell me much"). They did not: the panel showed one
   model-space wireframe out of a dozen, always from the same draw, and left every
   interpretation to the reader. Four changes, and the theme is that each one is
@@ -205,7 +205,7 @@ Each finished feature lands as its own commit.
   single MVP cannot be paired with the vertices being transformed. The
   "spans the whole plane" threshold is 3500 of 4096 units for the same reason -
   near-camera terrain covers several screens legitimately.
-  *Verified* in PCSX2 with the scratch fixture from 196: a clean boot walks
+  *Verified* in PCSX2 with the scratch fixture from 200: a clean boot walks
   flushes 0,1,2,3 with visibly different chains (67 qw/22 blocks vs 97 qw/32),
   `--pin 4` returns flush 4 three times running, and the header reports
   `512x448`, which is what that build renders. The **first walk run looked
@@ -216,9 +216,9 @@ Each finished feature lands as its own commit.
   nothing, a changed index counts as a changed state). The crash course this grew
   out of is now the bulk of the VU section in docs/devkit.md. **Still not
   screenshot-verified** - the panel needs clicks and this machine renders the
-  editor window blank (see 187).
+  editor window blank (see 191).
 
-- (196) **The VU panel showed the same capture forever** (reported by the owner:
+- (200) **The VU panel showed the same capture forever** (reported by the owner:
   "every VU frame dump shows me the same result with this geometry"). Two causes,
   both real, and the screenshot named the first one: the header said *frame 2551*
   while the game was running at frame 4876.
@@ -251,9 +251,9 @@ Each finished feature lands as its own commit.
   deliberately truncated copy decodes without `hasVuMem` and without crashing,
   which is the torn-read guard's trigger. The GUI panel itself is *not*
   screenshot-verified: driving it needs clicks, and this machine still renders
-  the editor window blank (see 187).
+  the editor window blank (see 191).
 
-- (195) **A textured terrain drew PURE BLACK on real hardware while PCSX2 was
+- (199) **A textured terrain drew PURE BLACK on real hardware while PCSX2 was
   fine** - reported with a photo of a physical console: sky, the house, and
   black where the ground should be ("should be the project's default colour").
   Three separate defects on one path, all of them emulator-invisible.
@@ -290,7 +290,7 @@ Each finished feature lands as its own commit.
   which of the three was *their* trigger is unconfirmed - (1) is the likely one
   if the project deploys from a disc.
 
-- (194) **ImGui ID conflict in the Debugger's object watch** (reported by the
+- (198) **ImGui ID conflict in the Debugger's object watch** (reported by the
   owner with the "3 visible items with conflicting ID" popup on screen). The
   per-axis position plots were three `PlotLines` calls sharing the label
   `"##plot"` inside one `PushID` scope - three widgets claiming one ID, which is
@@ -299,9 +299,9 @@ Each finished feature lands as its own commit.
   same time (the other loops do push an id, and the watch table's rows are
   text-only, so they claim no id). Fixed structurally and compiles; **not
   visually confirmed** - this machine still renders the editor window blank
-  (see 187).
+  (see 191).
 
-- (193) **The number plane: a flow graph can now COMPUTE a value instead of
+- (197) **The number plane: a flow graph can now COMPUTE a value instead of
   only typing one in.** Reported by the owner: "you cannot pass a value into a
   node through an input at all", wanting the simplest possible thing - a button
   that increases a variable by 1. Both halves landed.
@@ -354,10 +354,10 @@ Each finished feature lands as its own commit.
   game compiles on the PS2 toolchain, and the graph round-trips through
   `objects/*.json` (11 number links, 2 pins) and `--dump-graph`.
   **Not verified**: the graph editor's own visuals (this machine still renders
-  the editor window blank - see 187) and real hardware.
+  the editor window blank - see 191) and real hardware.
 
-- (192) **Reading back what VU1 produced: the staged GIF packets, decoded**
-  (docs/devkit.md). Follow-up to 191 - having the INPUT was half the answer; this
+- (196) **Reading back what VU1 produced: the staged GIF packets, decoded**
+  (docs/devkit.md). Follow-up to 195 - having the INPUT was half the answer; this
   is the other half. Arming a capture now also snapshots **all 1024 quadwords of
   VU1 data memory** right after that chain ran: the engine waits for VIF1 and for
   the microprogram (`VIF1_STAT` VPS/VEW, bounded spin), hands the memory over
@@ -384,7 +384,7 @@ Each finished feature lands as its own commit.
   Turning it into a verdict is one small step, written down in the docs: capture
   the object-data chain (the MVP upload) together with the qbuffer chain, and
   capture a single-bag flush. Not guessed at in this entry.
-  Also fixed from 191: only packets carrying XYZF2/XYZ2 count as geometry (the
+  Also fixed from 195: only packets carrying XYZF2/XYZ2 count as geometry (the
   `A+D` tag packets were inflating the clip accounting), and the reference
   computes both screen-Y conventions and reports which one fits rather than
   assuming the GS axis direction.
@@ -392,10 +392,10 @@ Each finished feature lands as its own commit.
   chain + 24 referenced blocks + 16 KiB of VU1 memory); MVP, scales, 14 GIF
   packets and their vertices all decode; the game keeps running normally
   afterwards (the stall is one frame). **Not verified**: the panel view (the
-  machine's blank-editor state from 187), the mesh-to-packet pairing (above), and
+  machine's blank-editor state from 191), the mesh-to-packet pairing (above), and
   real hardware.
 
-- (191) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
+- (195) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
   with the geometry** (docs/devkit.md). User request - "debugowanie VU to zawsze
   była jebaczka, jakby był podgląd tego co VU wygenerowało...". You cannot print
   from a microprogram and its output goes straight to the GS, but its INPUT is
@@ -430,7 +430,7 @@ Each finished feature lands as its own commit.
   does). **Not verified**: the wireframe view itself (the machine's blank-editor
   state from 184) and real hardware.
 
-- (190) **Crashes stop being invisible: TYRAX banners, an EE crash handler with
+- (194) **Crashes stop being invisible: TYRAX banners, an EE crash handler with
   a symbolized backtrace, and a post-mortem from the devkit's own history**
   (docs/devkit.md). User question, and the honest answer was "nothing nice
   happens": a `TYRA_ASSERT` was reported well, but a REAL EE exception (bad
@@ -495,7 +495,7 @@ Each finished feature lands as its own commit.
   covered them, but only in projects created after it), and the ISO export skips
   them plus any `*.sym`.
 
-- (189) **The devkit gets a receipt: a release build provably carries none of
+- (193) **The devkit gets a receipt: a release build provably carries none of
   it - plus armed-timer reporting, Fire-and-continue, per-frame object watches
   and a visible breakpoint marker** (docs/devkit.md). The user's condition for
   going further with debugging tools was blunt and correct: "make sure we don't
@@ -550,7 +550,7 @@ Each finished feature lands as its own commit.
   out of the title bar into an IDE-style gutter left of the node: a ringed dot
   plus a bar down the node's left edge, yellow with a pulsing halo when the game
   is stopped on it.
-  **Verified** in PCSX2 on the entry-187/188 fixture: armed timer reported as
+  **Verified** in PCSX2 on the entry-191/192 fixture: armed timer reported as
   `(key 4, 51 frames)` matching the 1 s Delay; object watch delivering 6
   consecutive per-frame samples per flush (50 Hz under a 6-frame cadence) with
   the frame numbers strictly +1; and then both new features against a STRUCTURAL
@@ -559,10 +559,10 @@ Each finished feature lands as its own commit.
   0.5 units/s frame by frame (6.0 -> 7.5 over 3 s). Release audit clean, debug
   audit correctly dirty. **Not verified here**: the editor's own panels and the
   new overlay/trail drawing (the machine is still in the blank-editor-window
-  state of entry 187 - the data paths behind them are the ones measured above),
+  state of entry 191 - the data paths behind them are the ones measured above),
   and ps2link on real hardware.
 
-- (188) **Live Logic: editing a flow graph changes the RUNNING game - the last
+- (192) **Live Logic: editing a flow graph changes the RUNNING game - the last
   thing in the pipeline that always needed a rebuild** (docs/live-logic.md).
   Graphs compile to C++, so editing one meant Docker + make + reboot. Now the
   EDITOR compiles the graph instead - into a pre-resolved instruction list
@@ -591,7 +591,7 @@ Each finished feature lands as its own commit.
   RuntimeObject state as compiled code, and carries the same Live-Debugger node
   keys - so breakpoints, hit counters and the timeline keep working on
   hot-patched logic.
-  **Verified in PCSX2** with the entry-187 fixture (On Start -> Set Var Int;
+  **Verified in PCSX2** with the entry-191 fixture (On Start -> Set Var Int;
   Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int), measured through the
   Live Debugger's own telemetry - the debugger is the instrument that proves
   the patch landed: native baseline 1.00 fires/s; after a patch of *the same
@@ -614,10 +614,10 @@ Each finished feature lands as its own commit.
   from *before* the stride fix. Both ends now derive the layout from one
   documented field list, and the sizes are asserted by the round-trip harness.
   **Not verified here**: the editor-side panel/chip (same blank-window state as
-  187 - the patch path itself was driven by the harness, which calls exactly
+  191 - the patch path itself was driven by the harness, which calls exactly
   what `App::liveLogicTick` calls), and ps2link on real hardware.
 
-- (187) **Live Debugger: breakpoints, pause/step and a rewindable execution
+- (191) **Live Debugger: breakpoints, pause/step and a rewindable execution
   timeline for a game running on the PlayStation 2** (docs/live-debugger.md).
   Live Link streams edits INTO the running game; this is the return channel.
   A debug build reports every flow-graph node it runs, so the Flow Graph
@@ -688,6 +688,564 @@ Each finished feature lands as its own commit.
   the same snapshots verified above, but a human should still eyeball the
   glow/timeline once. ps2link (real hardware) uses identical code paths on a
   25-frame cadence; untested.
+
+- (190) **Fix: Build & Run was broken on Windows - PCSX2 refused to boot the
+  ELF because the path had MIXED separators.** Diagnosed as a detour in (189)
+  and deferred there; this is the fix. Regression from the Linux port
+  (see (187), fix (2)): replacing the old `dir + "\\bin\\" + elfName()` with
+  `filePath("bin/" + elfName())` traded a Linux bug for a Windows one, because
+  `std::filesystem::path(dir) / "bin/name.elf"` does not normalize - it
+  concatenates, leaving `C:\...\proj\bin/proj.elf`. **Every check the editor
+  itself does passes on that string** (the CRT and `std::filesystem` accept
+  either separator, so the Runner's own `fs::exists()` pre-flight was happy and
+  it reported a successful launch), but PCSX2 v2.6.3 does not: it answers
+  `Startup Error: Requested boot ELF '...' does not exist.` for exactly the
+  file it boots fine when the same path is spelled with backslashes -
+  reproduced by hand, both spellings, one existing ELF. The user-visible
+  symptom was the worst kind: a PCSX2 window that just never starts the game,
+  with the only diagnostic in PCSX2's own `emulog.txt` (and Documents may be
+  OneDrive-redirected) - nothing in the Output panel, because as far as the
+  Runner knew it had launched.
+  `Project::filePath()` now ends in `make_preferred()`, so the fix is one line
+  and covers every caller instead of just the ELF: the rule is that anything
+  leaving the process needs native separators, and the only way to keep that
+  true is to normalize at the single place project-relative paths are joined.
+  Audited the rest of that boundary: `elfPath()` was the only `filePath()`
+  result handed to an external program (the others all go straight to
+  `objparser`/`stbi`/`fs`, which don't care), but `App::assetAbs` was a second
+  hand-rolled copy of the same join feeding the Asset Browser's **Reveal**
+  button, and `explorer.exe /select,"<mixed path>"` silently opens the default
+  folder instead of selecting the file - `assetAbs` now delegates to
+  `filePath()`, and `revealInFileManager` normalizes on its own too (it is the
+  OS boundary, and a future caller may hand it anything). The PS2-side `host:`
+  paths are untouched: they are built from `elfName()`/`relativePath`, never
+  from `filePath()`. Verified on Windows end-to-end: `build.ps1`, `--new pm6`
+  into `%TEMP%\tyra-editor-test`, `--build --run` exit 0, emulog now reads
+  `ELF host:C:\...\pm6\bin\pm6.elf ... is executing`, `bin/log.txt` fills with
+  `LOG:` lines through 480 frames and the scene renders at 50 FPS (screenshot).
+  Linux side: `make_preferred()` is a no-op where `/` is already preferred, so
+  the behavior there cannot change - confirmed by compiling and running a small
+  g++ 11 harness over `project.hpp` in WSL (`elfPath` = `.../pm6/bin/pm6.elf`)
+  plus a `-Wall -Wextra` syntax check of `platform.cpp`; no full Linux editor
+  build this time (the only change reaching it is the header, and the
+  platform.cpp edit is inside `#ifdef _WIN32`).
+
+- (189) **New-project defaults: authoring-ready build settings, a 100x100
+  terrain, and the world scale chosen before there is any content.** Four
+  changes to what `File > New Project` (and `--new`) hands you. The build ones
+  are the easy half: a fresh project now starts in the **debug** profile with
+  **Live Link** on and **USB keyboard & mouse off** - you author with the live
+  loop and the overlays available, switch to release for the disc, and a pad
+  game stops loading three IRX drivers it never polls. The load-bearing detail
+  is *where* those defaults live: every `read*Section` guards on
+  `find("key")`, so a member initializer in `ProjectSettings` is not the
+  new-project default at all - it is what a project saved *before that key
+  existed* loads as. Flipping `keyboardMouse` there would have silently
+  disabled the keyboard in every pre-feature project. So the struct keeps the
+  legacy answer (`"release"`, `true`) and `project::create` assigns the new one,
+  the same split `AmbiencePreset::aoEnabled` already used. `TerrainConfig` is
+  the exception - nothing reads it for a loaded project - so its 64 became 100
+  in the struct, with the legacy inline-`"terrain"` reader pinned to `{64, 64}`
+  so a malformed old file still reads as it did.
+  **World scale** is now asked in the dialog (a preset combo - metric / 10 cm /
+  1 cm / 10 m per unit / Custom, with the terrain size restating itself in
+  metres underneath) and as a trailing `--new` argument, plumbed through a new
+  `project::create(..., unitsPerMeter)` parameter. Not because it cannot be
+  changed later - *Preferences > World* is still there - but because changing it
+  later deliberately rescales *nothing* (177), so the only honest moment to ask
+  is before any content exists. Picking it also scales the
+  metric-by-definition defaults, since those are metres and seconds by
+  construction: eye height, walk speed, gravity, jump on `ProjectSettings`, plus
+  the FPP preset Player's own three and its third-person boom/height. At 10
+  units/m the preset player is 18 units tall running 50 units/s - still 1.8 m at
+  5 m/s. Units-by-nature values (tiling, nav cells, AO radius, flashlight
+  range) are left alone, and no existing project is ever touched.
+  Also, at the owner's request, the dialog's **explanatory paragraphs became
+  `(?)` tooltips** (the Preferences `prefHelp` idiom). The AI-support and
+  world-scale litanies plus the new build-defaults note were ~15 lines of
+  `TextDisabled` between the fields and the Create button; the modal is now
+  compact and the prose is one hover away.
+  *Verified* headlessly first - `--new defproj` gave `terrain 100x100,
+  1.000 units/m` with `"buildProfile": "debug"`, `"liveLink": true`,
+  `"keyboardMouse": false` in the `.tyra`, `loadUsbKbdMouse = false` in the
+  generated `src/main.cpp`, a non-empty `src/gen/live_link.gen.cpp` (211 lines =
+  the poller compiled in) and `TERRAIN_WIDTHS = {100.0F}` in `scene_data.hpp`;
+  `--new metric5 ... fpp 5` gave eye 9 / walk 0.5 / gravity 49 / jump 22.5 and a
+  player object at `eyeHeight 9, walkSpeed 0.5, camDist 30`. Then the GUI, which
+  **worked on this machine this time** (the white-window state of 101/187 was
+  absent): screenshots of the modal, the scale dropdown, the Custom branch's
+  `Units per meter` drag, the `= 10.0 x 10.0 m` hint and both new tooltips
+  rendered, and a full click-through Create at 10 units/m produced
+  `unitsPerMeter: 10`, eye 18, walk 1, gravity 98, terrain 100x100 and opened
+  with the amber `LIVE (build)` chip in the toolbar - the chip only exists with
+  the debug profile plus the Live Link preference, so it double-checks both.
+  One self-inflicted mess worth recording: driving the modal with `SendKeys`
+  after an ALT-tap **minimized the window mid-sequence**, the following clicks
+  landed at `-32000` coordinates, and something in that noise hit Create - which
+  created a stray `my-game` in the owner's real `TyraProjects` folder (found by
+  timestamp, verified as freshly-generated default content, removed). The fix
+  for the retry was to stop typing into the dialog at all: back up
+  `editor.ini`, point `defaultProjectsDir` at the scratchpad so the proposed
+  location is already safe, click only, then restore the ini. Prefer that over
+  synthetic text entry for any modal that writes to disk.
+  After merging main, re-ran the headless checks (same numbers) plus a **Docker
+  game build** (exit 0, `live_link.gen.o` in the link line and `livelink.sig`
+  stamped - the debug default reaches the PS2 toolchain) and a **PCSX2 boot** of
+  the 5-units/m FPP project: 2040 frames, no assert, `Static batching: 0 objects
+  in 0 batches` and the example script's hello in `bin/log.txt`, with the
+  debug-only `VRAMSTAT` lines confirming the profile in the *running* game.
+  That boot needed a detour: **`Project::elfPath()` returns a mixed-separator
+  path on Windows since the Linux port** (`filePath("bin/" + elfName())` gives
+  `...\proj\bin/proj.elf`), `fs::exists` accepts it and **PCSX2 v2.6.3 refuses
+  it** - `Requested boot ELF ... does not exist` in its emulog and nothing in
+  the editor's Output, because the Runner believes it launched. Isolated to the
+  separator by booting the same file both spellings by hand; a regression from
+  c01b09e5 (PR #154), unrelated to this change, so it is filed separately rather
+  than bundled here. The boot above used `pcsx2-qt` directly with a
+  backslash path. (The other silent limit bit first, for the record: the initial
+  scratch project sat 168 characters deep, past PCSX2's ~145-char `host:` cap -
+  same black window, also nothing in the game log.)
+
+- (188) **The editor had no icon on Linux.** On Windows the icon is a resource
+  inside the .exe (`resources/app.rc`, named `GLFW_ICON` so GLFW's Win32
+  backend picks it up for the window too), and there is no equivalent anywhere
+  else - the Linux port simply inherited a blank window and a generic launcher
+  tile. The fix has three parts because **X11 and Wayland get their icon from
+  completely different places**, and only one of them involves the application
+  at all:
+  - `resources/icon.png` is baked into the binary by a new
+    `cmake/embed_icon.cmake` (`icon_gen.hpp`, the `ai-support` embed pattern) -
+    the image is needed at runtime, and shipping a loose PNG next to the binary
+    would break the moment someone moves it.
+  - **X11**: decode it with stb_image and `glfwSetWindowIcon` (`applyWindowIcon`
+    in app.cpp).
+  - **Wayland**: there is no icon protocol at all. The compositor matches the
+    surface's **app id** against the installed `.desktop` files and takes the
+    icon from there, so no amount of application-side code can do it -
+    `glfwSetWindowIcon` returns `GLFW_FEATURE_UNAVAILABLE`, which is why the
+    call is skipped on `GLFW_PLATFORM_WAYLAND` rather than left to spam the
+    error callback. So the editor now registers itself:
+    `platform::installDesktopEntry` writes
+    `~/.local/share/applications/tyrax-editor.desktop` plus the icon into
+    `hicolor/256x256/apps/`, and `GLFW_WAYLAND_APP_ID` /
+    `GLFW_X11_CLASS_NAME` / `GLFW_X11_INSTANCE_NAME` are hinted to the same
+    `kAppId` string. All four names have to agree or the desktop cannot connect
+    the running window to its icon, which is why the id is one constant. The
+    entry is written before `glfwInit` (a compositor resolves the icon once, at
+    map time), rewritten only when its bytes change, and `Exec=` is re-stamped
+    from `exePath()` so moving the binary fixes itself. No-op on Windows.
+  - `Exec=` is quoted by the **desktop-entry** rules (double quotes, backslash
+    before `"` `\` `$` `` ` ``), not `shQuote`'s shell single quotes - a
+    single-quoted path is taken literally there.
+  Verified on Ubuntu/GNOME, both backends. Wayland: `WAYLAND_DEBUG=1` shows
+  `xdg_toplevel.set_app_id("tyrax-editor")`, and the other half of the chain
+  checked through GTK itself - `Gio.DesktopAppInfo.new('tyrax-editor.desktop')`
+  resolves to *TyraX* with the right `Exec`, and an icon-theme lookup of
+  `tyrax-editor` at 256 px returns the installed
+  `~/.local/share/icons/hicolor/256x256/apps/tyrax-editor.png`. X11 (forced
+  with `XDG_SESSION_TYPE=x11`): the window's `WM_CLASS` is
+  `"tyrax-editor", "tyrax-editor"` and `_NET_WM_ICON` starts `256, 256`, i.e.
+  the real image (note `xprop` prints a big CARDINAL array as *empty* - a GTK
+  app looks identical, so read the first two fields with a format spec instead
+  of concluding the property is unset). GNOME blocks
+  `org.gnome.Shell.Screenshot`/`Introspect` for unsandboxed callers, so the
+  "icon is visibly in the dash" half stays a human check.
+
+- (186) **Input follow-ups from review: the un-bindable Triangle, a USE prompt
+  that says which button, and a leaner controls scaffold.**
+  (a) **Fix: Triangle could never be rebound.** Capture mode checked the `back`
+  action first as its cancel, and back IS Triangle by default - so pressing
+  Triangle cancelled instead of being captured, and it was the one button no
+  player could bind. Cancel is now the RAW Start button: not the `menu` action
+  either, so it still works when a project moves that action. The cost is
+  documented (Start itself is uncapturable, which is why it is not a rebindable
+  action) and the row's hint stays `PRESS...`.
+  (b) **The USE prompt can be TEXT**, and a fresh project starts at `{{use}} Use`
+  - the prompt now says which button to press and follows a rebind, instead of a
+  generic "USE" sprite. `Project::usePromptText` is a HudText; non-empty text
+  wins over the image, is baked to `res/hud/use-text.png` and drawn at the baked
+  canvas size, so the GAME is unchanged - it still draws one sprite, just a
+  different file. Deliberately seeded only in `create()`: flipping existing
+  projects from their image to text would restyle every HUD behind the user's
+  back (the UI Editor offers the default in one click, and the viewport overlay
+  previews whichever mode is active).
+  (c) **`{{use}}` shorthand.** A token that is not an icon name gets one more
+  chance as an ACTION name, so `{{use}}` means `{{action:use}}` - which is what
+  people actually type. Icon names still win, so `{{cross}}` can never become an
+  action lookup. Both renderers learned it (the shared `textIconForAction` on the
+  host, `resolveIconToken` in the generated game).
+  (d) **The scaffolded OPTIONS tree no longer adds rebind rows.** Rebinding costs
+  a save value per action and most projects ship a fixed scheme, so its CONTROLS
+  page carries the stick settings only; the rows stay an explicit
+  *+ Option block > Key bindings*.
+  Verified on the console, and the harness earned two notes worth keeping: arrow
+  keys need `KEYEVENTF_EXTENDEDKEY` or the emulated keyboard reads them as the
+  numpad twins (the menu cursor never moved), and **PCSX2's default pad map binds
+  Return to Start** - so the synthetic "confirm" was pressing Start and closing
+  the pause menu, which looked exactly like a capture bug. Driving PCSX2's own
+  pad keys instead (K = Cross, I = Triangle): capture arms (`PRESS...`), Triangle
+  is captured, and the row redraws as the green triangle glyph. The USE prompt
+  bakes to "□ Use" with the pink Square glyph (the `use` action's binding).
+  Second round on the same review: the prompts became a pair with an EXPLICIT
+  text/image mode (radio buttons, not "text wins when non-empty" - flipping to
+  the image to compare must not throw away the text), **PICK UP** got its own
+  text (`{{use}} PICK UP`) plus its own image override and its own baked size
+  (`PICK_PROMPT_W/H` - it used to borrow the USE prompt's box), and the default
+  text is the classic word with the glyph rather than `HudText`'s "New text",
+  which is what was showing up in the field. That placeholder also revealed a
+  migration bug of my own making: an interim build wrote a default-constructed
+  prompt text AND its mode flag into every project it saved, so older projects
+  flipped to a prompt reading "New text". The reader now drops that exact string
+  (nobody types it into a prompt) *after* applying the flags - doing it before
+  left the bogus flag in charge - and the committed examples were put back on
+  their built-in sprites. The Button icons manager also gained a preview that
+  falls back to the built-in DRAWING when the PNG has not been baked yet (a fresh
+  project showed an empty column), a hover blow-up, and a per-icon **Default**
+  button that resets the scale and deletes the generated PNG so the next build
+  redraws it. The scaffolded OPTIONS root now opens at game start unless another
+  menu already claims the title screen.
+  Third round, and it turned up a **data-loss bug that predates this branch**:
+  `commitChange()` marked the project dirty only when `History::push` accepted a
+  new snapshot, and that snapshot carries **only the scenes** - so editing any
+  project-wide collection (menus, the Input Map, gradings, sequences, save
+  values...) left the save icon dark and, worse, no "unsaved changes" prompt on
+  exit. Those edits were quietly losable. commitChange now dirties
+  unconditionally (push still decides whether it becomes an undo step), and the
+  UI Editor + icon manager stopped writing to disk behind the user's back on
+  every keystroke - they mark dirty like everything else. Verified in the GUI:
+  "+ Add action" in the Input Map turns the toolbar save icon amber (it stayed
+  grey before) and a close request now raises "Unsaved Changes".
+  Also from that round: the shoulder/Start/Select icons dropped their border and
+  draw the LABEL ONLY - at text size the border left the letters unreadable on a
+  TV, and "L1+R1 Aim" / "R2" now read cleanly in-game; a **`{{ }}` picker** next
+  to every placeholder-capable field lists the project's tokens with their
+  glyphs (the legend the syntax was missing, and it inserts them); and the Menu
+  Editor's text sizes became two labelled sliders that say icons scale with them
+  (they always did - the control was just a cramped unlabelled DragInt2).
+  Also merged origin/main (#138-#151: asset browser, world scale, lightmaps,
+  trees, emissive, ortho views, VRAM manager) - `kSectionCount` needed 15 after
+  main's ModelUnits met this branch's Input, the same one-short trap as the last
+  merge, so the constant now carries a comment saying why it drifts.
+  Fourth round, two bugs from playing the thing. **(1) An action bound to L3 (or
+  R3/Start/Select) never fired if it was a HELD action** - sprint on L3 did
+  nothing while sprint on any other button worked. The engine, not this branch:
+  `Pad::update` built its `pressed` struct button by button and the four with no
+  pressure channel were **absent from that list entirely**, so `pressed.L3` was
+  permanently 0 while `getClicked()` (which reads the raw word) had all sixteen -
+  hence "the rebind takes, the action doesn't". Four lines in
+  `vendor/tyra/engine/src/pad/pad.cpp`. Proved on the console with a graph of
+  *On Action "sprint"* -> *On Condition* -> red sky and sprint bound to L3: the
+  sky turns red the moment L3 goes down (it stayed blue before the fix), so the
+  held path sees it.
+  **(2) The USE prompt lied after an in-game rebind** - `{{use}} USE` baked to
+  "□ USE" at build time and kept showing □ after the player moved `use` to
+  Triangle. The prompt is now **two sprites**: the bake writes the letters with
+  the first `{{action}}` glyph LEFT OUT and reports the hole
+  (`USE_PROMPT_ICON_ACTION/X/Y/SIZE`, and the `PICK_` twins), and the game blits
+  the current binding's icon into it from the shared icon sheet each frame -
+  `menubake::promptLayout`/`bakePromptRGBA`/`bakePromptPNG` on the host,
+  `liveIconForAction` + `drawIconAt` in the generated game. One extra quad per
+  frame, no extra texture (the sheet was already loaded for runtime text, and the
+  sprite is shared with it now), and a prompt with no action token still bakes
+  whole (`ICON_ACTION` = -1). Verified end to end in PCSX2: the prompt reads
+  "□ USE", the pause-menu row rebinds `use` to Triangle, and the prompt reads
+  "△ USE" with no rebuild.
+  *And then the user asked the right question* - "does that also work for `Press
+  {{use}} to use`?" It did, by luck: the slot walk summed the preceding runs'
+  text, which is correct as long as nothing but letters precedes the token. Two
+  tokens, or a plain `{{cross}}` before one, and it fell apart - the bake skipped
+  **all** icons (so `{{cross}}` vanished) while only the FIRST action got a live
+  glyph (so a second one vanished too), and an icon in the prefix was measured as
+  zero width, sliding the live glyph left by its advance. Now there is a slot per
+  action token: `promptLayout` walks the runs with drawText's own pen (so any
+  line, any position), the bake skips only the runs that came from an ACTION and
+  composites every other icon as before, and `hud_data.gen.hpp` carries
+  `USE_PROMPT_ICONS[]` + `_COUNT` which the game loops over. `Press {{use}} to
+  use {{cross}} or {{jump}}` renders on the console as "Press □ to use ✕ or ✕"
+  with all three aligned, and after rebinding `use` to Triangle only the first
+  becomes △: the `{{jump}}` glyph still follows jump, and the baked `{{cross}}`
+  is untouched.
+
+- (185) **Text icons: `{{cross}}` in any text draws the button glyph.** Written
+  as a companion to the Input Map (165): a controls menu that says "Cross" reads
+  like a manual, one that shows ✕ reads like a PlayStation game. `Project::textIcons`
+  (`TextIcon`: name + PNG + scale) is the registry, edited in *UI Editor > Button
+  icons*, and the placeholder comes in two forms - `{{cross}}` for a named icon
+  and **`{{action:jump}}` for whatever that action is currently bound to**, which
+  is what keeps a prompt correct after a preset switch or a player's rebind (live
+  in runtime text; resolved from the default preset at bake time in baked text,
+  documented as the snapshot it is). A token naming nothing stays LITERAL on
+  screen - a typo should be visible, not vanish.
+  The trick that made this cheap: **both text renderers already funnel through
+  one function each**, so teaching `textWidth`/`drawText` (menubake.cpp) about
+  icon runs gave menu titles, entry labels, Toggle/Choice option strips, HUD
+  texts and loading screens the feature simultaneously, and the parser itself
+  (`parseTextIcons` -> `TextRun`s) is header-only in project.hpp so the editor,
+  the baker and codegen share it. Baked text **composites the icon into the
+  sprite** (zero runtime cost - still one quad); runtime text (Display Text
+  nodes, a rebind row's value) blits from one sheet `res/hud/icons.png` with
+  rects in `inc/icon_data.gen.hpp`, handed to the texture repository only the
+  first time something actually draws an icon, so an unused feature costs no
+  VRAM. The advance formulas are explicit twins (`iconAdvance` /
+  `iconAdvanceFor`) - they must stay equal or a baked and a runtime copy of the
+  same string come out different widths.
+  The built-in set is **drawn, not shipped as blobs**: 16 pad-button glyphs from
+  signed-distance fields (4x4 supersampled) in the DualShock colors - blue ✕,
+  red ○, pink □, green △, grey plates for L1-R3/Start/Select, grey arrows for
+  the d-pad - written to `res/hud/icon-<name>.png` on the first build and never
+  overwritten after, so "override an icon" is just "replace the PNG" (with
+  *Regenerate built-in PNGs* as the way back). Unlike font glyphs they keep
+  their own colors and are skipped in shadow passes; a colored icon tinted with
+  the text color, or shadowed, looks wrong.
+  Two rounds of visual review paid for themselves. The first drew all four
+  d-pad icons as "a plus with one arm marked", which at 16px on a TV is the same
+  icon four times - replaced with solid direction arrows. The second (asked for
+  during the review) put the face buttons in PlayStation colors and revealed
+  that the ✕ and □ **touched the ring**: a diagonal shape reaches sqrt(2) further
+  than its radius suggests, so those two now have their own smaller extents and
+  every inner glyph is checked against the ring's inner edge.
+  Verified: editor builds clean; a scratch project's 16 icons rendered and
+  reviewed at 4x; a hand-authored menu proves the baked path end to end
+  (`{{triangle}} HINTS` title, `{{cross}} Jump`, `{{action:use}}` -> □,
+  `{{l1}}+{{r1}}`, `{{dpadleft}} Low` in a value strip, `{{nope}}` staying
+  literal) and a HUD text proves `{{action:jump}}`; **full Docker build returns
+  `Build OK` and PCSX2 shows all of it on screen in color**, including the
+  runtime path (the Jump rebind row drawing a blue ✕ and Sprint a grey R2 from
+  the sheet). Examples regenerated; docs/text-icons.md + README, docs index,
+  editor skill and both ai-support guides.
+
+- (184) **Configurable buttons & keys: the Input Map, in-game rebinding and a
+  sprint action.** Every gameplay button in a generated game was a `#define` in
+  `inc/controls.hpp` — jump was Cross, full stop, and a player had no say. Now
+  the game reads inputs through **named actions** and three layers resolve them:
+  project **presets** → the **player's** in-game override → a *user-owned*
+  `controls.hpp`. New model in `src/input.hpp` (`InputAction` with a `Role`,
+  `InputBinding` = pad **and/or** USB HID key **and/or** mouse button,
+  `InputPreset`, `InputMap` on `Project::input` + `Section::Input`) plus the
+  shared **`inputCodes()`** table — the dense rebind code space whose numbers
+  land in players' memory-card saves, hence append-only, with `INPUT_CODES` in
+  the generated game as its twin. `project::ensureInputActions` seeds/backfills
+  the 18 built-in actions with *exactly* the bindings that were hardcoded, so an
+  existing project plays identically (verified by generating a project and
+  diffing the emitted `controls.hpp` against the old constants); the one
+  behavior addition is **sprint** (pad R2 / Left Shift, `sprintMultiplier`
+  ×1.8, 1.0 = off), applied in all three walker modes — and deliberately NOT
+  folded into the animation `step`, so a third-person avatar crosses its run
+  threshold while sprinting and plays the run clip for free.
+  Codegen: `inc/input_map.gen.hpp` (action indices, `IA_ROLE_*` slots — `-1`
+  when the project has no action for a role — preset tables, `SPRINT_MULT`) +
+  `src/gen/input_map.gen.cpp` (`inputPressed`/`inputClicked`, preset+override
+  resolution, table-driven keyboard/mouse folding, rebind capture, binding
+  labels). Every read site moved off `pad.getClicked().<Button>`: both walkers,
+  the noclip fly keys, use/throw/carry, the save menu and the whole pause-menu
+  navigation (which means a project can now *move* menu buttons too).
+  `controls.hpp` stays ownable and stays authoritative when owned — the
+  generated copy is derived from the default preset, so the runtime only lets
+  the macros win when they **disagree** with it (otherwise a preset switch or a
+  rebind would be overwritten every `inputRebuild()`); its
+  `applyKeyboardMouseInput` is now a one-liner into the generated fold, so keys
+  rebind as well.
+  In-game rebinding is a new Menu Editor row (`MenuEntry::RebindKey`, action
+  10) and is deliberately **pad-only**: `inputCapture` ignores keyboard/mouse
+  and `inputBindLabel` omits them, because that support is still experimental
+  (docs/keyboard-mouse.md - the hardware path is unconfirmed) and is meant to
+  get its own dedicated menu later. Consequence worth spelling out: an override
+  therefore replaces the action's `pad` slot **alone**, so the key and mouse
+  button the preset authored keep working - replacing the whole binding would
+  silently kill a keyboard key that no in-game row can put back. A saved code
+  that is not a pad button (written by the interim build that did capture keys)
+  is ignored rather than allowed to unbind the pad.
+  `bindAction` names the action, `param` the save value holding the
+  override, so it persists on the memory card and re-applies after a load
+  (`applyInputBindings`, next to `applyMenuBindings`). Selecting it arms capture
+  mode (`menuRebindRow`, cleared on every menu transition) — the next button or
+  key pressed becomes the binding, *back* cancels, *menu left* clears to the
+  preset. Its value is the one menu value that **cannot** be baked into the
+  option strip (the binding name is only known at runtime), so it draws as
+  runtime text from the menu font's glyph atlas — `atlasFontIndices()` now bakes
+  an atlas for any menu with such a row and `MenuData` carries that FONTS slot.
+  Also: menu bind 8 = *Input preset*, a *+ Option block > Key bindings* item and
+  rebind rows in the scaffolded CONTROLS page, flow nodes **On Action** (follows
+  the binding, bool output = held) / **On Key** (raw key, for debug/cheat keys)
+  / **Set Input Preset**, `--dump` lists input actions + presets and the AI
+  generator's context/catalog carry them. Docs:
+  new [docs/input-bindings.md](docs/input-bindings.md), keyboard-mouse.md,
+  README, both ai-support guides and the editor skill.
+  Verified, all the way to the console: editor builds clean; headless `--new`
+  reproduces the old bindings in `controls.hpp` and a full 18-action/1-preset
+  table; `--apply-graph` + `--refresh-gen` show On Action compiling to
+  `inputClicked(ctx.engine->pad, 5)  // sprint`, On Key to `isKeyClicked(62) //
+  F5`, Set Input Preset to `inputSetPreset(0)` and an unknown action name to a
+  `// node N (OnAction): unknown input action` comment; a hand-authored controls
+  menu round-trips through `--resave` and emits
+  `{10, 0, 0.0F, 0, -1, 0, 4, nullptr}` rows plus `FONT_COUNT = 1` (the atlas
+  the rebind row needs). **Full Docker build of the generated game returns
+  `Build OK`** (`obj/gen/input_map.gen.o` compiles, the ELF links), it **boots
+  in PCSX2** with both USB drivers ready and no assert, and pressing **Left
+  Shift on the host keyboard fires the `On Action "sprint"` trigger exactly
+  once** (a rising edge, as designed) — proving the fold reads the LIVE
+  bindings, not a baked table. A screenshot of the in-game CONTROLS menu shows
+  the rebind rows drawing their bindings as runtime atlas text
+  (`Jump  Cross+Space`, `Sprint  R2+Left Shift`) next to a baked `Preset
+  Default` strip. That screenshot is what settled the pad-only scope: the first
+  attempt read `Cross+Space+Mouse Right` and ran straight over the row's baked
+  label (the value column of a 256px panel is ~100px). Shrinking the text to fit
+  (kept, 50% floor) made it legible but not *right* — advertising experimental
+  keyboard/mouse keys in a shipped controls menu was premature, so the row now
+  shows and captures the pad alone and reads `Jump  Cross` / `Sprint  R2`
+  (screenshot). Re-verified afterwards that the keyboard still WORKS while no
+  longer being displayed: Left Shift fires the sprint trigger, and Backspace
+  (the `back` action) closes the pause menu.
+  Still unverified visually: the capture-mode `PRESS...` state and the actual
+  rebind — driving it needs synthetic keystrokes and
+  `SetForegroundWindow` cannot reliably raise PCSX2 from a background process,
+  so the keys land in whatever window has focus (they went into another app's
+  window once here, which is exactly why the keyboard checks above now assert
+  `GetForegroundWindow()` first). Worth a human pass with a real pad: open the
+  pause menu, pick a row, press a button.
+- (187) **The editor is cross-platform: it builds and runs on Linux from the
+  same source tree.** The whole thing was Windows-only, and not incidentally -
+  `CreateProcess` + Job Objects drove the Runner and the AI generator,
+  comdlg32/`IFileOpenDialog` were the file pickers, `ShellExecute` was "Reveal
+  in Explorer", `%LOCALAPPDATA%` held editor.ini / the session remote-cache /
+  the exported PS2SDK headers, `\Windows\Fonts` resolved every baked font, and
+  `GetModuleFileName` was how anything found the bundled engine or `tools/`.
+  Rather than `#ifdef` ~40 call sites, all of it moved behind one new module,
+  **`src/platform.hpp/.cpp`**, and the call sites became platform-blind. What
+  it covers: `exePath`/`configDir`/`homeDir`/`userName`/`exeSuffix`/`processId`,
+  `sleepMs`/`logTimeStamp`, the shell-fragment helpers (`quiet`, `killByName`,
+  `envPrefix`, `commandExists`), a `Process` class, the pickers
+  (`pickFile`/`pickFolder`/`errorBox`), `revealInFileManager`, `openInVSCode`,
+  and the font lookup (`systemFontPath`/`systemFonts`/`fallbackFontFiles`).
+  **The load-bearing piece is `platform::Process`**: one shell command line
+  (`cmd.exe /S /C` vs `/bin/sh -c`), optional stdout capture, optional stderr
+  to a file, and a `kill()` that takes down the whole TREE - a Job Object on
+  Windows, a `setsid()` process group on POSIX. That last part is not a detail:
+  the shell wrapper is never the process doing the work (docker, make, node,
+  curl, ps2client), so killing only the wrapper is how Cancel used to leave a
+  token-burning backend or a port-holding file server behind. Two subsystems
+  deliberately did NOT move into it, each saying so in a comment: the socket
+  shims in `wire.cpp` (Winsock2 *is* BSD sockets with other spellings - routing
+  them through platform.hpp would mean re-inventing a socket API, so the
+  Winsock names are mapped onto POSIX in place and the transport is written
+  once), and PCSX2 discovery in `runner.cpp` / `pcsx2_config.cpp` (two Program
+  Files roots vs PATH + flatpak + an AppImage in `~/Applications`; the .ini is
+  a Documents known folder vs XDG dirs plus the flatpak sandbox - genuinely
+  different SHAPES, and platform.cpp has no business knowing what PCSX2 is).
+  Everything else is a one-line swap. Beyond the mechanical port, four things
+  had to be decided rather than translated: **file dialogs** have no portable
+  native answer on Linux, so they shell out to zenity (kdialog as fallback) and
+  the filter lists moved from wide double-NUL comdlg strings to a plain
+  `FileFilter` struct both back-ends build from - the Executable filter now
+  asks `platform::exeSuffix()` so it is not `*.exe` on a machine where
+  executables have no extension; **fonts** keep storing a bare file name, but
+  resolution goes through a lazily-built filename→path index over the
+  freedesktop font roots, and a project authored on the other OS falls back
+  through the platform chain instead of failing the bake (this is what makes
+  `.tyra` files portable in practice); **`localIPv4`** switched to `getifaddrs`
+  on POSIX, because the gethostname route the Windows build uses answers
+  `127.0.1.1` and nothing else on the many distros that put the host name in
+  `/etc/hosts` - which would have left the collaboration and phone-camera
+  panels with no address to show; and **SIGPIPE is ignored process-wide** from
+  a static in platform.cpp, since both a dying child's pipe and a vanished
+  session peer would otherwise kill the editor outright (`send` also passes
+  `MSG_NOSIGNAL` where it exists). Build side: CMake links `OpenGL::GL` +
+  Threads + `${CMAKE_DL_LIBS}` off Windows and keeps shell32/ole32/uuid/ws2_32
+  on it, and `deps.sh`/`setup.sh`/`build.sh` mirror the PowerShell trio
+  one-for-one - same single-source dependency list, same "missing dep runs
+  setup" guard, plus an up-front toolchain/pkg-config check that names the
+  exact install command instead of failing later inside cmake. The POSIX side
+  has one thing the PowerShell trio does not need: **`./setup.sh --deps`**
+  installs the system toolchain and the X11/Wayland/GL headers, because on
+  Windows they come from scoop (per-user) while here they are distro packages.
+  deps.sh carries one list per family (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/
+  `_zypper`) plus the two helpers both scripts share - `tyrax_system_packages`
+  picks the manager, `tyrax_root_prefix` picks sudo or, when there is no tty to
+  authenticate in, **pkexec** (which asks in the desktop's own dialog; that is
+  how this whole port got bootstrapped on a box where `sudo` could not prompt).
+  It is opt-in rather than part of plain `setup.sh` because it is the only step
+  that needs root. `zenity` is in the lists because the file dialogs shell out
+  to it - build.sh warns about a missing one but never blocks, since the editor
+  builds and runs fine without it, it just cannot open anything.
+  **Six real bugs fell out of actually running it, every one invisible on
+  Windows.** (1) `templates::File::relativePath` is `'\'`-separated (hundreds
+  of literals compare against it that way) and was handed straight to
+  `std::filesystem` - on POSIX a backslash is an ordinary FILENAME character,
+  so a fresh project came out as ~30 files literally called
+  `src\gen\flow_graph.gen.cpp` instead of a directory tree. Fixed at the four
+  places a relativePath meets the file system, via a new
+  `templates::nativePath()`; the string comparisons are untouched. (2) The same
+  trap one level up: `p.dir + "\" + relPath` was how EVERY project-relative
+  asset was opened (models in decalproj/navmesh/templates, menu images, the
+  `.mtl` and LOD tiers) plus `Project::elfPath()`. On Linux each of those named
+  a file that does not exist, so nothing would have loaded and PCSX2 was told
+  to boot `.../linuxtest\bin\linuxtest.elf`. There is now one
+  `Project::filePath(rel)` and no hand-joins left. (3) The build's in-container
+  shell scripts are nested inside the command line, and cmd.exe expands
+  nothing - `/bin/sh` expands `$(...)`/`${...}` inside double quotes on the
+  HOST, which emptied every variable in the sfx loop ("dirname: missing
+  operand", so `adpenc` never ran) and evaluated `$(nproc)` against the wrong
+  machine. New `platform::shellArg()` quotes anything the outer shell must not
+  touch, and every nested script and path argument goes through it. (4) The
+  container runs as root, so on a plain Linux Docker everything the copy-back
+  rsync wrote into the bind-mounted project came out root-owned - the user
+  could not delete their own `bin/` without sudo (`rm -rf bin` failed on every
+  file while proving this). The copy-back now passes
+  `--chown=$(platform::containerFileOwner())`, empty on Windows where Docker
+  Desktop maps ownership itself. (5) A non-blocking `connect()` reports
+  WSAEWOULDBLOCK on Winsock and **EINPROGRESS** on POSIX, so every
+  collaboration client and phone-camera connection was rejected the instant it
+  was made; the socket harness below caught it. (6) Projects shipped `run.ps1`
+  + `windows-pcsx2.ps1` and nothing for anyone else, so a generated project got
+  a `run.sh` twin (PATH / flatpak / AppImage probing, same kill-then-launch
+  shape) - and `writeFile` now adds the execute bits to any generated `.sh`,
+  since a file mode is not something a template can express. Both scripts are
+  emitted regardless of authoring OS: a project is portable, so the helper for
+  the *other* machine has to be in it.
+  One pre-existing limit also surfaced, because Linux runs into it far sooner
+  than Windows: **PCSX2's host: loader silently refuses a long ELF path** - it
+  logs `ELF Loading: ...` and the EE never reaches `is executing`, leaving a
+  black window and no clue. Bisected on this box: 145 characters boot, 147 do
+  not (the `host:` prefix puts that at a 150-byte buffer). A home directory
+  plus a deep project tree passes 145 much sooner than
+  `C:\Users\<name>\TyraProjects\<project>` does, so `launchPCSX2` now says
+  so in the Output panel instead of letting the user stare at it.
+  *Verified* on Ubuntu 26.04 (GNOME/Wayland, a box with no toolchain, no
+  Docker and no compiler to start with), all the way to a running game:
+  - `./setup.sh --deps` installed the toolchain and the X11/Wayland/GL headers
+    through apt (pkexec, since sudo-rs had no tty to ask in), and `./build.sh`
+    from a bare tree fetched every `vendor/` dependency and produced
+    `build/tyrax-editor` (101 targets, clean, `--clean` rebuild too). The
+    diagnostic path was exercised too, by running build.sh with a stripped
+    PATH: it names the missing tools and prints `./setup.sh --deps` plus the
+    literal apt command for this distro.
+  - Headless CLI end to end: `--new` created an FPP project whose tree is now
+    real directories (`src/gen/…`, `inc/scripts/…`, `objects/<id>.json`) with
+    an executable `run.sh` that passes `bash -n`, then `--refresh-gen`,
+    `--resave`, `--dump` (correct JSON: one `player-1`, terrain 64x64) and
+    `--list-nodes` (112 lines).
+  - A **socket harness** (`wire.cpp` + `platform.cpp` linked against a 90-line
+    `main()`, the pattern the collaboration tests already use) ran a listening
+    and a connecting transport in one process over 127.0.0.1: connect, a frame
+    each way byte-identical including a 1 KiB binary trailer, the disconnect
+    event, the WebSocket server's "a plain browser GET never becomes a peer"
+    contract, and `localIPv4()` returning a real LAN address. This is what
+    caught the EINPROGRESS bug - it failed 6 of 13 checks first.
+  - The GUI runs natively on Wayland: EGL/mesa mapped, `/dev/dri/renderD128`
+    open, 9 threads, steady CPU at vsync. (No screenshot - GNOME 45+ denies
+    every non-Shell screenshot path; see tyra-testing for what stands in.)
+  - **Full e2e**: `--build --run` pulled the `h4570/tyra` image, compiled
+    libtyra and the game with the PS2DEV toolchain, converted a test WAV with
+    `adpenc` into `bin/sfx/steps/blip.adpcm`, copied `bin/` back host-owned,
+    enabled `HostFs` + the USB keyboard/mouse ports in the distro PCSX2's ini,
+    and launched it. The game **boots and runs**: emulog says `ELF ... is
+    executing`, and `bin/log.txt` over host: shows the engine coming up
+    (audsrv, renderer, pad, save system), `Hello from TyraX!` from the example
+    script, and `VRAMSTAT f=240` - 240 rendered frames, no TYRA assert.
+  **Not verified**: the Windows build after the refactor (needs a Windows box -
+  every `#ifdef _WIN32` branch here is written but uncompiled), and the real-PS2
+  network deploy (no console on this LAN).
+
 - (186) **Two things the owner hit while playing with areas: the unload band was
   eight units of "why is this still loaded", and you cannot debug an invisible
   volume.** (1) A streaming layer on an area zone loaded the instant you entered

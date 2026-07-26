@@ -16,6 +16,7 @@
 #include "livedbg.hpp"
 #include "vucap.hpp"
 #include "app.hpp"
+#include "platform.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 
@@ -227,26 +228,30 @@ static int debugStateFromCli(int argc, char** argv) {
 
 // Headless helper:
 //   tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
+//                    [unitsPerMeter]
 static int createFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --new <name> <parentDir> [width] [depth] "
-                     "[empty|fpp]\n");
+                     "[empty|fpp] [unitsPerMeter]\n");
         return 2;
     }
     TerrainConfig t;
     if (argc > 4) t.width = std::atoi(argv[4]);
     if (argc > 5) t.depth = std::atoi(argv[5]);
     const char* preset = argc > 6 ? argv[6] : "empty";
+    // World scale (docs/world-scale.md); 1 unit = 1 m unless asked otherwise.
+    const float ups = argc > 7 ? (float)std::atof(argv[7]) : 1.0f;
 
     Project p;
-    std::string err = project::create(p, argv[2], argv[3], t, preset);
+    std::string err = project::create(p, argv[2], argv[3], t, preset, ups);
     if (!err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    std::printf("created: %s (terrain %dx%d)\n", p.dir.c_str(), p.scenes[0].terrain.width,
-                p.scenes[0].terrain.depth);
+    std::printf("created: %s (terrain %dx%d, %.3f units/m)\n", p.dir.c_str(),
+                p.scenes[0].terrain.width, p.scenes[0].terrain.depth,
+                p.settings.unitsPerMeter);
     return 0;
 }
 
@@ -459,6 +464,12 @@ static int dumpFromCli(int argc, char** argv) {
     names("ambiencePresets", p.ambiencePresets,
           [](const AmbiencePreset& a) { return a.name; });
     names("sequences", p.sequences, [](const Sequence& s) { return s.name; });
+    // Input actions / binding presets: what On Action and Set Input Preset
+    // reference (docs/input-bindings.md).
+    names("inputActions", p.input.actions,
+          [](const InputAction& a) { return a.name; });
+    names("inputPresets", p.input.presets,
+          [](const InputPreset& v) { return v.name; });
     o << " }\n";
     std::printf("%s", o.str().c_str());
     return 0;
@@ -567,10 +578,9 @@ static int refreshGenFromCli(int argc, char** argv) {
 // config lives in app.cpp.
 static aigen::Config aiConfigFromEditorIni() {
     aigen::Config cfg;
-    const char* base = getenv("LOCALAPPDATA");
-    if (!base || !*base) base = getenv("USERPROFILE");
-    if (!base || !*base) return cfg;
-    std::ifstream f(std::filesystem::path(base) / "tyra-editor" / "editor.ini");
+    const std::filesystem::path base = platform::configDir();
+    if (base.empty()) return cfg;
+    std::ifstream f(base / "editor.ini");
     std::string line;
     while (std::getline(f, line)) {
         if (line.rfind("aiBackend=", 0) == 0) cfg.backend = line.substr(10);
@@ -951,7 +961,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
-            "  --new <name> <parentDir> [w] [d] [empty|fpp]\n"
+            "  --new <name> <parentDir> [w] [d] [empty|fpp] [unitsPerMeter]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"

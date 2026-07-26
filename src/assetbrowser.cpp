@@ -40,9 +40,7 @@
 #include "objparser.hpp"
 #include "templates.hpp"  // saveMenuAssets - the built-in HUD sprites
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <shellapi.h>  // ShellExecuteA - "Reveal in Explorer"
+#include "platform.hpp"
 
 namespace fs = std::filesystem;
 
@@ -146,7 +144,10 @@ ImU32 kindColor(int kind) {
 }  // namespace
 
 std::string App::assetAbs(const std::string& rel) const {
-    return (fs::path(project_.dir) / rel).string();
+    // One join, one spelling: filePath() is what keeps the result natively
+    // separated, which matters as soon as a path leaves the process (the
+    // Reveal button hands it to explorer.exe, which ignores a mixed one).
+    return project_.filePath(rel);
 }
 
 App::AssetKind App::assetKindOf(const std::string& rel) {
@@ -1274,11 +1275,8 @@ void App::drawAssetBrowserWindow() {
                 assetDeleteFolder_ = folder;
                 assetDeleteBatchActive_ = true;
             }
-            if (ImGui::MenuItem("Reveal in Explorer")) {
-                const std::string arg = "\"" + assetAbs(folder) + "\"";
-                ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr,
-                              SW_SHOWNORMAL);
-            }
+            if (ImGui::MenuItem("Reveal in file manager"))
+                platform::revealInFileManager(assetAbs(folder));
             ImGui::EndPopup();
         };
         auto drawNode = [&](auto&& self, const std::string& rel) -> void {
@@ -1415,11 +1413,8 @@ void App::drawAssetBrowserWindow() {
             ImGui::Separator();
             if (ImGui::MenuItem("Copy path"))
                 ImGui::SetClipboardText(item.rel.c_str());
-            if (ImGui::MenuItem("Reveal in Explorer")) {
-                const std::string arg = "/select,\"" + assetAbs(item.rel) + "\"";
-                ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr,
-                              SW_SHOWNORMAL);
-            }
+            if (ImGui::MenuItem("Reveal in file manager"))
+                platform::revealInFileManager(assetAbs(item.rel));
             ImGui::EndPopup();
         }
         if (ImGui::IsItemHovered()) {
@@ -1620,11 +1615,7 @@ void App::drawAssetInspector(const std::string& rel) {
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy path")) ImGui::SetClipboardText(rel.c_str());
     ImGui::SameLine();
-    if (ImGui::SmallButton("Reveal")) {
-        const std::string arg = "/select,\"" + assetAbs(rel) + "\"";
-        ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr,
-                      SW_SHOWNORMAL);
-    }
+    if (ImGui::SmallButton("Reveal")) platform::revealInFileManager(assetAbs(rel));
     ImGui::TextDisabled("%s", rel.c_str());
     if (item->generated) {
         ImGui::TextColored(ImVec4(0.85f, 0.75f, 0.4f, 1.0f),

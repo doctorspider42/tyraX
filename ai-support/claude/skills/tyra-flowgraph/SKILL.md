@@ -80,7 +80,14 @@ over guessing from this file.
   guarded automatically.
 - Names in `str` must match the project exactly - get them from
   `"{TYRAX_EXE}" --dump <projectDir>` (objects, scenes, layers, music, sounds,
-  save values/texts, menus, texts, gradings, ambiences, sequences).
+  save values/texts, menus, texts, gradings, ambiences, sequences, input
+  actions/presets).
+- **Buttons: prefer On Action over On Button.** `On Action` names an *input
+  action* from the project's Input Map ("jump", "sprint", ...) and follows
+  whatever that action is bound to, including a binding preset switch and a
+  player's own in-game rebind. `On Button` is the raw pad button and `On Key`
+  the raw USB keyboard key - use those only when a fixed physical button is
+  really what is wanted (a debug/cheat key).
 
 ## AI generation
 
