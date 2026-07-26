@@ -11,8 +11,8 @@ Each finished feature lands as its own commit.
 ## Also done after the marathon
 
 <<<<<<< HEAD
-- (189) **Reading back what VU1 produced: the staged GIF packets, decoded**
-  (docs/devkit.md). Follow-up to 188 - having the INPUT was half the answer; this
+- (192) **Reading back what VU1 produced: the staged GIF packets, decoded**
+  (docs/devkit.md). Follow-up to 191 - having the INPUT was half the answer; this
   is the other half. Arming a capture now also snapshots **all 1024 quadwords of
   VU1 data memory** right after that chain ran: the engine waits for VIF1 and for
   the microprogram (`VIF1_STAT` VPS/VEW, bounded spin), hands the memory over
@@ -39,7 +39,7 @@ Each finished feature lands as its own commit.
   Turning it into a verdict is one small step, written down in the docs: capture
   the object-data chain (the MVP upload) together with the qbuffer chain, and
   capture a single-bag flush. Not guessed at in this entry.
-  Also fixed from 188: only packets carrying XYZF2/XYZ2 count as geometry (the
+  Also fixed from 191: only packets carrying XYZF2/XYZ2 count as geometry (the
   `A+D` tag packets were inflating the clip accounting), and the reference
   computes both screen-Y conventions and reports which one fits rather than
   assuming the GS axis direction.
@@ -47,10 +47,10 @@ Each finished feature lands as its own commit.
   chain + 24 referenced blocks + 16 KiB of VU1 memory); MVP, scales, 14 GIF
   packets and their vertices all decode; the game keeps running normally
   afterwards (the stall is one frame). **Not verified**: the panel view (the
-  machine's blank-editor state from 184), the mesh-to-packet pairing (above), and
+  machine's blank-editor state from 187), the mesh-to-packet pairing (above), and
   real hardware.
 
-- (188) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
+- (191) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
   with the geometry** (docs/devkit.md). User request - "debugowanie VU to zawsze
   była jebaczka, jakby był podgląd tego co VU wygenerowało...". You cannot print
   from a microprogram and its output goes straight to the GS, but its INPUT is
@@ -85,7 +85,7 @@ Each finished feature lands as its own commit.
   does). **Not verified**: the wireframe view itself (the machine's blank-editor
   state from 184) and real hardware.
 
-- (187) **Crashes stop being invisible: TYRAX banners, an EE crash handler with
+- (190) **Crashes stop being invisible: TYRAX banners, an EE crash handler with
   a symbolized backtrace, and a post-mortem from the devkit's own history**
   (docs/devkit.md). User question, and the honest answer was "nothing nice
   happens": a `TYRA_ASSERT` was reported well, but a REAL EE exception (bad
@@ -150,7 +150,7 @@ Each finished feature lands as its own commit.
   covered them, but only in projects created after it), and the ISO export skips
   them plus any `*.sym`.
 
-- (186) **The devkit gets a receipt: a release build provably carries none of
+- (189) **The devkit gets a receipt: a release build provably carries none of
   it - plus armed-timer reporting, Fire-and-continue, per-frame object watches
   and a visible breakpoint marker** (docs/devkit.md). The user's condition for
   going further with debugging tools was blunt and correct: "make sure we don't
@@ -205,7 +205,7 @@ Each finished feature lands as its own commit.
   out of the title bar into an IDE-style gutter left of the node: a ringed dot
   plus a bar down the node's left edge, yellow with a pulsing halo when the game
   is stopped on it.
-  **Verified** in PCSX2 on the entry-184/185 fixture: armed timer reported as
+  **Verified** in PCSX2 on the entry-187/188 fixture: armed timer reported as
   `(key 4, 51 frames)` matching the 1 s Delay; object watch delivering 6
   consecutive per-frame samples per flush (50 Hz under a 6-frame cadence) with
   the frame numbers strictly +1; and then both new features against a STRUCTURAL
@@ -214,10 +214,10 @@ Each finished feature lands as its own commit.
   0.5 units/s frame by frame (6.0 -> 7.5 over 3 s). Release audit clean, debug
   audit correctly dirty. **Not verified here**: the editor's own panels and the
   new overlay/trail drawing (the machine is still in the blank-editor-window
-  state of entry 184 - the data paths behind them are the ones measured above),
+  state of entry 187 - the data paths behind them are the ones measured above),
   and ps2link on real hardware.
 
-- (185) **Live Logic: editing a flow graph changes the RUNNING game - the last
+- (188) **Live Logic: editing a flow graph changes the RUNNING game - the last
   thing in the pipeline that always needed a rebuild** (docs/live-logic.md).
   Graphs compile to C++, so editing one meant Docker + make + reboot. Now the
   EDITOR compiles the graph instead - into a pre-resolved instruction list
@@ -246,7 +246,7 @@ Each finished feature lands as its own commit.
   RuntimeObject state as compiled code, and carries the same Live-Debugger node
   keys - so breakpoints, hit counters and the timeline keep working on
   hot-patched logic.
-  **Verified in PCSX2** with the entry-184 fixture (On Start -> Set Var Int;
+  **Verified in PCSX2** with the entry-187 fixture (On Start -> Set Var Int;
   Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int), measured through the
   Live Debugger's own telemetry - the debugger is the instrument that proves
   the patch landed: native baseline 1.00 fires/s; after a patch of *the same
@@ -269,10 +269,10 @@ Each finished feature lands as its own commit.
   from *before* the stride fix. Both ends now derive the layout from one
   documented field list, and the sizes are asserted by the round-trip harness.
   **Not verified here**: the editor-side panel/chip (same blank-window state as
-  184 - the patch path itself was driven by the harness, which calls exactly
+  187 - the patch path itself was driven by the harness, which calls exactly
   what `App::liveLogicTick` calls), and ps2link on real hardware.
 
-- (184) **Live Debugger: breakpoints, pause/step and a rewindable execution
+- (187) **Live Debugger: breakpoints, pause/step and a rewindable execution
   timeline for a game running on the PlayStation 2** (docs/live-debugger.md).
   Live Link streams edits INTO the running game; this is the return channel.
   A debug build reports every flow-graph node it runs, so the Flow Graph
