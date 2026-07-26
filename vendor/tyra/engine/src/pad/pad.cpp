@@ -10,6 +10,8 @@
 # Modified by TyraX: injectVirtual - overlay keyboard/mouse input on the pad
 # Modified by TyraX: optional second pad (port parametric, non-blocking,
 # hot-join) for two-player games. padInit() is called once globally.
+# Modified by TyraX: handlePressedButtons() also reports L3/R3/Start/Select
+# (they have no pressure value, so they live only in the digital mask).
 */
 
 // Modified by TyraX: setActuators() - runtime DualShock vibration control.
@@ -303,6 +305,16 @@ void Pad::handlePressedButtons() {
   if (this->buttons.l2_p) this->pressed.L2 = 1;
   if (this->buttons.r1_p) this->pressed.R1 = 1;
   if (this->buttons.r2_p) this->pressed.R2 = 1;
+  // Modified by TyraX: L3/R3/Start/Select were missing from `pressed` entirely.
+  // The reads above use the PRESSURE fields (buttons.*_p), which the DualShock
+  // only reports for those twelve - the stick clicks and Start/Select have no
+  // analog value, so they exist solely in the digital mask. getClicked() always
+  // had all sixteen (it reads newPad), so binding an action to L3 looked like it
+  // worked - the press was seen once - and then nothing ever held it down.
+  if (this->padData & PAD_L3) this->pressed.L3 = 1;
+  if (this->padData & PAD_R3) this->pressed.R3 = 1;
+  if (this->padData & PAD_START) this->pressed.Start = 1;
+  if (this->padData & PAD_SELECT) this->pressed.Select = 1;
 }
 
 /** TyraX: overlay virtual (keyboard/mouse) input on the freshly polled

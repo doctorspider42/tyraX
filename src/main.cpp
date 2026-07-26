@@ -249,6 +249,12 @@ static int dumpFromCli(int argc, char** argv) {
     names("ambiencePresets", p.ambiencePresets,
           [](const AmbiencePreset& a) { return a.name; });
     names("sequences", p.sequences, [](const Sequence& s) { return s.name; });
+    // Input actions / binding presets: what On Action and Set Input Preset
+    // reference (docs/input-bindings.md).
+    names("inputActions", p.input.actions,
+          [](const InputAction& a) { return a.name; });
+    names("inputPresets", p.input.presets,
+          [](const InputPreset& v) { return v.name; });
     o << " }\n";
     std::printf("%s", o.str().c_str());
     return 0;
