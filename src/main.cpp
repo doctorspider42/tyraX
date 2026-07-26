@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -15,6 +16,9 @@
 #include "elfsym.hpp"
 #include "livedbg.hpp"
 #include "vucap.hpp"
+#include "vuasm.hpp"
+#include "vugen.hpp"
+#include "vusim.hpp"
 #include "app.hpp"
 #include "platform.hpp"
 #include "project.hpp"
@@ -933,7 +937,214 @@ static int dumpVuCapFromCli(int argc, char** argv) {
     return 0;
 }
 
+// The in-tree Tyra engine, whose .vclpp programs the VU framework reads as its
+// reference implementation. Same resolution templates.cpp uses for the build
+// container's bind mount; an explicit argument always wins.
+static std::string vuEngineDir(const char* override) {
+    namespace fs = std::filesystem;
+    if (override && *override) return override;
+    const std::string exe = platform::exePath();
+    if (!exe.empty()) {
+        std::error_code ec;
+        const fs::path candidate =
+            fs::path(exe).parent_path() / ".." / "vendor" / "tyra" / "engine";
+        if (fs::exists(candidate / "Makefile", ec))
+            return fs::weakly_canonical(candidate, ec).string();
+    }
+    return "vendor/tyra/engine";
+}
+
+// Usage:
+//   tyrax-editor --vu-check [engineDir]
+//
+// The VU framework's self-test, and the reason it can claim anything (see
+// docs/vu-framework.md): parse EVERY handwritten .vclpp the engine ships, build
+// the described programs from their C++ descriptions, run both in the host VU1
+// simulator on identical randomized input, and diff what they staged for the GS
+// quadword by quadword. No Docker, no PCSX2, no console.
+static int vuCheckFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    const std::string engine = vuEngineDir(argc > 2 ? argv[2] : nullptr);
+    std::printf("engine: %s\n\n", engine.c_str());
+
+    std::error_code ec;
+    if (!fs::exists(fs::path(engine) / "src", ec)) {
+        std::fprintf(stderr,
+                     "error: no engine sources at %s\n"
+                     "       pass the path: --vu-check <engineDir>\n",
+                     engine.c_str());
+        return 1;
+    }
+
+    // 1. Every handwritten program must parse.
+    std::vector<std::string> files;
+    for (const auto& e : fs::recursive_directory_iterator(fs::path(engine) / "src", ec))
+        if (e.is_regular_file() && e.path().extension() == ".vclpp")
+            files.push_back(e.path().string());
+    std::sort(files.begin(), files.end());
+
+    int parsed = 0, parseFailed = 0;
+    std::printf("-- parsing the handwritten programs --\n");
+    for (const std::string& f : files) {
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program p;
+        std::string err;
+        if (vuasm::parseFile(f, opt, p, err)) {
+            ++parsed;
+            std::printf("  %-42s %4d instructions\n",
+                        fs::path(f).filename().string().c_str(), (int)p.code.size());
+            for (const std::string& n : p.notes)
+                std::printf("      note: %s\n", n.c_str());
+        } else {
+            ++parseFailed;
+            std::printf("  %-42s FAILED: %s\n",
+                        fs::path(f).filename().string().c_str(), err.c_str());
+        }
+    }
+    std::printf("  %d parsed, %d failed\n\n", parsed, parseFailed);
+
+    // 2. Every described program must be bit-identical to its handwritten twin.
+    int mismatches = 0;
+    std::vector<std::pair<std::string, const vuir::Program*>> set;
+    std::vector<vugen::Built> built;
+    built.reserve(vugen::allAsIsDescs().size());
+    std::printf("-- generated vs handwritten, in the simulator --\n");
+    for (const vugen::Desc& d : vugen::allAsIsDescs()) {
+        built.push_back(vugen::build(d));
+        const vugen::Built& b = built.back();
+        for (const std::string& n : b.notes) std::printf("  note: %s\n", n.c_str());
+        if (b.program.code.empty()) continue;
+
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program hand;
+        std::string err;
+        const std::string path =
+            (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" / "static" /
+             "core" / "programs" / "as_is" / (d.fileStem + ".vclpp"))
+                .string();
+        if (!vuasm::parseFile(path, opt, hand, err)) {
+            std::printf("  %-16s could not read the reference: %s\n",
+                        d.vclName.c_str(), err.c_str());
+            ++mismatches;
+            continue;
+        }
+        const vugen::Equivalence eq =
+            vugen::equivalence(hand, b.program, d, 60, 0x5eed1234u);
+        std::printf("  %-16s %-9s %d trials, up to %d vertices\n", d.vclName.c_str(),
+                    eq.identical ? "IDENTICAL" : "DIFFERENT", eq.trials, eq.vertices);
+        if (!eq.identical) {
+            ++mismatches;
+            if (!eq.error.empty()) std::printf("      %s\n", eq.error.c_str());
+            if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
+        }
+    }
+    std::printf("\n");
+
+    // 3. The micro-memory budget for the generated set.
+    for (const vugen::Built& b : built)
+        if (!b.program.code.empty()) set.push_back({b.program.name, &b.program});
+    const vugen::Budget bud = vugen::budget(set);
+    std::printf("-- VU1 micro memory (%d slots, %d usable below the draw-finish "
+                "helper) --\n", vugen::kMicroMemSlots, bud.ceiling);
+    for (const vugen::BudgetEntry& e : bud.entries)
+        std::printf("  %-16s %4d instructions -> %4d..%4d slots\n", e.name.c_str(),
+                    e.emitted, e.slotsMin, e.slotsMax);
+    std::printf("  %-16s %4s %17d..%4d slots  %s\n", "TOTAL", "",
+                bud.totalMin, bud.totalMax,
+                bud.certainlyFits()      ? "fits"
+                : bud.certainlyOverflows() ? "OVERFLOWS"
+                                           : "depends on how VCL pairs them");
+    std::printf(
+        "  (a range, not a number: VCL packs an upper and a lower op into one\n"
+        "   64-bit slot when it can, so the exact size is only known after it "
+        "runs)\n\n");
+
+    const bool ok = parseFailed == 0 && mismatches == 0;
+    std::printf("%s\n", ok ? "PASS - every described program matches its "
+                             "handwritten twin bit for bit"
+                           : "FAIL");
+    return ok ? 0 : 1;
+}
+
+// Usage:
+//   tyrax-editor --vu-emit <outDir> [engineDir]
+//
+// Writes the generated .vclpp and the matching EE-side program class for every
+// described program. Deliberately NOT written straight into vendor/tyra: adopting
+// generated microcode is a change that has to be built in Docker and looked at on
+// hardware, so this stages it for a human to diff first.
+static int vuEmitFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --vu-emit <outDir> [engineDir]\n");
+        return 2;
+    }
+    const fs::path out = argv[2];
+    std::error_code ec;
+    fs::create_directories(out, ec);
+    int written = 0;
+    for (const vugen::Desc& d : vugen::allAsIsDescs()) {
+        const vugen::Built b = vugen::build(d);
+        for (const std::string& n : b.notes) std::printf("note: %s\n", n.c_str());
+        if (b.vclpp.empty()) continue;
+        const std::pair<std::string, const std::string*> files[] = {
+            {d.fileStem + ".vclpp", &b.vclpp},
+            {d.fileStem + "_program.cpp", &b.eeSource},
+            {d.fileStem + "_program.hpp", &b.eeHeader},
+        };
+        for (const auto& f : files) {
+            std::ofstream o((out / f.first).string(), std::ios::binary);
+            if (!o) {
+                std::fprintf(stderr, "error: cannot write %s\n", f.first.c_str());
+                return 1;
+            }
+            o << *f.second;
+            ++written;
+        }
+        std::printf("%-32s %4d instructions, %d tag quadwords, %d GS regs/vertex\n",
+                    d.fileStem.c_str(), (int)b.program.code.size(), b.tagQuads,
+                    b.regsPerVertex);
+    }
+    std::printf("\n%d files written to %s\n", written, out.string().c_str());
+    return 0;
+}
+
+// Usage:
+//   tyrax-editor --vu-list <file.vclpp> [engineDir]
+//
+// Expands and disassembles one microprogram - what the framework actually sees
+// after the vclpp layer, which is the first thing to look at when a program does
+// something you did not write.
+static int vuListFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --vu-list <file.vclpp> [engineDir]\n");
+        return 2;
+    }
+    vuasm::Options opt;
+    opt.includeRoot = vuEngineDir(argc > 3 ? argv[3] : nullptr);
+    vuir::Program p;
+    std::string err;
+    if (!vuasm::parseFile(argv[2], opt, p, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("; %s - %d instructions, %d VF names, %d VI names\n", p.name.c_str(),
+                (int)p.code.size(), (int)p.vfNames.size(), (int)p.viNames.size());
+    for (const std::string& n : p.notes) std::printf("; note: %s\n", n.c_str());
+    std::printf("%s", vusim::listing(p).c_str());
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
+        return vuCheckFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--vu-emit") == 0)
+        return vuEmitFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--vu-list") == 0)
+        return vuListFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--debug-state") == 0)
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
@@ -969,6 +1180,12 @@ int main(int argc, char** argv) {
             "on this machine right now\n"
             "  --dump-vucap <projectDir>               decode the last VU1 "
             "capture\n"
+            "  --vu-check [engineDir]                  run every microprogram "
+            "in the host VU1 simulator\n"
+            "  --vu-emit <outDir> [engineDir]          generate .vclpp + the EE "
+            "program classes\n"
+            "  --vu-list <file.vclpp> [engineDir]      expand and disassemble "
+            "one microprogram\n"
             "  --resave <projectDir>\n"
             "  --refresh-gen <projectDir>\n"
             "AI-agent tools (docs/ai-tools.md):\n"

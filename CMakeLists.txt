@@ -89,6 +89,10 @@ add_executable(tyrax-editor
     src/livedbg.cpp
     src/livelogic.cpp
     src/vucap.cpp
+    src/vuir.cpp
+    src/vuasm.cpp
+    src/vusim.cpp
+    src/vugen.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp

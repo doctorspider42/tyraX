@@ -85,6 +85,26 @@ TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
+VU1 microprogram work has its own layer, faster than everything below
+(`docs/vu-framework.md`):
+
+```
+TYRAX --vu-check [engineDir]         # exit 0 = every program parsed AND every
+                                     #   generated one matches its handwritten
+                                     #   twin bit for bit, in the host simulator
+TYRAX --vu-list <file.vclpp>         # expand + disassemble one microprogram
+TYRAX --vu-emit <outDir>             # generate .vclpp + the EE program classes
+```
+
+**Run `--vu-check` after ANY change under `vendor/tyra/.../*.vclpp` or to
+`src/vugen.cpp`.** It is the closest thing this repo has to a unit test: it
+parses all 25 shipped microprograms, executes the described ones against their
+handwritten originals on randomized input, and diffs every quadword of the GIF
+packet the GS would receive. Milliseconds, no Docker, no PCSX2. It does not
+replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
+generated microcode has been built for hardware yet - but a program that fails
+here will not work on the console either.
+
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
   Dockerfile) **without Docker** — instant way to get a fixture. `fpp` seeds a
   single Player entity; `empty` is an orbit-camera scene with no objects.

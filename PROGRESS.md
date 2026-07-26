@@ -10,6 +10,59 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (208) **The VU framework: a VU1 microprogram written in C++, and a host
+  simulator that runs it.** VU1 was the last hand-carved part of the engine -
+  twenty near-identical `.vclpp` files around one skeleton, each with an EE-side
+  twin whose unpack layout, `maxVertCount` and NLOOP offset had to be kept in
+  step by hand, and no way to test any of it short of a Docker build plus a
+  PCSX2 boot. Four host-only modules in `src/` (`vuir`, `vuasm`, `vusim`,
+  `vugen` - no GL, no `project.hpp`, the aobake/livedbg shape) and three CLI
+  commands. See `docs/vu-framework.md`.
+  - **`vusim` runs a microprogram on the host**: 1024 quadwords of VU1 data
+    memory, masked fields, ACC, Q/I, the clip-flag shift register, 16-bit
+    integer wrapping. It ends a run with the same `std::vector<uint32_t>` memory
+    image `vucap::Capture::vuMem` carries, decoded by the SAME
+    `vucap::scanGifPackets` - which is why that scanner was lifted out of
+    `vucap.cpp`'s `decodeVuMem` into the public API. A simulated run and a
+    console capture are now directly comparable; do not grow a second decoder.
+  - **`vuasm` parses the handwritten programs** (the vclpp layer - `#include`,
+    `#define`, `#macro`/`Name{ }` - plus VCL syntax). All 25 `.vclpp` files the
+    engine ships parse with zero diagnostics, including the five
+    Sutherland-Hodgman clip programs and the VU0 raytracer kernel.
+  - **`vugen` is the C++ DSL and the generator.** It emits VCL, not microcode -
+    so `vcl` still does the register allocation and the dual-issue scheduling,
+    which is the entire reason a generated program is as fast as a handwritten
+    one. One `Desc` produces the `.vclpp`, the EE-side program class, the tag
+    block size and the GS register list, so those cannot drift apart.
+  - **Verified by equivalence, not by inspection**: `--vu-check` runs the
+    handwritten and the generated program on identical randomized input and
+    diffs every quadword of the staged GIF packet. All five `as_is` variants
+    (c/tc/d/td/tce) come out **bit-identical over 60 trials each**, including
+    `ftoi4` rounding, clamped colours and the packed fog coefficient. Runs in
+    milliseconds, needs no PS2.
+  - Two things the assembler will not tell you are reported: **Q clobbering**
+    (a `div`/`rsqrt` overwritten before anything read it - the matcap gotcha
+    from `tyra_macros.i`) and quadword addresses outside VU1 data memory.
+  - The **micro-memory budget** is printed as a RANGE (`342..681 slots` for the
+    generated set against the 2042 usable below the draw-finish helper), because
+    `vcl` pairs an upper and a lower op into one slot when it can and the exact
+    size is only knowable after it runs. A single number would be a guess
+    dressed as a measurement.
+  - Two claims in the tree turned out not to hold, and are corrected rather than
+    propagated. The `tyra_macros.i` warning that a `;` comment inside a `#macro`
+    body makes vclpp swallow the expansion is **not** a general rule -
+    `vcl_sml.i`'s `VertexPersCorr` carries a commented-out line and is used by
+    every transforming program that ships. And the naive host reference in
+    `vucap.cpp` (`screen = scale * (ndc + 1)`) is off by one LSB from what the
+    program computes, because `ScaleVertexToGSFormat` accumulates
+    `scale + v * scale` through the ACC - the simulator reproduces the
+    program's arithmetic order and the difference showed up immediately.
+  - **Verification**: `tyrax-editor --vu-check` - 25/25 parsed, 5/5 bit-identical,
+    budget clean. Host only: **nothing in `vendor/tyra` was replaced**, and no
+    generated microcode has been built in Docker or run on hardware. Adopting a
+    generated program is the next step and needs the full e2e pass, which is why
+    `--vu-emit` writes to a directory you name instead of into the engine tree.
+
 - (207) **Measured: ps2link's extra commands are not the free lunch they look
   like.** Before building anything on them, the question was whether the tools
   `ps2client --help` advertises - `dumpmem`, `scrdump`, `startvu`/`stopvu`,
