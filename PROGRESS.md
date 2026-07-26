@@ -10,6 +10,53 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (180) **Recent projects on the startup screen.** User request: with no project
+  open the editor should offer the recently used ones on the main screen, pickable
+  in one click, plus a way to drop an entry from the list. Until now the empty
+  Viewport said "File > New Project (Ctrl+N) to create one" and the daily
+  "carry on with yesterday's project" meant Ctrl+O and walking a file dialog to
+  the same folder every single time.
+  The Viewport's no-project branch is now `drawWelcomeScreen()`: New / Open
+  buttons and up to ten entries, most recent first, each a two-line row (project
+  name over its path) that opens on click, with an **x** that forgets it. The
+  paths live in `editor.ini` as repeated `recentProject=` lines - machine-global
+  like the emulator path and the UI scale, because which projects this PC has
+  seen is a property of the PC, not of any project (this is the pattern the
+  `tyra-editor-dev` skill describes for a new global setting; nothing else in the
+  chain needed to move, the list never reaches the game).
+  Three things that shaped the implementation:
+  *One funnel.* Recording a recent has to happen wherever a project opens, so
+  the three local open paths (the CLI/startup argument, the Open dialog, the
+  welcome list) collapsed into `openProjectAt(dir)` and record there; the New
+  Project modal records after its own attach. `openRemoteProject` deliberately
+  does NOT - a joined session's project is a materialized cache copy under
+  `remote-cache/<projectId>`, and offering that as "recent" would hand the user
+  a stale snapshot of someone else's project.
+  *Name and validity come from one directory scan*, done when the list loads or
+  changes - never per frame. The display name is the `<name>.tyra` stem (found
+  the way `project::load` finds it), so an entry that is no longer a project is
+  the same lookup, not a second check: those rows show the folder name greyed
+  with *(missing)* and stay listed. Sweeping them automatically would quietly
+  eat the list of everyone whose projects live on a drive that is currently
+  unplugged; the x is right there when the entry really is dead. Clicking a
+  missing row still tries (the drive may be back) and re-probes on failure.
+  *Dedupe on a normalized key* (`lexically_normal` + lowercase + no trailing
+  slash): the Open dialog and the New Project modal disagree on slash flavour
+  and Windows does not care about case, so `D:/proj` and `D:\Proj` are one entry.
+  Two ImGui details worth remembering: the name/path are drawn straight into the
+  window draw list (as items they would register their full text width and give
+  the panel a horizontal scrollbar), and a long path ellipsizes from the LEFT -
+  the tail identifies the project, `C:\Users\...` does not.
+  Verified by driving the built editor: opening two scratch projects by CLI
+  argument produced both `recentProject=` lines in the right order; re-opening
+  one of them spelled `SCRIPT-demo` with forward slashes left **two** entries,
+  not three, with it moved to the front (which also proves the load path parsed
+  the stored list); then synthetic clicks on the welcome screen - hover shows the
+  full path in a tooltip, the x dropped `layer-streaming`, and a click on the
+  `script-demo` row opened it (title bar, scene tree, terrain in the viewport).
+  Screenshots came out fine this time, i.e. the machine was not in its
+  white-window state (see the harness notes).
+
 - (179) **Walk speed: sane default, and a field you can actually type into.**
   Third in the (177)/(178) run, same user: "przy domyslnej predkosci chodu
   postac zapierdala jak dyliżans z gorki i z zaglem, trzeba dawac ostry
