@@ -253,6 +253,43 @@ Clip names come from the source, so a merged Mixamo download arrives as
 `mixamo.com_1`, `mixamo.com_2`... Rename them in *Tools > Animation Editor*,
 which is non-destructive and retargets every reference for you.
 
+## Motion capture from a phone
+
+The same *Import clips...* also takes a **`.tmocap`** - an ARKit body-tracking
+recording made by the companion app,
+[tyrax-mocap](https://github.com/doctorspider42/tyrax-mocap) (iOS, sideloaded,
+its own repo - the sibling of `tyrax-cam`). Point an iPhone at somebody,
+record, AirDrop the take, import it. No suit, no markers, no cloud service.
+
+It is the same retarget path a Mixamo download takes, and that is the whole
+design: `src/mocap.cpp` decodes the file, renames ARKit's joints
+(`left_forearm_joint`) to the Mixamo names the rig uses, and hands over an
+ordinary source `Skel`. Nothing after that knows the motion came from a phone.
+The 40-odd joints the rig has no bone for - fingers, toes past the ball, face -
+are loaded, parent their children correctly, and simply never match, which is
+how a 91-joint take lands as a ~23-channel clip.
+
+Two things the file carries that a stream of poses would not:
+
+- **The skeleton's rest pose.** Retargeting is a delta against the source's own
+  bind, so without it there is nothing to take the delta against. ARKit
+  provides it as `neutralBodySkeleton3D`, and it is written into every take
+  rather than assumed.
+- **The performer's height**, implied by that rest pose. The hips translation is
+  scaled by it, so a 1.9 m performer does not lift a 1.55 m character off the
+  floor.
+
+Scale is *dropped* when the matrices are decomposed. ARKit's skeleton-scale
+estimation puts the performer's real limb lengths in the local transforms, and
+a retarget applies rotations to a body that has its own proportions - carrying
+the scale across would stretch the character to match whoever stood in front of
+the camera.
+
+What it is honestly good for: this is monocular pose estimation from one
+camera. Gross body motion reads well; feet slide, depth wobbles, and
+self-occlusion breaks the solve. At 1500 triangles seen from five metres that
+is the right fidelity tier. For a close-up cutscene it is not.
+
 ## What is not here yet
 
 - **Face detail.** The 96 macro targets carry the face's overall character;
@@ -267,6 +304,7 @@ which is non-destructive and retargets every reference for you.
 | `src/mhdata.cpp` | readers for the CC0 data (base mesh, targets, proxies, rig, weights). Host-only, no GL. |
 | `src/chargen.cpp` | `Params` → `glbparser::Skel`: macro blend, proxy fit, rig, weight transfer, skin bake. Host-only, no GL, no `Project`. |
 | `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, retargeting from an imported library, and host linear-blend skinning for the preview. Host-only, no GL. |
+| `src/mocap.cpp` | reads `.tmocap` phone takes into a source `Skel` (ARKit joint names renamed to the rig's). Host-only, no GL. |
 | `src/gltfwrite.cpp` | `Skel` → `.glb` bytes; the exact inverse of `glbparser::parseSkel`. |
 | `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer (`charFbo_`), sharing `drawToolPreview` with the Tree Generator. |

@@ -237,11 +237,13 @@ static std::string pickPath(PickKind kind) {
                 L"Open Tyra project");
         case PickKind::ObjModel:
             return pickFileLegacy(
-                L"3D model (*.obj, *.glb, *.fbx)\0*.obj;*.glb;*.fbx\0"
+                L"3D model or take (*.obj, *.glb, *.fbx, *.tmocap)\0"
+                L"*.obj;*.glb;*.fbx;*.tmocap\0"
                 L"Wavefront model (*.obj)\0*.obj\0"
                 L"Animated glTF binary (*.glb)\0*.glb\0"
-                L"Animated FBX (*.fbx)\0*.fbx\0All files (*.*)\0*.*\0",
-                L"Import 3D model (.glb/.fbx = animated)");
+                L"Animated FBX (*.fbx)\0*.fbx\0"
+                L"Phone mocap take (*.tmocap)\0*.tmocap\0All files (*.*)\0*.*\0",
+                L"Import 3D model (.glb/.fbx = animated, .tmocap = phone take)");
         case PickKind::Mtl:
             return pickFileLegacy(
                 L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",

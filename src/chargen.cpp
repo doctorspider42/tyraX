@@ -15,6 +15,7 @@
 #include "gltfwrite.hpp"
 #include "meshlod.hpp"
 #include "mhdata.hpp"
+#include "mocap.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1135,7 +1136,13 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         if (it == ds2.animSources.end()) {
             glbparser::Skel src;
             std::string err2;
-            if (!animimport::parseSkel(p.animSource, src, err2)) {
+            // A phone take and a Mixamo download are the same thing to the
+            // retargeter: a named rig with a bind pose and clips.
+            const bool loaded = mocap::isTakePath(p.animSource)
+                                    ? mocap::load(p.animSource, src, err2)
+                                    : animimport::parseSkel(p.animSource, src, err2);
+            for (const std::string& w : src.warnings) warnings.push_back(w);
+            if (!loaded) {
                 warnings.push_back("animation source: " + err2);
                 src = glbparser::Skel();
             }

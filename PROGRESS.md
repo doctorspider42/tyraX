@@ -10,6 +10,39 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (182) **Motion capture from an iPhone** (docs/character-generator.md). A new
+  companion app - **[tyrax-mocap](https://github.com/doctorspider42/tyrax-mocap)**,
+  its own public repo, the sibling of tyrax-cam - records ARKit body tracking
+  into a `.tmocap` take; *Import clips...* in the Character Generator now
+  accepts one. Point a phone at somebody, record, AirDrop it, import. No suit,
+  no markers, no cloud.
+  **The editor side is 300 lines because (180) already existed.** `mocap.cpp`
+  decodes the file, renames ARKit's joints (`left_forearm_joint` ->
+  `mixamorig:LeftForeArm`) and hands over an ordinary source `Skel` - after
+  that it IS a Mixamo import, same retarget, same resampling, same channel
+  pruning. The ~40 joints the rig has no bone for (fingers, toes past the ball,
+  face) load and parent correctly and simply never match, which is how a
+  91-joint take lands as a ~23-channel clip.
+  Two decisions in the format are load-bearing: every take carries the
+  skeleton's **rest pose** (`neutralBodySkeleton3D`) - without it there is
+  nothing to take the retarget's delta against - and the performer's height is
+  read off that rest pose so the hips translation scales, rather than a 1.9 m
+  performer lifting a 1.55 m character off the floor. Matrix **scale is
+  dropped** on decompose: ARKit's skeleton-scale estimation puts the
+  performer's real limb lengths in the local transforms, and carrying that
+  across would stretch the character to match whoever stood in front of the
+  camera.
+  On the phone side the recording is buffered and written **in Swift**: a take
+  is 91 joints x a 4x4 matrix per frame (~5.8 KB), and pushing that across the
+  JS bridge 30 times a second would cost more than the tracking does.
+  **Verified without a phone, which is the point of the split**: a harness
+  writes a generated 1.92 m man's own walk cycle out as an ARKit-shaped take
+  (ARKit names, ARKit matrix layout, plus two joints nothing maps), reads it
+  back through `mocap::load` and retargets it onto a **1.55 m woman** - 24
+  joints in, 22 matched, a clean walk cycle out with the arm swing and stride
+  intact. The app itself is CI-verified only (JS bundle + unsigned iOS archive);
+  on-device capture needs the owner's iPhone 14 and an AltStore sideload.
+
 - (181) **`examples/character-generator`** - the demo for (177)-(180). Four
   people built by the generator, deliberately spread across its axes (male
   1.82 m muscular / female 1.66 m / older heavy-set / a 1.28 m child), all on

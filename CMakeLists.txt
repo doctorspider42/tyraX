@@ -69,6 +69,7 @@ add_executable(tyrax-editor
     src/glbparser.cpp
     src/gltfwrite.cpp
     src/mhdata.cpp
+    src/mocap.cpp
     src/json.cpp
     src/matbake.cpp
     src/objparser.cpp
