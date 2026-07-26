@@ -36,6 +36,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   views: the clickable axis gizmo in the corner, the other three ways to
   switch (button, View menu, numpad), what orbiting an axis view does, and
   why a parallel view draws what is behind the camera.
+- [PS2 output in the viewport](ps2-viewport.md) - looking at the scene the way
+  the console draws it: rasterized at the GS framebuffer size of the display
+  mode, point scaled into the TV's 4:3 / 16:9 picture, field rendering's halved
+  vertical resolution, and why GS pixels are 16.7% too wide. Pairs with the
+  [safe areas](safe-areas.md), which draw the same rectangle as a guide.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) -
   inserted and pasted objects resting on the terrain or on the object below
   instead of sinking into it, the `End` drop-to-floor command, and the paste

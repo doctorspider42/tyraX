@@ -116,6 +116,12 @@ struct EditorConfig {
     bool safeCentre = false, safeBothRegions = false;
     int safeAspect = 0;  // 0 follow project, 1 = 4:3, 2 = 16:9
     float safeOpacity = 0.55f;
+    // Viewport output mode (docs/ps2-viewport.md): false = the editor's own
+    // free-aspect image, true = the scene rasterized at the GS framebuffer
+    // size of the project's display mode and shown the way a TV shows it.
+    // A way of looking at the scene, like the safe areas and the axis gizmo,
+    // so it belongs to the installation rather than to the project.
+    bool viewportPs2 = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -186,6 +192,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeBothRegions", v)) cfg.safeBothRegions = toI(v, 0) != 0;
         else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
+        else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
         else if (match("phoneCamSmoothing", v))
             cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
         // One line per entry, written in list order (most recent first).
@@ -244,6 +251,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeBothRegions=" << (cfg.safeBothRegions ? 1 : 0) << "\n"
       << "safeAspect=" << cfg.safeAspect << "\n"
       << "safeOpacity=" << cfg.safeOpacity << "\n"
+      << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
@@ -490,6 +498,7 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.bothRegions = cfg.safeBothRegions;
         safeArea_.aspect = cfg.safeAspect;
         safeArea_.opacity = cfg.safeOpacity;
+        viewportPs2_ = cfg.viewportPs2;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -790,7 +799,7 @@ void App::saveGlobalConfig() {
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
-                      safeArea_.opacity, std::move(recent)});
+                      safeArea_.opacity, viewportPs2_, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -886,6 +895,44 @@ void App::drawMenuBar() {
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Viewport output");
+            {
+                // Two ways of looking at the same scene: the editor's own
+                // image, which fills whatever shape the viewport is docked to,
+                // or the console's - rasterized at the GS framebuffer size of
+                // the project's display mode and fitted into the TV's picture.
+                struct OutItem {
+                    bool ps2;
+                    const char* label;
+                    const char* help;
+                };
+                static const OutItem outs[] = {
+                    {false, "Editor",
+                     "The viewport's own image: full resolution, and as wide as\n"
+                     "you docked the panel."},
+                    {true, "PS2 output (GS)",
+                     "What the console draws: the scene rasterized at the GS\n"
+                     "framebuffer size of Preferences > Display mode, then\n"
+                     "fitted into the 4:3 / 16:9 picture a TV shows. Pixels are\n"
+                     "the console's, and so is the framing."},
+                };
+                for (const OutItem& it : outs) {
+                    if (ImGui::MenuItem(it.label, nullptr, viewportPs2_ == it.ps2,
+                                        hasProject_) &&
+                        viewportPs2_ != it.ps2) {
+                        viewportPs2_ = it.ps2;
+                        saveGlobalConfig();
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", it.help);
+                }
+                if (viewportPs2_ && hasProject_) {
+                    const Viewport::Ps2Output o = ps2ViewportOutput();
+                    ImGui::TextDisabled("  %dx%d, %s", o.bufW, o.bufH,
+                                        project_.settings.widescreen ? "16:9" : "4:3");
+                }
+            }
 
             ImGui::Separator();
             ImGui::TextDisabled("Render mode");
@@ -1775,6 +1822,10 @@ void App::drawViewportWindow() {
         }
         updateProjectedDecals();
         updateNavOverlay();
+        // Pushed every frame rather than on change: the geometry follows the
+        // project's display settings, which the Preferences dialog can change
+        // under us, and resolving it is a handful of comparisons.
+        viewport_.setPs2Output(ps2ViewportOutput());
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
         // Phone camera link: stream THIS frame to the connected device, so the
@@ -2466,8 +2517,8 @@ void App::drawViewportWindow() {
         };
         const float bottomY = imgPos.y + avail.y - ImGui::GetFrameHeight() - 8.0f;
 
-        // --- Camera recenter (bottom-left) ---
-        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, bottomY));
+        // --- Camera recenter (bottom-left, after the gear) ---
+        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + viewportGearSpan(), bottomY));
         if (ImGui::SmallButton("Center view")) viewport_.resetView();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Reset the camera to the terrain center\n"
@@ -2697,6 +2748,61 @@ void App::drawViewportWindow() {
     ImGui::End();
 }
 
+// --- PS2 output geometry -----------------------------------------------------
+// The GS geometry the project's display settings resolve to - the host twin of
+// Tyra's RendererSettings::updateGeometry (renderer_settings.hpp) plus the
+// scan-out choice in RendererCoreGS::presentFrameBuffer. Change one, change the
+// other, or the viewport claims a picture the console does not draw.
+//
+// One resolution the console makes and the editor cannot: `videoSystem: auto`
+// follows the region of whatever console boots the disc, and only that decides
+// whether `palFullHeight` promotes the interlaced mode to the full 576i frame.
+// The editor assumes NTSC there - the stock picture, and the shorter of the two
+// - so what it shows is what every console renders at least. Force the video
+// system to `pal` to author the taller frame (the safe-area overlay's "NTSC
+// picture inside PAL" guide covers the difference the other way round).
+Viewport::Ps2Output App::ps2ViewportOutput() const {
+    Viewport::Ps2Output o;
+    o.on = viewportPs2_ && hasProject_;
+    const ProjectSettings& s = project_.settings;
+    std::string mode = s.displayMode;
+    if (mode == "interlaced" && s.palFullHeight && s.videoSystem == "pal")
+        mode = "pal576";
+
+    int logicalH = 448;
+    if (mode == "progressive") {
+        o.bufW = 448;
+        logicalH = 448;
+    } else if (mode == "1080i") {
+        o.bufW = 448;
+        logicalH = 540;
+    } else if (mode == "pal576") {
+        o.bufW = 512;
+        logicalH = 512;
+    } else {  // interlaced and interlaced-field share the logical 512x448
+        o.bufW = 512;
+        logicalH = 448;
+    }
+    // True field rendering draws into a half-height buffer and the scan-out
+    // spreads it over the full number of lines: the vertical resolution really
+    // is halved, which is the whole point of seeing it here.
+    o.bufH = mode == "interlaced-field" ? logicalH / 2 : logicalH;
+
+    // Projection aspect, verbatim from the engine: the stock 512/448 is the
+    // 4:3 baseline, scaled by the physical shape of the display window.
+    float windowAspect = s.widescreen ? (16.0f / 9.0f) : (4.0f / 3.0f);
+    if (mode == "1080i" && s.widescreen)
+        windowAspect = (1792.0f / 1920.0f) * (16.0f / 9.0f);
+    o.projAspect = (512.0f / 448.0f) * windowAspect / (4.0f / 3.0f);
+    // windowAspect IS the physical shape of the window on the TV, so it is
+    // also the rectangle the picture is fitted into here (1080i's pillarboxed
+    // widescreen window included).
+    o.tvAspect = windowAspect;
+    // ps2sdk's flicker filter runs on the two stock interlaced scan-outs only.
+    o.flicker = mode == "interlaced" || mode == "pal576";
+    return o;
+}
+
 // --- TV safe areas -----------------------------------------------------------
 // A CRT does not show the whole picture: the tube is scanned past the edges of
 // the visible glass ("overscan"), and how much varies per set. The broadcast
@@ -2794,11 +2900,24 @@ void App::drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size) {
 
 // The viewport's gear: overlay/guide switches live here rather than on the
 // toolbar, so they cost no screen space until wanted.
+// The gear is square and as tall as the bottom row's slot, and sits at the same
+// baseline - see viewportGearSpan().
+float App::viewportGearSpan() const {
+    return 8.0f + ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
+}
+
 bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
-    const float pad = scaled(8.0f);
-    const float btn = scaled(22.0f);
+    // The inset and the height are the bottom row's, not the gear's own: the
+    // two are one row and any disagreement here puts the gear back on top of
+    // "Center view".
+    const float pad = 8.0f;
+    const float btn = ImGui::GetFrameHeight();
     if (size.x < btn * 4.0f || size.y < btn * 4.0f) return false;
-    ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, pos.y + size.y - btn - pad));
+    // The row's baseline, then centred on it: a SmallButton is only a font tall,
+    // so a square gear left at the same top edge would hang below the row.
+    const float rowTop = pos.y + size.y - btn - pad;
+    const float top = rowTop + (ImGui::GetFontSize() - btn) * 0.5f;
+    ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, top));
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.35f));
     const bool clicked = ImGui::Button("##viewgear", ImVec2(btn, btn));
     ImGui::PopStyleColor();
@@ -2806,7 +2925,7 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
     // A gear glyph is not in the default font, so draw one: a ring plus teeth.
     {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 c(pos.x + pad + btn * 0.5f, pos.y + size.y - btn * 0.5f - pad);
+        const ImVec2 c(pos.x + pad + btn * 0.5f, top + btn * 0.5f);
         const ImU32 col = IM_COL32(235, 235, 235, hovered ? 255 : 190);
         const float r = btn * 0.26f;
         dl->AddCircle(c, r, col, 12, scaled(1.6f));
@@ -2818,9 +2937,24 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
                         col, scaled(1.6f));
         }
     }
-    if (hovered) ImGui::SetTooltip("Viewport guides (TV safe areas)");
+    if (hovered) ImGui::SetTooltip("Viewport output and guides");
     if (clicked) ImGui::OpenPopup("##viewguides");
     if (ImGui::BeginPopup("##viewguides")) {
+        // The output mode sits above the guides because it draws the same
+        // rectangle they do - only for real, by rendering into it.
+        ImGui::SeparatorText("Output");
+        if (ImGui::Checkbox("PS2 output (GS)", &viewportPs2_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Render the scene at the GS framebuffer size of\n"
+                              "Preferences > Display mode and show it the way a\n"
+                              "TV does: console pixels, console framing.\n"
+                              "Off = the editor's own full-resolution image.");
+        if (viewportPs2_ && hasProject_) {
+            const Viewport::Ps2Output o = ps2ViewportOutput();
+            ImGui::TextDisabled("%dx%d into %s", o.bufW, o.bufH,
+                                project_.settings.widescreen ? "16:9" : "4:3");
+        }
+
         ImGui::SeparatorText("TV safe areas");
         ImGui::Checkbox("Show guides", &showSafeArea_);
         if (ImGui::IsItemHovered())

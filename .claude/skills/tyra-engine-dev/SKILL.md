@@ -378,6 +378,11 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   It is also the ONLY caller allowed to `allocateBuffer()` after init.
   The projection aspect lives in `RendererSettings::updateGeometry`
   (fixed 4:3-baseline look; widescreen scales it anamorphically).
+  **That table has a host twin**: `App::ps2ViewportOutput` (app.cpp) resolves
+  the same per-mode framebuffer size + aspect for the editor's PS2 output
+  viewport, and the flicker-filter choice in `presentFrameBuffer` with it
+  (docs/ps2-viewport.md). Adding or resizing a `DisplayMode` means editing
+  both, or the editor draws a picture the console does not.
 - **GS VRAM is two regions, and `free()` is order-independent** (TyraX fork —
   full write-up in [docs/gs-vram.md](../../../docs/gs-vram.md)).
   `allocateBuffer()` (page-aligned) fills a **permanent** bump region at the
