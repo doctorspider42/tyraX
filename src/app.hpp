@@ -586,6 +586,28 @@ private:
     void performPendingAction();
     void drawDiscardModal();
 
+    // --- Recent projects ----------------------------------------------------
+    // The list the welcome screen offers before any project is open, so the
+    // usual next step ("carry on with what I had") is one click instead of a
+    // file dialog. Machine-global state: the folders live in editor.ini, the
+    // name/validity next to each is probed from disk (once per entry, at
+    // startup and when the list changes - not per frame).
+    struct RecentProject {
+        std::string dir;     // project folder, what gets opened
+        std::string name;    // display name (manifest stem, else the folder's)
+        bool valid = false;  // the folder still holds a <name>.tyra manifest
+    };
+    std::vector<RecentProject> recentProjects_;
+    void probeRecentProject(RecentProject& r);  // fill name + valid from disk
+    void rememberRecentProject(const std::string& dir);  // to the front + save
+    void forgetRecentProject(int index);                 // drop it + save
+    // Load and attach the project in `dir` (a project folder, not the .tyra).
+    // Returns the load error; empty means it is open. The single funnel for
+    // every local open path: the CLI argument, the Open dialog and the
+    // welcome screen's list all go through it, so all three record a recent.
+    std::string openProjectAt(const std::string& dir);
+    void drawWelcomeScreen();  // the Viewport's content while nothing is open
+
     // --- Collaboration session (docs/collaboration.md) ----------------------
     // Live LAN sessions: this editor hosts its open project or joins another
     // editor's. Session (session.hpp) runs the network side on a worker

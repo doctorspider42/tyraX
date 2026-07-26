@@ -108,7 +108,16 @@ struct EditorConfig {
     // The axis-view gizmo in the viewport's top-right corner. On by default;
     // it can be turned off because it sits where HUD authoring wants space.
     bool axisGizmo = true;
+    // Project folders opened most recently, most-recent first (the welcome
+    // screen's list). Machine-global like everything else here: which projects
+    // this PC has seen is a property of the PC, not of any one project.
+    std::vector<std::string> recentProjects;
 };
+
+// How many entries the recent-projects list keeps. Ten fills the welcome
+// screen without scrolling and is about as far back as "continue where I left
+// off" is still useful.
+static constexpr size_t kMaxRecentProjects = 10;
 
 static std::filesystem::path editorConfigPath() {
     const char* base = getenv("LOCALAPPDATA");
@@ -155,6 +164,11 @@ static EditorConfig loadEditorConfig() {
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
         else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
+        // One line per entry, written in list order (most recent first).
+        else if (match("recentProject", v)) {
+            if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
+                cfg.recentProjects.push_back(v);
+        }
     }
     if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
@@ -189,6 +203,30 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "matEdSplit=" << cfg.matEdSplit << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
       << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n";
+    for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
+}
+
+// The name a project folder shows under, and whether it is still a project at
+// all: the <name>.tyra stem (project::load finds the manifest the same way),
+// empty when the folder is gone or holds no manifest.
+static std::string projectManifestName(const std::string& dir) {
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (entry.is_regular_file(ec) && entry.path().extension() == ".tyra")
+            return entry.path().stem().string();
+    }
+    return "";
+}
+
+// Dedupe key for a recent-projects entry: the same folder can arrive spelled
+// two ways (the Open dialog and the New Project modal disagree on slashes and
+// Windows does not care about case), and the list must not grow a second row
+// for a project it already has.
+static std::string recentProjectKey(const std::string& dir) {
+    std::string k = std::filesystem::path(dir).lexically_normal().string();
+    while (!k.empty() && (k.back() == '\\' || k.back() == '/')) k.pop_back();
+    for (char& c : k) c = (char)tolower((unsigned char)c);
+    return k;
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -403,6 +441,14 @@ int App::run(const std::string& initialProjectDir) {
         matEdSplit_ = cfg.matEdSplit;
         placementSnap_ = cfg.placementSnap;
         showAxisGizmo_ = cfg.axisGizmo;
+        // Probe the recent projects once, here: the welcome screen draws this
+        // list every frame and must not scan the disk to do it.
+        for (const std::string& dir : cfg.recentProjects) {
+            RecentProject r;
+            r.dir = dir;
+            probeRecentProject(r);
+            recentProjects_.push_back(r);
+        }
     }
     applyUiScale();
 
@@ -429,13 +475,7 @@ int App::run(const std::string& initialProjectDir) {
         std::string dir = initialProjectDir;
         if (std::filesystem::path(dir).extension() == ".tyra")
             dir = std::filesystem::path(dir).parent_path().string();
-        Project p;
-        if (project::load(p, dir).empty()) {
-            project_ = p;
-            hasProject_ = true;
-            applyProjectToViewport();
-            attachProject();  // resets dirty + window title
-        }
+        openProjectAt(dir);  // failure leaves the welcome screen up
     }
 
     while (true) {
@@ -683,10 +723,14 @@ void App::applyUiScale() {
 // {uiScaleUser_, nav_} would wipe the emulator path / PS2 IP on the next
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
+    std::vector<std::string> recent;
+    recent.reserve(recentProjects_.size());
+    for (const RecentProject& r : recentProjects_) recent.push_back(r.dir);
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_, placementSnap_, showAxisGizmo_});
+                      matEdSplit_, placementSnap_, showAxisGizmo_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -1416,6 +1460,121 @@ void App::updateNavOverlay() {
     viewport_.setNavOverlay(&navGrid_, navOverlayVersion_);
 }
 
+// Fit a path into maxW pixels by dropping characters from the FRONT: the tail
+// (the project's own folder) is what identifies it, the drive root is not.
+// Binary search over the cut - the fit is monotonic, and this runs per row
+// per frame.
+static std::string ellipsizePathLeft(const std::string& s, float maxW) {
+    if (ImGui::CalcTextSize(s.c_str()).x <= maxW) return s;
+    size_t lo = 0, hi = s.size();  // smallest cut that fits
+    while (lo < hi) {
+        const size_t mid = (lo + hi) / 2;
+        if (ImGui::CalcTextSize(("..." + s.substr(mid)).c_str()).x <= maxW)
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    // Never cut inside a UTF-8 sequence - a path can carry accented folder
+    // names, and half a codepoint draws as garbage.
+    while (lo < s.size() && ((unsigned char)s[lo] & 0xC0) == 0x80) ++lo;
+    return "..." + s.substr(lo);
+}
+
+// The Viewport's content before anything is open: the two ways in, plus the
+// recent-projects list so the usual next step - carry on with the project from
+// last time - is one click instead of a file dialog. Entries whose folder is
+// gone stay listed (greyed) rather than being swept: a project on an unplugged
+// drive is not a mistake, and the x is right there when it really is.
+void App::drawWelcomeScreen() {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    ImGui::Dummy(ImVec2(0, scaled(24)));
+    ImGui::Indent(scaled(30));
+
+    ImGui::TextDisabled("No project open.");
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+    const ImVec2 bsz(scaled(160), 0);
+    if (ImGui::Button("New project...", bsz)) requestNewProject();
+    ImGui::SameLine();
+    if (ImGui::Button("Open project...", bsz)) requestOpenProject();
+    ImGui::SameLine();
+    ImGui::TextDisabled("Ctrl+N / Ctrl+O");
+
+    ImGui::Dummy(ImVec2(0, scaled(12)));
+    ImGui::SeparatorText("Recent projects");
+    if (recentProjects_.empty()) {
+        ImGui::TextDisabled("Empty - the projects you open show up here.");
+        ImGui::Unindent(scaled(30));
+        return;
+    }
+
+    // Resolved after the loop: opening a project (or dropping an entry)
+    // rewrites recentProjects_, which we are iterating.
+    int openIndex = -1, forgetIndex = -1;
+    const float listW = ImMin(ImGui::GetContentRegionAvail().x, scaled(560));
+    const float lineH = ImGui::GetTextLineHeight();
+    const float rowH = lineH * 2.0f + st.FramePadding.y * 2.0f + scaled(4);
+    const float textX = st.FramePadding.x + scaled(4);
+    const ImU32 colName = ImGui::GetColorU32(ImGuiCol_Text);
+    const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    for (int i = 0; i < (int)recentProjects_.size(); ++i) {
+        const RecentProject& r = recentProjects_[i];
+        ImGui::PushID(i + 7100);
+        const ImVec2 row = ImGui::GetCursorScreenPos();
+        if (ImGui::Selectable("##recent", false, ImGuiSelectableFlags_AllowOverlap,
+                              ImVec2(listW, rowH)))
+            openIndex = i;
+        // The row shows a shortened path, so the tooltip carries the full one.
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s", r.dir.c_str(),
+                              r.valid ? "" : "\n(no .tyra project file here)");
+        const ImVec2 after = ImGui::GetCursorScreenPos();
+
+        // Name over path, both drawn straight into the draw list: as ImGui
+        // items they would register their own (long) width and give the panel
+        // a horizontal scrollbar. The clip rect keeps a deep path inside the
+        // row instead of running under the x button.
+        const float textW = listW - textX - scaled(34);  // up to the x button
+        const ImVec4 clip(row.x + textX, row.y, row.x + textX + textW, row.y + rowH);
+        const std::string title = r.valid ? r.name : r.name + "   (missing)";
+        const std::string path = ellipsizePathLeft(r.dir, textW);
+        dl->AddText(nullptr, 0.0f, ImVec2(row.x + textX, row.y + st.FramePadding.y),
+                    r.valid ? colName : colDim, title.c_str(), nullptr, 0.0f, &clip);
+        dl->AddText(nullptr, 0.0f,
+                    ImVec2(row.x + textX, row.y + st.FramePadding.y + lineH), colDim,
+                    path.c_str(), nullptr, 0.0f, &clip);
+
+        // Remove from the list. Nothing on disk is touched - the entry is a
+        // shortcut, not the project.
+        ImGui::SetCursorScreenPos(
+            ImVec2(row.x + listW - scaled(26), row.y + (rowH - lineH) * 0.5f));
+        if (ImGui::SmallButton("x")) forgetIndex = i;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Remove from this list (the project itself stays on disk)");
+        ImGui::SetCursorScreenPos(after);
+        ImGui::PopID();
+    }
+
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ImGui::TextDisabled("Click a project to open it. x only forgets the entry.");
+    ImGui::Unindent(scaled(30));
+
+    // An open wins over a drop in the same frame (they can't both be clicked,
+    // but the drop would shift the index the open reads).
+    if (openIndex < 0 && forgetIndex >= 0) forgetRecentProject(forgetIndex);
+    if (openIndex >= 0) {
+        const std::string dir = recentProjects_[openIndex].dir;
+        const std::string err = openProjectAt(dir);
+        if (!err.empty()) {
+            // Moved/deleted since it was probed: say so and mark the row, but
+            // keep it - the user decides whether it is worth forgetting.
+            probeRecentProject(recentProjects_[openIndex]);
+            MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+        }
+    }
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1426,11 +1585,7 @@ void App::drawViewportWindow() {
     ImGui::PopStyleVar();
 
     if (!hasProject_) {
-        ImGui::Dummy(ImVec2(0, 40));
-        ImGui::Indent(30);
-        ImGui::TextDisabled("No project open.");
-        ImGui::TextDisabled("File > New Project (Ctrl+N) to create one.");
-        ImGui::Unindent(30);
+        drawWelcomeScreen();
         ImGui::End();
         return;
     }
@@ -3123,6 +3278,54 @@ void App::requestExit() {
         exitConfirmed_ = true;
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
     }
+}
+
+// --- Recent projects -------------------------------------------------------
+
+void App::probeRecentProject(RecentProject& r) {
+    r.name = projectManifestName(r.dir);
+    r.valid = !r.name.empty();
+    // A vanished folder still shows its own name - an unreadable path alone
+    // tells the user nothing about which project it was.
+    if (!r.valid) r.name = std::filesystem::path(r.dir).filename().string();
+    if (r.name.empty()) r.name = r.dir;
+}
+
+void App::rememberRecentProject(const std::string& dir) {
+    if (dir.empty()) return;
+    const std::string key = recentProjectKey(dir);
+    for (size_t i = 0; i < recentProjects_.size();) {
+        if (recentProjectKey(recentProjects_[i].dir) == key)
+            recentProjects_.erase(recentProjects_.begin() + i);
+        else
+            ++i;
+    }
+    RecentProject r;
+    r.dir = dir;
+    probeRecentProject(r);
+    recentProjects_.insert(recentProjects_.begin(), r);
+    if (recentProjects_.size() > kMaxRecentProjects)
+        recentProjects_.resize(kMaxRecentProjects);
+    saveGlobalConfig();
+}
+
+void App::forgetRecentProject(int index) {
+    if (index < 0 || index >= (int)recentProjects_.size()) return;
+    recentProjects_.erase(recentProjects_.begin() + index);
+    saveGlobalConfig();  // the list only ever lives in editor.ini
+}
+
+std::string App::openProjectAt(const std::string& dir) {
+    Project p;
+    std::string err = project::load(p, dir);
+    if (!err.empty()) return err;
+    project_ = p;
+    hasProject_ = true;
+    applyProjectToViewport();
+    attachProject();  // resets dirty + window title
+    // project_.dir, not `dir`: load normalizes it (and accepts a .tyra path).
+    rememberRecentProject(project_.dir);
+    return {};
 }
 
 void App::requestOpenProject() {
@@ -19585,6 +19788,7 @@ void App::drawNewProjectModal() {
                 hasProject_ = true;
                 applyProjectToViewport();
                 attachProject();  // resets dirty + window title
+                rememberRecentProject(project_.dir);
                 ImGui::CloseCurrentPopup();
             } else {
                 newProjectError_ = err;
@@ -21043,14 +21247,8 @@ void App::openProjectDialog() {
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
-    Project p;
-    std::string err = project::load(p, dir);
-    if (err.empty()) {
-        project_ = p;
-        hasProject_ = true;
-        applyProjectToViewport();
-        attachProject();  // resets dirty + window title
-    } else {
+    const std::string err = openProjectAt(dir);
+    if (!err.empty()) {
         runner_.clearLog();
         // Surface the error in the Output window via the runner log is hacky;
         // show a popup instead on next frame. Simple approach: message box.
