@@ -322,7 +322,21 @@ and a streaming feature that only runs when a phone is in the room is a feature
 nobody can debug. (The equivalence is measured, not asserted: posing through
 `applyLive` frame by frame and posing through the clip path agree to 0.48 µm.)
 
-**Zero here** is the one to reach for. It says *"the performer is facing me,
+**Calibrate (T-pose)** comes first and decides whether any of the rest is
+usable. Every frame is a delta from a *rest pose*; without calibrating, that
+pose is ARKit's `neutralBodySkeleton3D` - a nominal figure out of a catalogue -
+so everything a real performer differs from it by, in proportions and in stance,
+is a **constant error in every single frame**. Have them stand in a T-pose
+facing the camera and press it: that frame becomes the rest pose, `restFix` is
+computed against *their* T-pose, and the height comes off their actual stance.
+Bone lengths are kept from the catalogue, because those do not change between it
+and the room - only the resting angles do. It sets the heading zero too, since
+at that instant they are facing the camera by construction.
+
+The same button is **on the phone**, because the performer is the one standing
+in the pose and the one who knows when they are ready.
+
+**Zero here** is the smaller one. It says *"the performer is facing me,
 right now"*: everything after is measured from that instant, so they turn and
 the character turns, they walk across the room and it walks across the room.
 Without it the link takes its zero from the **first frame it sees** - whatever

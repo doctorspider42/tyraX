@@ -11,7 +11,7 @@ namespace pcsx2 {
 // Locates PCSX2.ini for the given emulator executable: portable builds keep
 // inis/ next to the exe, installed builds use <Documents>\PCSX2\inis
 // (Documents may be redirected, e.g. to OneDrive, so the shell is asked
-// instead of assuming %USERPROFILE%). Returns an empty path if not found.
+// instead of assuming the home directory). Returns an empty path if not found.
 std::filesystem::path findIni(const std::filesystem::path& exePath);
 
 enum class HostFsResult { AlreadyEnabled, Enabled, WriteFailed };

@@ -3,7 +3,7 @@
 *Tools > Asset Browser* (also *Project > Assets > Browse assets...*) is the
 file manager for everything a project ships: models, materials, textures,
 audio, fonts. Folders, thumbnails, type filters, search, and the file
-operations you would otherwise do in Explorer - except here they carry the
+operations you would otherwise do in the system file manager - except here they carry the
 project's references with them, so moving or renaming an asset never leaves a
 scene pointing at a file that moved.
 
@@ -31,7 +31,7 @@ list is gone; the panel keeps a summary and the import buttons.
 
 - **Folder tree** - every folder under `res/`, with the number of files inside.
   Click to list it, right-click for *New folder / Rename / Delete / Reveal in
-  Explorer*, drag a folder onto another to move the whole subtree.
+  file manager*, drag a folder onto another to move the whole subtree.
 - **Grid or list** - the grid shows a thumbnail per asset (see below) and the
   list shows name / type / size / reference count / folder. The slider changes
   the tile size.
@@ -45,7 +45,7 @@ list is gone; the panel keeps a summary and the import buttons.
 Assets are what the pickers elsewhere in the editor already offer: `res/` is the
 database, there is no import registry. A file dropped into the folder by hand
 appears here within a second or two, and anything the browser does is a plain
-file operation someone else could have done in Explorer.
+file operation someone else could have done in the file manager.
 
 ## Thumbnails
 

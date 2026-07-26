@@ -83,6 +83,7 @@ add_executable(tyrax-editor
     src/pcsx2_config.cpp
     src/phonecam.cpp
     src/placement.cpp
+    src/platform.cpp
     src/pngquant.cpp
     src/primmesh.cpp
     src/decalproj.cpp
@@ -110,8 +111,20 @@ add_executable(tyrax-editor
 )
 target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
-# ws2_32: the collaboration transport (src/wire.cpp) uses Winsock2 sockets.
-target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid ws2_32)
+
+find_package(OpenGL REQUIRED)
+target_link_libraries(tyrax-editor PRIVATE imgui glfw OpenGL::GL)
+
+if(WIN32)
+    # shell32/ole32/uuid: the native file pickers and "Reveal in Explorer"
+    # (src/platform.cpp). ws2_32: the socket transport (src/wire.cpp).
+    target_link_libraries(tyrax-editor PRIVATE shell32 ole32 uuid ws2_32)
+else()
+    # Threads: std::thread needs an explicit -pthread with libstdc++, and
+    # ${CMAKE_DL_LIBS} is what GLFW's runtime GL/Vulkan loading wants.
+    find_package(Threads REQUIRED)
+    target_link_libraries(tyrax-editor PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 if(MINGW)
     # Self-contained exe: don't depend on libstdc++/libgcc/libwinpthread DLLs

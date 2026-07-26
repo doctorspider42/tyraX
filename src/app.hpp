@@ -29,7 +29,7 @@ struct GLFWwindow;
 
 // Viewport navigation preferences. These are a machine/muscle-memory property,
 // not project data, so they live in the global editor config (editor.ini in
-// %LOCALAPPDATA%), never in the per-project .tyra. See NavConfig persistence in
+// the editor config dir), never in the per-project .tyra. See NavConfig persistence in
 // app.cpp.
 enum class NavScheme {
     Default = 0,  // tyra: LMB/RMB orbit, MMB pan
@@ -521,6 +521,9 @@ private:
                          const float* rootRot = nullptr,
                          const phonecam::BodyFrame* vision = nullptr);
     void mocapStopRecording();
+    // The two a performer triggers from the phone as well as from here.
+    void mocapZero();
+    void mocapCalibrateFromPhone();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -817,7 +820,7 @@ private:
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
     // Collaboration (editor.ini): the name other session participants see
-    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    // (empty = the OS user name) and the remote-project cache root (empty = default).
     std::string globalDisplayName_;
     std::string globalSessionCacheDir_;
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
@@ -1045,6 +1048,13 @@ private:
     // against it, exactly as the hips translation is.
     float mocapHeadingBase_[4] = {0, 0, 0, 1};
     bool mocapHaveHeadingBase_ = false;
+    // The performer's OWN rest pose, captured from a live frame while they
+    // stand in a T-pose. Replaces ARKit's neutral skeleton as the thing every
+    // later frame is a delta from - see mocapRebind.
+    std::vector<float> mocapCalibRot_;
+    bool mocapHaveCalib_ = false;
+    bool mocapCalibrated_ = false;   // did the live rig actually use it?
+    std::vector<float> mocapLastFrameRot_;  // newest raw frame, for calibrating
     bool mocapFilterEnabled_ = true;
     posefilter::PoseFilter mocapFilter_;
     // The live skeleton's names and tree, taken once at bind. Reading them

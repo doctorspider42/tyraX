@@ -41,8 +41,6 @@
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_impl_glfw.h>
@@ -50,21 +48,14 @@
 #include <ImGuizmo.h>
 #include <imnodes.h>
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <commdlg.h>
-#include <shobjidl.h>
+#include "platform.hpp"
 
 // ---------------------------------------------------------------------------
-// Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
-// pickSolutionFile: file dialog filtered to *.tyra project files.
+// Native pickers, one kind per thing the editor imports. The dialogs
+// themselves live in platform.cpp (comdlg32/IFileOpenDialog on Windows,
+// zenity/kdialog elsewhere) - here we only name the filters.
 // ---------------------------------------------------------------------------
 enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable, CamTake };
-
-// Owner window for the native dialogs. An unowned modal (Show(nullptr))
-// leaves the frozen GLFW window active behind it - Windows then wedges the
-// dialog when it interacts with the non-pumping app (grayed Open button).
-static HWND g_dialogOwner = nullptr;
 
 // Defined lower down (next to the game-error catcher) but used early in
 // attachProject() to baseline the log size.
@@ -75,7 +66,7 @@ static size_t fileSizeOr0(const std::string& path);
 // wants a different UI scale than a 1080p desktop; navigation is personal
 // preference; the emulator lives at a fixed path on this PC and the dev PS2 has
 // a fixed LAN address), so they live outside the per-project .tyra - in
-// %LOCALAPPDATA%\tyra-editor\editor.ini. Trivial key=value lines; the whole
+// editor.ini under platform::configDir(). Trivial key=value lines; the whole
 // file is rewritten on any change, so load once and save the full struct.
 // ---------------------------------------------------------------------------
 struct EditorConfig {
@@ -92,7 +83,7 @@ struct EditorConfig {
     std::string defaultProjectsDir;
     // Collaboration sessions: the name shown to other participants (empty =
     // the Windows user name) and where joined projects materialize (empty =
-    // %LOCALAPPDATA%\tyra-editor\remote-cache).
+    // <editor config dir>/remote-cache).
     std::string displayName;
     std::string sessionCacheDir;
     // AI assistant backend for flow-graph generation (aigen.hpp). Machine
@@ -137,10 +128,9 @@ struct EditorConfig {
 static constexpr size_t kMaxRecentProjects = 10;
 
 static std::filesystem::path editorConfigPath() {
-    const char* base = getenv("LOCALAPPDATA");
-    if (!base || !*base) base = getenv("USERPROFILE");
-    if (!base || !*base) return {};
-    return std::filesystem::path(base) / "tyra-editor" / "editor.ini";
+    const std::filesystem::path base = platform::configDir();
+    if (base.empty()) return {};
+    return base / "editor.ini";
 }
 
 static EditorConfig loadEditorConfig() {
@@ -285,109 +275,59 @@ static std::string recentProjectKey(const std::string& dir) {
 // default (Edit > Preferences) if set, else ~/TyraProjects.
 static std::string defaultNewProjectLocation(const std::string& configured) {
     if (!configured.empty()) return configured;
-    if (const char* home = getenv("USERPROFILE"))
-        return std::string(home) + "\\TyraProjects";
-    return "";
-}
-
-static std::string wideToUtf8(const wchar_t* path) {
-    std::string result;
-    const int len = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
-    if (len > 1) {
-        result.resize(len - 1);
-        WideCharToMultiByte(CP_UTF8, 0, path, -1, result.data(), len, nullptr, nullptr);
-    }
-    return result;
-}
-
-// Classic comdlg32 file dialog. The shell-based IFileOpenDialog wedges on
-// this setup (grayed Open button, dialog never returns) - the legacy dialog
-// carries far less shell machinery. filter is the double-NUL comdlg format.
-static std::string pickFileLegacy(const wchar_t* filter, const wchar_t* title) {
-    wchar_t buf[MAX_PATH] = L"";
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = g_dialogOwner;
-    ofn.lpstrFilter = filter;
-    ofn.nFilterIndex = 1;
-    ofn.lpstrFile = buf;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = title;
-    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
-                OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
-    if (!GetOpenFileNameW(&ofn)) return "";
-    return wideToUtf8(buf);
+    const std::filesystem::path home = platform::homeDir();
+    return home.empty() ? std::string() : (home / "TyraProjects").string();
 }
 
 static std::string pickPath(PickKind kind) {
+    // Every filter list ends with All files, so a user whose asset carries an
+    // unusual extension is never locked out of importing it.
+    static const platform::FileFilter kAll{"All files (*)", {"*"}};
     switch (kind) {
         case PickKind::Solution:
-            return pickFileLegacy(
-                L"Tyra project (*.tyra)\0*.tyra\0All files (*.*)\0*.*\0",
-                L"Open Tyra project");
+            return platform::pickFile("Open Tyra project",
+                                      {{"Tyra project (*.tyra)", {"*.tyra"}}, kAll});
         case PickKind::ObjModel:
-            return pickFileLegacy(
-                L"3D model or take (*.obj, *.glb, *.fbx, *.tmocap)\0"
-                L"*.obj;*.glb;*.fbx;*.tmocap\0"
-                L"Wavefront model (*.obj)\0*.obj\0"
-                L"Animated glTF binary (*.glb)\0*.glb\0"
-                L"Animated FBX (*.fbx)\0*.fbx\0"
-                L"Phone mocap take (*.tmocap)\0*.tmocap\0All files (*.*)\0*.*\0",
-                L"Import 3D model (.glb/.fbx = animated, .tmocap = phone take)");
+            return platform::pickFile(
+                "Import 3D model (.glb/.fbx = animated, .tmocap = phone take)",
+                {{"3D model or take (*.obj, *.glb, *.fbx, *.tmocap)",
+                  {"*.obj", "*.glb", "*.fbx", "*.tmocap"}},
+                 {"Wavefront model (*.obj)", {"*.obj"}},
+                 {"Animated glTF binary (*.glb)", {"*.glb"}},
+                 {"Animated FBX (*.fbx)", {"*.fbx"}},
+                 {"Phone mocap take (*.tmocap)", {"*.tmocap"}},
+                 kAll});
         case PickKind::Mtl:
-            return pickFileLegacy(
-                L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
-                L"Import material library");
+            return platform::pickFile("Import material library",
+                                      {{"Material library (*.mtl)", {"*.mtl"}}, kAll});
         case PickKind::Png:
-            return pickFileLegacy(
-                L"PNG image (*.png)\0*.png\0All files (*.*)\0*.*\0",
-                L"Import PNG image");
+            return platform::pickFile("Import PNG image",
+                                      {{"PNG image (*.png)", {"*.png"}}, kAll});
         case PickKind::Wav:
-            return pickFileLegacy(
-                L"WAV audio (*.wav)\0*.wav\0All files (*.*)\0*.*\0",
-                L"Import WAV (16-bit 22kHz recommended)");
+            return platform::pickFile("Import WAV (16-bit 22kHz recommended)",
+                                      {{"WAV audio (*.wav)", {"*.wav"}}, kAll});
         case PickKind::Ttf:
-            return pickFileLegacy(
-                L"TrueType font (*.ttf, *.otf)\0*.ttf;*.otf\0All files (*.*)\0*.*\0",
-                L"Import menu font");
-        case PickKind::Executable:
-            return pickFileLegacy(
-                L"Executable (*.exe)\0*.exe\0All files (*.*)\0*.*\0",
-                L"Select PCSX2 executable");
-        case PickKind::CamTake:
-            return pickFileLegacy(
-                L"Camera take (*.hfcs, *.csv)\0*.hfcs;*.csv\0"
-                L"CamTrackAR composite shot (*.hfcs)\0*.hfcs\0"
-                L"Camera take CSV (*.csv)\0*.csv\0All files (*.*)\0*.*\0",
-                L"Import camera take (phone AR recording)");
-        case PickKind::Folder:
-            break;  // folders need the shell dialog below
-    }
-
-    const bool folder = true;
-    std::string result;
-    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    IFileOpenDialog* dialog = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
-                                   IID_PPV_ARGS(&dialog)))) {
-        DWORD options = 0;
-        dialog->GetOptions(&options);
-        dialog->SetOptions(options | (folder ? FOS_PICKFOLDERS : 0) | FOS_FORCEFILESYSTEM);
-        if (SUCCEEDED(dialog->Show(g_dialogOwner))) {
-            IShellItem* item = nullptr;
-            if (SUCCEEDED(dialog->GetResult(&item))) {
-                PWSTR path = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-                    result = wideToUtf8(path);
-                    CoTaskMemFree(path);
-                }
-                item->Release();
-            }
+            return platform::pickFile(
+                "Import menu font",
+                {{"TrueType font (*.ttf, *.otf)", {"*.ttf", "*.otf"}}, kAll});
+        case PickKind::Executable: {
+            // An executable has no extension outside Windows, so the "only
+            // executables" filter would hide every candidate there.
+            const std::string pat = std::string("*") + platform::exeSuffix();
+            return platform::pickFile("Select PCSX2 executable",
+                                      {{"Executable (" + pat + ")", {pat}}, kAll});
         }
-        dialog->Release();
+        case PickKind::CamTake:
+            return platform::pickFile(
+                "Import camera take (phone AR recording)",
+                {{"Camera take (*.hfcs, *.csv)", {"*.hfcs", "*.csv"}},
+                 {"CamTrackAR composite shot (*.hfcs)", {"*.hfcs"}},
+                 {"Camera take CSV (*.csv)", {"*.csv"}},
+                 kAll});
+        case PickKind::Folder:
+            break;
     }
-    if (SUCCEEDED(hrInit)) CoUninitialize();
-    return result;
+    return platform::pickFolder("Select folder");
 }
 
 static std::string pickFolder() { return pickPath(PickKind::Folder); }
@@ -448,7 +388,7 @@ int App::run(const std::string& initialProjectDir) {
 
     // Size is the restore-size when the user un-maximizes.
     window_ = glfwCreateWindow(1600, 900, "TyraX", nullptr, nullptr);
-    if (window_) g_dialogOwner = glfwGetWin32Window(window_);
+    if (window_) platform::setDialogOwner(window_);
     if (!window_) {
         glfwTerminate();
         return 1;
@@ -1659,7 +1599,7 @@ void App::drawWelcomeScreen() {
             // Moved/deleted since it was probed: say so and mark the row, but
             // keep it - the user decides whether it is worth forgetting.
             probeRecentProject(recentProjects_[openIndex]);
-            MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+            platform::errorBox("Open Project", err);
         }
     }
 }
@@ -3217,22 +3157,22 @@ void App::saveProject() {
     // instead of clobbering it.
     captureActiveLayout();
     if (auto err = project::save(project_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save Project", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save Project", err);
     // Terrain heightmaps live in separate <scene>.heights files (not the .tyra)
     // and, like the rest of the model, are persisted only on demand. They are
     // kept in memory (and in undo snapshots) during editing.
     if (auto err = project::saveHeights(project_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save Terrain", err);
     // Terrain splatmaps (paint weights) live in <scene>.splat sidecars, same
     // deal as the heightmaps.
     if (auto err = project::saveSplat(project_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save Terrain", err);
 }
 
 void App::saveAll(const char* status) {
     saveProject();
     if (auto err = project::saveHistory(project_, history_); !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save History", MB_ICONERROR | MB_OK);
+        platform::errorBox("Save History", err);
     setDirty(false);
     statusMessage_ = status;
 }
@@ -4004,15 +3944,15 @@ void App::openRemoteProject(const std::string& dir) {
 }
 
 // Seed the display-name field once per modal open: the configured name
-// (Edit > Preferences), else USERNAME - both beat an empty box.
+// (Edit > Preferences), else the OS user name - both beat an empty box.
 static void seedSessionName(char* buf, size_t n, const std::string& configured) {
     if (buf[0]) return;
     if (!configured.empty()) {
         std::snprintf(buf, n, "%s", configured.c_str());
         return;
     }
-    const char* u = getenv("USERNAME");
-    std::snprintf(buf, n, "%s", (u && *u) ? u : "user");
+    const std::string u = platform::userName();
+    std::snprintf(buf, n, "%s", u.empty() ? "user" : u.c_str());
 }
 
 void App::drawHostSessionModal() {
@@ -7581,7 +7521,7 @@ void App::drawPropertiesWindow() {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s - not found",
                                    o.scripts[i].c_str());
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("No TYRA_OBJECT_SCRIPT(%s) in src\\scripts\\*.cpp\n"
+                    ImGui::SetTooltip("No TYRA_OBJECT_SCRIPT(%s) in src/scripts/*.cpp\n"
                                       "- the game skips it (with a log line).",
                                       o.scripts[i].c_str());
             }
@@ -7608,7 +7548,7 @@ void App::drawPropertiesWindow() {
             }
             if (!any)
                 ImGui::TextDisabled(registered.empty()
-                                        ? "No object scripts in src\\scripts yet."
+                                        ? "No object scripts in src/scripts yet."
                                         : "Every script is already attached.");
             ImGui::EndCombo();
         }
@@ -9198,9 +9138,8 @@ std::string App::installVsCodeExtension() {
     // silently ignored - which is why the earlier folder-copy install did
     // nothing and printed nothing. `code --install-extension <vsix>` registers
     // it properly.
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0)
-        return "Could not locate the editor executable";
+    const std::string exePath = platform::exePath();
+    if (exePath.empty()) return "Could not locate the editor executable";
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
         std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
@@ -9214,24 +9153,15 @@ std::string App::installVsCodeExtension() {
     if (vsix.empty())
         return "VS Code extension package not found (tools/vscode-tyrax/*.vsix)";
 
-    // `code` is a .cmd shim, so route through cmd.exe (same as openInVSCode).
-    // Run it synchronously so we can report the real outcome; --force reinstalls
-    // in place, so this is idempotent.
-    std::string cmd =
-        "cmd.exe /S /C \"code --install-extension \"" + vsix.string() + "\" --force\"";
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::string mutableCmd = cmd;
-    if (!CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE,
-                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+    // Run it synchronously so we can report the real outcome; --force
+    // reinstalls in place, so this is idempotent. The command goes through the
+    // platform shell, which always starts - so a missing CLI is detected up
+    // front rather than read off a spawn failure that cannot happen.
+    if (!platform::commandExists("code"))
         return "Could not run VS Code's 'code' CLI - is it on PATH?";
-    WaitForSingleObject(pi.hProcess, 60000);
-    DWORD exitCode = 1;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    if (exitCode != 0)
+    auto proc = platform::Process::start("code --install-extension " +
+                                         platform::shellArg(vsix.string()) + " --force");
+    if (!proc || proc->wait() != 0)
         return "VS Code extension install failed - is the 'code' CLI on PATH? "
                "(VS Code: Shell Command: Install 'code' in PATH)";
     return "TyraX VS Code extension installed - reload the VS Code window if it "
@@ -9247,33 +9177,19 @@ void App::openInVSCode(const std::string& file) {
         vsCodeExtStatus_ = installVsCodeExtension();
     }
 
-    // `code` is a .cmd shim, so it has to go through cmd.exe. Passing the
-    // project dir opens (or reuses) that workspace; an extra file path opens it
-    // in the same window (-g = goto), so we can jump straight to a script or a
-    // custom-node file while keeping the whole project in context.
-    std::string cmd = "cmd.exe /S /C \"code \"" + project_.dir + "\"";
+    std::string abs;
     if (!file.empty()) {
         std::filesystem::path fp(file);
-        const std::string abs =
-            fp.is_absolute() ? fp.string()
-                             : (std::filesystem::path(project_.dir) / fp).string();
-        cmd += " -g \"" + abs + "\"";
+        abs = fp.is_absolute() ? fp.string()
+                               : (std::filesystem::path(project_.dir) / fp).string();
     }
-    cmd += "\"";
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::string mutableCmd = cmd;
-    if (CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                       nullptr, project_.dir.c_str(), &si, &pi)) {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+    if (const std::string err = platform::openInVSCode(project_.dir, abs); !err.empty()) {
+        statusMessage_ = err;
+    } else {
         statusMessage_ = "Opening in VS Code...";
         // Append the extension-install outcome so it is visible (a failure here
         // is the difference between highlighting working or not).
         if (!vsCodeExtStatus_.empty()) statusMessage_ += "  [" + vsCodeExtStatus_ + "]";
-    } else {
-        statusMessage_ = "Could not launch VS Code (is 'code' on PATH?)";
     }
 }
 
@@ -9347,12 +9263,14 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
 // (existence-checked) / import a new TTF. Returns true when fontPath changed.
 bool App::fontSourceCombo(std::string& fontPath) {
     bool changed = false;
-    std::string current = "Default (Consolas Bold)";
+    const std::string defaultLabel =
+        std::string("Default (") + platform::defaultFontLabel() + ")";
+    std::string current = defaultLabel;
     if (!fontPath.empty())
         current = std::filesystem::path(fontPath).filename().string();
     ImGui::SetNextItemWidth(scaled(200.0f));
     if (ImGui::BeginCombo("Source", current.c_str())) {
-        if (ImGui::Selectable("Default (Consolas Bold)", fontPath.empty())) {
+        if (ImGui::Selectable(defaultLabel.c_str(), fontPath.empty())) {
             fontPath.clear();
             changed = true;
         }
@@ -9376,28 +9294,11 @@ bool App::fontSourceCombo(std::string& fontPath) {
                 }
             }
         }
-        // stock Windows fonts (bare file name - resolved via \Windows\Fonts)
-        struct SysFont {
-            const char* label;
-            const char* file;
-        };
-        static const SysFont kSysFonts[] = {
-            {"Arial Bold", "arialbd.ttf"},
-            {"Comic Sans MS Bold", "comicbd.ttf"},
-            {"Courier New Bold", "courbd.ttf"},
-            {"Georgia Bold", "georgiab.ttf"},
-            {"Impact", "impact.ttf"},
-            {"Segoe UI Bold", "segoeuib.ttf"},
-            {"Times New Roman Bold", "timesbd.ttf"},
-            {"Trebuchet MS Bold", "trebucbd.ttf"},
-            {"Verdana Bold", "verdanab.ttf"},
-        };
-        char windir[MAX_PATH] = {};
-        GetWindowsDirectoryA(windir, MAX_PATH);
-        for (const SysFont& sf : kSysFonts) {
-            const std::filesystem::path p =
-                std::filesystem::path(windir) / "Fonts" / sf.file;
-            if (!std::filesystem::exists(p, ec)) continue;
+        // stock system fonts, stored as a bare file name and resolved through
+        // platform::systemFontPath at bake time. Existence-checked, so the list
+        // only ever offers what this machine actually has.
+        for (const platform::SystemFont& sf : platform::systemFonts()) {
+            if (platform::systemFontPath(sf.file).empty()) continue;
             if (ImGui::Selectable(sf.label, fontPath == sf.file)) {
                 fontPath = sf.file;
                 changed = true;
@@ -10427,7 +10328,18 @@ void App::mocapRebind() {
         // has still been dealt with, and leaving it unclaimed would retry - and
         // reprint - the same failure every frame.
         mocapLiveSkelSeq_ = phoneCam_.bodySkeletonSeq();
-        if (!mocap::buildSource(sk.joints, sk.parents, sk.restPos.data(), sk.restRot.data(),
+        // The pose every later frame is measured AGAINST. By default that is
+        // ARKit's neutral skeleton - a nominal T-pose out of a catalogue, not
+        // this person in these proportions - and everything the performer
+        // differs from it by becomes a constant error in every single frame.
+        // Calibrating replaces the assumption with a measurement: the performer
+        // stands in a T-pose, that frame is captured, and the delta is taken
+        // from there. Only the ROTATIONS are replaced; the bone offsets stay,
+        // because limbs do not change length between the catalogue and the room.
+        const bool calibrated =
+            mocapHaveCalib_ && mocapCalibRot_.size() == sk.joints.size() * 4;
+        if (!mocap::buildSource(sk.joints, sk.parents, sk.restPos.data(),
+                                calibrated ? mocapCalibRot_.data() : sk.restRot.data(),
                                 liveRig, err)) {
             mocapNote_ = "live skeleton: " + err;
             return;
@@ -10437,6 +10349,7 @@ void App::mocapRebind() {
         for (size_t i = 0; i < liveRig.nodes.size(); ++i)
             if (liveRig.nodes[i].name == "mixamorig:Hips") mocapLiveHips_ = (int)i;
         mocapHaveHeadingBase_ = false;
+        mocapCalibrated_ = calibrated;
         mocapLiveJoints_ = sk.joints;
         mocapLiveParents_ = sk.parents;
         mocapLiveRestRot_ = sk.restRot;
@@ -10472,10 +10385,37 @@ void App::mocapRebind() {
     ++mocapPrevVersion_;
 }
 
+// Everything a jump invalidates, forgotten together. Called by the window's
+// button and by the phone's - one implementation, so the two cannot drift.
+void App::mocapZero() {
+    charanim::resetLiveOrigin(mocapBind_);
+    mocapHaveHeadingBase_ = false;
+    mocapFilter_.reset();
+    mocapVisionTracker_.reset();
+}
+
+// Capture the performer's own rest pose from the newest frame and rebuild the
+// binding on it. Also the heading zero: they are facing the camera right now.
+void App::mocapCalibrateFromPhone() {
+    if (!phoneCam_.hasBodySkeleton() || mocapLastFrameRot_.empty()) {
+        mocapNote_ = "nothing to calibrate on yet - no body in frame";
+        return;
+    }
+    mocapCalibRot_ = mocapLastFrameRot_;
+    mocapHaveCalib_ = true;
+    mocapRebind();
+    mocapZero();
+    mocapNote_ = "calibrated from the phone";
+}
+
 void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
                           const float* rootRot, const phonecam::BodyFrame* vision) {
     if (!mocapBind_.valid() || !rot) return;
     const int joints = mocapBind_.sourceNodeCount();
+    // The newest frame, raw, so Calibrate has something to capture. Raw and not
+    // the composed one: a calibration pose with a heading baked in would make
+    // the performer's starting direction part of the rest pose itself.
+    mocapLastFrameRot_.assign(rot, rot + (size_t)joints * 4);
 
     // The body's HEADING rides the anchor, not the hips joint - ARKit holds the
     // hips joint's own rotation constant to the last bit while a performer turns
@@ -10737,15 +10677,42 @@ void App::drawMocapWindow() {
         // pair. Zeroing is about WHERE the origin is; Rebind is about WHO
         // drives whom. The first is what an operator reaches for constantly, so
         // it leads and is named for what it promises rather than what it clears.
-        if (ImGui::Button("Zero here", ImVec2(scaled(110), 0))) {
-            charanim::resetLiveOrigin(mocapBind_);
-            mocapHaveHeadingBase_ = false;
-            // A jump is not a movement, so everything that smooths across
-            // frames has to be told - otherwise the character is dragged
-            // through the gap instead of cutting across it.
-            mocapFilter_.reset();
-            mocapVisionTracker_.reset();
+        // Calibrating is the FIRST thing an operator does and the thing that
+        // decides whether any of the rest is usable, so it leads.
+        const bool canCalibrate =
+            phoneCam_.hasBodySkeleton() && !mocapLastFrameRot_.empty();
+        ImGui::BeginDisabled(!canCalibrate);
+        if (ImGui::Button(mocapCalibrated_ ? "Re-calibrate (T-pose)" : "Calibrate (T-pose)",
+                          ImVec2(scaled(180), 0))) {
+            mocapCalibrateFromPhone();
         }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Have the performer stand in a T-pose facing you, then press.\n\n"
+                "Every frame is a delta from a REST POSE. Without this that pose\n"
+                "is ARKit's neutral skeleton - a nominal figure out of a\n"
+                "catalogue - and everything this person differs from it by\n"
+                "becomes a constant error in every frame. Calibrating measures\n"
+                "it instead: their proportions, their stance, their height.\n\n"
+                "It is also the heading zero, so they end up facing the way the\n"
+                "character does.");
+        if (mocapHaveCalib_) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Forget")) {
+                mocapHaveCalib_ = false;
+                mocapCalibRot_.clear();
+                mocapRebind();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Go back to ARKit's neutral skeleton as the rest pose.");
+        }
+        ImGui::TextDisabled("%s", mocapCalibrated_ ? "rest pose: this performer"
+                                                   : "rest pose: ARKit's neutral figure");
+
+        // A jump is not a movement, so everything that smooths across frames is
+        // told at once - mocapZero is that one place.
+        if (ImGui::Button("Zero here", ImVec2(scaled(110), 0))) mocapZero();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "\"The performer is facing me, right now.\"\n\n"
@@ -14173,6 +14140,10 @@ void App::phoneCamTick() {
                 if (e.text == phonecam::kCmdRecord) startPhoneRecording();
                 else if (e.text == phonecam::kCmdStop) stopPhoneRecording();
                 else if (e.text == phonecam::kCmdRecenter) phoneCamRecenter();
+                // Body capture: the performer is the one in the T-pose and the
+                // one who knows when they are ready, so the phone can say so.
+                else if (e.text == phonecam::kCmdCalibrate) mocapCalibrateFromPhone();
+                else if (e.text == phonecam::kCmdZero) mocapZero();
                 break;
             case phonecam::Event::Type::MoveStart:
                 movePhoneStart(e.vec);
@@ -20755,14 +20726,15 @@ void App::drawScriptsSection() {
 
     // Render folders first (open by default), then files. TreeNodeEx pushes an
     // ID scope per folder, so same-named files in different folders don't
-    // collide. prefix carries the src\scripts-relative path for opening.
+    // collide. prefix carries the src/scripts-relative path for opening -
+    // forward slashes, because it is handed on as a path, not as display text.
     std::function<void(const ScriptNode&, const std::string&)> drawNode =
         [&](const ScriptNode& n, const std::string& prefix) {
             for (const auto& [name, child] : n.folders) {
                 if (ImGui::TreeNodeEx(name.c_str(),
                                       ImGuiTreeNodeFlags_DefaultOpen |
                                           ImGuiTreeNodeFlags_SpanAvailWidth)) {
-                    drawNode(child, prefix + name + "\\");
+                    drawNode(child, prefix + name + "/");
                     ImGui::TreePop();
                 }
             }
@@ -20772,7 +20744,7 @@ void App::drawScriptsSection() {
                 ImGui::Bullet();
                 ImGui::SameLine();
                 if (ImGui::Selectable(f.c_str()))
-                    openInVSCode("src\\scripts\\" + prefix + f);
+                    openInVSCode("src/scripts/" + prefix + f);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Open in VS Code");
             }
@@ -20793,7 +20765,7 @@ void App::drawNewScriptModal() {
         return;
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-    ImGui::TextDisabled("Creates src\\scripts\\%s.cpp (subfolders allowed: ai/guard)",
+    ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
                         newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
@@ -23060,7 +23032,8 @@ void App::drawEditorPreferencesModal() {
 
     ImGui::TextDisabled(
         "Settings for this editor installation - shared by every project and\n"
-        "stored outside the .tyra file (in editor.ini under %%LOCALAPPDATA%%).");
+        "stored outside the .tyra file (in editor.ini, next to the other machine "
+        "settings).");
 
     ImGui::SeparatorText("New projects");
     ImGui::InputText("Default folder", prefDefaultProjectsDir_,
@@ -23120,7 +23093,7 @@ void App::drawEditorPreferencesModal() {
     ImGui::TextDisabled(
         "Where projects you JOIN materialize (re-joins reuse it, so unchanged\n"
         "files never transfer twice). Leave empty for\n"
-        "%%LOCALAPPDATA%%\\tyra-editor\\remote-cache.");
+        "the editor config folder (remote-cache).");
 
     ImGui::SeparatorText("AI assistant");
     {
@@ -23571,6 +23544,6 @@ void App::openProjectDialog() {
         runner_.clearLog();
         // Surface the error in the Output window via the runner log is hacky;
         // show a popup instead on next frame. Simple approach: message box.
-        MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+        platform::errorBox("Open Project", err);
     }
 }

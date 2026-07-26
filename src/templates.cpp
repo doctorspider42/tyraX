@@ -11,8 +11,6 @@
 #include <sstream>
 #include <utility>
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
@@ -27,6 +25,7 @@
 #include "meshlod.hpp"
 #include "navmesh.hpp"
 #include "objparser.hpp"
+#include "platform.hpp"
 #include "project.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
@@ -13890,6 +13889,46 @@ function RunPCSX2 {
 }
 )PS1";
 
+// The POSIX twin of run.ps1 + windows-pcsx2.ps1, kept as one file because
+// there is no equivalent of the two-file "edit the config, keep the runner"
+// split to preserve here - the emulator path is a single variable at the top.
+// Both exist in every project regardless of the authoring OS: a project is
+// portable, so the helper for the OTHER machine has to be there when someone
+// clones it.
+static const char* TPL_RUN_SH = R"SH(#!/usr/bin/env bash
+# Runs the built ELF in PCSX2, outside the editor. Set PCSX2 below (or export
+# PCSX2=/path/to/pcsx2) when yours is not on PATH / not a flatpak.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+PCSX2="${PCSX2:-}"
+if [ -z "$PCSX2" ]; then
+    for c in pcsx2-qt pcsx2; do
+        command -v "$c" >/dev/null 2>&1 && PCSX2="$c" && break
+    done
+fi
+if [ -z "$PCSX2" ] && command -v flatpak >/dev/null 2>&1 &&
+   flatpak info net.pcsx2.PCSX2 >/dev/null 2>&1; then
+    PCSX2="flatpak run net.pcsx2.PCSX2"
+fi
+if [ -z "$PCSX2" ]; then
+    for c in "$HOME"/Applications/*.AppImage "$HOME"/Downloads/*.AppImage; do
+        case "$(basename "$c")" in [Pp][Cc][Ss][Xx]2*) PCSX2="$c"; break;; esac
+    done
+fi
+if [ -z "$PCSX2" ]; then
+    echo "PCSX2 not found - install it or set PCSX2=/path/to/pcsx2" >&2
+    exit 1
+fi
+
+ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
+[ -f "$ELF" ] || { echo "$ELF not found - build the project first." >&2; exit 1; }
+
+pkill -x pcsx2-qt >/dev/null 2>&1 || true
+pkill -x pcsx2 >/dev/null 2>&1 || true
+exec $PCSX2 -elf "$PWD/$ELF"
+)SH";
+
 // docker-compose.yml is regenerated on every build (refreshGenerated) and
 // carries a machine-specific absolute path to the engine sources plus a hash
 // derived from it - never worth committing (it just churns and leaks the
@@ -14020,10 +14059,10 @@ static std::string floatLit(float v) {
 // Absolute path to the in-tree Tyra engine (editor repo, vendor/tyra), with
 // forward slashes - bind-mounted into the build container by docker-compose.
 static std::string engineSourceDir() {
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        std::filesystem::path candidate = std::filesystem::path(exePath).parent_path() /
-                                          ".." / "vendor" / "tyra";
+    const std::string exe = platform::exePath();
+    if (!exe.empty()) {
+        std::filesystem::path candidate =
+            std::filesystem::path(exe).parent_path() / ".." / "vendor" / "tyra";
         std::error_code ec;
         if (std::filesystem::exists(candidate / "Makefile.base", ec)) {
             std::string s = std::filesystem::weakly_canonical(candidate, ec).string();
@@ -15211,7 +15250,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                         // reads the live skinned vertices each frame.
                         glbparser::Baked baked;
                         std::string err;
-                        if (!animimport::bake(p.dir + "\\" + t.modelPath,
+                        if (!animimport::bake(p.filePath(t.modelPath),
                                               24.0f, baked, err))
                             continue;
                         int part = -1;
@@ -15245,7 +15284,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                         continue;
                     }
                     objparser::Model m;
-                    if (!objparser::load(p.dir + "\\" + t.modelPath, m))
+                    if (!objparser::load(p.filePath(t.modelPath), m))
                         continue;
                     int part = -1;
                     for (size_t s2 = 0; s2 < m.submeshes.size(); ++s2)
@@ -16247,6 +16286,13 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
     return s;
+}
+
+std::filesystem::path nativePath(const std::string& relativePath) {
+    std::string s = relativePath;
+    for (char& c : s)
+        if (c == '\\') c = '/';
+    return std::filesystem::path(s);
 }
 
 bool matchesLegacy(const Project& p, const std::string& relativePath,
@@ -20863,9 +20909,8 @@ static std::string vscodeCppProperties() {
     };
 
     std::string engineInc;
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        std::filesystem::path candidate = std::filesystem::path(exePath).parent_path() /
+    if (const std::string exe = platform::exePath(); !exe.empty()) {
+        std::filesystem::path candidate = std::filesystem::path(exe).parent_path() /
                                           ".." / "vendor" / "tyra" / "engine" / "inc";
         std::error_code ec;
         if (std::filesystem::exists(candidate, ec))
@@ -20873,8 +20918,8 @@ static std::string vscodeCppProperties() {
     }
 
     std::string sdk;
-    if (const char* lad = getenv("LOCALAPPDATA"))
-        sdk = slashes(std::string(lad) + "\\tyra-editor\\ps2sdk");
+    if (const std::filesystem::path cfg = platform::configDir(); !cfg.empty())
+        sdk = slashes((cfg / "ps2sdk").string());
 
     std::ostringstream out;
     out << "{\n"
@@ -20949,11 +20994,11 @@ std::vector<File> bakeStaticModels(const Project& p,
             for (const SceneObject& obj : sc.objects)
                 if (obj.meshLodOverride > 0.0f && obj.modelPath == relPath)
                     lodWanted = true;
-        const std::string full = p.dir + "\\" + replaceAll(relPath, "/", "\\");
+        const std::string full = p.filePath(relPath);
         const std::string mtlFull =
             materialPath.empty()
                 ? std::string()
-                : p.dir + "\\" + replaceAll(materialPath, "/", "\\");
+                : p.filePath(materialPath);
 
         objparser::Model model;
         if (!objparser::load(full, model, mtlFull)) {
@@ -20975,7 +21020,7 @@ std::vector<File> bakeStaticModels(const Project& p,
                 for (const std::string& tierRel : it->second) {
                     objparser::Model tier;
                     const std::string tierFull =
-                        p.dir + "\\" + replaceAll(tierRel, "/", "\\");
+                        p.filePath(tierRel);
                     if (!objparser::load(tierFull, tier, mtlFull)) {
                         warn(relPath + ": custom LOD " + tierRel +
                              " cannot be parsed - decimating instead");
@@ -21115,7 +21160,7 @@ std::vector<File> bakeAnimAssets(const Project& p,
     for (const auto& key : collectAnimModelKeys(p)) {
         const std::string& relPath = key.first;       // the .glb/.fbx source
         const std::string& materialPath = key.second;  // "" or override .mtl
-        const std::string full = p.dir + "\\" + replaceAll(relPath, "/", "\\");
+        const std::string full = p.filePath(relPath);
         // Output path/stem come from the .tskl (which folds in the override),
         // so an override variant's extracted textures get a unique prefix and
         // never collide with the base model's. Base (no override) stem is
@@ -21148,7 +21193,7 @@ std::vector<File> bakeAnimAssets(const Project& p,
         // the same usemtl-name resolution a static .obj override uses.
         if (!materialPath.empty()) {
             const std::string matFull =
-                p.dir + "\\" + replaceAll(materialPath, "/", "\\");
+                p.filePath(materialPath);
             objparser::applyMaterialOverride(skel, matFull, warnings);
         }
         // Distance LODs ride in the .tskl only when something uses them -
@@ -21353,6 +21398,7 @@ std::vector<File> generate(const Project& p) {
         {".vscode\\extensions.json", vscodeExtensionsJson()},
         {"run.ps1", fill(TPL_RUN_PS1)},
         {"windows-pcsx2.ps1", fill(TPL_PCSX2_PS1)},
+        {"run.sh", fill(TPL_RUN_SH)},
         {".gitignore", fill(TPL_GITIGNORE)},
         {".gitattributes", TPL_GITATTRIBUTES},
         {"COLLABORATION.md", TPL_COLLABORATION},

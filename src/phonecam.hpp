@@ -100,6 +100,11 @@ struct Event {
 constexpr const char* kCmdRecord = "record";
 constexpr const char* kCmdStop = "stop";
 constexpr const char* kCmdRecenter = "recenter";
+// Body capture. The performer is the one standing in the T-pose and the one
+// who knows when they are ready, so both belong on the phone as well as in
+// the editor - nobody should be running back to a keyboard mid-pose.
+constexpr const char* kCmdCalibrate = "calibrate";
+constexpr const char* kCmdZero = "zero";
 
 // ---------------------------------------------------------------------------
 // Body tracking (docs/character-generator.md). The SAME link carries it: one

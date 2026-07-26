@@ -62,6 +62,8 @@ log for conversion warnings.
 
 ## Related
 
-- `run.ps1` / `windows-pcsx2.ps1` in the project launch the already-built ELF.
+- `run.sh` (Linux/macOS) and `run.ps1` + `windows-pcsx2.ps1` (Windows) in the
+  project launch the already-built ELF. Both sets are always present - a
+  project is portable, so the helper for the other machine ships with it.
 - ISO export and real-PS2 network deploy (`--build <dir> --run-ps2 <ip>`) exist
   but need editor-side setup; ask the user before reaching for them.

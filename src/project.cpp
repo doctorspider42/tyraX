@@ -91,6 +91,14 @@ static std::string writeFile(const fs::path& path, const std::string& content) {
     std::ofstream f(path, std::ios::binary);
     if (!f) return "Cannot write file: " + path.string();
     f << content;
+    f.close();
+    // A generated shell script has to be runnable, and the file mode is not
+    // something the templates can express. Harmless on Windows, where the
+    // execute bits are not part of the permission model.
+    if (path.extension() == ".sh")
+        fs::permissions(path,
+                        fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                        fs::perm_options::add, ec);
     return "";
 }
 
@@ -1570,7 +1578,9 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
-        if (auto err = writeFile(root / f.relativePath, f.content); !err.empty()) return err;
+        if (auto err = writeFile(root / templates::nativePath(f.relativePath), f.content);
+            !err.empty())
+            return err;
     }
     if (auto err = save(out); !err.empty()) return err;
 
@@ -3983,7 +3993,7 @@ std::string liveLinkSigFile(const Project& p) {
 
 std::string refreshGenerated(const Project& p) {
     for (const auto& f : templates::generate(p)) {
-        const fs::path path = fs::path(p.dir) / f.relativePath;
+        const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);
 
         bool write = false;
         if (f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
@@ -4117,7 +4127,8 @@ std::string refreshGenerated(const Project& p) {
     {
         std::vector<std::string> warnings;
         for (const auto& f : templates::bakeAnimAssets(p, &warnings)) {
-            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+            if (auto err = writeFile(fs::path(p.dir) / templates::nativePath(f.relativePath),
+                                     f.content);
                 !err.empty())
                 return err;
         }
@@ -4131,7 +4142,8 @@ std::string refreshGenerated(const Project& p) {
     {
         std::vector<std::string> warnings;
         for (const auto& f : templates::bakeStaticModels(p, &warnings)) {
-            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+            if (auto err = writeFile(fs::path(p.dir) / templates::nativePath(f.relativePath),
+                                     f.content);
                 !err.empty())
                 return err;
         }

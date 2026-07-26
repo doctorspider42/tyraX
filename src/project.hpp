@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <set>
 #include <string>
@@ -1633,7 +1634,16 @@ struct Project {
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
-    std::string elfPath() const { return dir + "\\bin\\" + elfName(); }
+    std::string elfPath() const { return filePath("bin/" + elfName()); }
+
+    // A project-relative path (always stored forward-slashed: "res/models/x.obj")
+    // as a real filesystem path. ALWAYS use this instead of `dir + "\\" + rel` -
+    // outside Windows a backslash is an ordinary FILENAME character, so the
+    // hand-join silently names a file that does not exist and the asset just
+    // fails to load.
+    std::string filePath(const std::string& relative) const {
+        return (std::filesystem::path(dir) / relative).string();
+    }
 };
 
 namespace project {
