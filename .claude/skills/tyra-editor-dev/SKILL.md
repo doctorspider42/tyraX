@@ -300,6 +300,20 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
 `inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
 
+**A member initializer is NOT the new-project default.** Every `read*Section`
+guards on `find("key")`, so the struct initializer is what a project saved
+*before that key existed* loads as — changing it silently changes those
+projects' behavior. When a fresh project should start somewhere else, the
+struct keeps the legacy answer and **`project::create` assigns the new one**
+(the AmbiencePreset `aoEnabled` precedent; `buildProfile = "debug"` and
+`keyboardMouse = false` are there for the same reason). Two corollaries:
+`create`'s block is also the only place that may scale metric-by-definition
+defaults by `ProjectSettings::unitsPerMeter` — the *New Project* dialog picks
+the world scale, so the FPP preset is a 1.8 m player at any scale, while an
+existing project's numbers are never touched — and the *New Project* modal's
+per-field prose belongs in a `prefHelp("...")` `(?)` tooltip, not in
+`TextDisabled` paragraphs that push the buttons off the screen.
+
 **Inline text icons** (`{{cross}}` / `{{action:jump}}`, docs/text-icons.md).
 `Project::textIcons` (`TextIcon`: name + PNG + scale, seeded per pad button by
 `project::ensureTextIcons`, edited in *UI Editor > Button icons*). The parser is

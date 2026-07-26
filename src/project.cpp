@@ -1777,7 +1777,8 @@ void seedBuiltinLayouts(Project& p) {
 }
 
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& preset) {
+                   const TerrainConfig& terrain, const std::string& preset,
+                   float unitsPerMeter) {
     if (name.empty()) return "Project name is empty";
     for (char c : name) {
         if (!isalnum((unsigned char)c) && c != '-' && c != '_')
@@ -1796,6 +1797,29 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.name = name;
     out.dir = root.string();
     out.scenes[0].terrain = terrain;
+
+    // New-project defaults that deliberately differ from the struct defaults -
+    // those are what a project predating each key loads as, so they cannot
+    // carry the new answer without changing existing projects' behavior.
+    //
+    // A fresh project is born for authoring: the debug profile so Live Link and
+    // the on-screen overlays work from the first build (switch to release for
+    // the disc), and USB keyboard & mouse OFF - a pad game pays nothing for
+    // drivers it never uses, and the choice is one to make deliberately.
+    out.settings.buildProfile = "debug";
+    out.settings.liveLink = true;
+    out.settings.keyboardMouse = false;
+
+    // World scale, chosen when the project is created because the alternative
+    // is discovering it after the world is built. The metric-by-definition
+    // numbers scale with it, so the FPP preset is a 1.8 m player at any scale
+    // (docs/world-scale.md); everything else is in units by nature and stays.
+    if (!(unitsPerMeter > 0.0001f)) unitsPerMeter = 1.0f;
+    out.settings.unitsPerMeter = unitsPerMeter;
+    out.settings.eyeHeight *= unitsPerMeter;
+    out.settings.walkSpeed *= unitsPerMeter;
+    out.settings.gravity *= unitsPerMeter;
+    out.settings.jumpSpeed *= unitsPerMeter;
 
     // Start with one ambience preset (its defaults match the project's default
     // sky/lighting/fog) so the sky renders and the Ambience Editor isn't empty.
@@ -1822,6 +1846,13 @@ std::string create(Project& out, const std::string& name, const std::string& par
         player.type = PrimitiveType::Player;
         player.position[0] = 0.0f, player.position[1] = 0.0f, player.position[2] = 0.0f;
         player.color[0] = 0.15f, player.color[1] = 0.9f, player.color[2] = 0.9f;
+        // Same reasoning as the settings above: these are metres by definition
+        // (a 1.8 m person running 5 m/s), so they follow the world scale.
+        player.playerEyeHeight *= unitsPerMeter;
+        player.playerWalkSpeed *= unitsPerMeter;
+        player.playerJumpSpeed *= unitsPerMeter;
+        player.playerCamDist *= unitsPerMeter;
+        player.playerCamHeight *= unitsPerMeter;
         out.scenes[0].objects.push_back(player);
     }
 
@@ -3837,7 +3868,7 @@ std::string load(Project& out, const std::string& projectDir) {
     // above) and reach scenes through inheritance (project::resolvedSettings),
     // so no per-scene copy is needed here.
     if (const auto* terrain = root.find("terrain")) {
-        TerrainConfig t;
+        TerrainConfig t{64, 64};  // legacy default, not the new-project one
         if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
         if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
         for (SceneData& sc : out.scenes) sc.terrain = t;

@@ -21785,6 +21785,43 @@ void App::drawNewProjectModal() {
                 std::snprintf(newLocation_, sizeof(newLocation_), "%s", dir.c_str());
         }
 
+        // World scale first: the terrain size below reads in meters through it,
+        // and it is the one setting that is genuinely hard to change later (it
+        // rescales nothing by design, so a world built at the wrong scale stays
+        // that size). See docs/world-scale.md.
+        ImGui::SeparatorText("World scale");
+        struct UnitsPreset {
+            const char* label;
+            float unitsPerMeter;  // 0 = Custom
+        };
+        static const UnitsPreset kUnitsPresets[] = {
+            {"1 unit = 1 meter (metric)", 1.0f},
+            {"1 unit = 10 cm (10 units/m)", 10.0f},
+            {"1 unit = 1 cm (100 units/m)", 100.0f},
+            {"1 unit = 10 m (0.1 units/m)", 0.1f},
+            {"Custom...", 0.0f},
+        };
+        const int kUnitsPresetCount = (int)(sizeof(kUnitsPresets) / sizeof(kUnitsPresets[0]));
+        {
+            const char* items[kUnitsPresetCount];
+            for (int i = 0; i < kUnitsPresetCount; ++i) items[i] = kUnitsPresets[i].label;
+            if (ImGui::Combo("Scale", &newUnitsPreset_, items, kUnitsPresetCount) &&
+                kUnitsPresets[newUnitsPreset_].unitsPerMeter > 0.0f)
+                newUnitsPerMeter_ = kUnitsPresets[newUnitsPreset_].unitsPerMeter;
+        }
+        prefHelp(
+            "How many world units a real-world meter is. Everything imported\n"
+            "from reality (a model, a phone camera take) converts through it,\n"
+            "and the FPP preset's player is person-sized at whatever you pick.\n"
+            "The engine itself has no units - changeable later in Project >\n"
+            "Preferences > World, but it never rescales existing content.\n"
+            "See docs/world-scale.md.");
+        if (kUnitsPresets[newUnitsPreset_].unitsPerMeter <= 0.0f) {
+            ImGui::DragFloat("Units per meter", &newUnitsPerMeter_, 0.05f, 0.001f, 1000.0f,
+                             "%.3f", ImGuiSliderFlags_Logarithmic);
+            if (newUnitsPerMeter_ < 0.001f) newUnitsPerMeter_ = 0.001f;
+        }
+
         ImGui::SeparatorText("Terrain (flat)");
         ImGui::InputInt("Width (units)", &newWidth_);
         ImGui::InputInt("Depth (units)", &newDepth_);
@@ -21792,6 +21829,9 @@ void App::drawNewProjectModal() {
         if (newDepth_ < 1) newDepth_ = 1;
         if (newWidth_ > 4096) newWidth_ = 4096;
         if (newDepth_ > 4096) newDepth_ = 4096;
+        if (newUnitsPerMeter_ != 1.0f)
+            ImGui::TextDisabled("= %.1f x %.1f m", (float)newWidth_ / newUnitsPerMeter_,
+                                (float)newDepth_ / newUnitsPerMeter_);
 
         ImGui::SeparatorText("Preset");
         const char* presetNames[] = {
@@ -21803,7 +21843,7 @@ void App::drawNewProjectModal() {
         ImGui::Checkbox("Claude Code", &newAiClaude_);
         ImGui::SameLine();
         ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
-        ImGui::TextDisabled(
+        prefHelp(
             "Copies assistant guides into the project (.claude/skills/ +\n"
             "CLAUDE.md, .github/copilot-instructions.md): how the project is\n"
             "structured, flow graphs, custom scripts and the editor's CLI -\n"
@@ -21814,6 +21854,19 @@ void App::drawNewProjectModal() {
         ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
                             newDepth_,
                             newTemplate_ == 1 ? " Adds a player entity." : "");
+        // The build defaults a fresh project starts with - one line, because
+        // nobody should have to discover why the FPS overlay is there or the
+        // keyboard is not; the reasoning is in the tooltip.
+        ImGui::TextDisabled("Build: debug + Live Link, keyboard & mouse off.");
+        prefHelp(
+            "A fresh project is set up for authoring, all three in Project >\n"
+            "Preferences > Build:\n"
+            "- Debug profile: the on-screen FPS / memory / profiler overlays\n"
+            "  are available. Switch to release for the disc - it strips them.\n"
+            "- Live Link: edit the running game (move an object in the editor\n"
+            "  and it moves on the console). Debug builds only.\n"
+            "- USB keyboard & mouse: off, so a pad game does not load drivers\n"
+            "  it never uses. Turn it on for a keyboard/mouse game.");
 
         if (!newProjectError_.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newProjectError_.c_str());
@@ -21823,7 +21876,8 @@ void App::drawNewProjectModal() {
             Project p;
             TerrainConfig t{newWidth_, newDepth_};
             const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
-            std::string err = project::create(p, newName_, newLocation_, t, preset);
+            std::string err =
+                project::create(p, newName_, newLocation_, t, preset, newUnitsPerMeter_);
             if (err.empty()) {
                 if (newAiClaude_ || newAiCopilot_)
                     statusMessage_ =

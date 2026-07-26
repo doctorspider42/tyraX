@@ -10,6 +10,82 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (189) **New-project defaults: authoring-ready build settings, a 100x100
+  terrain, and the world scale chosen before there is any content.** Four
+  changes to what `File > New Project` (and `--new`) hands you. The build ones
+  are the easy half: a fresh project now starts in the **debug** profile with
+  **Live Link** on and **USB keyboard & mouse off** - you author with the live
+  loop and the overlays available, switch to release for the disc, and a pad
+  game stops loading three IRX drivers it never polls. The load-bearing detail
+  is *where* those defaults live: every `read*Section` guards on
+  `find("key")`, so a member initializer in `ProjectSettings` is not the
+  new-project default at all - it is what a project saved *before that key
+  existed* loads as. Flipping `keyboardMouse` there would have silently
+  disabled the keyboard in every pre-feature project. So the struct keeps the
+  legacy answer (`"release"`, `true`) and `project::create` assigns the new one,
+  the same split `AmbiencePreset::aoEnabled` already used. `TerrainConfig` is
+  the exception - nothing reads it for a loaded project - so its 64 became 100
+  in the struct, with the legacy inline-`"terrain"` reader pinned to `{64, 64}`
+  so a malformed old file still reads as it did.
+  **World scale** is now asked in the dialog (a preset combo - metric / 10 cm /
+  1 cm / 10 m per unit / Custom, with the terrain size restating itself in
+  metres underneath) and as a trailing `--new` argument, plumbed through a new
+  `project::create(..., unitsPerMeter)` parameter. Not because it cannot be
+  changed later - *Preferences > World* is still there - but because changing it
+  later deliberately rescales *nothing* (177), so the only honest moment to ask
+  is before any content exists. Picking it also scales the
+  metric-by-definition defaults, since those are metres and seconds by
+  construction: eye height, walk speed, gravity, jump on `ProjectSettings`, plus
+  the FPP preset Player's own three and its third-person boom/height. At 10
+  units/m the preset player is 18 units tall running 50 units/s - still 1.8 m at
+  5 m/s. Units-by-nature values (tiling, nav cells, AO radius, flashlight
+  range) are left alone, and no existing project is ever touched.
+  Also, at the owner's request, the dialog's **explanatory paragraphs became
+  `(?)` tooltips** (the Preferences `prefHelp` idiom). The AI-support and
+  world-scale litanies plus the new build-defaults note were ~15 lines of
+  `TextDisabled` between the fields and the Create button; the modal is now
+  compact and the prose is one hover away.
+  *Verified* headlessly first - `--new defproj` gave `terrain 100x100,
+  1.000 units/m` with `"buildProfile": "debug"`, `"liveLink": true`,
+  `"keyboardMouse": false` in the `.tyra`, `loadUsbKbdMouse = false` in the
+  generated `src/main.cpp`, a non-empty `src/gen/live_link.gen.cpp` (211 lines =
+  the poller compiled in) and `TERRAIN_WIDTHS = {100.0F}` in `scene_data.hpp`;
+  `--new metric5 ... fpp 5` gave eye 9 / walk 0.5 / gravity 49 / jump 22.5 and a
+  player object at `eyeHeight 9, walkSpeed 0.5, camDist 30`. Then the GUI, which
+  **worked on this machine this time** (the white-window state of 101/187 was
+  absent): screenshots of the modal, the scale dropdown, the Custom branch's
+  `Units per meter` drag, the `= 10.0 x 10.0 m` hint and both new tooltips
+  rendered, and a full click-through Create at 10 units/m produced
+  `unitsPerMeter: 10`, eye 18, walk 1, gravity 98, terrain 100x100 and opened
+  with the amber `LIVE (build)` chip in the toolbar - the chip only exists with
+  the debug profile plus the Live Link preference, so it double-checks both.
+  One self-inflicted mess worth recording: driving the modal with `SendKeys`
+  after an ALT-tap **minimized the window mid-sequence**, the following clicks
+  landed at `-32000` coordinates, and something in that noise hit Create - which
+  created a stray `my-game` in the owner's real `TyraProjects` folder (found by
+  timestamp, verified as freshly-generated default content, removed). The fix
+  for the retry was to stop typing into the dialog at all: back up
+  `editor.ini`, point `defaultProjectsDir` at the scratchpad so the proposed
+  location is already safe, click only, then restore the ini. Prefer that over
+  synthetic text entry for any modal that writes to disk.
+  After merging main, re-ran the headless checks (same numbers) plus a **Docker
+  game build** (exit 0, `live_link.gen.o` in the link line and `livelink.sig`
+  stamped - the debug default reaches the PS2 toolchain) and a **PCSX2 boot** of
+  the 5-units/m FPP project: 2040 frames, no assert, `Static batching: 0 objects
+  in 0 batches` and the example script's hello in `bin/log.txt`, with the
+  debug-only `VRAMSTAT` lines confirming the profile in the *running* game.
+  That boot needed a detour: **`Project::elfPath()` returns a mixed-separator
+  path on Windows since the Linux port** (`filePath("bin/" + elfName())` gives
+  `...\proj\bin/proj.elf`), `fs::exists` accepts it and **PCSX2 v2.6.3 refuses
+  it** - `Requested boot ELF ... does not exist` in its emulog and nothing in
+  the editor's Output, because the Runner believes it launched. Isolated to the
+  separator by booting the same file both spellings by hand; a regression from
+  c01b09e5 (PR #154), unrelated to this change, so it is filed separately rather
+  than bundled here. The boot above used `pcsx2-qt` directly with a
+  backslash path. (The other silent limit bit first, for the record: the initial
+  scratch project sat 168 characters deep, past PCSX2's ~145-char `host:` cap -
+  same black window, also nothing in the game log.)
+
 - (188) **The editor had no icon on Linux.** On Windows the icon is a resource
   inside the .exe (`resources/app.rc`, named `GLFW_ICON` so GLFW's Win32
   backend picks it up for the window too), and there is no equivalent anywhere

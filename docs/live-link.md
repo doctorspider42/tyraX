@@ -10,6 +10,10 @@ rides entirely on infrastructure the project already has.
 
 1. Set the project's build profile to **debug** (*Project > Preferences >
    Build > Build profile*). Release builds carry no Live Link code at all.
+   **New projects already start there** — debug profile, Live Link on — because
+   that is the profile you author in; switch to release for the disc, which
+   strips both the poller and the overlays. Projects created before that
+   default keep whatever they saved.
 2. Build & run as usual — **F5** (PCSX2) or **F6** (real PS2 over ps2link).
 3. Edit the scene: move / rotate / scale / recolor objects, duplicate them,
    delete them. The changes appear in the running game within a fraction of a
