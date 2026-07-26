@@ -139,10 +139,23 @@ const int kParentRole[RoleCount] = {
 };
 
 // Which child a bone points AT, for the purpose of "where does this bone lie
-// in the rest pose". The hips have three children and the answer is the spine;
-// leaves have none and simply have no direction to correct.
+// in the rest pose". Leaves have none and simply have no direction to correct.
+//
+// The HIPS are deliberately -1, and it is not an oversight. They are the root:
+// their orientation IS the body's, which the delta already carries, so there is
+// nothing about them for a rest-direction comparison to mean. Measured on a
+// real take, "hips -> spine" points UP on the generated rig (0.00, 0.94, -0.34)
+// and SIDEWAYS on ARKit's (-1.00, 0.00, 0.00) - ninety degrees apart, because
+// the two rigs express a root frame differently, not because anybody is posed
+// differently. Correcting that put a permanent 90-degree twist on the pelvis
+// while the legs kept their own near-identity correction, which is exactly what
+// a performer standing straight looked like: legs crossed, torso wrung out.
+//
+// Everything below the root is a real bone with a real direction, and there the
+// correction is doing its job: the arms measure 49 degrees apart, which is the
+// genuine T-pose-versus-A-pose difference it exists for.
 const int kDirChild[RoleCount] = {
-    Spine, Spine1, Spine2, Neck, Head, -1,
+    -1, Spine1, Spine2, Neck, Head, -1,
     ArmL, ForeArmL, HandL, -1,
     ArmR, ForeArmR, HandR, -1,
     LegL, FootL, ToeL, -1,

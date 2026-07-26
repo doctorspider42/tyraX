@@ -10,6 +10,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (195) **The 90-degree pelvis - "like a twisted gut".** A performer standing
+  perfectly still with the arms out came through with the legs crossed and the
+  torso wrung around its own waist. It reproduced identically from the live link
+  and from a 1.6-second recording in which no joint moved by more than two
+  degrees, which ruled out the performance and left the code.
+  Printing where each bone POINTS at rest, on both rigs, found it in one row:
+  "hips -> spine" measures **(0.00, 0.94, -0.34)** on the generated rig and
+  **(-1.00, 0.00, 0.00)** on ARKit's - **ninety degrees apart**, because the two
+  express a root frame differently, not because anybody is posed differently.
+  `restFix` dutifully rotated the pelvis by that and held it there for every
+  frame, while the legs kept their own ~6-degree correction; a body wrung around
+  its waist is exactly what that produces.
+  The hips are excluded now, and the reason generalises: **the root has no bone
+  direction to correct** - its orientation IS the body's, which the delta already
+  carries. Everything below is a real bone with a real direction, and there the
+  correction earns its place: the arms measure 49 degrees apart, the genuine
+  T-pose-versus-A-pose difference it was written for.
+  Worth noting how long this survived: the arms were fixed by this same
+  mechanism in (186), the mechanism was right, and nobody thought to ask whether
+  it applied to the root. The measurement that found it took one harness and one
+  run - it was never a hard question, only an unasked one.
+  Also in: a **delay** on Calibrate (none / 3 / 5 / 10 s, cancel by pressing
+  again), because nobody can press a button and be in a T-pose at the same
+  instant and with the phone on a tripod that is the only way to do it alone;
+  and calibration now works on a **recorded take** as well, on the frame under
+  the playhead - which is what recording somebody standing in a T-pose is for,
+  and which the live-only version could not use.
+
 - (194) **Calibration: measure the performer's rest pose instead of assuming
   one.** Owner's verdict on the live link was "unusable", and the cause was the
   thing every frame is measured against. Retargeting is a delta from a REST

@@ -523,6 +523,7 @@ private:
     void mocapStopRecording();
     // The two a performer triggers from the phone as well as from here.
     void mocapZero();
+    void mocapArmCalibration();
     void mocapCalibrateFromPhone();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
@@ -1054,6 +1055,11 @@ private:
     std::vector<float> mocapCalibRot_;
     bool mocapHaveCalib_ = false;
     bool mocapCalibrated_ = false;   // did the live rig actually use it?
+    // Nobody can press a button and be in a T-pose at the same time, so the
+    // capture can be armed and fire on a countdown. Seconds, and the wall
+    // clock it fires at (<0 = not armed).
+    int mocapCalibDelay_ = 3;
+    double mocapCalibAt_ = -1.0;
     std::vector<float> mocapLastFrameRot_;  // newest raw frame, for calibrating
     bool mocapFilterEnabled_ = true;
     posefilter::PoseFilter mocapFilter_;

@@ -342,8 +342,14 @@ Bone lengths are kept from the catalogue, because those do not change between it
 and the room - only the resting angles do. It sets the heading zero too, since
 at that instant they are facing the camera by construction.
 
-The same button is **on the phone**, because the performer is the one standing
-in the pose and the one who knows when they are ready.
+A **delay** sits beside it (none / 3 / 5 / 10 seconds), because nobody can press
+a button and be in a T-pose at the same instant - with the phone on a tripod
+this is the only way to do it alone. Pressing again during the countdown cancels
+it. The same button is **on the phone**, and it arms the same countdown.
+
+A **recorded take** calibrates too, on the frame under the playhead - which is
+what recording somebody standing in a T-pose is for. Same rule either way: the
+rest ROTATIONS are replaced, the bone offsets are kept.
 
 **Zero here** is the smaller one. It says *"the performer is facing me,
 right now"*: everything after is measured from that instant, so they turn and
@@ -546,6 +552,35 @@ What it needs is size in frame. A face across the room is plenty; a hand at four
 metres is about ninety pixels. Step closer and the wrists come alive. The Mocap
 window shows how many joints Vision is actually driving, and hovering that
 number says why the others are not.
+
+### The 90-degree pelvis
+
+The correction above nearly ended the feature. A performer standing perfectly
+still, arms out, came through with the legs crossed and the torso wrung out -
+in the owner's words, like a twisted gut. It reproduced identically from a live
+link and from a 1.6-second recording in which nothing moved by more than two
+degrees, so it was not the performance.
+
+Measuring where each bone POINTS at rest, on both rigs, found it in one line:
+
+| bone | character points | source points | apart |
+|---|---|---|---|
+| **Hips** | (0.00, 0.94, -0.34) | (-1.00, 0.00, 0.00) | **90.0°** |
+| Spine2 | (0.00, 0.99, 0.11) | (0.00, 1.00, -0.07) | 10.3° |
+| LeftArm | (0.66, -0.75, -0.01) | (1.00, 0.00, -0.01) | 48.9° |
+| LeftUpLeg | (0.10, -0.99, 0.08) | (-0.00, -0.99, 0.10) | 5.9° |
+
+"Hips → Spine" points **up** on the generated rig and **sideways** on ARKit's,
+because the two express a root frame differently - not because anybody is posed
+differently. The correction dutifully rotated the pelvis 90° and held it there,
+while the legs kept their own near-identity correction, and the result was a
+body wrung around its own waist.
+
+The hips are now excluded from it, and the reason generalises: **the root has no
+bone direction to correct.** Its orientation *is* the body's, which the delta
+already carries. Everything below it is a real bone with a real direction, and
+there the correction is doing exactly the job it exists for - the arms measure
+49° apart, which is the genuine T-pose-versus-A-pose difference.
 
 ### Two things real data broke that Mixamo clips never did
 

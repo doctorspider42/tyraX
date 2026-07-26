@@ -10321,8 +10321,21 @@ void App::mocapRebind() {
 
     const glbparser::Skel* source = nullptr;
     glbparser::Skel liveRig;
+    glbparser::Skel calibratedFile;
     if (mocapSourceKind_ == 1) {
         source = &mocapSource_;
+        // Calibration was live-only, which left the one case a T-pose take
+        // exists FOR unable to use it. Same rule as the live rig: replace the
+        // rest ROTATIONS, keep the bone offsets.
+        if (mocapHaveCalib_ && mocapCalibRot_.size() == mocapSource_.nodes.size() * 4) {
+            calibratedFile = mocapSource_;
+            for (size_t i = 0; i < calibratedFile.nodes.size(); ++i)
+                std::memcpy(calibratedFile.nodes[i].r, &mocapCalibRot_[i * 4], 16);
+            source = &calibratedFile;
+            mocapCalibrated_ = true;
+        } else {
+            mocapCalibrated_ = false;
+        }
     } else if (mocapSourceKind_ == 2) {
         const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
         if (!sk.valid()) {
@@ -10399,9 +10412,56 @@ void App::mocapZero() {
     mocapVisionTracker_.reset();
 }
 
+// Arm the capture. Nobody can press a button and be in a T-pose at the same
+// instant, so with a delay set this fires later and the operator gets to walk
+// into frame - which is the only way one person can do this alone.
+void App::mocapArmCalibration() {
+    if (mocapCalibDelay_ <= 0) {
+        mocapCalibrateFromPhone();
+        return;
+    }
+    mocapCalibAt_ = ImGui::GetTime() + (double)mocapCalibDelay_;
+    mocapNote_ = "calibrating in " + std::to_string(mocapCalibDelay_) + " s - get into the pose";
+}
+
 // Capture the performer's own rest pose from the newest frame and rebuild the
 // binding on it. Also the heading zero: they are facing the camera right now.
 void App::mocapCalibrateFromPhone() {
+    mocapCalibAt_ = -1.0;
+    // A recorded take calibrates on the frame under the playhead - which is the
+    // whole point of recording somebody standing in a T-pose. Same idea as the
+    // live path, different place to read the frame from.
+    if (mocapSourceKind_ == 1) {
+        if (mocapSource_.clips.empty() || mocapSource_.nodes.empty()) {
+            mocapNote_ = "open a take first";
+            return;
+        }
+        const glbparser::SkelClip& clip = mocapSource_.clips[0];
+        mocapCalibRot_.assign(mocapSource_.nodes.size() * 4, 0.0f);
+        for (size_t i = 0; i < mocapSource_.nodes.size(); ++i)
+            std::memcpy(&mocapCalibRot_[i * 4], mocapSource_.nodes[i].r, 16);
+        for (const glbparser::SkelChannel& ch : clip.channels) {
+            if (ch.path != 1 || ch.node < 0 || ch.node >= (int)mocapSource_.nodes.size()) continue;
+            if (ch.times.empty()) continue;
+            size_t hi = 0;
+            while (hi < ch.times.size() && ch.times[hi] < mocapTime_) ++hi;
+            if (hi >= ch.times.size()) hi = ch.times.size() - 1;
+            const size_t lo = hi ? hi - 1 : 0;
+            const float a = ch.times[hi] > ch.times[lo]
+                                ? (mocapTime_ - ch.times[lo]) / (ch.times[hi] - ch.times[lo])
+                                : 0.0f;
+            float v[4];
+            for (int k = 0; k < 4; ++k)
+                v[k] = ch.values[lo * 4 + k] * (1 - a) + ch.values[hi * 4 + k] * a;
+            const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+            for (int k = 0; k < 4; ++k) v[k] /= (l > 1e-8f ? l : 1.0f);
+            std::memcpy(&mocapCalibRot_[(size_t)ch.node * 4], v, 16);
+        }
+        mocapHaveCalib_ = true;
+        mocapRebind();
+        mocapNote_ = "calibrated on this frame of the take";
+        return;
+    }
     if (!phoneCam_.hasBodySkeleton() || mocapLastFrameRot_.empty()) {
         mocapNote_ = "nothing to calibrate on yet - no body in frame";
         return;
@@ -10682,58 +10742,6 @@ void App::drawMocapWindow() {
         // pair. Zeroing is about WHERE the origin is; Rebind is about WHO
         // drives whom. The first is what an operator reaches for constantly, so
         // it leads and is named for what it promises rather than what it clears.
-        // Calibrating is the FIRST thing an operator does and the thing that
-        // decides whether any of the rest is usable, so it leads.
-        const bool canCalibrate =
-            phoneCam_.hasBodySkeleton() && !mocapLastFrameRot_.empty();
-        ImGui::BeginDisabled(!canCalibrate);
-        if (ImGui::Button(mocapCalibrated_ ? "Re-calibrate (T-pose)" : "Calibrate (T-pose)",
-                          ImVec2(scaled(180), 0))) {
-            mocapCalibrateFromPhone();
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Have the performer stand in a T-pose facing you, then press.\n\n"
-                "Every frame is a delta from a REST POSE. Without this that pose\n"
-                "is ARKit's neutral skeleton - a nominal figure out of a\n"
-                "catalogue - and everything this person differs from it by\n"
-                "becomes a constant error in every frame. Calibrating measures\n"
-                "it instead: their proportions, their stance, their height.\n\n"
-                "It is also the heading zero, so they end up facing the way the\n"
-                "character does.");
-        if (mocapHaveCalib_) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Forget")) {
-                mocapHaveCalib_ = false;
-                mocapCalibRot_.clear();
-                mocapRebind();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Go back to ARKit's neutral skeleton as the rest pose.");
-        }
-        ImGui::TextDisabled("%s", mocapCalibrated_ ? "rest pose: this performer"
-                                                   : "rest pose: ARKit's neutral figure");
-
-        // A jump is not a movement, so everything that smooths across frames is
-        // told at once - mocapZero is that one place.
-        if (ImGui::Button("Zero here", ImVec2(scaled(110), 0))) mocapZero();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "\"The performer is facing me, right now.\"\n\n"
-                "Everything after this is measured from this instant: they turn,\n"
-                "the character turns; they walk across the room, it walks across\n"
-                "the room. The link otherwise takes its zero from the FIRST frame\n"
-                "it sees - whatever they happened to be doing when tracking\n"
-                "caught them - so this is how you pick that moment yourself.\n\n"
-                "Also use it whenever the stream jumps rather than moves: tracking\n"
-                "lost and regained, or somebody else stepping in.");
-        ImGui::SameLine();
-        if (ImGui::Button("Rebind", ImVec2(scaled(90), 0))) mocapRebind();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Rebuild which bone drives which - joint matching,\n"
-                              "rest poses, the height ratio. Needed after changing\n"
-                              "the character, not for changing where they are.");
         if (ImGui::Checkbox("Feet on the floor", &mocapGround_)) mocapRebind();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
@@ -10765,6 +10773,90 @@ void App::drawMocapWindow() {
             }
         }
     }
+
+    // Calibrating is the FIRST thing an operator does and the thing that
+    // decides whether any of the rest is usable, so it leads.
+    const bool canCalibrate = mocapSourceKind_ == 1
+                                  ? !mocapSource_.clips.empty()
+                                  : (phoneCam_.hasBodySkeleton() && !mocapLastFrameRot_.empty());
+    ImGui::BeginDisabled(!canCalibrate);
+    const bool counting = mocapCalibAt_ > 0.0;
+    char label[64];
+    if (counting)
+        std::snprintf(label, sizeof(label), "Calibrating in %.0f...",
+                      std::ceil(mocapCalibAt_ - ImGui::GetTime()));
+    else
+        std::snprintf(label, sizeof(label), "%s (T-pose)",
+                      mocapCalibrated_ ? "Re-calibrate" : "Calibrate");
+    if (ImGui::Button(label, ImVec2(scaled(180), 0))) {
+        if (counting) {
+            mocapCalibAt_ = -1.0;      // pressed again = cancel
+            mocapNote_ = "calibration cancelled";
+        } else {
+            mocapArmCalibration();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(90));
+    const char* kDelays[] = {"no delay", "3 s", "5 s", "10 s"};
+    const int kSeconds[] = {0, 3, 5, 10};
+    int delayIdx = 1;
+    for (int i = 0; i < 4; ++i)
+        if (kSeconds[i] == mocapCalibDelay_) delayIdx = i;
+    if (ImGui::Combo("##calibdelay", &delayIdx, kDelays, 4))
+        mocapCalibDelay_ = kSeconds[delayIdx];
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How long after pressing before the pose is taken.\n"
+                          "Nobody can press a button and be in a T-pose at the\n"
+                          "same instant, and with the phone on a tripod this is\n"
+                          "the only way to do it alone.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Have the performer stand in a T-pose facing you, then press.\n\n"
+            "Every frame is a delta from a REST POSE. Without this that pose\n"
+            "is ARKit's neutral skeleton - a nominal figure out of a\n"
+            "catalogue - and everything this person differs from it by\n"
+            "becomes a constant error in every frame. Calibrating measures\n"
+            "it instead: their proportions, their stance, their height.\n\n"
+            "It is also the heading zero, so they end up facing the way the\n"
+            "character does.");
+    if (mocapHaveCalib_) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Forget")) {
+            mocapHaveCalib_ = false;
+            mocapCalibRot_.clear();
+            mocapRebind();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Go back to ARKit's neutral skeleton as the rest pose.");
+    }
+    ImGui::TextDisabled("%s", mocapCalibrated_ ? "rest pose: this performer"
+                                               : "rest pose: ARKit's neutral figure");
+
+    // A jump is not a movement, so everything that smooths across frames is
+    // told at once - mocapZero is that one place.
+    if (ImGui::Button("Zero here", ImVec2(scaled(110), 0))) mocapZero();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "\"The performer is facing me, right now.\"\n\n"
+            "Everything after this is measured from this instant: they turn,\n"
+            "the character turns; they walk across the room, it walks across\n"
+            "the room. The link otherwise takes its zero from the FIRST frame\n"
+            "it sees - whatever they happened to be doing when tracking\n"
+            "caught them - so this is how you pick that moment yourself.\n\n"
+            "Also use it whenever the stream jumps rather than moves: tracking\n"
+            "lost and regained, or somebody else stepping in.");
+    ImGui::SameLine();
+    if (ImGui::Button("Rebind", ImVec2(scaled(90), 0))) mocapRebind();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rebuild which bone drives which - joint matching,\n"
+                          "rest poses, the height ratio. Needed after changing\n"
+                          "the character, not for changing where they are.");
+
+    // The countdown, fired from the window's own frame so it ticks whether it
+    // was armed from here or from the phone.
+    if (mocapCalibAt_ > 0.0 && ImGui::GetTime() >= mocapCalibAt_) mocapCalibrateFromPhone();
 
     // --- recording ------------------------------------------------------------
     ImGui::Spacing();
@@ -14147,7 +14239,7 @@ void App::phoneCamTick() {
                 else if (e.text == phonecam::kCmdRecenter) phoneCamRecenter();
                 // Body capture: the performer is the one in the T-pose and the
                 // one who knows when they are ready, so the phone can say so.
-                else if (e.text == phonecam::kCmdCalibrate) mocapCalibrateFromPhone();
+                else if (e.text == phonecam::kCmdCalibrate) mocapArmCalibration();
                 else if (e.text == phonecam::kCmdZero) mocapZero();
                 break;
             case phonecam::Event::Type::MoveStart:
