@@ -58,6 +58,7 @@ Two sibling skills cover the rest of the system:
 | `assetbrowser.cpp` | ~1500 | **Asset Browser** (Tools > Asset Browser, docs/asset-browser.md) - App:: methods declared in app.hpp, in their own TU (the save_assets.cpp precedent) because they are a self-contained subsystem. `res/` IS the asset database, so everything is a view over the file system (`scanAssetTree`, throttled while the window is open) plus the two things a file manager cannot do: **`rebuildAssetUsage`** - ONE pass over the model recording every stored asset path (the census the grid's unused-ring, the inspector's user list and the delete warnings all read; keyed off `modelEditSerial_`) - and **the sibling invariant**: a Wavefront reference (`mtllib`/`map_Kd`/`refl`) is a bare name resolved next to the file that named it and the PS2 cannot walk `..`, so `moveAssets` moves a transitively closed dependency group (`assetWavefrontDeps`), COPIES a dependency the files left behind still need, and REFUSES rather than half-applying a move that would break a reference; `renameAsset` (same folder = safe) rewrites the siblings instead (`rewriteWavefrontRef`) and carries the `.mtl` a model exclusively owns. **`retargetAssetPath` is the single list of every field that stores an asset path** - a new such field must join it or renaming its file silently breaks it. Sidecars (`.uvs`, `<tex>.layers/`) travel with their asset; the baked `.tmdl` is deleted for the next build to redo. Host-only apart from `Viewport::assetThumb` (thumbnails: one render per asset into a dedicated FBO, copied into its own texture, budgeted a few per frame) - so the whole non-UI half is exercisable from a harness (PROGRESS 105). |
 | `project.cpp/.hpp` | ~1050 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()`: the `<name>.tyra` **manifest** (project-wide data + per-scene ordered object-id list + editor state + the named window layouts) plus one `objects/<id>.json` body per object — `save()` writes every live object then prunes orphaned files; `load()`→`readSceneObjects()` dispatches split (id strings) vs legacy inline (object bodies). Both are **recomposed from per-section writer/reader pairs** (`Section` enum + `sectionJson()`/`applySectionJson()` — one manifest key group as a standalone JSON blob; apply is total-replace-with-defaults, the collaboration LWW unit). **A new manifest key must join a `write*Section`/`read*Section` pair** (or the scene table / editor tail) or it reaches the file but never the collaboration wire. `objectJson()`/`parseObject()` (public): one object ⇄ wire string. `manifestFiles()`: in-memory byte images of .tyra + objects/*.json + heights from the LIVE model. `Project::projectId` + `ensureProjectId()` (stable 16-hex project identity — the remote-cache key). `ensureObjectIds()` (stamps stable ids), `create()`, `seedBuiltinLayouts()` (the Default/Director/Material `WindowLayout` set, also used to migrate a legacy single `"layout"` dump), `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack — stays monolithic/inline, gitignored), `refreshGenerated()`. **Window layouts** are `std::vector<WindowLayout> windowLayouts` + `activeLayout`; a `WindowLayout` is `{name, ini, recipe, openWindows}` where an empty `ini` + a `LayoutRecipe` id is (re)built by `App::buildLayoutRecipe` (DockBuilder) the first time it's shown. The Layout menu / switching / capture logic lives in app.cpp (`switchLayout`/`applyActiveLayout`/`captureActiveLayout`/`buildLayoutRecipe`, applied at a frame boundary). Editor state, not undo. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config (`.vscode/c_cpp_properties.json` always-overwritten; `.vscode/extensions.json` written-if-missing — recommends the `tools/vscode-tyrax` extension). |
+| `input.hpp` | ~250 | **Configurable input model** (docs/input-bindings.md), header-only. `InputAction` (name + label + `Role` + rebindable), `InputBinding` (pad name / USB HID key / mouse button - all three may fire one action), `InputPreset`, `InputMap` (on `Project::input`; `Section::Input`). Plus the shared tables every layer agrees on: `kPadButtonNames` (Tyra::PadButtons order - the index codegen stores), `inputKeyNames()` (the offered HID keys), and **`inputCodes()`** - the dense rebind code space whose index 0 means "the preset's binding" and whose numbers land in players' memory-card saves, so it is **append-only**; `INPUT_CODES` in the generated game is its twin. `project::ensureInputActions` seeds/backfills the built-in roles with exactly the bindings that used to be hardcoded in controls.hpp. |
 | `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool / text link kinds, plus `toPin` — which exec input an exec link fires), `FlowGraph`, the built-in `flowNodeTypes()` registry, the retired-type migration table (`flowLegacyNodes`), and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
 | `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. **When you add/change a header key or `{placeholder}` here, mirror it in the VS Code extension's `SPEC` table (`tools/vscode-tyrax/extension.js`) and the grammar** — that is what colours/validates `.flownode` files (see `docs/vscode-extension.md`). |
 | `screenfx.cpp` / `.hpp` | ~230 | Loads project-defined **custom screen effects** from `<project>/screen-effects/*.screenfx` text files into the global `customScreenEffects()` registry (`screenfx::loadForProject`, called by `project::load` before placements are read). The full-screen-post-effect analogue of custom flow nodes: a manifest (title + up to four numeric params) plus a raw low-level GS-blit C++ body. A `Project` references one only by placement (`ScreenFxPlacement` in project.hpp: key + stack `layer` + `enabled` + params). Placed/reordered in the *UI Editor* screen stack (like bloom/grain), codegen'd to `src/gen/screen_fx.gen.cpp` (`screenFxSource`/`screenFxHeader` in templates.cpp), run via `RendererCore::applyCustomPostFx` at the effect's slot in the frame loop. Unknown-key placements are dropped on load. See `docs/custom-screen-effects.md`. (Header keys/`{pN}` placeholders are also mirrored in the VS Code extension's `SPEC` — `tools/vscode-tyrax/extension.js`; keep them in sync.) |
@@ -76,7 +77,7 @@ Two sibling skills cover the rest of the system:
 | `phonecam.cpp/.hpp` | ~690 | **Live phone camera link** (docs/phone-camera.md): the phone as a viewfinder — it shows a JPEG stream of the editor's viewport while its ARKit pose drives that camera, and the Cutscene Director records the move into keys. Second acquisition source for camtake. `phonecam::Link` = Runner/Session idiom (worker thread owns the transport + does the JPEG encode; `drainEvents()`/`drainPoses()` on the UI thread once per frame in `App::phoneCamTick` — the ONLY place link data meets `project_`/ImGui). Never touches sockets: goes through `wire::makeWebSocketTransport()`, because WebSocket is what React Native and browsers have built in. Poses ride a bounded ring (`kMaxPendingPoses`) so a stalled UI thread drops old samples instead of falling behind; a preview frame already waiting is REPLACED, and `previewWanted()` gates on the send backlog — a weak link must cost frame rate, never latency. Also owns `testClientPage()`, the self-contained HTML client served to a plain GET on the same port (synthetic poses on purpose — it is the verification path, and a half-right DeviceOrientation conversion here would misdirect the ARKit one). The phone app is **NOT in this repo** — it is `github.com/doctorspider42/tyrax-cam` (public; Expo + a local Swift ARKit module, its own CI producing an unsigned sideloadable .ipa). Its `PROTOCOL.md` is the client-side twin of `docs/phone-camera.md`: **a protocol change has to land in both, and bump `phonecam::kProtoVersion`** so a stale app is denied at the handshake instead of misbehaving. Nothing reaches codegen — a recording ends as ordinary `SeqCameraKey`s. **The same server carries a SECOND app**: [tyrax-mocap](https://github.com/doctorspider42/tyrax-mocap) sends `bodyrest` (skeleton + rest pose, ONCE - a `body` frame before it is dropped, since nothing says which rotation belongs to which joint) and `body` (rotations only, ~1.5 KB at 30 Hz, hips in the JSON), read out via `bodySkeleton()`/`drainBodyFrames()`. `body: true` at hello is the ONLY thing distinguishing the two apps - one port, one pairing code, one handshake. |
 | `viewport.cpp/.hpp` | ~4860 | Offscreen GL 3.3 preview. **One camera, one place**: `camView()` resolves the projection (perspective / parallel / the six locked axis views - `Viewport::Projection`, docs/orthographic-views.md) plus the Cutscene/look-through override into an eye + orthonormal basis, and `camRay()` turns image coords into a world ray. `projectToImage()` is that ray's INVERSE (world point -> image coords of the last frame) - an app-side ImDrawList overlay that has to sit on world geometry (the measuring tape, `App::drawMeasureOverlay`) places itself with it instead of rebuilding a camera. `render()`, `pick()`, `terrainRaycast()` and `placementRaycast()` ALL go through them - they used to each rebuild a hardcoded 50-degree perspective ray, which silently disagreed with the image under any other projection. `orbit`/`pan`/`fly` read the same basis (orbiting a locked axis view seeds yaw/pitch from that axis and falls back to free ortho). The corner **axis gizmo** is app-side (`App::drawAxisGizmo`, ImDrawList over the image, axes read from the view matrix's columns): it does its OWN hit test and returns "cursor is over me", which every click-consuming branch (pick, rubber-band start, paste commit) must keep honoring - an overlay that skips that veto silently makes each click on it also clear the selection. Note the ortho depth range straddles the eye on purpose (a parallel view is a slab, so a Top view still draws what is above the camera). Also: unit-primitive meshes, terrain grid + heightmap, sky dome, selection outline (+ per-peer session-presence outlines via `setPeerSelections`, drawn under the local amber), live point-light shader, sculpt-brush raycast, orbit/pan camera. Also the Material Editor preview (a primitive, a project .obj, or an animated .glb/.fbx in bind pose via `buildMatPrevAnimated` - the assigned .mtl resolved name-matched like the console, with the selected entry's staged values), its paint raycast (`materialPreviewPick`) and the live painted-texture upload (`updateTexturePixels`, shared texCache_ id so the scene updates too). Tool previews get their OWN framebuffer (`renderTreePreview`/`treeFbo_` alongside `renderMaterialPreview`/`prevFbo_`) - several tools can be open at once and size their previews independently, so a shared target would thrash its size and cross-show images; `ensurePreviewBackdrop` is the shared gradient+checker backdrop. `modelBounds()` is the **GL-free** model-AABB lookup (objparser + own cache) that the AO occluder pass uses instead of `modelDraw()` - see the aobake row. `grabPreviewRgb()` reads the LAST rendered image back as packed RGB for the phone camera link: it blits into its own small framebuffer and reads back *that*, because a straight `glReadPixels` of a 1600x900 viewport stalls the frame; `lastImageFbo_` is the source, tracked per render so a graded frame streams graded. |
 | `runner.cpp/.hpp` | 301 | Docker + PCSX2 pipeline on a worker thread (states Idle/Running/Success/Failed). `buildAndRun()`, `runEmulatorOnly()`, `exportIso()`. |
-| `platform.cpp/.hpp` | ~800 | **The ONE place OS differences live** — the editor builds and runs on Windows AND Linux from this one source tree. Covers: `exePath`/`configDir` (the machine-global config root: `%LOCALAPPDATA%\tyra-editor` vs `$XDG_CONFIG_HOME/tyra-editor` — editor.ini, the session remote-cache, the exported PS2SDK headers)/`homeDir`/`userName`/`exeSuffix`/`processId`, `sleepMs`/`logTimeStamp`, the shell fragments (`quiet`, `killByName`, `envPrefix`, `commandExists`), **`Process`**, the pickers (`pickFile`/`pickFolder`/`errorBox`/`setDialogOwner`), `revealInFileManager`, `openInVSCode`, and the font lookup (`systemFontPath`/`systemFonts`/`fallbackFontFiles`/`defaultFontLabel`). **The rule: a feature that needs to know which OS it is on grows an entry HERE and the call site stays platform-blind** — that is what keeps ~40 sites free of `#ifdef`. `Process` is the load-bearing part: one shell command line (`cmd.exe /S /C` vs `/bin/sh -c`), optional stdout capture (`readLine`/`readAll`), optional stderr-to-file, `running()`/`wait()`/`startDetached()`, and a **`kill()` that takes down the whole TREE** — Job Object vs `setsid()` process group. Never "improve" that to kill just the child: the shell wrapper is never the process doing the work (docker, make, node, curl, ps2client), and killing it alone orphans a token-burning backend or a port-holding file server. Two subsystems deliberately stay outside and say so in a comment — the socket shims in `wire.cpp` (Winsock2 *is* BSD sockets with other spellings, mapped in place) and PCSX2/`PCSX2.ini` discovery in `runner.cpp`/`pcsx2_config.cpp` (genuinely different shapes per OS, and platform.cpp has no business knowing what PCSX2 is). Linux specifics worth knowing: file dialogs shell out to **zenity** (kdialog fallback) so a machine without either has no Open/Import; system fonts resolve through a lazily built filename→path index over the freedesktop roots; SIGPIPE is ignored process-wide from a static here (a dying child's pipe or a vanished session peer would otherwise kill the editor). |
+| `platform.cpp/.hpp` | ~800 | **The ONE place OS differences live** — the editor builds and runs on Windows AND Linux from this one source tree. Covers: `exePath`/`configDir` (the machine-global config root: `%LOCALAPPDATA%\tyra-editor` vs `$XDG_CONFIG_HOME/tyra-editor` — editor.ini, the session remote-cache, the exported PS2SDK headers)/`homeDir`/`userName`/`exeSuffix`/`processId`, `sleepMs`/`logTimeStamp`, the shell fragments (`quiet`, `killByName`, `envPrefix`, `commandExists`), **`Process`**, the pickers (`pickFile`/`pickFolder`/`errorBox`/`setDialogOwner`), `revealInFileManager`, `openInVSCode`, `installDesktopEntry`, and the font lookup (`systemFontPath`/`systemFonts`/`fallbackFontFiles`/`defaultFontLabel`). **The rule: a feature that needs to know which OS it is on grows an entry HERE and the call site stays platform-blind** — that is what keeps ~40 sites free of `#ifdef`. `Process` is the load-bearing part: one shell command line (`cmd.exe /S /C` vs `/bin/sh -c`), optional stdout capture (`readLine`/`readAll`), optional stderr-to-file, `running()`/`wait()`/`startDetached()`, and a **`kill()` that takes down the whole TREE** — Job Object vs `setsid()` process group. Never "improve" that to kill just the child: the shell wrapper is never the process doing the work (docker, make, node, curl, ps2client), and killing it alone orphans a token-burning backend or a port-holding file server. Two subsystems deliberately stay outside and say so in a comment — the socket shims in `wire.cpp` (Winsock2 *is* BSD sockets with other spellings, mapped in place) and PCSX2/`PCSX2.ini` discovery in `runner.cpp`/`pcsx2_config.cpp` (genuinely different shapes per OS, and platform.cpp has no business knowing what PCSX2 is). Linux specifics worth knowing: file dialogs shell out to **zenity** (kdialog fallback) so a machine without either has no Open/Import; system fonts resolve through a lazily built filename→path index over the freedesktop roots; SIGPIPE is ignored process-wide from a static here (a dying child's pipe or a vanished session peer would otherwise kill the editor); and `installDesktopEntry` writes the `.desktop` + hicolor icon that give the window its icon — under **Wayland that is the only mechanism there is** (no icon protocol; the compositor matches the surface's app id to a desktop file, and `glfwSetWindowIcon` fails with `GLFW_FEATURE_UNAVAILABLE`), so the app id hinted in `App::run`, the desktop file's basename and the icon name are one `kAppId` constant and must stay that way. |
 | `pcsx2_config.cpp` | ~170 | Finds PCSX2.ini (portable dir next to the exe first, then the Documents known folder on Windows — beware OneDrive redirection — or the XDG config dir / flatpak sandbox on Linux) and, before launch, force-enables `HostFs = true` plus — when `ProjectSettings::keyboardMouse` is on — points the emulated USB ports at the host devices (`ensureUsbKbdMouse`: `[USB1] Type=hidkbd` bound to `Keyboard`, `[USB2] Type=hidmouse` bound to `Pointer-0` + buttons). See `docs/keyboard-mouse.md`. |
 | `iso9660.cpp`, `isoexport.cpp` | 379+264 | In-tree ISO9660 writer + disc layout planning (`Project > Export PS2 ISO`, Disc Layout window). |
 | `json.cpp/.hpp` | 158 | Tiny standalone JSON parser used for reading the `.tyra` project file. |
@@ -282,10 +283,58 @@ per-player Player-object property must be added to the paired table emitter
 gate everything; menu bind 7 = Player count (edge-triggered +
 `syncPlayerCountMenuValue` write-back).
 
+**Anything that reads a button.** Never emit `pad.getClicked().<Button>` for
+gameplay: the generated game reads inputs through **named actions**
+(docs/input-bindings.md) — `inputPressed(pad, IA_ROLE_JUMP)` /
+`inputClicked(...)` from `inc/input_map.gen.hpp`, defined in
+`src/gen/input_map.gen.cpp` (`inputMapHeader`/`inputMapSource` in
+templates.cpp). A new built-in behavior that needs its own button adds an
+`InputAction::Role` (input.hpp) → a `kSeeds` entry in
+`project::ensureInputActions` (so existing projects get a default binding) →
+a role slot in the `kRoles` table of `inputMapHeader` (emits `IA_ROLE_*`, -1
+when the project has no such action) → the read site. The three layers the
+runtime folds are preset → player override (an `inputCodes()` index persisted
+in a save value by a `MenuEntry::RebindKey` row, applied by
+`TerrainGame::applyInputBindings`) → a **user-owned** `controls.hpp`'s
+`BTN_*`/`KEY_*` (which only wins when it disagrees with the default preset —
+the generated copy is derived from that preset, so they normally agree).
+`Pad::injectVirtual` folding of the USB keyboard/mouse is table-driven in the
+same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
+`OnButton` flow node stays raw on purpose; `OnAction` is the configurable one.
+
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
 `inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
+
+**A member initializer is NOT the new-project default.** Every `read*Section`
+guards on `find("key")`, so the struct initializer is what a project saved
+*before that key existed* loads as — changing it silently changes those
+projects' behavior. When a fresh project should start somewhere else, the
+struct keeps the legacy answer and **`project::create` assigns the new one**
+(the AmbiencePreset `aoEnabled` precedent; `buildProfile = "debug"` and
+`keyboardMouse = false` are there for the same reason). Two corollaries:
+`create`'s block is also the only place that may scale metric-by-definition
+defaults by `ProjectSettings::unitsPerMeter` — the *New Project* dialog picks
+the world scale, so the FPP preset is a 1.8 m player at any scale, while an
+existing project's numbers are never touched — and the *New Project* modal's
+per-field prose belongs in a `prefHelp("...")` `(?)` tooltip, not in
+`TextDisabled` paragraphs that push the buttons off the screen.
+
+**Inline text icons** (`{{cross}}` / `{{action:jump}}`, docs/text-icons.md).
+`Project::textIcons` (`TextIcon`: name + PNG + scale, seeded per pad button by
+`project::ensureTextIcons`, edited in *UI Editor > Button icons*). The parser is
+**shared, header-only** — `parseTextIcons` in project.hpp returns `TextRun`s —
+but the two renderers are TWINS and must stay in step: `textWidth`/`drawText` in
+menubake.cpp composite icons into baked sprites (so menus, HUD texts, loading
+screens and value strips all gained it at once through those two functions),
+while the generated game blits them from `res/hud/icons.png` via
+`resolveIconToken`/`drawFontText` with rects from `inc/icon_data.gen.hpp`. Both
+sides take their geometry from `menubake::iconAtlasLayout`, and the advance
+formulas (`iconAdvance` / `iconAdvanceFor`) are the pair to change together, or
+the same string measures differently baked vs runtime. Icons are NOT tinted with
+the text color (the face buttons carry the DualShock palette) and are skipped in
+shadow passes. A `{{token}}` naming nothing stays literal on purpose.
 
 **Anything that draws text.** `Project::fonts` (`GameFont`) is the single font
 registry — *Tools > Font Manager* (`drawFontManagerWindow`). Text carries a font
@@ -348,10 +397,25 @@ save value, the APPLY row commits the switch (`updateGameMenu` case 9), and
 outside a menu the row snaps back to the live mode each frame (also covers a
 reverted keep-or-revert confirm). Without the APPLY row bind 5 keeps the
 classic switch-on-change path.
+A **`MenuEntry::RebindKey`** row (action 10) is the in-game key-assignment row
+(docs/input-bindings.md): `bindAction` names the Input Map action, `param` the
+save value holding the player's override as an `inputCodes()` index (0 = the
+preset's binding). It is deliberately **pad-only** — `inputCapture` ignores
+keyboard/mouse and `inputBindLabel` omits them (that path is experimental and
+gets its own menu later), so an override replaces the action's `pad` slot alone
+and the preset's key/mouse survive. Lifting that restriction means touching all
+three of those spots together. It is the one row whose value cannot be baked into the
+option strip — the binding name is only known at runtime — so it draws as
+**runtime text** from the menu font's glyph atlas, which is why
+`Project::atlasFontIndices()` bakes an atlas for any menu carrying such a row
+(`MenuData::font` is that FONTS slot) and `updateGameMenu` grows a capture mode
+(`menuRebindRow`, cleared on every menu transition). `bind` 8 =
+`BindInputPreset` cycles the Input Map presets from a Choice row.
 The *Menu Editor* "+ Option block" popup and "+ Options menu" scaffolder
-(`addOptionBlock`/`addOptionsMenuPages`, app.cpp) create pre-configured rows +
-their backing save values (the scaffolded DISPLAY page includes the APPLY
-row). So a menu change can touch: `MenuEntry` (+ `==`) →
+(`addOptionBlock`/`addOptionsMenuPages`/`addRebindRows`, app.cpp) create
+pre-configured rows + their backing save values (the scaffolded DISPLAY page
+includes the APPLY row, CONTROLS the rebind rows). So a menu change can touch:
+`MenuEntry` (+ `==`) →
 menu JSON in project.cpp → `MenuEntryData` codegen + `applyMenuBindings` in
 templates.cpp → the runtime setting site (audio call, `axis`/`axisValue`,
 `applyVideoRequests`) → the Menu Editor UI.
@@ -430,7 +494,7 @@ calls `glTexImage2D` with data re-arms that crash for whatever feature owns it
 non-RGBA formats (the R32F heightmap) do the same two steps inline.
 
 ### 4b. Paths and shell command lines are cross-platform hazards
-The editor builds for Windows AND Linux, and three habits that were harmless
+The editor builds for Windows AND Linux, and four habits that were harmless
 while it was Windows-only now break silently:
 
 - **Never hand-join a path with `"\\"`.** Outside Windows a backslash is an
@@ -443,6 +507,19 @@ while it was Windows-only now break silently:
   system convert). This bit the first Linux run twice - a fresh project came
   out as ~30 files literally named `src\gen\flow_graph.gen.cpp`, and PCSX2
   was handed `.../name\bin\name.elf`.
+- **Never hand-roll the join either, and never assume a path is normalized.**
+  `std::filesystem::path(dir) / rel` CONCATENATES - it does not normalize - so
+  on Windows a forward-slashed `rel` leaves a MIXED path
+  (`C:\proj\bin/proj.elf`). The C++/CRT file APIs accept that, which is what
+  makes it dangerous: every `fs::exists()` and every asset load passes, so the
+  editor believes the path is good, while an **external program** may reject it.
+  PCSX2 v2.6.3 does exactly that (`Requested boot ELF ... does not exist` for
+  an ELF it boots under the all-backslash spelling), and `explorer.exe
+  /select,"<mixed>"` silently opens the default folder instead. `filePath()`
+  therefore ends in `make_preferred()`, `App::assetAbs` delegates to it instead
+  of repeating the join, and `platform::revealInFileManager` normalizes at the
+  OS boundary. So: join through `filePath()`, and normalize anything you build
+  by hand before it leaves the process (PROGRESS 189).
 - **Anything nested inside a command line goes through `platform::shellArg()`.**
   `cmd.exe` expands nothing inside double quotes, so the Runner's
   `docker ... sh -c "<script>"` used to reach the container verbatim. `/bin/sh`

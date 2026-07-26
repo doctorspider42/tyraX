@@ -51,9 +51,26 @@ add_custom_command(
     DEPENDS ${AI_SUPPORT_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
     COMMENT "Embedding ai-support/ skills")
 
+# --- Embedded app icon (resources/icon.png -> generated header) ---
+# Windows gets its icon from the GLFW_ICON resource in resources/app.rc above.
+# Every other platform needs the same image at RUNTIME - GLFW wants decoded
+# pixels for the window icon and the freedesktop desktop entry wants a PNG on
+# disk - so the file is baked in rather than shipped loose next to the binary.
+set(APP_ICON_GEN ${CMAKE_BINARY_DIR}/generated/icon_gen.hpp)
+add_custom_command(
+    OUTPUT ${APP_ICON_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/icon.png
+            -DOUT_FILE=${APP_ICON_GEN}
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/icon.png
+            ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+    COMMENT "Embedding resources/icon.png")
+
 # --- Editor ---
 add_executable(tyrax-editor
     ${AI_SUPPORT_GEN}
+    ${APP_ICON_GEN}
     src/main.cpp
     src/aigen.cpp
     src/aisupport.cpp
