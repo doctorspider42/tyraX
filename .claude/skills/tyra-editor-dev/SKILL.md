@@ -169,12 +169,47 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
-**New object type** → `PrimitiveType` enum (0–16 used so far; keep values stable,
-they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
+**New object type** → `PrimitiveType` enum (0–17 used so far, `kPrimitiveTypeCount`
+bounds "every type" loops; keep values stable, they're serialized) →
+mesh/marker in viewport.cpp → insert menu in app.cpp →
 codegen + runtime as above. If the type needs per-object variable-length data
 (like Mirror's reflected-object list), don't grow the fixed `SceneObjectData`
 POD — emit a flat side table into scene_data.hpp keyed by (scene, object), the
-`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` pattern.
+`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` pattern. **A type with no geometry must be
+added to every marker skip list**, and they are scattered by *number*, not by
+enum: `collidePlayer`, the USE-target scan, the carry/throw sweep,
+`physObstacle` and the geometry `switch` in templates.cpp (all `o.data.type ==
+N` lists), `flowRaycast` in `flowGraphScript`, plus `blocksNavigation`
+(navmesh.cpp) and `objectShape`/`regionCountFor` (aobake.cpp, whose `default`
+already excludes unknown types). Miss one and an invisible marker blocks the
+player or eats a raycast.
+
+**Areas (`PrimitiveType::Area`, docs/areas.md)** are the reference point for
+"replace a hand-typed distance with a placed volume". The pattern: the volume
+is an ordinary `SceneObject` (transform = the box), references to it are BY
+NAME (`SceneObject::catchArea`, `SceneLayer::streamArea`, a flow node's `str`
+with `FlowParamKind::AreaName`), and the point test lives in exactly two
+places — `project::areaContainsPoint` (host: editor previews AND codegen) and
+`pointInArea` emitted into `scene_data.hpp` (both generated TUs: the game cpp's
+layer zones and flow_graph.gen.cpp's In Area trigger). Putting the runtime
+twin in the generated DATA header instead of a game-cpp template is what keeps
+it a single definition; `project::areaCaughtObjects` is likewise the ONE
+expansion used by the Properties preview, the viewport mirror preview, the
+baked target tables and `batchBlockedNames`. If you add a consumer, call those
+— do not re-derive the box math.
+
+A catch area can also be **live** (`SceneObject::catchAreaLive`): the volume is
+re-tested every frame instead of only at build. The rule that makes it cheap
+and safe is worth reusing if you add another "re-submit these objects" feature:
+only `project::areaLiveCandidates` — objects that can move — is re-tested, and
+that predicate (`project::objectRuntimeMovable`, over
+`project::runtimeRefNames`) is the exact complement of the immovability
+`staticBatchEligible` relies on, so a live candidate always has the solo bag a
+second submission needs. The immovable rest stays baked in the fixed list, and
+movable objects are dropped FROM that list so nothing is submitted twice. The
+candidates bake into a shared `CATCH_CANDIDATES` table sliced per owner
+(`liveArea`/`firstCand`/`candCount` on `MirrorData`/`PortalData`/`CamFeedData`);
+`TerrainGame::collectLiveCaught` walks a slice plus the spawn pool.
 
 **Object identity: `SceneObject::id`.** Every object carries an opaque, stable
 `id` (first JSON key; part of `operator==`) — the merge/persistence key for the

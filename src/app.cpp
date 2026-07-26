@@ -4679,6 +4679,18 @@ void App::addPortal() {
     o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
     saveAll("Saved");
 }
+void App::addArea() {
+    addObject(PrimitiveType::Area);
+    SceneObject& o = project_.objects().back();
+    // A room-sized box resting on the ground, cool green so the wireframe
+    // reads as "volume", not "prop".
+    o.position[1] = 2.0f;
+    o.scale[0] = 8.0f, o.scale[1] = 4.0f, o.scale[2] = 8.0f;
+    o.color[0] = 0.3f, o.color[1] = 0.95f, o.color[2] = 0.5f;
+    o.collisionMode = 2;  // a volume, never a wall
+    o.castShadow = false;  // no geometry - nothing to occlude with
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -5734,6 +5746,15 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Save point")) addSavePoint();
         // Cutscene Director shot marker (bind camera-track keys to it)
         if (ImGui::MenuItem("Camera")) addObject(PrimitiveType::Camera);
+        // Invisible volume: layer streaming zones, mirror/portal/feed target
+        // sets, In Area triggers (docs/areas.md).
+        if (ImGui::MenuItem("Area")) addArea();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Invisible box - a wireframe here, nothing in the game.\n"
+                "Point a streaming layer's zone, a mirror/portal/camera-feed\n"
+                "target list or an In Area trigger at it instead of typing\n"
+                "distances.");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Effects")) {
@@ -6135,30 +6156,42 @@ void App::drawLayersSection() {
                 "the zone below, unload it when they leave - GTA-style zone\n"
                 "streaming, no flow graph needed.");
         if (l.autoStream) {
+            // Zone shape: an Area object's box, or the circle below it
+            // (docs/areas.md). The area also bounds Y, so a zone can be one
+            // floor of a building.
             ImGui::SameLine();
-            float center[2] = {l.streamX, l.streamZ};
-            ImGui::SetNextItemWidth(110.0f);
-            if (ImGui::DragFloat2("##zonexz", center, 0.5f, 0.0f, 0.0f, "%.0f")) {
-                l.streamX = center[0];
-                l.streamZ = center[1];
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone center (world X, Z)");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(70.0f);
-            ImGui::DragFloat("##zoner", &l.streamRadius, 0.5f, 1.0f, 4096.0f,
-                             "r %.0f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone radius (world units)");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Center on sel.") && selectedObject_ >= 0 &&
-                selectedObject_ < (int)sc.objects.size()) {
-                l.streamX = sc.objects[selectedObject_].position[0];
-                l.streamZ = sc.objects[selectedObject_].position[2];
-                committed = true;
-            }
+            ImGui::SetNextItemWidth(scaled(150));
+            if (areaCombo("##zonearea", l.streamArea)) committed = true;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Move the zone center to the selected object");
+                ImGui::SetTooltip(
+                    "Zone shape: an Area object's box (bounds height too, and\n"
+                    "follows the area if it moves). <none> = the circle below.");
+            if (l.streamArea.empty()) {
+                ImGui::SameLine();
+                float center[2] = {l.streamX, l.streamZ};
+                ImGui::SetNextItemWidth(scaled(110));
+                if (ImGui::DragFloat2("##zonexz", center, 0.5f, 0.0f, 0.0f, "%.0f")) {
+                    l.streamX = center[0];
+                    l.streamZ = center[1];
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone center (world X, Z)");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(70));
+                ImGui::DragFloat("##zoner", &l.streamRadius, 0.5f, 1.0f, 4096.0f,
+                                 "r %.0f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone radius (world units)");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Center on sel.") && selectedObject_ >= 0 &&
+                    selectedObject_ < (int)sc.objects.size()) {
+                    l.streamX = sc.objects[selectedObject_].position[0];
+                    l.streamZ = sc.objects[selectedObject_].position[2];
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Move the zone center to the selected object");
+            }
         }
         ImGui::PopID();
     }
@@ -6206,8 +6239,98 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Camera: return "Camera";
         case PrimitiveType::Mirror: return "Mirror";
         case PrimitiveType::Portal: return "Portal";
+        case PrimitiveType::Area: return "Area";
     }
     return "Object";
+}
+
+// Area reference picker (docs/areas.md): the scene's Area objects plus
+// <none>. Used for a catch area (Mirror / Portal / feed Camera) and for a
+// streaming layer's zone; a dangling name shows in red so a deleted area is
+// obvious instead of silently catching nothing.
+bool App::areaCombo(const char* label, std::string& ref) {
+    bool changed = false;
+    const bool dangling =
+        !ref.empty() && !project::findArea(project_.objects(), ref);
+    const std::string current = ref.empty() ? "<none>" : ref;
+    if (dangling) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
+    if (ImGui::BeginCombo(label, dangling ? (current + " (missing)").c_str()
+                                          : current.c_str())) {
+        if (ImGui::Selectable("<none>", ref.empty()) && !ref.empty()) {
+            ref.clear();
+            changed = true;
+        }
+        int areas = 0;
+        for (const SceneObject& t : project_.objects()) {
+            if (t.type != PrimitiveType::Area) continue;
+            ++areas;
+            if (ImGui::Selectable(t.name.c_str(), t.name == ref) && ref != t.name) {
+                ref = t.name;
+                changed = true;
+            }
+        }
+        if (!areas)
+            ImGui::TextDisabled("No areas in this scene -\nAdd object > Gameplay > Area.");
+        ImGui::EndCombo();
+    }
+    if (dangling) ImGui::PopStyleColor();
+    return changed;
+}
+
+// The whole catch-area block of a Mirror / Portal / feed Camera: the picker,
+// the "update every frame" switch and the resolved counts. `verb` names what
+// the caught objects get ("re-drawn", "shown", "in the feed") so the same
+// widget reads right in all three panels.
+bool App::catchAreaControls(SceneObject& o, const char* verb) {
+    bool committed = false;
+    if (areaCombo("Catch area", o.catchArea)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Catch every object inside an Area's box (docs/areas.md)\n"
+            "instead of listing them one by one. Resolved at build, so\n"
+            "the geometry cost stays visible; the list below still adds\n"
+            "objects from outside the area.");
+    if (o.catchArea.empty()) return committed;
+    if (ImGui::Checkbox("Update every frame", &o.catchAreaLive)) committed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Off: the volume is emptied into a fixed list at build - an\n"
+            "object that walks in later stays out.\n"
+            "On: objects that can MOVE are re-tested every frame, so they\n"
+            "join and leave the list as they cross the boundary. Only\n"
+            "movable objects pay for it (the count below); the immovable\n"
+            "rest still resolves at build. Watch that count - each one\n"
+            "inside is a second full submission of its geometry.");
+    const std::vector<int> caught = project::areaCaughtObjects(
+        project_.objects(), o.catchArea, selectedObject_);
+    if (!o.catchAreaLive) {
+        ImGui::TextDisabled("Area holds %d object%s (%s once each)",
+                            (int)caught.size(), caught.size() == 1 ? "" : "s",
+                            verb);
+        return committed;
+    }
+    const std::set<std::string> refs =
+        project::runtimeRefNames(project_, project_.objects());
+    const std::vector<int> cands = project::areaLiveCandidates(
+        project_.objects(), selectedObject_, refs);
+    // Movable objects leave the fixed list even when they sit inside right
+    // now - the per-frame test owns them, or they would be drawn twice.
+    int fixed = 0, inside = 0;
+    for (int ci : caught) {
+        bool movable = false;
+        for (int m : cands)
+            if (m == ci) { movable = true; break; }
+        if (movable) ++inside; else ++fixed;
+    }
+    ImGui::TextDisabled("%d fixed + %d of %d movable inside now (%s once each)",
+                        fixed, inside, (int)cands.size(), verb);
+    if (ImGui::IsItemHovered() && !cands.empty()) {
+        std::string list;
+        for (size_t i = 0; i < cands.size(); ++i)
+            list += (i ? "\n" : "") + project_.objects()[cands[i]].name;
+        ImGui::SetTooltip("Re-tested every frame:\n%s", list.c_str());
+    }
+    return committed;
 }
 
 // Edits the object selected in the Project panel / viewport. Only fields the
@@ -6291,6 +6414,21 @@ void App::drawPropertiesWindow() {
                     for (std::string& t : m.portalObjects)
                         if (t == from) t = o.name;
                 }
+            // Area references (docs/areas.md): catch areas, streaming-layer
+            // zones and In Area nodes all point at an area by name.
+            if (o.type == PrimitiveType::Area) {
+                for (SceneObject& m : project_.objects()) {
+                    if (m.catchArea == from) m.catchArea = o.name;
+                    for (FlowNode& fn : m.flowGraph.nodes) {
+                        const FlowNodeType* t = flowNodeType(fn.type);
+                        if (t && t->strKind == FlowParamKind::AreaName &&
+                            fn.str == from)
+                            fn.str = o.name;
+                    }
+                }
+                for (SceneLayer& l : project_.active().layers)
+                    if (l.streamArea == from) l.streamArea = o.name;
+            }
         }
     }
 
@@ -6480,18 +6618,21 @@ void App::drawPropertiesWindow() {
     // Portal: transform places the surface (+Z = the visible/entry face),
     // color tints an inactive surface; the portal block sits further down.
     const bool isPortal = o.type == PrimitiveType::Portal;
+    // Area: the transform IS the volume (scale = the box size), color tints
+    // its wireframe. Nothing else applies - it has no geometry in the game.
+    const bool isArea = o.type == PrimitiveType::Area;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
         o.type == PrimitiveType::Emitter) {
-        ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
+        ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // How big that actually is. A primitive is a UNIT shape, so its scale
         // is its size in world units - and the world scale turns that into
@@ -6517,7 +6658,7 @@ void App::drawPropertiesWindow() {
     // texture tint for decals, marker/frustum tint for camera entities, glass
     // tint for mirrors, inactive-surface tint for portals. The remaining
     // markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -6692,6 +6833,48 @@ void App::drawPropertiesWindow() {
                 "receives shadows from others. Rebuild to see it in-game.");
     }
 
+    if (isArea) {
+        ImGui::SeparatorText("Area");
+        ImGui::TextDisabled(
+            "An invisible box: this wireframe is its whole appearance and the\n"
+            "game draws nothing. Nobody collides with it. Point things at it\n"
+            "by name instead of typing distances:");
+        ImGui::BulletText("A streaming layer's zone (Project panel > Layers)");
+        ImGui::BulletText("A mirror / portal / camera feed's target list");
+        ImGui::BulletText("The In Area flow trigger (Triggers > In Area)");
+        // What references it, so deleting/resizing one is not a guess.
+        std::vector<std::string> users;
+        for (const SceneObject& t : project_.objects())
+            if (t.catchArea == o.name)
+                users.push_back(t.name + (t.catchAreaLive ? " (live)" : ""));
+        for (const SceneLayer& l : project_.active().layers)
+            if (l.streamArea == o.name) users.push_back("layer " + l.name);
+        for (const SceneObject& t : project_.objects())
+            for (const FlowNode& n : t.flowGraph.nodes)
+                if (n.type == "InArea" && n.str == o.name)
+                    users.push_back(t.name + " (In Area)");
+        if (users.empty()) {
+            ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f),
+                               "Nothing references this area yet.");
+        } else {
+            std::string list;
+            for (size_t i = 0; i < users.size(); ++i)
+                list += (i ? ", " : "") + users[i];
+            ImGui::TextDisabled("Used by: %s", list.c_str());
+        }
+        // Catch preview: the same call codegen bakes with.
+        const std::vector<int> caught =
+            project::areaCaughtObjects(project_.objects(), o.name, -1);
+        ImGui::TextDisabled("Catches %d object%s as a target list",
+                            (int)caught.size(), caught.size() == 1 ? "" : "s");
+        if (ImGui::IsItemHovered() && !caught.empty()) {
+            std::string list;
+            for (size_t i = 0; i < caught.size(); ++i)
+                list += (i ? "\n" : "") + project_.objects()[caught[i]].name;
+            ImGui::SetTooltip("%s", list.c_str());
+        }
+    }
+
     if (isMirror) {
         ImGui::SeparatorText("Mirror");
         ImGui::TextDisabled(
@@ -6735,6 +6918,10 @@ void App::drawPropertiesWindow() {
             o.collisionMode = solid ? 0 : 2;
             committed = true;
         }
+        // Area instead of (or on top of) the hand-built list: everything the
+        // volume holds reflects. The count is what the game re-draws - fixed
+        // at build unless "Update every frame" is on.
+        if (catchAreaControls(o, "re-drawn")) committed = true;
         ImGui::TextUnformatted("Reflected objects:");
         int removeAt = -1;
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i) {
@@ -6842,6 +7029,7 @@ void App::drawPropertiesWindow() {
                 "draw distances trim the cost, but big scenes pay a second\n"
                 "submission pass - watch the FPS/profiler before shipping.");
         } else {
+        if (catchAreaControls(o, "shown")) committed = true;
         ImGui::TextUnformatted("Objects visible through:");
         int removePortalAt = -1;
         for (size_t i = 0; i < o.portalObjects.size(); ++i) {
@@ -7046,6 +7234,7 @@ void App::drawPropertiesWindow() {
                 "(the first enabled one wins).");
             if (ImGui::Checkbox("Show terrain in feed", &o.camFeedTerrain))
                 committed = true;
+            if (catchAreaControls(o, "in the feed")) committed = true;
             ImGui::TextUnformatted("Objects in feed:");
             int removeAt = -1;
             for (size_t i = 0; i < o.camFeedObjects.size(); ++i) {
@@ -7429,7 +7618,7 @@ void App::drawMultiProperties() {
     ImGui::Text("%d objects selected", (int)objs.size());
     {
         std::string tally;
-        for (int t = 0; t <= (int)PrimitiveType::Empty; ++t) {
+        for (int t = 0; t < kPrimitiveTypeCount; ++t) {
             int n = 0;
             for (auto* p : objs)
                 if ((int)p->type == t) ++n;
@@ -7459,6 +7648,8 @@ void App::drawMultiProperties() {
         const bool decal = o.type == PrimitiveType::Decal;
         const bool mirror =
             o.type == PrimitiveType::Mirror || o.type == PrimitiveType::Portal;
+        // Areas: transform + color are the whole object (the box and its wire).
+        const bool area = o.type == PrimitiveType::Area;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -7475,12 +7666,12 @@ void App::drawMultiProperties() {
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot && (solid || empty || decal || mirror ||
+        allRot = allRot && (solid || empty || decal || mirror || area ||
                             o.type == PrimitiveType::Camera ||
                             (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
-        allScale = allScale && (solid || empty || decal || mirror ||
+        allScale = allScale && (solid || empty || decal || mirror || area ||
                                 o.type == PrimitiveType::Emitter);
-        allColor = allColor && (solid || empty || decal || mirror ||
+        allColor = allColor && (solid || empty || decal || mirror || area ||
                                 o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::PointLight ||
                                 o.type == PrimitiveType::Camera);
@@ -8220,6 +8411,11 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::AreaName) {
+            // In Area: pick one of the scene's Area objects (docs/areas.md).
+            if (areaCombo("Area", n.str)) changed = true;
+            if (n.str.empty())
+                ImGui::TextDisabled("Pick an area - the node\ncompiles out without one.");
         } else if (t->strKind == FlowParamKind::SaveValue) {
             if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SaveValue& v : project_.saveValues) {
@@ -8908,6 +9104,13 @@ void App::drawFlowGraphWindow() {
                     if (t.strKind == FlowParamKind::LayerName &&
                         !project_.active().layers.empty())
                         n.str = project_.active().layers.front().name;
+                    // In Area starts on the scene's first area, if any.
+                    if (t.strKind == FlowParamKind::AreaName)
+                        for (const SceneObject& a : project_.objects())
+                            if (a.type == PrimitiveType::Area) {
+                                n.str = a.name;
+                                break;
+                            }
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
                     if (std::string(t.key) == "Raycast") n.num[0] = 50.0f;  // max dist
@@ -22381,6 +22584,15 @@ void App::drawPreferencesModal() {
         "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
         "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
+        "box, the way the editor viewport shows it. Areas have no geometry on\n"
+        "the console by design, which is exactly why \"why did that layer not\n"
+        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
+        "puts the volume back on screen. Stripped from release builds.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();

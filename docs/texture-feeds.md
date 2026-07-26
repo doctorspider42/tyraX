@@ -26,7 +26,12 @@ The Camera object gains, next to its FOV:
 - **Show terrain in feed** — sky dome + resident terrain chunks under the
   view list.
 - **Objects in feed** — an explicit list, the Mirror philosophy: the
-  second-render cost is always visible to the author.
+  second-render cost is always visible to the author. A **catch area** fills
+  that list from a volume instead: everything inside an Area object's box is
+  in the feed, resolved at build so the cost stays a number you can read —
+  point one at whatever the camera watches ([areas.md](areas.md)). Tick
+  *Update every frame* on it and whatever walks into the volume walks onto the
+  monitor, at the price of a re-draw count that now varies.
 
 The feed renders every frame from the camera's **live transform** (+Z lens,
 the Cutscene Director convention) at its authored FOV — a flow graph or

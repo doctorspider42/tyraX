@@ -17,7 +17,12 @@ between distant parts of the map.
 2. In Properties > Portal, pick the **Target portal**. Links are one-way by
    design; use **Link back (make two-way)** to complete the pair.
 3. List the **objects visible through** the portal — the explicit list is the
-   render budget, exactly like a Mirror's reflected-object list. Terrain and
+   render budget, exactly like a Mirror's reflected-object list. Instead of
+   (or on top of) listing names, set a **catch area**: everything inside an
+   Area object's box joins the list, resolved at build so the count stays
+   visible — or ticked to *Update every frame*, so an object that walks into
+   the volume starts showing through (and, by the crossing rule, walking
+   through) from that frame on — see [areas.md](areas.md). Terrain and
    the sky dome have their own toggle (**Terrain + sky in view**, on by
    default). Keep the list to the landmarks that sell the destination.
    Or tick **All objects in view (experimental)**: every scene object

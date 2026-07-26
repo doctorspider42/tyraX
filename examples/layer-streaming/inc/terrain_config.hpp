@@ -92,5 +92,11 @@ constexpr bool DEBUG_SHOW_MEM = false;
 // / renderScene). This is the profiling harness used to diagnose the
 // usable-highlight cost, wired in as a shippable debug option.
 constexpr bool DEBUG_SHOW_PROFILER = false;
+// Draw Area objects (type 17, docs/areas.md) as wireframe boxes in the game.
+// They have no geometry in a shipping build by design, which is precisely why
+// a zone that will not unload or a catch area that misses a prop is hard to
+// diagnose from inside the game. Guarded by this constexpr, so a build with it
+// false emits no vertices at all (see rebuildObjectGeometry case 17).
+constexpr bool DEBUG_SHOW_AREAS = false;
 
 }  // namespace Layer_streaming
