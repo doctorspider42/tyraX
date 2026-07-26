@@ -1536,6 +1536,44 @@ struct WeaponDef {
     // the muzzle flash and the tracer start here.
     float muzzleOffset[3] = {0.22f, -0.1f, 1.0f};
 
+    // --- Viewmodel animation (docs/weapons.md) ---------------------------
+    // Two ways to make the weapon move, and the choice follows the ASSET:
+    //  0 PROCEDURAL - the runtime animates the viewmodel's transform from the
+    //    numbers below. Needs no animated model, which is exactly what a
+    //    generated weapon is: a static .obj cannot carry clips.
+    //  1 CLIPS - the viewmodel is an animated .glb/.fbx and the runtime plays
+    //    the clips named below on fire / reload / equip through the ordinary
+    //    animation system. The procedural KICK and SWING then stand aside
+    //    (the clip owns them), but the idle sway and the walk bob stay on -
+    //    a baked clip cannot know how fast the player is moving.
+    // Clip mode on a static model is a harmless no-op (nothing resolves), so
+    // switching an asset never breaks the build.
+    int animMode = 0;
+    // Recoil, per shot. The kick is a spring the runtime decays; these are
+    // its amplitude and rate, decoupled from the VIEW kick (`recoil`) so a
+    // weapon can jolt in the hands without moving the aim, or vice versa.
+    float animKickBack = 0.10f;    // units the weapon drives into the screen
+    float animKickPitch = 7.0f;    // degrees the muzzle rises
+    float animRecover = 7.0f;      // decay rate, 1/s (higher = snappier)
+    // Life while nothing is happening. Sway is the hands never being still;
+    // bob rides the player's actual planar speed, so it stops when they do.
+    float animSway = 0.012f;       // idle sway amplitude, units (0 = dead still)
+    float animSwaySpeed = 1.6f;    // idle sway rate, cycles/s
+    float animBob = 0.030f;        // walk bob amplitude at full speed, units
+    // Reload: the weapon drops out of the aim and rolls while it happens, over
+    // the weapon's own reloadTime.
+    float animReloadDip = 0.22f;   // units it drops
+    float animReloadRoll = 35.0f;  // degrees it rolls
+    // Melee: the lunge and the chop, over swingTime.
+    float animSwingReach = 0.35f;  // forward lunge, units
+    float animSwingPitch = 55.0f;  // chop angle, degrees
+    // Clip mode only. Empty = that state does not change the clip (an empty
+    // Idle leaves whatever the model was already playing).
+    std::string clipIdle;
+    std::string clipFire;
+    std::string clipReload;
+    std::string clipEquip;
+
     // --- Effects
     WeaponFx muzzleFx = defaultMuzzleFx();  // at the muzzle as the shot leaves
     WeaponFx impactFx = defaultImpactFx();  // where the shot lands (scenery)
@@ -1567,11 +1605,74 @@ inline bool operator==(const WeaponDef& a, const WeaponDef& b) {
            a.swingTime == b.swingTime && a.viewModel == b.viewModel &&
            eq3(a.viewOffset, b.viewOffset) && a.viewScale == b.viewScale &&
            eq3(a.viewRot, b.viewRot) && eq3(a.muzzleOffset, b.muzzleOffset) &&
+           a.animMode == b.animMode && a.animKickBack == b.animKickBack &&
+           a.animKickPitch == b.animKickPitch &&
+           a.animRecover == b.animRecover && a.animSway == b.animSway &&
+           a.animSwaySpeed == b.animSwaySpeed && a.animBob == b.animBob &&
+           a.animReloadDip == b.animReloadDip &&
+           a.animReloadRoll == b.animReloadRoll &&
+           a.animSwingReach == b.animSwingReach &&
+           a.animSwingPitch == b.animSwingPitch &&
+           a.clipIdle == b.clipIdle && a.clipFire == b.clipFire &&
+           a.clipReload == b.clipReload && a.clipEquip == b.clipEquip &&
            a.muzzleFx == b.muzzleFx && a.impactFx == b.impactFx &&
            a.bloodFx == b.bloodFx && a.tracer == b.tracer &&
            eq3(a.tracerColor, b.tracerColor) && a.fireSound == b.fireSound &&
            a.reloadSound == b.reloadSound && a.emptySound == b.emptySound &&
            a.impactSound == b.impactSound;
+}
+
+// Ready-made procedural viewmodel motions (Weapon Editor > Animation >
+// "Motion preset"). A generated weapon is a static .obj and can carry no
+// clips, so procedural motion is the only animation it will ever have - and
+// hand-tuning ten numbers to find out what "a pistol" feels like is the wrong
+// first experience. These are the starting points; every number stays
+// editable afterwards. "Create viewmodel" picks the one matching the
+// generated kind, so a fresh weapon arrives already moving.
+enum WeaponAnimPreset {
+    WeaponAnimSnap = 0,     // a light pistol: quick, small, fast recovery
+    WeaponAnimHeavy = 1,    // revolver / shotgun: a real shove, slow settle
+    WeaponAnimChatter = 2,  // SMG / rifle: tiny kick, very fast recovery
+    WeaponAnimShove = 3,    // launcher: the biggest kick, slowest settle
+    WeaponAnimBlade = 4,    // melee: barely any kick, a wide swing
+    WeaponAnimLocked = 5,   // nothing moves (a mounted gun, a debug rig)
+    WeaponAnimPresetCount = 6,
+};
+
+inline const char* weaponAnimPresetName(int p) {
+    switch (p) {
+        case WeaponAnimSnap: return "Pistol snap";
+        case WeaponAnimHeavy: return "Heavy recoil";
+        case WeaponAnimChatter: return "Automatic chatter";
+        case WeaponAnimShove: return "Launcher shove";
+        case WeaponAnimBlade: return "Blade swing";
+        case WeaponAnimLocked: return "Locked down";
+        default: return "Custom";
+    }
+}
+
+// Overwrites only the procedural motion fields - the clip names, the offsets
+// and everything about damage are left alone, so applying a preset to a tuned
+// weapon changes how it MOVES and nothing else.
+inline void applyWeaponAnimPreset(WeaponDef& w, int preset) {
+    // kickBack, kickPitch, recover, sway, swaySpeed, bob, dip, roll, reach, chop
+    struct P {
+        float kb, kp, rec, sw, sws, bob, dip, roll, reach, chop;
+    };
+    static const P kP[] = {
+        {0.08f, 6.0f, 9.0f, 0.010f, 1.6f, 0.028f, 0.20f, 30.0f, 0.35f, 55.0f},
+        {0.18f, 12.0f, 5.0f, 0.014f, 1.2f, 0.034f, 0.28f, 45.0f, 0.35f, 55.0f},
+        {0.05f, 3.5f, 14.0f, 0.008f, 2.0f, 0.026f, 0.22f, 25.0f, 0.35f, 55.0f},
+        {0.22f, 10.0f, 4.0f, 0.016f, 1.0f, 0.036f, 0.30f, 20.0f, 0.35f, 55.0f},
+        {0.04f, 2.0f, 10.0f, 0.018f, 1.4f, 0.040f, 0.10f, 10.0f, 0.45f, 70.0f},
+        {0.0f, 0.0f, 8.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+    };
+    if (preset < 0 || preset >= WeaponAnimPresetCount) return;
+    const P& p = kP[preset];
+    w.animKickBack = p.kb, w.animKickPitch = p.kp, w.animRecover = p.rec;
+    w.animSway = p.sw, w.animSwaySpeed = p.sws, w.animBob = p.bob;
+    w.animReloadDip = p.dip, w.animReloadRoll = p.roll;
+    w.animSwingReach = p.reach, w.animSwingPitch = p.chop;
 }
 
 struct Project {

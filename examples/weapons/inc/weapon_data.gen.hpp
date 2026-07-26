@@ -44,6 +44,19 @@ struct WeaponData {
   float viewScale;
   float viewRot[3];      // degrees, in the camera frame
   float muzzleOffset[3]; // where the shot leaves, same frame
+  // Viewmodel animation (docs/weapons.md). animMode 0 = procedural (the
+  // runtime animates the transform from the numbers below - what a generated
+  // static .obj gets), 1 = clips (an animated .glb/.fbx viewmodel; the runtime
+  // plays clip* on fire/reload/equip and leaves the kick and swing to them).
+  int animMode;
+  float animKickBack, animKickPitch, animRecover;
+  float animSway, animSwaySpeed, animBob;
+  float animReloadDip, animReloadRoll;
+  float animSwingReach, animSwingPitch;
+  const char* clipIdle;
+  const char* clipFire;
+  const char* clipReload;
+  const char* clipEquip;
   WeaponFxData muzzleFx, impactFx, bloodFx;
   int tracer;
   float tracerColor[3];
@@ -55,16 +68,22 @@ constexpr WeaponData WEAPON_DEFS[WEAPON_COUNT > 0 ? WEAPON_COUNT : 1] = {
     {"Pistol", 0, 22.0F, 80.0F, 0.3F, 6.0F, 4.0F, 0, 1.2F, 1, 1.4F, 0.35F, 12, 60, 1.1F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 70.0F, 0.35F,
      {0.2F, -0.16F, 0.75F}, 1.0F, {0.0F, 0.0F, 0.0F}, {0.2F, -0.06F, 0.95F},
+     0, 0.1F, 7.0F, 7.0F, 0.012F, 1.6F, 0.03F, 0.22F, 35.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {1, {1.0F, 0.85F, 0.4F}, 0.045F, 5, 0.07F, 1.5F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      1, {1.0F, 0.92F, 0.55F}, -1, -1, -1, -1},
     {"Shotgun", 0, 14.0F, 30.0F, 0.75F, 14.0F, 1.1F, 0, 6.0F, 8, 4.5F, 0.9F, 6, 24, 2.0F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 70.0F, 0.35F,
      {0.16F, -0.2F, 0.85F}, 1.0F, {0.0F, 0.0F, 0.0F}, {0.16F, -0.1F, 1.5F},
+     0, 0.1F, 7.0F, 7.0F, 0.012F, 1.6F, 0.03F, 0.22F, 35.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {1, {1.0F, 0.8F, 0.35F}, 0.075F, 8, 0.09F, 2.5F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      0, {1.0F, 0.9F, 0.5F}, -1, -1, -1, -1},
     {"Machete", 2, 55.0F, 2.6F, 0.0F, 12.0F, 1.8F, 0, 0.0F, 1, 0.5F, 0.55F, 0, 0, 0.0F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 60.0F, 0.4F,
      {0.28F, -0.24F, 0.55F}, 1.0F, {0.0F, 0.0F, 0.0F}, {0.28F, -0.1F, 1.1F},
+     0, 0.1F, 7.0F, 7.0F, 0.012F, 1.6F, 0.03F, 0.22F, 35.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {0, {1.0F, 1.0F, 1.0F}, 0.05F, 4, 0.2F, 1.0F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      0, {1.0F, 0.9F, 0.5F}, -1, -1, -1, -1},
 };

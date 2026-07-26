@@ -1393,7 +1393,22 @@ static void writeWeaponsSection(std::ostream& json, const Project& p) {
              << ", \"viewRot\": " << fmtVec3(w.viewRot)
              << ", \"muzzleOffset\": " << fmtVec3(w.muzzleOffset)
              << ", \"tracer\": " << (w.tracer ? "true" : "false")
-             << ", \"tracerColor\": " << fmtVec3(w.tracerColor);
+             << ", \"tracerColor\": " << fmtVec3(w.tracerColor)
+             << ",\n      \"animMode\": " << w.animMode
+             << ", \"animKickBack\": " << fmtFloat(w.animKickBack)
+             << ", \"animKickPitch\": " << fmtFloat(w.animKickPitch)
+             << ", \"animRecover\": " << fmtFloat(w.animRecover)
+             << ", \"animSway\": " << fmtFloat(w.animSway)
+             << ", \"animSwaySpeed\": " << fmtFloat(w.animSwaySpeed)
+             << ", \"animBob\": " << fmtFloat(w.animBob)
+             << ", \"animReloadDip\": " << fmtFloat(w.animReloadDip)
+             << ", \"animReloadRoll\": " << fmtFloat(w.animReloadRoll)
+             << ", \"animSwingReach\": " << fmtFloat(w.animSwingReach)
+             << ", \"animSwingPitch\": " << fmtFloat(w.animSwingPitch)
+             << ",\n      \"clipIdle\": \"" << jsonEscape(w.clipIdle)
+             << "\", \"clipFire\": \"" << jsonEscape(w.clipFire)
+             << "\", \"clipReload\": \"" << jsonEscape(w.clipReload)
+             << "\", \"clipEquip\": \"" << jsonEscape(w.clipEquip) << "\"";
         writeWeaponFx(json, "muzzleFx", w.muzzleFx);
         writeWeaponFx(json, "impactFx", w.impactFx);
         writeWeaponFx(json, "bloodFx", w.bloodFx);
@@ -3359,6 +3374,34 @@ static void readWeaponsSection(const json::Value& root, Project& out) {
         if (const auto* v = jw.find("muzzleOffset")) readVec3(v, w.muzzleOffset);
         if (const auto* v = jw.find("tracer")) w.tracer = v->boolOr(false);
         if (const auto* v = jw.find("tracerColor")) readVec3(v, w.tracerColor);
+        if (const auto* v = jw.find("animMode")) w.animMode = (int)v->numberOr(0.0);
+        if (w.animMode < 0 || w.animMode > 1) w.animMode = 0;
+        if (const auto* v = jw.find("animKickBack"))
+            w.animKickBack = (float)v->numberOr(0.10);
+        if (const auto* v = jw.find("animKickPitch"))
+            w.animKickPitch = (float)v->numberOr(7.0);
+        if (const auto* v = jw.find("animRecover"))
+            w.animRecover = (float)v->numberOr(7.0);
+        // A non-positive decay rate would leave the weapon stuck at full kick.
+        if (w.animRecover < 0.2f) w.animRecover = 0.2f;
+        if (const auto* v = jw.find("animSway"))
+            w.animSway = (float)v->numberOr(0.012);
+        if (const auto* v = jw.find("animSwaySpeed"))
+            w.animSwaySpeed = (float)v->numberOr(1.6);
+        if (const auto* v = jw.find("animBob"))
+            w.animBob = (float)v->numberOr(0.030);
+        if (const auto* v = jw.find("animReloadDip"))
+            w.animReloadDip = (float)v->numberOr(0.22);
+        if (const auto* v = jw.find("animReloadRoll"))
+            w.animReloadRoll = (float)v->numberOr(35.0);
+        if (const auto* v = jw.find("animSwingReach"))
+            w.animSwingReach = (float)v->numberOr(0.35);
+        if (const auto* v = jw.find("animSwingPitch"))
+            w.animSwingPitch = (float)v->numberOr(55.0);
+        if (const auto* v = jw.find("clipIdle")) w.clipIdle = v->stringOr("");
+        if (const auto* v = jw.find("clipFire")) w.clipFire = v->stringOr("");
+        if (const auto* v = jw.find("clipReload")) w.clipReload = v->stringOr("");
+        if (const auto* v = jw.find("clipEquip")) w.clipEquip = v->stringOr("");
         readWeaponFx(jw, "muzzleFx", w.muzzleFx);
         readWeaponFx(jw, "impactFx", w.impactFx);
         readWeaponFx(jw, "bloodFx", w.bloodFx);

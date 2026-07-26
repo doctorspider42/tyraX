@@ -65,6 +65,20 @@ starts dropping, duck back and it stops.
 **6. The melee alley** (right). A narrow corridor of four dummies where the
 Axe is the correct tool and the Launcher is a mistake.
 
+## The motion
+
+Each weapon carries a different **procedural motion preset** (*Weapon Editor >
+Animation*), which is why they feel unlike each other beyond their numbers: the
+pistol snaps back and recovers fast, the revolver and shotgun shove hard and
+settle slowly, the SMG chatters with a tiny kick, the launcher heaves, and the
+axe barely kicks but swings wide. All of them also sway in the hands and bob
+with your actual walking speed — stand still and the bob stops.
+
+These models are static `.obj`, so procedural motion is the only animation they
+*can* have. Point a weapon's viewmodel at an animated `.glb`/`.fbx` instead and
+switch *Mode* to **Clips** to play your own idle / fire / reload / equip
+animations — see [docs/weapons.md](../../docs/weapons.md).
+
 ## The HUD
 
 **AMMO**, **HP** and **KILLS** are three `Display Text` nodes fed by pure

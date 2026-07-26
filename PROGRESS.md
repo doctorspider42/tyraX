@@ -10,6 +10,53 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (182) **Viewmodel animation: procedural motion with presets, or your own
+  clips.** Same user, after (181): "dodaj jeszcze opcje animacji dla tych
+  broni. W tych generowanych niech jest opcja uzycia swojej, albo tez
+  proceduralnie jakas machnac". Both halves, and the split falls out of the
+  ASSET rather than taste: a **generated weapon is a static .obj and can
+  never carry clips**, so procedural motion is the only animation it will ever
+  have; an authored `.glb`/`.fbx` viewmodel can play real ones.
+  **`animMode` 0 (procedural)**: the runtime animates the viewmodel's
+  transform from ten numbers - idle sway, a walk bob that rides the player's
+  measured planar speed, a recoil kick on a decaying spring, a reload dip +
+  roll spread over the weapon's own reloadTime, and the melee lunge/chop.
+  The recoil numbers that were hardcoded in (180) became these knobs, and
+  **Kick is deliberately NOT Recoil**: `recoil` moves the AIM (the player
+  fights it), `animKickBack`/`animKickPitch` move the WEAPON and never touch
+  where the shot goes - which is what lets a revolver jolt hard while staying
+  aimable.
+  Tuning ten numbers to discover what "a pistol" feels like is the wrong first
+  experience, so there are six one-click **motion presets** (Pistol snap,
+  Heavy recoil, Automatic chatter, Launcher shove, Blade swing, Locked down;
+  `applyWeaponAnimPreset`). They overwrite ONLY the motion fields, so applying
+  one to a finished weapon changes how it moves and nothing else - and
+  "Create viewmodel + add to scene" now picks the preset matching the
+  generated kind, so a fresh weapon arrives already moving.
+  **`animMode` 1 (clips)**: name up to four clips of an animated viewmodel
+  (idle / fire / reload / equip) and a small state machine in
+  `wpnTickViewAnim` plays them through the ordinary `playAnimation` path. Fire
+  and reload are raised as ONE-FRAME REQUESTS consumed in the tick, so a
+  nine-pellet shotgun blast restarts the fire clip once rather than nine
+  times. In clip mode the procedural kick/dip/swing stand aside (the clip owns
+  them) but **sway and bob stay on** - a baked clip cannot know how fast the
+  player is walking, and that is exactly the part a clip cannot do. Clip mode
+  on a static model is a harmless no-op: nothing resolves, so switching an
+  asset never breaks a build.
+  Verified on the console the only way an idle animation can be: a rig with
+  the sway exaggerated to 0.25 units, four screenshots of a **stationary
+  camera** in a static scene, and the pistol is fully inside the sampled
+  region in one frame and fully outside it in another (region-mean brightness
+  swinging 194-214). With a still camera nothing but the weapon can move
+  those pixels. The subtle shipped values (0.008-0.018) are the same code
+  path. `examples/weapons-arena` now gives each of its six weapons the preset
+  matching its silhouette.
+  Deliberately NOT done: generating an animated (skinned) weapon model. That
+  would mean a skeleton and a .tskl out of weapongen, and transform animation
+  is what PS2-era viewmodels actually were.
+  Still needs a human with a pad: whether the kick and swing FEEL right, which
+  no screenshot can answer.
+
 - (181) **The weapons arena - and the two bugs building it found.** Same user,
   right after (180): "dodaj jeszcze jakas example mapke, ktora maksymalnie
   tego feature pokazuje". `examples/weapons-arena` is every axis of the

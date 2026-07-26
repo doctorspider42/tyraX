@@ -84,6 +84,59 @@ Projectiles reuse the same pool for their body and trail: the runtime
 re-seeds a one-frame burst at the projectile's position every frame, so a
 grenade in the air needs no extra render path at all.
 
+## Viewmodel animation
+
+Two ways to make the weapon in your hands move, and the choice follows the
+**asset** rather than being a matter of taste (*Weapon Editor > Animation*).
+
+### Procedural (`animMode` 0) — the default
+
+The runtime animates the viewmodel's **transform** from ten numbers. No
+animated model is needed, which matters because a **generated weapon is a
+static `.obj` and can never carry clips** — procedural motion is the only
+animation it will ever have.
+
+| Knob | What moves |
+|---|---|
+| **Sway** / **Sway speed** | The hands never being quite still. 0 welds the weapon to the camera. |
+| **Walk bob** | A figure-eight that scales with the player's *actual* planar speed, so it stops when they do. |
+| **Kick back** / **Kick pitch** / **Recovery** | The weapon driving into the screen and rising per shot, on a spring. |
+| **Reload dip** / **Reload roll** | The weapon dropping out of the aim and rolling, spread over the weapon's own *Reload time*. |
+| **Swing reach** / **Swing chop** | Melee only: the lunge and the chop, over *Swing time*. |
+
+**Kick is not Recoil.** *Recoil* (on the Firing tab) moves the **aim** — the
+player has to fight it. *Kick back / Kick pitch* move the **weapon** in the
+hands and never touch where the shot goes. Keeping them separate is what lets
+a heavy revolver jolt hard without becoming unaimable, and a mounted gun
+recoil without visibly moving.
+
+Rather than tune ten numbers to discover what "a pistol" feels like, hit a
+**motion preset**: *Pistol snap*, *Heavy recoil*, *Automatic chatter*,
+*Launcher shove*, *Blade swing* or *Locked down*. A preset overwrites only the
+motion fields, so applying one to a finished weapon changes how it moves and
+nothing else. **Create viewmodel + add to scene** picks the preset matching the
+generated kind, so a fresh weapon arrives already moving.
+
+### Clips (`animMode` 1) — your own animation
+
+Point the weapon's viewmodel at an **animated `.glb`/`.fbx`** (the ordinary
+[animated model](animated-models.md) pipeline — the viewmodel is just a scene
+object, so nothing special is needed) and name up to four of its clips:
+
+| Clip | When it plays |
+|---|---|
+| **Idle** | Loops whenever nothing else is. |
+| **Fire** | One shot per shot. A nine-pellet blast restarts it **once**, not nine times. |
+| **Reload** | When a reload starts. Author it to the weapon's *Reload time* or the animation and the mechanic will disagree. |
+| **Equip** | Once when the weapon is drawn; *Idle* takes over at the end. |
+
+In clip mode the procedural **kick, reload dip and swing stand aside** — the
+clip owns them. **Sway and walk bob stay on**, because a baked clip has no way
+to know how fast the player is walking, and that is precisely the part a clip
+cannot do. An empty clip name means "this state does not change the clip", and
+clip mode on a *static* model is a harmless no-op: nothing resolves, so the
+build never breaks over it.
+
 ## Controls
 
 Bound in the generated `inc/controls.hpp` (a user-owned file — change them

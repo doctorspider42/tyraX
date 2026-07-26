@@ -44,6 +44,19 @@ struct WeaponData {
   float viewScale;
   float viewRot[3];      // degrees, in the camera frame
   float muzzleOffset[3]; // where the shot leaves, same frame
+  // Viewmodel animation (docs/weapons.md). animMode 0 = procedural (the
+  // runtime animates the transform from the numbers below - what a generated
+  // static .obj gets), 1 = clips (an animated .glb/.fbx viewmodel; the runtime
+  // plays clip* on fire/reload/equip and leaves the kick and swing to them).
+  int animMode;
+  float animKickBack, animKickPitch, animRecover;
+  float animSway, animSwaySpeed, animBob;
+  float animReloadDip, animReloadRoll;
+  float animSwingReach, animSwingPitch;
+  const char* clipIdle;
+  const char* clipFire;
+  const char* clipReload;
+  const char* clipEquip;
   WeaponFxData muzzleFx, impactFx, bloodFx;
   int tracer;
   float tracerColor[3];
@@ -55,31 +68,43 @@ constexpr WeaponData WEAPON_DEFS[WEAPON_COUNT > 0 ? WEAPON_COUNT : 1] = {
     {"Pistol", 0, 22.0F, 80.0F, 0.3F, 6.0F, 4.0F, 0, 1.2F, 1, 1.4F, 0.35F, 12, 72, 1.1F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 70.0F, 0.35F,
      {0.2F, -0.15F, 0.6F}, 1.0F, {0.0F, 0.0F, 0.0F}, {0.2F, -0.05F, 0.83F},
+     0, 0.08F, 6.0F, 9.0F, 0.01F, 1.6F, 0.028F, 0.2F, 30.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {1, {1.0F, 0.85F, 0.4F}, 0.045F, 5, 0.07F, 1.5F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      1, {1.0F, 0.92F, 0.55F}, 3, 7, 1, 6},
     {"Revolver", 0, 48.0F, 90.0F, 0.15F, 16.0F, 1.4F, 0, 0.6F, 1, 4.0F, 0.7F, 6, 36, 1.8F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 70.0F, 0.35F,
      {0.2F, -0.15F, 0.62F}, 1.0F, {0.0F, 0.0F, 0.0F}, {0.2F, -0.05F, 0.9F},
+     0, 0.18F, 12.0F, 5.0F, 0.014F, 1.2F, 0.034F, 0.28F, 45.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {1, {1.0F, 0.8F, 0.35F}, 0.06F, 6, 0.08F, 2.0F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      1, {1.0F, 0.8F, 0.4F}, 4, 7, 1, 6},
     {"SMG", 0, 11.0F, 55.0F, 0.4F, 3.0F, 11.0F, 1, 2.6F, 1, 0.55F, 0.25F, 32, 192, 1.4F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 70.0F, 0.35F,
      {0.18F, -0.16F, 0.7F}, 0.72F, {0.0F, 0.0F, 0.0F}, {0.18F, -0.06F, 0.98F},
+     0, 0.05F, 3.5F, 14.0F, 0.008F, 2.0F, 0.026F, 0.22F, 25.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {1, {1.0F, 0.9F, 0.5F}, 0.035F, 3, 0.05F, 1.5F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      1, {1.0F, 0.92F, 0.55F}, 5, 7, 1, 6},
     {"Shotgun", 0, 13.0F, 30.0F, 0.8F, 18.0F, 1.1F, 0, 6.5F, 9, 5.0F, 1.0F, 6, 30, 2.1F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 70.0F, 0.35F,
      {0.16F, -0.17F, 0.72F}, 0.4F, {0.0F, 0.0F, 0.0F}, {0.16F, -0.07F, 1.05F},
+     0, 0.18F, 12.0F, 5.0F, 0.014F, 1.2F, 0.034F, 0.28F, 45.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {1, {1.0F, 0.8F, 0.35F}, 0.075F, 8, 0.09F, 2.5F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      0, {1.0F, 0.92F, 0.55F}, 4, 7, 1, 6},
     {"Launcher", 1, 95.0F, 70.0F, 0.0F, 40.0F, 0.8F, 0, 0.4F, 1, 3.0F, 0.9F, 1, 10, 1.9F,
      26.0F, 15.0F, 0.22F, {0.45F, 1.0F, 0.55F}, 7.0F, 70.0F, 0.35F,
      {0.18F, -0.17F, 0.75F}, 0.4F, {0.0F, 0.0F, 0.0F}, {0.18F, -0.07F, 1.16F},
+     0, 0.22F, 10.0F, 4.0F, 0.016F, 1.0F, 0.036F, 0.3F, 20.0F, 0.35F, 55.0F,
+     "", "", "", "",
      {3, {0.7F, 0.7F, 0.7F}, 0.12F, 8, 0.7F, 1.8F}, {5, {1.0F, 0.6F, 0.2F}, 0.16F, 24, 0.9F, 9.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      0, {1.0F, 0.92F, 0.55F}, 2, 7, 1, 0},
     {"Axe", 2, 70.0F, 2.8F, 0.0F, 22.0F, 1.4F, 0, 1.2F, 1, 0.6F, 0.6F, 0, 0, 1.1F,
      40.0F, 9.8F, 0.15F, {1.0F, 0.7F, 0.2F}, 0.0F, 65.0F, 0.45F,
      {0.28F, -0.24F, 0.58F}, 0.52F, {0.0F, 0.0F, 0.0F}, {0.28F, -0.14F, 0.82F},
+     0, 0.04F, 2.0F, 10.0F, 0.018F, 1.4F, 0.04F, 0.1F, 10.0F, 0.45F, 70.0F,
+     "", "", "", "",
      {0, {1.0F, 1.0F, 1.0F}, 0.05F, 4, 0.2F, 1.0F}, {2, {1.0F, 0.8F, 0.45F}, 0.035F, 8, 0.35F, 5.0F}, {4, {0.55F, 0.05F, 0.05F}, 0.055F, 8, 0.5F, 3.5F},
      0, {1.0F, 0.92F, 0.55F}, 8, 7, 1, 6},
 };

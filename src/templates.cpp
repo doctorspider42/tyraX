@@ -19834,6 +19834,19 @@ struct WeaponData {
   float viewScale;
   float viewRot[3];      // degrees, in the camera frame
   float muzzleOffset[3]; // where the shot leaves, same frame
+  // Viewmodel animation (docs/weapons.md). animMode 0 = procedural (the
+  // runtime animates the transform from the numbers below - what a generated
+  // static .obj gets), 1 = clips (an animated .glb/.fbx viewmodel; the runtime
+  // plays clip* on fire/reload/equip and leaves the kick and swing to them).
+  int animMode;
+  float animKickBack, animKickPitch, animRecover;
+  float animSway, animSwaySpeed, animBob;
+  float animReloadDip, animReloadRoll;
+  float animSwingReach, animSwingPitch;
+  const char* clipIdle;
+  const char* clipFire;
+  const char* clipReload;
+  const char* clipEquip;
   WeaponFxData muzzleFx, impactFx, bloodFx;
   int tracer;
   float tracerColor[3];
@@ -19852,6 +19865,8 @@ struct WeaponData {
                "0.0F, 0, 0, 0.0F,\n     0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, "
                "0.0F, 0.0F, 0.1F,\n     {0.0F, 0.0F, 0.0F}, 1.0F, "
                "{0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F},\n     "
+               "0, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+               "0.0F, \"\", \"\", \"\", \"\",\n     "
                "{0, {0, 0, 0}, 0.0F, 1, 0.1F, 0.0F}, "
                "{0, {0, 0, 0}, 0.0F, 1, 0.1F, 0.0F}, "
                "{0, {0, 0, 0}, 0.0F, 1, 0.1F, 0.0F},\n     "
@@ -19870,7 +19885,17 @@ struct WeaponData {
             << floatLit(w.meleeArc) << ", " << floatLit(w.swingTime)
             << ",\n     " << vec3Init(w.viewOffset) << ", "
             << floatLit(w.viewScale) << ", " << vec3Init(w.viewRot) << ", "
-            << vec3Init(w.muzzleOffset) << ",\n     ";
+            << vec3Init(w.muzzleOffset) << ",\n     " << w.animMode << ", "
+            << floatLit(w.animKickBack) << ", " << floatLit(w.animKickPitch)
+            << ", " << floatLit(w.animRecover) << ", " << floatLit(w.animSway)
+            << ", " << floatLit(w.animSwaySpeed) << ", " << floatLit(w.animBob)
+            << ", " << floatLit(w.animReloadDip) << ", "
+            << floatLit(w.animReloadRoll) << ", " << floatLit(w.animSwingReach)
+            << ", " << floatLit(w.animSwingPitch) << ",\n     \""
+            << escapeCString(w.clipIdle) << "\", \""
+            << escapeCString(w.clipFire) << "\", \""
+            << escapeCString(w.clipReload) << "\", \""
+            << escapeCString(w.clipEquip) << "\",\n     ";
         emitWeaponFx(out, w.muzzleFx);
         out << ", ";
         emitWeaponFx(out, w.impactFx);
@@ -20109,8 +20134,24 @@ inline float wpnRand() {  // 0..1
 // lets the player fight the recoil with the stick instead of having their aim
 // snapped back to a remembered angle.
 float recoilAngle = 0.0F, recoilVel = 0.0F, recoilPrev = 0.0F;
-// Viewmodel kick: the weapon dips back into the screen on each shot.
+// Viewmodel kick: the weapon dips back into the screen on each shot. Decays
+// at the weapon's own animRecover rate, separately from the VIEW kick above -
+// a weapon can jolt in the hands without moving the aim, or the reverse.
 float viewKick = 0.0F;
+// Idle sway phase and a smoothed planar player speed for the walk bob. The
+// bob has to come from the real speed: a baked clip cannot know it, which is
+// why sway and bob stay on even in clip mode.
+float vmPhase = 0.0F;
+float vmSpeed = 0.0F;
+float vmPrev[3] = {0.0F, 0.0F, 0.0F};
+bool vmPrevValid = false;
+// Clip mode bookkeeping: which weapon's clips are loaded on the viewmodel and
+// what it is playing (0 idle, 1 fire, 2 reload, 3 equip). vmClipWant is a
+// one-frame request raised by the shot / reload paths, applied in the tick so
+// the clip change happens once per event however many pellets flew.
+signed char vmClipWeapon = -1;
+signed char vmClipState = 0;
+signed char vmClipWant = -1;
 
 inline int wpnPlayer(ScriptContext& ctx) { return PLAYER_INDEXES[ctx.scene]; }
 
@@ -20432,6 +20473,7 @@ void wpnShoot(ScriptContext& ctx, int obj, int wi) {
   if (byPlayer) {
     recoilVel += w.recoil * 16.0F;
     viewKick = 1.0F;
+    if (w.animMode == 1) vmClipWant = 1;  // clip mode: play the fire clip
     if (w.rumble > 0.0F) {
       ctx.rumble = (int)(w.rumble * 255.0F);
       ctx.rumbleSmall = 0;
@@ -20666,6 +20708,79 @@ void wpnTickProjectiles(ScriptContext& ctx) {
   }
 }
 
+// Viewmodel animation bookkeeping, run once per frame before the pinning
+// below: the sway/bob clock, and - in clip mode - the small state machine
+// that swaps the viewmodel's animation clip on equip, fire and reload and
+// hands back to idle when a one-shot reaches its end.
+void wpnTickViewAnim(ScriptContext& ctx) {
+  const float dt = g_frameDt;
+  const int pl = wpnPlayer(ctx);
+  const int eq = (pl >= 0 && pl < WPN_MAX_ACTORS && pl < ctx.objectCount)
+                     ? actors[pl].equipped
+                     : -1;
+  const float sway = eq >= 0 ? WEAPON_DEFS[eq].animSwaySpeed : 1.0F;
+  vmPhase += dt * 6.2831853F * (sway > 0.0F ? sway : 1.0F);
+  if (vmPhase > 6283.0F) vmPhase -= 6283.0F;  // keep sinf() off huge arguments
+
+  // Planar speed, smoothed, as a 0..1 fraction of a brisk walk. The 6 units/s
+  // reference is deliberately a constant and not the project's walk speed:
+  // the bob AMPLITUDE is already a per-weapon knob, so all this has to do is
+  // tell standing still from moving.
+  const float px = ctx.playerPosition.x, pz = ctx.playerPosition.z;
+  if (vmPrevValid && dt > 0.0001F) {
+    const float dx = px - vmPrev[0], dz = pz - vmPrev[2];
+    float norm = sqrtf(dx * dx + dz * dz) / dt / 6.0F;
+    if (norm > 1.0F) norm = 1.0F;
+    float k = dt * 8.0F;
+    if (k > 1.0F) k = 1.0F;
+    vmSpeed += (norm - vmSpeed) * k;
+  }
+  vmPrev[0] = px, vmPrev[2] = pz;
+  vmPrevValid = true;
+
+  if (eq < 0) {
+    vmClipWeapon = -1;
+    vmClipState = 0;
+    vmClipWant = -1;
+    return;
+  }
+  const WeaponData& w = WEAPON_DEFS[eq];
+  const int oi = WEAPON_VIEW_OBJECTS[ctx.scene][eq];
+  if (w.animMode != 1 || oi < 0 || oi >= ctx.objectCount) {
+    vmClipWant = -1;
+    return;
+  }
+  auto has = [](const char* c) { return c && c[0]; };
+  // Freshly drawn: play the equip clip, or settle straight into idle.
+  if (vmClipWeapon != (signed char)eq) {
+    vmClipWeapon = (signed char)eq;
+    if (has(w.clipEquip)) {
+      playAnimation(ctx, oi, w.clipEquip, false, 1.0F, 0.05F);
+      vmClipState = 3;
+    } else {
+      if (has(w.clipIdle)) playAnimation(ctx, oi, w.clipIdle, true, 1.0F, 0.05F);
+      vmClipState = 0;
+    }
+    vmClipWant = -1;
+    return;
+  }
+  // A fire or reload request beats whatever is playing. Requests are raised by
+  // the shot/reload paths and consumed here, so a nine-pellet shotgun blast
+  // restarts the fire clip once rather than nine times.
+  if (vmClipWant == 1 && has(w.clipFire)) {
+    playAnimation(ctx, oi, w.clipFire, false, 1.0F, 0.0F);
+    vmClipState = 1;
+  } else if (vmClipWant == 2 && has(w.clipReload)) {
+    playAnimation(ctx, oi, w.clipReload, false, 1.0F, 0.05F);
+    vmClipState = 2;
+  }
+  vmClipWant = -1;
+  if (vmClipState != 0 && ctx.objects[oi].animFinished) {
+    if (has(w.clipIdle)) playAnimation(ctx, oi, w.clipIdle, true, 1.0F, 0.08F);
+    vmClipState = 0;
+  }
+}
+
 // The equipped weapon in the player's hands. The viewmodel is an ordinary
 // scene object, so this is just a transform written every frame - no
 // attachment system, no parenting, nothing the rest of the game must know.
@@ -20696,23 +20811,49 @@ void wpnPinViewModels(ScriptContext& ctx) {
     const float ux = -fx * fy, uy = fx * fx + fz * fz, uz = -fz * fy;
 
     float ox = w.viewOffset[0], oy = w.viewOffset[1], oz = w.viewOffset[2];
-    float extraPitch = 0.0F, extraYaw = 0.0F;
-    // Recoil: the weapon dips back and rises, decoupled from the view kick so
-    // it still reads on a weapon whose recoil is tuned to zero.
-    if (viewKick > 0.0F) {
-      oz -= 0.10F * viewKick * w.viewScale;
-      oy -= 0.02F * viewKick * w.viewScale;
-      extraPitch -= 7.0F * viewKick;
-    }
-    // Melee swing: a lunge forward and a chop down over the swing's life.
+    float extraPitch = 0.0F, extraYaw = 0.0F, extraRoll = 0.0F;
     const WpnActor* a = (pl >= 0 && pl < WPN_MAX_ACTORS) ? &actors[pl] : nullptr;
-    if (a && a->swingLeft > 0.0F && w.swingTime > 0.0001F) {
-      const float t = 1.0F - a->swingLeft / w.swingTime;  // 0 -> 1
-      const float arc = sinf(t * WPN_PI);                 // out and back
-      oz += 0.35F * arc * w.viewScale;
-      oy += 0.10F * arc * w.viewScale;
-      extraPitch += 55.0F * arc;
-      extraYaw -= 30.0F * arc;
+
+    // Idle sway + walk bob. These stay on in BOTH animation modes: a baked
+    // clip has no way to know how fast the player is walking, and a weapon
+    // that is perfectly still in the hands looks like a decal.
+    if (w.animSway > 0.0F) {
+      ox += sinf(vmPhase * 0.73F) * w.animSway;
+      oy += sinf(vmPhase * 1.11F) * w.animSway * 0.7F;
+    }
+    if (w.animBob > 0.0F && vmSpeed > 0.01F) {
+      // Two vertical bobs per stride, the horizontal one at half that - the
+      // figure-eight every walk cycle traces.
+      const float amp = w.animBob * (vmSpeed < 1.0F ? vmSpeed : 1.0F);
+      oy += sinf(vmPhase * 5.0F) * amp;
+      ox += sinf(vmPhase * 2.5F) * amp * 0.6F;
+    }
+
+    // Procedural states. In clip mode the clip owns the recoil, the reload and
+    // the swing, so these step aside entirely rather than fighting it.
+    if (w.animMode == 0) {
+      if (viewKick > 0.0F) {
+        oz -= w.animKickBack * viewKick * w.viewScale;
+        oy -= w.animKickBack * 0.2F * viewKick * w.viewScale;
+        extraPitch -= w.animKickPitch * viewKick;
+      }
+      // Reload: the weapon drops out of the aim and rolls, then comes back.
+      if (a && a->reloadLeft > 0.0F && w.reloadTime > 0.0001F) {
+        const float t = 1.0F - a->reloadLeft / w.reloadTime;  // 0 -> 1
+        const float dip = sinf(t * WPN_PI);  // down and back up
+        oy -= w.animReloadDip * dip * w.viewScale;
+        oz -= w.animReloadDip * 0.4F * dip * w.viewScale;
+        extraRoll += w.animReloadRoll * dip;
+      }
+      // Melee swing: a lunge forward and a chop down over the swing's life.
+      if (a && a->swingLeft > 0.0F && w.swingTime > 0.0001F) {
+        const float t = 1.0F - a->swingLeft / w.swingTime;
+        const float arc = sinf(t * WPN_PI);
+        oz += w.animSwingReach * arc * w.viewScale;
+        oy += w.animSwingReach * 0.3F * arc * w.viewScale;
+        extraPitch += w.animSwingPitch * arc;
+        extraYaw -= w.animSwingPitch * 0.55F * arc;
+      }
     }
 
     o.data.position[0] = ctx.playerPosition.x + rx * ox + ux * oy + fx * oz;
@@ -20724,7 +20865,7 @@ void wpnPinViewModels(ScriptContext& ctx) {
     o.data.rotation[0] =
         -asinf(fy) * (180.0F / WPN_PI) + w.viewRot[0] + extraPitch;
     o.data.rotation[1] = atan2f(fx, fz) * (180.0F / WPN_PI) + w.viewRot[1] + extraYaw;
-    o.data.rotation[2] = w.viewRot[2];
+    o.data.rotation[2] = w.viewRot[2] + extraRoll;
     const SceneObjectData& src = SCENE_OBJECT_TABLES[ctx.scene][oi];
     o.data.scale[0] = src.scale[0] * w.viewScale;
     o.data.scale[1] = src.scale[1] * w.viewScale;
@@ -20849,8 +20990,10 @@ void wpnReload(ScriptContext& ctx, int obj) {
   if (w.magSize <= 0 || a->mag[wi] >= w.magSize) return;
   if (a->spare[wi] == 0) return;
   a->reloadLeft = w.reloadTime > 0.01F ? w.reloadTime : 0.01F;
-  if (w.reloadSnd >= 0 && ctx.playSound && obj == wpnPlayer(ctx))
-    ctx.playSound(w.reloadSnd, 80, -1);
+  if (obj == wpnPlayer(ctx)) {
+    if (w.reloadSnd >= 0 && ctx.playSound) ctx.playSound(w.reloadSnd, 80, -1);
+    if (w.animMode == 1) vmClipWant = 2;  // clip mode: play the reload clip
+  }
 }
 
 void wpnSetAmmo(ScriptContext& ctx, int obj, int weapon, int mag, int reserve) {
@@ -21035,10 +21178,13 @@ class WeaponScript : public Script {
     ctx.viewKickYaw = 0.0F;
     recoilPrev = recoilAngle;
     if (viewKick > 0.0F) {
-      viewKick -= dt * 7.0F;
+      const int eqw = (pl >= 0 && pl < WPN_MAX_ACTORS) ? actors[pl].equipped : -1;
+      const float rate = eqw >= 0 ? WEAPON_DEFS[eqw].animRecover : 7.0F;
+      viewKick -= dt * (rate > 0.2F ? rate : 0.2F);
       if (viewKick < 0.0F) viewKick = 0.0F;
     }
 
+    wpnTickViewAnim(ctx);
     wpnPinViewModels(ctx);
   }
 };

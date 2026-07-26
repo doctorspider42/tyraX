@@ -1,7 +1,7 @@
 {
   "name": "weapons-arena",
   "template": "fpp",
-  "projectId": "babc42a1ac1402ea",
+  "projectId": "9789b127dd96caa0",
   "settings": {
     "videoSystem": "auto",
     "displayMode": "interlaced",
@@ -80,7 +80,7 @@
     { "name": "main",
       "terrain": { "width": 72, "depth": 72 },
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": true, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "objects": ["f39e66cda2eaaa05", "a000000000000001", "a000000000000002", "a000000000000003", "a000000000000004", "a000000000000005", "a000000000000006", "a000000000000007", "a000000000000008", "a000000000000009", "a00000000000000a", "a00000000000000b", "a00000000000000c", "a00000000000000d", "a00000000000000e", "a00000000000000f", "a000000000000010", "a000000000000011", "a000000000000012", "a000000000000013", "a000000000000014", "a000000000000015", "a000000000000016", "a000000000000017", "a000000000000018", "a000000000000019", "a00000000000001a", "a00000000000001b", "a00000000000001c", "a00000000000001d", "a00000000000001e", "a00000000000001f", "a000000000000020", "a000000000000021", "a000000000000022", "a000000000000023", "a000000000000024", "a000000000000025", "a000000000000026", "a000000000000027", "a000000000000028", "a000000000000029", "a00000000000002a", "a00000000000002b", "a00000000000002c", "a00000000000002d", "a00000000000002e", "a00000000000002f", "a000000000000030", "a000000000000031", "a000000000000032", "a000000000000033"] }
+      "objects": ["cbba13cb097ed487", "a000000000000001", "a000000000000002", "a000000000000003", "a000000000000004", "a000000000000005", "a000000000000006", "a000000000000007", "a000000000000008", "a000000000000009", "a00000000000000a", "a00000000000000b", "a00000000000000c", "a00000000000000d", "a00000000000000e", "a00000000000000f", "a000000000000010", "a000000000000011", "a000000000000012", "a000000000000013", "a000000000000014", "a000000000000015", "a000000000000016", "a000000000000017", "a000000000000018", "a000000000000019", "a00000000000001a", "a00000000000001b", "a00000000000001c", "a00000000000001d", "a00000000000001e", "a00000000000001f", "a000000000000020", "a000000000000021", "a000000000000022", "a000000000000023", "a000000000000024", "a000000000000025", "a000000000000026", "a000000000000027", "a000000000000028", "a000000000000029", "a00000000000002a", "a00000000000002b", "a00000000000002c", "a00000000000002d", "a00000000000002e", "a00000000000002f", "a000000000000030", "a000000000000031", "a000000000000032", "a000000000000033"] }
   ],
   "fonts": [
     { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
@@ -111,6 +111,8 @@
     { "name": "Pistol", "kind": 0, "damage": 22, "range": 80, "falloff": 0.3, "impulse": 6, "fireRate": 4, "automatic": false, "spread": 1.2, "pellets": 1, "recoil": 1.4, "rumble": 0.35,
       "magSize": 12, "reserve": 72, "reloadTime": 1.1, "projSpeed": 40, "projGravity": 9.8, "projSize": 0.15, "projColor": [1, 0.7, 0.2], "blastRadius": 0, "meleeArc": 70, "swingTime": 0.35,
       "viewModel": "vm-pistol", "viewOffset": [0.2, -0.15, 0.6], "viewScale": 1, "viewRot": [0, 0, 0], "muzzleOffset": [0.2, -0.05, 0.83], "tracer": true, "tracerColor": [1, 0.92, 0.55],
+      "animMode": 0, "animKickBack": 0.08, "animKickPitch": 6, "animRecover": 9, "animSway": 0.01, "animSwaySpeed": 1.6, "animBob": 0.028, "animReloadDip": 0.2, "animReloadRoll": 30, "animSwingReach": 0.35, "animSwingPitch": 55,
+      "clipIdle": "", "clipFire": "", "clipReload": "", "clipEquip": "",
       "muzzleFx": { "kind": 1, "color": [1, 0.85, 0.4], "size": 0.045, "count": 5, "life": 0.07, "speed": 1.5 },
       "impactFx": { "kind": 2, "color": [1, 0.8, 0.45], "size": 0.035, "count": 8, "life": 0.35, "speed": 5 },
       "bloodFx": { "kind": 4, "color": [0.55, 0.05, 0.05], "size": 0.055, "count": 8, "life": 0.5, "speed": 3.5 },
@@ -118,6 +120,8 @@
     { "name": "Revolver", "kind": 0, "damage": 48, "range": 90, "falloff": 0.15, "impulse": 16, "fireRate": 1.4, "automatic": false, "spread": 0.6, "pellets": 1, "recoil": 4, "rumble": 0.7,
       "magSize": 6, "reserve": 36, "reloadTime": 1.8, "projSpeed": 40, "projGravity": 9.8, "projSize": 0.15, "projColor": [1, 0.7, 0.2], "blastRadius": 0, "meleeArc": 70, "swingTime": 0.35,
       "viewModel": "vm-revolver", "viewOffset": [0.2, -0.15, 0.62], "viewScale": 1, "viewRot": [0, 0, 0], "muzzleOffset": [0.2, -0.05, 0.9], "tracer": true, "tracerColor": [1, 0.8, 0.4],
+      "animMode": 0, "animKickBack": 0.18, "animKickPitch": 12, "animRecover": 5, "animSway": 0.014, "animSwaySpeed": 1.2, "animBob": 0.034, "animReloadDip": 0.28, "animReloadRoll": 45, "animSwingReach": 0.35, "animSwingPitch": 55,
+      "clipIdle": "", "clipFire": "", "clipReload": "", "clipEquip": "",
       "muzzleFx": { "kind": 1, "color": [1, 0.8, 0.35], "size": 0.06, "count": 6, "life": 0.08, "speed": 2 },
       "impactFx": { "kind": 2, "color": [1, 0.8, 0.45], "size": 0.035, "count": 8, "life": 0.35, "speed": 5 },
       "bloodFx": { "kind": 4, "color": [0.55, 0.05, 0.05], "size": 0.055, "count": 8, "life": 0.5, "speed": 3.5 },
@@ -125,6 +129,8 @@
     { "name": "SMG", "kind": 0, "damage": 11, "range": 55, "falloff": 0.4, "impulse": 3, "fireRate": 11, "automatic": true, "spread": 2.6, "pellets": 1, "recoil": 0.55, "rumble": 0.25,
       "magSize": 32, "reserve": 192, "reloadTime": 1.4, "projSpeed": 40, "projGravity": 9.8, "projSize": 0.15, "projColor": [1, 0.7, 0.2], "blastRadius": 0, "meleeArc": 70, "swingTime": 0.35,
       "viewModel": "vm-smg", "viewOffset": [0.18, -0.16, 0.7], "viewScale": 0.72, "viewRot": [0, 0, 0], "muzzleOffset": [0.18, -0.06, 0.98], "tracer": true, "tracerColor": [1, 0.92, 0.55],
+      "animMode": 0, "animKickBack": 0.05, "animKickPitch": 3.5, "animRecover": 14, "animSway": 0.008, "animSwaySpeed": 2, "animBob": 0.026, "animReloadDip": 0.22, "animReloadRoll": 25, "animSwingReach": 0.35, "animSwingPitch": 55,
+      "clipIdle": "", "clipFire": "", "clipReload": "", "clipEquip": "",
       "muzzleFx": { "kind": 1, "color": [1, 0.9, 0.5], "size": 0.035, "count": 3, "life": 0.05, "speed": 1.5 },
       "impactFx": { "kind": 2, "color": [1, 0.8, 0.45], "size": 0.035, "count": 8, "life": 0.35, "speed": 5 },
       "bloodFx": { "kind": 4, "color": [0.55, 0.05, 0.05], "size": 0.055, "count": 8, "life": 0.5, "speed": 3.5 },
@@ -132,6 +138,8 @@
     { "name": "Shotgun", "kind": 0, "damage": 13, "range": 30, "falloff": 0.8, "impulse": 18, "fireRate": 1.1, "automatic": false, "spread": 6.5, "pellets": 9, "recoil": 5, "rumble": 1,
       "magSize": 6, "reserve": 30, "reloadTime": 2.1, "projSpeed": 40, "projGravity": 9.8, "projSize": 0.15, "projColor": [1, 0.7, 0.2], "blastRadius": 0, "meleeArc": 70, "swingTime": 0.35,
       "viewModel": "vm-shotgun", "viewOffset": [0.16, -0.17, 0.72], "viewScale": 0.4, "viewRot": [0, 0, 0], "muzzleOffset": [0.16, -0.07, 1.05], "tracer": false, "tracerColor": [1, 0.92, 0.55],
+      "animMode": 0, "animKickBack": 0.18, "animKickPitch": 12, "animRecover": 5, "animSway": 0.014, "animSwaySpeed": 1.2, "animBob": 0.034, "animReloadDip": 0.28, "animReloadRoll": 45, "animSwingReach": 0.35, "animSwingPitch": 55,
+      "clipIdle": "", "clipFire": "", "clipReload": "", "clipEquip": "",
       "muzzleFx": { "kind": 1, "color": [1, 0.8, 0.35], "size": 0.075, "count": 8, "life": 0.09, "speed": 2.5 },
       "impactFx": { "kind": 2, "color": [1, 0.8, 0.45], "size": 0.035, "count": 8, "life": 0.35, "speed": 5 },
       "bloodFx": { "kind": 4, "color": [0.55, 0.05, 0.05], "size": 0.055, "count": 8, "life": 0.5, "speed": 3.5 },
@@ -139,6 +147,8 @@
     { "name": "Launcher", "kind": 1, "damage": 95, "range": 70, "falloff": 0, "impulse": 40, "fireRate": 0.8, "automatic": false, "spread": 0.4, "pellets": 1, "recoil": 3, "rumble": 0.9,
       "magSize": 1, "reserve": 10, "reloadTime": 1.9, "projSpeed": 26, "projGravity": 15, "projSize": 0.22, "projColor": [0.45, 1, 0.55], "blastRadius": 7, "meleeArc": 70, "swingTime": 0.35,
       "viewModel": "vm-launcher", "viewOffset": [0.18, -0.17, 0.75], "viewScale": 0.4, "viewRot": [0, 0, 0], "muzzleOffset": [0.18, -0.07, 1.16], "tracer": false, "tracerColor": [1, 0.92, 0.55],
+      "animMode": 0, "animKickBack": 0.22, "animKickPitch": 10, "animRecover": 4, "animSway": 0.016, "animSwaySpeed": 1, "animBob": 0.036, "animReloadDip": 0.3, "animReloadRoll": 20, "animSwingReach": 0.35, "animSwingPitch": 55,
+      "clipIdle": "", "clipFire": "", "clipReload": "", "clipEquip": "",
       "muzzleFx": { "kind": 3, "color": [0.7, 0.7, 0.7], "size": 0.12, "count": 8, "life": 0.7, "speed": 1.8 },
       "impactFx": { "kind": 5, "color": [1, 0.6, 0.2], "size": 0.16, "count": 24, "life": 0.9, "speed": 9 },
       "bloodFx": { "kind": 4, "color": [0.55, 0.05, 0.05], "size": 0.055, "count": 8, "life": 0.5, "speed": 3.5 },
@@ -146,6 +156,8 @@
     { "name": "Axe", "kind": 2, "damage": 70, "range": 2.8, "falloff": 0, "impulse": 22, "fireRate": 1.4, "automatic": false, "spread": 1.2, "pellets": 1, "recoil": 0.6, "rumble": 0.6,
       "magSize": 0, "reserve": 0, "reloadTime": 1.1, "projSpeed": 40, "projGravity": 9.8, "projSize": 0.15, "projColor": [1, 0.7, 0.2], "blastRadius": 0, "meleeArc": 65, "swingTime": 0.45,
       "viewModel": "vm-axe", "viewOffset": [0.28, -0.24, 0.58], "viewScale": 0.52, "viewRot": [0, 0, 0], "muzzleOffset": [0.28, -0.14, 0.82], "tracer": false, "tracerColor": [1, 0.92, 0.55],
+      "animMode": 0, "animKickBack": 0.04, "animKickPitch": 2, "animRecover": 10, "animSway": 0.018, "animSwaySpeed": 1.4, "animBob": 0.04, "animReloadDip": 0.1, "animReloadRoll": 10, "animSwingReach": 0.45, "animSwingPitch": 70,
+      "clipIdle": "", "clipFire": "", "clipReload": "", "clipEquip": "",
       "muzzleFx": { "kind": 0, "color": [1, 1, 1], "size": 0.05, "count": 4, "life": 0.2, "speed": 1 },
       "impactFx": { "kind": 2, "color": [1, 0.8, 0.45], "size": 0.035, "count": 8, "life": 0.35, "speed": 5 },
       "bloodFx": { "kind": 4, "color": [0.55, 0.05, 0.05], "size": 0.055, "count": 8, "life": 0.5, "speed": 3.5 },

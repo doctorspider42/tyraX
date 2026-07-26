@@ -160,6 +160,29 @@ void App::addWeaponModelToScene(int weaponIndex) {
         w.muzzleOffset[1] = w.viewOffset[1] + 0.10f;
         w.muzzleOffset[2] = w.viewOffset[2] + mesh.max[2] * s + 0.05f;
     }
+    // A generated weapon is a static .obj and can never carry clips, so
+    // procedural motion is the only animation it will ever have - give it the
+    // one that matches the silhouette instead of leaving it dead still.
+    w.animMode = 0;
+    switch (weaponGen_.kind) {
+        case weapongen::Params::Revolver:
+        case weapongen::Params::Shotgun:
+            applyWeaponAnimPreset(w, WeaponAnimHeavy);
+            break;
+        case weapongen::Params::Smg:
+        case weapongen::Params::Rifle:
+            applyWeaponAnimPreset(w, WeaponAnimChatter);
+            break;
+        case weapongen::Params::Knife:
+        case weapongen::Params::Sword:
+        case weapongen::Params::Axe:
+        case weapongen::Params::Crowbar:
+            applyWeaponAnimPreset(w, WeaponAnimBlade);
+            break;
+        default:
+            applyWeaponAnimPreset(w, WeaponAnimSnap);
+            break;
+    }
     // A viewmodel is scenery in the ordinary sense: it must not cast contact
     // shadows onto the world from half a unit in front of the camera, and the
     // runtime forces its collision off anyway - saying so here keeps the
@@ -452,6 +475,141 @@ void App::drawWeaponEditorWindow() {
             }
             if (ImGui::Button("Create viewmodel + add to scene"))
                 addWeaponModelToScene(weaponSel_);
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Animation")) {
+            const char* modes[] = {"Procedural (no animated model needed)",
+                                   "Clips (from an animated viewmodel)"};
+            ImGui::SetNextItemWidth(scaled(300.0f));
+            if (ImGui::Combo("Mode", &w.animMode, modes, 2)) changed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Procedural: the runtime animates the viewmodel's\n"
+                    "transform from the numbers below - the only animation a\n"
+                    "GENERATED weapon can have, since a static .obj carries no\n"
+                    "clips.\n\n"
+                    "Clips: the viewmodel is your own animated .glb/.fbx and\n"
+                    "the runtime plays its clips on fire / reload / equip. The\n"
+                    "procedural kick and swing then step aside - but the idle\n"
+                    "sway and walk bob stay on, because a baked clip cannot\n"
+                    "know how fast the player is walking.");
+
+            // Which viewmodel object this weapon points at, and whether it can
+            // actually carry clips - the answer decides which half of this tab
+            // is real, so say it out loud rather than letting the user guess.
+            const SceneObject* vm = nullptr;
+            for (const SceneObject& o : project_.objects())
+                if (o.name == w.viewModel) vm = &o;
+            const bool animated =
+                vm && vm->type == PrimitiveType::Model &&
+                isAnimatedModelPath(vm->modelPath);
+
+            if (w.animMode == 1) {
+                if (!vm) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f),
+                                       "No viewmodel object - pick one in the "
+                                       "Viewmodel tab.");
+                } else if (!animated) {
+                    ImGui::TextColored(
+                        ImVec4(1.0f, 0.55f, 0.35f, 1.0f),
+                        "\"%s\" is not an animated model, so no clip will\n"
+                        "resolve (harmless - the weapon just will not move).\n"
+                        "Give it a .glb/.fbx, or switch back to Procedural.",
+                        w.viewModel.c_str());
+                }
+                const std::vector<std::string> clips =
+                    animated ? effectiveClips(vm->modelPath)
+                             : std::vector<std::string>();
+                auto clipPick = [&](const char* label, std::string& ref,
+                                    const char* tip) {
+                    const std::string cur = ref.empty() ? "<none>" : ref;
+                    ImGui::SetNextItemWidth(scaled(220.0f));
+                    if (ImGui::BeginCombo(label, cur.c_str())) {
+                        if (ImGui::Selectable("<none>", ref.empty())) {
+                            ref.clear();
+                            changed = true;
+                        }
+                        for (const std::string& c : clips)
+                            if (ImGui::Selectable(c.c_str(), c == ref)) {
+                                ref = c;
+                                changed = true;
+                            }
+                        if (clips.empty())
+                            ImGui::TextDisabled("The viewmodel has no clips.");
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+                };
+                ImGui::SeparatorText("Clips");
+                clipPick("Idle", w.clipIdle,
+                         "Loops whenever nothing else is playing.");
+                clipPick("Fire", w.clipFire,
+                         "One shot per shot. A multi-pellet blast restarts it\n"
+                         "once, not once per pellet.");
+                clipPick("Reload", w.clipReload,
+                         "Played when a reload starts. Author it to the\n"
+                         "weapon's Reload time or they will disagree.");
+                clipPick("Equip", w.clipEquip,
+                         "Played once when the weapon is drawn, then Idle\n"
+                         "takes over.");
+            }
+
+            ImGui::SeparatorText("Motion");
+            if (w.animMode == 1)
+                ImGui::TextDisabled(
+                    "In clip mode only Sway and Bob apply - the clip owns the "
+                    "rest.");
+            // The preset row is the "just make it feel like a gun" button.
+            ImGui::TextUnformatted("Preset");
+            for (int i = 0; i < WeaponAnimPresetCount; ++i) {
+                if (i % 3 != 0) ImGui::SameLine();
+                ImGui::PushID(i);
+                if (ImGui::SmallButton(weaponAnimPresetName(i))) {
+                    applyWeaponAnimPreset(w, i);
+                    changed = true;
+                }
+                ImGui::PopID();
+            }
+            changed |= ImGui::DragFloat("Sway", &w.animSway, 0.001f, 0.0f, 0.2f,
+                                        "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The hands never being quite still, in world units.\n"
+                    "0 = the weapon is welded to the camera.");
+            changed |= ImGui::DragFloat("Sway speed", &w.animSwaySpeed, 0.05f,
+                                        0.1f, 8.0f);
+            changed |= ImGui::DragFloat("Walk bob", &w.animBob, 0.002f, 0.0f,
+                                        0.3f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Amplitude at a full-speed walk; it scales with the\n"
+                    "player's actual planar speed, so it stops when they do.");
+            if (w.animMode == 0) {
+                changed |= ImGui::DragFloat("Kick back", &w.animKickBack, 0.005f,
+                                            0.0f, 1.0f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Units the weapon drives into the screen per shot.\n"
+                        "This is the WEAPON moving; 'Recoil' on the Firing tab\n"
+                        "is the AIM moving. They are deliberately separate.");
+                changed |= ImGui::DragFloat("Kick pitch", &w.animKickPitch, 0.2f,
+                                            0.0f, 60.0f);
+                changed |= ImGui::DragFloat("Recovery", &w.animRecover, 0.1f,
+                                            0.2f, 30.0f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Decay rate of the kick, 1/s. Higher = snappier.");
+                changed |= ImGui::DragFloat("Reload dip", &w.animReloadDip, 0.01f,
+                                            0.0f, 1.0f);
+                changed |= ImGui::DragFloat("Reload roll", &w.animReloadRoll, 1.0f,
+                                            0.0f, 180.0f);
+                if (w.kind == 2) {
+                    changed |= ImGui::DragFloat("Swing reach", &w.animSwingReach,
+                                                0.01f, 0.0f, 2.0f);
+                    changed |= ImGui::DragFloat("Swing chop", &w.animSwingPitch,
+                                                1.0f, 0.0f, 180.0f);
+                }
+            }
             ImGui::EndTabItem();
         }
 
