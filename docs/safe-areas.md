@@ -37,7 +37,8 @@ height**, and only in one case this project can produce — see below.
 
 The two regions only show different amounts of picture when the project boots the
 **full-height PAL frame**: `Preferences > PAL picture` (`palFullHeight`) with the
-region-following `interlaced` display mode. Then a PAL console renders **512
+region-following `interlaced` display mode — which is how **new projects start**,
+so this is the normal case rather than the exotic one. Then a PAL console renders **512
 lines** where NTSC renders **448**, so Europe sees more at the top and bottom of
 the *same* scene.
 

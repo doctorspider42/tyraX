@@ -67,11 +67,13 @@ framebuffer.
 
 **One thing the editor cannot know**: with `videoSystem: auto`, whether
 *PAL picture* (`palFullHeight`) promotes `interlaced` to the 512-line frame
-depends on the region of the console that boots the disc. The viewport assumes
-NTSC there — the shorter picture — so what it shows is what *every* console
-renders at least. Force the video system to `pal` to author the taller frame;
-the safe-area overlay's *NTSC picture inside PAL* guide covers the difference
-from the other side.
+depends on the region of the console that boots the disc. The viewport shows
+the **PAL** picture there — `palFullHeight` is only meaningful on a PAL console,
+so a project that turns it on (new ones do) is a project authored for PAL, and
+the taller frame is the one whose extra 64 lines need composing for. The shorter
+NTSC picture inside it is what the safe-area overlay's *NTSC picture inside PAL*
+guide draws, and that guide enables in exactly this configuration. Only an
+explicit `ntsc` video system says the disc will never meet a PAL console.
 
 ## GS pixels are not square, and they are not square by 16.7%
 

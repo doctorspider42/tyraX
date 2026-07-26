@@ -2757,16 +2757,19 @@ void App::drawViewportWindow() {
 // One resolution the console makes and the editor cannot: `videoSystem: auto`
 // follows the region of whatever console boots the disc, and only that decides
 // whether `palFullHeight` promotes the interlaced mode to the full 576i frame.
-// The editor assumes NTSC there - the stock picture, and the shorter of the two
-// - so what it shows is what every console renders at least. Force the video
-// system to `pal` to author the taller frame (the safe-area overlay's "NTSC
-// picture inside PAL" guide covers the difference the other way round).
+// The editor shows the PAL picture there, because `palFullHeight` is ONLY
+// meaningful on a PAL console - a project that turns it on (new ones do) is a
+// project authored for PAL, and the taller frame is the one whose extra 64
+// lines need composing for. The shorter NTSC picture inside it is exactly what
+// the safe-area overlay's "NTSC picture inside PAL" guide draws, and that guide
+// enables in precisely this configuration. Only an explicit `ntsc` video system
+// says the disc will never see a PAL console.
 Viewport::Ps2Output App::ps2ViewportOutput() const {
     Viewport::Ps2Output o;
     o.on = viewportPs2_ && hasProject_;
     const ProjectSettings& s = project_.settings;
     std::string mode = s.displayMode;
-    if (mode == "interlaced" && s.palFullHeight && s.videoSystem == "pal")
+    if (mode == "interlaced" && s.palFullHeight && s.videoSystem != "ntsc")
         mode = "pal576";
 
     int logicalH = 448;
