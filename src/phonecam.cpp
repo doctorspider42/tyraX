@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <random>
 #include <utility>
@@ -129,6 +130,19 @@ std::vector<CamTakeSample> Link::drainPoses() {
     std::lock_guard<std::mutex> lk(mutex_);
     std::vector<CamTakeSample> out(poses_.begin(), poses_.end());
     poses_.clear();
+    return out;
+}
+
+BodySkeleton Link::bodySkeleton() const {
+    std::lock_guard<std::mutex> lk(mutex_);
+    return bodySkel_;
+}
+
+std::vector<BodyFrame> Link::drainBodyFrames() {
+    std::lock_guard<std::mutex> lk(mutex_);
+    std::vector<BodyFrame> out(std::make_move_iterator(bodyFrames_.begin()),
+                               std::make_move_iterator(bodyFrames_.end()));
+    bodyFrames_.clear();
     return out;
 }
 
@@ -355,6 +369,52 @@ void Link::workerMain() {
                 poses_.push_back(s);
                 while (poses_.size() > kMaxPendingPoses) poses_.pop_front();
                 poseCount_.fetch_add(1);
+                continue;
+            }
+            // The skeleton, sent once. Names and the tree ride the JSON; the
+            // rest pose rides the binary trailer, because floats have no
+            // business going through a JSON reader that collapses escapes.
+            if (type == "bodyrest") {
+                BodySkeleton sk;
+                if (const json::Value* arr = msg.find("joints"))
+                    for (const json::Value& v : arr->arr) sk.joints.push_back(v.stringOr(""));
+                if (const json::Value* arr = msg.find("parents"))
+                    for (const json::Value& v : arr->arr) sk.parents.push_back((int)v.numberOr(-1));
+                const size_t n = sk.joints.size();
+                const size_t want = n * 7 * sizeof(float);   // 3 position + 4 rotation
+                if (!n || sk.parents.size() != n || e.frame.bin.size() < want) continue;
+                sk.restPos.resize(n * 3);
+                sk.restRot.resize(n * 4);
+                std::memcpy(sk.restPos.data(), e.frame.bin.data(), n * 3 * sizeof(float));
+                std::memcpy(sk.restRot.data(), e.frame.bin.data() + n * 3 * sizeof(float),
+                            n * 4 * sizeof(float));
+                {
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    bodySkel_ = std::move(sk);
+                    bodyFrames_.clear();   // a new skeleton invalidates old frames
+                }
+                hasBody_.store(true);
+                continue;
+            }
+            if (type == "body") {
+                size_t joints = 0;
+                {
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    joints = bodySkel_.joints.size();
+                }
+                // A frame before the skeleton is unusable - there is nothing to
+                // say which rotation belongs to which joint.
+                if (!joints || e.frame.bin.size() < joints * 4 * sizeof(float)) continue;
+                BodyFrame f;
+                f.t = msg.find("ts") ? msg.find("ts")->numberOr(0.0) : 0.0;
+                f.tracked = msg.find("lost") == nullptr;
+                f.rot.resize(joints * 4);
+                std::memcpy(f.rot.data(), e.frame.bin.data(), joints * 4 * sizeof(float));
+                f.haveHips = readVec(msg, "h", f.hips, 3);
+                std::lock_guard<std::mutex> lk(mutex_);
+                bodyFrames_.push_back(std::move(f));
+                while (bodyFrames_.size() > kMaxPendingPoses) bodyFrames_.pop_front();
+                bodyCount_.fetch_add(1);
                 continue;
             }
             if (type == "cmd") {

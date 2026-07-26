@@ -51,11 +51,7 @@ const Rename kRenames[] = {
     {"right_toes_joint", "mixamorig:RightToeBase"},
 };
 
-const char* renamed(const std::string& arkit) {
-    for (const Rename& r : kRenames)
-        if (arkit == r.arkit) return r.mixamo;
-    return nullptr;
-}
+
 
 struct Reader {
     const unsigned char* p = nullptr;
@@ -153,6 +149,53 @@ std::string stem(const std::string& path) {
 
 }  // namespace
 
+const char* mixamoName(const std::string& arkitJoint) {
+    for (const Rename& r : kRenames)
+        if (arkitJoint == r.arkit) return r.mixamo;
+    return nullptr;
+}
+
+// One node per joint, renamed where the rig has a bone for it, with the rest
+// pose as its bind. No mesh and no clips - retargeting reads rotations, and the
+// caller adds whatever frames it has.
+bool buildSource(const std::vector<std::string>& jointNames, const std::vector<int>& parents,
+                 const float* restPos, const float* restRot, glbparser::Skel& out,
+                 std::string& error) {
+    const size_t n = jointNames.size();
+    if (!n || parents.size() != n || !restPos || !restRot) {
+        error = "skeleton is incomplete (" + std::to_string(n) + " joints, " +
+                std::to_string(parents.size()) + " parents)";
+        return false;
+    }
+    out = glbparser::Skel();
+    out.nodes.resize(n);
+    for (size_t i = 0; i < n; ++i) {
+        const char* mapped = mixamoName(jointNames[i]);
+        out.nodes[i].name = mapped ? mapped : jointNames[i];
+        // A parent must come earlier: composing globals walks the array, and
+        // ARKit orders its skeleton that way.
+        const int par = parents[i];
+        out.nodes[i].parent = (par >= 0 && par < (int)i) ? par : -1;
+        std::memcpy(out.nodes[i].t, restPos + i * 3, 12);
+        std::memcpy(out.nodes[i].r, restRot + i * 4, 16);
+    }
+
+    // The performer's height, from the rest pose - retargeting scales the hips
+    // translation by it so a tall performer does not lift a short character off
+    // the floor. There is no mesh to measure, so measure the skeleton.
+    std::vector<float> gy(n, 0.0f);
+    float lo = 1e30f, hi = -1e30f;
+    for (size_t i = 0; i < n; ++i) {
+        const int par = out.nodes[i].parent;
+        gy[i] = out.nodes[i].t[1] + (par >= 0 ? gy[par] : 0.0f);
+        lo = std::min(lo, gy[i]);
+        hi = std::max(hi, gy[i]);
+    }
+    out.min[1] = lo;
+    out.max[1] = hi;
+    return true;
+}
+
 bool isTakePath(const std::string& path) {
     return path.size() > 7 && path.compare(path.size() - 7, 7, ".tmocap") == 0;
 }
@@ -188,27 +231,19 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
         return false;
     }
 
-    out = glbparser::Skel();
-    out.nodes.resize(jointCount);
+    std::vector<std::string> names(jointCount);
     std::vector<int> parent(jointCount, -1);
-    int hips = -1;
     for (uint32_t i = 0; i < jointCount; ++i) {
         const uint16_t nameLen = r.u16();
-        const std::string name = r.str(nameLen);
-        const int16_t par = r.i16();
+        names[i] = r.str(nameLen);
+        parent[i] = r.i16();
         if (!r.ok) {
             error = "take truncated in the joint table (joint " + std::to_string(i) + ")";
             return false;
         }
-        const char* mapped = renamed(name);
-        out.nodes[i].name = mapped ? mapped : name;
-        // A parent must come earlier: the rest of the pipeline composes globals
-        // by walking the array, and ARKit orders its skeleton that way.
-        out.nodes[i].parent = (par >= 0 && par < (int)i) ? par : -1;
-        parent[i] = out.nodes[i].parent;
-        if (mapped && std::string(mapped) == "mixamorig:Hips") hips = (int)i;
     }
 
+    std::vector<float> restPos((size_t)jointCount * 3), restRot((size_t)jointCount * 4);
     for (uint32_t i = 0; i < jointCount; ++i) {
         float m[16];
         r.mat4(m);
@@ -216,23 +251,15 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
             error = "take truncated in the rest pose (joint " + std::to_string(i) + ")";
             return false;
         }
-        decompose(m, out.nodes[i].t, out.nodes[i].r);
+        decompose(m, &restPos[i * 3], &restRot[i * 4]);
     }
+    // Same builder the live link uses - a file and a socket must produce the
+    // same source or the two paths quietly diverge.
+    if (!buildSource(names, parent, restPos.data(), restRot.data(), out, error)) return false;
 
-    // The performer's height, from the rest pose - retargeting scales the hips
-    // translation by it so a tall performer does not lift a short character off
-    // the floor. There is no mesh to measure, so measure the skeleton.
-    {
-        std::vector<float> gy(jointCount, 0.0f);
-        float lo = 1e30f, hi = -1e30f;
-        for (uint32_t i = 0; i < jointCount; ++i) {
-            gy[i] = out.nodes[i].t[1] + (parent[i] >= 0 ? gy[parent[i]] : 0.0f);
-            lo = std::min(lo, gy[i]);
-            hi = std::max(hi, gy[i]);
-        }
-        out.min[1] = lo;
-        out.max[1] = hi;
-    }
+    int hips = -1;
+    for (uint32_t i = 0; i < jointCount; ++i)
+        if (out.nodes[i].name == "mixamorig:Hips") hips = (int)i;
 
     glbparser::SkelClip clip;
     clip.name = stem(path);

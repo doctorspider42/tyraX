@@ -10,6 +10,28 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (184) **The body-tracking half of the phone link.** The SAME
+  `phonecam::Link` carries it - one server, one port, one pairing code, and the
+  phone says at hello what kind of client it is. Two links would have meant two
+  codes to type and a fight over 7798.
+  Two message types: `bodyrest` once when a device connects (joint names and the
+  tree in the JSON, the rest pose in the BINARY trailer - floats have no
+  business going through a reader that collapses escapes) and `body` per frame
+  (rotations in the trailer, hips position and timestamp in the JSON). A frame
+  arriving before the skeleton is dropped: there would be nothing to say which
+  rotation belongs to which joint.
+  **The rest pose is why the skeleton is sent at all** - retargeting is a delta
+  against the source's own bind, so a stream of absolute rotations cannot move
+  onto another body. It is sent once because it is ~90 joints of names and
+  transforms.
+  `mocap::buildSource` was lifted out of the file reader so both halves build
+  the source Skel the same way: a pose off a socket and a pose out of a `.tmocap`
+  become the same `glbparser::Skel`, and `charanim::prepareLive` cannot tell
+  them apart. The equivalence harness still passes through the refactor (0.12 µm
+  over a `.tmocap` source, 0.48 µm over the Mixamo one).
+  Still to come: the editor's Mocap window (puppet target, record) and the
+  phone-side sender.
+
 - (183) **Per-frame retargeting, and the phone-camera branch merged in.** The
   live mocap streaming that comes next needs both halves - `phonecam::Link` for
   the transport, `charanim::retarget` for the motion - and neither had landed on

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "glbparser.hpp"
 
@@ -30,5 +31,23 @@ bool isTakePath(const std::string& path);
 // the recording's rest pose, and one clip named after the file. There is no
 // mesh - nothing downstream needs one, retargeting reads rotations.
 bool load(const std::string& path, glbparser::Skel& out, std::string& error);
+
+// The skeleton half of a take, without any frames: joint names, the tree, and a
+// rest pose already decomposed into position + rotation. This is what the LIVE
+// link receives once when a phone connects - a stream cannot afford to resend
+// it - and what `load` builds internally from the file's matrices.
+//
+// Sharing it is the point: a pose arriving over a socket and a pose read out of
+// a file become the SAME source Skel, so charanim::prepareLive cannot tell them
+// apart and neither can anything downstream. `restPos` is jointCount * 3,
+// `restRot` jointCount * 4 (x, y, z, w).
+bool buildSource(const std::vector<std::string>& jointNames, const std::vector<int>& parents,
+                 const float* restPos, const float* restRot, glbparser::Skel& out,
+                 std::string& error);
+
+// ARKit's name for a joint -> the Mixamo name the generated rig uses, or null
+// when this rig has no bone for it (fingers, face, toes past the ball). The
+// phone streams ARKit's own names, so the translation lives here, once.
+const char* mixamoName(const std::string& arkitJoint);
 
 }  // namespace mocap

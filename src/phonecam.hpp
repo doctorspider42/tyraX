@@ -101,6 +101,37 @@ constexpr const char* kCmdRecord = "record";
 constexpr const char* kCmdStop = "stop";
 constexpr const char* kCmdRecenter = "recenter";
 
+// ---------------------------------------------------------------------------
+// Body tracking (docs/character-generator.md). The SAME link carries it: one
+// server, one port, one pairing code, and the phone says at hello which kind of
+// client it is. Two links would mean two codes to type and a fight over 7798.
+//
+// The skeleton arrives ONCE, when a body-tracking device connects - it is
+// ~90 joints of names and a rest pose, and a stream cannot afford to resend it.
+// The rest pose is not decoration: retargeting is a delta against the source's
+// own bind, so without it a streamed pose cannot move onto another body.
+
+struct BodySkeleton {
+    std::vector<std::string> joints;  // ARKit's own names
+    std::vector<int> parents;         // index into `joints`, -1 = root
+    std::vector<float> restPos;       // joints * 3
+    std::vector<float> restRot;       // joints * 4 (x, y, z, w)
+    bool valid() const {
+        return !joints.empty() && parents.size() == joints.size() &&
+               restPos.size() == joints.size() * 3 && restRot.size() == joints.size() * 4;
+    }
+};
+
+// One frame of the performer. Rotations only, plus where the hips are in the
+// phone's world - which is all a retarget consumes.
+struct BodyFrame {
+    double t = 0.0;                 // the phone's monotonic seconds
+    std::vector<float> rot;         // joints * 4, same order as the skeleton
+    float hips[3] = {0, 0, 0};
+    bool haveHips = false;
+    bool tracked = true;            // false = ARKit lost the body this frame
+};
+
 struct Config {
     uint16_t port = kDefaultPort;
     // 6 digits, checked at hello. Empty accepts any device on the LAN - handy
@@ -160,6 +191,16 @@ class Link {
     // Total poses received this session (a "the stream is alive" readout).
     uint64_t poseCount() const { return poseCount_.load(); }
 
+    // The connected device's skeleton, once it has sent one. Empty (invalid)
+    // for a camera-only client, which is how the UI tells them apart.
+    BodySkeleton bodySkeleton() const;
+    bool hasBodySkeleton() const { return hasBody_.load(); }
+    // Body frames received since the last call, oldest first - the newest is
+    // the live pose, and a recording appends the whole batch so no motion is
+    // lost between two UI frames.
+    std::vector<BodyFrame> drainBodyFrames();
+    uint64_t bodyFrameCount() const { return bodyCount_.load(); }
+
     // The settings the stream currently runs at (editor defaults, possibly
     // overridden by the device).
     PreviewPrefs preview() const;
@@ -195,6 +236,11 @@ class Link {
     DeviceInfo device_;
     std::deque<Event> events_;
     std::deque<CamTakeSample> poses_;
+    // The body-tracking half of the stream, guarded by the same mutex.
+    BodySkeleton bodySkel_;
+    std::deque<BodyFrame> bodyFrames_;
+    std::atomic<bool> hasBody_{false};
+    std::atomic<uint64_t> bodyCount_{0};
     PreviewPrefs preview_;
     // Preview frames waiting to be encoded and sent, oldest first. Bounded by
     // PreviewPrefs::smoothing + 1: when full the OLDEST is dropped, so latency
