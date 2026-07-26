@@ -189,8 +189,53 @@ vertex stream: 21 vertices
   v0  95.827 -5.757 0.000 1.000
 ```
 
-Headless: `tyrax-editor --dump-vucap <projectDir>` prints the same decode, which
-is how the parser is tested without the GUI.
+### ...and what VU1 left behind
+
+Arming a capture also takes a snapshot of **VU1 data memory** (all 1024
+quadwords) right after that chain ran - the engine waits for VIF1 and for the
+microprogram to finish, hands the memory over, and uninstalls itself, so the
+stall happens for the one frame you asked about and never again. In it:
+
+- the **MVP matrix** the mesh was given (quadword 0), printed as uploaded;
+- the vertex arrays as VU1 read them;
+- and the **GIF packets the program staged for XGKICK** - decoded to GS vertices:
+  screen-space X/Y in 12.4 fixed point, 24-bit Z, RGBAQ, ST, with the primitive
+  and register list spelled out (`TRIANGLE +ABE, [RGBAQ, XYZF2], EOP`).
+
+That is the answer to "what did VU1 actually produce": the exact numbers the GS
+was about to rasterize, per vertex, before anything reached a pixel.
+
+A real capture (terrain, PCSX2):
+
+```
+VU1 data memory: captured (1024 qw)
+MVP (as uploaded, column per quadword):
+     -0.189     0.000     0.000     0.000
+      0.000    -0.189     0.000     0.000
+      0.000     0.000    -1.000     0.200
+      0.000     0.000     1.000     0.000
+gif 1 @VU1 23: TRIANGLE +ABE nloop=21 nreg=2 [RGBAQ, XYZF2] EOP
+   out v0  x=1242.3 y=1205.9 z=2655319  rgba 132,60,149,0
+```
+
+### The host reference is a hint, not a verdict
+
+The editor also runs the same transform itself (`clip = MVP * v`,
+`ndc = clip / w`, `screen = scale * (ndc + 1)`, `ftoi4`) and diffs it against the
+decoded output. **Read that number with the caveat it prints**: one flush can
+carry SEVERAL meshes in one chain, and VU1 memory holds only the **last** MVP
+uploaded - so input block and output packet are not reliably paired yet. In the
+capture above X agreed to the LSB and Y did not, and the honest reading is "the
+pairing is unproven", not "VU1 has a Y bug" (those vertices happen to share
+almost the same X, so the agreement is weak evidence).
+
+Making it a verdict needs one more step, and it is a small one: capture the
+object-data chain (the MVP upload) together with the qbuffer chain, and capture a
+single-bag flush, so exactly one mesh is in play.
+
+Headless: `tyrax-editor --dump-vucap <projectDir>` prints the whole decode -
+chain, memory, staged GIF packets, the reference and its caveat - which is how
+all of this is tested without the GUI.
 
 **The one thing that made this non-trivial**: the pipeline sends vertex arrays
 **by reference** - a `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at

@@ -19192,6 +19192,7 @@ bool vuCapArmed = false;   // set by a command, cleared once one is grabbed
 bool vuCapPending = false;  // captured, not yet written
 void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
+void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture();  // both defined below
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
@@ -19454,6 +19455,8 @@ unsigned char vuCapBlockBuf[VU_CAP_MAX_QW * 16];  // referenced vertex data
 unsigned short vuCapBlockAt[VU_CAP_MAX_BLOCKS];
 unsigned short vuCapBlockQw[VU_CAP_MAX_BLOCKS];
 int vuCapBlocks = 0, vuCapBlockQwTotal = 0;
+unsigned char vuCapMem[1024 * 16];  // VU1 data memory after the run
+bool vuCapHaveMem = false;
 
 void vuPacketTap(const void* data, unsigned int qwc, const char* name) {
   (void)name;
@@ -19499,17 +19502,32 @@ void vuPacketTap(const void* data, unsigned int qwc, const char* name) {
   vuCapBlockQwTotal = (int)((dst - vuCapBlockBuf) / 16);
 
   vuCapArmed = false;
+  // Ask for VU1 memory as well: the next send stalls once and hands over what
+  // the microprogram left - the GIF packet it staged included.
+  vuCapHaveMem = false;
+  Tyra::g_vuMemHook = &vuMemTap;
   vuCapPending = true;  // the tick writes it: no file I/O mid-frame
 }
 
+void vuMemTap(const void* mem, unsigned int bytes) {
+  if (vuCapHaveMem) return;
+  size_t n = bytes < sizeof(vuCapMem) ? (size_t)bytes : sizeof(vuCapMem);
+  memcpy(vuCapMem, mem, n);
+  vuCapHaveMem = true;
+  Tyra::g_vuMemHook = nullptr;  // one snapshot: the stall ends here
+}
+
 void writeVuCapture() {
+  // Hold the write until the VU1 memory snapshot landed (it happens on the
+  // next send, one or two frames later at most).
+  if (!vuCapHaveMem) return;
   vuCapPending = false;
   FILE* f = fopen(Tyra::FileUtils::fromCwd("vucap.bin").c_str(), "wb");
   if (!f) return;
   // Header: magic "TXVU", version 2, frame, chain quadwords, block count.
   unsigned char h[16];
   memcpy(h + 0, "TXVU", 4);
-  put32(h + 4, 2U);
+  put32(h + 4, 3U);
   put32(h + 8, frameNo);
   put32(h + 12, (unsigned int)((vuCapQw & 0xFFFF) | (vuCapBlocks << 16)));
   fwrite(h, 1, sizeof(h), f);
@@ -19522,6 +19540,9 @@ void writeVuCapture() {
     fwrite(e, 1, 4, f);
   }
   fwrite(vuCapBlockBuf, 1, (size_t)vuCapBlockQwTotal * 16, f);
+  // v3: the whole of VU1 data memory after the run - matrices, the vertex
+  // arrays as VU1 saw them, and the GIF packet the program staged.
+  fwrite(vuCapMem, 1, sizeof(vuCapMem), f);
   fclose(f);
   TYRA_LOG("VU capture: ", vuCapQw, " qw chain + ", vuCapBlocks,
            " referenced block(s) written to vucap.bin");

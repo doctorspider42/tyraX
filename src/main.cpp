@@ -587,10 +587,72 @@ static int dumpVuCapFromCli(int argc, char** argv) {
                     u.format.c_str(), u.count, u.vuAddr, u.words.size());
     }
     if (const std::vector<float>* v = cap.vertices()) {
-        std::printf("vertex stream: %zu vertices\n", v->size() / 4);
-        for (size_t i = 0; i < v->size() / 4 && i < 6; ++i)
-            std::printf("  v%zu  %.3f %.3f %.3f %.3f\n", i, (*v)[i * 4],
-                        (*v)[i * 4 + 1], (*v)[i * 4 + 2], (*v)[i * 4 + 3]);
+        std::printf("input vertex stream: %zu vertices (%d triangles)\n",
+                    v->size() / 4, cap.triangleCount());
+        for (size_t i = 0; i < v->size() / 4 && i < 4; ++i)
+            std::printf("  in v%zu  %.3f %.3f %.3f\n", i, (*v)[i * 4],
+                        (*v)[i * 4 + 1], (*v)[i * 4 + 2]);
+    }
+    if (cap.hasVuMem) {
+        std::printf("\nVU1 data memory: captured (1024 qw)\n");
+        if (cap.hasMvp) {
+            std::printf("MVP (as uploaded, column per quadword):\n");
+            for (int r = 0; r < 4; ++r)
+                std::printf("  %9.3f %9.3f %9.3f %9.3f\n", cap.mvp[r],
+                            cap.mvp[4 + r], cap.mvp[8 + r], cap.mvp[12 + r]);
+        }
+        std::printf("scales: %.1f %.1f %.1f\n", cap.scale[0], cap.scale[1],
+                    cap.scale[2]);
+        std::printf("GIF packets staged by the program: %zu (%d GS vertices)\n",
+                    cap.gifs.size(), cap.outputVerts());
+        for (size_t i = 0; i < cap.gifs.size() && i < 4; ++i) {
+            const vucap::GifPacket& g = cap.gifs[i];
+            std::printf("  gif %zu @VU1 %d: %s nloop=%d nreg=%d [%s]%s\n", i,
+                        g.vuAddr, g.primName().c_str(), g.nloop, g.nreg,
+                        g.regs.c_str(), g.eop ? " EOP" : "");
+            for (size_t v = 0; v < g.verts.size() && v < 4; ++v) {
+                const vucap::GsVertex& gv = g.verts[v];
+                std::printf("     out v%zu  x=%.1f y=%.1f z=%u  rgba %u,%u,%u,%u\n",
+                            v, gv.px(), gv.py(), gv.z, gv.r, gv.g, gv.b, gv.a);
+            }
+        }
+        // Print the first few output/reference pairs: when the two disagree the
+        // pattern (constant offset? sign? scale?) is the diagnosis.
+        if (!cap.reference.empty())
+            {
+                const vucap::GifPacket* g2 = nullptr;
+                for (const vucap::GifPacket& c : cap.gifs)
+                    if (c.hasGeometry &&
+                        (!g2 || c.verts.size() > g2->verts.size()))
+                        g2 = &c;
+                if (g2) {
+                const vucap::GifPacket& g = *g2;
+                for (size_t v = 0; v < g.verts.size() && v < 6; ++v) {
+                    if (v >= cap.reference.size()) break;
+                    const vucap::RefVertex& r = cap.reference[v];
+                    std::printf(
+                        "   cmp v%zu  out(%.1f, %.1f)  ref(%.1f, %.1f)  refFlip %.1f  clipw %.3f%s\n",
+                        v, g.verts[v].px(), g.verts[v].py(), r.x / 16.0f,
+                        r.y / 16.0f, r.yFlipped / 16.0f, r.clip[3],
+                        r.behind ? "  BEHIND" : "");
+                }
+                }
+            }
+        std::printf("clip accounting: %d triangles in -> %d out (delta %+d)\n",
+                    cap.triangleCount(), cap.outputVerts() / 3, cap.clipDelta());
+        std::printf(
+            "note: one flush can carry SEVERAL meshes, and the MVP in VU1 "
+            "memory is the LAST one uploaded - so the host reference is exact "
+            "only for a single-mesh flush. Reported, not trusted "
+            "(docs/devkit.md).\n");
+        if (cap.diffCompared)
+            std::printf("host reference diff over %d vertices: max %.1f/%.1f, "
+                        "mean %.2f/%.2f (12.4 units; 16 = one pixel), screen Y %s\n",
+                        cap.diffCompared, cap.diffMaxX, cap.diffMaxY,
+                        cap.diffMeanX, cap.diffMeanY,
+                        cap.yFlipped ? "flipped (GS down)" : "up");
+        else
+            std::printf("host reference diff: nothing lined up 1:1 to compare\n");
     }
     return 0;
 }

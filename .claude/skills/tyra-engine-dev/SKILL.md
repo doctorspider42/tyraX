@@ -261,6 +261,15 @@ function pointer** (`Tyra::g_vuPacketHook`) and the branch that tests it in
 The capture itself lives in the generated game's devkit TU, so a release build
 links none of it.
 
+**The second hook** (`g_vuMemHook`) is called after the send, once VIF1 and the
+microprogram are idle, with all of VU1 data memory — that is how the editor reads
+what the program PRODUCED (the GIF packets it staged for XGKICK). It costs a
+pipeline stall, so the devkit installs it for one frame and uninstalls itself from
+inside the callback. Two things to know before using it for verification: VU1
+memory holds only the **last** MVP uploaded, and **one flush carries several
+meshes in one chain** — so pairing an input block with an output packet needs a
+single-bag flush plus the object-data chain, which is not done yet (PROGRESS 189).
+
 **The rule that bites**: the pipeline sends vertex arrays **by reference** — a
 `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at *another* address,
 with the tag itself being ONE quadword. So (1) any chain walker advances by 1 for

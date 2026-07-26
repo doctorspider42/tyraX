@@ -728,6 +728,19 @@ void StaPipQBufferRenderer::sendPacket() {
 
   dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
 
+  // TyraX: with a VU1 memory hook installed (a devkit capture is in flight),
+  // wait for the transfer AND for VU1 to finish its microprogram, then hand the
+  // whole of VU1 data memory over. This stalls the pipeline on purpose - it runs
+  // for the one frame a capture was armed for, never otherwise.
+  if (g_vuMemHook) {
+    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    // VIF1_STAT: VPS (bits 0-1) = VIF status, VEW (bit 2) = waiting for VU1.
+    volatile u32* const vif1Stat = (volatile u32*)0x10003c00;
+    for (int spin = 0; spin < 2000000 && (*vif1Stat & 0x7) != 0; ++spin) {
+    }
+    g_vuMemHook((const void*)0x1100c000, 1024 * 16);
+  }
+
   // Switch packet, so we can proceed during DMA transfer
   context = !context;
 }

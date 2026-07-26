@@ -10,6 +10,45 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (189) **Reading back what VU1 produced: the staged GIF packets, decoded**
+  (docs/devkit.md). Follow-up to 188 - having the INPUT was half the answer; this
+  is the other half. Arming a capture now also snapshots **all 1024 quadwords of
+  VU1 data memory** right after that chain ran: the engine waits for VIF1 and for
+  the microprogram (`VIF1_STAT` VPS/VEW, bounded spin), hands the memory over
+  through a second null-by-default hook, and the devkit uninstalls it
+  immediately - so the stall happens for the one frame you asked about.
+  **What the editor gets out of it**: the MVP the mesh was given (quadword 0,
+  printed as uploaded), the vertex arrays as VU1 read them, and - the point of
+  the exercise - the **GIF packets the program staged for XGKICK**, decoded to GS
+  vertices: screen-space X/Y in 12.4 fixed point, 24-bit Z, RGBAQ, ST, with PRIM
+  and the REGS list spelled out. Verified on the console: `gif 1 @VU1 23:
+  TRIANGLE +ABE nloop=21 nreg=2 [RGBAQ, XYZF2] EOP` with 21 plausible
+  screen-space vertices, alongside the small `A+D` tag packets the pipeline
+  emits in-band. That is the number the GS was about to rasterize, per vertex.
+  **The host reference stayed a hint, on purpose.** The editor also runs the same
+  transform (`clip = MVP * v`, `ndc = clip / w`, `screen = scale * (ndc + 1)`,
+  ftoi4 - read straight out of `ScaleVertexToGSFormat` in vcl_sml.i) and diffs
+  it. First read looked like a win (X agreeing to the LSB, Y off by ~400 px) and
+  the tempting conclusion was "VU1 has a Y bug". It is not: printing the pairs
+  showed those vertices share almost the same X, so the agreement was weak
+  evidence - and more importantly **one flush carries SEVERAL meshes in one
+  chain** while VU1 memory holds only the LAST MVP uploaded, so input block and
+  output packet are not reliably paired. The tool now says exactly that, in the
+  CLI and in the panel, and prints the out/ref pairs for a human to judge.
+  Turning it into a verdict is one small step, written down in the docs: capture
+  the object-data chain (the MVP upload) together with the qbuffer chain, and
+  capture a single-bag flush. Not guessed at in this entry.
+  Also fixed from 188: only packets carrying XYZF2/XYZ2 count as geometry (the
+  `A+D` tag packets were inflating the clip accounting), and the reference
+  computes both screen-Y conventions and reports which one fits rather than
+  assuming the GS axis direction.
+  **Verified**: `--dump-vucap` end to end against a live capture (24576 bytes =
+  chain + 24 referenced blocks + 16 KiB of VU1 memory); MVP, scales, 14 GIF
+  packets and their vertices all decode; the game keeps running normally
+  afterwards (the stall is one frame). **Not verified**: the panel view (the
+  machine's blank-editor state from 184), the mesh-to-packet pairing (above), and
+  real hardware.
+
 - (188) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
   with the geometry** (docs/devkit.md). User request - "debugowanie VU to zawsze
   była jebaczka, jakby był podgląd tego co VU wygenerowało...". You cannot print

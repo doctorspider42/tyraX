@@ -7,5 +7,6 @@
 namespace Tyra {
 
 VuPacketHook g_vuPacketHook = nullptr;
+VuMemHook g_vuMemHook = nullptr;
 
 }  // namespace Tyra

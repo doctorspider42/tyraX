@@ -1,6 +1,8 @@
 #include "vucap.hpp"
 
 #include <cstdio>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -74,6 +76,247 @@ int Capture::triangleCount() const {
     return v ? (int)(v->size() / 4) / 3 : 0;
 }
 
+
+// --------------------------------------------------------------- v3 decode ---
+
+std::string GifPacket::primName() const {
+    static const char* kPrim[8] = {"POINT",    "LINE",      "LINE_STRIP",
+                                   "TRIANGLE", "TRI_STRIP", "TRI_FAN",
+                                   "SPRITE",   "?"};
+    std::string s = kPrim[prim & 7];
+    if (prim & (1u << 4)) s += " +TEX";
+    if (prim & (1u << 5)) s += " +FOG";
+    if (prim & (1u << 6)) s += " +ABE";
+    if (prim & (1u << 7)) s += " +AA1";
+    return s;
+}
+
+int Capture::outputVerts() const {
+    int n = 0;
+    for (const GifPacket& g : gifs)
+        if (g.hasGeometry) n += (int)g.verts.size();
+    return n;
+}
+
+int Capture::clipDelta() const {
+    int out = 0;
+    for (const GifPacket& g : gifs)
+        if (g.hasGeometry) out += (int)g.verts.size() / 3;
+    return out - triangleCount();
+}
+
+namespace {
+
+// GS register names, for the REGS list of a GIFtag.
+const char* gsRegName(uint32_t r) {
+    switch (r) {
+        case 0x0: return "PRIM";
+        case 0x1: return "RGBAQ";
+        case 0x2: return "ST";
+        case 0x3: return "UV";
+        case 0x4: return "XYZF2";
+        case 0x5: return "XYZ2";
+        case 0xA: return "FOG";
+        case 0xD: return "XYZ3";
+        case 0xE: return "A+D";
+        case 0xF: return "NOP";
+        default: return "?";
+    }
+}
+
+// Does this quadword look like the GIFtag this pipeline emits? PACKED mode,
+// 1..4 registers, a sane NLOOP and a register list of known values. Strict on
+// purpose: a false positive would decode noise as geometry.
+bool looksLikeGifTag(const uint32_t* q, int* nloop, int* nreg, uint32_t* prim,
+                     bool* eop, bool* pre) {
+    const uint32_t w0 = q[0], w1 = q[1];
+    const int nl = (int)(w0 & 0x7FFF);
+    const int nr = (int)((w1 >> 28) & 0xF);
+    const int flg = (int)((w1 >> 26) & 0x3);
+    if (nl <= 0 || nl > 512) return false;
+    if (nr < 1 || nr > 4) return false;
+    if (flg != 0) return false;  // PACKED only
+    for (int i = 0; i < nr; ++i) {
+        const uint32_t r = (q[2] >> (i * 4)) & 0xF;
+        if (r > 0x5 && r != 0xA && r != 0xD && r != 0xE && r != 0xF) return false;
+    }
+    *nloop = nl;
+    *nreg = nr;
+    *eop = ((w0 >> 15) & 1) != 0;
+    *pre = ((w1 >> 14) & 1) != 0;
+    *prim = (w1 >> 15) & 0x7FF;
+    return true;
+}
+
+}  // namespace
+
+// Scans VU1 data memory for the GIF packets the microprogram staged, decodes
+// their vertices, and compares them against a host transform of the same input.
+static void decodeVuMem(Capture& out) {
+    if (out.vuMem.size() < 16) return;
+
+    // The MVP matrix sits at quadword 0 (VU1_MVP_MATRIX_ADDR): the pipeline
+    // uploads it per mesh and nothing in the run overwrites it.
+    out.hasMvp = true;
+    for (int i = 0; i < 16; ++i) std::memcpy(&out.mvp[i], &out.vuMem[i], 4);
+
+    // The scales the program multiplies by are the first V4_32 unpack of the
+    // chain: (2048, 2048, 0xFFFFFF/2, vertexCount).
+    for (const Unpack& u : out.unpacks) {
+        if (u.vuAddr == 0 && u.floats.size() >= 3 && u.floats[0] > 1.0f) {
+            out.scale[0] = u.floats[0];
+            out.scale[1] = u.floats[1];
+            out.scale[2] = u.floats[2];
+            break;
+        }
+    }
+
+    // Walk memory for GIF tags; each is followed by NLOOP * NREG quadwords.
+    const int words = (int)out.vuMem.size();
+    for (int qw = 0; (qw + 1) * 4 <= words;) {
+        const uint32_t* q = &out.vuMem[(size_t)qw * 4];
+        int nloop = 0, nreg = 0;
+        uint32_t prim = 0;
+        bool eop = false, pre = false;
+        if (!looksLikeGifTag(q, &nloop, &nreg, &prim, &eop, &pre)) {
+            ++qw;
+            continue;
+        }
+        if ((qw + 1 + nloop * nreg) * 4 > words) {
+            ++qw;
+            continue;
+        }
+        GifPacket g;
+        g.vuAddr = qw;
+        g.nloop = nloop;
+        g.nreg = nreg;
+        g.eop = eop;
+        g.pre = pre;
+        g.prim = prim;
+        int regIds[4] = {0, 0, 0, 0};
+        for (int i = 0; i < nreg; ++i) {
+            regIds[i] = (int)((q[2] >> (i * 4)) & 0xF);
+            g.regs += (i ? ", " : "");
+            g.regs += gsRegName((uint32_t)regIds[i]);
+        }
+        // PACKED mode: one quadword per register per vertex, in REGS order.
+        for (int v = 0; v < nloop; ++v) {
+            GsVertex gv;
+            for (int r = 0; r < nreg; ++r) {
+                const uint32_t* d =
+                    &out.vuMem[(size_t)(qw + 1 + v * nreg + r) * 4];
+                switch (regIds[r]) {
+                    case 0x4:  // XYZF2: X bits 0-15, Y bits 32-47, Z bits 68-91
+                        gv.x = (int)(d[0] & 0xFFFF);
+                        gv.y = (int)(d[1] & 0xFFFF);
+                        gv.z = (d[2] >> 4) & 0xFFFFFF;
+                        break;
+                    case 0x5:  // XYZ2: Z is the full word
+                        gv.x = (int)(d[0] & 0xFFFF);
+                        gv.y = (int)(d[1] & 0xFFFF);
+                        gv.z = d[2];
+                        break;
+                    case 0x1:  // RGBAQ
+                        gv.r = (uint8_t)(d[0] & 0xFF);
+                        gv.g = (uint8_t)(d[1] & 0xFF);
+                        gv.b = (uint8_t)(d[2] & 0xFF);
+                        gv.a = (uint8_t)(d[3] & 0xFF);
+                        break;
+                    case 0x2:  // ST + Q
+                        std::memcpy(&gv.s, &d[0], 4);
+                        std::memcpy(&gv.t, &d[1], 4);
+                        std::memcpy(&gv.q, &d[2], 4);
+                        break;
+                    default: break;
+                }
+            }
+            g.verts.push_back(gv);
+        }
+        for (int i = 0; i < nreg; ++i)
+            if (regIds[i] == 0x4 || regIds[i] == 0x5) g.hasGeometry = true;
+        out.gifs.push_back(g);
+        qw += 1 + nloop * nreg;
+    }
+
+    // The host reference: the same transform the microprogram performs (see
+    // ScaleVertexToGSFormat in vcl_sml.i) - clip = MVP * v, ndc = clip / clip.w,
+    // screen = scale * (ndc + 1), fixed = ftoi4(screen) = trunc(screen * 16).
+    //
+    // Screen Y needs one measured fact rather than an assumption: the GS Y axis
+    // grows DOWNWARD, so a pipeline may or may not have folded the flip into its
+    // projection. Both conventions are computed here and the diff below keeps
+    // whichever matches the hardware - and reports which one that was, so a
+    // change in the projection shows up as the convention flipping rather than
+    // as a silent 400-pixel error.
+    const std::vector<float>* in = out.vertices();
+    if (in && out.hasMvp) {
+        const size_t n = in->size() / 4;
+        for (size_t i = 0; i < n; ++i) {
+            const float v[4] = {(*in)[i * 4 + 0], (*in)[i * 4 + 1],
+                                (*in)[i * 4 + 2], 1.0f};
+            RefVertex r;
+            for (int row = 0; row < 4; ++row) {
+                float acc = 0.0f;
+                for (int c = 0; c < 4; ++c) acc += out.mvp[c * 4 + row] * v[c];
+                r.clip[row] = acc;
+            }
+            if (r.clip[3] <= 0.0001f) {
+                r.behind = true;
+            } else {
+                const float inv = 1.0f / r.clip[3];
+                const float nx = r.clip[0] * inv;
+                const float ny = r.clip[1] * inv;
+                const float nz = r.clip[2] * inv;
+                r.x = (int)((nx + 1.0f) * out.scale[0] * 16.0f);
+                r.y = (int)((ny + 1.0f) * out.scale[1] * 16.0f);
+                r.yFlipped = (int)((1.0f - ny) * out.scale[1] * 16.0f);
+                r.z = (uint32_t)((nz + 1.0f) * out.scale[2] * 16.0f) >> 4;
+            }
+            out.reference.push_back(r);
+        }
+    }
+    // Diff the biggest GEOMETRY packet against the reference, vertex by vertex.
+    // They line up 1:1 only when nothing was clipped or reordered - which is
+    // exactly the case worth checking, and the counts say when it is not.
+    const GifPacket* big = nullptr;
+    for (const GifPacket& g : out.gifs) {
+        if (!g.hasGeometry) continue;
+        if (!big || g.verts.size() > big->verts.size()) big = &g;
+    }
+    if (big && !out.reference.empty()) {
+        const size_t n = big->verts.size() < out.reference.size()
+                             ? big->verts.size()
+                             : out.reference.size();
+        double sx = 0, syUp = 0, syDown = 0;
+        float maxUp = 0, maxDown = 0, maxX = 0;
+        int compared = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (out.reference[i].behind) continue;
+            const float dx =
+                (float)std::abs(big->verts[i].x - out.reference[i].x);
+            const float dUp =
+                (float)std::abs(big->verts[i].y - out.reference[i].y);
+            const float dDown =
+                (float)std::abs(big->verts[i].y - out.reference[i].yFlipped);
+            if (dx > maxX) maxX = dx;
+            if (dUp > maxUp) maxUp = dUp;
+            if (dDown > maxDown) maxDown = dDown;
+            sx += dx;
+            syUp += dUp;
+            syDown += dDown;
+            ++compared;
+        }
+        out.diffCompared = compared;
+        if (compared) {
+            out.yFlipped = syDown < syUp;
+            out.diffMaxX = maxX;
+            out.diffMaxY = out.yFlipped ? maxDown : maxUp;
+            out.diffMeanX = (float)(sx / compared);
+            out.diffMeanY =
+                (float)((out.yFlipped ? syDown : syUp) / compared);
+        }
+    }
+}
 bool load(const std::string& path, Capture& out) {
     out = Capture();
     std::ifstream f(path, std::ios::binary);
@@ -88,7 +331,7 @@ bool load(const std::string& path, Capture& out) {
         return false;
     }
     const uint32_t ver = rd32(&b[4]);
-    if (ver != 1u && ver != 2u) {
+    if (ver != 1u && ver != 2u && ver != 3u) {
         out.error = "unknown capture version";
         return false;
     }
@@ -198,6 +441,21 @@ bool load(const std::string& path, Capture& out) {
         if (out.unpacks[i].floats.size() > best) {
             best = out.unpacks[i].floats.size();
             out.vertexUnpack = (int)i;
+        }
+    }
+    // v3 tail: the whole of VU1 data memory after the run.
+    if (ver >= 3u) {
+        const unsigned char* memAt =
+            p + (size_t)out.qw * 16 + (size_t)blockCount * 4;
+        for (const Block& bl : blocks) memAt += (size_t)bl.qw * 16;
+        const size_t have = (size_t)(b.data() + b.size() - memAt);
+        const size_t want = 1024 * 16;
+        if (have >= want) {
+            out.vuMem.resize(want / 4);
+            for (size_t k = 0; k < out.vuMem.size(); ++k)
+                out.vuMem[k] = rd32(memAt + k * 4);
+            out.hasVuMem = true;
+            decodeVuMem(out);
         }
     }
     out.loaded = true;

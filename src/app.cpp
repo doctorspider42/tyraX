@@ -21845,6 +21845,48 @@ void App::drawDebuggerWindow() {
                     n, tris);
             }
 
+            // What the microprogram STAGED for the GS: the GIF packets it built
+            // in VU1 memory, decoded to screen-space vertices.
+            if (dbgVuCap_.hasVuMem) {
+                ImGui::Separator();
+                ImGui::Text("VU1 memory captured - %d GIF packet(s), %d GS vertices",
+                            (int)dbgVuCap_.gifs.size(), dbgVuCap_.outputVerts());
+                if (dbgVuCap_.hasMvp)
+                    ImGui::TextDisabled(
+                        "MVP in VU1: [%.3f %.3f %.3f %.3f] ... (quadword 0)",
+                        dbgVuCap_.mvp[0], dbgVuCap_.mvp[4], dbgVuCap_.mvp[8],
+                        dbgVuCap_.mvp[12]);
+                for (size_t i = 0; i < dbgVuCap_.gifs.size(); ++i) {
+                    const vucap::GifPacket& g = dbgVuCap_.gifs[i];
+                    if (!g.hasGeometry) continue;
+                    if (!ImGui::TreeNode(
+                            (void*)(intptr_t)i, "@VU1 %d  %s  %d verts  [%s]%s",
+                            g.vuAddr, g.primName().c_str(), (int)g.verts.size(),
+                            g.regs.c_str(), g.eop ? "  EOP" : ""))
+                        continue;
+                    for (size_t v = 0; v < g.verts.size() && v < 24; ++v) {
+                        const vucap::GsVertex& gv = g.verts[v];
+                        ImGui::Text("v%-3zu  x %8.1f  y %8.1f  z %8u  rgba %3u %3u %3u %3u",
+                                    v, gv.px(), gv.py(), gv.z, gv.r, gv.g, gv.b,
+                                    gv.a);
+                    }
+                    if (g.verts.size() > 24) ImGui::TextDisabled("...");
+                    ImGui::TreePop();
+                }
+                if (dbgVuCap_.diffCompared) {
+                    ImGui::TextDisabled(
+                        "Host reference (diagnostic): max dx %.1f, dy %.1f over %d "
+                        "vertices, 12.4 units.",
+                        dbgVuCap_.diffMaxX, dbgVuCap_.diffMaxY,
+                        dbgVuCap_.diffCompared);
+                    ImGui::TextWrapped(
+                        "One flush can carry several meshes and VU1 memory holds "
+                        "only the LAST MVP, so this comparison is exact only for a "
+                        "single-mesh flush - read it as a hint, not a verdict "
+                        "(docs/devkit.md).");
+                }
+            }
+
             // The chain itself, decoded.
             if (ImGui::BeginChild("##vusteps", ImVec2(0, scaled(160.0f)), true)) {
                 for (const vucap::Step& st : dbgVuCap_.steps)

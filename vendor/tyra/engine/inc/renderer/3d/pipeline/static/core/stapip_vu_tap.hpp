@@ -24,7 +24,15 @@ namespace Tyra {
  * hook must copy what it needs and return promptly - it runs inside the frame. */
 typedef void (*VuPacketHook)(const void* data, u32 qwc, const char* programName);
 
+/** Called right AFTER a chain was sent and VU1 went idle, with a pointer to
+ * VU1 data memory (1024 quadwords) - i.e. what the microprogram left behind:
+ * the matrices it was given, the vertex arrays it read, and the GIF packet it
+ * staged for XGKICK. Installing this costs a pipeline STALL (the engine has to
+ * wait for VU1), so the devkit installs it only for the frame it captures. */
+typedef void (*VuMemHook)(const void* vu1DataMem, u32 bytes);
+
 /** Null unless a devkit build installs one. */
 extern VuPacketHook g_vuPacketHook;
+extern VuMemHook g_vuMemHook;
 
 }  // namespace Tyra
