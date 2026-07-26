@@ -57,6 +57,8 @@
     "aoRadius": 2.5,
     "terrainMaterial": "",
     "bloom": 0,
+    "bloomThreshold": 0,
+    "bloomSpread": 0,
     "grain": 0,
     "dofAmount": 0,
     "dofFocus": 20,
@@ -77,7 +79,7 @@
   "scenes": [
     { "name": "main",
       "terrain": { "width": 64, "depth": 64 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["rfa1pedestal00001", "rfa2sphere0000001", "rfa3pedestal00002", "rfa4sphere0000002", "rfa5pedestal00003", "rfa6sphere0000003", "rfa7pedestal00004", "rfa8sphere0000004", "rfb1monolith00001", "rfc1paint00000001", "rfc2paint00000002", "rfc3paint00000003", "rfd1matte00000001", "rfe1skycycler0001", "b573336ec8e1ade3"] }
   ],
   "fonts": [

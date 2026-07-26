@@ -10,7 +10,8 @@
 
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // per-mesh object-space spot light (flashlight) upload for the color VU1
-// programs + EE clipper.
+// programs + EE clipper; alpha-test AFAIL fixed to ATEST_KEEP_ALL (see
+// sendObjectData) so cutout textures stop stamping the z buffer.
 
 #include <math.h>
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
@@ -327,11 +328,20 @@ void StaPipQBufferRenderer::sendObjectData(
                       DRAW_ENABLE, rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     } else {
+      // Cutout alpha: texels with alpha 0 fail the test and must write
+      // NOTHING. Upstream passed ATEST_KEEP_FRAMEBUFFER, whose ps2sdk name
+      // reads backwards - it is AFAIL=ZB_ONLY (2), "keep the framebuffer,
+      // update z". So every transparent texel stamped the z buffer while
+      // drawing no colour, and the invisible part of an alpha-cutout card
+      // (foliage, decals, grates) occluded whatever was drawn behind it
+      // later. ATEST_KEEP_ALL (0) leaves both buffers alone, which is what a
+      // cutout means. Opaque geometry carries alpha 0x80 and never fails the
+      // test, so nothing else changes.
       packet2_add_2x_s64(
           objectDataPacket,
-          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
-                      ATEST_KEEP_FRAMEBUFFER, DRAW_DISABLE, DRAW_DISABLE,
-                      DRAW_ENABLE, rendererCore->gs.zBuffer.method),
+          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_ALL,
+                      DRAW_DISABLE, DRAW_DISABLE, DRAW_ENABLE,
+                      rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     }
 

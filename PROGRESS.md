@@ -10,7 +10,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (168) **Text icons: `{{cross}}` in any text draws the button glyph.** Written
+- (182) **Text icons: `{{cross}}` in any text draws the button glyph.** Written
   as a companion to the Input Map (165): a controls menu that says "Cross" reads
   like a manual, one that shows ✕ reads like a PlayStation game. `Project::textIcons`
   (`TextIcon`: name + PNG + scale) is the registry, edited in *UI Editor > Button
@@ -58,7 +58,7 @@ Each finished feature lands as its own commit.
   the sheet). Examples regenerated; docs/text-icons.md + README, docs index,
   editor skill and both ai-support guides.
 
-- (167) **Configurable buttons & keys: the Input Map, in-game rebinding and a
+- (181) **Configurable buttons & keys: the Input Map, in-game rebinding and a
   sprint action.** Every gameplay button in a generated game was a `#define` in
   `inc/controls.hpp` — jump was Cross, full stop, and a player had no say. Now
   the game reads inputs through **named actions** and three layers resolve them:
@@ -148,6 +148,726 @@ Each finished feature lands as its own commit.
   `GetForegroundWindow()` first). Worth a human pass with a real pad: open the
   pause menu, pick a row, press a button.
 
+- (180) **Recent projects on the startup screen.** User request: with no project
+  open the editor should offer the recently used ones on the main screen, pickable
+  in one click, plus a way to drop an entry from the list. Until now the empty
+  Viewport said "File > New Project (Ctrl+N) to create one" and the daily
+  "carry on with yesterday's project" meant Ctrl+O and walking a file dialog to
+  the same folder every single time.
+  The Viewport's no-project branch is now `drawWelcomeScreen()`: New / Open
+  buttons and up to ten entries, most recent first, each a two-line row (project
+  name over its path) that opens on click, with an **x** that forgets it. The
+  paths live in `editor.ini` as repeated `recentProject=` lines - machine-global
+  like the emulator path and the UI scale, because which projects this PC has
+  seen is a property of the PC, not of any project (this is the pattern the
+  `tyra-editor-dev` skill describes for a new global setting; nothing else in the
+  chain needed to move, the list never reaches the game).
+  Three things that shaped the implementation:
+  *One funnel.* Recording a recent has to happen wherever a project opens, so
+  the three local open paths (the CLI/startup argument, the Open dialog, the
+  welcome list) collapsed into `openProjectAt(dir)` and record there; the New
+  Project modal records after its own attach. `openRemoteProject` deliberately
+  does NOT - a joined session's project is a materialized cache copy under
+  `remote-cache/<projectId>`, and offering that as "recent" would hand the user
+  a stale snapshot of someone else's project.
+  *Name and validity come from one directory scan*, done when the list loads or
+  changes - never per frame. The display name is the `<name>.tyra` stem (found
+  the way `project::load` finds it), so an entry that is no longer a project is
+  the same lookup, not a second check: those rows show the folder name greyed
+  with *(missing)* and stay listed. Sweeping them automatically would quietly
+  eat the list of everyone whose projects live on a drive that is currently
+  unplugged; the x is right there when the entry really is dead. Clicking a
+  missing row still tries (the drive may be back) and re-probes on failure.
+  *Dedupe on a normalized key* (`lexically_normal` + lowercase + no trailing
+  slash): the Open dialog and the New Project modal disagree on slash flavour
+  and Windows does not care about case, so `D:/proj` and `D:\Proj` are one entry.
+  Two ImGui details worth remembering: the name/path are drawn straight into the
+  window draw list (as items they would register their full text width and give
+  the panel a horizontal scrollbar), and a long path ellipsizes from the LEFT -
+  the tail identifies the project, `C:\Users\...` does not.
+  Verified by driving the built editor: opening two scratch projects by CLI
+  argument produced both `recentProject=` lines in the right order; re-opening
+  one of them spelled `SCRIPT-demo` with forward slashes left **two** entries,
+  not three, with it moved to the front (which also proves the load path parsed
+  the stored list); then synthetic clicks on the welcome screen - hover shows the
+  full path in a tooltip, the x dropped `layer-streaming`, and a click on the
+  `script-demo` row opened it (title bar, scene tree, terrain in the viewport).
+  Screenshots came out fine this time, i.e. the machine was not in its
+  white-window state (see the harness notes).
+
+- (179) **Walk speed: sane default, and a field you can actually type into.**
+  Third in the (177)/(178) run, same user: "przy domyslnej predkosci chodu
+  postac zapierdala jak dyliżans z gorki i z zaglem, trzeba dawac ostry
+  ulamek, zeby mialo to sens". Both halves of that are real and they are
+  different bugs.
+  The **unit** is the one that bites daily: walk speed is stored as movement
+  per 1/50 s (the generated game's step - `PP_WALK_SPEED(pi) * g_frameScale`),
+  so the whole useful range lived in the bottom few percent of a 0.05..10
+  field and every value was a fraction. Both editors (Preferences and a Player
+  object's own row) now show and edit **units per second** through one helper
+  (`walkSpeedDrag`), with the metric equivalent beside the field and the
+  stored number in the tooltip. Storage is untouched on purpose - reinterpreting
+  the saved field would have made every existing project 50x slower.
+  The **default** came down 0.4 -> 0.1, i.e. 20 -> 5 units/s. 20 units/s next
+  to a 1.8-unit eye height is 72 km/h, and (177) already established that this
+  mismatch is what quietly pushes projects into being built several times
+  larger than metric. Defaults changed together or the halves would disagree:
+  `ProjectSettings::walkSpeed`, `SceneObject::playerWalkSpeed`, both
+  `numberOr` fallbacks in project.cpp and the no-Player-object fallback in
+  `playerFloat("WALK_SPEEDS", ...)`.
+  In (177) I deliberately did NOT touch this default; the user asked for it
+  directly here, and it is safe because the value is in the project file:
+  verified that a `--new` project writes 0.1 and generates
+  `WALK_SPEED = 0.1F`, while an existing project carrying 0.4 still round-trips
+  as 0.4 through `--resave`. One trap while wiring the UI: the helper draws the
+  metric label AFTER the drag, so `IsItemDeactivatedAfterEdit()` at the call
+  site would have queried the LABEL and the Properties edit would never have
+  committed - the helper reports it through an out-param instead.
+  Examples keep their own hand-tuned speeds (0.4/0.55/0.8) - they are stored
+  values, not defaults, and codegen did not change, so nothing there drifts.
+
+- (178) **Measuring tape + an object size readout - "how big is a box,
+  really?"** Follow-up to (177), same user, immediately after: "mamy jakas
+  mozliwosc zmierzenia czegos w edytorze? Taka wstawiona kostka prymityw jaki
+  ma real life rozmiar?" The answer to the literal question is that every
+  primitive is a UNIT shape (primmesh: a 1x1x1 box about the origin), so a
+  stock box at scale 1 is one unit on a side - one metre in a metric project,
+  20 cm at 5 units/metre. Nothing in the editor said so anywhere, which is
+  the actual gap.
+  Two readouts now do: a **Size** line under the Scale row in Properties
+  (`App::objectWorldSize` - unit shape times scale, or a model's own bounds
+  times scale; flat types report their zero axis, and which axis that is
+  differs - Plane lies in XZ, decal/mirror/portal quads stand in XY), and a
+  **measuring tape** in the viewport tool row (*Measure (7)*): click two
+  points, read distance in units and metres plus the `dx dy dz` split, end
+  following the cursor until the second click.
+  The tape needed the one thing the viewport did not have: **the inverse of
+  `camRay`**. `Viewport::projectToImage` (world point -> image coords of the
+  last frame, ortho and perspective, mirroring camView's conventions exactly)
+  is what lets an app-side ImDrawList overlay sit on world geometry under any
+  projection - the same trick `materialPreviewProject` already plays for the
+  UV panel. Both tape ends land through `placementRaycast`, so the tape
+  measures the scene (object boxes + heightfield) rather than a plane through
+  the origin.
+  Two interaction traps, both hit while writing it: a tool that consumes
+  clicks has to be added to EVERY branch that also consumes them (pick,
+  rubber-band start, gizmo enable - the `!sculptMode_ && !paintMode_` chain),
+  and a pending paste already owns both the click and the same screen corner,
+  so the tape stands down while one is in flight.
+  Verified: builds, editor starts clean. The overlay itself is user-verified -
+  no input injection on this machine, so I cannot click a tape into existence;
+  the projection math is an exact algebraic inverse of camRay and shows up
+  instantly as a label sliding off the line if it is not.
+
+- (177) **World scale: imports from reality land at the size the project
+  actually uses.** User report, two symptoms that turned out to be one cause:
+  a Mixamo character imports "kurduplata" (comically small), and a phone
+  camera take needs five real metres walked to cover what looks like one metre
+  in the editor. Neither importer was wrong on its own - both assume **1 unit
+  = 1 metre** (ufbx normalizes FBX to metres, `.glb` is metres by spec,
+  `CamTakeMapping::scale` defaults to 1) - the project simply was not metric.
+  Worth writing down *why* projects drift off metric here: the stock FPP
+  settings disagree with each other. `eyeHeight` 1.8, `gravity` 9.8 and
+  `jumpSpeed` 4.5 are metric as written, but `walkSpeed` is units per 1/50 s,
+  so the default 0.4 is **20 units/s** - 72 km/h for a 1.8-unit person. Tune a
+  world until walking feels right and you land several times larger than
+  metric, which is exactly where this user was (~5 u/m). Deliberately did NOT
+  change that default: it would silently re-tune every existing project. The
+  metric readout under the new setting exposes it instead.
+  **What landed:** `ProjectSettings::unitsPerMeter` (default 1.0, so every
+  existing project and every metric project is bit-identical in behavior) as
+  the single conversion, host-side only - verified it reaches no generated
+  file. Model imports now ask for the asset's real-world size (Meters /
+  Centimeters / Inches / Custom, or "it is 1.8 m tall"), stored per asset as
+  metres-per-file-unit in a new `"modelUnits"` manifest section
+  (`Project::modelUnitMeters`, `Section::ModelUnits`, kSectionCount 13 -> 14);
+  `addModelObject` inserts at `metersPerUnit * unitsPerMeter`
+  (`Project::modelInsertScale`). Camera takes seed their scale AND their
+  decimation tolerance (a world-unit distance) from the same number, and the
+  modal prints the recording both ways ("4.80 m walked -> 24.0 units").
+  Three deliberate non-choices: the asset file is never rewritten (the size
+  lives in the manifest, so it can be corrected later and survives a
+  re-export); an asset with no recorded size inserts at scale 1, which is why
+  Tree Generator output - already authored in world units - is untouched; and
+  objects already placed keep their scale unless you tick the dialog's
+  "also rescale N object(s)" (the user explicitly did not want a scene-wide
+  rescale tool).
+  Verified: editor builds; `--new` writes the key; a hand-edited `.tyra` with
+  `unitsPerMeter: 5` plus a `modelUnits` map round-trips through `--resave`
+  with the deliberately invalid `0` entry dropped; `--refresh-gen` produces
+  generated sources that mention neither key; GUI starts clean on the scratch
+  project. The dialogs themselves have NOT been clicked through by me - no
+  input injection on this machine - so the import flow is user-verified.
+  Examples were left alone on purpose: the new keys are optional and codegen
+  is unaffected, so their committed generated files cannot drift.
+
+- (176) **The baked light was being clipped by the GS ALPHA TEST - it was never
+  a resolution problem.** The user kept saying the lights looked square and
+  "like the texture is just cut off", and proposed reworking the whole thing
+  onto per-object textures. Measured before rewriting anything, and the
+  measurement said the architecture was fine and something else was broken.
+  **The forensics** (worth keeping - each step killed a hypothesis):
+  the atlas region for the lit alley wall has **every one of its 10920 texels
+  lit** and no hard edge anywhere in RGB or in alpha, so the "the lightmap cuts
+  off" reading could not be about the data. A **1-texel checkerboard written
+  over the entire atlas** then showed the wall correctly checkered *except* the
+  same black V-shaped notch and isolated square - a hole that survives whatever
+  is in the texture is a hole in the RASTERISATION, not the bake. It also
+  measured the two things I would otherwise have guessed at: the atlas IS
+  bilinearly filtered (the checker renders as a smooth dot pattern, not hard
+  squares) and one texel is ~6 GS pixels wide at that distance. Dumping the
+  region's **alpha == 0 mask** produced exactly the notch, pixel for pixel.
+  **The bug:** StaPip sets the GS alpha test to `ATEST_METHOD_NOTEQUAL` against
+  0 - the cutout rule that makes foliage and decals work. The scene lightmap
+  carries occlusion in `A` and light in `RGB` and is read by two passes over
+  the same texture, so **any texel with zero occlusion failed the alpha test
+  and discarded the additive LIGHT pass with it**. Baked light was silently
+  clipped to wherever the ambient occlusion happened to be non-zero. It has
+  been that way since the atlas landed; it reads as blockiness because the
+  clip follows the texel grid, which is why nobody chased it to the alpha
+  channel.
+  **The fix is one line:** floor every lightmap texel's alpha at 2
+  (`aobake::kMinLightmapAlpha`). Not 1 - the engine's PNG loader scales alpha
+  0..255 to 0..128 by integer division, so 1 lands back on 0. Two costs 1/128
+  of darkening, under one framebuffer level. No engine change, no format
+  change, no VRAM, no extra pass.
+  **Result** (PCSX2, software renderer, frozen camera, bloom held fixed so the
+  pulser cannot confound it): the notch, the isolated square and the whole
+  blocky lit/unlit boundary are gone, and the wall is one continuous gradient.
+  **26.4% of the frame gained light** (up to +30 levels) and nothing lost more
+  than 4. 50 FPS unchanged.
+  Also landed here: per-texel bakes now average over the texel's **footprint**
+  (a 4×4 sub-sample grid, `kSuper`) instead of point-sampling its centre. A
+  fixture 0.3 units off a wall throws a penumbra far under one texel, and a
+  point sample of that aliases into the staircase bilinear then reconstructs.
+  Worth 17% off the worst-direction step on the softest edges
+  (`s3-pillar-lit-3` r3: 2.18 → 1.82) for host bake time only.
+  **The rework was not needed, and the numbers say it would not have helped:**
+  a per-object 128² texture is 16384 texels for a whole object, and that wall
+  already gets 14080 from the shared atlas. The only real lever on texel count
+  would be bits per texel (the atlas is RGBA32 because the *occlusion* needs a
+  smooth alpha), and that is a much bigger change to reach for once the actual
+  bug is fixed.
+
+- (175) **Texel density per AXIS, and a measured dead end.** Half of this
+  entry's original subject - baked light landing per texel on the TERRAIN - was
+  implemented independently on `main` as (172) while this branch was in flight,
+  and the merge kept that implementation; it is the better one (shadow casters
+  pruned once per emitter rather than once per texel). What survives here is
+  the atlas side.
+  The alley wall in `examples/glow` was still visibly coarse along its length.
+  The obvious fix - raise the flat 128-texel per-region cap that was binding on
+  that axis - was tried first and **measured worse**: 42528 -> 32722 texels in
+  use, and the worst-direction step on the lit face grew, because huge regions
+  pack badly and the extra resolution went onto the axis with no gradient on
+  it. The cap was not the problem; **isotropic density** was. The pre-pass grid
+  went 4x4 -> 6x6 and now also measures how fast the signal moves along each of
+  the region's two axes, splitting the area the peak earned between them (area
+  still proportional to peak, only the aspect moves, clamped to 2x).
+  **Numbers** (`examples/glow`, host harness, same 256 square atlas).
+  Blockiness is the mean step between neighbouring texels in the region's
+  *worse* direction: `s4-wall-left` r0 went **5.70 -> 2.53 -> 2.26** (original
+  -> (174) -> now) at **6.0x6.0 -> 13.8x7.1 -> 15.6x7.8** texels per world
+  unit; `s3-shadow-wall` r1 **7.80 -> 3.20 -> 2.99**. The last step uses FEWER
+  texels than (174) did (39068 vs 42528) - the win is the axis, not the budget.
+  *Testing lesson, and it cost me a bogus A/B:* freezing the camera with
+  `walkSpeed`/`lookSpeed` 0 is **not enough** when the project has
+  *Keyboard & mouse controls* on - PCSX2 binds the host pointer to an emulated
+  USB mouse and any cursor movement turns the view. The first comparison
+  reported "53% of pixels brighter"; with `keyboardMouse` off in the fixture the
+  same pair is 6.3% brighter / 10.1% darker, mean **-1.35** - a redistribution,
+  not a brightening. Turn the preference off in any screenshot fixture.
+
+- (174) **Scene lightmap: soft shadows from area emitters, and a texel budget
+  that follows the light.** Two independent improvements to the existing bake
+  (`aobake.cpp` + its two twins), both measured rather than eyeballed.
+  **(a) Soft shadows.** The shadow test cast ONE ray, to the emitter's nearest
+  surface point, and the contribution was all-or-nothing - but an emitter is an
+  AREA source (a lava plate, a neon strip), so that can only ever produce a hard
+  rectangular edge where a real one has a penumbra. It now casts eight: ray 0 to
+  the nearest surface point (so `samples = 1` reproduces the old behaviour bit
+  for bit) plus seven spread over the emitter's silhouette as seen from the lit
+  point - its extent projected onto the plane perpendicular to ray 0, sampled on
+  a fixed Vogel disk (`kEmisShadowDisk`). **No RNG anywhere**: a bake has to be
+  reproducible, and a spiral beats a grid here because a straight shadow edge
+  resolves into as many levels as there are distinct offsets (8, not the 3 a 3×3
+  grid gives). One subtlety worth keeping: rays aimed *below* the receiver's
+  horizon are dropped from the vote rather than counted as blocked - counting
+  them would darken a floor standing next to a big plate with no occluder
+  anywhere, and leaving them out keeps the "nothing blocks ⇒ identical to
+  before" invariant exact.
+  **(b) Texel density where the light is.** Region sizing was pure world area,
+  so on `examples/glow` the atlas spent 36% of a 256² image uniformly - pedestal
+  undersides and wall backs at the same density as the lit walls. A 4×4 probe
+  grid per region now estimates the peak signal it can carry (light received +
+  occlusion cast on it), the density scales with `sqrt(peak)` so the AREA a
+  region gets is proportional to what it receives, and a 20-step bisection then
+  raises the density globally until the pack actually fills the image (the old
+  halving ladder left whatever the power-of-two round-up wasted). The atlas
+  DIMENSION is still derived from the *unweighted* area on purpose: weighting
+  must not move a project's VRAM in either direction.
+  **Numbers** (`examples/glow`, same 256² atlas both sides, both from a full
+  `--build` - `--refresh-gen` does not run texbake, so an A/B across it compares
+  a stale PNG with itself and silently proves nothing):
+  texels in use 23572 → 42528 (36.0% → 64.9% of the image); texels on regions
+  that receive light 20571 → 38944 (+89%) against 3001 → 3584 (+19%) for those
+  that receive none; the lit face of `s4-wall-left` went 30×108 → 69×128, i.e.
+  **6.0 → 13.8 texels per world unit** with the mean step between neighbouring
+  texels along the gradient dropping 7.76 → 3.24 - that step size *is* the
+  blockiness. Decoding the shipped `.res-baked/aoatlas/scene0.png` on both sides
+  agrees: 22939 → 41328 lit texels, 20256 → 40384 occluded.
+  For (a) in isolation (layout held fixed, so the comparison is per texel):
+  185 texels darkened, 298 brightened, 65053 unchanged, total light +0.36%. Note
+  the tempting invariant "a shadowing change must never brighten a texel" is
+  **false** for this change and has to be - a penumbra darkens the lit side of
+  the old hard edge and brightens the shadowed side; what does hold, and what
+  was asserted, is that nothing outside the penumbra band moves at all.
+  `s3-pillar-OUT-OF-REACH` stays at 0 lit texels, while `s3-pillar-lit-3` -
+  which the wall put in full umbra - goes from 0 lit texels to 319.
+  **The one deliberate divergence.** The generated game's per-vertex path
+  (terrain, models, spawned clones, physics bodies, textured receivers) keeps
+  the single hard ray, so the three implementations are no longer exact twins.
+  Measured before deciding, per the brief: an EE timer around `loadScene(0)` in
+  PCSX2 with the blocker loop repeated 8× cost **+200 ms of scene load**
+  (1160 → 1360 ms) on this scene, and the same multiplier would land mid-frame
+  on every runtime spawn and static-batch rebuild - to resolve a penumbra on a
+  grid whose own resolution is 2 world units (33×33 heightmap over 64×64) or a
+  box face's four corners. Written down in docs/emissive-materials.md, in the
+  `emissiveLightAt` header comment, in the editor skill and in the glow README,
+  because an undocumented twin divergence is a trap for the next person.
+  **Verified**: PCSX2, software renderer, PAL - **50 FPS held** on both builds;
+  before/after screenshots from a frozen camera (walkSpeed/lookSpeed 0 in the
+  fixture - the FPP camera drifts, and two boots otherwise never line up), and
+  the difference is confined to the shadowed faces (0.43% of pixels brighter,
+  0.17% darker, everything else untouched). Editor viewport: shader compiles and
+  renders the scene with the same softening - it could not be pixel-A/B'd,
+  because moving its camera needs synthetic input this machine must not receive.
+  Host side, the whole bake is exercised by a scratch harness that links
+  `aobake.cpp` + `project.cpp` and dumps the atlas plus per-region statistics -
+  the same trick treegen and matbake use, and far faster than clicking the GUI.
+- (173) **Authoring ergonomics: orthographic/axis views, collision-aware
+  placement, and a paste that follows the cursor.** Three requested editor
+  features, one commit each in spirit but one branch in practice - they share
+  the viewport's camera/ray plumbing.
+  **(a) Orthographic projection on a chosen axis.** `Viewport::Projection` is
+  now perspective / free ortho / the six locked axis views (Top, Bottom,
+  Front, Back, Right, Left), persisted per project as `editor.viewProjection`.
+  The front door is a **Blender-style axis gizmo** in the viewport's top-right
+  corner (`App::drawAxisGizmo`): the three world axes as coloured balls that
+  turn with the camera (positive ends stemmed and lettered, negative ends
+  hollow), click one to snap to that ortho view, click the hub to toggle
+  perspective. Drawn straight into the window's `ImDrawList` from the view
+  matrix's columns - no GL, no extra pass - and painter-sorted by view-space
+  z so the axis facing the camera is on top and wins the hover. It handles its
+  own hit test (nearest ball, front-most first) instead of an `InvisibleButton`
+  and returns "cursor is over me", which the pick / rubber-band / paste-commit
+  branches consult - otherwise every click on the widget would also clear the
+  selection, the way the pre-existing corner buttons quietly do. Backed by
+  three other entry points on the same setting: the `Proj:` button, *View >
+  Projection* and the numpad (`5` toggles, `1`/`3`/`7` + `Ctrl` pick a side -
+  the number ROW stays on the transform tools). The enabling refactor was
+  collapsing four hand-rolled cameras into one: `camView()` + `camRay()` now
+  resolve eye/basis/extents once (including the Cutscene/look-through
+  override), and `render()`, `pick()`, `terrainRaycast()` and the new
+  `placementRaycast()` all consume them. Before this, three of those four
+  rebuilt a **hardcoded 50-degree perspective ray**, so they already disagreed
+  with the image while looking through a Camera entity with a different FOV -
+  a latent bug the ortho work would have multiplied by six. Two deliberate
+  choices: the ortho depth range **straddles the eye** (a parallel view is a
+  slab through the scene - a Top view must not hide the roof it looks
+  through), and orbiting a locked axis view **seeds yaw/pitch from that axis
+  and drops to free ortho** instead of ignoring the drag or teleporting to a
+  stale angle. `pan`/`fly` read the same basis, so flying in a Top view walks
+  up the image (no view direction left to flatten onto the ground).
+  **(b) Surface snapping.** New host-only `placement.cpp` (the
+  decalproj/navmesh pattern): world AABB per object (rotation and real model
+  bounds included), `isSupport()` for what counts as a surface, and
+  `restOffsetY` - the offset that rests an object on the highest support under
+  its *footprint* (terrain sampled corners+center, plus overlapping objects'
+  tops). One `ceilingY` argument carries the whole behavioral difference
+  between "insert on top of whatever is there" (`FLT_MAX` - three boxes added
+  in one spot stack) and the `End` drop-to-floor ("nothing may lift it").
+  Wired into every add path, the paste, and *Scene > Drop to floor*; toggled by
+  *Surface snap* in the tool row / *View > Placement* (machine setting in
+  `editor.ini`, on by default). Explicitly NOT a collision solver - no sweep,
+  no penetration resolve; gizmo dragging stays free.
+  **(c) Deferred paste.** `Ctrl+V` stages the copies instead of inserting
+  them: they follow the cursor (outlined, surface-snapped, rendered from a
+  scratch list so the scene model is untouched), and a left click *or* a
+  second `Ctrl+V` commits them; `Esc` discards with no undo step. A group
+  moves as one rigid arrangement, lifted by the largest offset any member
+  needs. Pasting without ever passing over the viewport falls back to the old
+  one-unit diagonal offset. The staged set is dropped on a scene switch and on
+  project attach.
+  **Verified.** Layer 0 (clean build) plus: a scratchpad host harness over
+  `placement.cpp` covering all 11 placement rules (flat ground, sloped ground,
+  insert-inside-a-table → on top, beside/flush footprints, drop-to-floor
+  ceiling, skip list, lights and `collisionMode == 2` not being surfaces, a
+  45-degree box resting on its corner at half a diagonal, group offset, model
+  bounds with feet at the origin) - all pass; `--resave` round-trip of the new
+  `editor.viewProjection` key; and window screenshots of the editor rendering
+  `examples/showcase` in the **Top** view (terrain a perfect square, gizmo and
+  overlays correct) and `examples/script-demo` in the **Front** view (terrain
+  edge-on as a line, the box sitting on it), against a perspective capture of
+  the same project as the baseline. The axis gizmo was screenshotted zoomed in
+  (stems, letters, hollow negative ends, the hub) and the capture happened to
+  catch a live hover - white ring plus the "Top view - orthographic along the
+  +Y axis" tooltip - so the hit test and tooltip path are covered too. **Still needs a hands-on pass**: the
+  interactive paste flow and the insert snap are mouse-driven, and synthetic
+  input is off-limits on this machine - the math and the wiring are covered,
+  the *feel* (does the copy land where you expect, is the numpad muscle memory
+  right) is a human check.
+- (172) **The GROUND goes per pixel too: baked emissive light + its shadows
+  move onto the terrain lightmap.** (169) fixed the props and left the biggest
+  surface in the frame behind. `examples/glow` measures it: *Terrain detail* 32
+  over a 64-unit map is a 33x33 vertex grid, one lighting sample every **1.94
+  world units**, and `shadeAt` in `buildTerrainChunk` ran the emitter response
+  AND its shadow test per vertex - so every pool of light and every shadow edge
+  on the ground was quantised into ~2-metre squares. In a dark scene where the
+  ground fills most of the frame, that was the most visible artifact left.
+  The fix is the exact twin of what objects already do, one level up: the
+  terrain AO map (`.res-baked/aomap/scene<N>.png`, already RGBA32, already
+  drawn as an extra chunk pass) becomes the terrain **lightmap** - `A` =
+  occlusion as before, `RGB` = baked emissive light - and each chunk draws it
+  twice, the occlusion multiply with BLACK vertex colors (it had grey ones,
+  harmless while the RGB was zero, wrong the moment it is not) and then an
+  additive pass through `lightAddInfoBag` whose vertex color carries the
+  terrain's own base tint. `aobake::terrainAOMap` bakes both channels from the
+  same heightmap normal `shadeAt` derives, reusing `collectEmitters` /
+  `emitterLightAt` / `shapeBlocksRay`, with the same ordered 4x4 Bayer dither
+  the object atlas uses (these are wide low-amplitude ramps; an 8-bit
+  framebuffer bands them badly without it) and the shadow casters pruned ONCE
+  per emitter instead of per texel. `SCENE_AO_MAP_LIT` is the terrain's
+  `SCENE_AO_ATLAS_LIT`: with it set the chunk build stops adding
+  `emissiveLightAt` to the vertex colors and skips the per-chunk emitter
+  collect entirely, so the light cannot land twice; `SCENE_AO_MAP_OCC` gates
+  the occlusion pass separately, so **each pass is drawn only when its channel
+  has content**. The map is no longer gated on the ambient-occlusion
+  preference either - the object atlas was ungated in (169) for the same
+  reason, and `examples/glow` is exactly the case (AO off, five emitters).
+  Along the way: every extra chunk pass now carries the BASE bag's
+  `bboxVersion` instead of its own `++g_bboxStamp`. The engine's package-bbox
+  cache is keyed by the vertex pointer, and all the passes share
+  `ch.vertices`, so distinct stamps made each pass recompute the boxes the
+  previous one had just built, every frame - the new pass would have been the
+  fourth. Not previously noticed because it is invisible except in EE time.
+  Known limits, documented rather than papered over: one 256² map for the
+  WHOLE terrain (RGBA32 - palettising destroys the gradient through the
+  engine's tRNS→CLUT path), so **0.25 world units per texel at 64 units**
+  (~8x finer per axis than the vertex grid) but **0.75 at 192** like
+  `examples/showcase` - better than per vertex, not dramatic. Shadows stay
+  rectangular (analytic boxes/spheres); this makes them smooth-edged and
+  correctly placed, not silhouette-accurate. And on a *textured* terrain the
+  additive pass adds flat light instead of modulating the texture, so a hot
+  pool reads slightly bright over dark texels - the opposite call from the one
+  objects make (a prop is small and its texture hides the Gouraud seam; the
+  ground is the whole frame and had nowhere to hide).
+  **Verified in PCSX2 (software renderer), full `--build` on both sides** - not
+  `--refresh-gen`, which does not run texbake and would have compared a stale
+  PNG with itself (the trap (170) fell into). Decoded the baked PNG directly:
+  before 256x256, alpha 10175 texels, **RGB 0 texels**; after, the identical
+  10175 alpha texels and **11858 RGB texels**, max (255,203,146) - the lava's
+  orange. Sampled the map along the ground: a smooth quadratic ramp away from
+  the plate edge (124, 108, 87, 57, 34, 17, 5, 0 over 0.25-unit texels) and a
+  hard cut to 0 behind `s3-shadow-wall`. Screenshots from a fixed spawn (a
+  scratch copy of `examples/glow` with the player parked facing the lava pit,
+  so the frames line up): before, the ground is a fan of ~2-metre facets and
+  the wall's shadow is a visible polygon; after, both are smooth with a clean
+  edge. **50.08 FPS** in steady state (before: 50.02), EE 34%. Also built the
+  AO-off variant end to end: the map ships with **0 alpha texels** and 11858
+  RGB ones, i.e. only the additive pass. `examples/showcase`, `large-terrain`
+  and `script-demo` regenerate byte-identically apart from the two new flag
+  tables, both all-zero - a scene with no emitters gains no pass. All 18
+  example projects regenerated.
+
+- (171) **GS VRAM: a real residency manager (order-independent free +
+  coldest-first eviction), after measuring what the old one actually cost.**
+  Upstream's allocator was a bump pointer whose `free(address)` was literally
+  `pointer = address`, and `useTexture` deallocated the ENTIRE resident set the
+  moment one texture didn't fit. Measured first, per the brief.
+  **What the measurement said** (new `VRAMSTAT` counters in
+  `RendererCoreTexture` - binds/hits/uploads/re-uploads/evictions/free-VRAM
+  low-water, logged from `endFrame` on every evicting frame plus every 120
+  frames; counters always compiled, logging debug-only since `TYRA_LOG` is a
+  no-op under NDEBUG):
+  (a) **A realistic scene never flushes.** `examples/showcase` - a whole
+  village with streaming layers, particles, post-fx - holds **6 texture
+  allocations and 0.87 MB of the ~1.08 MB heap free**, 0 evictions, 0
+  re-uploads, forever. 4-bit palettization is doing all the work. So the
+  headline claim ("the ceiling under per-model lightmaps") is real only for
+  full-colour textures: one 256² 32bpp texture is 24% of the heap and a 512²
+  is 93% of it.
+  (b) **But it does not fall off a cliff gracefully.** A fixture just over
+  budget (3×256² + 3×128² 32bpp, fixed camera so visibility is deterministic)
+  re-uploaded **9-10 textures every frame** - the whole working set, because
+  one over-budget bind dumped everything.
+  (c) **And `free()` was memory-unsafe, not just wasteful.** Freeing anything
+  but the newest allocation rewinds the pointer under still-live textures.
+  Streaming layers hit this on every unload: a fixture that unloads a 3-object
+  layer at t=6 s and reloads it at t=10 s logged 3 out-of-order frees, free
+  space "gained" 0.11 MB out of nowhere, and on screen **two surviving boxes
+  started drawing another box's texture**. This, not the flush count, is the
+  reason the work was worth doing.
+  **What was built.** `RendererCoreGSVRam` now splits VRAM into a *permanent
+  region* (bump, filled by `allocateBuffer()` at init: frame/z buffers,
+  post-fx scratch, noise, env-map + camera-feed targets, never released - and
+  `free()` simply doesn't know those addresses, so nothing can reclaim them)
+  and a *texture heap* above it managed by a coalescing best-fit free list, so
+  `free()` is order independent. `RendererCoreTexture::makeRoomFor()` evicts
+  one allocation at a time until the newcomer fits, victim chosen in two tiers
+  (`pickVictim`): stale entries first (not bound this frame *or* the one
+  before - LRU, ties to the bigger block), and when everything resident is in
+  the live working set, the **most recently bound** one instead. That MRU tier
+  is not a detail: with plain LRU a scene that re-binds in the same order every
+  frame evicts exactly what it needs next, and the entire set cycles. The
+  two-frame window matters for the same reason - "not bound yet this frame" is
+  the tail of last frame's scan, not cold data. Both were measured, not
+  assumed (single-tier LRU: 7-8 re-uploads/frame on the pathological fixture;
+  a one-frame window: 8; the shipped policy: 3 on the realistic one).
+  `RendererCoreTextureBuffers` gained a `lastUsedSeq` stamp for this.
+  **Verified** (Layer 3 throughout - engine code only compiles in Docker;
+  PCSX2 software renderer, PAL, same fixture and same fixed camera on both
+  sides of every A/B, eviction policy isolated from the allocator with a
+  temporary compile switch so the comparison is like-for-like):
+  re-uploads/frame **9-10 -> 3** on the just-over-budget scene, output pixel
+  identical, 5.51 -> 5.33 ms EE frame time with vsync off and PCSX2's GS
+  thread (where emulated PATH3 transfers land) 39% -> 23%. The streaming
+  fixture now round-trips exactly (free space 0.406 -> 0.617 -> 0.406 MB,
+  largest free block unchanged at 416 KB, i.e. no fragmentation) and the
+  post-reload frame is pixel-identical to the pre-unload one - the wrong-texture
+  corruption is gone. `examples/showcase` is **byte-identical** before and
+  after on every counter (bind/hit/up/res/freeMB at f=120..720), which is the
+  point: realistic projects see no change at all. `examples/reflections`
+  re-checked because the env map binds through `vramResident` - reflections
+  still render, 50 FPS. Deliberate over-subscription (6×256² 32bpp, ~2.4× the
+  heap) degrades rather than breaks: 10 -> 8 re-uploads/frame, scene still
+  correct at 195 FPS uncapped. Honest limit: nothing fixes a working set that
+  is 2.4× VRAM; the answer there stays palettization/atlasing. Not yet tested
+  on real PS2 hardware. Docs: new [docs/gs-vram.md](docs/gs-vram.md) (budget
+  table, what a texture really costs, the policy, the `VRAMSTAT` fields, the
+  numbers) + docs/README + README + the `tyra-engine-dev` skill.
+
+- (170) **Emissive light is blocked by solids (no more glow through a wall).**
+  Owner spotted the obvious hole in (169): a lamp lit the ground on the far
+  side of a wall. The occluder shapes were already there - `collectOccluders`
+  reduces every *Cast shadow* object to an analytic box/sphere for the ambient
+  occlusion - so all that was missing was a segment test. `shapeBlocksRay`
+  (slab test for a box, quadratic for a sphere) drops a light contribution when
+  the segment from the lit point to the emitter's nearest surface enters an
+  occluder. Three twins as usual: host bake, generated game, viewport shader.
+  Details that matter: the caster list is pruned by the EMITTER reach, not
+  `SCENE_AO_RADIUS`, so it cannot share `g_aoLocal`; the receiver's own shape
+  is excluded at collect time (the ray starts on it) and the emitter's own per
+  emitter (it ends on it); a 0.02 bias off the surface stops a prop resting ON
+  a floor from shadowing it with its contact face. The occluder table and the
+  viewport's occluder uniforms are now emitted whenever emitters exist, not
+  only when the AO preference is on - a scene can have glowing lamps casting
+  shadows and no baked occlusion. Shadows are HARD and blocky by construction
+  (a wall throws a rectangle, not its silhouette; a detailed mesh shadows as
+  its bounding box) - documented, with *Cast shadow* as the per-object opt-out
+  for railings and grates. `examples/glow` gained `s3-shadow-wall`, a slab
+  between the lava pit and one pillar, so the example demonstrates it (the
+  opposite pillar is the unshadowed control).
+  **Verified, after first getting the measurement WRONG:** the ray/shape math
+  was unit-checked in isolation (6/6: through a box, beside it, segment too
+  short, sphere in front / beside / behind). Then three A/B "measurements" of
+  the baked atlas showed byte-identical results - because `--refresh-gen` does
+  NOT run `texbake`, so all three compared the same stale PNG against itself.
+  Redone with full `--build` on both sides: shadows off 23875 lit texels /
+  1350450 total light, shadows on 22939 / 1279260 - 1451 texels darkened, **0
+  brightened** (shadowing can only subtract), 5.3% of the light removed. In
+  PCSX2 at 49-50 FPS (EE 38%, GS 10%) the shadowed pillar is dark on its
+  pit-facing side while the unshadowed one across the pit is lit. The
+  refresh-gen/texbake trap is now written into the tyra-testing skill - it
+  silently "proves" that an asset change did nothing.
+- (169) **Emissive light goes PER PIXEL: the AO atlas becomes the scene
+  lightmap - plus two lighting-model fixes it exposed.** (167)'s baked light
+  landed on vertices, and a plain box face is two triangles, so a strong
+  gradient showed the diagonal split as a hard seam (owner spotted it
+  immediately on a pillar next to the lava pit). Measured the cheap fix first:
+  Detail 5 on the receivers kills the diagonal for ~nothing (12 -> 300 tris,
+  EE 37% -> 39%) but trades it for a visible subdivision lattice, and does not
+  help imported models. So: the atlas route, which turned out CHEAPER than
+  expected because the AO atlas already had free space. `SceneAoAtlas` ->
+  `SceneLightAtlas`, `bakeSceneAoAtlas` -> `bakeSceneLightAtlas`: ONE 256^2
+  RGBA32 image now carries **A = occlusion, RGB = emissive light**, read twice
+  by two passes - texturing is MODULATE, so the vertex color of each pass
+  selects which channels it sees (BLACK vertex color for the alpha-over
+  multiply, which is also the one-line fix that stops the light in RGB leaking
+  into the occlusion; WHITE for the additive pass, `fogDisabled` for the same
+  reason the refl pass sets it). Zero extra VRAM. The atlas is no longer gated
+  on the AO preference - a scene can have glowing lamps and no occlusion - and
+  `SCENE_AO_ATLAS_LIT` tells the game per object whether its light came from
+  the atlas, so `pushVert` never also puts it in the vertex colors. **Textured
+  receivers deliberately keep the vertex path**: a flat additive add would blow
+  out dark texels (the vertex path multiplies the texture), and texture detail
+  hides the Gouraud seam far better than a flat surface does.
+  **Two lighting-model bugs the sharper output exposed**, both mine from (167):
+  (a) the emitted light COLOR was the resolved `Ke`, which has the white-hot
+  core folded in - so a green lamp cast near-white light. It is now the
+  AUTHORED glow color (`objparser` parses it out of the `# tyra-glow` hint,
+  falling back to Ke normalized by its brightest channel for a hand-written
+  `Ke`); the white-hot core is an exposure effect on the emitter's own surface,
+  not a property of the light it emits. (b) the facing term was
+  `max(0, N.L)`, which lights one face of a box fully and its neighbour not at
+  all - a seam on the corner. Went through a linear `0.35 + 0.65*N.L` wrap
+  (matching the occluder term) and then to **half-Lambert squared**, because
+  the linear wrap still reaches zero at a finite angle and that angle reads as
+  a hard shading edge in a dark scene; the squared form is smooth everywhere,
+  zero only directly away, with a faint back-hemisphere fill where a bounce
+  would be. Atlas coverage went 13.4% -> 30.4% of lit texels on that change
+  alone. All three twins moved together (aobake / generated game / viewport
+  shader). Also corrected a **stale engine comment**: `additiveBlendFix` claims
+  it drains the pipeline with FINISH barriers "so keep it to a handful of
+  meshes" - the implementation moved the equation in-band with the mesh tags
+  and dropped the barriers long ago. It nearly steered this design away from
+  the extra pass. Verified: editor builds clean; `examples/glow` (Detail back
+  to 1) rebuilt and booted in PCSX2 software renderer at a full 50 FPS
+  (EE 45%, GS 10%), no asserts - the pillars shade smoothly with no diagonal
+  and no lattice, the neon strips cast saturated green/magenta pools instead of
+  washed-out white, and the wall gradients have no hard edge. Atlas contents
+  checked directly by decoding the baked PNG (max light RGB, lit-texel share).
+  **Follow-up on "the wall gradients still are not smooth":** zoomed the
+  framebuffer 5x instead of guessing, and it is NOT a filtering bug (the 3D
+  path defaults to TyraLinear) - it is 8-bit BANDING. A pool of light is a wide
+  LOW-amplitude ramp (~30 of 255 levels spread across half the screen), so
+  every level is a broad plateau whose bilinear-magnified edges read as
+  irregular blocks. The bake now dithers the light with an ordered 4x4 Bayer
+  pattern keyed on the ATLAS texel (sub-level, deterministic, never crawls);
+  measured on the baked PNG, non-zero plateaus dropped to median 1 texel /
+  p90 3 and the wall reads visibly smoother at 1x. What is LEFT is budget, not
+  a defect - one 256^2 atlas for the whole scene (bigger = RGBA32 VRAM the GS
+  does not have) and an 8-bit framebuffer with no dither on the blend - so the
+  doc says so plainly and points at the two real levers: a tighter emitter
+  reach (steeper ramp spends its levels over less surface) and a little film
+  grain, which is exactly what PS2 games shipped for this. NOT attempted:
+  weighting atlas texel density by how much light a region actually receives -
+  a real idea, but it wants its own measure-first pass.
+  `docs/emissive-materials.md` + the example README updated; skills updated.
+- (168) **`examples/glow` - the emissive showcase.** A first-person midnight
+  tour, one station per axis of (166)+(167), because the feature only makes
+  sense side by side: (1) two signs with IDENTICAL `Kd` where only one carries
+  `Ke` - one is full cyan, the other a dark silhouette; (2) a white-hot ladder
+  of three boxes at the same glow strength and 0 / 0.35 / 0.7 core, which also
+  demonstrates that the bright pass is PER CHANNEL (the halos go red ->
+  salmon -> white); (3) a glowing lava plate with reach 13 lighting four
+  `concrete.mtl` pillars, plus a fifth identical pillar parked at x=19, just
+  past the reach - same material, one orange one black; (4) a neon alley where
+  four strips paint separate colored pools on the walls and overlap in the
+  middle. A `bloom-pulse` Empty runs *Every 14s -> Set Bloom 0.45* in parallel
+  with *Delay 7 -> Set Bloom 1.5*, so the halo collapses and blows back out
+  unattended - a live demo of the new 0..2 bloom range (the sky-cycler pattern
+  from `examples/reflections`). Scene lighting is one nearly-off cold
+  directional (`ambient 0.06`, `diffuse 0.04`) plus fog to near-black at 70
+  units: every warm pixel in the frame is a material. Verified: Docker build
+  OK, booted in PCSX2 software renderer at a full 50 FPS (EE 40%, GS 13%) with
+  9 static batches and no warnings in `bin/log.txt`; the opening frame shows
+  all four stations at once, with the per-channel halo colors and the lit /
+  unlit pillar pair both clearly readable. README written; listed in the
+  root README's example section.
+- (167) **Glow, part 2: it actually blazes now - white-hot core, bloom spread /
+  over-add, and baked emissive LIGHT.** (166) shipped the emissive floor but
+  "even at max it doesn't really glow" was the honest verdict, and the reason
+  is structural: at glow 1 an untextured surface is ALREADY at the framebuffer
+  maximum in its own hue, so there is no brighter orange to reach. Three
+  answers, one per axis:
+  (a) **White-hot core** (Material Editor): added to every channel, so the
+  surface desaturates toward white the way an overexposed emitter does on
+  camera - the only direction left, and it pushes every channel over the bloom
+  threshold too. The `.mtl` now stores the RESOLVED emission in `Ke`
+  (`glowColor x glow + white`, capped 1.99) with the authored controls in an
+  extended `# tyra-glow <strength> <r> <g> <b> <white>` hint; the one-number
+  form from (166) and a bare hand-written `Ke` both still load
+  (`App::matEdKe` is the single definition of the resolved value, so the file
+  and the previews cannot disagree).
+  (b) **Bloom got a shape**: `bloom` now goes to 2 (its GS blend FIX is a whole
+  byte, so the blur can be over-added - the load clamp and the Set Bloom node
+  moved to 0..2 with it), and a new **Spread** setting maps 0..1 onto 1..4
+  soften rounds over the quarter-res buffer, each with DOUBLED tap offsets, so
+  the halo grows geometrically from a fringe into a corona (`setBloomSpread`,
+  4 GS sprites a round, ping-ponging low0/low1). The postfx packet grew
+  352 -> 512 qwords for the worst case; an undersized packet corrupts the GIF
+  stream, so that bound is now spelled out in the comment.
+  (c) **Baked emissive light** - the "wypalone jak AO swiatlo" step: tick
+  *Lights up surroundings* (reach + strength, `# tyra-glow-light`) and the
+  emitter's light is folded into the vertex colors of everything around it.
+  Deliberately the AO machinery in reverse: `collectOccluders` and the new
+  `aobake::collectEmitters` share one `objectShape()`, the game answers both
+  with one `occShapeAt()` distance-to-shape query (templated over AoOccData /
+  EmisLightData, which share the shape prefix), and the emitter list is pruned
+  ONCE per object / per terrain chunk - the per-vertex-table-scan dcache
+  disaster recorded above stays avoided. Falloff is quadratic from the
+  emitter's SURFACE (a long neon strip lights evenly along its length) times
+  N.L with no side-on floor, so light never leaks onto back faces; an emitter
+  never lights itself. Table lands in `ao_data.gen.hpp` (`SCENE_EMIS`), gated
+  on emitters existing, independent of the AO preference. Receivers: objects,
+  static batches AND terrain. Viewport twins for all of it (`uEmis*`, capped
+  at 8 nearest the camera; `collectEmitters` reads `.mtl` files so the viewport
+  hands in a `GlowCache` member cleared by `invalidateAssets`).
+  **Fixed in passing:** `rebuildStaticBatch` never re-pruned `g_aoLocal` per
+  member, so every member of a batch was shaded with the FIRST member's
+  occluder set - it now collects per member (and per member for the emitters,
+  which is what surfaced it). Verified: editor builds clean; the (166) scratch
+  project extended (white-hot 0.3, reach 9 / strength 1.6, bloom 1.4 /
+  threshold 0.5 / spread 0.7) refreshed, Docker-built with the engine rebuilt,
+  booted in PCSX2 software renderer at a full 50 FPS - the emitter is now a
+  white-hot core inside a wide corona, the terrain under it carries a warm
+  quadratic pool of light, and the matte box next to it (identical `Kd`, no
+  `Ke`) is lit orange on the face turned toward the emitter where before it
+  was a black silhouette; the editor viewport shows the identical picture.
+  Material Editor's Glow panel (which now also reports the project's bloom
+  setup and warns when bloom is off) still wants a human eyeball pass.
+  `docs/emissive-materials.md` rewritten around the three axes; README, docs
+  index and both skills updated.
+- (166) **Emissive ("glowing") materials + a bloom bright-pass threshold.**
+  Step 1 of the glow feature: a material can now light *itself*, so it keeps
+  its own color in a pitch-black scene. Authored in *Material Editor > Glow
+  (emissive)* (strength 0-2 + a glow color seeded from the material color,
+  "Match material color" button), stored as the standard Wavefront `Ke`
+  statement with the color x strength split riding in a `# tyra-glow` comment
+  — the `# tyra-brightness` pattern, so hand-written `Ke` from any exporter
+  still works (brightest component = strength; `Ke 0 0 0` = matte).
+  Implementation is deliberately *not* a light: `pushVert` clamps the finished
+  shade up to `Ke` as the LAST step, after Kd, AO and point lights, so the
+  emissive floor ignores darkness on the way down and a brighter lit result
+  still wins; the object tint multiplies on top and GS fog still applies. Cost
+  on the console = three compares per vertex during the one-time geometry bake
+  (spawned clones and static batches included — `g_primKe` is staged next to
+  `g_primKd` in both `rebuildObjectGeometry` and `rebuildStaticBatch`), then an
+  ordinary bag. The viewport is the GLSL twin (`uEmissive`, one-shot per draw
+  so gizmos/wires/markers can never inherit it) and so is the Material Editor
+  preview. Objects with an emissive material are dropped from the baked **AO
+  lightmap atlas** (`materialGlows` in aobake.cpp): that pass darkens per pixel
+  in a separate draw, which a floor baked into vertex colors cannot clamp back
+  up — they keep the per-vertex AO path, where the floor wins. `Ke` parsing
+  added to `objparser` (host) and `LeanObjLoader` (engine, both
+  `LeanObjMaterial` and `LeanMtlMaterial`); the asset-import and texbake `.mtl`
+  rewriters already pass unknown lines through verbatim, so nothing else moved.
+  **The halo** is the second half: the engine's bloom got a real bright pass
+  (`RendererCorePostFx::setBloomThreshold`) — one extra quarter-res sprite that
+  subtracts a flat grey from the downsampled frame through
+  `(0 - Cs)*128/128 + Cd`, which the GS clamps at zero, so everything below the
+  cut drops out of the blur entirely. Without it bloom veils the whole picture
+  (soft focus) and an emissive object does not read as glowing. Exposed as
+  `ProjectSettings::bloomThreshold` (*UI Editor > Bloom + color grading >
+  Threshold*, per-scene overridable under *Post effects*), 0 = the historical
+  whole-frame behavior, so existing projects are untouched. `flatQuad` grew
+  optional w/h for the low-res target. **Known gaps, by design for step 1:**
+  animated `.glb`/`.fbx` models ignore `Ke` (the skeletal VU1 rig has no
+  emission slot — the same reason `refl` is ignored there), terrain ignores it,
+  and an emissive material does not illuminate its surroundings — the baked
+  "emissive light" pass (the AO-style de-luxe version the feature was asked
+  for) is the queued step 2. Verified: editor builds clean; scratch project
+  (`glowtest`, near-black ambient 0.04 / diffuse 0.02, two identical-`Kd`
+  boxes differing only in `Ke`) refreshed, Docker-built with the engine
+  rebuilt, booted in PCSX2 software renderer at a full 50 FPS — the emissive
+  box renders bright orange with a clean halo while the matte twin is a barely
+  visible dark silhouette and the terrain/sky stay black (the threshold kept
+  the bloom off them, and no wrap-around artifacts, confirming the GS clamps
+  the subtract); the editor viewport shows the identical pair. The Material
+  Editor's own Glow panel still wants a human eyeball pass (no synthetic input
+  into the GUI here). New doc: `docs/emissive-materials.md`; README + editor
+  and engine skills updated.
 - (165) **Artist-authored mesh LOD meshes for static models.** Automatic
   decimation is not always what an artist wants (and the decimator refuses to
   touch small parts or cross uv seams, so some models barely shrink), so a
@@ -9089,3 +9809,340 @@ Each finished feature lands as its own commit.
   only compiles inside the container. Examples unaffected (none has an empty
   scene). Note: the editor exe in `build/` was locked by a running editor, so
   this was built and verified from a throwaway `build-verify/` tree.
+- (100) **Tree Generator** (*Tools > Tree Generator*, user request: "generate
+  trees into the assets and place them from the editor - but not 100k-vertex
+  monsters") - procedural low-poly trees, EZ-Tree-inspired (MIT),
+  reimplemented host-side as `src/treegen.cpp` (the stochtile/matbake/
+  decalproj pattern: no GL, no Project dependency, pure functions over a
+  `Params` struct). Recursive branch skeleton -> tapered tubes with
+  parallel-transported frames, leaves as camera-agnostic quads on the outer
+  levels, plus two procedurally baked 128² textures (tileable bark: rough
+  ridges / birch lenticels / cracked plates; leaf card: broadleaf cluster /
+  needle sprig / single blade). `writeAssets()` emits `.obj` + `.mtl` + the
+  two PNGs into `res/models/trees/` and the tree enters the scene through
+  the EXISTING `addModelObject()` - so the whole model -> serialization ->
+  codegen -> runtime chain is untouched: no new object type, no new
+  manifest field, no codegen, no engine change. A generated tree is
+  indistinguishable from an imported .obj. Leaf transparency needed nothing
+  new either - the static pipeline already alpha-tests material textures -
+  but the leaf PNG bakes **hard 0/255 alpha** on purpose (the tRNS->CLUT
+  path loses a soft gradient) with opaque colors dilated into the
+  transparent margin so bilinear sampling never rings a dark fringe.
+  Determinism was a design constraint, not a nicety: each branch derives
+  its RNG stream from (parent seed, child index) via a splitmix mixer, so
+  dragging one slider ADJUSTS the tree instead of reshuffling it - without
+  that, every tweak of "Trunk sides" regenerates a different tree and the
+  tool feels random rather than dialable. Presets keep the current seed (a
+  preset is a shape, not a dice roll); Roll re-seeds. Tessellation is
+  explicit - radial sides and length rings interpolate from the trunk
+  values down to the `*Min` values on the outermost level, so detail lands
+  where it reads - and the window shows a live triangle count (green under
+  1800, amber past it, red past 3000, advisory only). The tool is a
+  parameter panel + a live turntable preview rendered from the IN-MEMORY
+  mesh/textures (nothing touches disk or the shared asset caches until you
+  add, so slider drags stay instant) in its **own framebuffer**, not the
+  Material Editor's - sharing `prevFbo_` was the first cut and is wrong:
+  both tools can be open at once and size their previews independently, so
+  one target would thrash its size and each window would show the other's
+  image. Doc: docs/tree-generator.md.
+  Verified: build.ps1 clean; a headless harness (the
+  headless-model-harness recipe - link `treegen.cpp.obj` +
+  `objparser.cpp.obj` against a tiny main) checked all six presets for
+  non-degenerate geometry and budget (**Oak 596, Birch 437, Spruce 943,
+  Poplar 646, Dead tree 549, Bush 620 triangles** - the "no kobyły"
+  requirement, comfortably met), determinism (same params -> identical
+  sizes/bounds; different seed -> different geometry), the leaf texture's
+  hard cutout (some fully transparent AND some fully opaque texels), and a
+  full **round-trip through objparser**: the written .obj re-loads with two
+  submeshes named bark/leaf, both textured, and a triangle count matching
+  the generator exactly (596 == 596), with the vertex dedup confirmed (739
+  positions vs 1788 raw corners). A second harness ran the non-GL half of
+  "Add to scene" (add a Model object -> ensureObjectIds -> save ->
+  refreshGenerated) against a scratch project: all clean. In the GUI the
+  window renders correctly at uiScale 1.5 (screenshot: full slider panel, a
+  real tree with trunk/branches/green leaves in the preview, live triangle
+  readout) and Add to scene writes the assets and adds the object.
+  **Found while verifying - a GL DRIVER crash, not this feature's code, but
+  reachable through it.** With the **Material Editor open**, adding a
+  generated tree model to the scene kills the editor (~50-100% of the time)
+  the moment the preview shows that model for the first time. Diagnosed
+  under gdb on a RelWithDebInfo build, so this is exact and not a guess:
+  the faulting call is **`glTexImage2D` at viewport.cpp:1810** inside
+  `Viewport::glTexture("res/models/trees/tree-12-bark.png")`, called from
+  **`Viewport::renderMaterialPreview`** (NOT the scene viewport), three
+  frames deep inside `atio6axx.dll`. Every argument is valid: 128x128,
+  comp=4, non-null pixels, power-of-two, RGBA8. A valid RGBA8 upload
+  segfaulting inside the driver is a driver fault; this machine has
+  documented AMD GL quirks (the white-window note in the screenshot
+  harness). Control: with the Material Editor **closed** the same add is
+  stable 4/4.
+  Two hypotheses were tested and **killed**, recorded so nobody re-runs
+  them: (1) "creating textures inside a render pass" - a `warmAssets()`
+  pre-pass that acquired every asset *before* any framebuffer was bound
+  still crashed, in the pre-pass itself; position within the frame is
+  irrelevant, and that change was reverted rather than shipped with a
+  wrong explanation attached. (2) "any textured .obj does it" - false: a
+  hand-written 12-triangle cube never reproduced it (0/10), not even
+  carrying the tree's own PNGs, not even with two materials and two
+  textures; a fresh project holding only `res/models/trees/` crashes 2/4.
+  So the trigger needs the generated tree model itself (596 tris, 2 parts)
+  plus the Material Editor. An earlier stash A/B "proving this predates the
+  feature" was flawed - it varied the binary while holding the poisoned
+  assets constant; what it does still show is that the faulting code is not
+  treegen's (the base binary, `treegen` not even compiled, crashed 4/4 on a
+  project full of generated trees). Filed as its own task and deliberately
+  NOT papered over with a "close the window on add" workaround. **Fixed in
+  (101)** - the entry below has the answer.
+  One real fix did come out of the hunt: the AO occluder pass called the
+  full `modelDraw()` (uploading meshes AND textures to GL) purely to read a
+  model's AABB - it now uses a new GL-free `Viewport::modelBounds()`
+  (objparser + its own cache), so reading bounds mid-frame never triggers a
+  GL upload. That is a straightforward win regardless of the crash.
+- (101) **Fix: the AMD GL driver crash on texture upload** (user report: "I
+  open the tree editor and it crashes instantly; a reboot didn't help" - and
+  it had worked during my own testing, which made it look like a regression
+  from the main merge; it wasn't). Windows' own Application Error log settled
+  it in one query: `Faulting module atio6axx.dll 31.0.21921.11005`,
+  `0xc0000005`, **fault offset 0x2152beb - byte-identical across every crash**,
+  the user's and mine, over several different builds. So: one driver bug, not
+  a regression and not several bugs; the user simply hit it earlier, because
+  merely opening the Tree Generator uploads its two preview textures, while
+  my repro needed a model added with a preview window open.
+  The fix is the *form* of the upload, not its arguments (which gdb showed
+  were always valid - 128², RGBA8, power-of-two, non-null pixels): a single
+  `glTexImage2D` carrying the pixel pointer faults, so every RGBA upload now
+  goes through **`glUploadTexRgba()`** in `gl_loader.h/.cpp` - allocate the
+  level empty, then fill it with `glTexSubImage2D` (`TexSubImage2D` added to
+  the loader's X-macro list). Applied at **all ten** upload sites, not just
+  the tree ones (viewport: disk textures, live paint, animated-model embedded
+  textures, the UV checker, the tree preview; app: HUD image cache, the
+  built-in USE sprite, HUD text, the text preview, the menu preview), plus the
+  R32F heightmap upload for the same reason - a driver bug does not care which
+  feature triggers it, and leaving nine sites armed would just relocate the
+  crash. Framebuffer attachments already allocate empty, so they were fine.
+  Verified on the three paths that used to fail: opening the Tree Generator
+  **0/4** (was crashing on every attempt for the user), Material Editor + add
+  a tree model **0/4** (was 4/4 on a clean base), Tree Generator "Add to
+  scene" **0/4** (was 3/4) - 12 clean runs where the previous binary managed
+  at most one. build.ps1 clean.
+  Also corrected in this pass: the `modelBounds()` comment still justified
+  itself with the earlier in-a-render-pass theory, which the gdb evidence had
+  already killed (the crash happened in a pre-pass too). The change stands on
+  its own merit - reading an AABB should not upload a model as a side effect -
+  and now says so instead.
+
+- (102) **Build: one dependency list, so a missing vendor/ clone can never
+  reach cmake again** (user report: a fresh worktree died with `Cannot find
+  source file: vendor/ufbx/ufbx.c` + `No SOURCES given to target`). The
+  dependency set lived in TWO places: `setup.ps1` cloned seven directories,
+  while `build.ps1` guarded only the original four (imgui/glfw/imguizmo/
+  imnodes) - so stb, ufbx and tyra were never checked. Every dependency added
+  after that guard was written (ufbx came with the FBX importer, #119) was
+  invisible to it, and any worktree created before the addition walked
+  straight into a cmake error that reads like a corrupt checkout rather than
+  "run setup". PROGRESS (1545) records the same trap firing once already.
+  Now `deps.ps1` holds the single list (`$VendorDeps` + `$StbHeaders` +
+  `$Ps2Tools`), dot-sourced by both scripts: setup fetches from it, build
+  probes every entry marked `Build` and runs setup itself when one is
+  missing, then re-probes and fails loudly with the offending path if the
+  fetch didn't help. Probes are **files the build actually compiles**
+  (`vendor/ufbx/ufbx.c`, `vendor/imgui/imgui.cpp`, ...), not directories, so
+  an interrupted clone counts as missing instead of passing the guard.
+  Two smaller fixes rode along: `vendor/tyra` is in-tree (its engine sources
+  are versioned here), so cloning into it always failed with a `fatal:
+  destination path already exists` that looked like a real error - it now
+  reports as present; and native tools run through `Invoke-Native`, because
+  git and tar write progress to stderr and Windows PowerShell turns that into
+  a terminating error under `$ErrorActionPreference='Stop'` **only when the
+  caller captured the stream** (build.ps1 piped into a log, CI) - the exit
+  code is what actually decides.
+  Verified both directions: renaming `vendor/ufbx/ufbx.c` away makes build.ps1
+  stop before cmake with the explicit path, and deleting the whole directory
+  makes it re-clone and build clean through to `tyrax-editor.exe`.
+
+- (103) **Fix: alpha-cutout foliage - black cards in the editor, z-stamping
+  transparent texels on the PS2** (user report on the Tree Generator: "in the
+  editor the leaves have a black background instead of alpha, and in the game
+  they have alpha but you can't see other leaves through them"). Two
+  independent bugs that happened to land on the same asset.
+  *Editor:* `Viewport::modelDraw` recorded a part's texture but nothing about
+  its transparency, and the scene pass drew every model part with
+  `alpha = false` - the shader's cutout discard was reserved for decals. A
+  leaf card is 13 395 of 16 384 texels at alpha 0, 12 302 of them pure black
+  RGB, so ignoring alpha renders exactly the black rectangle the user saw.
+  `glTexture()` now records whether an image carries any non-opaque texel
+  (only when the FILE has an alpha channel - an opaque RGBA PNG keeps the
+  cheap path), `ModelPart::alpha` reads it, and the scene, the mirror
+  reflections and the Material Editor preview all draw cutout parts with the
+  discard on. Opaque parts draw first, cutout after, the order the tree
+  preview already used.
+  *Engine:* the static pipeline's standard alpha test was
+  `GS_SET_TEST(..., ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_FRAMEBUFFER, ...)`
+  - and that ps2sdk constant reads backwards: `ATEST_KEEP_FRAMEBUFFER` is
+  **2 = ZB_ONLY**, "keep the framebuffer, update z" (`ATEST_KEEP_ZBUFFER` is
+  1 = FB_ONLY - the pair names what is PRESERVED, not what is written; the
+  header is `ps2sdk/ee/include/draw_tests.h`). So every fully transparent
+  texel drew no colour and still stamped the z buffer, and the invisible part
+  of a cutout card occluded whatever was drawn behind it later - leaves cut
+  along the straight edges of the card in front of them, holes of sky inside
+  the canopy. `ATEST_KEEP_ALL` (0) writes neither buffer, which is what a
+  cutout means; opaque geometry carries alpha 0x80 and never fails the test,
+  so nothing else moves. Fixed in both twins (stapip + dynpip).
+  Verified: editor screenshot of the trees project shows terrain through the
+  foliage with no black cards; on the PS2 side, built and booted the same
+  project in PCSX2 (software renderer, 50 FPS) with the engine line reverted
+  and restored - the upstream build shows leaves amputated along invisible
+  card boundaries, the fixed one a properly layered canopy. A pixel A/B was
+  not possible: the FPP camera lands in a different pose each boot (the known
+  per-run camera problem in tyra-testing), so the comparison is on the leaf
+  artefact, not on identical frames.
+
+- (104) **Tree Generator: height scales the tree, and conifers grow by their
+  own rule** (user, on the first real use of the generator: "when I raise the
+  height the tree gets thinner, and there is no way to make a Christmas tree").
+  Two separate shortcomings, both about the parameter MODEL rather than the
+  mesh code.
+  *Proportions:* `height` was a world length while `trunkRadius` and
+  `leafSize` were world lengths too, so the Height slider stretched the trunk
+  and left the girth behind - a taller tree became a pole, a shorter one a
+  stump. Height is now the tree's SIZE: `thickness` and `leafSize` are
+  fractions of it (the sliders read `% of h`, tooltips show the resulting
+  units), so dragging Height is a uniform scale. Measured with a host harness:
+  the Oak's width/height is 0.5969 at heights 5, 10 and 20 - bit-identical
+  proportions, which is exactly the property that was missing.
+  *Conifers:* the recursion only knew one habit - children spiral up every
+  parent and the crown emerges from ratios. A spruce is not that shape with
+  different numbers: its trunk keeps an unbroken leader and carries WHORLS
+  whose length follows a profile ALONG THE TRUNK (longest low, vanishing at the
+  apex - that profile is the cone) with the tilt sweeping from drooping at the
+  bottom to raised at the top. `lengthTaper` is a per-generation ratio and
+  cannot express either, which is why the old Spruce preset was a bare pole
+  with tufts on stalks. Added `Params::crown` (0 spread / 1 conical) +
+  `whorls`; conical mode runs `conicalWhorls()` off the trunk, reads
+  `children[0]` as the count per whorl, and offsets each whorl by the golden
+  angle so boughs never stack into columns.
+  Foliage needed two fixes to match: anchors now carry the **branch length they
+  own** (`Anchor::span`) and needle cards spread over it instead of over the
+  card size - a low-poly bough has two or three rings, so without this its
+  needles clumped at those points with bare tube between them - and the
+  conifer's leader is sampled at its own fixed rate rather than at the trunk's
+  rings, because foliage is shared out per anchor and the apex's two rings lost
+  every time against the ~200 anchors down in the whorls (measured: 13 leaf
+  triangles above y=8.25 before, 33 after, on a 10-unit tree). Needle cards
+  also lie along the twig and spin around it now instead of facing a random
+  direction. Spruce preset rebuilt around all of it: 10 whorls of 5, needles
+  down the whole bough, **1440 triangles** (was 943 for a shape nobody wanted).
+  Verified with a scratch harness (`treegen` has no GL/Project dependency, so
+  it links into a 40-line host program): triangle counts and bounding boxes for
+  every preset, the proportionality table above, a foliage-per-height-band
+  histogram to find the starved apex, and orthographic silhouettes of the
+  result from three angles - the shape is a continuous cone from base to spire,
+  and the five other presets are unchanged. That harness loop found three
+  problems the GUI would have made me squint at; it belongs in the scratchpad,
+  not the repo.
+  *Follow-up, same session:* the user dragged the finished Height slider and
+  found it still gave "two shapes it jumps hard between". Scaling the world
+  DIMENSIONS was not enough - the "too small to bother" cutoffs that drop a
+  child branch (`clen < 0.02`, `crad < 0.004`) were still absolute, so below
+  about height 2 whole whorls fell through them and a 0.5-unit spruce came out
+  a pole with a skirt (315 bark triangles against 840 at height 20 - the
+  triangle counters in the two screenshots were the tell). They are fractions
+  of height now, as is the degenerate-radius guard in the bark `vStep`. Proven
+  by the strong form of the property rather than by eye: generated at heights
+  0.5 through 20 every preset holds one triangle count and one width/height
+  ratio, and the height-5 mesh multiplied by 4 is **bit-identical** to the
+  height-20 mesh, vertex for vertex, for all six (exact because 4 is a power of
+  two; a non-power-of-two ratio would differ in the last float bits). Lesson
+  worth keeping: a size control must not change what it is sizing, and an
+  absolute epsilon inside a parametric generator is a shape parameter in
+  disguise.
+- (105) **Asset Browser: res/ as a browsable, reference-aware asset library**
+  (user: the Project panel's asset list was "a mega crude list", the ask was
+  folders, moving, deleting and filtering by type). New window
+  (*Tools > Asset Browser*, `src/assetbrowser.cpp` - App:: methods in their own
+  TU, the save_assets.cpp precedent): folder tree, thumbnail grid or detail
+  list, type chips carrying the count in the current scope, name search, a
+  recursive scope toggle, and an inspector with each type's own controls (the
+  texture-quality combo, the LOD popup and - after merging main's world-scale
+  work - the *Size...* dialog moved out of the old flat list into
+  `drawAssetQualityCombo`/`drawAssetLodButton`/`drawAssetSizeButton`). The
+  Project panel's Assets section is now a summary plus the import buttons.
+  Two things carry the feature, and neither is UI. **The reference census**
+  (`rebuildAssetUsage`): one flat pass over the model recording everything that
+  *uses* an asset - object model/material/sound, terrain material and painted
+  layers, HUD/menu/splash/loading images, fonts, custom LOD tiers, audio flow
+  nodes - which is what lets the inspector list *who uses this file* (with a
+  Select button that jumps to the object, switching scenes), badge the ones
+  nothing references, and warn per file before a delete. It is keyed off
+  `modelEditSerial_`, so it costs one pass per edit, not per frame. Per-asset
+  **settings** are deliberately NOT uses (texture quality, the recorded
+  real-world size, music build options, clip edits, membership of the
+  disk-scanned audio lists): they are metadata on the file, and counting them
+  would mean no imported asset ever reads as unused - which is the one question
+  the census exists to answer. They still travel with the file and are cleaned
+  up on delete, which is a different list (`retargetAssetPath`).
+  **The sibling invariant** is the part that took the thinking: a Wavefront
+  reference (`mtllib`, `map_Kd`, `refl`) is a bare file name resolved next to
+  the file that named it, and the PS2 loads from a flat ISO9660/host path with
+  no `..` - so "move this texture into res/textures" is not a file operation,
+  it is a broken material. The move therefore takes a transitively closed
+  dependency group along (`assetWavefrontDeps`), **copies** a dependency that
+  files left behind still need (both folders keep resolving; the status line
+  says how many), and **refuses with the reason** instead of half-applying a
+  move that would still break something. A rename inside one folder has no such
+  problem, so there the siblings that name the file are rewritten instead
+  (`rewriteWavefrontRef` - last token only, so `-s 2 2` / `-mm 0 0.5` survive),
+  and the `.mtl` a model exclusively owns is renamed with it (`tree.obj` +
+  `tree.mtl` -> `oak.obj` + `oak.mtl`, how every import writes them); a shared
+  library keeps its name and the model gets an explicit `mtllib` line, because
+  the implicit `<stem>.mtl` sibling rule would otherwise leave it materialless.
+  Everything else follows from those: sidecars (`.uvs`, `<tex>.layers/`) travel
+  with their asset, the baked `.tmdl` is deleted for the next build to redo, a
+  WAV moved between `res/audio` and `res/sfx` changes role and swaps lists, and
+  build-written files (menu panels, text sprites, glyph atlases, `.tmdl`) are
+  hidden behind a *Generated* toggle and read-only here.
+  Also: drag a model onto the **viewport** and it lands where the cursor points
+  (the placement raycast, so it rests on what is under it), and `Viewport::assetThumb`
+  renders a 128² preview per asset once into a dedicated framebuffer and copies
+  it into its own texture (`glCopyTexImage2D`, a few new thumbnails per frame) -
+  a material rides a sphere, an image is its own thumbnail, everything else gets
+  a colored plate with its extension.
+  **A new field that stores an asset path now has two obligations**:
+  `retargetAssetPath` (or move/rename silently breaks it) and
+  `rebuildAssetUsage` when it is a real reference rather than a per-asset
+  setting (or the asset reads as unused). Written into the tyra-editor-dev skill
+  next to the other chain rules - and immediately exercised by merging main's
+  world-scale work, whose `modelUnitMeters` map is keyed by asset path: it joined
+  the retarget list (a moved model keeps its recorded real-world size) and stayed
+  out of the census (a size is a setting, not a use). That merge also moved
+  main's *Size...* button into the browser's inspector, since the flat list it
+  lived on is gone. `retargetAssetPath` additionally repoints the editor's own
+  staged paths - the Material Editor's open `.mtl` and paint target, the pending
+  size dialog, the Animation Editor's model - because a save through a stale one
+  would recreate the file at its old location.
+  *Verified* with a throwaway host harness (the pattern from 104, and the reason
+  the logic is host-only): standard headers, then `#define private public`, then
+  link the harness against `build/`'s object files minus `main.cpp` - no window,
+  no GL context, `ImGui::CreateContext()` alone is enough for the one
+  `GetTime()` call. On a copy of `examples/material-lab` seeded with a
+  `models/props` subfolder, a stray texture and both WAV roles it showed: the
+  scan (30 files, 8 folders, kinds right, `.layers` sidecars not listed as
+  assets); the census (`pillar.mtl` project=4 from four objects, `canvas.png`
+  wavefront=1 from its .mtl, `ground.png` unreferenced); dependency resolution
+  in both directions; and then the operations - the texture move refused with
+  *"altar.png is referenced by altar.mtl, which would stop finding it"*, the
+  model move landing `.obj` + `.mtl` + `.png` in the new folder with `mtllib
+  altar.mtl` / `map_Kd altar.png` still bare and the object's `modelPath`
+  retargeted, the rename producing `statue.obj` + `statue.mtl` + a rewritten
+  mtllib line, a folder rename retargeting everything inside, the paint-layer
+  sidecar riding along through both, the WAV leaving `music` and joining
+  `sounds`, and a referenced material's delete clearing the objects' paths with
+  no dangling reference left. The ImGui half was checked by running a **Debug
+  build (IM_ASSERT active)** with the window open for 15 s - no assertion, so
+  the Begin/End, child, table, popup, ID and drag-drop pairs are balanced - and
+  the window's presence proven from the layout dump the editor saved
+  (`[Window][Asset Browser] Size=2880,1800` = the 960x600 default at this
+  machine's 3x DPI scale, so `scaled()` is applied). **The look is unverified**:
+  this machine is still in the white-window state from 101/PROGRESS notes (the
+  AMD GL present quirk reproduces on baseline builds), so screenshots capture
+  nothing - the visual pass needs a human.

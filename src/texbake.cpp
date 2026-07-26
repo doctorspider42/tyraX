@@ -549,11 +549,13 @@ std::string bake(const Project& p,
         if (!atlasPlan.empty()) log("[editor] " + texatlas::info(atlasPlan));
     }
 
-    // Baked ambient occlusion (docs/ambient-occlusion.md): the terrain AO
-    // map + the primitive lightmap atlas, one pair per AO-enabled scene,
-    // regenerated wholesale like the stochastic supertiles. Codegen emits
-    // the matching atlas rects from the SAME deterministic bake
-    // (aobake::bakeSceneAoAtlas), so pixels and UVs cannot drift.
+    // The scene lightmaps (docs/ambient-occlusion.md, emissive-materials.md):
+    // the terrain map + the primitive atlas, one pair per scene that has
+    // baked occlusion or baked emissive light (both images carry BOTH:
+    // alpha = occlusion, RGB = light), regenerated wholesale like the
+    // stochastic supertiles. Codegen emits the matching atlas rects from the
+    // SAME deterministic bake (aobake::bakeSceneLightAtlas), so pixels and
+    // UVs cannot drift.
     fs::remove_all(baked / "aomap", ec);
     fs::remove_all(baked / "aoatlas", ec);
     {
@@ -563,10 +565,16 @@ std::string bake(const Project& p,
             return aobake::objAabb((fs::path(p.dir) / o.modelPath).string(), mn,
                                    mx);
         };
+        // rgb (optional, size*size*3) is the baked emissive light the additive
+        // atlas pass adds; alpha is the occlusion the alpha-over pass
+        // multiplies. One image carries both - see aobake::SceneLightAtlas.
         auto writeAlphaPng = [&](const fs::path& dst, int size,
-                                 const std::vector<uint8_t>& alpha) {
+                                 const std::vector<uint8_t>& alpha,
+                                 const std::vector<uint8_t>& rgb = {}) {
             std::vector<unsigned char> rgba((size_t)size * size * 4, 0);
             for (size_t i = 0; i < alpha.size(); ++i) rgba[i * 4 + 3] = alpha[i];
+            for (size_t i = 0; i * 3 + 2 < rgb.size(); ++i)
+                for (int c = 0; c < 3; ++c) rgba[i * 4 + c] = rgb[i * 3 + c];
             fs::create_directories(dst.parent_path(), ec);
             std::string err;
             // Full RGBA32 on purpose: the engine's palettized (tRNS -> CLUT)
@@ -585,22 +593,28 @@ std::string bake(const Project& p,
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             const SceneData& sc = p.scenes[si];
             const ProjectSettings srs = project::resolvedSettings(p, sc);
-            if (!srs.aoEnabled) continue;
-            const aobake::AoImage map = aobake::terrainAOMap(
-                sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-                (float)sc.terrain.depth,
-                aobake::collectOccluders(sc.objects, aabbFn), srs.aoRadius,
-                srs.aoStrength);
-            if (map.size > 0 &&
-                writeAlphaPng(baked / "aomap" / ("scene" + std::to_string(si) + ".png"),
-                              map.size, map.alpha))
-                ++aoTexCount;
-            const aobake::SceneAoAtlas atlas =
-                aobake::bakeSceneAoAtlas(p, sc, aabbFn);
+            // Neither image is gated on the AO preference: both carry baked
+            // emissive light as well, so a scene can have glowing lamps and
+            // no ambient occlusion at all.
+            {
+                const aobake::AoImage map = aobake::terrainAOMap(
+                    sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                    (float)sc.terrain.depth,
+                    aobake::collectOccluders(sc.objects, aabbFn),
+                    aobake::collectEmitters(p.dir, sc.objects, aabbFn),
+                    srs.aoRadius, srs.aoStrength, srs.aoEnabled);
+                if (map.size > 0 &&
+                    writeAlphaPng(
+                        baked / "aomap" / ("scene" + std::to_string(si) + ".png"),
+                        map.size, map.alpha, map.light))
+                    ++aoTexCount;
+            }
+            const aobake::SceneLightAtlas atlas =
+                aobake::bakeSceneLightAtlas(p, sc, aabbFn);
             if (atlas.size > 0 &&
                 writeAlphaPng(
                     baked / "aoatlas" / ("scene" + std::to_string(si) + ".png"),
-                    atlas.size, atlas.alpha))
+                    atlas.size, atlas.alpha, atlas.light))
                 ++aoTexCount;
         }
         if (aoTexCount)

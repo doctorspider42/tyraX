@@ -236,7 +236,11 @@ struct SceneObject {
 
     // Player entity parameters (used when type == Player)
     int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly), 2 = third person
-    float playerWalkSpeed = 0.4f;  // units per frame at full stick
+    // Movement per 1/50 s at full stick (the generated game's step unit -
+    // g_frameScale normalizes it to real time). 0.1 = 5 units/s. The editor
+    // shows and edits this in units per SECOND; only the file and the game
+    // see the step form.
+    float playerWalkSpeed = 0.1f;
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
@@ -650,6 +654,20 @@ struct ProjectSettings {
     float navMaxSlope = 40.0f;    // degrees; steeper terrain is unwalkable
     float navAgentRadius = 0.4f;  // obstacle inflation around blockers, world units
 
+    // World scale: how many world units one REAL-WORLD METER is. The engine
+    // itself has no opinion about units - a unit is whatever the project
+    // decides - but everything imported from reality does: a phone camera
+    // take records meters, a Mixamo/Maya/Blender model carries meters (or a
+    // unit the importer normalizes to meters). This number is the one place
+    // that conversion is written down, so a project authored at, say, 5 units
+    // per meter lands those imports at the size its own content already uses
+    // instead of 5x too small (docs/world-scale.md).
+    //
+    // Host-side only - it never reaches the game, which keeps working in
+    // plain units. 1.0 (the default, and what every pre-existing project
+    // loads as) means "one unit is one meter" and changes nothing.
+    float unitsPerMeter = 1.0f;
+
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
 
     // Terrain streaming: the generated game builds the terrain in 16x16-cell
@@ -670,7 +688,13 @@ struct ProjectSettings {
 
     // FPP template
     float eyeHeight = 1.8f;
-    float walkSpeed = 0.4f;
+    // Movement per 1/50 s at full stick, like SceneObject::playerWalkSpeed -
+    // NOT per second. 0.1 = 5 units/s, which in a metric project (the default
+    // 1 unit = 1 m, and an eye height of 1.8) is a brisk 5 m/s run; the old
+    // 0.4 default was 20 units/s, i.e. 72 km/h for a person-sized player, and
+    // it is why projects tended to get built several times larger than metric
+    // (docs/world-scale.md). Existing projects keep whatever they saved.
+    float walkSpeed = 0.1f;
     float lookSpeed = 1.0f;  // multiplier
 
     // Sprint: while the "sprint" input action (Tools > Input Map) is held, the
@@ -737,6 +761,15 @@ struct ProjectSettings {
     // Post effects (GS framebuffer blits at the end of every frame; no
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
+    // Bright-pass cut for the bloom, 0..1 of full white. 0 = the whole frame
+    // glows (soft focus); raise it and only what is brighter than this blooms,
+    // which is what makes emissive materials (docs/emissive-materials.md) read
+    // as glowing objects instead of veiling the picture.
+    float bloomThreshold = 0.0f;
+    // How far the glow reaches, 0..1 -> 1..4 soften iterations over the
+    // quarter-res buffer (each doubles the tap offsets). 0 = the original
+    // tight fringe; raise it for a real corona around emissive surfaces.
+    float bloomSpread = 0.0f;
     float grain = 0.0f;  // animated film grain noise overlay
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
@@ -797,6 +830,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
+           a.unitsPerMeter == b.unitsPerMeter &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
@@ -817,6 +851,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
            a.aoRadius == b.aoRadius &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
+           a.bloomThreshold == b.bloomThreshold &&
+           a.bloomSpread == b.bloomSpread &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.fogEnabled == b.fogEnabled &&
@@ -1510,6 +1546,18 @@ struct Project {
         return &fonts.front();
     }
 
+    // Uniform scale a new object gets when this model is dropped into a
+    // scene: the model's real-world size (meters per file unit) expressed in
+    // the project's own units. 1.0 for a model whose real size was never
+    // recorded, and for every project that left the world scale at 1 unit =
+    // 1 meter - so this only ever moves content that asked for it.
+    float modelInsertScale(const std::string& modelPath) const {
+        auto it = modelUnitMeters.find(modelPath);
+        if (it == modelUnitMeters.end()) return 1.0f;
+        const float s = it->second * settings.unitsPerMeter;
+        return s > 0.0001f ? s : 1.0f;
+    }
+
     // Typefaces the project draws with (Tools > Font Manager). Never empty:
     // fonts[0] is the default every text falls back to, and the Font Manager
     // refuses to delete the last entry - so an empty `font` reference always
@@ -1582,6 +1630,15 @@ struct Project {
     // Only used when a mesh LOD distance is in play (Preferences > Rendering
     // or a per-object override) - see docs/model-pipeline.md.
     std::map<std::string, std::vector<std::string>> modelLods;
+    // Real-world size of an imported model, keyed by its asset path:
+    // how many METERS one unit of the file measures. An entry exists only
+    // for models whose real size is known - written when a model is imported
+    // (docs/world-scale.md) - so procedurally generated assets that are
+    // authored in world units already (the Tree Generator) stay untouched.
+    // Combined with ProjectSettings::unitsPerMeter it gives the scale a new
+    // object gets when the model is dropped into a scene; see
+    // Project::modelInsertScale.
+    std::map<std::string, float> modelUnitMeters;
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
@@ -1636,6 +1693,9 @@ struct Project {
     int gizmoOp = 0;           // transform gizmo: 0 move, 1 rotate, 2 scale
     int gizmoSpace = 0;        // gizmo axes: 0 absolute (world), 1 camera-relative
     int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
+    // Viewport camera projection (Viewport::Projection): 0 perspective,
+    // 1 ortho (free), 2..7 the locked Top/Bottom/Front/Back/Right/Left views.
+    int viewProjection = 0;
     // Named window layouts (docking arrangements), switchable from the Layout
     // menu and edited by simply rearranging windows. Every project keeps at
     // least one; seedBuiltinLayouts() fills a fresh/legacy project with the
@@ -1739,12 +1799,14 @@ enum class Section {
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
+    ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
 };
-// 14 after this branch's Input section met main's ModelLods. Keep this equal to
-// the enum size: save() loops sections by index, so a count one short silently
-// stops writing the LAST section to the .tyra.
-constexpr int kSectionCount = 14;
+// KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
+// one short silently stops writing the LAST section to the .tyra - and parallel
+// branches keep adding sections (ModelLods, ModelUnits and Input all arrived
+// while this one was open), which is exactly how it drifts.
+constexpr int kSectionCount = 15;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

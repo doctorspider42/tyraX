@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -13,9 +14,11 @@
 #include "history.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
+#include "placement.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 #include "session.hpp"
+#include "treegen.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -70,6 +73,20 @@ private:
     // clips at high scale (a 180 px combo can't hold 2.5x-tall glyphs).
     float scaled(float px) const { return px * uiScaleApplied_; }
     void drawViewportWindow();
+    // Switch the viewport camera projection (View menu, the viewport's "Proj:"
+    // button, the axis gizmo, the numpad shortcuts). Editor state: it rides
+    // into the .tyra on the next save like the gizmo mode, not a project edit.
+    void setViewProjection(Viewport::Projection p);
+    // Axis-view gizmo in the viewport's top-right corner (the Blender/Maya
+    // navigation widget): the three world axes as labelled balls that rotate
+    // with the camera; clicking one snaps to that orthographic axis view, and
+    // clicking the hub toggles perspective. Drawn with ImDrawList over the
+    // rendered image. Returns true while the cursor is over the widget, so the
+    // caller can keep that click from also picking/deselecting objects.
+    bool drawAxisGizmo(ImVec2 imgPos, ImVec2 avail);
+    // Machine-global (editor.ini): the gizmo sits where HUD authoring wants
+    // the corner, so it can be turned off (View > Projection > Axis gizmo).
+    bool showAxisGizmo_ = true;
     void drawProjectWindow();
     void drawPropertiesWindow();
     // Properties panel body when more than one object is selected: only the
@@ -145,6 +162,21 @@ private:
     // the sanitized names) into res/models. Returns the project-relative path
     // of the model, or "" when cancelled/failed. Does NOT create an object.
     std::string importModelAsset();
+    // "Real-world size" of a model asset (docs/world-scale.md): what one unit
+    // of the file measures in meters, which combined with the project's world
+    // scale is the scale objects made from it are inserted at. Opened right
+    // after an import and from the Assets list; nothing about the file itself
+    // is touched, only Project::modelUnitMeters.
+    void beginModelSizing(const std::string& relPath);
+    void drawModelSizeModal();
+    bool modelSizeOpen_ = false;       // a sizing dialog is requested this frame
+    std::string modelSizePath_;        // asset being sized ("" = none staged)
+    float modelSizeSrc_[3] = {0.0f, 0.0f, 0.0f};  // authored size, file units
+    bool modelSizeMeasured_ = false;   // the bounds above could be read
+    int modelSizeUnit_ = 0;            // preset: 0 m, 1 cm, 2 inch, 3 custom
+    float modelSizeMeters_ = 1.0f;     // meters per file unit (what is stored)
+    bool modelSizeApplyExisting_ = false;  // also rescale objects already placed
+    bool modelSizeFresh_ = false;      // opened straight after an import
     // Copies a picked PNG into res/textures (terrain tiling); "" on cancel.
     std::string importTextureAsset();
     // Copies a picked .mtl (with its map_Kd textures, references rewritten to
@@ -166,11 +198,182 @@ private:
     // model only takes the mesh-LOD distance. Returns true when a value
     // changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
-    // Creates a scene object for a model already in res/models (no copying)
-    void addModelObject(const std::string& relPath);
+    // Creates a scene object for a model already in res/models (no copying).
+    // `at` (optional) is where the object lands before the placement snap - the
+    // Asset Browser's drag & drop into the viewport passes the cursor's hit.
+    void addModelObject(const std::string& relPath, const float* at = nullptr);
     // Project-panel section listing res/models + res/textures with the
     // Import... buttons (the object pickers only offer what is listed here)
     void drawAssetsSection();
+
+    // --- Asset Browser (Tools > Asset Browser, docs/asset-browser.md) -------
+    // A file manager over the project's res/ tree: folder tree, thumbnail grid,
+    // type filters, search, and file operations that carry the project's
+    // references with them. Everything below is implemented in assetbrowser.cpp.
+    enum class AssetKind {
+        Model,      // .obj - static geometry
+        AnimModel,  // .glb/.fbx - skeletal model
+        Material,   // .mtl material library
+        Texture,    // PNG/JPG/TGA/BMP image
+        Music,      // res/audio WAV (streamed)
+        Sound,      // res/sfx WAV (ADPCM one-shot)
+        Font,       // TTF/OTF source
+        Other,
+    };
+    static AssetKind assetKindOf(const std::string& rel);
+    static const char* assetKindName(AssetKind k);
+    struct AssetItem {
+        std::string rel;   // project-relative ("res/models/props/tree.obj")
+        std::string name;  // file name
+        AssetKind kind = AssetKind::Other;
+        unsigned long long bytes = 0;
+        long long mtime = 0;
+        // Written by the build (baked menu panels, text sprites, glyph
+        // atlases, .tmdl meshes, paint-layer sidecars): shown only with "Show
+        // generated", and never moved, renamed or deleted from here.
+        bool generated = false;
+    };
+    struct AssetDir {
+        std::string rel;     // "res/models/props" ("res" = the root)
+        std::string name;    // "props" ("res" for the root)
+        std::string parent;  // "res/models" ("" for the root)
+        std::vector<std::string> children;  // sub-folder rel paths, sorted
+        int files = 0;                      // files directly inside
+        int filesDeep = 0;                  // files inside, sub-folders included
+    };
+    // Project-side reference census of one asset. Built for EVERY asset in one
+    // pass over the model (rebuildAssetUsage) so the grid can badge unused
+    // files for free; the Wavefront side (a .mtl naming a texture) is disk IO
+    // and stays on demand in assetWavefrontUsers().
+    struct AssetUsage {
+        int objects = 0;  // scene objects
+        int nodes = 0;    // flow-graph nodes
+        int other = 0;    // HUD/menus/fonts/terrain/LOD chains/lists/clip edits
+        std::vector<std::string> lines;               // readable "where" lines
+        std::vector<std::pair<int, int>> objectRefs;  // (scene, object index)
+        int total() const { return objects + nodes + other; }
+    };
+    void drawAssetBrowserWindow();
+    // Details + per-type actions of the selected asset (the bottom strip).
+    void drawAssetInspector(const std::string& rel);
+    // Per-asset texture-quality override of Preferences > Textures, and the
+    // artist-authored mesh LOD chain of a model. Shared by the browser's
+    // inspector and the Project panel's asset summary.
+    void drawAssetQualityCombo(const std::string& assetRel);
+    void drawAssetLodButton(const std::string& assetRel);
+    // "Size..." - the model's recorded real-world size (docs/world-scale.md),
+    // which decides the scale objects made from it are inserted at.
+    void drawAssetSizeButton(const std::string& assetRel);
+    // Rebuild assetItems_/assetDirs_ from disk. Cheap enough for a res/ tree
+    // (a few hundred files); throttled by assetScanTime_ while the window is
+    // open and forced by assetsChanged() after any file operation.
+    void scanAssetTree();
+    // Files moved/appeared/vanished on disk: rescan, drop the derived caches
+    // (model/material summaries, thumbnails, WAV checks) and re-census.
+    void assetsChanged();
+    void rebuildAssetUsage();
+    const AssetUsage* assetUsageFor(const std::string& rel);
+    // Files under res/ that a .mtl/.obj names and must keep as siblings: an
+    // .obj's material libraries plus the textures those libraries reference.
+    std::vector<std::string> assetWavefrontDeps(const std::string& rel);
+    // The reverse: .obj/.mtl files under res/ that name `rel` (including the
+    // implicit "<stem>.mtl" sibling an .obj loads without a mtllib line).
+    std::vector<std::string> assetWavefrontUsers(const std::string& rel);
+    // Editor-side sidecars of an asset that must travel with it (paint layers,
+    // replacement UVs). The baked "<stem>.tmdl" is NOT one: it is deleted
+    // instead, since the next build re-bakes it in the new location.
+    std::vector<std::string> assetSidecars(const std::string& rel);
+    // Moves files (and the folder-internal dependencies they need) into
+    // `destFolder`. Returns "" on success, or the reason it refused - a move
+    // that would leave a .mtl looking for a texture in the wrong folder is
+    // rejected rather than half-applied, because Wavefront references have to
+    // stay bare sibling names for the PS2 to resolve them.
+    std::string moveAssets(const std::vector<std::string>& rels,
+                           const std::string& destFolder);
+    // Moves a whole folder (with everything in it) into `destFolder`.
+    std::string moveAssetFolder(const std::string& folderRel,
+                                const std::string& destFolder);
+    // Renames one file in place, rewriting the sibling Wavefront references
+    // that name it (safe: they stay bare names in the same folder) and, for a
+    // model, its exclusively-owned "<stem>.mtl" along with it.
+    std::string renameAsset(const std::string& rel, const std::string& newName);
+    std::string renameAssetFolder(const std::string& folderRel,
+                                  const std::string& newName);
+    std::string createAssetFolder(const std::string& parentRel,
+                                  const std::string& name);
+    // Copies a file next to itself under a free "<stem>-copy<n>" name.
+    std::string duplicateAsset(const std::string& rel);
+    // Every project reference to `from` becomes `to`. Covers object
+    // model/material/sound paths, terrain materials and layers, HUD/menu/
+    // splash/loading images, fonts, the music+sound lists and their build
+    // options, per-asset texture quality, LOD chains, animation clip edits and
+    // audio flow nodes. Returns how many references moved. A new field that
+    // stores an asset path belongs in here, or renaming its file breaks it.
+    int retargetAssetPath(const std::string& from, const std::string& to);
+    // Rewrites the mtllib / map_Kd / refl statements of one Wavefront file that
+    // name `oldName` to `newName` (bare file names, same folder). True when the
+    // file changed.
+    static bool rewriteWavefrontRef(const std::string& fileAbs,
+                                    const std::string& oldName,
+                                    const std::string& newName);
+    // Stages the browser selection for deletion (one confirm dialog for the
+    // whole set, reusing the per-asset reference warnings).
+    void requestAssetSelectionDelete();
+    void drawAssetBrowserModals();
+    // Deletes one asset file, its sidecars and the stale baked .tmdl, and
+    // clears what the project stored about it. Kinds the older per-asset dialog
+    // already handles are routed through performAssetDelete so the two cleanup
+    // paths cannot drift apart.
+    void deleteAssetFile(const std::string& rel);
+    // A model dragged from the browser onto the viewport: the object lands where
+    // the cursor points (u, v are normalized image coords).
+    void dropAssetIntoScene(const std::string& rel, float u, float v);
+    // Adds the asset to the scene the way its type wants: a model becomes a
+    // Model object, a material opens the Material Editor, an image opens the
+    // texture pickers' owner. Returns false when the type has no action.
+    bool activateAsset(const std::string& rel);
+    // Absolute path of a project-relative asset.
+    std::string assetAbs(const std::string& rel) const;
+
+    bool showAssetBrowser_ = false;
+    std::vector<AssetItem> assetItems_;         // every file under res/
+    std::map<std::string, AssetDir> assetDirs_;  // by rel path, "res" included
+    std::string assetFolder_ = "res";            // folder being listed
+    std::vector<std::string> assetSelection_;    // selected files (rel paths)
+    std::string assetAnchor_;                    // last click (shift-range end)
+    std::string assetSearch_;                    // name filter (substring)
+    int assetFilter_ = 0;                        // type chip, 0 = All
+    bool assetRecursive_ = false;                // list sub-folders too
+    bool assetShowGenerated_ = false;
+    int assetSort_ = 0;         // 0 name, 1 type, 2 size, 3 newest first
+    bool assetGridView_ = true;  // thumbnails (false = detail rows)
+    float assetTileSize_ = 84.0f;
+    double assetScanTime_ = -1.0;   // ImGui time of the last disk scan
+    int assetThumbBudget_ = 0;      // thumbnails still allowed this frame
+    uint64_t assetUsageSerial_ = ~0ull;  // edit serial the census was built at
+    std::map<std::string, AssetUsage> assetUsage_;
+    // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),
+    // parsed from disk on first use after a scan - the file operations need it,
+    // the grid does not, so it is not part of scanAssetTree's cost.
+    std::map<std::string, std::vector<std::string>> assetWfUsers_;
+    bool assetWfUsersReady_ = false;
+    std::set<std::string> assetTreeOpen_;  // expanded folder tree nodes
+    // Pending in-place rename ("" = none): the file/folder and its edit buffer.
+    std::string assetRenameRel_;
+    bool assetRenameIsFolder_ = false;
+    char assetRenameBuf_[128] = {};
+    bool assetRenameFocus_ = false;
+    std::string assetNewFolderParent_;  // "New folder" popup ("" = closed)
+    char assetNewFolderBuf_[128] = {};
+    // Result of the last operation: a refusal reason shown in the window and a
+    // status line. Refusals stay visible until the next operation.
+    std::string assetOpError_;
+    // Multi-file delete staged by the browser (the single-asset dialog handles
+    // one file at a time; this is the queue behind it).
+    std::vector<std::string> assetDeleteBatch_;
+    bool assetDeleteBatchActive_ = false;
+    // Folder removed after its files (empty = the batch is a plain selection).
+    std::string assetDeleteFolder_;
     // Files directly under res/<subdir> with the given extension (lowercase
     // compare), names only, sorted by the directory iteration order
     std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
@@ -251,6 +454,16 @@ private:
     // One action's pad / key / mouse pickers inside `preset`. Returns true when
     // something changed (the caller commits).
     bool inputBindingRow(InputPreset& preset, const InputAction& action);
+    // Tools > Tree Generator: procedural low-poly tree authoring with a live
+    // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
+    // into res/models/trees and drops a Model object in - see treegen.hpp.
+    void drawTreeGeneratorWindow();
+    // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
+    // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
+    void rebuildTreePreview();
+    // "Add to scene": bakes the current tree's assets into res/models/trees
+    // and inserts a Model object pointing at them.
+    void addTreeToScene();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -387,6 +600,28 @@ private:
     void performPendingAction();
     void drawDiscardModal();
 
+    // --- Recent projects ----------------------------------------------------
+    // The list the welcome screen offers before any project is open, so the
+    // usual next step ("carry on with what I had") is one click instead of a
+    // file dialog. Machine-global state: the folders live in editor.ini, the
+    // name/validity next to each is probed from disk (once per entry, at
+    // startup and when the list changes - not per frame).
+    struct RecentProject {
+        std::string dir;     // project folder, what gets opened
+        std::string name;    // display name (manifest stem, else the folder's)
+        bool valid = false;  // the folder still holds a <name>.tyra manifest
+    };
+    std::vector<RecentProject> recentProjects_;
+    void probeRecentProject(RecentProject& r);  // fill name + valid from disk
+    void rememberRecentProject(const std::string& dir);  // to the front + save
+    void forgetRecentProject(int index);                 // drop it + save
+    // Load and attach the project in `dir` (a project folder, not the .tyra).
+    // Returns the load error; empty means it is open. The single funnel for
+    // every local open path: the CLI argument, the Open dialog and the
+    // welcome screen's list all go through it, so all three record a recent.
+    std::string openProjectAt(const std::string& dir);
+    void drawWelcomeScreen();  // the Viewport's content while nothing is open
+
     // --- Collaboration session (docs/collaboration.md) ----------------------
     // Live LAN sessions: this editor hosts its open project or joins another
     // editor's. Session (session.hpp) runs the network side on a worker
@@ -405,6 +640,46 @@ private:
     void drawSessionWindow();
     void copyObject();
     void pasteObject();
+
+    // --- Collision-aware placement (docs/object-placement.md) --------------
+    // Inserted and pasted objects rest ON the surface under them (terrain or
+    // another object's top) instead of sinking into it. placementSnap_ is a
+    // machine-global editor setting (editor.ini) like the navigation scheme -
+    // a workflow preference, not project data.
+    bool placementSnap_ = true;
+    // The two callbacks the placement math needs. Both read the viewport's
+    // caches: it owns the parsed models and the terrain heightfield, and it
+    // samples heights with the same bilinear filter the game does.
+    aobake::ModelAabbFn placementModelAabb();
+    placement::HeightFn placementHeight() const;
+    // Objects the placement math must ignore: everything on a hidden layer,
+    // plus any explicitly listed index (the object being placed itself).
+    std::vector<char> placementSkip(const std::vector<int>& extra = {}) const;
+    // Rests the just-appended object (project_.objects().back()) on the
+    // surface under it. No-op when the snap preference is off.
+    void snapInsertedObject();
+    // "Drop to floor" (End): rest every selected object on the first surface
+    // BELOW it, whatever the insert-snap preference says. One undo step.
+    void dropSelectionToFloor();
+
+    // --- Deferred paste (docs/object-placement.md) -------------------------
+    // Ctrl+V does not drop the copies where they lie: it stages them here and
+    // they follow the cursor across the viewport (snapped onto whatever is
+    // under it) until a left click - or a second Ctrl+V - commits them. Esc
+    // cancels. pastePending_ is what makes the staged objects render.
+    bool pastePending_ = false;
+    std::vector<SceneObject> pasteStaged_;  // the copies being positioned
+    bool pasteMoved_ = false;               // the cursor has positioned them
+    // Scene objects + the staged copies, the list the viewport renders while
+    // a paste is pending (member so it isn't reallocated every frame).
+    std::vector<SceneObject> pasteRenderScratch_;
+    // Fill pasteStaged_ from the clipboard and start following the cursor.
+    void beginPastePlacement();
+    // Move the staged copies so their anchor sits at `point`, snapping the
+    // group onto the surface under it when the preference is on.
+    void movePasteStaged(const float point[3]);
+    void commitPastePlacement();  // insert them into the scene
+    void cancelPastePlacement();
 
     // Selection set helpers. selectedObject_ stays the "primary" (anchor) of
     // the set - always selection_.back() (or -1) - so the many single-select
@@ -546,6 +821,21 @@ private:
     float gizmoDragScale0_[3] = {1.0f, 1.0f, 1.0f};
     bool gizmoWasUsing_ = false;
 
+    // Measuring tape (docs/world-scale.md): click two points on the scene and
+    // read the distance between them, in world units and in meters. A pure
+    // viewport overlay - it never touches the project.
+    bool measureMode_ = false;
+    int measurePoints_ = 0;  // 0 = nothing placed, 1 = start placed, 2 = frozen
+    float measureA_[3] = {0.0f, 0.0f, 0.0f};
+    float measureB_[3] = {0.0f, 0.0f, 0.0f};
+    bool measureLive_ = false;  // the end point is following the cursor
+    // Draws the tape over the viewport image (line, endpoints, readout).
+    void drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail);
+    // World-space size of an object as drawn: the unit primitive or the
+    // model's own bounds, times its scale. False for types with no extent
+    // worth quoting (markers, lights). Used by the Properties readout.
+    bool objectWorldSize(const SceneObject& o, float out[3]);
+
     // Terrain sculpting brush
     bool sculptMode_ = false;
     float brushRadius_ = 5.0f;
@@ -602,6 +892,21 @@ private:
     bool showInputMap_ = false;
     int inputActionSel_ = 0;  // row selected in the Input Map action list
     int inputPresetSel_ = 0;  // preset tab being edited
+
+    // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
+    // rebuilt into these on any param change; treePreviewVersion_ tells the
+    // viewport when to re-upload. treeName_ is the asset base name.
+    bool showTreeGenerator_ = false;
+    treegen::Params treeParams_;
+    int treePreset_ = 0;
+    treegen::Mesh treeMesh_;
+    treegen::Image treeBarkTex_, treeLeafTex_;
+    uint64_t treePreviewVersion_ = 0;
+    bool treePreviewDirty_ = true;
+    char treeName_[64] = "tree";
+    float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
+    bool treeGenSpin_ = true;
+    int treeGenDisplayMode_ = 0;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
@@ -754,8 +1059,32 @@ private:
         float reflStrength = 0.5f;  // refl -mm gain operand, 0..1
         bool reflRounded = false;   // refl -rounded: centroid-radial env
                                     // normals (flat faces get a gradient)
+        // Emission (docs/emissive-materials.md): the surface never renders
+        // darker than the emission color, so it stays lit in total darkness.
+        // Saved as a standard "Ke r g b" = the RESOLVED emission (see
+        // matEdKe); the authored controls ride in a "# tyra-glow <strength>
+        // <r> <g> <b> <white>" hint so the split round-trips exactly, the way
+        // "# tyra-brightness" does for Kd.
+        float glow = 0.0f;  // 0 = matte; 1 = fully self-lit; up to 2 overbright
+        float glowColor[3] = {1.0f, 1.0f, 1.0f};
+        // White-hot core: added to every channel, so the surface desaturates
+        // toward white the way an overexposed emitter does on camera. The ONLY
+        // way an untextured emissive surface can read brighter - it is already
+        // at the framebuffer maximum in its own hue at glow 1.
+        float glowWhite = 0.0f;
+        // "Lights up surroundings" (docs/emissive-materials.md step 2): the
+        // emitter shape is baked into the light of the geometry around it.
+        // 0 = lights nothing.
+        float glowRange = 0.0f;
+        float glowLight = 1.0f;
         std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
     };
+    // The resolved emission of one entry: glowColor x glow with the white-hot
+    // core added on every channel, capped at the 1.99 the PS2 color byte can
+    // carry. This is what lands in "Ke" and what every renderer (game bake,
+    // viewport, material preview) consumes - one definition, so the file and
+    // the previews can never disagree.
+    static void matEdKe(const MatEdEntry& e, float out[3]);
     std::vector<MatEdEntry> matEdMats_;
     int matEdSel_ = 0;         // selected entry within the file
     int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,

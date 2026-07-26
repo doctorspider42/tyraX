@@ -64,7 +64,17 @@ selectable as "Precise clipping on EE (legacy)" and remains the load-time
 default for pre-M4 `.tyra` files without a `clipping` key — design + status
 in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — DoF
+`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — bloom
+takes an optional **bright-pass threshold** (`setBloomThreshold`), one extra
+quarter-res sprite subtracting a flat grey from the downsampled frame through
+`(0 - Cs)*128/128 + Cd`; the GS clamps at zero, so sub-threshold pixels drop
+out of the blur and the halo collapses onto emissive materials instead of
+veiling the frame (`docs/emissive-materials.md`), plus a **spread**
+(`setBloomSpread`, 1..4 soften rounds with doubled tap offsets each, buffers
+ping-ponging) that grows the halo into a corona for 4 sprites a round. NOTE the
+postfx `packet2_create` size (512 qwords) is sized for the WORST case of every
+pass at once — a blit is 12 qwords, a flat quad 7; an undersized packet
+corrupts the GIF stream, so grow it whenever a pass gains primitives — DoF
 (`PassDof`, authored in the UI Editor / overridden by the Set Depth Of Field
 flow node) reuses the bloom blur chain and composites the blur back through
 full-screen sprites drawn at real GS depths under the pass's GEQUAL z-test,
@@ -83,7 +93,10 @@ the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:
-centroid-radial env normals for flat surfaces; parses the TyraX
+centroid-radial env normals for flat surfaces; parses `Ke` as the emission
+floor of emissive materials (`docs/emissive-materials.md` - the
+`# tyra-glow*` hint lines are editor-side only, the baked tables carry
+everything the game needs); parses the TyraX
 `# tyra-uvrect u0 v0 du dv` hint the texture-atlas bake writes into baked
 .mtl files (docs/texture-atlasing.md) - model vertex UVs multiply through
 it at load and `LeanMtlMaterial::uvRect` exposes it for the generated
@@ -290,6 +303,20 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
   `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
   clean log. Count the qwords after every PACK_GIFTAG edit.
+- **ps2sdk's `ATEST_KEEP_*` constants name what is PRESERVED, not what is
+  written** (`ps2sdk/ee/include/draw_tests.h`): `ATEST_KEEP_ZBUFFER` = 1 =
+  GS FB_ONLY (colour written, z untouched), `ATEST_KEEP_FRAMEBUFFER` = 2 =
+  ZB_ONLY (z written, colour untouched), `ATEST_KEEP_ALL` = 0 = write
+  nothing. Reading them the other way round is easy and expensive: upstream's
+  alpha test passed `ATEST_KEEP_FRAMEBUFFER` on the standard path, so every
+  fully transparent texel of a cutout texture stamped the z buffer while
+  drawing no colour — foliage, grates and decals silently occluded whatever
+  was drawn behind them later, which looks like a sorting or texture bug
+  rather than an AFAIL one. Cutout wants `ATEST_KEEP_ALL` (both pipelines
+  now use it; `PipelineZTest_TestOnly` deliberately keeps FB_ONLY for its
+  depth-tested-no-z-write trick). Symptom to recognise: transparency itself
+  works, but geometry behind a transparent area is missing, cut along the
+  straight edges of the quad in front of it.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.
@@ -345,11 +372,39 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   (three 512-line buffers), leaving ~1 MB for textures.
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
   (TyraX fork) switches the scan mode / widescreen between frames.
-  A mode change resets the whole VRAM bump allocator (`vram.reset()`),
+  A mode change resets the whole VRAM allocator (`vram.reset()`),
   rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
   texture allocation (they lazily re-upload) — never call it mid-frame.
+  It is also the ONLY caller allowed to `allocateBuffer()` after init.
   The projection aspect lives in `RendererSettings::updateGeometry`
   (fixed 4:3-baseline look; widescreen scales it anamorphically).
+- **GS VRAM is two regions, and `free()` is order-independent** (TyraX fork —
+  full write-up in [docs/gs-vram.md](../../../docs/gs-vram.md)).
+  `allocateBuffer()` (page-aligned) fills a **permanent** bump region at the
+  bottom — both frame buffers, z, post-fx scratch, noise, the env-map and
+  camera-feed targets — that is never released; `allocate()` (block-aligned)
+  serves textures from a **coalescing best-fit free list** above it. `free()`
+  ignores addresses the heap never handed out, which is what protects the
+  permanent region — do not "fix" that into an assert. Upstream's `free()` was
+  `pointer = address` (a stack pop), so freeing anything but the newest
+  allocation handed out the memory of still-live textures: streaming-layer
+  unloads reproduced it as surviving objects rendering another object's
+  texture. Budget after the init buffers is **~1.08 MB** (~1 MB in
+  `Pal576i`), and every allocation costs ~8 KB of padding on top of its
+  pixels — a 256×256 32bpp texture is 24% of the heap, a 512×512 is 93%.
+  When a texture does not fit, `RendererCoreTexture::makeRoomFor()` evicts
+  coldest-first (`pickVictim`: stale entries by LRU; when the whole resident
+  set is in this frame's working set, the MOST recently bound one — plain LRU
+  makes a per-frame texture scan cycle its entire set). Textures that must
+  never be evicted are not "pinned" — they are not in the list at all: give
+  them their own `texbuffer_t` through `Texture::vramResident`, the way
+  `RendererCoreEnvMap` does. To see what a scene actually does, build with the
+  **debug** profile and grep the game's `bin/log.txt` for `VRAMSTAT`
+  (binds/hits/uploads/**re-uploads**/evictions/resident/free MB/largest free
+  block, per frame); `reup` per frame is the number that matters, each one is
+  a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
+  0.87 MB free and never evicts anything — if you are chasing a VRAM problem
+  in a palettized project, measure before assuming there is one.
 - **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
   (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
   presents a frame each iteration is paced to 50/60 Hz, but a loop that draws

@@ -1,0 +1,8 @@
+# Station 3: the lamp. A wide reach and a strong light, so the whole pit area
+# and the pillars around it read hot.
+newmtl lava
+# tyra-brightness 1
+Kd 1.0000 0.4200 0.0600
+# tyra-glow 1 1 0.42 0.06 0.25
+# tyra-glow-light 13 1.9
+Ke 1.2500 0.6700 0.3100

@@ -31,6 +31,8 @@ RendererCorePostFx::RendererCorePostFx() {
   settings = nullptr;
   gs = nullptr;
   bloom = 0;
+  bloomThreshold = 0;
+  bloomSpread = 1;
   grain = 0;
   dof = 0;
   dofFocus = 0.0F;
@@ -39,9 +41,13 @@ RendererCorePostFx::RendererCorePostFx() {
   rng = 0xC0FFEE01u;
   curFbVram = 0;
   curFbBufW = 0;
-  // Sized for every pass at once: DoF (8 blits) + bloom (6) + grading (6
-  // quads) + grain (2) + setup/teardown still leave headroom.
-  packet = packet2_create(352, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  // Sized for every pass at once: DoF (8 blits) + bloom (downsample + the
+  // optional bright-pass quad + up to 4 soften rounds of 4 blits + the
+  // add-back = 18 primitives at full spread) + grading (6 quads) + grain (2)
+  // + setup/teardown. A blit is 12 qwords, a quad 7 - the worst case is
+  // ~390, so 512 keeps real headroom. An UNDERSIZED packet here corrupts the
+  // GIF stream, so grow this whenever a pass gains primitives.
+  packet = packet2_create(512, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
 }
 
 RendererCorePostFx::~RendererCorePostFx() {
@@ -148,7 +154,9 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
 
 qword_t* RendererCorePostFx::flatQuad(qword_t* q, int dstVram, int dstBufW,
                                       u32 fbmsk, u8 r, u8 g, u8 b, u8 a,
-                                      u64 alpha) {
+                                      u64 alpha, int w, int h) {
+  if (w < 0) w = fbW;
+  if (h < 0) h = fbH;
   PACK_GIFTAG(q, GIF_SET_TAG(6, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, GS_PSM_32, fbmsk),
@@ -163,8 +171,7 @@ qword_t* RendererCorePostFx::flatQuad(qword_t* q, int dstVram, int dstBufW,
   q++;
   PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0xFFFFFFFFu), GS_REG_XYZ2);
   q++;
-  PACK_GIFTAG(q,
-              GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0xFFFFFFFFu),
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + w) << 4, (2048 + h) << 4, 0xFFFFFFFFu),
               GS_REG_XYZ2);
   q++;
   return q;
@@ -480,20 +487,41 @@ void RendererCorePostFx::apply(int passes) {
     // Downsample the frame to quarter res (bilinear averages 2x2).
     q = blit(q, fbVram, fbBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4, lowVram[0],
              lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
-    // Soften: 4 taps of low0 blended into low1 at half/one texel offsets.
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 0, w4, h4, lowVram[1],
-             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 16, 16, w4 + 16, h4 + 16,
-             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
-             GS_SET_ALPHA(0, 1, 2, 1, 64));
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 16, 0, w4 + 16, h4,
-             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
-             GS_SET_ALPHA(0, 1, 2, 1, 43));
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 16, w4, h4 + 16,
-             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
-             GS_SET_ALPHA(0, 1, 2, 1, 32));
-    // Add the blur back over the frame: Cd + Cs * bloom / 128.
-    q = blit(q, lowVram[1], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram, fbBufW,
+    // Bright pass: subtract a flat grey from the downsampled frame,
+    // Cv = (0 - Cs) * 128 >> 7 + Cd = Cd - threshold, which the GS clamps at
+    // zero. Everything below the threshold becomes black and stops
+    // contributing to the blur, so the glow collapses onto the bright pixels -
+    // emissive materials, sky, specular hits - instead of veiling the whole
+    // image. One extra low-res sprite; the blur chain below is unchanged.
+    if (bloomThreshold > 0)
+      q = flatQuad(q, lowVram[0], lowBufW, 0xFF000000u, bloomThreshold,
+                   bloomThreshold, bloomThreshold, 0x80,
+                   GS_SET_ALPHA(2, 0, 2, 1, 128), lowW, lowH);
+    // Soften: 4 taps of the source blended into the destination at half/one
+    // texel offsets. Iterating with DOUBLED offsets each round grows the halo
+    // geometrically (1 texel, then 2, then 4...) for 4 sprites a round, which
+    // is what turns a tight fringe into a corona; the buffers ping-pong so
+    // every round reads the previous one's result. Round 1 alone is the
+    // original blur, so spread 1 is bit-identical to the old behavior.
+    int src = 0, dst = 1;
+    for (int it = 0; it < bloomSpread; it++) {
+      const int o = 16 << it;  // 1/16 texel units: 1 texel, 2, 4, 8
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, 0, 0, w4, h4, lowVram[dst],
+               lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, o, o, w4 + o, h4 + o,
+               lowVram[dst], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, 64));
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, o, 0, w4 + o, h4,
+               lowVram[dst], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, 43));
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, 0, o, w4, h4 + o,
+               lowVram[dst], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, 32));
+      src ^= 1, dst ^= 1;
+    }
+    // Add the blur back over the frame: Cd + Cs * bloom / 128. bloom may
+    // exceed 128 (the editor allows up to 2x) for a hotter re-add.
+    q = blit(q, lowVram[src], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram, fbBufW,
              0, 0, fbW, fbH, true, false, 1, GS_SET_ALPHA(0, 2, 2, 1, bloom));
   }
 

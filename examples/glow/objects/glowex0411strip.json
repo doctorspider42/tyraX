@@ -1,0 +1,1 @@
+{ "id": "glowex0411strip", "name": "s4-neon-cyan", "type": "box", "position": [4.2, 3, 18], "rotation": [0, 0, 0], "scale": [0.3, 0.6, 3.6], "color": [1, 1, 1], "physics": false, "material": "res/materials/neon-cyan.mtl" }

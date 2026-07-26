@@ -1,11 +1,14 @@
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "aobake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
 #include "project.hpp"
@@ -22,6 +25,30 @@ public:
 
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
+
+    // Camera projection (docs/orthographic-views.md). Perspective is the
+    // classic free orbit camera; the ortho modes render with a parallel
+    // projection (no foreshortening, so equal sizes read equal anywhere on
+    // screen) and the six axis modes additionally lock the camera onto that
+    // world axis - the Top/Front/Side views of a CAD or level editor.
+    // Orbiting out of an axis view keeps the parallel projection and falls
+    // back to Ortho (free), so a drag never feels dead.
+    enum class Projection {
+        Perspective = 0,
+        Ortho = 1,        // parallel, free orbit direction
+        OrthoTop = 2,     // looks down -Y (+X right, +Z down)
+        OrthoBottom = 3,  // looks up +Y
+        OrthoFront = 4,   // looks along -Z (+X right, +Y up)
+        OrthoBack = 5,    // looks along +Z
+        OrthoRight = 6,   // looks along -X (from +X)
+        OrthoLeft = 7,    // looks along +X (from -X)
+    };
+    static constexpr int kProjectionCount = 8;
+    void setProjection(Projection p) { projection_ = p; }
+    Projection projection() const { return projection_; }
+    bool orthographic() const { return projection_ != Projection::Perspective; }
+    // Display name of a projection mode ("Perspective", "Top", ...).
+    static const char* projectionName(Projection p);
 
     bool init();  // requires a current GL context
     void shutdown();
@@ -41,6 +68,29 @@ public:
     // Casts a ray through normalized image coords onto the terrain surface.
     // Returns false when the ray misses; used by the sculpting brush.
     bool terrainRaycast(float u, float v, float& outX, float& outZ) const;
+
+    // Casts a ray through normalized image coords at the whole scene (object
+    // boxes + the terrain heightfield) and returns the closest hit point in
+    // world space. `skip` (optional, parallel to objects) excludes indices
+    // from the test - the objects being placed must not catch their own ray.
+    // Objects on hidden layers are excluded like they are for picking.
+    // Returns false when the ray leaves the scene without hitting anything.
+    bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
+                          const std::vector<char>& skip, float outPoint[3]) const;
+
+    // Inverse of camRay: a world point -> normalized image coords (u, v in
+    // [0,1], origin top-left) of the LAST rendered frame. False when the point
+    // is behind a perspective camera. App-side ImDrawList overlays that have
+    // to sit on world geometry (the measuring tape) place themselves with
+    // this, so they agree with the image under every projection instead of
+    // rebuilding a camera of their own.
+    bool projectToImage(const float world[3], float& outU, float& outV) const;
+
+    // Local-space AABB of what an object DRAWS as a model: static .obj bounds
+    // (GL-free, cached) or an animated model's baked pose bounds. False for
+    // non-model objects and unreadable files. The aobake::ModelAabbFn the app
+    // hands to the placement snapping and the occluder collection.
+    bool modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]);
 
     float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
 
@@ -154,6 +204,7 @@ public:
     struct MatPreviewDesc {
         float kd[3] = {1.0f, 1.0f, 1.0f};  // staged tint of the selected entry
                                            // (channels may exceed 1 - brightness)
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // staged Ke emission floor (0 = matte)
         std::string texRel;   // staged map_Kd, project-relative ("" = none)
         std::string reflRel;  // staged refl sphere map, project-relative
         float reflStrength = 0.0f;  // staged reflection strength (0 = matte)
@@ -172,6 +223,29 @@ public:
     };
     uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
 
+    // Tree Generator live preview (Tools > Tree Generator): generated
+    // geometry + in-memory textures straight from treegen - nothing touches
+    // disk or the shared asset caches, so slider drags stay instant. Renders
+    // into its OWN framebuffer (only the gradient/checker backdrop meshes are
+    // shared); meshes and textures re-upload only when `version` changes.
+    struct TreePreviewDesc {
+        uint64_t version = 0;
+        const std::vector<float>* bark = nullptr;    // pos3+normal3+uv2 tris
+        const std::vector<float>* leaves = nullptr;  // same layout, drawn
+                                                     // with alpha cutout
+        const unsigned char* barkRgba = nullptr;     // RGBA texture pixels
+        int barkW = 0, barkH = 0;
+        const unsigned char* leafRgba = nullptr;
+        int leafW = 0, leafH = 0;
+        float center[3] = {0, 0, 0};  // mesh AABB center (camera pivot)
+        float minY = 0.0f;            // AABB bottom (floor placement)
+        float radius = 1.0f;          // AABB half-diagonal (framing)
+        float angleDeg = 40.0f;       // turntable yaw
+        float pitchDeg = 18.0f;       // camera elevation
+        float zoom = 1.0f;
+        int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
+    };
+    uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals
@@ -199,6 +273,18 @@ public:
         bool wireframe = false;   // overlay the triangles
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
+
+    // Asset Browser thumbnails (docs/asset-browser.md): one square preview of
+    // an asset file, rendered ONCE into a dedicated framebuffer and copied into
+    // its own small GL texture - a grid of hundreds then costs nothing to draw.
+    // Handles static .obj, animated .glb/.fbx (first pose) and .mtl libraries
+    // (a sphere wearing the first material); an image file needs no render and
+    // returns the shared texture. `render` false only reports what is already
+    // baked (0 = nothing yet), which is how the browser budgets the number of
+    // new thumbnails a single frame may pay for. Failed assets are remembered
+    // as 0 so an unreadable file is not retried every frame.
+    uint32_t assetThumb(const std::string& relPath, bool render);
+    static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
 
     // Source clip names of an animated model, in file order. Empty when the
     // file is missing or unusable. (The Animation Editor's clip list.)
@@ -345,6 +431,31 @@ private:
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
+    Projection projection_ = Projection::Perspective;
+    // The camera a render() draws with: eye + orthonormal basis plus the
+    // projection extents. ONE source for render(), pick(), the terrain
+    // raycast and the placement raycast - those used to rebuild the same
+    // hardcoded 50-degree perspective ray by hand, so they disagreed with the
+    // image as soon as the projection was ortho or a Camera entity's FOV.
+    struct CamView {
+        float eye[3] = {0.0f, 0.0f, 0.0f};
+        float fwd[3] = {0.0f, 0.0f, -1.0f};
+        float right[3] = {1.0f, 0.0f, 0.0f};
+        float up[3] = {0.0f, 1.0f, 0.0f};
+        bool ortho = false;
+        float tanHalf = 0.4663f;  // perspective: tan(vertical fov / 2)
+        float halfH = 1.0f;       // ortho: half the visible height (world units)
+        float aspect = 1.0f;
+    };
+    CamView camView(int width, int height) const;
+    // Ray through normalized image coords (u, v in [0,1], origin top-left).
+    // The ortho ray starts a full scene depth behind the eye plane so nothing
+    // visible can sit behind the ray origin (a parallel projection draws what
+    // is behind the camera too - see the symmetric depth range).
+    void camRay(const CamView& c, float u, float v, float o[3], float d[3]) const;
+    // Half the depth range the projection spans - far plane / ortho z extent.
+    float sceneDepth() const;
+
     // Cutscene camera-track preview override (see setCameraOverride)
     bool camOverride_ = false;
     float camEye_[3] = {0.0f, 0.0f, 0.0f};
@@ -387,6 +498,10 @@ private:
     int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
+    int uEmissive_ = -1;  // Ke floor, premultiplied by the object tint
+    // Emissive lights (materials that light their surroundings)
+    int uEmisCount_ = -1, uEmisPos_ = -1, uEmisAx_ = -1, uEmisAy_ = -1,
+        uEmisAz_ = -1, uEmisCol_ = -1, uEmisRange_ = -1, uEmisObj_ = -1;
     // Ambient occlusion preview (see setAmbientOcclusion)
     int uAoOn_ = -1, uAoStrength_ = -1, uAoRadius_ = -1, uAoCount_ = -1;
     int uAoSelfObj_ = -1, uAoGround_ = -1, uAoReceive_ = -1;
@@ -436,6 +551,12 @@ private:
     struct ModelPart {
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
+        // map_Kd carries transparency: draw this part cutout + blended, the
+        // way the console's static pipeline alpha-tests every texture. Leaf
+        // cards are the everyday case (Tree Generator); without it their
+        // transparent margin renders as the PNG's black RGB.
+        bool alpha = false;
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
         bool reflSky = false;      // refl "@sky" - live sky gradient
@@ -452,6 +573,12 @@ private:
     const ModelDraw* modelDraw(const std::string& relPath,
                                const std::string& materialRel);
     void clearModelCache();
+    // GL-free model AABB lookup (objparser only), cached; the AO occluder
+    // collection uses this so reading bounds never triggers a GL upload.
+    // Value: (loaded?, {minXYZ, maxXYZ}).
+    std::map<std::string, std::pair<bool, std::array<float, 6>>> modelBoundsCache_;
+    bool modelBounds(const std::string& relPath, const std::string& materialRel,
+                     float mn[3], float mx[3]);
 
     // Animated .glb models: the baked clips stay CPU-side and each part owns
     // a dynamic VBO that is re-lerped per frame for the playback preview
@@ -490,6 +617,7 @@ private:
     struct MaterialDraw {
         uint32_t tex = 0;
         float kd[3] = {1.0f, 1.0f, 1.0f};
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
         bool reflSky = false;      // refl "@sky" - live sky gradient
@@ -497,9 +625,17 @@ private:
     };
     std::map<std::string, MaterialDraw> materialCache_;  // by relative path
     const MaterialDraw* materialDraw(const std::string& relPath);
+    // Emissive-light material lookups (collectEmitters reads .mtl files, and
+    // the emitter set is rebuilt every frame). Cleared by invalidateAssets().
+    aobake::GlowCache emisGlowCache_;
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
+    // Which of those images actually carry transparency (any texel below
+    // fully opaque), filled as they load - the cutout/blend decision, so a
+    // draw site never has to re-read the file.
+    std::map<std::string, bool> texAlpha_;
     uint32_t glTexture(const std::string& relPath);
+    bool texHasAlpha(const std::string& relPath) const;
     void clearTexCache();
 
     // Live particle-emitter preview. The simulation mirrors the generated
@@ -543,10 +679,36 @@ private:
 
     // Material Editor preview target + fixed backdrop meshes
     void ensurePreviewFramebuffer(int width, int height);
+    void ensurePreviewBackdrop();  // lazily builds prevBg_ / prevFloor_
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
     Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
     uint32_t uvCheckerTex_ = 0;  // generated UV-checker (displayMode 2)
+
+    // Tree Generator preview target. Its OWN framebuffer, not the Material
+    // Editor's: both tools can be open at once, they size their previews
+    // independently, and both draw within a single UI frame - sharing one
+    // target would thrash its size and make each show the other's image.
+    void ensureTreeFramebuffer(int width, int height);
+    uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
+    int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for
+    // the same reason the tree preview has one - the browser bakes thumbnails
+    // in the middle of a frame in which the Material Editor may be drawing its
+    // own preview. Baked images live in thumbCache_ (one texture per asset, an
+    // entry with value 0 = tried and unusable), dropped by invalidateAssets.
+    void ensureThumbFramebuffer();
+    uint32_t thumbFbo_ = 0, thumbColor_ = 0, thumbDepth_ = 0;
+    std::map<std::string, uint32_t> thumbCache_;
+    void clearThumbCache();
+
+    // Tree Generator preview geometry + textures (see renderTreePreview);
+    // rebuilt only when the desc version changes.
+    Mesh treePrevBark_, treePrevLeaves_;
+    uint32_t treePrevBarkTex_ = 0, treePrevLeafTex_ = 0;
+    uint64_t treePrevVersion_ = 0;
+    bool treePrevHasVersion_ = false;
 
     // Model shown in the material preview. Unlike modelCache_ the part Kd is
     // NOT baked into the vertex colors (it rides the tint uniform instead) so
@@ -556,6 +718,7 @@ private:
         Mesh mesh;
         std::string material;  // usemtl name
         float kd[3] = {1.0f, 1.0f, 1.0f};
+        float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         std::string texRel;    // project-relative map_Kd ("" = none)
         std::string reflRel;   // project-relative refl sphere map ("" = none)
         float reflStrength = 0.0f;

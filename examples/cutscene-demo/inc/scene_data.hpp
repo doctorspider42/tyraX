@@ -283,6 +283,8 @@ constexpr float SKY_TOP_RS[SCENE_COUNT] = {20.4F};
 constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
 constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
+constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
+constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
 constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
@@ -469,6 +471,8 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
+#define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]

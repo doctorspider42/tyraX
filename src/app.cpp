@@ -100,7 +100,24 @@ struct EditorConfig {
     // Material Editor: the preview panel's share of the window width
     // (0.25..0.75), set by dragging the splitter between the columns.
     float matEdSplit = 0.48f;
+    // Collision-aware placement (docs/object-placement.md): inserted and
+    // pasted objects rest on the surface under them instead of sinking into
+    // it. A workflow preference like the navigation scheme, so it lives here
+    // rather than in the .tyra.
+    bool placementSnap = true;
+    // The axis-view gizmo in the viewport's top-right corner. On by default;
+    // it can be turned off because it sits where HUD authoring wants space.
+    bool axisGizmo = true;
+    // Project folders opened most recently, most-recent first (the welcome
+    // screen's list). Machine-global like everything else here: which projects
+    // this PC has seen is a property of the PC, not of any one project.
+    std::vector<std::string> recentProjects;
 };
+
+// How many entries the recent-projects list keeps. Ten fills the welcome
+// screen without scrolling and is about as far back as "continue where I left
+// off" is still useful.
+static constexpr size_t kMaxRecentProjects = 10;
 
 static std::filesystem::path editorConfigPath() {
     const char* base = getenv("LOCALAPPDATA");
@@ -145,6 +162,13 @@ static EditorConfig loadEditorConfig() {
         else if (match("aiModel", v)) cfg.ai.model = v;
         else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
+        else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
+        else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
+        // One line per entry, written in list order (most recent first).
+        else if (match("recentProject", v)) {
+            if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
+                cfg.recentProjects.push_back(v);
+        }
     }
     if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
@@ -176,7 +200,33 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiBackend=" << cfg.ai.backend << "\n"
       << "aiModel=" << cfg.ai.model << "\n"
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
-      << "matEdSplit=" << cfg.matEdSplit << "\n";
+      << "matEdSplit=" << cfg.matEdSplit << "\n"
+      << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
+      << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n";
+    for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
+}
+
+// The name a project folder shows under, and whether it is still a project at
+// all: the <name>.tyra stem (project::load finds the manifest the same way),
+// empty when the folder is gone or holds no manifest.
+static std::string projectManifestName(const std::string& dir) {
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (entry.is_regular_file(ec) && entry.path().extension() == ".tyra")
+            return entry.path().stem().string();
+    }
+    return "";
+}
+
+// Dedupe key for a recent-projects entry: the same folder can arrive spelled
+// two ways (the Open dialog and the New Project modal disagree on slashes and
+// Windows does not care about case), and the list must not grow a second row
+// for a project it already has.
+static std::string recentProjectKey(const std::string& dir) {
+    std::string k = std::filesystem::path(dir).lexically_normal().string();
+    while (!k.empty() && (k.back() == '\\' || k.back() == '/')) k.pop_back();
+    for (char& c : k) c = (char)tolower((unsigned char)c);
+    return k;
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -389,6 +439,16 @@ int App::run(const std::string& initialProjectDir) {
         globalSessionCacheDir_ = cfg.sessionCacheDir;
         globalAi_ = cfg.ai;
         matEdSplit_ = cfg.matEdSplit;
+        placementSnap_ = cfg.placementSnap;
+        showAxisGizmo_ = cfg.axisGizmo;
+        // Probe the recent projects once, here: the welcome screen draws this
+        // list every frame and must not scan the disk to do it.
+        for (const std::string& dir : cfg.recentProjects) {
+            RecentProject r;
+            r.dir = dir;
+            probeRecentProject(r);
+            recentProjects_.push_back(r);
+        }
     }
     applyUiScale();
 
@@ -415,13 +475,7 @@ int App::run(const std::string& initialProjectDir) {
         std::string dir = initialProjectDir;
         if (std::filesystem::path(dir).extension() == ".tyra")
             dir = std::filesystem::path(dir).parent_path().string();
-        Project p;
-        if (project::load(p, dir).empty()) {
-            project_ = p;
-            hasProject_ = true;
-            applyProjectToViewport();
-            attachProject();  // resets dirty + window title
-        }
+        openProjectAt(dir);  // failure leaves the welcome screen up
     }
 
     while (true) {
@@ -558,6 +612,8 @@ void App::drawUI() {
     drawUiEditorWindow();
     drawFontManagerWindow();
     drawInputMapWindow();
+    drawAssetBrowserWindow();
+    drawTreeGeneratorWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawSessionWindow();
@@ -572,6 +628,7 @@ void App::drawUI() {
     drawNewSceneModal();
     drawDeleteSceneModal();
     drawDeleteAssetModal();
+    drawModelSizeModal();
     drawDiscardModal();
     drawLayoutModals();
     drawHostSessionModal();
@@ -667,10 +724,14 @@ void App::applyUiScale() {
 // {uiScaleUser_, nav_} would wipe the emulator path / PS2 IP on the next
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
+    std::vector<std::string> recent;
+    recent.reserve(recentProjects_.size());
+    for (const RecentProject& r : recentProjects_) recent.push_back(r.dir);
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_});
+                      matEdSplit_, placementSnap_, showAxisGizmo_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -709,10 +770,14 @@ void App::drawMenuBar() {
             ImGui::Separator();
             const char* copyLabel =
                 selection_.size() > 1 ? "Copy objects" : "Copy object";
-            const char* pasteLabel =
-                clipboard_.size() > 1 ? "Paste objects" : "Paste object";
+            // A pending paste is still following the cursor - the same command
+            // settles it (see pasteObject).
+            const char* pasteLabel = pastePending_ ? "Place paste"
+                                     : clipboard_.size() > 1 ? "Paste objects"
+                                                             : "Paste object";
             if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
-            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false, hasProject_ && !clipboard_.empty()))
+            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
+                                hasProject_ && (pastePending_ || !clipboard_.empty())))
                 pasteObject();
             ImGui::Separator();
             if (ImGui::MenuItem("Preferences...")) {
@@ -775,6 +840,57 @@ void App::drawMenuBar() {
             }
 
             ImGui::Separator();
+            ImGui::TextDisabled("Projection");
+            {
+                // Perspective + the parallel views. The axis entries also aim
+                // the camera down that world axis; orbiting afterwards keeps
+                // the parallel projection and returns to "Orthographic".
+                struct ProjItem {
+                    Viewport::Projection p;
+                    const char* label;
+                    const char* shortcut;
+                };
+                static const ProjItem items[] = {
+                    {Viewport::Projection::Perspective, "Perspective", "Num 5"},
+                    {Viewport::Projection::Ortho, "Orthographic", "Num 5"},
+                    {Viewport::Projection::OrthoTop, "Top (-Y)", "Num 7"},
+                    {Viewport::Projection::OrthoBottom, "Bottom (+Y)", "Ctrl+Num 7"},
+                    {Viewport::Projection::OrthoFront, "Front (-Z)", "Num 1"},
+                    {Viewport::Projection::OrthoBack, "Back (+Z)", "Ctrl+Num 1"},
+                    {Viewport::Projection::OrthoRight, "Right (-X)", "Num 3"},
+                    {Viewport::Projection::OrthoLeft, "Left (+X)", "Ctrl+Num 3"},
+                };
+                for (const ProjItem& it : items) {
+                    const bool active = viewport_.projection() == it.p;
+                    if (ImGui::MenuItem(it.label, it.shortcut, active, hasProject_) &&
+                        !active)
+                        setViewProjection(it.p);
+                }
+                if (ImGui::MenuItem("Axis gizmo", nullptr, showAxisGizmo_)) {
+                    showAxisGizmo_ = !showAxisGizmo_;
+                    saveGlobalConfig();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(
+                        "The axis widget in the viewport's top-right corner:\n"
+                        "click an axis ball to snap to that orthographic view,\n"
+                        "click the hub to switch perspective/parallel.");
+            }
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Placement");
+            if (ImGui::MenuItem("Snap to surface", nullptr, placementSnap_)) {
+                placementSnap_ = !placementSnap_;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Inserted and pasted objects rest on the surface under "
+                    "them\n(the terrain, or the top of the object below) "
+                    "instead of\nsinking into it. A machine setting, not "
+                    "project data.");
+
+            ImGui::Separator();
             ImGui::TextDisabled("Preview");
             if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
                 showFog_ = !showFog_;
@@ -809,6 +925,13 @@ void App::drawMenuBar() {
                 drawAddObjectMenu();
                 ImGui::EndMenu();
             }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Drop to floor", "End", false, !selection_.empty()))
+                dropSelectionToFloor();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Rest every selected object on the first surface below it "
+                    "-\nthe terrain or the top of another object.");
             ImGui::Separator();
             if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
             ImGui::EndMenu();
@@ -896,6 +1019,11 @@ void App::drawMenuBar() {
         }
 
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
+            if (ImGui::MenuItem("Asset Browser...")) {
+                showAssetBrowser_ = true;
+                scanAssetTree();
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
@@ -907,6 +1035,11 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Tree Generator...")) {
+                showTreeGenerator_ = true;
+                treePreviewDirty_ = true;
+            }
             ImGui::EndMenu();
         }
 
@@ -1329,6 +1462,121 @@ void App::updateNavOverlay() {
     viewport_.setNavOverlay(&navGrid_, navOverlayVersion_);
 }
 
+// Fit a path into maxW pixels by dropping characters from the FRONT: the tail
+// (the project's own folder) is what identifies it, the drive root is not.
+// Binary search over the cut - the fit is monotonic, and this runs per row
+// per frame.
+static std::string ellipsizePathLeft(const std::string& s, float maxW) {
+    if (ImGui::CalcTextSize(s.c_str()).x <= maxW) return s;
+    size_t lo = 0, hi = s.size();  // smallest cut that fits
+    while (lo < hi) {
+        const size_t mid = (lo + hi) / 2;
+        if (ImGui::CalcTextSize(("..." + s.substr(mid)).c_str()).x <= maxW)
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    // Never cut inside a UTF-8 sequence - a path can carry accented folder
+    // names, and half a codepoint draws as garbage.
+    while (lo < s.size() && ((unsigned char)s[lo] & 0xC0) == 0x80) ++lo;
+    return "..." + s.substr(lo);
+}
+
+// The Viewport's content before anything is open: the two ways in, plus the
+// recent-projects list so the usual next step - carry on with the project from
+// last time - is one click instead of a file dialog. Entries whose folder is
+// gone stay listed (greyed) rather than being swept: a project on an unplugged
+// drive is not a mistake, and the x is right there when it really is.
+void App::drawWelcomeScreen() {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    ImGui::Dummy(ImVec2(0, scaled(24)));
+    ImGui::Indent(scaled(30));
+
+    ImGui::TextDisabled("No project open.");
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+    const ImVec2 bsz(scaled(160), 0);
+    if (ImGui::Button("New project...", bsz)) requestNewProject();
+    ImGui::SameLine();
+    if (ImGui::Button("Open project...", bsz)) requestOpenProject();
+    ImGui::SameLine();
+    ImGui::TextDisabled("Ctrl+N / Ctrl+O");
+
+    ImGui::Dummy(ImVec2(0, scaled(12)));
+    ImGui::SeparatorText("Recent projects");
+    if (recentProjects_.empty()) {
+        ImGui::TextDisabled("Empty - the projects you open show up here.");
+        ImGui::Unindent(scaled(30));
+        return;
+    }
+
+    // Resolved after the loop: opening a project (or dropping an entry)
+    // rewrites recentProjects_, which we are iterating.
+    int openIndex = -1, forgetIndex = -1;
+    const float listW = ImMin(ImGui::GetContentRegionAvail().x, scaled(560));
+    const float lineH = ImGui::GetTextLineHeight();
+    const float rowH = lineH * 2.0f + st.FramePadding.y * 2.0f + scaled(4);
+    const float textX = st.FramePadding.x + scaled(4);
+    const ImU32 colName = ImGui::GetColorU32(ImGuiCol_Text);
+    const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    for (int i = 0; i < (int)recentProjects_.size(); ++i) {
+        const RecentProject& r = recentProjects_[i];
+        ImGui::PushID(i + 7100);
+        const ImVec2 row = ImGui::GetCursorScreenPos();
+        if (ImGui::Selectable("##recent", false, ImGuiSelectableFlags_AllowOverlap,
+                              ImVec2(listW, rowH)))
+            openIndex = i;
+        // The row shows a shortened path, so the tooltip carries the full one.
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s", r.dir.c_str(),
+                              r.valid ? "" : "\n(no .tyra project file here)");
+        const ImVec2 after = ImGui::GetCursorScreenPos();
+
+        // Name over path, both drawn straight into the draw list: as ImGui
+        // items they would register their own (long) width and give the panel
+        // a horizontal scrollbar. The clip rect keeps a deep path inside the
+        // row instead of running under the x button.
+        const float textW = listW - textX - scaled(34);  // up to the x button
+        const ImVec4 clip(row.x + textX, row.y, row.x + textX + textW, row.y + rowH);
+        const std::string title = r.valid ? r.name : r.name + "   (missing)";
+        const std::string path = ellipsizePathLeft(r.dir, textW);
+        dl->AddText(nullptr, 0.0f, ImVec2(row.x + textX, row.y + st.FramePadding.y),
+                    r.valid ? colName : colDim, title.c_str(), nullptr, 0.0f, &clip);
+        dl->AddText(nullptr, 0.0f,
+                    ImVec2(row.x + textX, row.y + st.FramePadding.y + lineH), colDim,
+                    path.c_str(), nullptr, 0.0f, &clip);
+
+        // Remove from the list. Nothing on disk is touched - the entry is a
+        // shortcut, not the project.
+        ImGui::SetCursorScreenPos(
+            ImVec2(row.x + listW - scaled(26), row.y + (rowH - lineH) * 0.5f));
+        if (ImGui::SmallButton("x")) forgetIndex = i;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Remove from this list (the project itself stays on disk)");
+        ImGui::SetCursorScreenPos(after);
+        ImGui::PopID();
+    }
+
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ImGui::TextDisabled("Click a project to open it. x only forgets the entry.");
+    ImGui::Unindent(scaled(30));
+
+    // An open wins over a drop in the same frame (they can't both be clicked,
+    // but the drop would shift the index the open reads).
+    if (openIndex < 0 && forgetIndex >= 0) forgetRecentProject(forgetIndex);
+    if (openIndex >= 0) {
+        const std::string dir = recentProjects_[openIndex].dir;
+        const std::string err = openProjectAt(dir);
+        if (!err.empty()) {
+            // Moved/deleted since it was probed: say so and mark the row, but
+            // keep it - the user decides whether it is worth forgetting.
+            probeRecentProject(recentProjects_[openIndex]);
+            MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+        }
+    }
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1339,11 +1587,7 @@ void App::drawViewportWindow() {
     ImGui::PopStyleVar();
 
     if (!hasProject_) {
-        ImGui::Dummy(ImVec2(0, 40));
-        ImGui::Indent(30);
-        ImGui::TextDisabled("No project open.");
-        ImGui::TextDisabled("File > New Project (Ctrl+N) to create one.");
-        ImGui::Unindent(30);
+        drawWelcomeScreen();
         ImGui::End();
         return;
     }
@@ -1394,7 +1638,24 @@ void App::drawViewportWindow() {
                                animedit::projectTimeScale(project_.settings));
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
-        const std::vector<SceneObject>& renderObjects = cutscenePosedObjects();
+        const std::vector<SceneObject>& posedObjects = cutscenePosedObjects();
+        // Deferred paste: the staged copies are not in the scene yet, so they
+        // ride along in a scratch list and render outlined like a selection -
+        // that outline IS the "this is still being placed" feedback.
+        const std::vector<SceneObject>* renderList = &posedObjects;
+        std::vector<int> renderSel = selection_;
+        int renderPrimary = selectedObject_;
+        if (pastePending_ && !pasteStaged_.empty()) {
+            pasteRenderScratch_ = posedObjects;
+            renderSel.clear();
+            for (const SceneObject& o : pasteStaged_) {
+                renderSel.push_back((int)pasteRenderScratch_.size());
+                pasteRenderScratch_.push_back(o);
+            }
+            renderPrimary = renderSel.back();
+            renderList = &pasteRenderScratch_;
+        }
+        const std::vector<SceneObject>& renderObjects = *renderList;
         // Look-through camera ("View:" overlay / camera Properties): render
         // from the chosen Camera entity's pose + FOV. The cutscene camera
         // track wins while it previews; reading the POSED objects means a
@@ -1436,13 +1697,26 @@ void App::drawViewportWindow() {
         updateProjectedDecals();
         updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
-                                        selection_, selectedObject_);
+                                        renderSel, renderPrimary);
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
         const ImVec2 imgPos = ImGui::GetItemRectMin();
         const bool imageHovered = ImGui::IsItemHovered();
         ImGuiIO& io = ImGui::GetIO();
+
+        // A model dragged out of the Asset Browser lands where the cursor points
+        // (docs/asset-browser.md). Only the model payload is accepted, so
+        // dragging a texture over the viewport shows no drop target at all.
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* pl =
+                    ImGui::AcceptDragDropPayload("TYRAX_ASSET_MODEL")) {
+                const std::string rel((const char*)pl->Data);
+                dropAssetIntoScene(rel, (io.MousePos.x - imgPos.x) / avail.x,
+                                   (io.MousePos.y - imgPos.y) / avail.y);
+            }
+            ImGui::EndDragDropTarget();
+        }
 
         // Cutscene Director: widescreen bars + fade-to-black overlay, drawn
         // over the viewport image with the same coverage the PS2 composites.
@@ -1466,6 +1740,11 @@ void App::drawViewportWindow() {
                 dl->AddRectFilled(imgPos, br,
                                   IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
         }
+
+        // --- Axis view gizmo (top-right corner) ---
+        // Drawn before the input handling so its hover can veto the click that
+        // would otherwise fall through and change the selection.
+        const bool overAxisGizmo = drawAxisGizmo(imgPos, avail);
 
         // --- Terrain sculpting / painting brush (shared raycast + ring) ---
         const bool brushMode = sculptMode_ || paintMode_;
@@ -1556,13 +1835,15 @@ void App::drawViewportWindow() {
 
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
-        bool objectSelected = !sculptMode_ && !paintMode_ && selectedObject_ >= 0 &&
+        bool objectSelected = !sculptMode_ && !paintMode_ && !measureMode_ &&
+                              !pastePending_ &&
+                              selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
 
-            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::SetOrthographic(viewport_.orthographic());
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect(imgPos.x, imgPos.y, avail.x, avail.y);
 
@@ -1766,9 +2047,62 @@ void App::drawViewportWindow() {
             // button is not driving the camera in this scheme (only Maya's
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
-            if (!sculptMode_ && !paintMode_ && !lmbCamera &&
+            if (!sculptMode_ && !paintMode_ && !measureMode_ && !pastePending_ &&
+                !lmbCamera && !overAxisGizmo &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
+        }
+
+        // --- Deferred paste: the staged copies follow the cursor until a
+        // click (or another Ctrl+V) settles them; Esc drops them. ---
+        if (pastePending_) {
+            if (imageHovered && !gizmoBusy && !overAxisGizmo) {
+                const float u = (io.MousePos.x - imgPos.x) / avail.x;
+                const float v = (io.MousePos.y - imgPos.y) / avail.y;
+                float point[3];
+                if (viewport_.placementRaycast(u, v, project_.objects(),
+                                               placementSkip(), point))
+                    movePasteStaged(point);
+                // A plain click (not an orbit drag) commits where they stand.
+                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                    io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f)
+                    commitPastePlacement();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) cancelPastePlacement();
+        }
+
+        // --- Measuring tape: click a point, then a second one. The end
+        // follows the cursor in between, so the readout updates live; a third
+        // click starts a new measurement. Both points land on the same
+        // surfaces a paste would rest on (object boxes + the heightfield), so
+        // the tape measures the scene, not an arbitrary plane. ---
+        // A paste in flight owns the click (and the same corner of the
+        // screen), so the tape waits until it is placed or cancelled.
+        if (measureMode_ && !pastePending_) {
+            if (imageHovered && !overAxisGizmo) {
+                const float u = (io.MousePos.x - imgPos.x) / avail.x;
+                const float v = (io.MousePos.y - imgPos.y) / avail.y;
+                float point[3];
+                const bool hit = viewport_.placementRaycast(
+                    u, v, project_.objects(), std::vector<char>(), point);
+                if (hit && measurePoints_ == 1 && measureLive_)
+                    for (int c = 0; c < 3; ++c) measureB_[c] = point[c];
+                if (hit && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                    io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
+                    if (measurePoints_ == 1) {
+                        for (int c = 0; c < 3; ++c) measureB_[c] = point[c];
+                        measurePoints_ = 2;
+                        measureLive_ = false;
+                    } else {
+                        for (int c = 0; c < 3; ++c)
+                            measureA_[c] = measureB_[c] = point[c];
+                        measurePoints_ = 1;
+                        measureLive_ = true;
+                    }
+                }
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) measurePoints_ = 0;
+            drawMeasureOverlay(imgPos, avail);
         }
 
         // Rubber-band box select: tracked until the button is released, even if
@@ -1797,6 +2131,7 @@ void App::drawViewportWindow() {
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
         if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
+            !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -1982,6 +2317,50 @@ void App::drawViewportWindow() {
         }
         if (paintMode_) ImGui::PopStyleColor();
 
+        // Surface snapping: inserted / pasted objects rest on what is under
+        // them. A machine-global preference, mirrored in the View menu.
+        ImGui::SameLine(0.0f, 24.0f);
+        if (placementSnap_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Surface snap")) {
+            placementSnap_ = !placementSnap_;
+            saveGlobalConfig();
+        }
+        if (placementSnap_) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Inserted and pasted objects rest on the surface under them\n"
+                "(the terrain, or the top of the object below) instead of\n"
+                "sinking into it. End drops the selection to the floor.");
+
+        // Measuring tape: how far apart two points in the scene actually are,
+        // in units and (via the world scale) in meters.
+        ImGui::SameLine();
+        if (measureMode_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Measure (7)")) {
+            measureMode_ = !measureMode_;
+            measurePoints_ = 0;
+            if (measureMode_) sculptMode_ = paintMode_ = false;
+        }
+        if (measureMode_) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Click a point, then a second one: the distance is shown in\n"
+                "world units and in meters (Preferences > World > Units per\n"
+                "meter). Click again to start over, Esc clears, the button\n"
+                "or 7 leaves the tool.");
+
+        // While a paste is in flight, say so where the eye already is.
+        if (pastePending_) {
+            ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                               "Placing paste - click to drop, Ctrl+V to drop, "
+                               "Esc to cancel");
+        }
+
         // Geometry for the bottom-corner overlays. SmallButton keeps
         // FramePadding.x, so its width is the label plus twice that padding.
         auto smallBtnW = [](const char* s) {
@@ -2007,6 +2386,34 @@ void App::drawViewportWindow() {
             ImGui::EndDisabled();
             if (objSel && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Move the camera pivot to the selected object.");
+        }
+
+        // --- Camera projection (next to the recenter buttons) ---
+        // Perspective / parallel + the six locked axis views. The numpad
+        // shortcuts below do the same; this button is the discoverable half
+        // (and the only one on a keyboard without a numpad).
+        {
+            ImGui::SameLine(0.0f, 16.0f);
+            const std::string projLbl =
+                std::string("Proj: ") + Viewport::projectionName(viewport_.projection());
+            if (ImGui::SmallButton(projLbl.c_str())) ImGui::OpenPopup("##projection");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Camera projection. Orthographic drops the perspective\n"
+                    "foreshortening; the axis views also aim the camera down\n"
+                    "a world axis (Num 1/3/7, Ctrl for the opposite side,\n"
+                    "Num 5 toggles perspective). Orbiting an axis view keeps\n"
+                    "the parallel projection.");
+            if (ImGui::BeginPopup("##projection")) {
+                for (int i = 0; i < Viewport::kProjectionCount; ++i) {
+                    const Viewport::Projection p = (Viewport::Projection)i;
+                    if (i == 2) ImGui::Separator();  // free modes | axis views
+                    if (ImGui::MenuItem(Viewport::projectionName(p), nullptr,
+                                        viewport_.projection() == p))
+                        setViewProjection(p);
+                }
+                ImGui::EndPopup();
+            }
         }
 
         // --- Look-through camera (next to the recenter buttons) ---
@@ -2129,12 +2536,37 @@ void App::drawViewportWindow() {
                 }
             }
             if (ImGui::IsKeyPressed(ImGuiKey_5)) gizmoSpace_ = 1 - gizmoSpace_;
+            // Camera projection on the numpad (CAD/Blender muscle memory):
+            // 1/3/7 front/right/top, Ctrl for the opposite side, 5 toggles
+            // perspective. The tool keys live on the number ROW, so nothing
+            // collides.
+            {
+                const bool ctrl = io.KeyCtrl;
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad7))
+                    setViewProjection(ctrl ? Viewport::Projection::OrthoBottom
+                                           : Viewport::Projection::OrthoTop);
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad1))
+                    setViewProjection(ctrl ? Viewport::Projection::OrthoBack
+                                           : Viewport::Projection::OrthoFront);
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad3))
+                    setViewProjection(ctrl ? Viewport::Projection::OrthoLeft
+                                           : Viewport::Projection::OrthoRight);
+                if (ImGui::IsKeyPressed(ImGuiKey_Keypad5))
+                    setViewProjection(viewport_.orthographic()
+                                          ? Viewport::Projection::Perspective
+                                          : Viewport::Projection::Ortho);
+            }
             if (ImGui::IsKeyPressed(ImGuiKey_6)) {
                 paintMode_ = !paintMode_;
                 if (paintMode_) {
                     sculptMode_ = false;
                     showTerrainEditor_ = true;
                 }
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_7)) {
+                measureMode_ = !measureMode_;
+                measurePoints_ = 0;
+                if (measureMode_) sculptMode_ = paintMode_ = false;
             }
             // Resize the brush without leaving the stroke ([ / ], 15% steps).
             if (sculptMode_ || paintMode_) {
@@ -2159,9 +2591,237 @@ void App::drawViewportWindow() {
             viewport_.fly(fwd, strafe, io.DeltaTime);
             if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete))
                 deleteSelectedObjects();
+            // End: rest the selection on the first surface below it.
+            if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_End))
+                dropSelectionToFloor();
         }
     }
     ImGui::End();
+}
+
+// The measuring tape's own drawing: the segment between the two points with
+// its endpoints, and a readout at the midpoint. Everything is placed through
+// Viewport::projectToImage, so it tracks the image under any projection.
+void App::drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col = IM_COL32(255, 205, 90, 235);
+    auto toScreen = [&](const float w[3], ImVec2& out) {
+        float u, v;
+        if (!viewport_.projectToImage(w, u, v)) return false;
+        out = ImVec2(imgPos.x + u * avail.x, imgPos.y + v * avail.y);
+        return true;
+    };
+
+    if (measurePoints_ == 0) {
+        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
+                           "Measure: click the first point");
+        return;
+    }
+
+    ImVec2 a, b;
+    const bool aOk = toScreen(measureA_, a);
+    const bool bOk = toScreen(measureB_, b);
+    if (aOk) dl->AddCircleFilled(a, scaled(4.0f), col);
+    if (bOk && measurePoints_ >= 1) dl->AddCircleFilled(b, scaled(4.0f), col);
+    if (aOk && bOk) dl->AddLine(a, b, col, scaled(2.0f));
+
+    const float d[3] = {measureB_[0] - measureA_[0], measureB_[1] - measureA_[1],
+                        measureB_[2] - measureA_[2]};
+    const float dist = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    const float ups = project_.settings.unitsPerMeter;
+    char line1[96], line2[96];
+    std::snprintf(line1, sizeof line1, "%.3f units  =  %.3f m", dist, dist / ups);
+    // The per-axis split is what turns a measurement into a number you can
+    // type into a scale or a position field.
+    std::snprintf(line2, sizeof line2, "dx %.2f  dy %.2f  dz %.2f", d[0], d[1],
+                  d[2]);
+
+    if (aOk && bOk) {
+        const ImVec2 mid((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+        const ImVec2 s1 = ImGui::CalcTextSize(line1);
+        const ImVec2 s2 = ImGui::CalcTextSize(line2);
+        const float w = std::max(s1.x, s2.x), h = s1.y + s2.y;
+        const float pad = scaled(5.0f);
+        const ImVec2 tl(mid.x - w * 0.5f - pad, mid.y - h - scaled(14.0f));
+        dl->AddRectFilled(tl, ImVec2(tl.x + w + pad * 2, tl.y + h + pad * 2),
+                          IM_COL32(20, 20, 24, 205), scaled(3.0f));
+        dl->AddText(ImVec2(tl.x + pad, tl.y + pad), col, line1);
+        dl->AddText(ImVec2(tl.x + pad, tl.y + pad + s1.y),
+                    IM_COL32(210, 210, 215, 230), line2);
+    }
+
+    // Same numbers in the corner: the label above can end up off-screen when
+    // one end of the tape is behind the camera.
+    ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Measure: %s   (%s)%s",
+                       line1, line2,
+                       measurePoints_ == 1 ? "  - click the second point" : "");
+}
+
+bool App::objectWorldSize(const SceneObject& o, float out[3]) {
+    if (o.type == PrimitiveType::Model) {
+        float mn[3], mx[3];
+        if (!viewport_.modelLocalBounds(o, mn, mx)) return false;
+        for (int c = 0; c < 3; ++c) out[c] = (mx[c] - mn[c]) * o.scale[c];
+        return true;
+    }
+    // Every other drawn primitive is a unit shape scaled by the transform
+    // (primmesh: a 1x1x1 shape around the origin), so the scale IS the size.
+    // The flat ones have no thickness, and which axis is the flat one differs:
+    // a Plane lies in XZ, the quads (decal/mirror/portal) stand in XY.
+    switch (o.type) {
+        case PrimitiveType::Box:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::SavePoint:
+            for (int c = 0; c < 3; ++c) out[c] = o.scale[c];
+            return true;
+        case PrimitiveType::Plane:
+            out[0] = o.scale[0], out[1] = 0.0f, out[2] = o.scale[2];
+            return true;
+        case PrimitiveType::Decal:
+        case PrimitiveType::Mirror:
+        case PrimitiveType::Portal:
+            out[0] = o.scale[0], out[1] = o.scale[1], out[2] = 0.0f;
+            return true;
+        default:
+            return false;  // markers (spawn, player, light, camera, empty...)
+    }
+}
+
+bool App::drawAxisGizmo(ImVec2 imgPos, ImVec2 avail) {
+    if (!showAxisGizmo_) return false;
+    const float radius = scaled(42.0f);   // hub -> axis tip
+    const float ballR = scaled(8.5f);
+    const float pad = scaled(14.0f);
+    // A viewport docked down to a sliver has no room for it.
+    if (avail.x < radius * 4.0f || avail.y < radius * 4.0f) return false;
+    const ImVec2 hub(imgPos.x + avail.x - radius - ballR - pad,
+                     imgPos.y + radius + ballR + pad);
+
+    // World axis k in view space: the view matrix is column-major, so column k
+    // (V[k*4 + r]) is where that axis points on screen. Screen Y grows down.
+    const float* V = viewport_.viewMatrix();
+    static const char* kLabel[3] = {"X", "Y", "Z"};
+    static const ImU32 kColor[3] = {IM_COL32(226, 88, 96, 255),     // X red
+                                    IM_COL32(126, 200, 78, 255),    // Y green
+                                    IM_COL32(70, 145, 240, 255)};   // Z blue
+    // Ball i (axis i/2, negative when odd) -> the view you get by standing on
+    // that end of the axis and looking back at the scene.
+    static const Viewport::Projection kProj[6] = {
+        Viewport::Projection::OrthoRight, Viewport::Projection::OrthoLeft,
+        Viewport::Projection::OrthoTop,   Viewport::Projection::OrthoBottom,
+        Viewport::Projection::OrthoFront, Viewport::Projection::OrthoBack};
+    static const char* kTip[6] = {"Right view", "Left view",  "Top view",
+                                  "Bottom view", "Front view", "Back view"};
+
+    struct Ball {
+        int i = 0;
+        ImVec2 pos;
+        float depth = 0.0f;  // view-space z: bigger = nearer the camera
+    };
+    Ball balls[6];
+    for (int i = 0; i < 6; ++i) {
+        const int axis = i / 2;
+        const float s = (i & 1) ? -1.0f : 1.0f;
+        const float dx = V[axis * 4 + 0] * s, dy = V[axis * 4 + 1] * s,
+                    dz = V[axis * 4 + 2] * s;
+        balls[i].i = i;
+        balls[i].pos = ImVec2(hub.x + dx * radius, hub.y - dy * radius);
+        balls[i].depth = dz;
+    }
+    int order[6] = {0, 1, 2, 3, 4, 5};  // painter's order: far ones first
+    std::sort(order, order + 6, [&](int a, int b) {
+        return balls[a].depth < balls[b].depth;
+    });
+
+    ImGuiIO& io = ImGui::GetIO();
+    const float dxm = io.MousePos.x - hub.x, dym = io.MousePos.y - hub.y;
+    const float mouseDist2 = dxm * dxm + dym * dym;
+    const float reach = radius + ballR + scaled(3.0f);
+    // IsWindowHovered so an open modal (or another window over the corner)
+    // makes the widget inert instead of eating clicks meant for it.
+    const bool overWidget = mouseDist2 <= reach * reach &&
+                            ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+
+    // Nearest ball under the cursor, front-most first so an axis pointing at
+    // the camera wins over the one it covers.
+    int hovered = -1;
+    if (overWidget) {
+        const float grab = ballR + scaled(3.0f);
+        for (int k = 5; k >= 0 && hovered < 0; --k) {
+            const Ball& b = balls[order[k]];
+            const float bx = io.MousePos.x - b.pos.x, by = io.MousePos.y - b.pos.y;
+            if (bx * bx + by * by <= grab * grab) hovered = b.i;
+        }
+    }
+    const bool overHub =
+        overWidget && hovered < 0 && mouseDist2 <= (ballR * 1.6f) * (ballR * 1.6f);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddCircleFilled(hub, reach,
+                        IM_COL32(18, 20, 26, overWidget ? 120 : 45), 32);
+
+    for (int k = 0; k < 6; ++k) {
+        const Ball& b = balls[order[k]];
+        const int axis = b.i / 2;
+        const bool neg = (b.i & 1) != 0;
+        const bool active = viewport_.projection() == kProj[b.i];
+        const bool hot = hovered == b.i;
+        const ImU32 col = kColor[axis];
+        // Positive ends carry the stem and the letter; negative ends are
+        // hollow until you hover them - the same reading as Blender's.
+        if (!neg)
+            dl->AddLine(hub, b.pos, col, scaled(2.0f));
+        if (!neg || hot || active) {
+            dl->AddCircleFilled(b.pos, ballR, col, 16);
+        } else {
+            dl->AddCircleFilled(b.pos, ballR, IM_COL32(30, 32, 38, 200), 16);
+            dl->AddCircle(b.pos, ballR, col, 16, scaled(1.6f));
+        }
+        if (active || hot)
+            dl->AddCircle(b.pos, ballR + scaled(2.5f),
+                          IM_COL32(255, 255, 255, active ? 220 : 120), 16,
+                          scaled(1.5f));
+        if (!neg || hot) {
+            const ImVec2 ts = ImGui::CalcTextSize(kLabel[axis]);
+            dl->AddText(ImVec2(b.pos.x - ts.x * 0.5f, b.pos.y - ts.y * 0.5f),
+                        IM_COL32(20, 20, 24, 255), kLabel[axis]);
+        }
+    }
+    // Hub: the perspective/parallel switch (Blender has no such button, but
+    // the widget is exactly where the hand already is).
+    dl->AddCircleFilled(hub, ballR * (overHub ? 0.85f : 0.6f),
+                        viewport_.orthographic() ? IM_COL32(235, 235, 240, 230)
+                                                 : IM_COL32(130, 134, 145, 210),
+                        16);
+
+    if (hovered >= 0)
+        ImGui::SetTooltip("%s - orthographic along the %s%s axis", kTip[hovered],
+                          (hovered & 1) ? "-" : "+", kLabel[hovered / 2]);
+    else if (overHub)
+        ImGui::SetTooltip("%s (click to switch)", viewport_.orthographic()
+                                                      ? "Orthographic"
+                                                      : "Perspective");
+
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (hovered >= 0) setViewProjection(kProj[hovered]);
+        else if (overHub)
+            setViewProjection(viewport_.orthographic()
+                                  ? Viewport::Projection::Perspective
+                                  : Viewport::Projection::Ortho);
+    }
+    return overWidget;
+}
+
+void App::setViewProjection(Viewport::Projection p) {
+    viewport_.setProjection(p);
+    // Editor state, not a model edit: saveProject() reads it back out of the
+    // viewport, so it lands in the .tyra with the next save (like gizmoOp).
+    project_.viewProjection = (int)p;
+    statusMessage_ = std::string("View: ") + Viewport::projectionName(p);
 }
 
 void App::drawProjectWindow() {
@@ -2212,6 +2872,7 @@ void App::drawProjectWindow() {
                 project_.activeScene != i) {
                 project_.activeScene = i;
                 clearSelection();
+                cancelPastePlacement();  // staged copies belong to the old scene
                 flowGraphObject_ = -1;
                 flowPositionsApplied_ = false;
                 applyProjectToViewport();  // terrain/lighting are per scene
@@ -2255,6 +2916,7 @@ void App::saveProject() {
     project_.gizmoOp = gizmoOp_;
     project_.gizmoSpace = gizmoSpace_;
     project_.viewMode = (int)viewport_.viewMode();
+    project_.viewProjection = (int)viewport_.projection();
     // Fold the live docking arrangement + open windows into the active layout.
     // While a switch is still settling (load or rebuild pending) the on-screen
     // layout doesn't yet belong to the active layout - keep the stored one
@@ -2299,6 +2961,8 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "loading") return &showLoadingEditor_;
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
+    if (key == "tree") return &showTreeGenerator_;
+    if (key == "assets") return &showAssetBrowser_;
     return nullptr;
 }
 
@@ -2308,7 +2972,7 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain", "ui",      "fonts",
     "menus",    "grading",  "ambience", "loading", "disc",
-    "anim"};
+    "anim",     "tree",     "assets"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -2617,6 +3281,54 @@ void App::requestExit() {
         exitConfirmed_ = true;
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
     }
+}
+
+// --- Recent projects -------------------------------------------------------
+
+void App::probeRecentProject(RecentProject& r) {
+    r.name = projectManifestName(r.dir);
+    r.valid = !r.name.empty();
+    // A vanished folder still shows its own name - an unreadable path alone
+    // tells the user nothing about which project it was.
+    if (!r.valid) r.name = std::filesystem::path(r.dir).filename().string();
+    if (r.name.empty()) r.name = r.dir;
+}
+
+void App::rememberRecentProject(const std::string& dir) {
+    if (dir.empty()) return;
+    const std::string key = recentProjectKey(dir);
+    for (size_t i = 0; i < recentProjects_.size();) {
+        if (recentProjectKey(recentProjects_[i].dir) == key)
+            recentProjects_.erase(recentProjects_.begin() + i);
+        else
+            ++i;
+    }
+    RecentProject r;
+    r.dir = dir;
+    probeRecentProject(r);
+    recentProjects_.insert(recentProjects_.begin(), r);
+    if (recentProjects_.size() > kMaxRecentProjects)
+        recentProjects_.resize(kMaxRecentProjects);
+    saveGlobalConfig();
+}
+
+void App::forgetRecentProject(int index) {
+    if (index < 0 || index >= (int)recentProjects_.size()) return;
+    recentProjects_.erase(recentProjects_.begin() + index);
+    saveGlobalConfig();  // the list only ever lives in editor.ini
+}
+
+std::string App::openProjectAt(const std::string& dir) {
+    Project p;
+    std::string err = project::load(p, dir);
+    if (!err.empty()) return err;
+    project_ = p;
+    hasProject_ = true;
+    applyProjectToViewport();
+    attachProject();  // resets dirty + window title
+    // project_.dir, not `dir`: load normalizes it (and accepts a .tyra path).
+    rememberRecentProject(project_.dir);
+    return {};
 }
 
 void App::requestOpenProject() {
@@ -3336,11 +4048,80 @@ void App::copyObject() {
 }
 
 void App::pasteObject() {
+    // A pending paste is settled by the next Ctrl+V (the keyboard twin of
+    // clicking it down); only then does a fresh one start.
+    if (pastePending_) {
+        commitPastePlacement();
+        return;
+    }
     if (clipboard_.empty()) return;
+    beginPastePlacement();
+}
 
-    // Paste the whole group offset by the same amount so it keeps its shape,
-    // then select the pasted objects (primary = the last one).
-    selection_.clear();
+// --- Collision-aware placement -------------------------------------------
+
+aobake::ModelAabbFn App::placementModelAabb() {
+    return [this](const SceneObject& o, float mn[3], float mx[3]) {
+        return viewport_.modelLocalBounds(o, mn, mx);
+    };
+}
+
+placement::HeightFn App::placementHeight() const {
+    return [this](float x, float z) { return viewport_.terrainHeight(x, z); };
+}
+
+std::vector<char> App::placementSkip(const std::vector<int>& extra) const {
+    std::vector<char> skip(project_.objects().size(), 0);
+    for (size_t i = 0; i < project_.objects().size(); ++i)
+        if (isObjectHiddenInEditor(project_.objects()[i])) skip[i] = 1;
+    for (int i : extra)
+        if (i >= 0 && i < (int)skip.size()) skip[i] = 1;
+    return skip;
+}
+
+void App::snapInsertedObject() {
+    if (!placementSnap_ || project_.objects().empty()) return;
+    const int last = (int)project_.objects().size() - 1;
+    SceneObject& o = project_.objects()[last];
+    // No ceiling: a fresh object rests on whatever stands under it, however
+    // tall - inserting into an occupied spot stacks instead of intersecting.
+    o.position[1] += placement::restOffsetY(o, project_.objects(),
+                                            placementSkip({last}),
+                                            placementModelAabb(),
+                                            placementHeight(), FLT_MAX);
+}
+
+void App::dropSelectionToFloor() {
+    if (selection_.empty()) return;
+    const aobake::ModelAabbFn aabb = placementModelAabb();
+    const placement::HeightFn height = placementHeight();
+    // Every selected object is its own drop: the ceiling is its own underside,
+    // so only surfaces BELOW it can catch it (lift an object over a shelf,
+    // press End, it lands on the shelf).
+    const std::vector<char> skip = placementSkip(selection_);
+    int moved = 0;
+    for (int i : selection_) {
+        if (i < 0 || i >= (int)project_.objects().size()) continue;
+        SceneObject& o = project_.objects()[i];
+        const placement::Aabb box = placement::worldAabb(o, aabb);
+        const float dy = placement::restOffsetY(o, project_.objects(), skip, aabb,
+                                                height, box.mn[1] + 0.001f);
+        if (dy != 0.0f) ++moved;
+        o.position[1] += dy;
+    }
+    if (!moved) {
+        statusMessage_ = "Nothing to drop onto";
+        return;
+    }
+    commitChange();
+    statusMessage_ = moved == 1 ? "Dropped to floor"
+                                : "Dropped " + std::to_string(moved) + " objects";
+}
+
+// --- Deferred paste -------------------------------------------------------
+
+void App::beginPastePlacement() {
+    pasteStaged_.clear();
     for (const SceneObject& src : clipboard_) {
         SceneObject o = src;
         o.id.clear();  // a paste is a new object - it must get its own id
@@ -3348,20 +4129,73 @@ void App::pasteObject() {
         for (int n = 2;; ++n) {
             bool taken = false;
             for (const auto& other : project_.objects()) taken |= (other.name == name);
+            for (const auto& other : pasteStaged_) taken |= (other.name == name);
             if (!taken) break;
             name = o.name + "-copy" + std::to_string(n);
         }
         o.name = name;
-        o.position[0] += 1.0f;  // offset so the copy is visible next to the original
-        o.position[2] += 1.0f;
+        pasteStaged_.push_back(std::move(o));
+    }
+    if (pasteStaged_.empty()) return;
+    pastePending_ = true;
+    pasteMoved_ = false;
+    sculptMode_ = paintMode_ = false;  // one viewport tool at a time
+    // Nothing is selected while a paste is in flight: the gizmo would fight
+    // the cursor for the drag, and the staged copies aren't in the scene yet.
+    clearSelection();
+    statusMessage_ = "Click to place the paste (Ctrl+V places, Esc cancels)";
+}
+
+void App::movePasteStaged(const float point[3]) {
+    if (pasteStaged_.empty()) return;
+    // The first copy is the anchor: the group keeps its arrangement and lands
+    // with that copy's origin on the cursor point.
+    const float* anchor = pasteStaged_.front().position;
+    const float d[3] = {point[0] - anchor[0], point[1] - anchor[1],
+                        point[2] - anchor[2]};
+    for (SceneObject& o : pasteStaged_)
+        for (int k = 0; k < 3; ++k) o.position[k] += d[k];
+    if (placementSnap_) {
+        // ONE offset for the whole group (the largest any member needs), so
+        // a pasted stack keeps its shape instead of collapsing onto the floor.
+        const float dy = placement::restOffsetYGroup(
+            pasteStaged_, project_.objects(), placementSkip(),
+            placementModelAabb(), placementHeight(), FLT_MAX);
+        for (SceneObject& o : pasteStaged_) o.position[1] += dy;
+    }
+    pasteMoved_ = true;
+}
+
+void App::commitPastePlacement() {
+    if (!pastePending_) return;
+    pastePending_ = false;
+    selection_.clear();
+    // Settled without ever passing over the viewport (Ctrl+V twice with the
+    // cursor elsewhere): fall back to the classic diagonal offset so the copy
+    // doesn't land exactly inside the original.
+    if (!pasteMoved_)
+        for (SceneObject& o : pasteStaged_) {
+            o.position[0] += 1.0f;
+            o.position[2] += 1.0f;
+        }
+    for (SceneObject& o : pasteStaged_) {
         project_.objects().push_back(std::move(o));
         selection_.push_back((int)project_.objects().size() - 1);
     }
+    const size_t count = pasteStaged_.size();
+    pasteStaged_.clear();
+    if (selection_.empty()) return;
     selectedObject_ = selection_.back();
     commitChange();
-    statusMessage_ = clipboard_.size() == 1
-                         ? "Pasted " + project_.objects().back().name
-                         : "Pasted " + std::to_string(clipboard_.size()) + " objects";
+    statusMessage_ = count == 1 ? "Pasted " + project_.objects().back().name
+                                : "Pasted " + std::to_string(count) + " objects";
+}
+
+void App::cancelPastePlacement() {
+    if (!pastePending_) return;
+    pastePending_ = false;
+    pasteStaged_.clear();
+    statusMessage_ = "Paste cancelled";
 }
 
 void App::attachProject() {
@@ -3416,12 +4250,19 @@ void App::attachProject() {
     }
     // Editor-side state + window layout came in with the .tyra project file.
     // Only the primary selection persists; seed the (transient) set from it.
+    pastePending_ = false;  // a staged paste never survives a project switch
+    pasteStaged_.clear();
     selectOnly(project_.selectedObject);
     gizmoOp_ = (project_.gizmoOp >= 0 && project_.gizmoOp <= 2) ? project_.gizmoOp : 0;
     gizmoSpace_ = project_.gizmoSpace == 1 ? 1 : 0;
     const int viewMode =
         (project_.viewMode >= 0 && project_.viewMode <= 2) ? project_.viewMode : 0;
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
+    const int viewProj = (project_.viewProjection >= 0 &&
+                          project_.viewProjection < Viewport::kProjectionCount)
+                             ? project_.viewProjection
+                             : 0;
+    viewport_.setProjection((Viewport::Projection)viewProj);
     // Window layouts arrived with the .tyra. Guard against an empty/out-of-range
     // set (hand-edited or very old file), then apply the active one. Applying is
     // deferred to a frame boundary: loading ImGui settings mid-frame is
@@ -3550,6 +4391,7 @@ void App::addSavePoint() {
     o.scale[0] = 0.8f, o.scale[1] = 1.5f, o.scale[2] = 0.8f;
     o.color[0] = 0.25f, o.color[1] = 0.85f, o.color[2] = 0.95f;
     o.usable = true;  // implicit in the game; mirrored here for the viewport
+    snapInsertedObject();  // re-snap: the pillar's real height is set here
     saveAll("Saved");
 }
 void App::addObject(PrimitiveType type) {
@@ -3581,6 +4423,9 @@ void App::addObject(PrimitiveType type) {
     }
     project_.objects().push_back(o);
     selectOnly((int)project_.objects().size() - 1);
+    // Rest it on whatever is under the spawn spot instead of spawning inside
+    // it (the marker types have no volume, so this is a no-op for them).
+    snapInsertedObject();
     commitChange();
 }
 
@@ -3637,6 +4482,8 @@ std::string App::importModelAsset() {
                                          " more warning(s), see build log)"
                                    : "");
         glbInfoCache_.erase("res/models/" + fileName);
+        beginModelSizing("res/models/" + fileName);
+        modelSizeFresh_ = true;  // ask how big it is in the real world
         return "res/models/" + fileName;
     }
 
@@ -3745,7 +4592,214 @@ std::string App::importModelAsset() {
     if (missing > 0)
         statusMessage_ += " - " + std::to_string(missing) +
                           " referenced file(s) missing next to the .obj";
+    if (parseOk) {
+        beginModelSizing("res/models/" + fileName);
+        modelSizeFresh_ = true;  // an .obj carries no unit at all - ask
+    }
     return "res/models/" + fileName;
+}
+
+// --- model real-world size (docs/world-scale.md) ---------------------------
+
+// Defined next to the Preferences dialogs, which is where this idiom is from.
+static void prefHelp(const char* tip);
+
+// Walk speed is STORED as movement per 1/50 s - the generated game's step
+// unit - which is a miserable thing to type: every sane value is a fraction
+// down in the first few percent of the field. Both places that edit it (the
+// project default and a Player object's own) show units per SECOND and
+// convert, with the metric equivalent alongside so the number means
+// something. `ups` is the project's world scale (docs/world-scale.md).
+// Returns true while the value is being changed; `committed` (when given) is
+// OR-ed with "the edit just ended" - the drag is followed by the metric label,
+// so a caller cannot ask ImGui about the field itself afterwards.
+static bool walkSpeedDrag(const char* label, float& stored, float ups,
+                          bool* committed = nullptr) {
+    float perSec = stored * 50.0f;
+    // 0.01 .. 500 units/s: the top end is what the stored field always allowed
+    // (0.05..10 per step = 2.5..500 units/s), the bottom is a crawl - a
+    // cutscene shuffle or a metric 1.4 m/s walk both live below the old 2.5
+    // floor. Such a span cannot be dragged linearly (a step big enough to
+    // cross it makes every adjustment near 5 jump), so the drag is
+    // LOGARITHMIC: it moves by a fraction of the current value, which is the
+    // same feel at 0.5 and at 50. Ctrl+click still types an exact number.
+    const bool changed =
+        ImGui::DragFloat(label, &perSec, 0.05f, 0.01f, 500.0f, "%.2f units/s",
+                         ImGuiSliderFlags_Logarithmic);
+    if (changed) stored = perSec / 50.0f;
+    if (committed) *committed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::TextDisabled("= %.2f m/s", perSec / (ups > 0.0001f ? ups : 1.0f));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Metres from Preferences > World > Units per meter (now %.3f).\n"
+            "For reference: a person walks at 1.4 m/s, sprints at ~6 m/s;\n"
+            "most first-person games run the player at 4-6 m/s.\n"
+            "Drag adjusts proportionally (0.01 .. 500 units/s); Ctrl+click\n"
+            "types an exact value. Stored in the project as %g (movement\n"
+            "per 1/50 s).",
+            ups, stored);
+    return changed;
+}
+
+namespace {
+// Meters per file unit for the unit presets the dialog offers.
+constexpr float kUnitPresetMeters[3] = {1.0f, 0.01f, 0.0254f};
+// Which preset a stored size matches (3 = none of them, "Custom").
+int unitPresetIndex(float meters) {
+    for (int i = 0; i < 3; ++i)
+        if (std::fabs(meters - kUnitPresetMeters[i]) < 1e-6f) return i;
+    return 3;
+}
+}  // namespace
+
+void App::beginModelSizing(const std::string& relPath) {
+    modelSizePath_ = relPath;
+    modelSizeApplyExisting_ = false;
+    modelSizeFresh_ = false;  // the import path raises it after this call
+    // Re-importing over an existing file keeps its name, so the viewport's
+    // path-keyed caches would hand back the OLD geometry's bounds.
+    viewport_.invalidateAssets();
+    // What the file is authored as. modelLocalBounds covers both formats
+    // (static .obj bounds and an animated model's baked pose bounds) and is
+    // the same measurement the placement snapping uses.
+    SceneObject probe;
+    probe.type = PrimitiveType::Model;
+    probe.modelPath = relPath;
+    float mn[3] = {0.0f, 0.0f, 0.0f}, mx[3] = {0.0f, 0.0f, 0.0f};
+    modelSizeMeasured_ = viewport_.modelLocalBounds(probe, mn, mx);
+    for (int c = 0; c < 3; ++c)
+        modelSizeSrc_[c] = modelSizeMeasured_ ? mx[c] - mn[c] : 0.0f;
+    auto it = project_.modelUnitMeters.find(relPath);
+    modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
+    modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+    modelSizeOpen_ = true;
+}
+
+void App::drawModelSizeModal() {
+    if (modelSizeOpen_) {
+        ImGui::OpenPopup("Model size");
+        modelSizeOpen_ = false;
+    }
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Model size", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const float ups = project_.settings.unitsPerMeter;
+    const float srcH = modelSizeSrc_[1];
+    ImGui::TextUnformatted(
+        std::filesystem::path(modelSizePath_).filename().string().c_str());
+    if (modelSizeFresh_)
+        ImGui::TextDisabled("Imported. How big is it in the real world?");
+    ImGui::Separator();
+
+    if (!modelSizeMeasured_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
+                           "The model could not be measured - it will be\n"
+                           "inserted at scale 1 like before.");
+    } else {
+        ImGui::Text("Authored size: %.3f x %.3f x %.3f file units",
+                    modelSizeSrc_[0], modelSizeSrc_[1], modelSizeSrc_[2]);
+    }
+
+    ImGui::SetNextItemWidth(scaled(160));
+    const char* unitNames[] = {"Meters", "Centimeters", "Inches", "Custom"};
+    if (ImGui::Combo("Source units", &modelSizeUnit_, unitNames, 4) &&
+        modelSizeUnit_ < 3)
+        modelSizeMeters_ = kUnitPresetMeters[modelSizeUnit_];
+    prefHelp(
+        ".glb and .fbx always arrive in meters (the importer normalizes\n"
+        "them), so those only need this when the source itself was modeled\n"
+        "at the wrong size. An .obj carries no unit at all - this is where\n"
+        "you say what it was authored in.");
+
+    // The same number from the other end: type the height you want the thing
+    // to have in reality. Guarded - a flat model has no height to divide by.
+    if (modelSizeMeasured_ && srcH > 1e-6f) {
+        float realH = srcH * modelSizeMeters_;
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::DragFloat("Real height (m)", &realH, 0.01f, 0.001f, 10000.0f,
+                             "%.3f m")) {
+            if (realH > 0.0001f) {
+                modelSizeMeters_ = realH / srcH;
+                modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+            }
+        }
+        prefHelp("An adult human is about 1.7 m, a door 2.0 m, a car 1.5 m tall.");
+    }
+    if (modelSizeUnit_ == 3) {
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::DragFloat("Meters per file unit", &modelSizeMeters_, 0.001f,
+                             0.00001f, 10000.0f, "%.5f",
+                             ImGuiSliderFlags_Logarithmic))
+            modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+    }
+
+    const float insertScale = modelSizeMeters_ * ups;
+    ImGui::Separator();
+    ImGui::Text("World scale: %.3f units per meter", ups);
+    if (ups == 1.0f)
+        ImGui::TextDisabled("(Project Preferences > World - set it to what your\n"
+                            "own content already uses.)");
+    if (modelSizeMeasured_)
+        ImGui::Text("In the scene: %.2f x %.2f x %.2f units, object scale %.3f",
+                    modelSizeSrc_[0] * insertScale, srcH * insertScale,
+                    modelSizeSrc_[2] * insertScale, insertScale);
+    else
+        ImGui::Text("Object scale: %.3f", insertScale);
+
+    // Objects already placed keep the scale they were inserted with - resizing
+    // an asset is not supposed to move a scene under the user. Offer it, but
+    // only when it would actually change something.
+    int users = 0;
+    for (const SceneData& sc : project_.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Model && o.modelPath == modelSizePath_)
+                ++users;
+    if (users > 0) {
+        ImGui::Checkbox(("Also rescale " + std::to_string(users) +
+                         " object(s) already using this model")
+                            .c_str(),
+                        &modelSizeApplyExisting_);
+        prefHelp("Overwrites their scale with the one above - any per-object\n"
+                 "resizing you did by hand is lost.");
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
+        project_.modelUnitMeters[modelSizePath_] = modelSizeMeters_;
+        if (modelSizeApplyExisting_) {
+            for (SceneData& sc : project_.scenes)
+                for (SceneObject& o : sc.objects)
+                    if (o.type == PrimitiveType::Model &&
+                        o.modelPath == modelSizePath_)
+                        o.scale[0] = o.scale[1] = o.scale[2] = insertScale;
+            commitChange();  // object scales are an undoable scene edit
+        }
+        // The asset size itself lives in the manifest, not in a scene, so an
+        // undo snapshot would not carry it - write it out like the LOD and
+        // texture-quality overrides do. setDirty first: that is what advances
+        // the session serial, so a peer sees the section change too.
+        setDirty(true);
+        char msg[192];
+        std::snprintf(msg, sizeof msg, "%s: 1 unit = %g m, inserted at scale %g",
+                      std::filesystem::path(modelSizePath_).filename().string().c_str(),
+                      modelSizeMeters_, insertScale);
+        saveAll("Saved");
+        statusMessage_ = msg;
+        modelSizePath_.clear();
+        modelSizeFresh_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
+        modelSizePath_.clear();
+        modelSizeFresh_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 std::string App::importTextureAsset() {
@@ -4128,186 +5182,152 @@ bool App::drawTerrainMaterialCombo(const char* label, std::string& matPath) {
     return changed;
 }
 
-// Project-wide asset lists (models + textures), mirrored straight from res/
-// on every draw - hand-dropped files show up without any bookkeeping. The
-// Import... buttons are the only file dialogs; everything else picks from
-// these lists.
-void App::drawAssetsSection() {
-    if (!ImGui::CollapsingHeader("Assets")) return;
+// Per-asset texture-quality override of Preferences > Textures. Textures
+// shared by several assets take the highest requested quality. Drawn by the
+// Asset Browser's inspector (and reachable wherever an asset row needs it).
+void App::drawAssetQualityCombo(const std::string& assetRel) {
+    auto it = project_.textureQuality.find(assetRel);
+    int cur = it == project_.textureQuality.end() ? 0
+              : it->second == "none"              ? 1
+              : it->second == "8bit"              ? 2
+                                                  : 3;
+    const char* labels[] = {"(project)", "Full", "8-bit", "4-bit"};
+    ImGui::SetNextItemWidth(scaled(90));
+    if (ImGui::Combo(("##tq" + assetRel).c_str(), &cur, labels, 4)) {
+        if (cur == 0)
+            project_.textureQuality.erase(assetRel);
+        else
+            project_.textureQuality[assetRel] =
+                cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
+        saveAll("Saved");
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Texture quality of this asset's textures\n"
+                          "(overrides Preferences > Textures).");
+}
 
-    // Per-asset texture-quality override of Preferences > Textures. Textures
-    // shared by several assets take the highest requested quality.
-    auto qualityCombo = [&](const std::string& assetRel) {
-        auto it = project_.textureQuality.find(assetRel);
-        int cur = it == project_.textureQuality.end() ? 0
-                  : it->second == "none"              ? 1
-                  : it->second == "8bit"              ? 2
-                                                      : 3;
-        const char* labels[] = {"(project)", "Full", "8-bit", "4-bit"};
+// Artist-authored mesh LOD tiers of one model: each level is another .obj
+// in the project with the same materials and fewer triangles. Empty = the
+// build decimates automatically (docs/model-pipeline.md). The popup keeps
+// the list dense - clearing a level drops the ones after it, since a tier
+// chain with a hole has no meaning.
+void App::drawAssetLodButton(const std::string& assetRel) {
+    const std::string name = std::filesystem::path(assetRel).filename().string();
+    const std::string pid = "lodpop" + assetRel;
+    if (ImGui::SmallButton(("LOD...##" + assetRel).c_str()))
+        ImGui::OpenPopup(pid.c_str());
+    auto it = project_.modelLods.find(assetRel);
+    const bool custom = it != project_.modelLods.end() && !it->second.empty();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(custom ? "Custom LOD meshes assigned - click to change"
+                                 : "Distance LOD meshes for this model\n"
+                                   "(default: the build decimates automatically)");
+    if (custom) {
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(90.0f);
-        if (ImGui::Combo(("##tq" + assetRel).c_str(), &cur, labels, 4)) {
-            if (cur == 0)
-                project_.textureQuality.erase(assetRel);
-            else
-                project_.textureQuality[assetRel] =
-                    cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
-            saveAll("Saved");
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Texture quality of this asset's textures\n"
-                              "(overrides Preferences > Textures).");
-    };
-
-    // Artist-authored mesh LOD tiers of one model: each level is another .obj
-    // in the project with the same materials and fewer triangles. Empty = the
-    // build decimates automatically (docs/model-pipeline.md). The popup keeps
-    // the list dense - clearing a level drops the ones after it, since a tier
-    // chain with a hole has no meaning.
-    auto lodPopup = [&](const std::string& assetRel, const std::string& name) {
-        const std::string pid = "lodpop" + assetRel;
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("LOD...##" + assetRel).c_str()))
-            ImGui::OpenPopup(pid.c_str());
-        auto it = project_.modelLods.find(assetRel);
-        const bool custom = it != project_.modelLods.end() && !it->second.empty();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                custom ? "Custom LOD meshes assigned - click to change"
-                       : "Distance LOD meshes for this model\n"
-                         "(default: the build decimates automatically)");
-        if (custom) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("[%d custom LOD]", (int)it->second.size());
-        }
-        if (!ImGui::BeginPopup(pid.c_str())) return;
-        ImGui::TextUnformatted(("Mesh LOD levels of " + name).c_str());
-        ImGui::TextDisabled(
-            "Level 1 shows past the mesh LOD distance, level 2 past twice it.\n"
-            "A level must use the same materials (same usemtl names, same\n"
-            "order) and fewer triangles, or the build decimates instead.\n"
-            "Leave both on (auto) to let the build do it.");
-        ImGui::Separator();
-        std::vector<std::string> tiers =
-            it != project_.modelLods.end() ? it->second : std::vector<std::string>();
-        const std::vector<std::string> models = listAssetFiles("models", ".obj");
-        bool changed = false;
-        for (int level = 0; level < 2; ++level) {
-            const std::string cur =
-                level < (int)tiers.size() ? tiers[level] : std::string();
-            const std::string label = "Level " + std::to_string(level + 1);
-            ImGui::SetNextItemWidth(scaled(260));
-            if (ImGui::BeginCombo((label + "##lod" + assetRel).c_str(),
-                                  cur.empty() ? "(auto - decimate)"
-                                              : cur.substr(cur.rfind('/') + 1).c_str())) {
-                if (ImGui::Selectable("(auto - decimate)", cur.empty())) {
-                    tiers.resize((size_t)level);  // drops the coarser levels too
+        ImGui::TextDisabled("[%d custom LOD]", (int)it->second.size());
+    }
+    if (!ImGui::BeginPopup(pid.c_str())) return;
+    ImGui::TextUnformatted(("Mesh LOD levels of " + name).c_str());
+    ImGui::TextDisabled(
+        "Level 1 shows past the mesh LOD distance, level 2 past twice it.\n"
+        "A level must use the same materials (same usemtl names, same\n"
+        "order) and fewer triangles, or the build decimates instead.\n"
+        "Leave both on (auto) to let the build do it.");
+    ImGui::Separator();
+    std::vector<std::string> tiers =
+        it != project_.modelLods.end() ? it->second : std::vector<std::string>();
+    const std::vector<std::string> models = listAssetFiles("models", ".obj");
+    bool changed = false;
+    for (int level = 0; level < 2; ++level) {
+        const std::string cur =
+            level < (int)tiers.size() ? tiers[level] : std::string();
+        const std::string label = "Level " + std::to_string(level + 1);
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::BeginCombo((label + "##lod" + assetRel).c_str(),
+                              cur.empty() ? "(auto - decimate)"
+                                          : cur.substr(cur.rfind('/') + 1).c_str())) {
+            if (ImGui::Selectable("(auto - decimate)", cur.empty())) {
+                tiers.resize((size_t)level);  // drops the coarser levels too
+                changed = true;
+            }
+            for (const std::string& cand : models) {
+                const std::string candRel = "res/models/" + cand;
+                if (candRel == assetRel) continue;  // not itself
+                if (ImGui::Selectable(cand.c_str(), candRel == cur)) {
+                    if ((int)tiers.size() <= level) tiers.resize((size_t)level + 1);
+                    tiers[level] = candRel;
                     changed = true;
                 }
-                for (const std::string& cand : models) {
-                    const std::string candRel = "res/models/" + cand;
-                    if (candRel == assetRel) continue;  // not itself
-                    if (ImGui::Selectable(cand.c_str(), candRel == cur)) {
-                        if ((int)tiers.size() <= level) tiers.resize((size_t)level + 1);
-                        tiers[level] = candRel;
-                        changed = true;
-                    }
-                    const ModelInfo& ci = modelInfo(candRel);
-                    if (ci.ok) {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(%d tris)", ci.tris);
-                    }
+                const ModelInfo& ci = modelInfo(candRel);
+                if (ci.ok) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%d tris)", ci.tris);
                 }
-                ImGui::EndCombo();
             }
-            if (level == 0 && tiers.empty()) break;  // level 2 needs level 1
+            ImGui::EndCombo();
         }
-        if (changed) {
-            // Drop trailing empties so "auto" never round-trips as a hole.
-            while (!tiers.empty() && tiers.back().empty()) tiers.pop_back();
-            if (tiers.empty())
-                project_.modelLods.erase(assetRel);
-            else
-                project_.modelLods[assetRel] = tiers;
-            saveAll("Saved");
-        }
-        ImGui::EndPopup();
-    };
+        if (level == 0 && tiers.empty()) break;  // level 2 needs level 1
+    }
+    if (changed) {
+        // Drop trailing empties so "auto" never round-trips as a hole.
+        while (!tiers.empty() && tiers.back().empty()) tiers.pop_back();
+        if (tiers.empty())
+            project_.modelLods.erase(assetRel);
+        else
+            project_.modelLods[assetRel] = tiers;
+        saveAll("Saved");
+    }
+    ImGui::EndPopup();
+}
 
-    ImGui::TextDisabled("Models (res/models)");
+// Real-world size of a model (docs/world-scale.md). Asked once at import; this
+// is where it gets corrected afterwards - and the only place that says what
+// scale the model will be dropped into a scene at. Drawn by the Asset Browser's
+// inspector, next to the texture-quality and LOD controls.
+void App::drawAssetSizeButton(const std::string& assetRel) {
+    if (ImGui::SmallButton(("Size...##" + assetRel).c_str()))
+        beginModelSizing(assetRel);
+    auto it = project_.modelUnitMeters.find(assetRel);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(it != project_.modelUnitMeters.end()
+                              ? "Real-world size of this model - click to change"
+                              : "Real-world size of this model is not recorded:\n"
+                                "objects are inserted at scale 1 (click to set it)");
+    if (it != project_.modelUnitMeters.end()) {
+        const float ins = project_.modelInsertScale(assetRel);
+        if (ins != 1.0f) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("[x%.2f]", ins);
+        }
+    }
+}
+
+// Assets used to be a flat bullet list of res/models + res/materials with the
+// per-asset controls crammed onto each row. They live in the Asset Browser now
+// (Tools > Asset Browser, docs/asset-browser.md) - folders, thumbnails, type
+// filters, reference-safe moves. What stays here is the summary an artist wants
+// while working in the Project panel, plus the import entry points.
+void App::drawAssetsSection() {
+    if (!ImGui::CollapsingHeader("Assets", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+    if (ImGui::Button("Browse assets...")) {
+        showAssetBrowser_ = true;
+        scanAssetTree();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Asset Browser: folders, thumbnails, filters,\n"
+                          "drag & drop into the scene, safe move/rename/delete.");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Import model...")) importModelAsset();
+    if (ImGui::SmallButton("Import model...")) {
+        importModelAsset();
+        assetsChanged();
+    }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
                           ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
                           "clips play on the PS2 skeletal runtime)");
-    const std::vector<std::string> models = listAssetFiles("models", ".obj");
-    for (const std::string& m : models) {
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(m.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("x##delmodel" + m).c_str()))
-            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
-        qualityCombo("res/models/" + m);
-        lodPopup("res/models/" + m, m);
-        const ModelInfo& info = modelInfo("res/models/" + m);
-        if (info.ok) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%d tris, %d mat)", info.tris,
-                                (int)info.materials.size());
-            if (info.anyMissing) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    for (const ModelInfo::MaterialLine& line : info.materials)
-                        if (line.missing)
-                            ImGui::TextUnformatted((line.text + " - not found next to the .obj").c_str());
-                    ImGui::EndTooltip();
-                }
-            }
-        }
-    }
-    const std::vector<std::string> animModels = listAnimatedModelFiles();
-    for (const std::string& m : animModels) {
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(m.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("x##delglb" + m).c_str()))
-            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
-        const GlbInfo& info = glbInfo("res/models/" + m);
-        if (info.ok) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(animated: %d clip(s), %d verts)",
-                                (int)info.clips.size(), info.vertexCount);
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                for (const std::string& c : effectiveClips("res/models/" + m))
-                    ImGui::TextUnformatted(c.c_str());
-                for (const std::string& w : info.warnings)
-                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", w.c_str());
-                ImGui::EndTooltip();
-            }
-            if (!info.warnings.empty()) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "warnings");
-            }
-        } else {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "unusable: %s",
-                               info.error.c_str());
-        }
-    }
-    if (models.empty() && animModels.empty())
-        ImGui::TextDisabled("  none - Import or drop .obj/.glb/.fbx files there.");
-
-    ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
-    if (ImGui::SmallButton("New...")) {
+    if (ImGui::SmallButton("New material...")) {
         showMaterialEditor_ = true;
         openNewMaterialPopup_ = true;
         matEdNewError_.clear();
@@ -4315,56 +5335,45 @@ void App::drawAssetsSection() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Create a material in the Material Editor\n"
                           "(color, brightness, texture - live preview).");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Import .mtl...")) importMaterialAsset();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Universal material libraries: assign one to many\n"
-                          "objects (primitives use the first material, models\n"
-                          "override their own mtl). Textures are copied along.");
-    const std::vector<std::string> materials = listAssetFiles("materials", ".mtl");
-    for (const std::string& m : materials) {
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(m.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("Edit##mat" + m).c_str()))
-            openMaterialEditor("res/materials/" + m);
-        ImGui::SameLine();
-        if (ImGui::SmallButton(("x##delmat" + m).c_str()))
-            requestAssetDelete(PendingAssetDelete::Material, "res/materials/" + m, m);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this material from the project");
-        qualityCombo("res/materials/" + m);
-        const ModelInfo& info = materialInfo("res/materials/" + m);
-        if (info.ok) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%d material(s))", (int)info.materials.size());
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                for (const ModelInfo::MaterialLine& line : info.materials)
-                    ImGui::TextUnformatted(
-                        (line.text + (line.missing ? " - texture MISSING" : ""))
-                            .c_str());
-                ImGui::EndTooltip();
-            }
-            if (info.anyMissing) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
-            }
+
+    // One line per type, counted straight off the res/ tree.
+    if (assetScanTime_ < 0.0) scanAssetTree();
+    int models = 0, anims = 0, materials = 0, textures = 0, other = 0;
+    for (const AssetItem& item : assetItems_) {
+        if (item.generated) continue;
+        switch (item.kind) {
+            case AssetKind::Model: ++models; break;
+            case AssetKind::AnimModel: ++anims; break;
+            case AssetKind::Material: ++materials; break;
+            case AssetKind::Texture: ++textures; break;
+            case AssetKind::Music:
+            case AssetKind::Sound:
+            case AssetKind::Font: break;  // their own panel sections below
+            default: ++other; break;
         }
     }
-    if (materials.empty())
-        ImGui::TextDisabled("  none - Import or drop .mtl files there.");
+    ImGui::TextDisabled("%d model(s), %d animated, %d material(s), %d texture(s)",
+                        models, anims, materials, textures);
+    if (models + anims + materials + textures + other == 0)
+        ImGui::TextDisabled("res/ is empty - import a model or drop files into it.");
 }
 
 // Creates a scene object for a model that is already inside the project
 // (res/models/...) - the "no-copy" path used by the From-project menu and
 // after an import has placed the files.
-void App::addModelObject(const std::string& relPath) {
+void App::addModelObject(const std::string& relPath, const float* at) {
     SceneObject o;
     o.type = PrimitiveType::Model;
     o.modelPath = relPath;
     o.color[0] = o.color[1] = o.color[2] = 0.85f;
     o.position[1] = 0.0f;
+    if (at)
+        for (int i = 0; i < 3; ++i) o.position[i] = at[i];
+    // Models whose real-world size is known come in at the size the project's
+    // world scale says they should be (docs/world-scale.md); everything else
+    // keeps the plain 1:1 insert it always had.
+    const float s = project_.modelInsertScale(relPath);
+    o.scale[0] = o.scale[1] = o.scale[2] = s;
 
     // unique name from the file name
     std::string base = std::filesystem::path(relPath).stem().string();
@@ -4379,6 +5388,7 @@ void App::addModelObject(const std::string& relPath) {
 
     project_.objects().push_back(std::move(o));
     selectOnly((int)project_.objects().size() - 1);
+    snapInsertedObject();  // stand the model on the surface, not inside it
     commitChange();
 }
 
@@ -5187,6 +6197,24 @@ void App::drawPropertiesWindow() {
         o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        // How big that actually is. A primitive is a UNIT shape, so its scale
+        // is its size in world units - and the world scale turns that into
+        // something you can picture (docs/world-scale.md).
+        float size[3];
+        if (objectWorldSize(o, size)) {
+            const float ups = project_.settings.unitsPerMeter;
+            ImGui::TextDisabled("Size: %.2f x %.2f x %.2f units  =  "
+                                "%.2f x %.2f x %.2f m",
+                                size[0], size[1], size[2], size[0] / ups,
+                                size[1] / ups, size[2] / ups);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The object's real size, from its unit shape (or the\n"
+                    "model's own bounds) times the scale above. Metres come\n"
+                    "from Preferences > World > Units per meter (now %.3f).\n"
+                    "The Measure tool (7) does the same between two points.",
+                    ups);
+        }
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
@@ -5776,8 +6804,8 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Player");
         const char* modes[] = {"Walk (FPP)", "Noclip (fly)", "Third person"};
         if (ImGui::Combo("Mode", &o.playerMode, modes, 3)) committed = true;
-        ImGui::DragFloat("Walk speed", &o.playerWalkSpeed, 0.02f, 0.05f, 10.0f, "%.2f");
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        walkSpeedDrag("Walk speed", o.playerWalkSpeed,
+                      project_.settings.unitsPerMeter, &committed);
         ImGui::DragFloat("Look speed", &o.playerLookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat(o.playerMode == 2 ? "Body height" : "Eye height",
@@ -7779,9 +8807,7 @@ const App::HudTexture* App::hudTexture(const std::string& relPath) {
         GLuint tex = 0;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glUploadTexRgba(w, h, pixels);
         stbi_image_free(pixels);
         entry = {tex, w, h};
     }
@@ -7801,10 +8827,7 @@ const App::HudTexture* App::builtinUseTexture() {
     if (!pixels) return nullptr;
     glGenTextures(1, &builtinUseTex_.tex);
     glBindTexture(GL_TEXTURE_2D, builtinUseTex_.tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 pixels);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glUploadTexRgba(w, h, pixels);
     stbi_image_free(pixels);
     builtinUseTex_.w = w;
     builtinUseTex_.h = h;
@@ -7832,10 +8855,7 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
     if (!menubake::bakeTextRGBA(t, project_, rgba, w, h)) return nullptr;
     if (!entry.tex) glGenTextures(1, &entry.tex);
     glBindTexture(GL_TEXTURE_2D, entry.tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 rgba.data());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glUploadTexRgba(w, h, rgba.data());
     entry.key = key;
     entry.hud = {entry.tex, w, h};
     return &entry.hud;
@@ -8641,6 +9661,300 @@ void App::drawInputMapWindow() {
     ImGui::End();
 }
 
+void App::rebuildTreePreview() {
+    treeMesh_ = treegen::generate(treeParams_);
+    treeBarkTex_ = treegen::bakeBarkTexture(treeParams_);
+    treeLeafTex_ = treegen::bakeLeafTexture(treeParams_);
+    ++treePreviewVersion_;
+    treePreviewDirty_ = false;
+}
+
+// Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a
+// live turntable preview, then bake it into res/models/trees as an ordinary
+// Model object. Deterministic in the seed, so the same knobs always give the
+// same tree - "5 oak variants" is 5 seeds, not a mesh library.
+void App::drawTreeGeneratorWindow() {
+    if (!showTreeGenerator_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(880.0f), scaled(560.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Tree Generator", &showTreeGenerator_)) {
+        ImGui::End();
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    treegen::Params& p = treeParams_;
+    bool dirty = false;  // a parameter changed this frame
+
+    // ---- left: parameter panel ------------------------------------------
+    ImGui::BeginChild("treeparams", ImVec2(scaled(320.0f), 0), true);
+
+    const std::vector<treegen::Preset>& presets = treegen::presets();
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::BeginCombo("Preset", presets[treePreset_].name)) {
+        for (int i = 0; i < (int)presets.size(); ++i)
+            if (ImGui::Selectable(presets[i].name, treePreset_ == i)) {
+                treePreset_ = i;
+                const uint32_t keepSeed = p.seed;
+                p = presets[i].params;
+                p.seed = keepSeed;  // a preset is a shape, not a seed
+                dirty = true;
+            }
+        ImGui::EndCombo();
+    }
+
+    // Seed row: editable value + a dice that rolls a fresh one.
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    int seed = (int)p.seed;
+    if (ImGui::InputInt("Seed", &seed)) {
+        p.seed = (uint32_t)(seed < 0 ? 0 : seed);
+        dirty = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Roll")) {
+        // xorshift the current seed for a new-but-reproducible value
+        uint32_t s = p.seed ? p.seed : 0x1234567u;
+        s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+        p.seed = s;
+        dirty = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Roll a new random seed (shape stays, layout varies)");
+
+    if (ImGui::CollapsingHeader("Trunk", ImGuiTreeNodeFlags_DefaultOpen)) {
+        dirty |= ImGui::SliderFloat("Height", &p.height, 0.5f, 20.0f, "%.1f");
+        // Thickness and leaf size are FRACTIONS of height (shown as percent),
+        // so Height scales the whole tree instead of stretching it thinner.
+        float thickPct = p.thickness * 100.0f;
+        if (ImGui::SliderFloat("Thickness", &thickPct, 0.5f, 15.0f, "%.1f%% of h")) {
+            p.thickness = thickPct * 0.01f;
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Trunk base radius as a share of height (= %.2f units)",
+                              p.thickness * p.height);
+        dirty |= ImGui::SliderFloat("Root flare", &p.flare, 1.0f, 3.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Taper", &p.taper, 0.1f, 0.95f, "%.2f");
+        dirty |= ImGui::SliderFloat("Gnarliness", &p.gnarliness, 0.0f, 0.5f, "%.2f");
+        dirty |= ImGui::SliderFloat("Upward pull", &p.sweep, -0.3f, 0.5f, "%.2f");
+    }
+
+    if (ImGui::CollapsingHeader("Branches", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const char* kCrown[] = {"Spread (broadleaf)", "Conical (conifer)"};
+        dirty |= ImGui::Combo("Crown", &p.crown, kCrown, 2);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Spread: branches spiral up every parent, the shape emerges.\n"
+                "Conical: the trunk runs to the apex and carries whorls of\n"
+                "boughs that shorten toward the top - a spruce/fir habit.");
+        dirty |= ImGui::SliderInt("Levels", &p.levels, 1, 4);
+        if (p.crown == 1) {
+            dirty |= ImGui::SliderInt("Whorls", &p.whorls, 2, 20);
+            dirty |= ImGui::SliderInt("Per whorl", &p.children[0], 1, 8);
+            for (int i = 1; i + 1 < p.levels && i < 3; ++i) {
+                ImGui::PushID(i);
+                char lbl[32];
+                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
+                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
+                ImGui::PopID();
+            }
+        } else {
+            for (int i = 0; i + 1 < p.levels && i < 3; ++i) {
+                ImGui::PushID(i);
+                char lbl[32];
+                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
+                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
+                ImGui::PopID();
+            }
+        }
+        dirty |= ImGui::SliderFloat("Branch angle", &p.branchAngle, 5.0f, 90.0f, "%.0f");
+        if (p.crown == 1 && ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Conical: the tilt at mid-trunk. Lower whorls droop past it,\n"
+                "the ones near the apex sweep up.");
+        dirty |= ImGui::SliderFloat("Angle jitter", &p.angleJitter, 0.0f, 30.0f, "%.0f");
+        dirty |= ImGui::SliderFloat("Length ratio", &p.lengthRatio, 0.2f, 0.95f, "%.2f");
+        if (p.crown != 1)
+            dirty |= ImGui::SliderFloat("Length taper", &p.lengthTaper, 0.0f, 0.9f, "%.2f");
+        dirty |= ImGui::SliderFloat("Radius ratio", &p.radiusRatio, 0.2f, 0.9f, "%.2f");
+        dirty |= ImGui::SliderFloat("Spawn start", &p.spawnStart, 0.0f, 0.8f, "%.2f");
+    }
+
+    if (ImGui::CollapsingHeader("Leaves", ImGuiTreeNodeFlags_DefaultOpen)) {
+        dirty |= ImGui::SliderInt("Count", &p.leafCount, 0, 600);
+        float leafPct = p.leafSize * 100.0f;
+        if (ImGui::SliderFloat("Size", &leafPct, 1.0f, 30.0f, "%.1f%% of h")) {
+            p.leafSize = leafPct * 0.01f;
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Leaf card width as a share of height (= %.2f units)",
+                              p.leafSize * p.height);
+        dirty |= ImGui::SliderFloat("Aspect", &p.leafAspect, 0.5f, 2.5f, "%.2f");
+        dirty |= ImGui::SliderInt("On outer levels", &p.leafLevels, 1, 4);
+        const char* kLeaf[] = {"Broadleaf", "Needles", "Single leaf"};
+        dirty |= ImGui::Combo("Foliage", &p.leafStyle, kLeaf, 3);
+    }
+
+    if (ImGui::CollapsingHeader("Appearance")) {
+        const char* kBark[] = {"Rough", "Birch", "Plates"};
+        dirty |= ImGui::Combo("Bark", &p.barkStyle, kBark, 3);
+        dirty |= ImGui::ColorEdit3("Bark light", p.barkColor,
+                                   ImGuiColorEditFlags_NoInputs);
+        dirty |= ImGui::ColorEdit3("Bark dark", p.barkColor2,
+                                   ImGuiColorEditFlags_NoInputs);
+        dirty |= ImGui::ColorEdit3("Leaf light", p.leafColor,
+                                   ImGuiColorEditFlags_NoInputs);
+        dirty |= ImGui::ColorEdit3("Leaf dark", p.leafColor2,
+                                   ImGuiColorEditFlags_NoInputs);
+    }
+
+    if (ImGui::CollapsingHeader("Detail (poly budget)")) {
+        dirty |= ImGui::SliderInt("Trunk sides", &p.sides, 3, 12);
+        dirty |= ImGui::SliderInt("Twig sides", &p.sidesMin, 3, 12);
+        dirty |= ImGui::SliderInt("Trunk rings", &p.rings, 1, 12);
+        dirty |= ImGui::SliderInt("Twig rings", &p.ringsMin, 1, 12);
+    }
+
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // ---- right: preview + actions ---------------------------------------
+    ImGui::BeginGroup();
+
+    // Triangle budget readout - the PS2 stays happy well under a couple
+    // thousand tris per tree; warn (not block) past a soft ceiling.
+    const int tris = treeMesh_.triangles();
+    const int barkT = treeMesh_.barkTriangles();
+    const int leafT = treeMesh_.leafTriangles();
+    ImVec4 col = tris > 3000   ? ImVec4(1.0f, 0.45f, 0.35f, 1.0f)
+                 : tris > 1800 ? ImVec4(1.0f, 0.8f, 0.3f, 1.0f)
+                               : ImVec4(0.55f, 0.85f, 0.55f, 1.0f);
+    ImGui::TextColored(col, "%d triangles", tris);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%d bark + %d leaves)", barkT, leafT);
+    if (tris > 3000) {
+        ImGui::SameLine();
+        ImGui::TextColored(col, "- heavy for PS2, trim detail/leaves");
+    }
+
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float footer = scaled(96.0f);
+    const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
+    const int ph = (int)(avail.y - footer) < 1 ? 1 : (int)(avail.y - footer);
+
+    if (treeGenSpin_) {
+        treeGenAngle_ += io.DeltaTime * 22.0f;
+        if (treeGenAngle_ > 360.0f) treeGenAngle_ -= 360.0f;
+    }
+
+    Viewport::TreePreviewDesc desc;
+    desc.version = treePreviewVersion_;
+    desc.bark = &treeMesh_.bark;
+    desc.leaves = &treeMesh_.leaves;
+    desc.barkRgba = treeBarkTex_.rgba.data();
+    desc.barkW = treeBarkTex_.w;
+    desc.barkH = treeBarkTex_.h;
+    if (!treeMesh_.leaves.empty()) {
+        desc.leafRgba = treeLeafTex_.rgba.data();
+        desc.leafW = treeLeafTex_.w;
+        desc.leafH = treeLeafTex_.h;
+    }
+    for (int i = 0; i < 3; ++i)
+        desc.center[i] = (treeMesh_.min[i] + treeMesh_.max[i]) * 0.5f;
+    desc.minY = treeMesh_.min[1];
+    const float dx = treeMesh_.max[0] - treeMesh_.min[0];
+    const float dy = treeMesh_.max[1] - treeMesh_.min[1];
+    const float dz = treeMesh_.max[2] - treeMesh_.min[2];
+    desc.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (desc.radius < 0.01f) desc.radius = 0.01f;
+    desc.angleDeg = treeGenAngle_;
+    desc.pitchDeg = treeGenPitch_;
+    desc.zoom = treeGenZoom_;
+    desc.displayMode = treeGenDisplayMode_;
+
+    const uint32_t tex = viewport_.renderTreePreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph),
+                     ImVec2(0, 1), ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##tree_prev_in", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft |
+                                   ImGuiButtonFlags_MouseButtonRight);
+        const bool hovered = ImGui::IsItemHovered();
+        const bool active = ImGui::IsItemActive();
+        if (hovered && io.MouseWheel != 0.0f) {
+            treeGenZoom_ *= std::pow(1.15f, io.MouseWheel);
+            treeGenZoom_ = treeGenZoom_ < 0.2f ? 0.2f
+                           : treeGenZoom_ > 12.0f ? 12.0f
+                                                  : treeGenZoom_;
+        }
+        if (active && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            treeGenAngle_ += io.MouseDelta.x * 0.5f;
+            treeGenPitch_ += io.MouseDelta.y * 0.4f;
+            treeGenPitch_ = treeGenPitch_ < -30.0f ? -30.0f
+                            : treeGenPitch_ > 85.0f ? 85.0f
+                                                    : treeGenPitch_;
+            treeGenSpin_ = false;  // grabbing the camera stops the turntable
+        }
+    }
+
+    // footer: view toggles + name + add-to-scene
+    ImGui::Checkbox("Spin", &treeGenSpin_);
+    ImGui::SameLine();
+    bool wire = treeGenDisplayMode_ == 1;
+    if (ImGui::Checkbox("Wireframe", &wire)) treeGenDisplayMode_ = wire ? 1 : 0;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset view")) {
+        treeGenAngle_ = 40.0f;
+        treeGenPitch_ = 18.0f;
+        treeGenZoom_ = 1.0f;
+    }
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    ImGui::InputText("Name", treeName_, sizeof(treeName_));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(treeMesh_.bark.empty());
+    if (ImGui::Button("Add to scene")) addTreeToScene();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Bake .obj + .mtl + textures into res/models/trees\n"
+                          "and drop a Model object into the current scene.");
+    ImGui::EndGroup();
+
+    if (dirty) treePreviewDirty_ = true;
+    if (treePreviewDirty_) rebuildTreePreview();
+
+    ImGui::End();
+}
+
+// "Add to scene" from the Tree Generator: bakes the current tree's assets and
+// inserts a Model object pointing at them (addModelObject does the naming +
+// commit). A name clash reuses a numbered variant so re-adding never clobbers.
+void App::addTreeToScene() {
+    std::string base = sanitizeAssetName(treeName_);
+    if (base.empty()) base = "tree";
+    // Distinct asset file name per generated tree so two trees in a project
+    // don't share (and overwrite) each other's .obj/textures.
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2;
+         fs::exists(fs::path(project_.dir) / "res" / "models" / "trees" /
+                    (name + ".obj"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string objRel, err;
+    if (!treegen::writeAssets(project_.dir, name, treeParams_, treeMesh_,
+                              treeBarkTex_, treeLeafTex_, &objRel, &err)) {
+        statusMessage_ = "Tree export failed: " + err;
+        return;
+    }
+    addModelObject(objRel);        // creates the Model object + commitChange()
+    statusMessage_ = "Added tree '" + name + "' (" +
+                     std::to_string(treeMesh_.triangles()) + " tris)";
+}
+
 // Picks one of the project's Font Manager entries by name. An empty reference
 // means the default entry, so this shows fonts[0] rather than a blank.
 bool App::fontCombo(std::string& fontRef) {
@@ -9096,11 +10410,44 @@ void App::drawUiEditorWindow() {
     ImGui::BeginChild("##ui_props", ImVec2(0, 0));
     if (uiFxSel_ == 1) {
         ImGui::SeparatorText("Bloom + color grading");
-        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 1.0f, "%.2f");
+        // The re-add FIX is a whole byte, so bloom can go to 2x - the extra
+        // headroom is what a hot glow needs once the threshold has eaten part
+        // of the emitter's energy.
+        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 2.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How much of the blur is added back. Above 1.0\n"
+                              "the blur is over-added - blown-out, hot glow.");
         ImGui::TextDisabled(
             "GS framebuffer trick - no pixel shaders on the PS2. Quarter-res\n"
             "blur re-added over the frame (soft glow).");
+        // Bright pass: without it the whole picture glows (soft focus); with
+        // it only what is brighter than the cut blooms, which is what makes an
+        // emissive material read as a glowing object.
+        ImGui::SliderFloat("Threshold", &project_.settings.bloomThreshold, 0.0f,
+                           1.0f,
+                           project_.settings.bloomThreshold <= 0.0f
+                               ? "off - whole frame"
+                               : "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Only pixels BRIGHTER than this contribute to the glow (the\n"
+                "GS subtracts it from the downsampled frame and clamps at 0).\n"
+                "0 = the classic soft-focus bloom over everything. Raise it to\n"
+                "~0.6 and the halo collapses onto emissive materials (Material\n"
+                "Editor > Glow), the sky and specular hits.");
+        ImGui::SliderFloat("Spread", &project_.settings.bloomSpread, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How far the glow reaches. Extra blur rounds over the\n"
+                "quarter-res buffer, each with doubled tap offsets, so the\n"
+                "halo grows from a tight fringe to a wide corona. Costs 4\n"
+                "extra GS sprites per round and no EE time - but a very wide\n"
+                "glow over a busy frame reads as haze, so tune it with the\n"
+                "threshold.");
         ImGui::Spacing();
         ImGui::TextWrapped(
             "Stack entries above this layer draw crisp on top of the bloom - "
@@ -9293,12 +10640,7 @@ void App::drawUiEditorWindow() {
                 if (menubake::bakeTextRGBA(t, project_, rgba, w, h)) {
                     if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
                     glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                                 GL_UNSIGNED_BYTE, rgba.data());
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                                    GL_LINEAR);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                                    GL_LINEAR);
+                    glUploadTexRgba(w, h, rgba.data());
                     textPreviewW_ = w;
                     textPreviewH_ = h;
                 }
@@ -12005,6 +13347,12 @@ void App::drawCutsceneWindow() {
         seqTakeError_.clear();
         if (!loadCamTakeAuto(path, seqTake_, seqTakeError_)) seqTake_ = CamTake{};
         seqTakeMap_.yawDeg = 0.0f;
+        // A take is recorded in meters, so the project's world scale IS the
+        // mapping scale (docs/world-scale.md). The decimation tolerance is a
+        // world-unit distance, so it follows the same factor - otherwise a
+        // big-scale project decimates a path it should have kept.
+        seqTakeMap_.scale = project_.settings.unitsPerMeter;
+        seqTakeMap_.tolerance = 0.05f * project_.settings.unitsPerMeter;
         takeOriginAimFromView();  // land + aim at the current view by default
         seqTakeMap_.timeOffset = 0.0f;
         // default the target to the camera you're looking through, or the
@@ -12772,6 +14120,31 @@ void App::drawCutsceneWindow() {
             if (ImGui::DragFloat("Scale (units per meter)", &seqTakeMap_.scale, 0.02f,
                                  0.01f, 1000.0f, "%.2f"))
                 seqTakeDirty_ = true;
+            {
+                // Seeded from the project's world scale; say so, and show what
+                // the recording covers at the current setting - "5 m of walking
+                // became 5 units" is the mistake this whole readout exists for.
+                const float ups = project_.settings.unitsPerMeter;
+                if (seqTakeMap_.scale != ups) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("World scale")) {
+                        seqTakeMap_.scale = ups;
+                        seqTakeDirty_ = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Back to the project's %.3f units per meter\n"
+                                          "(Project Preferences > World).", ups);
+                }
+                float walked = 0.0f;
+                for (size_t i = 1; i < seqTake_.samples.size(); ++i) {
+                    const float* a = seqTake_.samples[i - 1].pos;
+                    const float* b = seqTake_.samples[i].pos;
+                    const float dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+                    walked += std::sqrt(dx * dx + dy * dy + dz * dz);
+                }
+                ImGui::TextDisabled("Recorded path: %.2f m walked -> %.1f units",
+                                    walked, walked * seqTakeMap_.scale);
+            }
             ImGui::SetNextItemWidth(110.0f);
             if (ImGui::DragFloat("Extra yaw", &seqTakeMap_.yawDeg, 1.0f, -360.0f,
                                  360.0f, "%.0f deg"))
@@ -12863,11 +14236,19 @@ void App::drawCutsceneWindow() {
 // Materials are the project's plain Wavefront .mtl asset files - the same
 // files objects reference via materialPath and the PS2 runtime parses with
 // LeanObjLoader. The editor reads/writes the subset the whole pipeline
-// understands (newmtl / Kd / map_Kd / refl) plus a "# tyra-brightness" hint
-// line so the color x brightness split survives a round trip (both multiply
-// into the written Kd; every parser ignores comments). Unrecognized lines of
-// hand-imported files are preserved verbatim. Edits are saved straight to
-// disk on commit - assets are not project data, so no undo (same as imports).
+// understands (newmtl / Kd / Ke / map_Kd / refl) plus "# tyra-brightness" and
+// "# tyra-glow" hint lines so the color x strength splits survive a round trip
+// (each pair multiplies into the written Kd / Ke; every parser ignores
+// comments). Unrecognized lines of hand-imported files are preserved verbatim.
+// Edits are saved straight to disk on commit - assets are not project data, so
+// no undo (same as imports).
+
+void App::matEdKe(const MatEdEntry& e, float out[3]) {
+    for (int i = 0; i < 3; ++i) {
+        const float v = e.glowColor[i] * e.glow + e.glowWhite;
+        out[i] = v < 0.0f ? 0.0f : v > 1.99f ? 1.99f : v;
+    }
+}
 
 bool App::loadMaterialFile(const std::string& relPath) {
     matEdMats_.clear();
@@ -12876,7 +14257,14 @@ bool App::loadMaterialFile(const std::string& relPath) {
     std::ifstream in(std::filesystem::path(project_.dir) / relPath);
     if (!in) return false;
 
-    std::vector<char> gotHint;
+    std::vector<char> gotHint;      // "# tyra-brightness" seen (Kd split)
+    std::vector<char> gotKe;        // an "Ke" statement seen (emission)
+    // "# tyra-glow" seen: 0 none, 1 strength only (legacy - split Ke),
+    // 2 strength + authored color (+ optional white-hot; nothing to split)
+    std::vector<char> gotGlowHint;
+    // The raw "Ke" of each entry, kept OUT of the staged color so the hint
+    // line and the statement cannot clobber each other whatever their order.
+    std::vector<std::array<float, 3>> keRaw;
     std::string line;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -12917,12 +14305,19 @@ bool App::loadMaterialFile(const std::string& relPath) {
             ss >> e.name;
             matEdMats_.push_back(std::move(e));
             gotHint.push_back(0);
+            gotKe.push_back(0);
+            gotGlowHint.push_back(0);
+            keRaw.push_back({0.0f, 0.0f, 0.0f});
             continue;
         }
         if (matEdMats_.empty()) continue;  // stray header lines
         MatEdEntry& e = matEdMats_.back();
         if (tag == "Kd") {
             ss >> e.color[0] >> e.color[1] >> e.color[2];
+        } else if (tag == "Ke") {
+            std::array<float, 3>& k = keRaw.back();
+            ss >> k[0] >> k[1] >> k[2];
+            gotKe.back() = 1;
         } else if (tag == "map_Kd") {
             std::vector<std::string> toks;  // "<options> filename"; filename last
             for (std::string t; ss >> t;) toks.push_back(t);
@@ -12962,6 +14357,21 @@ bool App::loadMaterialFile(const std::string& relPath) {
             if (what == "tyra-brightness") {
                 ss >> e.brightness;
                 gotHint.back() = 1;
+            } else if (what == "tyra-glow") {
+                // "<strength> [r g b] [white]" - the authored controls behind
+                // the resolved Ke. The 1-number form is the original layout
+                // (color recovered by dividing Ke, no white-hot core).
+                ss >> e.glow;
+                float r, g, b;
+                if (ss >> r >> g >> b) {
+                    e.glowColor[0] = r, e.glowColor[1] = g, e.glowColor[2] = b;
+                    gotGlowHint.back() = 2;  // color authored too - no split
+                    ss >> e.glowWhite;       // absent = 0 (leaves the default)
+                } else {
+                    gotGlowHint.back() = 1;
+                }
+            } else if (what == "tyra-glow-light") {
+                ss >> e.glowRange >> e.glowLight;
             }
             // other comments are dropped - saveMaterialFile rewrites its own
         } else if (!tag.empty()) {
@@ -12973,6 +14383,9 @@ bool App::loadMaterialFile(const std::string& relPath) {
         e.name = std::filesystem::path(relPath).stem().string();
         matEdMats_.push_back(std::move(e));
         gotHint.push_back(1);
+        gotKe.push_back(0);
+        gotGlowHint.push_back(0);
+        keRaw.push_back({0.0f, 0.0f, 0.0f});
     }
 
     // The file's Kd = color x brightness; split them back for the UI. Without
@@ -12991,6 +14404,36 @@ bool App::loadMaterialFile(const std::string& relPath) {
             c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
         }
         e.brightness = b;
+
+        // Emission. The full hint (form 2) carries the authored controls, so
+        // nothing has to be recovered from Ke. Otherwise the split is the same
+        // ambiguity as Kd/brightness: the brightest Ke component is the
+        // strength (so "Ke 1 1 1" reads as a full white glow), which renders
+        // identically either way.
+        if (!gotKe[i]) {
+            e.glow = 0.0f;
+            e.glowWhite = 0.0f;
+            e.glowColor[0] = e.glowColor[1] = e.glowColor[2] = 1.0f;
+            continue;
+        }
+        if (gotGlowHint[i] == 2) {
+            e.glow = e.glow < 0.0f ? 0.0f : (e.glow > 2.0f ? 2.0f : e.glow);
+            e.glowWhite = e.glowWhite < 0.0f ? 0.0f
+                          : (e.glowWhite > 1.0f ? 1.0f : e.glowWhite);
+            for (float& c : e.glowColor)
+                c = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+            continue;
+        }
+        const std::array<float, 3>& k = keRaw[i];
+        float g = gotGlowHint[i] == 1 ? e.glow
+                                      : std::max(k[0], std::max(k[1], k[2]));
+        g = g < 0.0f ? 0.0f : g > 2.0f ? 2.0f : g;
+        for (int c = 0; c < 3; ++c) {
+            float v = g > 0.01f ? k[c] / g : 1.0f;
+            e.glowColor[c] = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+        }
+        e.glow = g;
+        e.glowWhite = 0.0f;
     }
     matEdPrevMats_ = matEdMats_;  // undo baseline for the first edit
     return true;
@@ -13037,6 +14480,26 @@ void App::saveMaterialFile() {
         };
         std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f", kd(0), kd(1), kd(2));
         out << buf << "\n";
+        // Emission, written only when the material glows so untouched files
+        // stay clean. The hint carries the authored controls, "Ke" the
+        // resolved emission every renderer reads (matEdKe caps it at the 1.99
+        // the PS2 color byte can carry, where 128 = 1.0 modulating a texture).
+        if (e.glow > 0.0f || e.glowWhite > 0.0f) {
+            std::snprintf(buf, sizeof(buf), "# tyra-glow %.4g %.4g %.4g %.4g %.4g",
+                          e.glow, e.glowColor[0], e.glowColor[1], e.glowColor[2],
+                          e.glowWhite);
+            out << buf << "\n";
+            if (e.glowRange > 0.0f) {
+                std::snprintf(buf, sizeof(buf), "# tyra-glow-light %.4g %.4g",
+                              e.glowRange, e.glowLight);
+                out << buf << "\n";
+            }
+            float ke[3];
+            matEdKe(e, ke);
+            std::snprintf(buf, sizeof(buf), "Ke %.4f %.4f %.4f", ke[0], ke[1],
+                          ke[2]);
+            out << buf << "\n";
+        }
         if (!e.texture.empty()) {
             // -s tiling (repeats per world unit) matters only for terrain; skip
             // it at the default 1 to keep files clean. Wavefront: "-s u v w".
@@ -15665,6 +17128,107 @@ void App::drawMaterialEditorWindow() {
         }
     }
 
+    // --- Glow (Ke): emission. Not a light - a brightness FLOOR baked into the
+    // vertex colors, so the surface keeps its own color in a pitch-black scene
+    // (docs/emissive-materials.md). Pair it with the bloom threshold in the UI
+    // Editor screen stack to get the halo around it.
+    ImGui::SeparatorText("Glow (emissive)");
+    {
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        const float before = e.glow;
+        ImGui::SliderFloat("Glow", &e.glow, 0.0f, 2.0f,
+                           e.glow <= 0.0f ? "off" : "%.2f");
+        // Raising it the first time: start from the material's own color, which
+        // is what "it glows in its own color" means to the eye.
+        if (before <= 0.0f && e.glow > 0.0f)
+            for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Self-illumination. The surface never renders darker than\n"
+                "glow color x this - at 1.0 it shows its full color even in\n"
+                "complete darkness, ignoring the sun, point lights and baked\n"
+                "AO. Above 1.0 only bites on textured materials (the PS2\n"
+                "color byte modulates the texture up to 2x).");
+        if (e.glow > 0.0f || e.glowWhite > 0.0f) {
+            ImGui::ColorEdit3("Glow color", e.glowColor);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Button("Match material color", ImVec2(scaled(180), 0))) {
+                for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+                committed = true;
+            }
+
+            // The one control that can make an ALREADY saturated surface read
+            // brighter: an untextured emitter is at the framebuffer maximum in
+            // its own hue at glow 1, so "more" can only mean "whiter".
+            ImGui::SetNextItemWidth(scaled(180.0f));
+            ImGui::SliderFloat("White-hot core", &e.glowWhite, 0.0f, 1.0f,
+                               e.glowWhite <= 0.0f ? "off" : "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Blows the surface out toward white, the way an\n"
+                    "overexposed emitter looks on camera. This is what makes\n"
+                    "a glow read as HOT: at full strength a colored surface\n"
+                    "is already at the maximum the framebuffer can hold in\n"
+                    "its own hue, so the only way up is desaturating. It also\n"
+                    "pushes every channel over the bloom threshold, which\n"
+                    "widens and brightens the halo.");
+
+            // Step 2: the emitter bakes light into the geometry around it.
+            bool lights = e.glowRange > 0.0f;
+            if (ImGui::Checkbox("Lights up surroundings", &lights)) {
+                e.glowRange = lights ? 4.0f : 0.0f;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes this material's light into the walls, floor and\n"
+                    "props around it at scene load - the ambient-occlusion\n"
+                    "treatment, in reverse. Free at runtime (it lands in the\n"
+                    "same vertex colors), and the editor viewport previews it.\n"
+                    "Static: the pool of light does not follow a moving\n"
+                    "object, and animated models do not receive it.");
+            if (e.glowRange > 0.0f) {
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                ImGui::DragFloat("Light reach", &e.glowRange, 0.1f, 0.2f, 60.0f,
+                                 "%.1f units");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                ImGui::SliderFloat("Light strength", &e.glowLight, 0.0f, 3.0f,
+                                   "%.2f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How bright the pool of light is at the emitter's\n"
+                        "surface. The light color is the glow color (white-hot\n"
+                        "core included), the falloff is quadratic to the reach.");
+            }
+
+            ImGui::TextDisabled(
+                "Baked into the vertex colors at scene load - free on the\n"
+                "console.");
+            // The halo is the bloom's job, and a glow with bloom off is the
+            // single most common "why doesn't it glow?" - say so where the
+            // slider is, not only in the docs.
+            if (project_.settings.bloom <= 0.0f)
+                ImGui::TextColored(
+                    ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                    "No halo: Bloom is 0. Raise Bloom (and its Threshold)\n"
+                    "in UI Editor > the screen stack > Bloom.");
+            else if (project_.settings.bloomThreshold <= 0.0f)
+                ImGui::TextDisabled(
+                    "Bloom has no Threshold - the halo spreads over the whole\n"
+                    "frame. Raise it in UI Editor > Bloom to focus the glow.");
+            else
+                ImGui::TextDisabled(
+                    "Halo: Bloom %.2f, threshold %.2f, spread %.2f\n"
+                    "(UI Editor > the screen stack > Bloom).",
+                    project_.settings.bloom, project_.settings.bloomThreshold,
+                    project_.settings.bloomSpread);
+        }
+    }
+
     // --- Bake maps (docs/material-baking.md) ---------------------------------
     matEdBakeSection(e.name,
                      e.texture.empty()
@@ -16260,6 +17824,7 @@ void App::drawMaterialEditorWindow() {
         // --- the preview image + mouse interaction ---------------------------
         Viewport::MatPreviewDesc desc;
         desc.kd[0] = kd[0], desc.kd[1] = kd[1], desc.kd[2] = kd[2];
+        matEdKe(sel, desc.ke);
         desc.texRel = texRel;
         desc.reflRel = reflRel;
         desc.reflStrength = sel.refl.empty() ? 0.0f : sel.reflStrength;
@@ -16277,6 +17842,7 @@ void App::drawMaterialEditorWindow() {
             // raw-map view: the baked map replaces the material's look
             desc.texRel = "@matbake-view";
             desc.kd[0] = desc.kd[1] = desc.kd[2] = 1.0f;
+            desc.ke[0] = desc.ke[1] = desc.ke[2] = 0.0f;
             desc.reflRel.clear();
             desc.reflStrength = 0.0f;
             desc.reflSky = false;
@@ -17381,10 +18947,7 @@ void App::drawMenusWindow() {
                 menubake::overlayValuePreview(m, project_, current, rgba, w, h);
                 if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
                 glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
-                             GL_UNSIGNED_BYTE, rgba.data());
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glUploadTexRgba(w, h, rgba.data());
                 menuPreviewW_ = w;
                 menuPreviewH_ = h;
                 const menubake::PanelLayout lay =
@@ -17823,6 +19386,9 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                     }
                 it = tiers.empty() ? project_.modelLods.erase(it) : std::next(it);
             }
+            // Its recorded real-world size goes with it - a re-import asks
+            // again rather than inheriting the deleted file's answer.
+            project_.modelUnitMeters.erase(d.relPath);
             modelInfoCache_.clear();
             glbInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
@@ -18867,6 +20433,7 @@ void App::drawNewProjectModal() {
                 hasProject_ = true;
                 applyProjectToViewport();
                 attachProject();  // resets dirty + window title
+                rememberRecentProject(project_.dir);
                 ImGui::CloseCurrentPopup();
             } else {
                 newProjectError_ = err;
@@ -19396,6 +20963,38 @@ void App::drawPreferencesModal() {
         "builds never carry the poller. Also toggled by the LIVE chip in\n"
         "the toolbar and Build > Live Link.");
 
+    ImGui::SeparatorText("World");
+    ImGui::DragFloat("Units per meter", &prefSettings_.unitsPerMeter, 0.05f, 0.001f,
+                     1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+    if (prefSettings_.unitsPerMeter < 0.001f) prefSettings_.unitsPerMeter = 0.001f;
+    prefHelp(
+        "How big a real-world meter is in this project's units. The engine\n"
+        "has no opinion about units, but everything imported from reality\n"
+        "does: a phone camera take records meters and a model carries them\n"
+        "too. Set this to what your own content already uses and imports\n"
+        "land at the right size instead of needing a guessed scale every\n"
+        "time. 1.0 = one unit is one meter (nothing changes). It is an\n"
+        "authoring reference only - it never reaches the game, and setting\n"
+        "it does not move anything already in a scene.\n"
+        "See docs/world-scale.md.");
+    {
+        // The same numbers in meters, which is what makes an inconsistent
+        // project visible: a metric gravity next to a walk speed the size of
+        // a highway means the world was built at a different scale than the
+        // settings assume.
+        const float ups = prefSettings_.unitsPerMeter;
+        ImGui::TextDisabled("At this scale:");
+        ImGui::SameLine();
+        ImGui::TextDisabled("eye %.2f m, walk %.1f m/s, gravity %.1f m/s^2",
+                            prefSettings_.eyeHeight / ups,
+                            prefSettings_.walkSpeed * 50.0f / ups,
+                            prefSettings_.gravity / ups);
+        prefHelp(
+            "Walk speed is units per 1/50 s, so 0.4 means 20 units/s.\n"
+            "For reference: a person is ~1.7 m tall, walks at 1.4 m/s,\n"
+            "sprints at ~6 m/s, and gravity is 9.81 m/s^2.");
+    }
+
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
     ImGui::InputInt("Depth (units)", &prefTerrain_.depth);
@@ -19403,6 +21002,10 @@ void App::drawPreferencesModal() {
                                                                                 : prefTerrain_.width;
     prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
                                                                                 : prefTerrain_.depth;
+    if (prefSettings_.unitsPerMeter != 1.0f)
+        ImGui::TextDisabled("= %.1f x %.1f m",
+                            (float)prefTerrain_.width / prefSettings_.unitsPerMeter,
+                            (float)prefTerrain_.depth / prefSettings_.unitsPerMeter);
     ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
     prefHelp("More cells = smaller triangles = fewer clipping artifacts,\n"
              "but more geometry for the PS2 to push.");
@@ -19519,7 +21122,7 @@ void App::drawPreferencesModal() {
         "The build bakes ~50% and ~25%-vertex variants of every model -\n"
         "animated ones into the .tskl, static ones into the .tmdl; objects\n"
         "farther than this render the reduced meshes. A static model can use\n"
-        "your own LOD meshes instead (Assets > the model's LOD... button).\n"
+        "your own LOD meshes instead (the Asset Browser's LOD... button).\n"
         "Costs RAM and file size; the editor viewport shows the full mesh.");
 
     ImGui::Checkbox("Reflection probe: aim along the reflected ray",
@@ -19542,7 +21145,7 @@ void App::drawPreferencesModal() {
 
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
-    // model/material overrides live in the Assets section.
+    // model/material overrides live in the Asset Browser's inspector.
     int quantMode = prefSettings_.textureQuant == "none" ? 0
                     : prefSettings_.textureQuant == "8bit" ? 1
                                                            : 2;
@@ -19555,7 +21158,7 @@ void App::drawPreferencesModal() {
             quantMode == 0 ? "none" : quantMode == 1 ? "8bit" : "4bit";
     prefHelp(
         "Quantized at build (sources in res/ stay untouched). Override per\n"
-        "model/material in the Assets section - e.g. keep the hero's textures\n"
+        "model/material in the Asset Browser - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
     ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
@@ -19571,7 +21174,7 @@ void App::drawPreferencesModal() {
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
              "if any, tiles across it - set the tiling on the material's\n"
-             "texture in the Material Editor. Import .mtl in the Assets section.");
+             "texture in the Material Editor. Import .mtl in Project > Assets.");
 
     ImGui::SeparatorText("AI navigation");
     ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
@@ -19639,7 +21242,8 @@ void App::drawPreferencesModal() {
     if (prefTemplate_ == 1) {
         ImGui::SeparatorText("FPP camera");
         ImGui::DragFloat("Eye height", &prefSettings_.eyeHeight, 0.05f, 0.2f, 50.0f, "%.2f");
-        ImGui::DragFloat("Walk speed", &prefSettings_.walkSpeed, 0.02f, 0.05f, 10.0f, "%.2f");
+        walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
+                      prefSettings_.unitsPerMeter);
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
         ImGui::SeparatorText("Orbit camera");
@@ -20253,7 +21857,11 @@ void App::drawScenePreferencesModal() {
     });
 
     category("Post effects", ov.postFx, [&] {
-        ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Bloom threshold", &s.bloomThreshold, 0.0f, 1.0f,
+                           s.bloomThreshold <= 0.0f ? "off - whole frame"
+                                                    : "%.2f");
+        ImGui::SliderFloat("Bloom spread", &s.bloomSpread, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
@@ -20291,14 +21899,8 @@ void App::openProjectDialog() {
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
-    Project p;
-    std::string err = project::load(p, dir);
-    if (err.empty()) {
-        project_ = p;
-        hasProject_ = true;
-        applyProjectToViewport();
-        attachProject();  // resets dirty + window title
-    } else {
+    const std::string err = openProjectAt(dir);
+    if (!err.empty()) {
         runner_.clearLog();
         // Surface the error in the Output window via the runner log is hacky;
         // show a popup instead on next frame. Simple approach: message box.

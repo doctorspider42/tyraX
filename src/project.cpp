@@ -552,6 +552,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << " }, \"clipping\": \"" << s.clipping
       << "\", \"terrainMaterial\": \"" << s.terrainMaterial
       << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
+      << ", \"bloomThreshold\": " << fmtFloat(s.bloomThreshold)
+      << ", \"bloomSpread\": " << fmtFloat(s.bloomSpread)
       << ", \"grain\": " << fmtFloat(s.grain)
       << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
       << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
@@ -613,7 +615,15 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             }
             if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
-                if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
+                // bloom rides a whole-byte GS blend FIX, so it goes to 2x
+                if (const auto* v = pf->find("bloom")) {
+                    const float b = (float)v->numberOr(0.0);
+                    s.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
+                }
+                if (const auto* v = pf->find("bloomThreshold"))
+                    s.bloomThreshold = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("bloomSpread"))
+                    s.bloomSpread = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("dofAmount"))
                     s.dofAmount = clamp01((float)v->numberOr(0.0));
@@ -697,6 +707,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     if (s.overrides.terrainMat) r.terrainMaterial = o.terrainMaterial;
     if (s.overrides.postFx) {
         r.bloom = o.bloom;
+        r.bloomThreshold = o.bloomThreshold;
+        r.bloomSpread = o.bloomSpread;
         r.grain = o.grain;
         r.dofAmount = o.dofAmount;
         r.dofFocus = o.dofFocus;
@@ -832,6 +844,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
          << ",\n"
+         << "    \"unitsPerMeter\": " << fmtFloat(p.settings.unitsPerMeter)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
@@ -866,6 +880,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"aoRadius\": " << fmtFloat(p.settings.aoRadius) << ",\n"
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
+         << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
+         << ",\n"
+         << "    \"bloomSpread\": " << fmtFloat(p.settings.bloomSpread) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
          << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
          << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
@@ -1048,6 +1065,19 @@ static void writeModelLodsSection(std::ostream& json, const Project& p) {
         for (size_t i = 0; i < tiers.size(); ++i)
             json << (i ? ", " : "") << "\"" << jsonEscape(tiers[i]) << "\"";
         json << "]";
+        first = false;
+    }
+    json << " }";
+}
+
+// Conditional as well: nothing imported with a known real-world size = no key.
+static void writeModelUnitsSection(std::ostream& json, const Project& p) {
+    if (p.modelUnitMeters.empty()) return;
+    json << "\"modelUnits\": {";
+    bool first = true;
+    for (const auto& [asset, meters] : p.modelUnitMeters) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset)
+             << "\": " << fmtFloat(meters);
         first = false;
     }
     json << " }";
@@ -1452,6 +1482,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
     }
     return ss.str();
@@ -1472,6 +1503,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
     }
     return "unknown";
@@ -1505,7 +1537,8 @@ static std::string manifestJson(const Project& p) {
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
-         << ", \"viewMode\": " << p.viewMode << " }";
+         << ", \"viewMode\": " << p.viewMode
+         << ", \"viewProjection\": " << p.viewProjection << " }";
     // emulatorPath / ps2LinkIp used to live here but are now machine-global
     // editor settings (editor.ini), no longer written per-project. The reader
     // still accepts them to migrate older projects into the global config.
@@ -2316,7 +2349,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.playerCamYawRotate = v->boolOr(false);
             }
             if (const auto* v = pl->find("walkSpeed"))
-                o.playerWalkSpeed = (float)v->numberOr(0.4);
+                o.playerWalkSpeed = (float)v->numberOr(0.1);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
             if (const auto* v = pl->find("eyeHeight"))
@@ -2615,6 +2648,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.navAgentRadius = (float)v->numberOr(0.4);
             if (st.navAgentRadius < 0.0f) st.navAgentRadius = 0.0f;
         }
+        // World scale. Absent (every project saved before it existed) = 1
+        // unit per meter, which is what the importers assumed all along.
+        if (const auto* v = s->find("unitsPerMeter")) {
+            st.unitsPerMeter = (float)v->numberOr(1.0);
+            if (!(st.unitsPerMeter > 0.0001f)) st.unitsPerMeter = 1.0f;
+        }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;
@@ -2629,7 +2668,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
-        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
+        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
         // Sprint: projects that predate it read 1.8 like a fresh one (the
         // sprint action ensureInputActions seeds is what actually enables it).
@@ -2680,7 +2719,14 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.aoRadius = (float)v->numberOr(2.5);
         if (st.aoRadius < 0.1f) st.aoRadius = 0.1f;
         if (st.aoRadius > 50.0f) st.aoRadius = 50.0f;
-        if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
+            const float b = (float)v->numberOr(0.0);
+            st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
+        }
+        if (const auto* v = s->find("bloomThreshold"))
+            st.bloomThreshold = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("bloomSpread"))
+            st.bloomSpread = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("dofAmount"))
             st.dofAmount = clamp01((float)v->numberOr(0.0));
@@ -3408,6 +3454,18 @@ static void readAnimEditsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readModelUnitsSection(const json::Value& root, Project& out) {
+    out.modelUnitMeters.clear();
+    const auto* obj = root.find("modelUnits");
+    if (!obj || obj->type != json::Value::Type::Object) return;
+    for (const auto& [asset, v] : obj->obj) {
+        const float meters = (float)v.numberOr(1.0);
+        // A non-positive size says nothing about the model and would collapse
+        // every object made from it - drop the entry instead.
+        if (meters > 0.0001f) out.modelUnitMeters[asset] = meters;
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -3426,6 +3484,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::ModelUnits: readModelUnitsSection(root, p); break;
         // A section blob is total, so a peer that never had the Input Map
         // would wipe it - re-seed the built-ins after applying (idempotent).
         case Section::Input:
@@ -3545,6 +3604,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readTexQualitySection(root, out);
     readModelLodsSection(root, out);
+    readModelUnitsSection(root, out);
 
     readSaveDataSection(root, out);
 
@@ -3642,6 +3702,8 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmoSpace"))
             out.gizmoSpace = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+        if (const auto* v = ed->find("viewProjection"))
+            out.viewProjection = (int)v->numberOr(0);
         // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
         // (editor.ini). Still read so the editor can migrate an older project's
         // values into the global config on first open (see App::attachProject);

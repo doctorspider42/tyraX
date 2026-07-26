@@ -100,8 +100,12 @@ then cut between them on the camera lane).
 
 ## Mapping controls (the import modal)
 
-- **Scale** — game units per real metre (default 1, i.e. 1 unit ≈ 1 m; raise it
-  to make the recorded move cover more of the map).
+- **Scale** — game units per real metre. Seeded from the project's **world
+  scale** (*Preferences > World*, docs/world-scale.md), which is what says how
+  big a metre is here; the **World scale** button next to it snaps back after
+  hand-tuning. The line under it shows the recording both ways ("4.80 m walked
+  → 24.0 units"), so a path that comes out five times too short is visible
+  before importing rather than after.
 - **Extra yaw** — rotates the whole path about +Y, pivoting on the first
   sample (point the recorded walk in the direction the shot needs).
 - **Origin** — where the take's *first sample* lands; defaults to the current
@@ -110,7 +114,8 @@ then cut between them on the camera lane).
   the viewport, hit From view, the recorded path is aimed there).
 - **Start at playhead** — offsets key times so the take starts at the
   playhead instead of t = 0.
-- **Tolerance** — decimation error bound in world units (below).
+- **Tolerance** — decimation error bound in world units (below); it is seeded
+  scaled by the world scale too, since it is a distance.
 - **Replace / Append** (free target only) — what happens to the shots already
   on the camera lane. A Camera-entity target always rewrites that entity's own
   track. Import enables the sequence's camera track and extends its duration if

@@ -62,14 +62,23 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
-    // Experimental textured AO: the terrain AO map blended over the base
-    // (and the layers). Shares the chunk's vertices; own extent-normalized
-    // STs, flat 128 colors (the map's alpha carries the darkening).
+    // The terrain lightmap passes, both blended over the base (and the
+    // layers) and both sampling ONE map with the chunk's extent-normalized
+    // STs - texturing is MODULATE, so the vertex color of each pass picks
+    // which channels it sees (docs/emissive-materials.md):
+    //   aoCols: BLACK -> only the map's alpha reaches the alpha-over blend,
+    //     an exact per-pixel multiply (a white color would drag the light
+    //     channel into the darkening);
+    //   emisCols: the terrain's own base tint -> the map's RGB, added.
     std::vector<Tyra::Vec4> aoSts;
     std::vector<Tyra::Color> aoCols;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
+    std::vector<Tyra::Color> emisCols;
+    std::unique_ptr<Tyra::StaPipBag> emisBag;
+    std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
+    Tyra::StaPipTextureBag emisTexBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -85,13 +94,20 @@ class TerrainGame : public Tyra::Game {
   // Same render settings as infoBag but with GS blending on - shared by every
   // chunk's layer passes (the base pass must stay opaque).
   std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
-  // Experimental textured AO: the per-scene terrain AO map + primitive
-  // lightmap atlas (acquired in loadScene when the mode is on; nullptr
-  // otherwise). Both draw as alpha-over passes of black textures - the GS
-  // blend turns the alpha into an exact per-pixel darkening.
+  // Shared info bag of the additive scene-lightmap pass (identity model -
+  // only world-space static primitives ever get atlas regions).
+  std::unique_ptr<Tyra::StaPipInfoBag> lightAddInfoBag;
+  // The per-scene lightmaps: the terrain map + the primitive atlas (acquired
+  // in loadScene when the scene has one; nullptr otherwise). Each carries the
+  // occlusion in its alpha (an alpha-over pass = exact per-pixel darkening)
+  // and the baked emissive light in its RGB (an additive pass).
   Tyra::Texture* aoMapTexture = nullptr;
   Tyra::Texture* aoAtlasTexture = nullptr;
   std::string aoMapTexPath, aoAtlasTexPath;  // for the release on scene swap
+  // ...and which of the terrain map's channels actually have content, latched
+  // per scene in loadScene. terrainMapLit ALSO switches buildTerrainChunk's
+  // vertex shade off the emissive light, so it never lands twice.
+  bool terrainMapOcc = false, terrainMapLit = false;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -121,7 +137,8 @@ class TerrainGame : public Tyra::Game {
     // aoSts map this part's vertices into the object's atlas regions; shares
     // the vertices and bboxVersion like the env pass does.
     std::vector<Tyra::Vec4> aoSts;
-    std::vector<Tyra::Color> aoCols;  // flat 128s - the texture carries it all
+    std::vector<Tyra::Color> aoCols;  // flat BLACK - the texture's alpha is
+                                      // the whole occlusion (see the rebuild)
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> aoTexBag;
@@ -142,6 +159,12 @@ class TerrainGame : public Tyra::Game {
     std::vector<Lod> lods;
     int shownLod = 0;  // tier the bags currently point at
     u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
+    // The additive twin of the pass above: same atlas, same STs, WHITE vertex
+    // colors, so it sees the baked emissive light in the texture's RGB.
+    std::vector<Tyra::Color> emisCols;
+    std::unique_ptr<Tyra::StaPipBag> emisBag;
+    std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> emisTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -217,6 +240,9 @@ class TerrainGame : public Tyra::Game {
     std::vector<unsigned char> vertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // Ke: emission - the brightness floor pushVert never shades below, so the
+    // part keeps its color in a pitch-black scene. {0,0,0} = matte.
+    float ke[3] = {0.0F, 0.0F, 0.0F};
     // refl: spherical environment map (nullptr = not reflective).
     // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
     // reflRounded = "-rounded": env normals radiate from the part centroid.
@@ -274,6 +300,8 @@ class TerrainGame : public Tyra::Game {
   struct GameMaterial {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // Ke: emission floor (see GameModelPart). {0,0,0} = matte.
+    float ke[3] = {0.0F, 0.0F, 0.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
     // refl: spherical environment map (nullptr = not reflective).
     // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
@@ -726,9 +754,6 @@ class TerrainGame : public Tyra::Game {
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
-  // Rebind rows (Menu Editor > Rebind key): push each row's saved override
-  // into the live input bindings (docs/input-bindings.md).
-  void applyInputBindings();
   std::vector<Tyra::Sprite> menuSprites;
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
@@ -758,8 +783,6 @@ class TerrainGame : public Tyra::Game {
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;
-  // Entry index of the rebind row waiting for a press (-1 = not capturing).
-  int menuRebindRow = -1;
 
   ScriptContext scriptCtx;
 };

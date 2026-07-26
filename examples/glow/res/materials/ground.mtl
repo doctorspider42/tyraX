@@ -1,0 +1,5 @@
+# Dark wet asphalt: the terrain tint. Deliberately mid-grey rather than black -
+# in a scene this dark, what you see of the ground IS the emissive light.
+newmtl ground
+# tyra-brightness 1
+Kd 0.2600 0.2600 0.3000

@@ -11,6 +11,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game reads a binary model instead of your `.obj`, what that means for
   your files and the disc, distance mesh LOD for static geometry, and
   authoring your own LOD meshes instead of letting the build decimate.
+- [World scale: units, meters and imports](world-scale.md) - what a unit is
+  worth in this project, why a model or a camera take can land several times
+  too small, the per-asset real-world size recorded at import, the viewport
+  measuring tape and the object Size readout, and how to work out the scale
+  your world is actually at.
 - [Object scripts (Unity-style components)](object-scripts.md) - writing
   C++ scripts and attaching them to objects, the ObjectScript lifecycle
   (`self`, onStart/onUpdate/onUsed), ScriptContext reference, Empty
@@ -19,6 +24,15 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+- [Orthographic and axis views](orthographic-views.md) - the viewport's
+  parallel projection and the six locked Top/Bottom/Front/Back/Right/Left
+  views: the clickable axis gizmo in the corner, the other three ways to
+  switch (button, View menu, numpad), what orbiting an axis view does, and
+  why a parallel view draws what is behind the camera.
+- [Placing objects: surface snapping and deferred paste](object-placement.md) -
+  inserted and pasted objects resting on the terrain or on the object below
+  instead of sinking into it, the `End` drop-to-floor command, and the paste
+  that follows the cursor until you click it down.
 - [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
   Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
   snippets with `{placeholders}`, or `call = fn` nodes backed by a real
@@ -34,6 +48,18 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw
   low-level GS-blit body, positioned in the UI Editor screen stack with numeric
   parameters, and how to copy an effect to another project.
+- [Emissive materials (glow)](emissive-materials.md) - making a material light
+  itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
+  floor baked into the vertex colors (free at runtime), the white-hot core (why
+  "more glow" past full strength can only mean whiter), the bloom
+  **bright-pass threshold** and **spread** that turn the frame-wide soft glow
+  into a halo, and **baked emissive light** - the emitter lighting the terrain,
+  walls and props around it, the ambient-occlusion machinery in reverse.
+- [Asset Browser](asset-browser.md) - the file manager over the project's
+  `res/` tree: folders, thumbnails, type filters and search, the reference
+  census that says who uses an asset (and which ones nothing does), moving
+  files with their references following, drag & drop into the scene, safe
+  renames, and why a texture never moves away from its material.
 - [Materials: model preview, duplication and texture painting](material-painting.md) -
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern
@@ -101,3 +127,6 @@ Developer design docs (internals, not user guides):
 - [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
   real hardware (2026-07-11) and the design + milestones for moving StaPip
   clipping into a VU1 microprogram.
+- [GS VRAM residency](gs-vram.md) - where the 4 MB goes, what a texture
+  really costs, the free-list texture heap and its eviction policy, the
+  `VRAMSTAT` counters, and the measured before/after numbers.
