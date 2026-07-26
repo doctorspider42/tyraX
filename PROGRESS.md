@@ -10,7 +10,61 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-<<<<<<< HEAD
+- (193) **The number plane: a flow graph can now COMPUTE a value instead of
+  only typing one in.** Reported by the owner: "you cannot pass a value into a
+  node through an input at all", wanting the simplest possible thing - a button
+  that increases a variable by 1. Both halves landed.
+  **A fifth link kind** (`FlowLinkNum`, pink circle pins): a number output wired
+  into a number input REPLACES that node's `num[0]` param, exactly the way a
+  position link overrides X/Y/Z - one convention, so every consumer behaves the
+  same and the Properties panel says *"Value: from link"* instead of showing a
+  param the game ignores. Sources: **Number** (a literal), **Get Int**,
+  **Get Save Value** (which already existed as a text source and now doubles as
+  a numeric one). Combining: **Add / Subtract / Multiply / Divide** fold over
+  ALL their wired inputs (the logic-gate precedent), with the `B` param as the
+  second operand when only one input is wired - so `Get Int -> Add (B 1) ->
+  Set Int` is read-modify-write. **Number At Least** bridges back to the bool
+  plane, **Number To Text** into the text plane (so a computed value reaches
+  Display Text). Consumers with a number input: Set Int, Set Bool, Set/Add Save
+  Value, Value At Least, Int At Least - a threshold can now itself be computed.
+  **And the short path**, because the ask deserved two nodes and not four:
+  Set Int grew an `add` exec pin (`set` / `add`, the Set-Object-Visible merge
+  pattern) and Set Bool a `toggle` pin. On Button -> Set Int/add with Value 1 IS
+  the counter.
+  Pin ids widened from 16 to 32 slots per node (never persisted - the stride is
+  now `kFlowPinSlots` in one place, with `flowPinNode`/`flowPinKind` replacing
+  the `% 16` arithmetic app.cpp had inlined).
+  **Two traps handled.** (1) Live Logic's IR carries `num[4]` as compile-time
+  CONSTANTS, so a wired value would silently run as the node's typed-in param -
+  `capability()` now rejects a graph containing a number link by name, and the
+  interpreter's Set Int / Set Bool bodies honor `in.pin` so the add/toggle pins
+  stay exact twins of the generated C++. (2) An int variable named ONLY by a
+  Get Int must still take its slot in `collectFlowVars`, or every index after it
+  shifts and a patched graph writes the wrong variable - both copies of that
+  list (templates.cpp and livelogic.cpp) updated together.
+  **Also fixed while here**, both pre-existing and both now load-bearing for the
+  add pin: the AI path dropped `toPin` in BOTH directions (`graphJson` never
+  wrote it, `parseGraph` never read it), so asking the model to edit a graph
+  silently rewrote every hide/toggle branch link to pin 0 - it now round-trips,
+  the catalog names each merged node's pins, and a pin the target does not have
+  is dropped like any other invalid link. And PCSX2 refuses a boot ELF whose
+  path mixes separators ("does not exist" for a file that plainly does), which a
+  project opened through a forward-slash path produces - the Runner hands it a
+  native path now.
+  **Verified end to end on the running game** (PCSX2, debug profile, the Live
+  Debugger's own watch channel reading the real variables): 12 x Cross ->
+  `score` = 12 with the trigger and the add node each reporting 12 hits;
+  1 x Circle -> `score` = 24 (Get Int -> Multiply B=2 -> Set Int, through two
+  number links) and `flag` 0 -> 1 (the toggle pin); the Number At Least(10) ->
+  On Condition edge fired exactly ONCE on the way up; `minus` = -5 from a
+  Subtract chain and `third` = 0 through the divide-by-zero-safe `flowNumDiv`.
+  The screenshot shows **"Score: 24"** on the PS2 picture - Get Int -> Number To
+  Text -> Display Text, live. Codegen inspected for all 22 nodes / 22 links, the
+  game compiles on the PS2 toolchain, and the graph round-trips through
+  `objects/*.json` (11 number links, 2 pins) and `--dump-graph`.
+  **Not verified**: the graph editor's own visuals (this machine still renders
+  the editor window blank - see 187) and real hardware.
+
 - (192) **Reading back what VU1 produced: the staged GIF packets, decoded**
   (docs/devkit.md). Follow-up to 191 - having the INPUT was half the answer; this
   is the other half. Arming a capture now also snapshots **all 1024 quadwords of
@@ -343,7 +397,6 @@ Each finished feature lands as its own commit.
   the same snapshots verified above, but a human should still eyeball the
   glow/timeline once. ps2link (real hardware) uses identical code paths on a
   25-frame cadence; untested.
-=======
 - (186) **Two things the owner hit while playing with areas: the unload band was
   eight units of "why is this still loaded", and you cannot debug an invisible
   volume.** (1) A streaming layer on an area zone loaded the instant you entered
@@ -470,7 +523,6 @@ Each finished feature lands as its own commit.
   machine is in the known AMD-GL white-window state, so GUI captures are
   unusable (see the editor-gui-screenshot notes).
 
->>>>>>> origin/main
 - (183) **Merging world scale (177) into the phone camera - the integration git
   could not see.** Bringing main in gave eight textual conflicts, all of them
   adjacent additions to the same lists (a config struct, its reader and writer,

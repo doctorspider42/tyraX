@@ -16910,8 +16910,12 @@ void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
+                // Live Logic's compiler collects the same names in the same
+                // order (livelogic.cpp) because the interpreter indexes THESE
+                // arrays - a type listed here and not there shifts every index
+                // in a patched graph. Keep the two lists identical.
                 if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
-                    n.type == "GetVarIntText")
+                    n.type == "GetVarIntText" || n.type == "GetVarInt")
                     collect(intVars, n.str);
                 else if (n.type == "SetVarBool" || n.type == "GetVarBool")
                     collect(boolVars, n.str);
@@ -17117,6 +17121,7 @@ std::string flowGraphScript(const Project& p) {
     bool anyRaycast = false;
     bool anyDynText = false;
     bool anyInArea = false;
+    bool anyNumDiv = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
@@ -17125,6 +17130,7 @@ std::string flowGraphScript(const Project& p) {
                 anyRaycast |= (n.type == "Raycast");
                 anyDynText |= (n.type == "DisplayText");
                 anyInArea |= (n.type == "InArea");
+                anyNumDiv |= (n.type == "NumDiv");
             }
     const bool anyNav = anyNavAiNode(p);
 
@@ -17251,6 +17257,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
   return in1 || in2;
 }
 )";
+    }
+
+    if (anyNumDiv) {
+        out << "\n// Divide node: a graph must not be able to produce a NaN that\n"
+               "// then propagates into a position or a save file.\n"
+               "static inline float flowNumDiv(float a, float b) {\n"
+               "  return (b > -0.000001F && b < 0.000001F) ? 0.0F : a / b;\n"
+               "}\n";
     }
 
     if (anyTextNode) {
@@ -17511,6 +17525,86 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return posExprImpl(n, visited);
         };
 
+        // Number plane: one self-contained float C++ expression per number-out
+        // node, so a value costs no runtime slot and inlines wherever it is
+        // read - the same shape as the bool plane. `visited` is passed BY VALUE
+        // so a source feeding two consumers (a diamond) still emits on both
+        // branches while a genuine cycle folds to 0.
+        std::function<std::string(const FlowNode&, std::vector<int>)> numExprImpl =
+            [&](const FlowNode& n, std::vector<int> visited) -> std::string {
+            for (int id : visited)
+                if (id == n.id) return "0.0F";  // cycle guard
+            visited.push_back(n.id);
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t) return "0.0F";
+
+            if (n.type == "Number") return floatLit(n.num[0]);
+            if (n.type == "GetVarInt") {
+                const int vi = varIndex(intVars, n.str);
+                if (vi < 0) return "0.0F";
+                return "(float)flowInt[" + std::to_string(vi) + "]";
+            }
+            if (n.type == "GetSaveValue") {
+                const int vi = saveValueIndex(n.str);
+                if (vi < 0) return "0.0F";
+                return "ctx.saveValues[" + std::to_string(vi) + "]";
+            }
+            if (!flowNumFolds(*t)) return "0.0F";  // not a Math node
+
+            // Math: fold the wired inputs in LINK order. One input makes the B
+            // param the second operand (the counter case: input + 1); none
+            // leaves B as the whole result.
+            std::vector<std::string> es;
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkNum || l.toNode != n.id) continue;
+                const FlowNode* src = nodeById(l.fromNode);
+                if (!src) continue;
+                const FlowNodeType* st = flowNodeType(src->type);
+                if (!st || !st->numOut) continue;
+                es.push_back(numExprImpl(*src, visited));
+            }
+            const std::string b = floatLit(n.num[0]);
+            if (es.empty())
+                return n.type == "NumSub" ? "(-" + b + ")" : b;
+            if (es.size() == 1) es.push_back(b);
+            if (n.type == "NumDiv") {
+                std::string s = es[0];
+                for (size_t i = 1; i < es.size(); ++i)
+                    s = "flowNumDiv(" + s + ", " + es[i] + ")";
+                return s;
+            }
+            const char* op = n.type == "NumAdd"   ? " + "
+                             : n.type == "NumSub" ? " - "
+                                                  : " * ";
+            std::string s = "(";
+            for (size_t i = 0; i < es.size(); ++i) {
+                if (i) s += op;
+                s += es[i];
+            }
+            return s + ")";
+        };
+
+        // The number wired into a node's number input, or "" when nothing is -
+        // the "a linked number overrides num[0]" test every consumer makes.
+        auto numInput = [&](const FlowNode& n) -> std::string {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t || !t->numIn) return "";
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkNum || l.toNode != n.id) continue;
+                const FlowNode* src = nodeById(l.fromNode);
+                if (!src) continue;
+                const FlowNodeType* st = flowNodeType(src->type);
+                if (!st || !st->numOut) continue;
+                return numExprImpl(*src, std::vector<int>{});
+            }
+            return "";
+        };
+        // A consumer's float operand: the wired number if any, else num[0].
+        auto numOperand = [&](const FlowNode& n) {
+            const std::string e = numInput(n);
+            return e.empty() ? floatLit(n.num[0]) : e;
+        };
+
         // Boolean-value plane: each trigger exposes a per-frame condition,
         // logic gates fold those conditions, and "On Condition" turns a bool
         // back into an exec pulse. Every bool is a self-contained C++
@@ -17561,7 +17655,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "false";
                 return "(ctx.saveValues[" + std::to_string(vi) +
-                       "] >= " + floatLit(n.num[0]) + ")";
+                       "] >= " + numOperand(n) + ")";
+            }
+            if (n.type == "NumAtLeast") {
+                // The number plane's own comparison - nothing wired means
+                // nothing to compare, which is false rather than "0 >= 0".
+                const std::string e = numInput(n);
+                if (e.empty()) return "false";
+                return "(" + e + " >= " + floatLit(n.num[0]) + ")";
             }
             if (n.type == "GetVarBool") {
                 const int vi = varIndex(boolVars, n.str);
@@ -17571,6 +17672,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (n.type == "VarAtLeast") {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) return "false";
+                // A wired threshold is a float expression, so compare in float
+                // and keep the int literal path exactly as it was.
+                const std::string e = numInput(n);
+                if (!e.empty())
+                    return "((float)flowInt[" + std::to_string(vi) + "] >= " + e +
+                           ")";
                 return "(flowInt[" + std::to_string(vi) + "] >= " + intLit(n.num[0]) +
                        ")";
             }
@@ -17685,6 +17792,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 std::string expr = boolInputsOr(n);
                 if (expr.empty()) expr = "false";
                 return "std::string(" + expr + " ? \"true\" : \"false\")";
+            }
+            if (n.type == "NumToText") {
+                const std::string e = numInput(n);
+                return "flowNumText(" + (e.empty() ? "0.0F" : e) + ")";
             }
             return "std::string()";
         };
@@ -18129,7 +18240,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     c << pad << "ctx.saveValues[" << vi << "] "
                       << (n.type == "SetValue" ? "=" : "+=") << " "
-                      << floatLit(n.num[0]) << ";  // \"" << n.str << "\"\n";
+                      << numOperand(n) << ";  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "OpenSaveMenu") {
                 c << pad << "ctx.openSaveMenu = true;\n";
@@ -18138,17 +18249,30 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (vi < 0) {
                     c << pad << "// node " << n.id << " (SetVarInt): unnamed variable\n";
                 } else {
-                    c << pad << "flowInt[" << vi << "] = " << intLit(n.num[0])
-                      << ";  // \"" << n.str << "\"\n";
+                    // pin 0 = set, pin 1 = add. The wired-number path rounds
+                    // (the plane is float, the variable is an int); the plain
+                    // param path keeps emitting the exact same literal it did
+                    // before the number plane existed.
+                    const std::string e = numInput(n);
+                    const std::string v =
+                        e.empty() ? intLit(n.num[0])
+                                  : "(int)lroundf(" + e + ")";
+                    c << pad << "flowInt[" << vi << "] " << (pin == 1 ? "+=" : "=")
+                      << " " << v << ";  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "SetVarBool") {
                 const int vi = varIndex(boolVars, n.str);
                 if (vi < 0) {
                     c << pad << "// node " << n.id << " (SetVarBool): unnamed variable\n";
+                } else if (pin == 1) {
+                    c << pad << "flowBool[" << vi << "] = !flowBool[" << vi
+                      << "];  // \"" << n.str << "\"\n";
                 } else {
+                    const std::string e = numInput(n);
                     c << pad << "flowBool[" << vi << "] = "
-                      << (n.num[0] != 0.0f ? "true" : "false") << ";  // \"" << n.str
-                      << "\"\n";
+                      << (e.empty() ? (n.num[0] != 0.0f ? "true" : "false")
+                                    : "(" + e + " != 0.0F)")
+                      << ";  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "SetVarPos") {
                 const int vi = varIndex(posVars, n.str);
@@ -18853,10 +18977,19 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "        msg[n] = '\\0';\n"
          "        TYRA_LOG(msg);\n"
          "      }\n"},
+        // pin 0 = set, pin 1 = add / toggle - the same branch flowGraphScript
+        // emits. A number LINK is not representable in the IR, so a graph that
+        // wires one is rejected by livelogic::capability instead of quietly
+        // running the param here (docs/live-logic.md).
         {"OP_SetVarInt",
-         "      flowLiveSetVarInt(in.aux, (int)in.num[0]);\n"},
+         "      flowLiveSetVarInt(in.aux, in.pin == 1\n"
+         "                                    ? flowLiveGetVarInt(in.aux) +\n"
+         "                                          (int)in.num[0]\n"
+         "                                    : (int)in.num[0]);\n"},
         {"OP_SetVarBool",
-         "      flowLiveSetVarBool(in.aux, in.num[0] != 0.0F);\n"},
+         "      flowLiveSetVarBool(in.aux, in.pin == 1\n"
+         "                                     ? !flowLiveGetVarBool(in.aux)\n"
+         "                                     : in.num[0] != 0.0F);\n"},
         {"OP_SetVarPos", "      flowLiveSetVarPos(in.aux, pos);\n"},
         {"OP_SetValue",
          "      if (ctx.saveValues && in.aux >= 0 && in.aux < ctx.saveValueCount)\n"

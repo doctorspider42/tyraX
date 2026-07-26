@@ -171,6 +171,7 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 (l.kind == FlowLinkPos ? ", \"pos\": true" : "") +
                 (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
                 (l.kind == FlowLinkText ? ", \"text\": true" : "") +
+                (l.kind == FlowLinkNum ? ", \"number\": true" : "") +
                 (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") + " }";
     }
     return json + "] }";
@@ -274,6 +275,12 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("text");
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkText;
+            // "number", not "num": a node's numeric PARAMS already serialize as
+            // a "num" array, and one key meaning two things in one file invites
+            // exactly the bug it looks like.
+            if (const auto* v = jl.find("number");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkNum;
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
             if (l.kind == FlowLinkExec && !l.toPin)
                 for (const Retarget& r : retargets)

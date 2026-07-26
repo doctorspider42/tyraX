@@ -14,7 +14,12 @@
 //  - object links (square pins): pass an object reference between nodes
 //  - position links (triangle pins): pass XYZ coordinates between nodes
 //  - bool links (circle pins): per-frame conditions for the logic gates
-//  - text links (circle pins): strings for Log Message / Set Save Text.
+//  - text links (circle pins): strings for Log Message / Set Save Text
+//  - number links (circle pins): a computed float driving a node's num[0].
+// A number link is the value plane: Get Int / Get Save Value / Number are its
+// sources, the Math nodes combine them, and a consumer's own num[0] param
+// steps aside for a wired one exactly the way X/Y/Z do for a position link.
+// So "increase a variable by 1" is a graph, not a hardcoded literal.
 // An action may expose SEVERAL exec inputs (Set Object Visible: show / hide /
 // toggle); FlowLink::toPin says which one a link targets, so one node replaces
 // what used to be a pair of Show*/Hide* nodes.
@@ -41,6 +46,7 @@ enum FlowLinkKind {
     FlowLinkPos = 2,     // position out -> position in
     FlowLinkBool = 3,    // boolean value out -> boolean value in (logic gates)
     FlowLinkText = 4,    // text value out -> text value in (Log / Save text)
+    FlowLinkNum = 5,     // number value out -> number value in (overrides num[0])
 };
 
 struct FlowLink {
@@ -125,6 +131,12 @@ struct FlowNodeType {
     bool boolOut = false; // exposes a per-frame boolean condition as a bool output
     bool textIn = false;  // accepts text value(s) from text link(s)
     bool textOut = false; // exposes a text value as a text output
+    // Number plane. numIn = a wired number REPLACES this node's num[0] param
+    // (the one convention, so every consumer behaves the same); numOut = the
+    // node is a number source. A node with both AND pure is a Math node: its
+    // input pin folds over several links instead of taking just the first.
+    bool numIn = false;
+    bool numOut = false;
     // action that ALSO has an exec output fired later (Delay's "after >")
     bool execThrough = false;
     // Exec input pins on an action. 1 = the plain "> do" pin. More than one
@@ -472,20 +484,26 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // panel, "Save data"); every save slot stores a snapshot.
         {.key = "SetValue", .title = "Set Save Value", .category = "Save",
          .strKind = FlowParamKind::SaveValue, .numCount = 1,
-         .numLabels = {"Value"},
-         .desc = "Sets the save value named str to num[0]."},
+         .numLabels = {"Value"}, .numIn = true,
+         .desc = "Sets the save value named str to num[0] (a linked number "
+                 "overrides num[0])."},
         {.key = "AddValue", .title = "Add To Save Value", .category = "Save",
          .strKind = FlowParamKind::SaveValue, .numCount = 1,
-         .numLabels = {"Delta"},
-         .desc = "Adds num[0] to the save value named str."},
+         .numLabels = {"Delta"}, .numIn = true,
+         .desc = "Adds num[0] to the save value named str (a linked number "
+                 "overrides num[0])."},
         {.key = "ValueAtLeast", .title = "Value At Least", .category = "Save",
          .strKind = FlowParamKind::SaveValue, .numCount = 1,
          .numLabels = {"Threshold"}, .pure = true, .boolOut = true,
+         .numIn = true,
          .desc = "Pure bool: save value named str >= num[0], evaluated fresh "
-                 "every frame."},
+                 "every frame. A linked number overrides num[0], so the "
+                 "threshold can itself be computed."},
         {.key = "GetSaveValue", .title = "Get Save Value", .category = "Save",
          .strKind = FlowParamKind::SaveValue, .pure = true, .textOut = true,
-         .desc = "Pure text output of the save value named str."},
+         .numOut = true,
+         .desc = "Pure output of the save value named str, as a number and as "
+                 "text."},
         {.key = "SetSaveText", .title = "Set Save Text", .category = "Save",
          .strKind = FlowParamKind::SaveText, .textIn = true,
          .desc = "Sets the save text named str to str2 (a linked text "
@@ -501,12 +519,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // memory card (use Save data for persistence).
         {.key = "SetVarInt", .title = "Set Int", .category = "Variables",
          .strKind = FlowParamKind::VarName, .numCount = 1,
-         .numLabels = {"Value"},
-         .desc = "Sets the global int variable named str to num[0]."},
+         .numLabels = {"Value"}, .numIn = true, .execInCount = 2,
+         .execInLabels = {"set", "add"},
+         .desc = "Writes the global int variable named str. The 'set' pin "
+                 "assigns num[0], the 'add' pin ADDS it - so a counter is On "
+                 "Button -> add with Value 1, no read needed. A linked number "
+                 "overrides num[0] on both pins."},
         {.key = "SetVarBool", .title = "Set Bool", .category = "Variables",
          .strKind = FlowParamKind::VarName, .numCount = 1,
-         .numLabels = {"Value"},
-         .desc = "Sets the global bool variable named str to num[0] != 0."},
+         .numLabels = {"Value"}, .numIn = true, .execInCount = 2,
+         .execInLabels = {"set", "toggle"},
+         .desc = "Writes the global bool variable named str: the 'set' pin "
+                 "assigns num[0] != 0 (a linked number overrides num[0]), the "
+                 "'toggle' pin flips it."},
         {.key = "SetVarPos", .title = "Set Position", .category = "Variables",
          .strKind = FlowParamKind::VarName, .numCount = 3,
          .numLabels = {"X", "Y", "Z"}, .posIn = true,
@@ -521,11 +546,55 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "VarAtLeast", .title = "Int At Least", .category = "Variables",
          .strKind = FlowParamKind::VarName, .numCount = 1,
          .numLabels = {"Threshold"}, .pure = true, .boolOut = true,
-         .desc = "Pure bool: global int variable named str >= num[0]."},
+         .numIn = true,
+         .desc = "Pure bool: global int variable named str >= num[0]. A linked "
+                 "number overrides num[0], so one variable can be compared "
+                 "against another."},
+        {.key = "GetVarInt", .title = "Get Int", .category = "Variables",
+         .strKind = FlowParamKind::VarName, .pure = true, .numOut = true,
+         .desc = "Pure number: the global int variable named str. Wire it into "
+                 "a Math node or straight into any number input."},
         {.key = "GetVarIntText", .title = "Get Int As Text",
          .category = "Variables", .strKind = FlowParamKind::VarName,
          .pure = true, .textOut = true,
          .desc = "Pure text of the global int variable named str."},
+        // The number plane. Sources (Number, Get Int, Get Save Value) feed
+        // these, they feed each other, and a consumer's num[0] gives way to
+        // the wire. Every one of them is PURE - a number is an expression
+        // evaluated where it is read, never a step that runs.
+        {.key = "Number", .title = "Number", .category = "Math",
+         .numCount = 1, .numLabels = {"Value"}, .pure = true, .numOut = true,
+         .desc = "Pure number: the constant num[0]. The literal to feed a Math "
+                 "node or any number input."},
+        {.key = "NumAdd", .title = "Add", .category = "Math", .numCount = 1,
+         .numLabels = {"B"}, .pure = true, .numIn = true, .numOut = true,
+         .desc = "Pure number: every wired number input summed. With exactly "
+                 "ONE input wired it adds num[0] (B) to it - Get Int -> Add "
+                 "(B 1) -> Set Int is the read-modify-write counter. With none "
+                 "wired it is just B."},
+        {.key = "NumSub", .title = "Subtract", .category = "Math",
+         .numCount = 1, .numLabels = {"B"}, .pure = true, .numIn = true,
+         .numOut = true,
+         .desc = "Pure number: the wired number inputs subtracted in LINK "
+                 "order (a - b - c). With one input wired it subtracts num[0] "
+                 "(B) from it; with none it is -B."},
+        {.key = "NumMul", .title = "Multiply", .category = "Math",
+         .numCount = 1, .numLabels = {"B"}, .pure = true, .numIn = true,
+         .numOut = true,
+         .desc = "Pure number: every wired number input multiplied. With one "
+                 "input wired it multiplies by num[0] (B); with none it is B."},
+        {.key = "NumDiv", .title = "Divide", .category = "Math",
+         .numCount = 1, .numLabels = {"B"}, .pure = true, .numIn = true,
+         .numOut = true,
+         .desc = "Pure number: the wired number inputs divided in LINK order "
+                 "(a / b / c). With one input wired it divides by num[0] (B). "
+                 "Division by zero yields 0 instead of a NaN."},
+        {.key = "NumAtLeast", .title = "Number At Least", .category = "Math",
+         .numCount = 1, .numLabels = {"Threshold"}, .pure = true,
+         .boolOut = true, .numIn = true,
+         .desc = "Pure bool: the wired number >= num[0] (Threshold) - the "
+                 "bridge from the number plane into the logic gates and On "
+                 "Condition."},
         {.key = "OpenMenu", .title = "Open Menu", .category = "Menus",
          .strKind = FlowParamKind::MenuName,
          .desc = "Opens the menu named str."},
@@ -539,6 +608,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "BoolToText", .title = "Bool To Text", .category = "Convert",
          .pure = true, .boolIn = true, .textOut = true,
          .desc = "Pure converter: linked bool -> text."},
+        {.key = "NumToText", .title = "Number To Text", .category = "Convert",
+         .pure = true, .textOut = true, .numIn = true,
+         .desc = "Pure converter: linked number -> text. Wire it into Display "
+                 "Text to put a computed value on screen. Whole numbers print "
+                 "without a decimal point."},
         {.key = "Log", .title = "Log Message", .category = "Debug",
          .strKind = FlowParamKind::Text, .textIn = true,
          .desc = "Prints str followed by every wired text input to the game "
@@ -697,34 +771,52 @@ std::string writeExample(const std::string& projectDir);
 
 }  // namespace flownode
 
-// imnodes pin ids derived from node ids (pin % 16 encodes the pin kind,
-// pin / 16 the node): object-id in / exec out / exec in / object-id out /
-// position in / position out / bool in / bool out / text in / text out,
-// and slots 10..15 for a node's 2nd..7th exec input.
-// Pin ids are never persisted, so widening from 8 to 16 slots is safe.
-inline int flowIdInPin(int nodeId) { return nodeId * 16; }
-inline int flowOutPin(int nodeId) { return nodeId * 16 + 1; }
-inline int flowInPin(int nodeId) { return nodeId * 16 + 2; }
-inline int flowIdOutPin(int nodeId) { return nodeId * 16 + 3; }
-inline int flowPosInPin(int nodeId) { return nodeId * 16 + 4; }
-inline int flowPosOutPin(int nodeId) { return nodeId * 16 + 5; }
-inline int flowBoolInPin(int nodeId) { return nodeId * 16 + 6; }
-inline int flowBoolOutPin(int nodeId) { return nodeId * 16 + 7; }
-inline int flowTextInPin(int nodeId) { return nodeId * 16 + 8; }
-inline int flowTextOutPin(int nodeId) { return nodeId * 16 + 9; }
+// imnodes pin ids derived from node ids: `pin % kFlowPinSlots` encodes the pin
+// KIND, `pin / kFlowPinSlots` the node. Slots 0..9 are the fixed pins (object-id
+// in / exec out / exec in / object-id out / position in / position out / bool in
+// / bool out / text in / text out), 10..15 a node's 2nd..7th exec input, and
+// 16..17 the number plane. Pin ids are never persisted, so widening the stride
+// is safe - it went 8 -> 16 -> 32 without touching a single project file.
+constexpr int kFlowPinSlots = 32;
+
+inline int flowIdInPin(int nodeId) { return nodeId * kFlowPinSlots; }
+inline int flowOutPin(int nodeId) { return nodeId * kFlowPinSlots + 1; }
+inline int flowInPin(int nodeId) { return nodeId * kFlowPinSlots + 2; }
+inline int flowIdOutPin(int nodeId) { return nodeId * kFlowPinSlots + 3; }
+inline int flowPosInPin(int nodeId) { return nodeId * kFlowPinSlots + 4; }
+inline int flowPosOutPin(int nodeId) { return nodeId * kFlowPinSlots + 5; }
+inline int flowBoolInPin(int nodeId) { return nodeId * kFlowPinSlots + 6; }
+inline int flowBoolOutPin(int nodeId) { return nodeId * kFlowPinSlots + 7; }
+inline int flowTextInPin(int nodeId) { return nodeId * kFlowPinSlots + 8; }
+inline int flowTextOutPin(int nodeId) { return nodeId * kFlowPinSlots + 9; }
+inline int flowNumInPin(int nodeId) { return nodeId * kFlowPinSlots + 16; }
+inline int flowNumOutPin(int nodeId) { return nodeId * kFlowPinSlots + 17; }
+
+// The two halves of a pin id. Everything that inspects a pin goes through
+// these, so the stride lives in exactly one place.
+inline int flowPinNode(int pin) { return pin / kFlowPinSlots; }
+inline int flowPinKind(int pin) { return pin % kFlowPinSlots; }
 
 // Exec input `pin` of a node: the first keeps the original slot 2, the rest
 // take the spare slots 10..15 (hence kFlowMaxExecIn == 7).
 inline int flowExecInPin(int nodeId, int pin) {
-    return pin <= 0 ? nodeId * 16 + 2 : nodeId * 16 + 9 + pin;
+    return pin <= 0 ? nodeId * kFlowPinSlots + 2
+                    : nodeId * kFlowPinSlots + 9 + pin;
 }
 
-// Inverse of flowExecInPin for a pin slot (pin % 16): the exec input index,
+// Inverse of flowExecInPin for a pin slot (flowPinKind): the exec input index,
 // or -1 when the slot is not an exec input.
 inline int flowExecInIndex(int slot) {
     if (slot == 2) return 0;
     if (slot >= 10 && slot < 10 + kFlowMaxExecIn - 1) return slot - 9;
     return -1;
+}
+
+// A number input that FOLDS over several links (the Math nodes) rather than
+// taking just the first one. Read by the editor (which prunes extra links on a
+// single-value input) and by codegen (which folds), so the two cannot disagree.
+inline bool flowNumFolds(const FlowNodeType& t) {
+    return t.pure && t.numIn && t.numOut;
 }
 
 // Label shown on exec input `pin` of `t` ("> do" when the type declares none).

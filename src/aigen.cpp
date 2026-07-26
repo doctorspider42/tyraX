@@ -109,7 +109,18 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     if (t.trigger) {
         out.push_back("exec");
     } else if (!t.pure) {
-        in.push_back("exec");
+        if (t.execInCount > 1) {
+            // A merged node's branches are only reachable through a link's
+            // "pin", so the catalog has to name them - otherwise every graph the
+            // model writes lands on pin 0 (show / set) whatever it meant.
+            std::string s = "exec pins";
+            for (int e = 0; e < t.execInCount && e < kFlowMaxExecIn; ++e)
+                s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
+                     flowExecInLabel(t, e);
+            in.push_back(s);
+        } else {
+            in.push_back("exec");
+        }
         if (t.execThrough) out.push_back("exec (fires later - see doc)");
     }
     if (t.idIn) in.push_back("object");
@@ -120,6 +131,11 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     if (t.boolOut) out.push_back("bool");
     if (t.textIn) in.push_back("text (accepts several links)");
     if (t.textOut) out.push_back("text");
+    if (t.numIn)
+        in.push_back(flowNumFolds(t)     ? "number (accepts several links)"
+                     : t.numCount > 0 ? "number (overrides num[0])"
+                                      : "number");
+    if (t.numOut) out.push_back("number");
     auto join = [](const std::vector<std::string>& v) {
         std::string s;
         for (size_t i = 0; i < v.size(); ++i) s += (i ? ", " : "") + v[i];
@@ -178,9 +194,15 @@ static std::string graphPromptJson(const FlowGraph& fg) {
                            : l.kind == FlowLinkPos  ? "pos"
                            : l.kind == FlowLinkBool ? "bool"
                            : l.kind == FlowLinkText ? "text"
+                           : l.kind == FlowLinkNum  ? "number"
                                                     : "exec";
         o << (i ? ", " : "") << "{ \"from\": " << l.fromNode
-          << ", \"to\": " << l.toNode << ", \"kind\": \"" << kind << "\" }";
+          << ", \"to\": " << l.toNode << ", \"kind\": \"" << kind << "\"";
+        // Which branch of a merged node the link fires. Dropping it here used
+        // to silently rewrite every hide/toggle/add link to pin 0 when the
+        // model edited an existing graph.
+        if (l.toPin) o << ", \"pin\": " << l.toPin;
+        o << " }";
     }
     o << "] }";
     return o.str();
@@ -219,6 +241,13 @@ std::string systemPrompt(const Project& p, int ownerIndex,
          "- \"bool\": per-frame boolean from a bool output to a bool input "
          "(logic gates fold over ALL their wired bool inputs).\n"
          "- \"text\": a text value from a text output to a text input.\n"
+         "- \"number\": a computed number from a number output to a number "
+         "input. A number link REPLACES the target's num[0] param; the Math "
+         "nodes (Add/Subtract/Multiply/Divide) fold over ALL their wired "
+         "number inputs.\n"
+         "An exec link may carry \"pin\": N to fire a specific labeled exec "
+         "input of a merged node (the catalog lists them, e.g. Set Int has "
+         "0=set, 1=add). Omit it for the node's first pin.\n"
          "\n"
          "SEMANTICS:\n"
          "- Triggers fire their exec output; every action wired from it runs "
@@ -237,7 +266,10 @@ std::string systemPrompt(const Project& p, int ownerIndex,
          "through logic gates into On Condition (fires on the rising edge) "
          "and chain actions from it.\n"
          "- A position link into a node with X/Y/Z params overrides those "
-         "params.\n"
+         "params; a number link overrides num[0] the same way.\n"
+         "- To change a variable by an amount, prefer Set Int's \"add\" pin "
+         "(pin 1) with num[0] as the delta over reading it back through Get "
+         "Int + Add.\n"
          "- Keep graphs minimal: no unused nodes, no redundant links.\n"
          "\n"
          "NODE CATALOG (the ONLY valid \"type\" values):\n";
@@ -419,6 +451,7 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                          : k == "pos"  ? FlowLinkPos
                          : k == "bool" ? FlowLinkBool
                          : k == "text" ? FlowLinkText
+                         : k == "number" ? FlowLinkNum
                                        : FlowLinkExec;
             } else {
                 auto flag = [&jl](const char* key) {
@@ -429,8 +462,10 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                          : flag("pos") ? FlowLinkPos
                          : flag("bool") ? FlowLinkBool
                          : flag("text") ? FlowLinkText
+                         : flag("number") ? FlowLinkNum
                                         : FlowLinkExec;
             }
+            if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
             // Same validity rules the graph editor prunes by.
             const FlowNodeType* from = typeOf(l.fromNode);
             const FlowNodeType* to = typeOf(l.toNode);
@@ -440,11 +475,16 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                     case FlowLinkExec:
                         ok = (from->trigger || from->execThrough) && !to->trigger &&
                              !to->pure;
+                        // A pin the target does not have would fire nothing at
+                        // all, which reads as "the node was ignored".
+                        ok = ok && l.toPin >= 0 &&
+                             l.toPin < (to->execInCount < 1 ? 1 : to->execInCount);
                         break;
                     case FlowLinkObject: ok = from->idOut && to->idIn; break;
                     case FlowLinkPos: ok = from->posOut && to->posIn; break;
                     case FlowLinkBool: ok = from->boolOut && to->boolIn; break;
                     case FlowLinkText: ok = from->textOut && to->textIn; break;
+                    case FlowLinkNum: ok = from->numOut && to->numIn; break;
                     default: ok = false; break;
                 }
             }

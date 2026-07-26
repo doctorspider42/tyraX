@@ -8385,6 +8385,7 @@ void App::drawFlowGraphWindow() {
                     case FlowLinkPos: ok = from->posOut && to->posIn; break;
                     case FlowLinkBool: ok = from->boolOut && to->boolIn; break;
                     case FlowLinkText: ok = from->textOut && to->textIn; break;
+                    case FlowLinkNum: ok = from->numOut && to->numIn; break;
                     default: ok = false; break;
                 }
             }
@@ -8992,7 +8993,17 @@ void App::drawFlowGraphWindow() {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
+            // A wired number replaces num[0] (flowgraph.hpp's one convention),
+            // so show that instead of a param the game will ignore.
+            bool numLinked = false;
+            if (t->numIn)
+                for (const FlowLink& l : fg.links)
+                    numLinked |= (l.kind == FlowLinkNum && l.toNode == n.id);
             for (int a = firstNum; a < t->numCount; ++a) {
+                if (a == 0 && numLinked && !flowNumFolds(*t)) {
+                    ImGui::TextDisabled("%s: from link", t->numLabels[0]);
+                    continue;
+                }
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
                                     std::strcmp(t->numLabels[a], "Once") == 0 ||
                                     std::strcmp(t->numLabels[a], "LOS") == 0;
@@ -9020,6 +9031,23 @@ void App::drawFlowGraphWindow() {
             }
         }
         ImGui::PopID();  // "params"
+        if (flowNumFolds(*t)) {
+            // B is the second operand only while there is nothing wired to be
+            // one - with two inputs it drops out, and a silent param is worse
+            // than a labeled one.
+            int wired = 0;
+            for (const FlowLink& l : fg.links)
+                if (l.kind == FlowLinkNum && l.toNode == n.id) ++wired;
+            if (wired >= 2)
+                ImGui::TextDisabled("B unused: %d inputs wired.", wired);
+            else if (wired == 1)
+                ImGui::TextDisabled("input %s B", n.type == "NumAdd"   ? "+"
+                                                  : n.type == "NumSub" ? "-"
+                                                  : n.type == "NumMul" ? "x"
+                                                                       : "/");
+            else
+                ImGui::TextDisabled("Nothing wired: result is B.");
+        }
         if (n.type == "ValueAtLeast" || n.type == "VarAtLeast")
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
         if (n.type == "Raycast")
@@ -9044,6 +9072,7 @@ void App::drawFlowGraphWindow() {
         const unsigned posPinCol = IM_COL32(110, 200, 120, 255);
         const unsigned boolPinCol = IM_COL32(180, 120, 220, 255);
         const unsigned textPinCol = IM_COL32(90, 190, 210, 255);
+        const unsigned numPinCol = IM_COL32(230, 120, 155, 255);
         if (t->idIn) {
             ImNodes::PushColorStyle(ImNodesCol_Pin, idPinCol);
             ImNodes::BeginInputAttribute(flowIdInPin(n.id), ImNodesPinShape_QuadFilled);
@@ -9070,6 +9099,16 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Pin, textPinCol);
             ImNodes::BeginInputAttribute(flowTextInPin(n.id), ImNodesPinShape_CircleFilled);
             ImGui::TextDisabled("text");
+            ImNodes::EndInputAttribute();
+            ImNodes::PopColorStyle();
+        }
+        if (t->numIn) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, numPinCol);
+            ImNodes::BeginInputAttribute(flowNumInPin(n.id),
+                                         ImNodesPinShape_CircleFilled);
+            // A Math node folds every wired input, so say so on the pin: it is
+            // the difference between "a + b + c" and "the first link wins".
+            ImGui::TextDisabled(flowNumFolds(*t) ? "numbers" : "number");
             ImNodes::EndInputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -9126,6 +9165,14 @@ void App::drawFlowGraphWindow() {
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
+        if (t->numOut) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, numPinCol);
+            ImNodes::BeginOutputAttribute(flowNumOutPin(n.id),
+                                          ImNodesPinShape_CircleFilled);
+            rightLabel("number", true);
+            ImNodes::EndOutputAttribute();
+            ImNodes::PopColorStyle();
+        }
 
         ImNodes::EndNode();
         ImNodes::PopColorStyle();
@@ -9148,6 +9195,10 @@ void App::drawFlowGraphWindow() {
         } else if (l.kind == FlowLinkText) {
             ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(90, 190, 210, 255));
             ImNodes::Link(l.id, flowTextOutPin(l.fromNode), flowTextInPin(l.toNode));
+            ImNodes::PopColorStyle();
+        } else if (l.kind == FlowLinkNum) {
+            ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(230, 120, 155, 255));
+            ImNodes::Link(l.id, flowNumOutPin(l.fromNode), flowNumInPin(l.toNode));
             ImNodes::PopColorStyle();
         } else if (const float g = dbgGlow(dbgKeyOfNode(l.fromNode)); g > 0.0f) {
             // Live Debugger: the exec chain that just ran, lit and thickened -
@@ -9308,13 +9359,13 @@ void App::drawFlowGraphWindow() {
         }
     }
 
-    // New link dragged between pins. Pin kinds by id (pin % 16): 0 = object
+    // New link dragged between pins. Pin kinds by id (flowPinKind): 0 = object
     // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
-    // 5 = position out, 6 = bool in, 7 = bool out, 8 = text in,
-    // 9 = text out, 10..15 = the node's 2nd..7th exec in; node = pin / 16.
+    // 5 = position out, 6 = bool in, 7 = bool out, 8 = text in, 9 = text out,
+    // 10..15 = the node's 2nd..7th exec in, 16/17 = number in/out.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
-        const int a = startPin % 16, b = endPin % 16;
+        const int a = flowPinKind(startPin), b = flowPinKind(endPin);
         int outPin = -1, inPin = -1;
         int kind = FlowLinkExec;
         int toPin = 0;  // which exec input of the target the link fires
@@ -9339,16 +9390,29 @@ void App::drawFlowGraphWindow() {
             outPin = a == 9 ? startPin : endPin;
             inPin = a == 8 ? startPin : endPin;
             kind = FlowLinkText;
+        } else if ((a == 17 && b == 16) || (a == 16 && b == 17)) {
+            outPin = a == 17 ? startPin : endPin;
+            inPin = a == 16 ? startPin : endPin;
+            kind = FlowLinkNum;
         }
-        if (outPin >= 0 && outPin / 16 != inPin / 16) {
+        if (outPin >= 0 && flowPinNode(outPin) != flowPinNode(inPin)) {
             FlowLink l;
-            l.fromNode = outPin / 16;
-            l.toNode = inPin / 16;
+            l.fromNode = flowPinNode(outPin);
+            l.toNode = flowPinNode(inPin);
             l.kind = kind;
             l.toPin = toPin;
-            if (kind == FlowLinkObject || kind == FlowLinkPos) {
-                // a node takes its object/position from at most one link
-                // (bool-in and text-in pins fold over several links - keep them)
+            // A single-value input takes at most one link, so a second drag
+            // REPLACES it - dragging onto an occupied "Value" pin should just
+            // rewire, not silently stack a link codegen would ignore. Bool-in,
+            // text-in and the folding Math number inputs keep every link.
+            bool single = kind == FlowLinkObject || kind == FlowLinkPos;
+            if (kind == FlowLinkNum) {
+                const FlowNodeType* tt = nullptr;
+                for (const FlowNode& n : fg.nodes)
+                    if (n.id == l.toNode) tt = flowNodeType(n.type);
+                single = !tt || !flowNumFolds(*tt);
+            }
+            if (single) {
                 for (size_t i = fg.links.size(); i-- > 0;)
                     if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);

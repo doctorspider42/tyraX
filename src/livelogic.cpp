@@ -445,6 +445,14 @@ Capability capability(const Project& p, const SceneData& sc,
         for (const FlowLink& l : fg.links)
             if (l.kind == FlowLinkText && (l.toNode == n.id || l.fromNode == n.id))
                 reject("a text link");
+        // Same for the number plane: an instruction carries num[4] as CONSTANTS
+        // resolved at compile time, so a wired value would silently run as the
+        // node's typed-in param - the one failure mode worse than needing a
+        // build. (The Math/Number nodes themselves are unsupported types, but a
+        // number wired into an otherwise supported Set Int would not be.)
+        for (const FlowLink& l : fg.links)
+            if (l.kind == FlowLinkNum && (l.toNode == n.id || l.fromNode == n.id))
+                reject("a number link (the value plane is not in the IR)");
     }
     if ((int)fg.nodes.size() > kMaxInstrs) reject("too many nodes");
     (void)p;
@@ -478,8 +486,12 @@ bool compile(const Project& p, int sceneIndex, size_t ownerIndex, Program& out) 
         for (const SceneData& s : p.scenes)
             for (const SceneObject& o : s.objects)
                 for (const FlowNode& n : o.flowGraph.nodes) {
+                    // Identical to templates.cpp's collectFlowVars - an int
+                    // variable named only by a Get Int must still take its slot
+                    // here, or every index after it shifts and a patched graph
+                    // writes the wrong variable.
                     if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
-                        n.type == "GetVarIntText")
+                        n.type == "GetVarIntText" || n.type == "GetVarInt")
                         collect(c.intVars, n.str);
                     else if (n.type == "SetVarBool" || n.type == "GetVarBool")
                         collect(c.boolVars, n.str);

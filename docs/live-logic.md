@@ -30,7 +30,7 @@ The interpreter implements the node families you actually iterate on:
 | Object | Set Object Visible, Move Object By, Move Object To, Set Object Position, Set Object Color, Spawn Player At |
 | Scene | Set Sky Color, Switch Scene, Set Fog, Set Bloom, Set Grain, Set Particles |
 | HUD | Set HUD Visible, Set Text Visible |
-| Variables | Set Int, Set Bool, Set Position (+ Get Bool / Int At Least / Get Position as sources) |
+| Variables | Set Int (both pins: set / add), Set Bool (set / toggle), Set Position (+ Get Bool / Int At Least / Get Position as sources) |
 | Save | Set Save Value, Add To Save Value (+ Value At Least) |
 | Logic | AND, OR, NOT, NAND, XOR, XNOR, Is Visible |
 | Time / Debug | Delay, Log Message |
@@ -39,8 +39,12 @@ The interpreter implements the node families you actually iterate on:
 Everything else still needs a build: audio, AI (Patrol/Chase/Flee), animation,
 Spawn/Despawn Object, sequences, menus, runtime text (Display Text), save texts,
 layers, grading/ambience, custom `.flownode` nodes, Raycast — plus any graph
-using a **runtime object reference** (a spawned clone, a raycast hit) or the
-**text plane**. The editor tells you which graph and why, per graph, in the
+using a **runtime object reference** (a spawned clone, a raycast hit), the
+**text plane**, or the **number plane** — an instruction carries its `num[4]` as
+constants resolved when the editor compiles, so a *wired* value has nowhere to
+live in the IR. A graph with a number link is reported rather than run with the
+node's typed-in param, which would be the one failure worse than needing a
+build. The editor tells you which graph and why, per graph, in the
 Debugger's **Logic** tab, and the chip turns amber **LOGIC (rebuild)**.
 
 A graph that did not exist at build time is also a rebuild case: Live Link can

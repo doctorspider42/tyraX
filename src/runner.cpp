@@ -331,7 +331,12 @@ bool Runner::launchPCSX2(const Project& p) {
     }
 
     appendLine("[editor] Launching PCSX2: " + exe);
-    std::string cmd = "\"" + exe + "\" -elf \"" + p.elfPath() + "\"";
+    // PCSX2 refuses a boot ELF whose path mixes separators ("Requested boot ELF
+    // ... does not exist" for a file that plainly does), and a project opened
+    // through a forward-slash path produces exactly that. Hand it a native one.
+    const std::string elf =
+        fs::path(p.elfPath()).make_preferred().string();
+    std::string cmd = "\"" + exe + "\" -elf \"" + elf + "\"";
 
     STARTUPINFOA si{};
     si.cb = sizeof(si);
