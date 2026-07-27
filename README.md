@@ -267,7 +267,7 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `ai-support/` — source markdown for the AI assistant guides installed into projects (embedded into the exe at build time; see [docs/ai-support.md](docs/ai-support.md)).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
-- `vendor/` (rest) — editor dependencies (not versioned; fetched by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know).
+- `vendor/` (rest) — editor dependencies (not versioned; fetched by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know). `build.cmd` / `setup.cmd` are cmd.exe wrappers over the PowerShell scripts and deliberately contain no logic of their own — note that a bare `build` in PowerShell resolves to `build.cmd` first.
 - `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1` / `setup.sh`), a [custom ps2link with USB keyboard+mouse](tools/ps2link-usbhid/README.md) (`ps2link-usbhid`, for playing kbd/mouse over the F6 network deploy on real hardware), and the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
 
 ## Credits

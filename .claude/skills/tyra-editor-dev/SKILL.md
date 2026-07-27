@@ -622,6 +622,44 @@ reaches `is executing`, and you get a black window with no diagnostic.
 `Runner::launchPCSX2` warns about it. A Linux home directory plus a deep
 project tree passes that far sooner than a Windows `TyraProjects` path does.
 
+### 4c. Platform parity: the files that exist twice
+Some things in this repo cannot be written once, because a `.ps1` cannot run on
+Linux and a `.sh` is not what a fresh Windows shell reaches for. Every such
+file therefore has a **twin**, and the failure mode is always the same: someone
+edits one side, the other side keeps working on their machine, and the bug
+surfaces weeks later on the platform they don't use. **Editing one member of a
+pair without its twin, in the same commit, is a bug — not a follow-up.**
+
+| Windows | Linux/macOS | Must stay in step on |
+|---|---|---|
+| `deps.ps1` | `deps.sh` | every third-party dependency (`vendor/`, `tools/`) — the ONLY place a dependency is listed |
+| `setup.ps1` | `setup.sh` | how the lists are fetched |
+| `build.ps1` | `build.sh` | flags (`-Run`/`--run`, `-Clean`/`--clean`), the dep guard, the toolchain check |
+| `build.cmd`, `setup.cmd` | — | **nothing**: they are thin wrappers that shell out to the `.ps1`. Keep them that way. |
+| `CMakeLists.txt` `if(WIN32)` | its `else()` | link libraries, compile options |
+| `platform.cpp` `#ifdef _WIN32` | its `#else` | every function in `platform.hpp` |
+
+Two traps worth knowing by name:
+
+- **`build` in PowerShell runs `build.cmd`, not `build.ps1`** — PATHEXT puts
+  `.CMD` ahead of `.PS1`, so the wrapper is what actually executes on the
+  common invocation. `build.cmd` and `setup.cmd` used to be *full cmd
+  translations* with their own hardcoded four-entry dependency list; it froze
+  while `deps.ps1` grew to seven, and the guard that was supposed to catch a
+  missing dependency lived in the file nobody ran. Result: `fatal error:
+  miniaudio.h: No such file or directory` on Windows for a tree that built
+  cleanly on Linux (PROGRESS 212). They are now wrappers, and a wrapper cannot
+  drift. Don't put logic back into them.
+- **A dependency added to only one of `deps.ps1` / `deps.sh`** leaves that
+  platform's build guard blind — the merge brings the CMake reference, not the
+  clone, and cmake says `Cannot find source file: vendor/<x>` (see
+  tyra-testing).
+
+The same reasoning covers a new per-platform file: if you have to add one,
+either add its twin in the same commit, or make it a wrapper over the existing
+one. Two files that must agree are a maintenance cost; two files where one
+simply delegates are not.
+
 ### 5. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.
 - One feature = one commit. `PROGRESS.md` is a living log — every finished
@@ -790,10 +828,15 @@ project tree passes that far sooner than a Windows `TyraProjects` path does.
 ./build.sh --clean   # nuke build/ first
 ```
 
+`build.cmd` / `setup.cmd` exist for cmd.exe and are **thin wrappers** that call
+the `.ps1` — which also means a bare `build` in PowerShell runs `build.cmd`
+(PATHEXT: `.CMD` before `.PS1`). See "Platform parity" above before touching
+them.
+
 Missing `vendor/` deps are fetched by `setup.ps1` / `setup.sh` (imgui docking,
-glfw 3.4, imguizmo, imnodes, stb, ufbx — all git-ignored; `vendor/tyra` is
-versioned, see tyra-engine-dev), and the build script runs it whenever
-something is absent. **The dependency list lives only in `deps.ps1` /
+glfw 3.4, imguizmo, imnodes, stb, ufbx, miniaudio — all git-ignored;
+`vendor/tyra` is versioned, see tyra-engine-dev), and the build script runs it
+whenever something is absent. **The dependency list lives only in `deps.ps1` /
 `deps.sh`**, which the setup and build scripts read — add a new third-party
 library **to both** and nowhere else, or one platform's build guard won't know
 about it (see tyra-testing for the failure that caused). Toolchain: Windows
