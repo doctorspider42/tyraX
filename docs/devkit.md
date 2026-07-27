@@ -8,6 +8,7 @@ game running on the console, and the game talks back.
 | [Live Link](live-link.md) | editor → game | object transforms/colors, adds/deletes, texture hot reload |
 | [Live Debugger](live-debugger.md) | game → editor **+** commands back | what the graphs run, breakpoints, pause/step, watches, timers |
 | [Live Logic](live-logic.md) | editor → game | the flow-graph **program** itself, no rebuild |
+| [The time machine](time-machine.md) | both ways | the **world**: the game captures what it mutates, the editor pushes one back |
 
 All three ride one channel: the host filesystem the game already loads assets
 from (PCSX2's *Host Filesystem*, the ps2link file server on real hardware). No
@@ -65,7 +66,8 @@ foundation for reading named memory off a running game later.
 ## Turning it off while still in debug
 
 Each layer is its own project preference (*Project > Preferences > Build*, or the
-*Build* menu): **Live Link**, **Live Debugger**, **Live Logic**. Turning one off
+*Build* menu): **Live Link**, **Live Debugger**, **Live Logic**, **Time machine**.
+Turning one off
 compiles it out of the debug build too — the same empty-TU path — which is the
 honest way to measure "what does my game do without the devkit" without
 switching profiles.

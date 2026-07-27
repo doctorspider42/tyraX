@@ -98,6 +98,13 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   build actually costs in code and RAM, and the release audit that PROVES a
   shipped ELF carries none of it (`--audit-release`, run automatically after
   every release build).
+- [The time machine (put the running game back)](time-machine.md) - the game
+  captures everything it mutates a few times a second, the editor keeps a
+  history of those captures in memory, and pushing one back puts the console
+  where it was: what a capture holds (and what it does not yet), why the history
+  never touches the disk, and the layout hash that stops a capture from landing
+  in a differently built world. With Live Logic below: rewind, fix the graph,
+  watch the fix play out on the situation that broke.
 - [Live Logic (edit a flow graph with no rebuild)](live-logic.md) - the
   flow-graph interpreter debug builds carry: what the editor can hot-patch into
   a running game and what still needs a build, the pre-resolved instruction

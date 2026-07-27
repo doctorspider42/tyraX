@@ -865,6 +865,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.eeCrashHandler ? "true" : "false") << ",\n"
          << "    \"liveLogic\": " << (p.settings.liveLogic ? "true" : "false")
          << ",\n"
+         << "    \"timeMachine\": "
+         << (p.settings.timeMachine ? "true" : "false") << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -2871,6 +2873,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
+        if (const auto* v = s->find("timeMachine"))
+            st.timeMachine = v->boolOr(true);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
@@ -4440,6 +4444,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
             f.relativePath == "src\\gen\\live_logic.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_time.gen.cpp" ||
             f.relativePath == "inc\\scripts\\live_logic.gen.hpp" ||
             f.relativePath == "src\\gen\\livelogic.built" ||
             f.relativePath == "src\\gen\\live_debug.gen.cpp" ||
