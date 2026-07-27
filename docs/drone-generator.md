@@ -126,14 +126,73 @@ Two things help further:
 - LFOs set to **per bar** return to the same phase at the loop point; free-Hz
   LFOs generally do not.
 
+## The timeline
+
+*Timeline* tab. A drone that never changes is a texture, not a piece, so any
+parameter can be given a **lane** of keyframes and the value follows them over
+the length of the track.
+
+The intended way to make one is not to add a lane by hand:
+
+1. **Arm *Write keyframes*** in the Timeline tab (the label turns red).
+2. Hit **Audition**.
+3. Turn a knob. A lane appears for that parameter with a keyframe at the
+   playhead, and the amber dot on the knob says it is automated from now on.
+
+That works for **every knob in the tool** without any of them knowing the
+timeline exists: a knob binds straight to a field of the patch, so the pointer it
+was handed *is* that parameter's address, which is all a lane needs (see
+`AutoWriteHook` in droneui.cpp). The parameter list itself comes from the same
+field walk the `.drone` writer uses, so a parameter is automatable the moment it
+is saveable — **137 of them** today.
+
+A knob dragged for a few seconds does not leave a smear: a keyframe within
+0.35 s is **moved** rather than added, and once a lane hits its 24-point budget
+the nearest point always wins, so a long take cannot overflow it. Lanes are
+capped at 12 — `Params` is copied into the audio thread on every edit, so it
+holds no heap memory and the budgets are fixed.
+
+**Editing a lane**: drag a point (time and value at once), double-click an empty
+spot to add one, right-click a point to delete it. The lane header shows the
+value at the playhead, and the lane's vertical range auto-fits its own points.
+
+**Read vs Write**, as in a DAW: with Write off, an automated knob *displays* the
+value the timeline is playing and moving it does not stick — the next frame puts
+the automated value back. Arm Write and the same gesture records a keyframe.
+
+Automation sets the parameter's **base value**; the LFOs, the arc and the mod
+matrix still apply on top of it. So a lane can walk the filter from 300 Hz to
+5 kHz across the piece while LFO 1 keeps wobbling it — they compose rather than
+fight.
+
+Excluded on purpose: the file format (sample rate, length, stereo), the
+mastering block (it applies once, after the render), the enums, the chord table,
+and **tempo** — `barSeconds` is read once per `render()` call, so a tempo lane
+would look like it worked and quietly do nothing.
+
+### The transport bar
+
+The strip under the preset row is the position bar: ticks (bars while they are
+readable, otherwise round seconds), the elapsed fill, a **triangle for every
+keyframe in the piece** so you can see where it changes, the playhead, and a
+`0:27.0 / 1:00` readout. Click or drag it to move the playhead — it **seeks the
+live audition** (`Synth::setTime`), so the timeline drives playback rather than
+just reporting it. A seek keeps the delay and reverb tails (it is a jump in the
+piece, not a reset) but re-latches held notes at the chord you landed on instead
+of gliding in from the one you left.
+
+Rendering applies the same lanes through the same code, so what you hear while
+scrubbing is what lands in the WAV.
+
 ## Determinism
 
 Everything is a pure function of `Params`. `seed` drives every random stream
 (voice drift, noise, bell placement, dither), each derived through a mixer from
 the patch seed, so:
 
-- Re-rendering a patch produces a **byte-identical** WAV. A track is a file you
-  can regenerate, not a take you have to keep.
+- Re-rendering a patch produces a **byte-identical** WAV, automation included -
+  a recorded knob move is data in the patch, not a performance you captured. A
+  track is a file you can regenerate, not a take you have to keep.
 - **Roll** re-seeds: same patch, different bell placement and drift. Changing a
   knob adjusts the piece instead of reshuffling it.
 - The `.drone` sidecar is therefore a complete description of the audio. The
@@ -170,7 +229,21 @@ could get wrong is clamped on load.
 
 Both directions walk **one field list** (`visitParams` in dronegen.cpp), the same
 single-source trick the project's section writers use: a field added there is
-saved and loaded, with no second list to forget.
+saved and loaded, with no second list to forget. That same walk builds
+`paramTable()`, the automation list — so a new parameter is saveable and
+automatable in one move.
+
+Automation lanes are one line each, keyed by the parameter's name rather than by
+its position in the table, so a lane survives the field list growing:
+
+```
+# automation
+auto.filter.cutoff = 0:300, 27:5200, 60:900
+auto.reverb.mix = 0:0.25, 42:0.75
+```
+
+An `auto.<key>` whose parameter no longer exists is dropped on load, like any
+unknown key.
 
 The sidecar is what makes a shipped track re-editable, so it travels with its
 asset: `App::assetSidecars` lists it, which means the Asset Browser's
@@ -198,7 +271,7 @@ wide, costs less than you would think (the low end is mono anyway).
 |---|---|
 | `src/dronegen.hpp/.cpp` | `Params`, the `Synth` (live, block-based), `LiveSynth` (thread hand-off), the offline `render()` + mastering, the WAV writer, the presets and the `.drone` text format. Host-only, no GL, no `Project`. |
 | `src/audiopreview.hpp/.cpp` | The editor's only audio *output* path: a miniaudio playback device pulling from a callback. The only TU that includes miniaudio. |
-| `src/droneui.cpp` | The window: the rotary knob widget, the arc editor, the chord table, the mod matrix, the scope/analyzer/meters, and the render + patch I/O buttons. `App::` methods in their own TU, the `assetbrowser.cpp` precedent. |
+| `src/droneui.cpp` | The window: the rotary knob widget, the arc editor, the chord table, the mod matrix, the scope/analyzer/meters, the timeline (position bar + lane editors + the write hook), and the render + patch I/O buttons. `App::` methods in their own TU, the `assetbrowser.cpp` precedent. |
 
 Everything DSP is harness-testable without the GUI — link `dronegen.cpp` alone
 and render presets to WAV (see the PROGRESS entry for the checks that harness

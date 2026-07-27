@@ -45,6 +45,12 @@ constexpr int kNumLfos = 3;
 constexpr int kNumMods = 6;   // modulation matrix rows
 constexpr int kArcPoints = 5; // breakpoints of the piece-long "arc" envelope
 
+// Automation (the timeline): a lane per parameter, a keyframe per point. Fixed
+// capacity on purpose - `Params` is copied into the audio thread on every edit,
+// so nothing in it may own heap memory (see LiveSynth).
+constexpr int kMaxAutoLanes = 12;
+constexpr int kMaxAutoPoints = 24;
+
 enum Wave { WaveSine = 0, WaveTriangle, WaveSaw, WaveSquare, WavePulse,
             WaveFm, WaveOrgan, WaveCount };
 enum LfoShape { LfoSine = 0, LfoTriangle, LfoRamp, LfoSquare, LfoSampleHold,
@@ -212,6 +218,21 @@ struct Master {
     bool dither = true;        // TPDF at 16-bit, seeded -> still deterministic
 };
 
+// One keyframe: a parameter value at a point in time. Linear between points,
+// held flat before the first and after the last.
+struct AutoPoint {
+    float t = 0.0f;      // seconds from the start of the piece
+    float value = 0.0f;  // in the parameter's own unit (Hz, seconds, 0..1, ...)
+};
+
+// One automated parameter. `param` indexes paramTable(); the .drone file stores
+// the parameter's KEY instead, so a lane survives the table changing shape.
+struct AutoLane {
+    int param = -1;
+    int count = 0;
+    AutoPoint pts[kMaxAutoPoints];
+};
+
 struct Params {
     uint32_t seed = 20260726;
 
@@ -242,6 +263,12 @@ struct Params {
     Fx fx;
     Master master;
 
+    // The timeline. A lane overrides its parameter's value above - the field is
+    // still what the knob edits and what a patch without automation uses, but
+    // once a lane has points the synth writes over it every control block.
+    AutoLane autoLanes[kMaxAutoLanes];
+    int autoLaneCount = 0;
+
     Params();  // seeds the default two-chord, two-layer patch
 };
 
@@ -253,6 +280,54 @@ float progressionBars(const Params& p);  // total bars of one pass
 const char* noteName(int midi);          // "A1", "C#3", ... (static buffer)
 const char* delayDivName(int div);
 float delaySeconds(const Params& p);     // resolved echo time
+
+// ---------------------------------------------------------------------------
+// Automation
+// ---------------------------------------------------------------------------
+
+// Every automatable parameter, described by where it lives inside `Params`. The
+// table is derived from the SAME field list the .drone writer walks
+// (`visitParams`), so a parameter is automatable the moment it is saveable -
+// there is no third list to keep in step. Arrays (the chord table, the arc) and
+// enums are deliberately absent: a keyframe on a waveform switch is a different
+// feature, and the arc already has its own editor.
+struct ParamDesc {
+    const char* key;    // "filter.cutoff" - the .drone key
+    const char* label;  // "Filter cutoff" - for the lane header
+    uint16_t offset;    // byte offset into Params
+    uint8_t type;       // 0 = float, 1 = int, 2 = bool
+};
+const std::vector<ParamDesc>& paramTable();
+
+// Index into paramTable() for a field, addressed by its byte offset inside
+// Params (which is how the UI turns "the knob the user just moved" into a lane -
+// it has the pointer, and every knob binds straight to a Params field).
+int paramIndexForOffset(size_t offset);
+
+// Reads/writes one parameter through its descriptor.
+float paramGet(const Params& p, int paramIndex);
+void paramSet(Params& p, int paramIndex, float value);
+
+// The lane's value at `t` (linear between keyframes, held outside them).
+float autoValueAt(const AutoLane& lane, float t);
+
+// Writes every automated parameter into `p` at time `t`. Called once per
+// control block by the synth (its own copy) and once per frame by the editor
+// (so a knob under automation shows the value that is actually playing).
+void applyAutomation(Params& p, double t);
+
+// The lane for `paramIndex`, created if there is room; nullptr when the lane
+// budget is full. `autoRemoveLane` keeps the array packed.
+AutoLane* autoLaneFor(Params& p, int paramIndex);
+const AutoLane* autoLaneFind(const Params& p, int paramIndex);
+void autoRemoveLane(Params& p, int paramIndex);
+
+// Records `value` at time `t`. A keyframe closer than `mergeSec` is MOVED
+// instead of a new one added, which is what keeps a knob dragged during
+// playback from leaving a smear of points (and what makes the lane budget
+// survive a long take). Returns false only when no lane could be created.
+bool autoWrite(Params& p, int paramIndex, float value, float t,
+               float mergeSec = 0.35f);
 
 // ---------------------------------------------------------------------------
 // Synthesizer
@@ -270,6 +345,12 @@ class Synth {
     const Params& params() const { return p_; }
 
     void reset();  // rewinds to t=0 and re-seeds every random stream
+
+    // Jumps the transport to `sec` (the timeline's playhead). Delay and reverb
+    // state deliberately keep playing - it is a seek, not a reset - but held
+    // notes snap to the chord at the new position instead of gliding from the
+    // old one, and the bell scheduler restarts there.
+    void setTime(double sec);
 
     // Interleaved stereo (always 2 channels - a mono render sums afterwards).
     // `frames` is the per-channel sample count.
@@ -299,6 +380,7 @@ class LiveSynth {
     void push(const Params& p);  // UI thread
     void render(float* out, int frames);  // audio thread
     void reset();                // UI thread; takes the lock
+    void seek(double sec);       // UI thread; the timeline's click-to-seek
 
     double timeSec() const;
     float peakL() const;

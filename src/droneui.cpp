@@ -25,6 +25,44 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 
+// --- automation write hook -------------------------------------------------
+
+// Every knob binds straight to a field of the window's `droneParams_`, so the
+// pointer a knob was handed IS that parameter's address - which is all the
+// timeline needs to know which lane to write. That is why arming Write
+// automates all ~137 parameters without a single knob call site mentioning
+// automation. Set once per frame by drawDroneGeneratorWindow.
+struct AutoWriteHook {
+    bool armed = false;
+    const void* base = nullptr;  // &droneParams_
+    size_t size = 0;             // sizeof(dronegen::Params)
+    void* user = nullptr;        // the App
+    void (*write)(void* user, size_t offset, float value) = nullptr;
+    bool (*automated)(void* user, size_t offset) = nullptr;
+};
+AutoWriteHook g_autoHook;
+
+ptrdiff_t hookOffset(const void* field) {
+    if (!g_autoHook.base) return -1;
+    const ptrdiff_t off = (const char*)field - (const char*)g_autoHook.base;
+    return (off < 0 || (size_t)off >= g_autoHook.size) ? -1 : off;
+}
+
+void hookEdit(const void* field, float value) {
+    if (!g_autoHook.armed || !g_autoHook.write) return;
+    const ptrdiff_t off = hookOffset(field);
+    if (off < 0) return;  // not a patch field
+    g_autoHook.write(g_autoHook.user, (size_t)off, value);
+}
+
+// Does this field have a timeline lane? Knobs mark themselves so it is obvious
+// why one springs back when Write is off.
+bool hookAutomated(const void* field) {
+    if (!g_autoHook.automated) return false;
+    const ptrdiff_t off = hookOffset(field);
+    return off >= 0 && g_autoHook.automated(g_autoHook.user, (size_t)off);
+}
+
 // --- the rotary ------------------------------------------------------------
 
 // A VST-style knob. Vertical drag turns it (Shift = fine, Ctrl = coarse),
@@ -34,9 +72,11 @@ constexpr float kPi = 3.14159265358979f;
 // frequency or time knob needs: linear pixels-per-Hz makes everything under
 // 1 kHz a single pixel of a 14 kHz sweep. A symmetric range (-x..+x) is drawn
 // bipolar, filling from the centre - so pan and mod amounts read at a glance.
+// `hook` is false only when knobInt calls this with a scratch float - it writes
+// the keyframe itself, from the int it actually owns.
 bool knob(const char* label, float* v, float lo, float hi, float def,
           const char* fmt, float scale, float curve = 1.0f,
-          const char* tip = nullptr) {
+          const char* tip = nullptr, bool hook = true, bool autoMark = false) {
     const float cell = 62.0f * scale;
     const float dia = 42.0f * scale;
     const bool bipolar = lo < 0.0f && hi > 0.0f && std::fabs(lo + hi) < 1e-4f;
@@ -67,6 +107,7 @@ bool knob(const char* label, float* v, float lo, float hi, float def,
     ImGui::InvisibleButton("dial", ImVec2(cell, dia));
     const bool active = ImGui::IsItemActive();
     const bool hovered = ImGui::IsItemHovered();
+    const bool automated = hook ? hookAutomated(v) : autoMark;
     bool changed = false;
 
     const float span = hi - lo;
@@ -122,6 +163,12 @@ bool knob(const char* label, float* v, float lo, float hi, float def,
     const ImVec2 tip1(c.x + std::cos(ang) * r * 0.78f, c.y + std::sin(ang) * r * 0.78f);
     dl->AddLine(tip0, tip1, IM_COL32(235, 238, 245, 255), 2.0f * scale);
     dl->AddCircle(c, r, rim, 32, 1.5f * scale);
+    if (automated) {
+        // Same amber as the lanes and the keyframe markers: this dial is driven
+        // by the timeline, and turning it only sticks while Write is armed.
+        dl->AddCircleFilled(ImVec2(c.x + r * 0.78f, c.y - r * 0.78f), 3.0f * scale,
+                            IM_COL32(245, 190, 70, 255));
+    }
 
     // Value readout
     {
@@ -135,10 +182,14 @@ bool knob(const char* label, float* v, float lo, float hi, float def,
     if (hovered && !active) {
         char buf[40];
         std::snprintf(buf, sizeof(buf), fmt, *v);
-        ImGui::SetTooltip("%s: %s\n%s\ndrag to turn, Shift = fine, double-click resets",
-                          cap, buf, tip ? tip : "");
+        ImGui::SetTooltip("%s: %s\n%s\ndrag to turn, Shift = fine, double-click resets%s",
+                          cap, buf, tip ? tip : "",
+                          automated ? "\nAUTOMATED - the timeline drives it; arm Write "
+                                      "to record a keyframe here"
+                                    : "");
     }
     ImGui::PopID();
+    if (changed && hook) hookEdit(v, *v);
     return changed;
 }
 
@@ -149,10 +200,14 @@ bool knob(const char* label, float* v, float lo, float hi, float def,
 bool knobInt(const char* label, int* v, int lo, int hi, int def, const char* fmt,
              float scale, const char* tip = nullptr) {
     float f = (float)*v;
-    knob(label, &f, (float)lo, (float)hi, (float)def, fmt, scale, 1.0f, tip);
+    // The dial is told "no hook" (its float is a scratch copy) but the marker
+    // still has to appear, so the automation flag is queried on the int itself.
+    knob(label, &f, (float)lo, (float)hi, (float)def, fmt, scale, 1.0f, tip, false,
+         hookAutomated(v));
     const int nv = std::max(lo, std::min(hi, (int)std::lround(f)));
     if (nv == *v) return false;
     *v = nv;
+    hookEdit(v, (float)nv);
     return true;
 }
 
@@ -334,7 +389,7 @@ void App::droneTickRender() {
     if (!known) project_.music.push_back(droneRenderTarget_);
     wavIssueCache_.clear();
     droneBuildWaveOverview();
-    droneScrub_ = 0.0f;
+    droneHeadSec_ = 0.0;
 
     char msg[256];
     std::snprintf(msg, sizeof(msg),
@@ -403,6 +458,293 @@ void App::droneBuildWaveOverview() {
 }
 
 // ---------------------------------------------------------------------------
+// Timeline
+// ---------------------------------------------------------------------------
+
+double App::droneHeadTime() const {
+    // While auditioning the transport owns the playhead; stopped, the user does.
+    if (droneAuditioning_ && droneLive_)
+        return std::min((double)droneParams_.lengthSec, droneLive_->timeSec());
+    return droneHeadSec_;
+}
+
+void App::droneSeek(double sec) {
+    droneHeadSec_ = std::max(0.0, std::min((double)droneParams_.lengthSec, sec));
+    if (droneLive_) droneLive_->seek(droneHeadSec_);
+}
+
+bool App::droneIsAutomated(size_t offset) const {
+    const int idx = dronegen::paramIndexForOffset(offset);
+    return idx >= 0 && dronegen::autoLaneFind(droneParams_, idx) != nullptr;
+}
+
+void App::droneWriteAuto(size_t offset, float value) {
+    const int idx = dronegen::paramIndexForOffset(offset);
+    if (idx < 0) return;  // not an automatable field (format/mastering/enum)
+    const float t = (float)droneHeadTime();
+    if (!dronegen::autoWrite(droneParams_, idx, value, t)) {
+        droneStatus_ = "All " + std::to_string(dronegen::kMaxAutoLanes) +
+                       " automation lanes are in use - delete one in Timeline.";
+        return;
+    }
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "%s @ %d:%04.1f",
+                  dronegen::paramTable()[(size_t)idx].label, (int)(t / 60.0f),
+                  std::fmod(t, 60.0f));
+    droneWriteMsg_ = buf;
+    dronePushParams();
+}
+
+// The transport strip: a foobar-style position bar over the whole piece with
+// ticks, the elapsed fill, a draggable playhead and the time readout. Clicking
+// it seeks the live audition too, so the timeline drives playback rather than
+// just reporting it.
+void App::drawDroneTimelineBar() {
+    const float s = uiScaleApplied_;
+    const float len = std::max(1.0f, droneParams_.lengthSec);
+    const double head = droneHeadTime();
+
+    const float h = scaled(20.0f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = std::max(scaled(120.0f), ImGui::GetContentRegionAvail().x -
+                                                 scaled(96.0f));
+    ImGui::InvisibleButton("dronepos", ImVec2(w, h));
+    const bool hovered = ImGui::IsItemHovered();
+    if (ImGui::IsItemActive())
+        droneSeek((double)((ImGui::GetIO().MousePos.x - p.x) / w) * (double)len);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 br(p.x + w, p.y + h);
+    dl->AddRectFilled(p, br, IM_COL32(24, 26, 31, 255), 3.0f * s);
+    const float frac = std::max(0.0f, std::min(1.0f, (float)head / len));
+    dl->AddRectFilled(p, ImVec2(p.x + w * frac, br.y), IM_COL32(52, 74, 104, 255),
+                      3.0f * s);
+
+    // Ticks: bars while they are readable, otherwise a round number of seconds.
+    const float barSec = dronegen::barSeconds(droneParams_);
+    const bool tickBars = w / (len / barSec) > scaled(16.0f);
+    const float step = tickBars ? barSec
+                                : (len > 240.0f ? 60.0f : len > 90.0f ? 30.0f : 10.0f);
+    for (float t = 0.0f; t <= len; t += step) {
+        const float x = p.x + w * (t / len);
+        const bool major = tickBars ? (std::fmod(t / barSec, 4.0f) < 0.01f)
+                                    : (std::fmod(t, step * 3.0f) < 0.01f);
+        dl->AddLine(ImVec2(x, br.y - (major ? h * 0.55f : h * 0.3f)), ImVec2(x, br.y),
+                    IM_COL32(96, 102, 114, major ? 220 : 130));
+    }
+    // Keyframes of every lane, so the bar shows where the piece changes.
+    const int lanes = std::min(droneParams_.autoLaneCount, dronegen::kMaxAutoLanes);
+    for (int i = 0; i < lanes; ++i) {
+        const dronegen::AutoLane& lane = droneParams_.autoLanes[i];
+        for (int k = 0; k < lane.count; ++k) {
+            const float x = p.x + w * std::min(1.0f, lane.pts[k].t / len);
+            dl->AddTriangleFilled(ImVec2(x, p.y), ImVec2(x - 3.0f * s, p.y + 5.0f * s),
+                                  ImVec2(x + 3.0f * s, p.y + 5.0f * s),
+                                  IM_COL32(232, 168, 62, 200));
+        }
+    }
+    const float px = p.x + w * frac;
+    dl->AddLine(ImVec2(px, p.y), ImVec2(px, br.y), IM_COL32(245, 210, 100, 255),
+                2.0f * s);
+    dl->AddRect(p, br, IM_COL32(70, 74, 82, 255), 3.0f * s);
+    if (hovered) ImGui::SetTooltip("Click or drag to move the playhead (seeks the audition)");
+
+    ImGui::SameLine();
+    ImGui::Text("%d:%04.1f / %d:%02d", (int)(head / 60.0), std::fmod(head, 60.0),
+                (int)(len / 60.0f), (int)std::fmod(len, 60.0f));
+}
+
+// The Timeline tab: the lane list. A lane is created by arming Write and turning
+// a knob (the fast path the tool is built around) or explicitly from the picker.
+void App::drawDroneTimelineTab() {
+    const float s = uiScaleApplied_;
+    dronegen::Params& p = droneParams_;
+    const std::vector<dronegen::ParamDesc>& table = dronegen::paramTable();
+    const float len = std::max(1.0f, p.lengthSec);
+    const double head = droneHeadTime();
+
+    if (ImGui::Checkbox("Write keyframes", &droneWriteArmed_)) droneWriteMsg_.clear();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Armed, turning ANY knob drops a keyframe at the playhead - which is\n"
+            "how a lane is normally born. Audition while you write and the piece\n"
+            "records itself; a knob dragged for a few seconds merges into a couple\n"
+            "of keyframes rather than a smear.");
+    ImGui::SameLine();
+    if (droneWriteArmed_)
+        ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.3f, 1.0f), "WRITE");
+    else
+        ImGui::TextDisabled("read only");
+    if (!droneWriteMsg_.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("last: %s", droneWriteMsg_.c_str());
+    }
+
+    ImGui::SameLine(0.0f, scaled(20.0f));
+    if (ImGui::Button("Add lane...")) ImGui::OpenPopup("addlane");
+    if (ImGui::BeginPopup("addlane")) {
+        ImGui::SetNextItemWidth(scaled(220.0f));
+        ImGui::InputTextWithHint("##lanefilter", "filter...", droneLaneFilter_,
+                                 sizeof(droneLaneFilter_));
+        std::string needle = droneLaneFilter_;
+        for (char& c : needle) c = (char)tolower((unsigned char)c);
+        ImGui::BeginChild("lanelist", ImVec2(scaled(260.0f), scaled(260.0f)), true);
+        for (size_t i = 0; i < table.size(); ++i) {
+            std::string hay = table[i].label;
+            for (char& c : hay) c = (char)tolower((unsigned char)c);
+            if (!needle.empty() && hay.find(needle) == std::string::npos) continue;
+            if (dronegen::autoLaneFind(p, (int)i)) continue;  // already has a lane
+            if (ImGui::Selectable(table[i].label)) {
+                // Seed the lane with the parameter's current value, so adding it
+                // never changes the sound until a point is moved.
+                dronegen::autoWrite(p, (int)i, dronegen::paramGet(p, (int)i),
+                                    (float)head);
+                dronePushParams();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%d / %d lanes", std::min(p.autoLaneCount, dronegen::kMaxAutoLanes),
+                        dronegen::kMaxAutoLanes);
+
+    ImGui::Separator();
+    if (p.autoLaneCount <= 0) {
+        ImGui::TextDisabled(
+            "No automation yet.\n\n"
+            "Arm Write, hit Audition, and turn a knob: a lane appears with a\n"
+            "keyframe at the playhead. Drag points to reshape them, double-click\n"
+            "an empty spot to add one, right-click a point to remove it.\n"
+            "Automation sets the parameter's value over time; the LFOs and the arc\n"
+            "still modulate on top of it.");
+        return;
+    }
+
+    int removeLane = -1;
+    const int lanes = std::min(p.autoLaneCount, dronegen::kMaxAutoLanes);
+    for (int i = 0; i < lanes; ++i) {
+        dronegen::AutoLane& lane = p.autoLanes[i];
+        if (lane.param < 0 || lane.param >= (int)table.size()) continue;
+        ImGui::PushID(i);
+
+        // Value range of the lane, padded so the extremes are not on the border.
+        float lo = lane.pts[0].value, hi = lane.pts[0].value;
+        for (int k = 1; k < lane.count; ++k) {
+            lo = std::min(lo, lane.pts[k].value);
+            hi = std::max(hi, lane.pts[k].value);
+        }
+        const float pad = std::max(1e-4f, (hi - lo) * 0.15f);
+        lo -= pad;
+        hi += pad;
+
+        ImGui::TextUnformatted(table[(size_t)lane.param].label);
+        ImGui::SameLine();
+        ImGui::TextDisabled("= %.4g  (%d keys)", (double)dronegen::autoValueAt(lane, (float)head),
+                            lane.count);
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - scaled(46.0f));
+        if (ImGui::SmallButton("x")) removeLane = lane.param;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove this lane");
+
+        const float h = scaled(52.0f);
+        const ImVec2 o = ImGui::GetCursorScreenPos();
+        const float w = std::max(scaled(120.0f), ImGui::GetContentRegionAvail().x -
+                                                     scaled(8.0f));
+        ImGui::InvisibleButton("lane", ImVec2(w, h));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 br(o.x + w, o.y + h);
+        dl->AddRectFilled(o, br, IM_COL32(22, 24, 29, 255), 3.0f * s);
+
+        auto toScreen = [&](const dronegen::AutoPoint& pt) {
+            return ImVec2(o.x + w * std::min(1.0f, std::max(0.0f, pt.t / len)),
+                          br.y - h * (pt.value - lo) / std::max(1e-6f, hi - lo));
+        };
+        auto fromScreen = [&](ImVec2 m) {
+            dronegen::AutoPoint pt;
+            pt.t = std::max(0.0f, std::min(len, (m.x - o.x) / w * len));
+            pt.value = lo + (hi - lo) * std::max(0.0f, std::min(1.0f, (br.y - m.y) / h));
+            return pt;
+        };
+
+        // Grab the nearest point on press; drag it; right-click deletes it.
+        static int dragLane = -1, dragPoint = -1;
+        if (ImGui::IsItemActivated()) {
+            const ImVec2 m = ImGui::GetIO().MousePos;
+            int best = -1;
+            float bestD = 0.0f;
+            for (int k = 0; k < lane.count; ++k) {
+                const ImVec2 sp = toScreen(lane.pts[k]);
+                const float d = std::fabs(sp.x - m.x) + std::fabs(sp.y - m.y) * 0.25f;
+                if (best < 0 || d < bestD) { best = k; bestD = d; }
+            }
+            if (best >= 0 && bestD < scaled(14.0f)) {
+                dragLane = i;
+                dragPoint = best;
+            }
+        }
+        if (ImGui::IsItemActive() && dragLane == i && dragPoint >= 0 &&
+            dragPoint < lane.count) {
+            const dronegen::AutoPoint np = fromScreen(ImGui::GetIO().MousePos);
+            lane.pts[dragPoint] = np;
+            for (int k = 1; k < lane.count; ++k)
+                for (int j = k; j > 0 && lane.pts[j].t < lane.pts[j - 1].t; --j) {
+                    std::swap(lane.pts[j], lane.pts[j - 1]);
+                    if (dragPoint == j) dragPoint = j - 1;
+                    else if (dragPoint == j - 1) dragPoint = j;
+                }
+            dronePushParams();
+        }
+        if (ImGui::IsItemDeactivated() && dragLane == i) { dragLane = -1; dragPoint = -1; }
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+            dragPoint < 0) {
+            const dronegen::AutoPoint np = fromScreen(ImGui::GetIO().MousePos);
+            dronegen::autoWrite(p, lane.param, np.value, np.t, 0.0f);
+            dronePushParams();
+        }
+        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
+            lane.count > 1) {
+            const ImVec2 m = ImGui::GetIO().MousePos;
+            int best = -1;
+            float bestD = 0.0f;
+            for (int k = 0; k < lane.count; ++k) {
+                const ImVec2 sp = toScreen(lane.pts[k]);
+                const float d = std::fabs(sp.x - m.x) + std::fabs(sp.y - m.y) * 0.25f;
+                if (best < 0 || d < bestD) { best = k; bestD = d; }
+            }
+            if (best >= 0 && bestD < scaled(14.0f)) {
+                for (int k = best; k + 1 < lane.count; ++k) lane.pts[k] = lane.pts[k + 1];
+                --lane.count;
+                dronePushParams();
+            }
+        }
+
+        // The curve, its points, and the playhead.
+        for (int k = 0; k + 1 < lane.count; ++k)
+            dl->AddLine(toScreen(lane.pts[k]), toScreen(lane.pts[k + 1]),
+                        IM_COL32(232, 168, 62, 255), 2.0f * s);
+        if (lane.count == 1) {
+            const ImVec2 sp = toScreen(lane.pts[0]);
+            dl->AddLine(ImVec2(o.x, sp.y), ImVec2(br.x, sp.y),
+                        IM_COL32(232, 168, 62, 160), 1.5f * s);
+        }
+        for (int k = 0; k < lane.count; ++k)
+            dl->AddCircleFilled(toScreen(lane.pts[k]), 4.0f * s,
+                                IM_COL32(255, 225, 160, 255));
+        const float px = o.x + w * std::min(1.0f, (float)head / len);
+        dl->AddLine(ImVec2(px, o.y), ImVec2(px, br.y), IM_COL32(245, 210, 100, 200),
+                    1.5f * s);
+        dl->AddRect(o, br, IM_COL32(70, 74, 82, 255), 3.0f * s);
+        ImGui::Spacing();
+        ImGui::PopID();
+    }
+    if (removeLane >= 0) {
+        dronegen::autoRemoveLane(p, removeLane);
+        dronePushParams();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The window
 // ---------------------------------------------------------------------------
 
@@ -419,6 +761,25 @@ void App::drawDroneGeneratorWindow() {
     const float s = uiScaleApplied_;
     dronegen::Params& p = droneParams_;
     bool dirty = false;
+
+    // Arm the knob hook for this frame: with Write on, any knob edit below lands
+    // as a keyframe (see AutoWriteHook - the knobs themselves know nothing).
+    g_autoHook.armed = droneWriteArmed_;
+    g_autoHook.base = &droneParams_;
+    g_autoHook.size = sizeof(dronegen::Params);
+    g_autoHook.user = this;
+    g_autoHook.write = [](void* user, size_t off, float v) {
+        ((App*)user)->droneWriteAuto(off, v);
+    };
+    g_autoHook.automated = [](void* user, size_t off) {
+        return ((App*)user)->droneIsAutomated(off);
+    };
+
+    // Automated parameters are shown at the playhead, so a knob under a lane
+    // reads what is actually playing rather than the value it had before the
+    // lane existed. Read mode therefore looks like a DAW: the knob follows the
+    // timeline, and moving it only sticks while Write is armed.
+    if (p.autoLaneCount > 0) dronegen::applyAutomation(p, droneHeadTime());
 
     // ---- top row: preset, seed, transport --------------------------------
     const std::vector<dronegen::Preset>& presets = dronegen::presets();
@@ -487,6 +848,9 @@ void App::drawDroneGeneratorWindow() {
                            droneAudioError_.c_str());
     }
 
+    // ---- position bar (the timeline's transport) --------------------------
+    drawDroneTimelineBar();
+
     // ---- display strip: waveform / live scope + spectrum + meters ---------
     {
         const float h = scaled(72.0f);
@@ -548,7 +912,8 @@ void App::drawDroneGeneratorWindow() {
                 dl->AddLine(ImVec2(wp.x + (float)x, top), ImVec2(wp.x + (float)x, bot),
                             IM_COL32(120, 165, 220, 220));
             }
-            const float px = wp.x + wsz.x * droneScrub_;
+            const float px = wp.x + wsz.x * std::min(1.0f, (float)(droneHeadTime() /
+                                    std::max(1.0f, p.lengthSec)));
             dl->AddLine(ImVec2(px, wp.y), ImVec2(px, wp.y + wsz.y),
                         IM_COL32(240, 200, 90, 255), 1.5f * s);
         } else {
@@ -583,8 +948,8 @@ void App::drawDroneGeneratorWindow() {
         // audition always plays from its own transport)
         ImGui::InvisibleButton("wavehit", ImVec2(waveW, availH));
         if (ImGui::IsItemActive())
-            droneScrub_ = std::max(0.0f, std::min(1.0f, (ImGui::GetIO().MousePos.x - wp.x) /
-                                                            waveW));
+            droneSeek((double)((ImGui::GetIO().MousePos.x - wp.x) / waveW) *
+                      (double)p.lengthSec);
         ImGui::EndChild();
     }
 
@@ -1131,6 +1496,12 @@ void App::drawDroneGeneratorWindow() {
             }
             ImGui::EndTabItem();
         }
+
+        // ================= TIMELINE ==========================
+        if (ImGui::BeginTabItem("Timeline")) {
+            drawDroneTimelineTab();
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
     ImGui::EndChild();
@@ -1182,5 +1553,8 @@ void App::drawDroneGeneratorWindow() {
     }
 
     if (dirty) dronePushParams();
+    // Leave nothing armed for whatever draws next: the hook is a per-frame
+    // arrangement between this window and its own knobs.
+    g_autoHook = AutoWriteHook();
     ImGui::End();
 }

@@ -531,6 +531,21 @@ private:
     // Rebuilds the min/max envelope the waveform strip draws from the last
     // render, so the display does not walk a million samples per frame.
     void droneBuildWaveOverview();
+    // Records `value` as a keyframe at the playhead for the parameter that lives
+    // at `offset` inside droneParams_. Called from the knob hook, which is what
+    // makes EVERY knob automatable without its call site knowing about lanes.
+    void droneWriteAuto(size_t offset, float value);
+    // Whether the field at `offset` has a timeline lane - knobs draw a marker
+    // and say so in their tooltip, so a value that springs back explains itself.
+    bool droneIsAutomated(size_t offset) const;
+    // The transport strip (position bar with ticks, playhead, click/drag seek)
+    // and the Timeline tab (one editable lane per automated parameter).
+    void drawDroneTimelineBar();
+    void drawDroneTimelineTab();
+    // The playhead: the live transport while auditioning, the scrubbed position
+    // otherwise. droneSeek moves both.
+    double droneHeadTime() const;
+    void droneSeek(double sec);
 
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
@@ -1045,8 +1060,14 @@ private:
     // Waveform overview of the last render + the analyzer bands, both display
     // caches (never the source of truth for anything).
     std::vector<float> droneWaveMin_, droneWaveMax_;
-    float droneScrub_ = 0.0f;  // 0..1 playhead of the rendered preview
     float droneBands_[32] = {};
+    // Timeline. droneHeadSec_ is the ONE playhead truth: the position bar, the
+    // waveform marker, the lane editors and the automated values the knobs
+    // display all read it. droneWriteArmed_ turns any knob edit into a keyframe.
+    double droneHeadSec_ = 0.0;
+    bool droneWriteArmed_ = false;
+    std::string droneWriteMsg_;    // "Filter cutoff @ 0:12.4" - write feedback
+    char droneLaneFilter_[48] = "";  // search box of the "add lane" picker
 
     int selectedHud_ = -1;
     int uiFxSel_ = 0;

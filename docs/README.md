@@ -66,8 +66,9 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   ambient/drone generator: the oscillator/air/bell signal chain, chord
   progressions that glide, the LFO + arc modulation matrix, the FDN reverb and
   its shimmer, why a seamless loop ADDS the tail over the head instead of
-  crossfading, live audition and the UI/audio-thread hand-off, and the
-  re-editable `.drone` patch sidecar.
+  crossfading, the **timeline** (keyframes written by turning a knob, one lane
+  per parameter, a playhead that seeks the audition), live audition and the
+  UI/audio-thread hand-off, and the re-editable `.drone` patch sidecar.
 - [Asset Browser](asset-browser.md) - the file manager over the project's
   `res/` tree: folders, thumbnails, type filters and search, the reference
   census that says who uses an asset (and which ones nothing does), moving

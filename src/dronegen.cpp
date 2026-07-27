@@ -657,6 +657,18 @@ void Synth::reset() {
 
 double Synth::timeSec() const { return d_->samplePos / (double)d_->sr; }
 
+void Synth::setTime(double sec) {
+    Impl& d = *d_;
+    d.samplePos = std::max(0.0, sec) * (double)d.sr;
+    // Held notes must not glide in from wherever the old position left them, so
+    // they re-latch at the new chord (`started` false = snap on the next block).
+    for (int l = 0; l < kMaxLayers; ++l)
+        for (int n = 0; n < kMaxChordNotes; ++n) d.notes[l][n].started = false;
+    d.nextBell = d.samplePos / (double)d.sr;
+    // Delay and reverb state stay: a seek should sound like a jump in the piece,
+    // not like the room disappeared.
+}
+
 namespace {
 
 // LFO value in -1..+1 for one control block.
@@ -718,6 +730,12 @@ void Synth::render(float* out, int frames) {
         const int block = std::min(kCtrl, frames - done);
         const float dt = (float)block / sr;
         const double tSec = d.samplePos / (double)sr;
+
+        // The timeline. Automation writes straight into this Synth's own copy of
+        // the patch, so everything downstream - modulation, the eff block, the
+        // per-sample loop - reads the automated value without knowing it was
+        // automated, and the LFO/arc modulation still layers on top of it.
+        if (p_.autoLaneCount > 0) applyAutomation(p_, tSec);
 
         // ---- modulation sources ------------------------------------------
         for (int i = 0; i < kNumLfos; ++i) d.lfoVal[i] = lfoStep(d, p, i, dt);
@@ -1204,6 +1222,12 @@ void LiveSynth::reset() {
     std::lock_guard<std::mutex> lk(mu_);
     synth_.reset();
     time_.store(0.0);
+}
+
+void LiveSynth::seek(double sec) {
+    std::lock_guard<std::mutex> lk(mu_);
+    synth_.setTime(sec);
+    time_.store(sec);
 }
 
 void LiveSynth::render(float* out, int frames) {
@@ -2165,6 +2189,208 @@ struct TextReader {
 
 }  // namespace
 
+namespace {
+
+// Turns a .drone key into a lane header: "filter.cutoff" -> "Filter cutoff",
+// "layer2.motionRate" -> "Layer 2 motion rate".
+std::string prettyKey(const std::string& key) {
+    std::string out;
+    for (size_t i = 0; i < key.size(); ++i) {
+        const char c = key[i];
+        if (c == '.') { out += ' '; continue; }
+        if (isupper((unsigned char)c) && !out.empty() && out.back() != ' ') {
+            out += ' ';
+            out += (char)tolower((unsigned char)c);
+            continue;
+        }
+        if (isdigit((unsigned char)c) && !out.empty() && !isdigit((unsigned char)out.back()) &&
+            out.back() != ' ')
+            out += ' ';
+        out += c;
+    }
+    if (!out.empty()) out[0] = (char)toupper((unsigned char)out[0]);
+    return out;
+}
+
+// Parameters a keyframe has no business touching: the file format (a rate or
+// length change is structural), the mastering block (it applies once, after the
+// render), and the time base - `barSeconds` is read once per render() call, so
+// automating tempo would look like it worked and quietly do nothing.
+bool autoExcluded(const std::string& key) {
+    static const char* const kSkip[] = {
+        "seed", "length", "rate", "stereo", "bpm", "beatsperbar", "scale"};
+    const std::string low = lowerStr(key);
+    for (const char* k : kSkip)
+        if (low == k) return true;
+    return low.rfind("master.", 0) == 0 || low.rfind("step", 0) == 0;
+}
+
+// Walks the field list recording where each scalar lives. Same visitor shape as
+// TextWriter/TextReader, so it sees exactly the saveable parameters.
+struct ParamCollector {
+    const char* base = nullptr;
+    std::vector<ParamDesc>* out = nullptr;
+    std::vector<std::string>* store = nullptr;  // owns the key/label strings
+
+    void add(const std::string& key, const void* field, uint8_t type) {
+        if (autoExcluded(key)) return;
+        const ptrdiff_t off = (const char*)field - base;
+        if (off < 0 || off > 0xFFFF) return;
+        store->push_back(key);
+        store->push_back(prettyKey(key));
+        ParamDesc d;
+        d.key = (*store)[store->size() - 2].c_str();
+        d.label = (*store)[store->size() - 1].c_str();
+        d.offset = (uint16_t)off;
+        d.type = type;
+        out->push_back(d);
+    }
+    void group(const char*) {}
+    void operator()(const std::string&, uint32_t&) {}  // seeds are not musical
+    void operator()(const std::string& k, int& v) { add(k, &v, 1); }
+    void operator()(const std::string& k, bool& v) { add(k, &v, 2); }
+    void operator()(const std::string& k, float& v) { add(k, &v, 0); }
+    void enumv(const std::string&, int&, const char* const*, int) {}
+    void ints(const std::string&, int*, int&, int) {}
+    void floats(const std::string&, float*, int) {}
+};
+
+}  // namespace
+
+const std::vector<ParamDesc>& paramTable() {
+    // Built once. `store` must outlive the table because the descriptors point
+    // into it, and it must never reallocate after the pointers are taken - hence
+    // the reserve (two strings per parameter).
+    static std::vector<std::string> store;
+    static std::vector<ParamDesc> table;
+    if (table.empty()) {
+        Params dummy;
+        store.reserve(512);
+        table.reserve(256);
+        ParamCollector c;
+        c.base = (const char*)&dummy;
+        c.out = &table;
+        c.store = &store;
+        visitParams(dummy, c);
+    }
+    return table;
+}
+
+int paramIndexForOffset(size_t offset) {
+    const std::vector<ParamDesc>& t = paramTable();
+    for (size_t i = 0; i < t.size(); ++i)
+        if (t[i].offset == offset) return (int)i;
+    return -1;
+}
+
+float paramGet(const Params& p, int paramIndex) {
+    const std::vector<ParamDesc>& t = paramTable();
+    if (paramIndex < 0 || paramIndex >= (int)t.size()) return 0.0f;
+    const char* at = (const char*)&p + t[(size_t)paramIndex].offset;
+    switch (t[(size_t)paramIndex].type) {
+        case 1: return (float)*(const int*)at;
+        case 2: return *(const bool*)at ? 1.0f : 0.0f;
+        default: return *(const float*)at;
+    }
+}
+
+void paramSet(Params& p, int paramIndex, float value) {
+    const std::vector<ParamDesc>& t = paramTable();
+    if (paramIndex < 0 || paramIndex >= (int)t.size()) return;
+    char* at = (char*)&p + t[(size_t)paramIndex].offset;
+    switch (t[(size_t)paramIndex].type) {
+        case 1: *(int*)at = (int)std::lround(value); break;
+        case 2: *(bool*)at = value >= 0.5f; break;
+        default: *(float*)at = value; break;
+    }
+}
+
+float autoValueAt(const AutoLane& lane, float t) {
+    const int n = clampi(lane.count, 0, kMaxAutoPoints);
+    if (n == 0) return 0.0f;
+    if (t <= lane.pts[0].t) return lane.pts[0].value;
+    if (t >= lane.pts[n - 1].t) return lane.pts[n - 1].value;
+    for (int i = 0; i + 1 < n; ++i) {
+        const AutoPoint& a = lane.pts[i];
+        const AutoPoint& b = lane.pts[i + 1];
+        if (t >= a.t && t <= b.t) {
+            const float span = b.t - a.t;
+            if (span <= 1e-6f) return b.value;
+            return lerpf(a.value, b.value, (t - a.t) / span);
+        }
+    }
+    return lane.pts[n - 1].value;
+}
+
+void applyAutomation(Params& p, double t) {
+    const int lanes = clampi(p.autoLaneCount, 0, kMaxAutoLanes);
+    for (int i = 0; i < lanes; ++i) {
+        const AutoLane& lane = p.autoLanes[i];
+        if (lane.param < 0 || lane.count <= 0) continue;
+        paramSet(p, lane.param, autoValueAt(lane, (float)t));
+    }
+}
+
+const AutoLane* autoLaneFind(const Params& p, int paramIndex) {
+    const int lanes = clampi(p.autoLaneCount, 0, kMaxAutoLanes);
+    for (int i = 0; i < lanes; ++i)
+        if (p.autoLanes[i].param == paramIndex) return &p.autoLanes[i];
+    return nullptr;
+}
+
+AutoLane* autoLaneFor(Params& p, int paramIndex) {
+    if (paramIndex < 0 || paramIndex >= (int)paramTable().size()) return nullptr;
+    p.autoLaneCount = clampi(p.autoLaneCount, 0, kMaxAutoLanes);
+    for (int i = 0; i < p.autoLaneCount; ++i)
+        if (p.autoLanes[i].param == paramIndex) return &p.autoLanes[i];
+    if (p.autoLaneCount >= kMaxAutoLanes) return nullptr;
+    AutoLane& lane = p.autoLanes[p.autoLaneCount++];
+    lane = AutoLane();
+    lane.param = paramIndex;
+    return &lane;
+}
+
+void autoRemoveLane(Params& p, int paramIndex) {
+    p.autoLaneCount = clampi(p.autoLaneCount, 0, kMaxAutoLanes);
+    for (int i = 0; i < p.autoLaneCount; ++i) {
+        if (p.autoLanes[i].param != paramIndex) continue;
+        for (int j = i; j + 1 < p.autoLaneCount; ++j)
+            p.autoLanes[j] = p.autoLanes[j + 1];
+        p.autoLanes[--p.autoLaneCount] = AutoLane();
+        return;
+    }
+}
+
+bool autoWrite(Params& p, int paramIndex, float value, float t, float mergeSec) {
+    AutoLane* lane = autoLaneFor(p, paramIndex);
+    if (!lane) return false;
+    if (t < 0.0f) t = 0.0f;
+
+    // Nearest existing keyframe: within mergeSec it MOVES (a knob dragged for
+    // three seconds should leave a keyframe, not thirty), and once the lane is
+    // full the nearest one always wins so a long take cannot overflow it.
+    int nearest = -1;
+    float bestDt = 0.0f;
+    for (int i = 0; i < lane->count; ++i) {
+        const float dt = std::fabs(lane->pts[i].t - t);
+        if (nearest < 0 || dt < bestDt) { nearest = i; bestDt = dt; }
+    }
+    if (nearest >= 0 && (bestDt <= mergeSec || lane->count >= kMaxAutoPoints)) {
+        lane->pts[nearest].t = t;
+        lane->pts[nearest].value = value;
+    } else {
+        lane->pts[lane->count].t = t;
+        lane->pts[lane->count].value = value;
+        ++lane->count;
+    }
+    // Keep the lane sorted in time - every consumer (evaluation, the editor's
+    // line strip, serialization) assumes it.
+    for (int i = 1; i < lane->count; ++i)
+        for (int j = i; j > 0 && lane->pts[j].t < lane->pts[j - 1].t; --j)
+            std::swap(lane->pts[j], lane->pts[j - 1]);
+    return true;
+}
+
 std::string toText(const Params& p, const std::string& title) {
     Params copy = p;
     TextWriter w;
@@ -2174,6 +2400,31 @@ std::string toText(const Params& p, const std::string& title) {
     w.out += "version = 1\n";
     if (!title.empty()) w.line("title", title);
     visitParams(copy, w);
+
+    // The timeline, one line per lane: "auto.<key> = t:value, t:value, ...".
+    // Keyed by NAME rather than by table index, so a lane keeps pointing at its
+    // parameter even when the field list grows.
+    const int lanes = std::max(0, std::min(copy.autoLaneCount, kMaxAutoLanes));
+    const std::vector<ParamDesc>& table = paramTable();
+    bool wroteHeader = false;
+    for (int i = 0; i < lanes; ++i) {
+        const AutoLane& lane = copy.autoLanes[i];
+        if (lane.param < 0 || lane.param >= (int)table.size() || lane.count <= 0)
+            continue;
+        if (!wroteHeader) {
+            w.group("automation");
+            wroteHeader = true;
+        }
+        std::string v;
+        char buf[64];
+        for (int k = 0; k < lane.count && k < kMaxAutoPoints; ++k) {
+            if (k) v += ", ";
+            std::snprintf(buf, sizeof(buf), "%.4g:%.6g", (double)lane.pts[k].t,
+                          (double)lane.pts[k].value);
+            v += buf;
+        }
+        w.line(std::string("auto.") + table[(size_t)lane.param].key, v);
+    }
     return w.out;
 }
 
@@ -2249,6 +2500,35 @@ bool fromText(const std::string& text, Params& out, std::string& title,
     }
     p.master.loopTail = clampf(p.master.loopTail, 0.2f, 30.0f);
     p.master.normalize = clampf(p.master.normalize, 0.0f, 1.0f);
+
+    // Automation lanes. An "auto.<key>" whose parameter no longer exists is
+    // dropped rather than failing the load - the same rule as any unknown key.
+    const std::vector<ParamDesc>& table = paramTable();
+    p.autoLaneCount = 0;
+    for (const auto& entry : kv) {
+        if (entry.first.rfind("auto.", 0) != 0) continue;
+        const std::string key = entry.first.substr(5);
+        int idx = -1;
+        for (size_t i = 0; i < table.size(); ++i)
+            if (lowerStr(table[i].key) == key) { idx = (int)i; break; }
+        if (idx < 0) continue;
+        AutoLane* lane = autoLaneFor(p, idx);
+        if (!lane) break;  // lane budget full
+        std::stringstream ls(entry.second);
+        std::string tok;
+        while (std::getline(ls, tok, ',') && lane->count < kMaxAutoPoints) {
+            const size_t colon = tok.find(':');
+            if (colon == std::string::npos) continue;
+            AutoPoint pt;
+            pt.t = clampf((float)atof(trim(tok.substr(0, colon)).c_str()), 0.0f, 3600.0f);
+            pt.value = (float)atof(trim(tok.substr(colon + 1)).c_str());
+            lane->pts[lane->count++] = pt;
+        }
+        for (int i = 1; i < lane->count; ++i)
+            for (int j = i; j > 0 && lane->pts[j].t < lane->pts[j - 1].t; --j)
+                std::swap(lane->pts[j], lane->pts[j - 1]);
+        if (lane->count == 0) autoRemoveLane(p, idx);
+    }
     out = p;
     return true;
 }

@@ -10,6 +10,70 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (192) **The Drone Generator grew a timeline: keyframes that write themselves
+  when you turn a knob.** Follow-up request on (191) - "could a track change over
+  time, with the keyframe inserting itself when something is turned, plus a
+  position bar like foobar". Both halves fell out of machinery (191) already had.
+  **Any parameter is automatable because the lane list is not a list.**
+  `paramTable()` is built by walking the SAME field visitor the `.drone` writer
+  uses (`visitParams`), recording each scalar's byte offset inside `Params` - so a
+  parameter is automatable the moment it is saveable, 137 of them today, with no
+  third list to keep in step. A lane is `{param index, keyframes}`;
+  `applyAutomation` writes the fields by offset.
+  **And a knob needs no wiring at all.** Every knob binds straight to a field of
+  the window's `droneParams_`, so the pointer it was handed IS that parameter's
+  address: `AutoWriteHook` turns "a knob changed" into "write a keyframe on the
+  lane at that byte offset", and arming *Write keyframes* automates all ~137
+  parameters without one of the ~100 knob call sites mentioning automation. The
+  same hook answers "is this field automated?", which draws the amber dot on the
+  dial and the AUTOMATED line in its tooltip - otherwise a knob springing back in
+  Read mode is inexplicable. Read/Write behaves like a DAW: with Write off an
+  automated knob DISPLAYS what the timeline is playing (the host applies
+  automation to `droneParams_` each frame at the playhead) and moving it does not
+  stick.
+  **Design constraints that shaped it.** `Params` is copied into the audio thread
+  on every edit, so it may own no heap memory: lanes are fixed-capacity (12 lanes
+  x 24 points, ~2.4 KB). A knob dragged for seconds would otherwise leave a
+  keyframe smear, so `autoWrite` MOVES a point within 0.35 s instead of adding
+  one, and once a lane is full the nearest point always wins - a long take cannot
+  overflow the budget. Automation is applied inside the synth's OWN copy of the
+  patch at control rate, before the eff block, so the LFOs/arc/mod matrix still
+  layer on top instead of being replaced. Tempo, format (rate/length/stereo), the
+  mastering block and the enums are excluded (`autoExcluded`): `barSeconds` is
+  read once per `render()` call, so a tempo lane would look like it worked and
+  quietly do nothing - better to not offer it.
+  **The transport bar** is the foobar-ish part: ticks (bars while they are
+  readable, else round seconds), elapsed fill, a triangle for every keyframe in
+  the piece, the playhead and `0:27.0 / 1:00`. Clicking it **seeks the live
+  audition** (`Synth::setTime` -> `LiveSynth::seek`), which keeps the delay and
+  reverb tails (a seek is a jump in the piece, not a reset) but re-latches held
+  notes at the chord you landed on instead of gliding in from the one you left.
+  `droneHeadSec_` is the single playhead truth - the bar, the waveform marker, the
+  lane editors and the values the knobs display all read it. Serialization is one
+  line per lane (`auto.filter.cutoff = 0:300, 27:5200, 60:900`), keyed by NAME so
+  a lane survives the field list growing; an unknown key is dropped like any
+  other.
+  **Verified.** Harness over `dronegen.cpp` alone: the table resolves the probed
+  keys and correctly EXCLUDES seed/bpm/master.*; offset lookup finds
+  `filter.cutoff`; evaluation interpolates and holds (400 / 3200 / 6000 / 6000);
+  40 rapid writes inside 0.8 s collapse to **3** points (the merge rule);
+  `applyAutomation` writes the field; a `.drone` round trip keeps the lane, its
+  point count and its values; an automated render is **bit-identical** on a
+  re-run; all ten presets still render healthy and deterministic with the
+  automation branch in the block loop. The audible check needed a control before
+  it meant anything - my first probe (a 2 kHz/150 Hz ratio) read BACKWARDS
+  because the patch has no energy at 150 Hz, so static renders at cutoff 250 vs
+  9000 were rendered as the reference: they separate 0.00008 -> 0.00111 at 1 kHz,
+  and the swept render moves 0.00025 -> 0.00094 across the same sweep, i.e. the
+  lane really opens the filter. In the editor (throwaway demo hook, removed):
+  the Timeline tab draws three lanes with their curves, points, per-lane value at
+  the playhead and the playhead line; the position bar shows the keyframe
+  triangles and the time readout; and the Space tab's Cutoff knob reads the
+  automated **5200 Hz** with the amber dot while its neighbours have neither -
+  screenshots via the `TYRAX_SHOT` self-capture from (191).
+  **Still needs a human**: whether writing automation by ear feels right, and
+  whether 0.35 s is the merge window a hand actually wants.
+
 - (191) **Ambient / drone music generator: *Tools > Drone Generator*.** User
   request - "a few tools so a background track can actually be crafted, knobs to
   turn like in the priciest VST plugins". A game needs a background bed and the
