@@ -1314,9 +1314,25 @@ RenderResult render(const Params& p, const std::function<bool(float)>& progress)
     }
 
     if (nTail > 0) {
+        // The folded tail has to reach zero AT the splice. Adding it and simply
+        // stopping leaves a step discontinuity there - measured up to 0.37
+        // against a 0.11 p99 neighbour-sample jump, which is an audible tick one
+        // loopTail into the file (NOT at the seam itself, which is continuous by
+        // construction). The window is unity for the first half, so the loudest
+        // part of the wrapped tail still lands honestly, then a raised cosine to
+        // zero: zero value AND zero slope at the splice, so neither the sample
+        // nor its slope jumps. A full-window Hann would instead duck the early
+        // tail by 6 dB, which is audible as the wrap losing its room.
+        const int fadeFrom = nTail / 2;
+        const int fadeLen = std::max(1, nTail - fadeFrom);
         for (int i = 0; i < nTail; ++i) {
-            buf[(size_t)i * 2 + 0] += buf[(size_t)(nMain + i) * 2 + 0];
-            buf[(size_t)i * 2 + 1] += buf[(size_t)(nMain + i) * 2 + 1];
+            float w = 1.0f;
+            if (i >= fadeFrom) {
+                const float x = (float)(i - fadeFrom) / (float)fadeLen;
+                w = 0.5f * (1.0f + std::cos(kPi * x));
+            }
+            buf[(size_t)i * 2 + 0] += buf[(size_t)(nMain + i) * 2 + 0] * w;
+            buf[(size_t)i * 2 + 1] += buf[(size_t)(nMain + i) * 2 + 1] * w;
         }
     } else {
         const int fi = std::min(nMain, (int)(std::max(0.0f, p.master.fadeIn) * sr));

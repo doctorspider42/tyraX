@@ -119,12 +119,32 @@ preset: RMS in the last second before the wrap 0.1545 vs 0.1530 at the start of
 the file — inaudible. With the option off it is 0.1688 vs 0.0351, which is the
 thud you have heard in a hundred games.
 
-Two things help further:
+**The fold is windowed**, and that part is not optional. Adding the tail and
+simply stopping where the window ends leaves a step discontinuity *inside* the
+file - not at the seam, which is continuous by construction, but one *Loop tail*
+into it, where the wrapped tail was cut off mid-decay. It is an audible tick, and
+it was measured: a sample-to-sample jump of up to **0.37** against a 0.11 p99
+neighbour jump on the same second of audio. So the fold applies unity for the
+first half of the window and then a **raised cosine to zero** - zero value *and*
+zero slope at the splice, so neither the sample nor its slope jumps. After the
+fix the worst jump around the splice is **below each preset's own p99** neighbour
+jump (0.026 vs 0.042 on *Init Drone*, i.e. 13x smaller than before) and no longer
+sits at the boundary at all.
+
+Unity-then-fade rather than a full-window Hann on purpose: a Hann would attenuate
+the *loudest* part of the wrapped tail by 6 dB, which is audible as the wrap
+losing its room.
+
+Three things help further:
 
 - *Harmony > Fit length to whole passes* rounds the length to a whole number of
   progression passes, so the loop never lands mid-chord.
 - LFOs set to **per bar** return to the same phase at the loop point; free-Hz
   LFOs generally do not.
+- **Keep *Loop tail* near the reverb decay.** The window removes the click at any
+  length, but a 6-second tail under an 18-second reverb still fades out while the
+  room is ringing - smooth, yet the wrap reads as losing its space. The Master tab
+  says so when the tail is under 60% of the decay and offers **Match decay**.
 
 ## The timeline
 

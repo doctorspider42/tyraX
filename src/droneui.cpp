@@ -1435,7 +1435,32 @@ void App::drawDroneGeneratorWindow() {
                 dirty |= knob("Loop tail", &p.master.loopTail, 0.5f, 30.0f, 6.0f, "%.1f s",
                               s, 1.4f,
                               "How much of the reverb tail is folded back over\n"
-                              "the start of the file.");
+                              "the start of the file. The fold is windowed to zero\n"
+                              "at its end, so the join never clicks - but a tail\n"
+                              "much shorter than the reverb decay fades out while\n"
+                              "the room is still ringing, which reads as the wrap\n"
+                              "losing its space.");
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::Dummy(ImVec2(0, scaled(14.0f)));
+                const float wantTail =
+                    std::min(30.0f, std::min(p.fx.revDecay, p.lengthSec * 0.9f));
+                if (p.master.loopTail < p.fx.revDecay * 0.6f) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                       "tail < reverb decay (%.0f s)", (double)p.fx.revDecay);
+                    if (ImGui::SmallButton("Match decay")) {
+                        p.master.loopTail = wantTail;
+                        dirty = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Folds back as much tail as the reverb\n"
+                                          "actually produces (%.1f s), so the wrap keeps\n"
+                                          "the room instead of fading out early.",
+                                          (double)wantTail);
+                } else {
+                    ImGui::TextDisabled("covers the reverb tail");
+                }
+                ImGui::EndGroup();
             }
 
             ImGui::Spacing();

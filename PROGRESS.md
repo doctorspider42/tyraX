@@ -10,6 +10,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (212) **The seamless loop ticked, and it was the fold that did it.** Owner
+  report on (210): with *Seamless loop* on there is a clear tick - "not at the end
+  of the file, but where the tail starts". Exactly right, and the description
+  located the bug: the seam itself is continuous by construction (the wrapped tail
+  at index 0 IS the piece's own continuation past `nMain`, so it lines up with the
+  last sample of the file), but the fold added `loopTail` seconds of tail and then
+  simply STOPPED. The reverb is nowhere near finished at that point - 6 seconds of
+  tail under a 9-to-22-second RT60 is still around -10 dB - so the sum drops to
+  the bare head in one sample: a step discontinuity a whole `loopTail` INTO the
+  file, which is precisely where it was heard.
+  **Measured before fixing anything**, as a neighbour-sample jump at the splice
+  index against the p99 jump over the surrounding second: 0.333 vs 0.055 on *Init
+  Drone*, 0.369 on *Ritual Bells*, 0.275 on *Machine Room* - and on every preset
+  the worst jump sat at offset -1, i.e. exactly on the boundary, which is what
+  distinguishes a splice artifact from ordinary program material.
+  **The fix** is to window the folded tail so it reaches zero AT the splice:
+  unity for the first half of the window, then a raised cosine to zero - zero
+  value *and* zero slope, so neither the sample nor its slope jumps. Unity-then-
+  fade rather than a full-window Hann on purpose: a Hann attenuates the loudest
+  part of the wrapped tail by 6 dB, which is audible as the wrap losing its room.
+  After the fix every preset's worst jump around the splice is BELOW its own p99
+  neighbour jump (0.026 vs 0.042 on Init Drone, 13x smaller than before) and the
+  worst position is scattered instead of pinned to the boundary - what is left is
+  program material, not a splice. Checked at the extremes too: a 0.5 s tail (the
+  knob minimum) and an 18 s tail both come out at 0.5x/0.4x of p99, the
+  non-seamless path is untouched, and both paths stay deterministic.
+  **The related rough edge, now visible instead of mysterious.** The window kills
+  the click at any length, but a tail much shorter than the decay still fades out
+  while the room is ringing - smooth, yet the wrap reads as losing its space. The
+  Master tab now says so when *Loop tail* is under 60% of the reverb decay and
+  offers **Match decay** (tail = the decay, capped by 30 s and 90% of the piece).
+  Worth keeping in mind for any future "fold a tail back" trick: the join needs a
+  window, and the window needs to be shorter than the thing it is windowing is
+  loud.
+
 - (211) **The Drone Generator grew a timeline: keyframes that write themselves
   when you turn a knob.** Follow-up request on (210) - "could a track change over
   time, with the keyframe inserting itself when something is turned, plus a
