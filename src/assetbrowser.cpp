@@ -137,6 +137,7 @@ ImU32 kindColor(int kind) {
         case 4: return IM_COL32(212, 96, 152, 255);   // Music
         case 5: return IM_COL32(212, 132, 96, 255);   // Sound
         case 6: return IM_COL32(196, 196, 108, 255);  // Font
+        case 7: return IM_COL32(186, 118, 196, 255);  // DronePatch (audio project)
         default: return IM_COL32(130, 130, 138, 255);
     }
 }
@@ -159,6 +160,7 @@ App::AssetKind App::assetKindOf(const std::string& rel) {
     if (ext == ".wav")
         return startsWith(rel, "res/sfx/") ? AssetKind::Sound : AssetKind::Music;
     if (ext == ".ttf" || ext == ".otf") return AssetKind::Font;
+    if (ext == ".drone") return AssetKind::DronePatch;
     return AssetKind::Other;
 }
 
@@ -171,6 +173,7 @@ const char* App::assetKindName(AssetKind k) {
         case AssetKind::Music: return "music track";
         case AssetKind::Sound: return "sound";
         case AssetKind::Font: return "font";
+        case AssetKind::DronePatch: return "audio project";
         default: return "file";
     }
 }
@@ -1025,6 +1028,8 @@ bool App::activateAsset(const std::string& rel) {
             ensureFontForPath(rel);
             showFontManager_ = true;
             return true;
+        case AssetKind::DronePatch:
+            return droneLoadPatch(rel);
         case AssetKind::Music:
         case AssetKind::Sound: {
             // A track rendered by the Drone Generator kept its patch next to
@@ -1035,7 +1040,6 @@ bool App::activateAsset(const std::string& rel) {
             return false;
         }
         default:
-            if (extOf(rel) == ".drone") return droneLoadPatch(rel);
             return false;
     }
 }
@@ -1073,7 +1077,8 @@ void App::drawAssetBrowserWindow() {
             case kFilterMaterials: return item.kind == AssetKind::Material;
             case kFilterTextures: return item.kind == AssetKind::Texture;
             case kFilterAudio:
-                return item.kind == AssetKind::Music || item.kind == AssetKind::Sound;
+                return item.kind == AssetKind::Music || item.kind == AssetKind::Sound ||
+                       item.kind == AssetKind::DronePatch;
             case kFilterFonts: return item.kind == AssetKind::Font;
             case kFilterOther: return item.kind == AssetKind::Other;
             default: return true;
@@ -1155,7 +1160,8 @@ void App::drawAssetBrowserWindow() {
             case AssetKind::Material: ++counts[kFilterMaterials]; break;
             case AssetKind::Texture: ++counts[kFilterTextures]; break;
             case AssetKind::Music:
-            case AssetKind::Sound: ++counts[kFilterAudio]; break;
+            case AssetKind::Sound:
+            case AssetKind::DronePatch: ++counts[kFilterAudio]; break;
             case AssetKind::Font: ++counts[kFilterFonts]; break;
             default: ++counts[kFilterOther]; break;
         }
@@ -1735,6 +1741,39 @@ void App::drawAssetInspector(const std::string& rel) {
             ImGui::TextDisabled(
                 sfx ? "Volume, looping and conversion live in Project > Sounds."
                     : "Volume and the PS2 build options live in Project > Music.");
+            break;
+        }
+        case AssetKind::DronePatch: {
+            // Read the patch itself so the inspector describes the piece rather
+            // than the file - it is a text format, so this is cheap.
+            std::ifstream f(assetAbs(rel), std::ios::binary);
+            std::stringstream ss;
+            ss << f.rdbuf();
+            dronegen::Params dp;
+            std::string title, err;
+            if (dronegen::fromText(ss.str(), dp, title, err)) {
+                int layers = 0;
+                for (const dronegen::Layer& L : dp.layers) layers += L.on ? 1 : 0;
+                ImGui::TextDisabled("%s%.0f s, %d Hz %s, %d layer%s",
+                                    title.empty() ? "" : (title + " - ").c_str(),
+                                    (double)dp.lengthSec, dp.sampleRate,
+                                    dp.stereo ? "stereo" : "mono", layers,
+                                    layers == 1 ? "" : "s");
+                ImGui::TextDisabled("%d automation lane%s, %s loop",
+                                    dp.autoLaneCount, dp.autoLaneCount == 1 ? "" : "s",
+                                    dp.master.loopSeamless ? "seamless" : "faded");
+                const std::string wav = folderOf(rel) + "/" + stemOf(rel) + ".wav";
+                std::error_code wec;
+                if (fs::exists(assetAbs(wav), wec))
+                    ImGui::TextDisabled("Rendered: %s", nameOf(wav).c_str());
+                else
+                    ImGui::TextDisabled("Not rendered yet - open it and Render.");
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", err.c_str());
+            }
+            if (ImGui::Button("Open in Drone Generator")) droneLoadPatch(rel);
+            ImGui::TextDisabled("The knobs of a track: edit and re-render it any "
+                                "time. Editor-only, never ships.");
             break;
         }
         case AssetKind::Font:

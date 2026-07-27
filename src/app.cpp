@@ -13331,6 +13331,25 @@ void App::drawMusicSection() {
                 wavIssueCache_.clear();
             }
         }
+        // A track the Drone Generator made kept its patch next to it, so it can
+        // be reopened and re-rendered instead of replaced by hand.
+        {
+            std::filesystem::path patch =
+                std::filesystem::path(project_.dir) / project_.music[i];
+            patch.replace_extension(".drone");
+            std::error_code pec;
+            if (std::filesystem::exists(patch, pec)) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Edit")) {
+                    std::filesystem::path rel(project_.music[i]);
+                    rel.replace_extension(".drone");
+                    droneLoadPatch(rel.generic_string());
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open this track's patch in the Drone "
+                                      "Generator (Tools > Drone Generator).");
+            }
+        }
         ImGui::SameLine();
         if (ImGui::SmallButton("x"))
             requestAssetDelete(PendingAssetDelete::Music, project_.music[i], name);

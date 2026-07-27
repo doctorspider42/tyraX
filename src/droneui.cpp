@@ -316,7 +316,7 @@ void App::dronePushParams() {
 // Offline render (worker thread) -> res/audio/<name>.wav + <name>.drone
 // ---------------------------------------------------------------------------
 
-void App::droneStartRender() {
+void App::droneStartRender(bool confirmedOverwrite) {
     if (droneRendering_ || !hasProject_) return;
     if (droneRenderThread_.joinable()) droneRenderThread_.join();
 
@@ -332,6 +332,17 @@ void App::droneStartRender() {
     }
     if (clean.empty()) clean = "drone";
     droneRenderTarget_ = "res/audio/" + clean + ".wav";
+
+    // Never clobber a track silently: a render writes the WAV *and* the .drone
+    // next to it, so an accidental name collision would take someone's patch
+    // with it. Ask first, unless this call is the answer to that question.
+    if (!confirmedOverwrite) {
+        std::error_code eec;
+        if (std::filesystem::exists(project_.filePath(droneRenderTarget_), eec)) {
+            droneAskWav_ = droneRenderTarget_;
+            return;
+        }
+    }
     // Resolved now, not when the render finishes: opening another project
     // mid-render must not redirect the file into it.
     droneRenderAbs_ = project_.filePath(droneRenderTarget_);
@@ -384,6 +395,14 @@ void App::droneTickRender() {
         if (f) f << dronegen::toText(droneRenderedWith_, dronePatchTitle_);
     }
 
+    // The rendered pair IS the saved document from here on.
+    {
+        std::filesystem::path rel(droneRenderTarget_);
+        rel.replace_extension(".drone");
+        dronePatchRel_ = rel.generic_string();
+        droneDirty_ = false;
+    }
+
     bool known = false;
     for (const std::string& m : project_.music) known |= (m == droneRenderTarget_);
     if (!known) project_.music.push_back(droneRenderTarget_);
@@ -400,6 +419,67 @@ void App::droneTickRender() {
                   (double)droneRenderResult_.peak, known ? " (replaced)" : "");
     droneStatus_ = msg;
     saveAll(msg);
+}
+
+bool App::droneSavePatch(const std::string& rel, bool confirmed) {
+    if (!hasProject_) return false;
+    // Saving over the file you are editing is what "save" means; saving over
+    // SOMEONE ELSE'S patch is a question.
+    if (!confirmed && rel != dronePatchRel_) {
+        std::error_code ec;
+        if (std::filesystem::exists(project_.filePath(rel), ec)) {
+            droneAskPatch_ = rel;
+            return false;
+        }
+    }
+    const std::filesystem::path abs = project_.filePath(rel);
+    std::error_code ec;
+    std::filesystem::create_directories(abs.parent_path(), ec);
+    std::ofstream f(abs, std::ios::binary);
+    if (!f) {
+        droneStatus_ = "Could not write " + rel;
+        return false;
+    }
+    f << dronegen::toText(droneParams_, dronePatchTitle_);
+    dronePatchRel_ = rel;
+    droneDirty_ = false;
+    droneStatus_ = "Saved " + rel;
+    assetsChanged();  // it is a project asset now, so the browser must see it
+    return true;
+}
+
+void App::droneNewPatch() {
+    droneParams_ = dronegen::Params();
+    dronePreset_ = 0;
+    dronePatchTitle_.clear();
+    dronePatchRel_.clear();
+    droneDirty_ = false;
+    droneHeadSec_ = 0.0;
+    droneWaveMin_.clear();
+    droneWaveMax_.clear();
+    droneRenderResult_ = dronegen::RenderResult();
+    std::snprintf(droneTrackName_, sizeof(droneTrackName_), "ambient");
+    droneStatus_ = "New patch.";
+    dronePushParams();
+    if (droneLive_) droneLive_->reset();
+}
+
+std::vector<std::string> App::dronePatchList() const {
+    std::vector<std::string> out;
+    if (!hasProject_) return out;
+    std::error_code ec;
+    const std::filesystem::path root = project_.filePath("res");
+    if (!std::filesystem::exists(root, ec)) return out;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(root, ec)) {
+        if (!e.is_regular_file()) continue;
+        std::string ext = e.path().extension().string();
+        for (char& c : ext) c = (char)tolower((unsigned char)c);
+        if (ext != ".drone") continue;
+        out.push_back("res/" + std::filesystem::relative(e.path(), root, ec)
+                                   .generic_string());
+    }
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 bool App::droneLoadPatch(const std::string& relOrAbs) {
@@ -423,6 +503,19 @@ bool App::droneLoadPatch(const std::string& relOrAbs) {
     const std::string stem = abs.stem().string();
     std::snprintf(droneTrackName_, sizeof(droneTrackName_), "%s", stem.c_str());
     droneStatus_ = "Loaded patch " + abs.filename().string();
+    // A patch opened from inside the project becomes the open document; one
+    // browsed from elsewhere is treated as an import (Save gives it a home).
+    {
+        std::error_code rec;
+        const std::filesystem::path root(project_.dir);
+        const std::filesystem::path rel = std::filesystem::relative(abs, root, rec);
+        const std::string relStr = rel.generic_string();
+        dronePatchRel_ = (!rec && !relStr.empty() && relStr.rfind("..", 0) != 0)
+                             ? relStr
+                             : std::string();
+    }
+    droneDirty_ = false;
+    droneHeadSec_ = 0.0;
     droneWaveMin_.clear();
     droneWaveMax_.clear();
     if (droneLive_) {
@@ -1531,53 +1624,153 @@ void App::drawDroneGeneratorWindow() {
     }
     ImGui::EndChild();
 
-    // ---- bottom bar: name, render, patch I/O ------------------------------
+    // ---- bottom bar: the document, the render, the patch I/O --------------
     ImGui::Separator();
-    ImGui::SetNextItemWidth(scaled(170.0f));
-    ImGui::InputText("Track name", droneTrackName_, sizeof(droneTrackName_));
+    ImGui::SetNextItemWidth(scaled(150.0f));
+    if (ImGui::InputText("Name", droneTrackName_, sizeof(droneTrackName_)))
+        droneDirty_ = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Names both files: res/audio/<name>.wav and the\n"
+                          "<name>.drone patch beside it.");
+    ImGui::SameLine();
+    if (ImGui::Button("New")) {
+        if (droneDirty_)
+            ImGui::OpenPopup("dronenewask");
+        else
+            droneNewPatch();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Open...")) ImGui::OpenPopup("droneopen");
+    ImGui::SameLine();
+    const std::string saveTarget =
+        dronePatchRel_.empty() ? std::string("res/audio/") + droneTrackName_ + ".drone"
+                               : dronePatchRel_;
+    if (ImGui::Button("Save")) droneSavePatch(saveTarget);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Writes %s - the patch is a project asset, so it shows up\n"
+                          "in the Asset Browser and reopens from there.",
+                          saveTarget.c_str());
+    ImGui::SameLine();
+    if (!dronePatchRel_.empty())
+        ImGui::TextDisabled("%s%s", dronePatchRel_.c_str(), droneDirty_ ? " *" : "");
+    else
+        ImGui::TextDisabled("unsaved patch%s", droneDirty_ ? " *" : "");
+
     ImGui::SameLine(0.0f, scaled(16.0f));
     if (droneRendering_) {
-        ImGui::ProgressBar(droneRenderProgress_.load(), ImVec2(scaled(190.0f), 0));
+        ImGui::ProgressBar(droneRenderProgress_.load(), ImVec2(scaled(150.0f), 0));
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) droneRenderCancel_.store(true);
     } else {
-        if (ImGui::Button("Render to res/audio", ImVec2(scaled(190.0f), 0)))
-            droneStartRender();
+        if (ImGui::Button("Render WAV", ImVec2(scaled(150.0f), 0))) droneStartRender();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Writes res/audio/<name>.wav plus a <name>.drone patch\n"
-                              "sidecar and adds the track to the project's Music list.");
-    }
-    ImGui::SameLine(0.0f, scaled(16.0f));
-    if (ImGui::Button("Save patch")) {
-        // Patches live with the project (res/audio, next to where the track
-        // would land), so this needs no dialog - the editor has no save picker.
-        const std::string rel = std::string("res/audio/") + droneTrackName_ + ".drone";
-        const std::filesystem::path abs = project_.filePath(rel);
-        std::error_code ec;
-        std::filesystem::create_directories(abs.parent_path(), ec);
-        std::ofstream f(abs, std::ios::binary);
-        if (f) {
-            f << dronegen::toText(p, dronePatchTitle_);
-            droneStatus_ = "Patch saved to " + rel;
-        } else {
-            droneStatus_ = "Could not write " + rel;
-        }
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Writes res/audio/<name>.drone without rendering audio -\n"
-                          "a work in progress you can come back to.");
-    ImGui::SameLine();
-    if (ImGui::Button("Load patch...")) {
-        const std::string path = platform::pickFile(
-            "Open drone patch", {{"TyraX drone patch (*.drone)", {"*.drone"}}});
-        if (!path.empty()) droneLoadPatch(path);
+            ImGui::SetTooltip("Renders res/audio/<name>.wav (and saves the patch\n"
+                              "next to it), then adds the track to the project's\n"
+                              "Music list. Asks before replacing an existing file.");
     }
     if (!droneStatus_.empty()) {
-        ImGui::SameLine(0.0f, scaled(16.0f));
+        ImGui::SameLine(0.0f, scaled(12.0f));
         ImGui::TextDisabled("%s", droneStatus_.c_str());
     }
 
-    if (dirty) dronePushParams();
+    // ---- the popups the buttons above raise -------------------------------
+    if (ImGui::BeginPopup("droneopen")) {
+        const std::vector<std::string> patches = dronePatchList();
+        if (patches.empty()) ImGui::TextDisabled("No .drone patches in this project yet.");
+        for (const std::string& rel : patches) {
+            const bool open = rel == dronePatchRel_;
+            if (ImGui::Selectable(rel.c_str(), open)) {
+                droneLoadPatch(rel);
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Browse for a file...")) {
+            const std::string path = platform::pickFile(
+                "Open drone patch", {{"TyraX drone patch (*.drone)", {"*.drone"}}});
+            if (!path.empty()) droneLoadPatch(path);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopupModal("Unsaved patch##dronenewask", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("This patch has unsaved changes.");
+        ImGui::TextDisabled("%s", dronePatchRel_.empty() ? "It was never saved."
+                                                         : dronePatchRel_.c_str());
+        ImGui::Spacing();
+        if (ImGui::Button("Discard and start new", ImVec2(scaled(190.0f), 0))) {
+            droneNewPatch();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Save first", ImVec2(scaled(110.0f), 0))) {
+            droneSavePatch(saveTarget);
+            droneNewPatch();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(90.0f), 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    // Overwrite confirmations. Staged by droneStartRender / droneSavePatch, which
+    // refuse to touch an existing file until the answer comes back here.
+    if (!droneAskWav_.empty() && !ImGui::IsPopupOpen("droneoverwrite"))
+        ImGui::OpenPopup("droneoverwrite");
+    if (ImGui::BeginPopupModal("Replace this track?##droneoverwrite", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s already exists.", droneAskWav_.c_str());
+        std::filesystem::path sidecar(droneAskWav_);
+        sidecar.replace_extension(".drone");
+        std::error_code sec;
+        const bool hasPatch =
+            std::filesystem::exists(project_.filePath(sidecar.generic_string()), sec);
+        ImGui::TextDisabled("Rendering replaces the track%s.",
+                            hasPatch ? " and the patch saved beside it" : "");
+        ImGui::Spacing();
+        if (ImGui::Button("Replace", ImVec2(scaled(120.0f), 0))) {
+            const std::string keep = droneAskWav_;
+            droneAskWav_.clear();
+            (void)keep;
+            droneStartRender(true);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120.0f), 0))) {
+            droneAskWav_.clear();
+            droneStatus_ = "Render cancelled - the existing track was kept.";
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (!droneAskPatch_.empty() && !ImGui::IsPopupOpen("dronepatchask"))
+        ImGui::OpenPopup("dronepatchask");
+    if (ImGui::BeginPopupModal("Replace this patch?##dronepatchask", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s already exists.", droneAskPatch_.c_str());
+        ImGui::TextDisabled("It is a different patch than the one you have open.");
+        ImGui::Spacing();
+        if (ImGui::Button("Replace it", ImVec2(scaled(120.0f), 0))) {
+            const std::string target = droneAskPatch_;
+            droneAskPatch_.clear();
+            droneSavePatch(target, true);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120.0f), 0))) {
+            droneAskPatch_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (dirty) {
+        dronePushParams();
+        droneDirty_ = true;  // the document differs from its file
+    }
     // Leave nothing armed for whatever draws next: the hook is a per-frame
     // arrangement between this window and its own knobs.
     g_autoHook = AutoWriteHook();

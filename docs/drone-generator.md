@@ -239,6 +239,41 @@ and plays the patch live. The parameter hand-off is the important part:
 A machine with no audio device is an expected state, not an error: the button
 reports it and the tool keeps working as an offline renderer.
 
+## A patch is a project asset
+
+A `.drone` is not just a sidecar of a rendered WAV, it is the **audio project**:
+the thing you twiddle and save. The generator's bottom bar is a document bar -
+**New / Open... / Save**, the open patch's path, and a `*` while it has edits the
+file does not.
+
+- **Save** writes `res/audio/<name>.drone` (or back over the patch you opened).
+  Saving over your own open patch is what "save" means and happens silently;
+  saving onto a *different* existing patch asks first.
+- **Open...** lists every `.drone` in the project, so a patch is picked by name
+  rather than hunted for in a file dialog (the dialog is still there under
+  *Browse for a file...* for patches from outside the project).
+- **Render WAV** writes the track *and* saves the patch beside it, and the pair
+  becomes the open document.
+
+The Asset Browser treats it as its own kind, **"audio project"**: it counts under
+the *Audio* filter, has its own tile colour, and its inspector reads the patch and
+describes the piece - length, rate, how many layers are on, how many automation
+lanes, whether it has been rendered yet - with an **Open in Drone Generator**
+button. Double-clicking either the patch or its rendered track opens it. In
+*Project > Music*, a track that has a patch next to it grows an **Edit** button.
+
+It never ships: `texbake` keeps `.drone` out of the disc image, like the other
+editor-only sidecars.
+
+### Overwriting is a question, not a surprise
+
+*Render WAV* refuses to touch an existing file until you say so - it names the
+track, says that the patch beside it goes too, and offers Replace or Cancel. That
+guard exists because a render writes **two** files under a name typed into a text
+box: an accidental collision would take someone's patch with it, and a patch is
+the only copy of the work (the WAV can always be re-rendered from it, never the
+other way round).
+
 ## The .drone patch
 
 Rendering writes `res/audio/<name>.drone` next to the WAV: `key = value` text,

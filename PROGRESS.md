@@ -10,6 +10,49 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (213) **A drone patch is a project asset, and rendering asks before it
+  overwrites.** Owner request after (212): "let this audio be an asset too - an
+  audio project you can twiddle and save - and make the WAV export check whether
+  the file exists first".
+  **The document half.** The generator's bottom bar became a document bar: *New*
+  / *Open...* / *Save*, the open patch's project-relative path, and a `*` while it
+  has edits the file does not (`dronePatchRel_` + `droneDirty_`, cleared by save,
+  load and render, set by the same per-frame `dirty` flag that already pushed
+  parameters to the audition). *Open...* lists every `.drone` in `res/` so a patch
+  is picked by name instead of hunted for in a file dialog - the dialog stays,
+  under *Browse for a file...*, for patches from outside the project, and one
+  opened from there deliberately does NOT become the open document until it is
+  saved somewhere inside it. A render writes the WAV *and* the patch beside it and
+  the pair becomes the document, so "render" and "save" stopped being two
+  different ideas of what the current work is.
+  **The asset half**: `.drone` is now its own `AssetKind` ("audio project") rather
+  than falling through to Other. It counts under the *Audio* filter chip, has its
+  own tile colour (appended, because `kindColor`'s cases are numeric and inserting
+  one would have shifted every existing colour), and its inspector READS the patch
+  - length, rate, layers on, automation lanes, whether it has been rendered - with
+  an *Open in Drone Generator* button. Double-clicking the patch or its rendered
+  track opens it, and a track with a patch beside it grows an *Edit* button in
+  *Project > Music*. Still editor-only: texbake keeps it off the disc.
+  **The guard.** *Render WAV* stages its target and raises a modal instead of
+  writing when the file exists ("Rendering replaces the track and the patch saved
+  beside it" / Replace / Cancel); `droneSavePatch` does the same when the target is
+  a *different* patch than the open one - saving over your own is what save means.
+  The reason it matters: a render writes TWO files under a name typed into a text
+  box, and the patch is the only copy of the work (a WAV can always be re-rendered
+  from a patch, never the other way round).
+  **Verified** with a scripted pass inside the editor: render #1 to a free name
+  prompts nothing and adopts `res/audio/selftest.drone` with dirty cleared; render
+  #2 onto that name stages the prompt and the modal is open instead of a render
+  starting; Save to a free name succeeds, adopts the path and clears dirty; Save
+  onto another patch returns false and stages the confirmation with the right
+  path; the picker finds both patches; New clears the path and resets the value;
+  reopening returns the saved value (999 Hz cutoff, dirty 0) - and the files on
+  disk carry the right values independently of the UI.
+  **A methodology note worth keeping**: the first version of that check read state
+  inside `printf` argument lists, and C++ does not sequence a call against the
+  other arguments - three "failures" were the test reading values from before the
+  call. If a scripted check disagrees with a file on disk, suspect the check.
+
 - (212) **The seamless loop ticked, and it was the fold that did it.** Owner
   report on (210): with *Seamless loop* on there is a clear tick - "not at the end
   of the file, but where the tail starts". Exactly right, and the description

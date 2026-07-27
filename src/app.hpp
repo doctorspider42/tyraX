@@ -287,6 +287,7 @@ private:
         Music,      // res/audio WAV (streamed)
         Sound,      // res/sfx WAV (ADPCM one-shot)
         Font,       // TTF/OTF source
+        DronePatch, // .drone - a Drone Generator audio project
         Other,
     };
     static AssetKind assetKindOf(const std::string& rel);
@@ -552,11 +553,18 @@ private:
     void dronePushParams();
     // Kicks off the offline render on a worker thread; droneTickRender() polls
     // it each frame and writes the WAV (+ .drone sidecar) when it finishes.
-    void droneStartRender();
+    void droneStartRender(bool confirmedOverwrite = false);
     void droneTickRender();
     // Loads a .drone patch (a rendered track's sidecar, or any hand-written
     // one) into the tool. Returns false and sets droneStatus_ on a bad file.
     bool droneLoadPatch(const std::string& relOrAbs);
+    // Writes the patch to a project-relative path. Returns false and stages a
+    // confirmation when that file exists and is not the one already open.
+    bool droneSavePatch(const std::string& rel, bool confirmed = false);
+    // Back to defaults (asks first when the open patch has unsaved edits).
+    void droneNewPatch();
+    // Every .drone in the project, for the Open picker.
+    std::vector<std::string> dronePatchList() const;
     // Rebuilds the min/max envelope the waveform strip draws from the last
     // render, so the display does not walk a million samples per frame.
     void droneBuildWaveOverview();
@@ -1083,6 +1091,13 @@ private:
     std::string droneAudioError_;
     std::string droneStatus_;
     std::string dronePatchTitle_;
+    // The open patch, as a document: its project-relative path (empty = never
+    // saved) and whether it has edits the file does not have yet.
+    std::string dronePatchRel_;
+    bool droneDirty_ = false;
+    // Overwrite guards: the render (and a Save onto someone else's file) stage
+    // their target here and raise a confirmation instead of clobbering it.
+    std::string droneAskWav_, droneAskPatch_;
     std::thread droneRenderThread_;
     std::atomic<float> droneRenderProgress_{0.0f};
     std::atomic<bool> droneRenderCancel_{false};
