@@ -5,9 +5,9 @@
       "includePath": [
         "${workspaceFolder}/inc",
         "${workspaceFolder}/src",
-        "D:/tyra-editor/.claude/worktrees/custom-screen-effects-9a26d4/vendor/tyra/engine/inc",
-        "C:/Users/papaj/AppData/Local/tyra-editor/ps2sdk/ee/include",
-        "C:/Users/papaj/AppData/Local/tyra-editor/ps2sdk/common/include"
+        "/home/spider/Projects/tyra-editor/.claude/worktrees/ambitious-end-of-day-feature-6e6ef4/vendor/tyra/engine/inc",
+        "/home/spider/.config/tyra-editor/ps2sdk/ee/include",
+        "/home/spider/.config/tyra-editor/ps2sdk/common/include"
       ],
       "defines": ["_EE"],
       "cStandard": "c11",

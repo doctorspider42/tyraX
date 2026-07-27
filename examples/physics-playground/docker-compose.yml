@@ -2,7 +2,7 @@ name: physics-playground
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-abf473e4
+    name: tyra-engine-1ed827ad
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "D:/tyra-editor/.claude/worktrees/custom-screen-effects-9a26d4/vendor/tyra:/engine-src:ro"
+      - "/home/spider/Projects/tyra-editor/.claude/worktrees/ambitious-end-of-day-feature-6e6ef4/vendor/tyra:/engine-src:ro"
