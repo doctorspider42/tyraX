@@ -22438,10 +22438,12 @@ void App::drawTimeMachinePanel() {
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled(
-        "Rewound: objects (transform, physics, animation), the walker and its\n"
-        "motion, flow variables, save values, and every graph's own timers and\n"
-        "latches. Not rewound: sequences mid-play, menus, audio and particles.\n"
+    ImGui::TextDisabled("What a rewind puts back");
+    prefHelp(
+        "Objects (transform, physics, animation), the walker and its motion,\n"
+        "flow variables, save values, and every graph's own timers and\n"
+        "latches.\n\n"
+        "NOT put back: sequences mid-play, menus, audio and particles.\n"
         "See docs/time-machine.md.");
 }
 
@@ -23052,11 +23054,13 @@ void App::drawDebuggerWindow() {
                                           nodeLabel(*n).c_str());
                 }
         }
-        if (!project_.settings.eeCrashHandler)
-            ImGui::TextDisabled(
-                "Tip: Preferences > Build > \"EE crash handler\" makes the game "
-                "write a\nregister dump and backtrace instead of just going "
-                "quiet (experimental).");
+        if (!project_.settings.eeCrashHandler) {
+            ImGui::TextDisabled("Tip: turn the EE crash handler on");
+            prefHelp(
+                "Preferences > Build > \"EE crash handler\" makes the game write\n"
+                "a register dump and a backtrace instead of just going quiet\n"
+                "(experimental).");
+        }
     }
 
     // Armed countdowns, right under the transport: a Delay only advances on
@@ -23335,10 +23339,11 @@ void App::drawDebuggerWindow() {
     if (ImGui::BeginTabItem("Stats")) {
         const livedbg::Stats& st = dbgSnap_.stats;
         if (!live || !st.valid) {
-            ImGui::TextWrapped(
-                "No stats. They arrive with the game's snapshots - run a debug "
-                "build with the Live Debugger on. (A game built before this "
-                "panel existed reports none: rebuild it.)");
+            ImGui::TextDisabled("No stats yet.");
+            prefHelp(
+                "They arrive with the game's snapshots - run a debug build with\n"
+                "the Live Debugger on. A game built before this panel existed\n"
+                "reports none: rebuild it.");
         } else {
             ImGui::SeparatorText("Frame");
             ImGui::Text("%d FPS", st.fps);
@@ -23346,12 +23351,13 @@ void App::drawDebuggerWindow() {
             ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
                                 "%u vertices",
                                 st.flushes, st.qw, st.verts);
-            if (st.maxChunkVerts)
-                ImGui::TextDisabled(
-                    "Largest single stream: %d vertices - that IS the VU1 "
-                    "buffer's capacity for this vertex layout, and the size a "
-                    "mesh gets cut into.",
-                    st.maxChunkVerts);
+            if (st.maxChunkVerts) {
+                ImGui::TextDisabled("Largest single stream: %d vertices",
+                                    st.maxChunkVerts);
+                prefHelp(
+                    "That IS the VU1 buffer's capacity for this vertex layout,\n"
+                    "and the size a mesh gets cut into.");
+            }
 
             ImGui::SeparatorText("GS VRAM");
             const float freeMB = st.vramFreeKB / 1024.0f;
@@ -23664,10 +23670,10 @@ void App::drawDebuggerWindow() {
                         "vertices, 12.4 units.",
                         dbgVuCap_.diffMaxX, dbgVuCap_.diffMaxY,
                         dbgVuCap_.diffCompared);
-                    ImGui::TextWrapped(
-                        "One flush can carry several meshes and VU1 memory holds "
-                        "only the LAST MVP, so this comparison is exact only for a "
-                        "single-mesh flush - read it as a hint, not a verdict "
+                    prefHelp(
+                        "One flush can carry several meshes and VU1 memory holds\n"
+                        "only the LAST MVP, so this comparison is exact only for\n"
+                        "a single-mesh flush - read it as a hint, not a verdict\n"
                         "(docs/devkit.md).");
                 }
             }
@@ -23702,11 +23708,12 @@ void App::drawDebuggerWindow() {
                             livedbg::kMaxWatchObjects);
         if (dbgObjWatch_.empty()) {
             ImGui::Separator();
-            ImGui::TextWrapped(
-                "Nothing watched. Select an object and click \"+ Watch "
-                "selected\" - the game will report its position, rotation, "
-                "scale, color and flags EVERY frame, and the path it takes is "
-                "drawn in the viewport.");
+            ImGui::TextDisabled("Nothing watched yet.");
+            prefHelp(
+                "Select an object and click \"+ Watch selected\" above. The game\n"
+                "then reports that object's position, rotation, scale, color and\n"
+                "flags EVERY frame, and the path it takes is drawn in the\n"
+                "viewport.");
         }
         for (size_t i = 0; i < dbgObjWatch_.size(); ++i) {
             DbgObjTrack& t = dbgObjWatch_[i];
@@ -23796,10 +23803,10 @@ void App::drawDebuggerWindow() {
                         "Release profile - graphs run as compiled C++ only.");
                     break;
                 case LogicState::NoBuild:
-                    ImGui::TextWrapped(
-                        "No built-graph list yet. Build & Run (F5) once; after "
-                        "that, editing a graph takes effect in the running game "
-                        "without another build.");
+                    ImGui::TextDisabled("No built-graph list yet.");
+                    prefHelp(
+                        "Build & Run (F5) once; after that, editing a graph takes\n"
+                        "effect in the running game without another build.");
                     break;
                 case LogicState::InSync:
                     ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.6f, 1.0f),

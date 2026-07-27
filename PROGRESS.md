@@ -10,6 +10,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (211) **Debugger: the explanations moved behind the (?)** (user: "dużo mamy
+  w zakładce debug litanii ... takie rzeczy, które są jakimś objaśnieniem ukryj
+  pod tooltipami"). Seven walls of prose in the Debugger's tabs became a short
+  line plus the repo's existing hover marker (`prefHelp` - the same idiom
+  entries (69) and (92) established, reused rather than copied a third time, so
+  the dimmed `(?)` means one thing everywhere).
+  The split is always the same: **what the panel currently IS stays visible,
+  why it is that way goes on hover.** So "Largest single stream: 92 vertices"
+  keeps the number and loses the sentence explaining that it IS the VU1
+  buffer's capacity; the VU host-reference keeps its measured deltas and hides
+  the caveat about multi-mesh flushes; the Watch tab says "Nothing watched yet."
+  and explains what watching does behind the marker; Stats, Live Logic's
+  no-build case and the EE-crash-handler tip got the same treatment. The Rewind
+  tab this session added was guilty of exactly the same thing (a four-line list
+  of what a rewind does and does not put back) and got it too.
+  One thing worth writing down, because it bit mid-change: three of these were
+  `TextWrapped`, and swapping them for `TextDisabled` + a marker quietly drops
+  the wrapping - fine on a wide window, clipped in a narrow dock. The visible
+  half of each was shortened to a few words so it survives on its own; a
+  `SameLine` marker after a line that might wrap is the thing to avoid.
+  *Verified*: clean build, and a Debug editor (IM_ASSERT live) opened on the
+  Debugger layout for 22 s with no assertion - the marker adds a `SameLine` +
+  `TextDisabled` per site, which is exactly the sort of thing an unbalanced
+  layout call would trip. The look still wants a human: this box's compositor
+  refuses non-interactive screen capture (see tyra-testing).
 - (210) **The time machine: putting the running PlayStation 2 back where it
   was** (user, after the last merge: "zróbmy to A i B z oryginalnego pomysłu z
   tym time machine", then "niech mi to dysku nie zapierdoli"). **Phase A of that
