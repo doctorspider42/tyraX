@@ -7750,6 +7750,18 @@ void TerrainGame::setupLightBeams() {
       b.coneBag->count = 24;
     }
   }
+  // REBIND AFTER THE VECTOR STOPPED GROWING. The bags hold pointers INTO the
+  // element (the model matrix, the single color), and every emplace_back that
+  // reallocates moves the elements out from under every earlier bag - which
+  // then feeds the pipeline a freed model matrix and draws nothing at all.
+  // Silent, and it always spares the LAST element, so it reads as "only one of
+  // my lights has a beam". setupLightPools happens to reserve() exactly and so
+  // escaped it; this pass cannot be defeated by adding an element later.
+  for (LightBeam& b : lightBeams) {
+    b.coronaInfo->model = &b.mat;
+    b.coronaColorBag->single = &b.coronaColor;
+    if (b.coneInfo) b.coneInfo->model = &b.mat;
+  }
 }
 
 // Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
@@ -7965,6 +7977,9 @@ void TerrainGame::setupBlobShadows() {
     b.info->shadingType = TyraShadingFlat;
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->dynLightPick = false;  // as for the projected patches: a dark
+                                   // blob under a dynamic light was picked up
+                                   // by that light and drawn BRIGHT
     b.info->fullClipChecks = true;  // near-camera quad: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
@@ -7977,6 +7992,12 @@ void TerrainGame::setupBlobShadows() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = 6;
+  }
+  // See setupLightBeams: the bags point INTO the vector elements, so they are
+  // rebound once the vector has stopped reallocating under them.
+  for (BlobShadow& b : blobShadows) {
+    b.info->model = &b.mat;
+    b.colorBag->single = &b.color;
   }
 }
 
@@ -8045,6 +8066,12 @@ void TerrainGame::setupProjShadows() {
     b.info->shadingType = TyraShadingFlat;
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->dynLightPick = false;  // a SHADOW must never be re-lit: the patch
+                                   // sits inside a light's pool by
+                                   // construction, and the per-bag pick lifted
+                                   // its black straight back to the light's
+                                   // color - a bright quad where the shadow
+                                   // should be (same rule as the pools)
     b.info->fullClipChecks = true;  // big near-camera triangles: crossing
                                     // ones must CLIP, not drop whole (a
                                     // dropped 3-unit ground quad is a hole)
@@ -8060,6 +8087,14 @@ void TerrainGame::setupProjShadows() {
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
   }
+  // See setupLightBeams: the bags point INTO the vector elements, so they are
+  // rebound once the vector has stopped reallocating under them. This is what
+  // made projected shadows draw NOTHING - `used` counts up from 0, so the only
+  // slot whose model matrix survived (the last one) was never the one in use.
+  for (ProjShadow& b : projShadows) {
+    b.info->model = &b.mat;
+    b.colorBag->single = &b.color;
+  }
 }
 
 // Per frame, end of renderScene: for the nearest casters, render the
@@ -8071,11 +8106,22 @@ void TerrainGame::setupProjShadows() {
 void TerrainGame::renderProjShadows() {
   if (projShadows.empty()) return;
 
+  // The scene sun as ONE candidate source among the point lights. Its score
+  // is how much of the scene's shading it actually accounts for, so a black
+  // sun (a night scene lit only by torches) scores 0 and any lit torch beats
+  // it, while a daylight scene still throws the sun shadow it always did.
+  // Below ~15 degrees of elevation the ground projection runs away, so a low
+  // sun is simply not a candidate.
   float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
-  if (sl < 0.0001F) return;
-  sxd /= sl, syd /= sl, szd /= sl;
-  if (syd < 0.25F) return;  // sun too low - the projection degenerates
+  if (sl > 0.0001F)
+    sxd /= sl, syd /= sl, szd /= sl;
+  else
+    syd = 0.0F;
+  float sunCol = SCENE_LIGHT_COL_R;
+  if (SCENE_LIGHT_COL_G > sunCol) sunCol = SCENE_LIGHT_COL_G;
+  if (SCENE_LIGHT_COL_B > sunCol) sunCol = SCENE_LIGHT_COL_B;
+  const float sunScore = syd < 0.25F ? 0.0F : SCENE_DIFFUSE * sunCol;
 
   // Nearest visible casters win the slots; shadows fade out 35..50 units
   // from the camera so a slot handoff never pops.
@@ -8103,10 +8149,9 @@ void TerrainGame::renderProjShadows() {
   auto& core = engine->renderer.core;
   const CameraInfo3D mainCam(&cameraPosition, &cameraLookAt);
   M4x4 lightVP[Tyra::RendererCoreShadowMap::slots];
-  float scx[Tyra::RendererCoreShadowMap::slots],
-      scy[Tyra::RendererCoreShadowMap::slots],
-      scz[Tyra::RendererCoreShadowMap::slots],
-      srad[Tyra::RendererCoreShadowMap::slots],
+  float sgx[Tyra::RendererCoreShadowMap::slots],
+      sgz[Tyra::RendererCoreShadowMap::slots],
+      shalf[Tyra::RendererCoreShadowMap::slots],
       sfade[Tyra::RendererCoreShadowMap::slots];
   int used = 0;
 
@@ -8116,31 +8161,108 @@ void TerrainGame::renderProjShadows() {
     RuntimeObject& o = runtimeObjects[i];
     // Caster bounding sphere: half-diagonal of the scaled unit cube, and
     // the center lifted for feet-anchored things (anim models, the player).
-    float ms = o.data.scale[0];
-    if (o.data.scale[1] > ms) ms = o.data.scale[1];
-    if (o.data.scale[2] > ms) ms = o.data.scale[2];
-    const float r = 0.87F * ms + 0.25F;
+    // The REAL half-diagonal, not 0.87 * the largest axis - identical for a
+    // uniform scale (0.5*sqrt(3) = 0.866) but a third smaller on a wall-like
+    // caster, which used to hand the light camera a frustum sized for a cube
+    // it is not and waste most of the 64x64 slot on empty margin.
+    const float sxs = o.data.scale[0], sys = o.data.scale[1],
+                szs = o.data.scale[2];
+    const float r =
+        0.5F * sqrtf(sxs * sxs + sys * sys + szs * szs) + 0.25F;
     const float liftY =
         (o.data.animModel >= 0 || i == PLAYER_INDEX) ? o.data.scale[1] * 0.5F
                                                      : 0.0F;
     const float cx = o.data.position[0], cy = o.data.position[1] + liftY,
                 cz = o.data.position[2];
 
-    if (o.dirty) rebuildObjectGeometry(i);
+    // A statically batched caster owns no solo bag - its geometry lives only
+    // in the merged batch - so the silhouette pass had nothing to submit and
+    // the object simply cast nothing. Bake the solo bag on first use, exactly
+    // like the portal through-view does (a DIRTY member is left alone:
+    // rebuildObjectGeometry would eat the flag renderStaticBatches keys its
+    // demotion on, and this pass runs after it in the frame anyway).
+    const bool batched =
+        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+    if (batched) {
+      if (objectGeometry[i].parts.empty() && !o.dirty) rebuildObjectGeometry(i);
+    } else if (o.dirty) {
+      rebuildObjectGeometry(i);
+    }
     ObjectGeometry& g = objectGeometry[i];
     const bool anim = g.animInst != nullptr;
     if (!anim && g.parts.empty()) continue;
 
-    // Light camera: from the sun toward the caster, FOV sized so the
-    // silhouette keeps a ~25% transparent border (CLAMP smears edge texels
-    // outward - the border guarantees the edges stay empty).
-    const float D = r * 4.0F + 1.0F;
-    const float fovDeg = 2.0F * atanf(r * 1.3F / D) * (180.0F / 3.14159265F);
+    // This caster's light. A point light is a POSITION, so the direction is
+    // per caster and the shadow swings around the prop as the torch moves
+    // instead of all shadows sharing one sun vector. Candidates are scored by
+    // how much they actually light the caster (authored brightness x this
+    // frame's live level x linear falloff), so a flickering light's shadow
+    // breathes with it and a switched-off one stops casting. A light INSIDE
+    // the caster's sphere or below it cannot throw a ground shadow - skip
+    // that light, not the caster: the next one may be fine.
+    float bestScore = sunScore;
+    bool bestSun = true;
+    float lpx = 0.0F, lpy = 0.0F, lpz = 0.0F, reachFade = 1.0F;
+    auto consider = [&](float px, float py, float pz, float radius,
+                        float bright, float level) {
+      if (radius < 0.01F || bright <= 0.0F || level <= 0.0F) return;
+      const float dx = cx - px, dy = cy - py, dz = cz - pz;
+      const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (d < r * 1.15F + 0.05F) return;  // the light is inside the caster
+      if (dy > -0.25F * d) return;        // not above it: no ground shadow
+      const float fall = 1.0F - d / radius;
+      if (fall <= 0.0F) return;  // out of the light's reach
+      const float score = bright * level * fall;
+      if (score <= bestScore) return;
+      bestScore = score;
+      bestSun = false;
+      lpx = px, lpy = py, lpz = pz;
+      // Fade out over the outer quarter of the reach, so walking out of a
+      // light's radius dissolves the shadow instead of popping it off.
+      reachFade = fall > 0.25F ? 1.0F : fall * 4.0F;
+    };
+    for (const DynLightRt& L : g_dynLights) {
+      if (L.lastLevel <= 0.0F || L.objIndex >= (int)runtimeObjects.size())
+        continue;
+      const SceneObjectData& ld = runtimeObjects[L.objIndex].data;  // live
+      consider(ld.position[0], ld.position[1], ld.position[2], ld.lightRadius,
+               ld.lightBright, L.lastLevel);
+    }
+    // Baked point lights cast too: their light is vertex-baked and static,
+    // but the CASTER moves, so its shadow cannot be baked with it.
+    for (const BakedPointLight& L : g_scenePointLights)
+      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F);
+    if (bestSun && sunScore <= 0.0F) continue;  // nothing lights it
+
+    // Light camera. For a point light the eye sits AT the light, so the
+    // silhouette - and the receiver mapping, which goes through this very
+    // view-proj - diverges the way a torch shadow really does: a prop
+    // walking up to the flame grows its shadow instead of sliding a
+    // fixed-size one around. The sun has no position, so it keeps the
+    // parallel stand-in: an eye a fixed distance up the sun vector.
+    float ex, ey, ez;
+    if (bestSun) {
+      const float D = r * 4.0F + 1.0F;
+      ex = cx + sxd * D, ey = cy + syd * D, ez = cz + szd * D;
+    } else {
+      ex = lpx, ey = lpy, ez = lpz;
+    }
+    float ddx = cx - ex, ddy = cy - ey, ddz = cz - ez;
+    const float eDist = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
+    if (eDist < 0.0001F) continue;
+    ddx /= eDist, ddy /= eDist, ddz /= eDist;
+    if (ddy > -0.25F) continue;  // ray too flat: the ground hit runs away
+
+    // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
+    // smears edge texels outward - the border guarantees the edges stay
+    // empty). Capped: a light almost touching the caster asks for a
+    // near-180-degree frustum, which no projection survives.
+    float fovDeg = 2.0F * atanf(r * 1.3F / eDist) * (180.0F / 3.14159265F);
+    if (fovDeg > 100.0F) fovDeg = 100.0F;
     core.shadowMap.begin(used);
-    core.renderer3D.pushEnvView(
-        Vec4(cx + sxd * D, cy + syd * D, cz + szd * D, 1.0F),
-        Vec4(cx, cy, cz, 1.0F), fovDeg,
-        (float)Tyra::RendererCoreShadowMap::size);
+    core.renderer3D.pushEnvView(Vec4(ex, ey, ez, 1.0F),
+                                Vec4(cx, cy, cz, 1.0F), fovDeg,
+                                (float)Tyra::RendererCoreShadowMap::size);
     lightVP[used] = core.renderer3D.getViewProj();
     if (anim) {
       for (auto& ap : g.animParts)
@@ -8151,35 +8273,56 @@ void TerrainGame::renderProjShadows() {
     }
     core.renderer3D.popEnvView(mainCam);
 
-    scx[used] = cx, scy[used] = cy, scz[used] = cz;
-    srad[used] = r;
+    // Where the light ray through the caster centre meets the ground. The
+    // second sample re-lands the ray on the terrain it actually reaches - a
+    // long shadow can walk a fair way up or down a slope.
+    float gy = terrainHeightAt(cx, cz);
+    float tg = (cy - gy) / -ddy;
+    float gx = cx + ddx * tg, gz = cz + ddz * tg;
+    gy = terrainHeightAt(gx, gz);
+    tg = (cy - gy) / -ddy;
+    gx = cx + ddx * tg, gz = cz + ddz * tg;
+
+    // Patch size. A point light diverges, so the umbra at ground range is
+    // r * (eDist + tg) / eDist across; the sun's eye is an artificial
+    // stand-in and keeps the old slant term instead. Both stay under the
+    // same CAP of 3.5x the caster radius: uncapped, a 3-unit monolith under
+    // a low light grew a ~14-unit carpet, the camera then stands INSIDE the
+    // quad, and its triangles straddle the near plane every frame - exactly
+    // where big triangles are fragile (and it looked wrong anyway). The cost
+    // is a cropped shadow tip when the light is very low or very close.
+    float half = bestSun ? r * 1.6F + tg * 0.25F
+                         : r * 1.7F * ((eDist + tg) / eDist);
+    const float halfCap = r * 3.5F;
+    if (half > halfCap) half = halfCap;
+
+    sgx[used] = gx, sgz[used] = gz, shalf[used] = half;
     const float dist = sqrtf(c.d2);
-    sfade[used] = dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F;
+    sfade[used] =
+        (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
     ++used;
   }
   if (used == 0) return;
   core.shadowMap.end();
 
-  // Receiver patches: centered where the sun ray through the caster center
-  // meets the ground, sized by the caster radius + the slant stretch.
+  // Receiver patches: centered and sized in the caster loop above, where the
+  // light that threw each shadow was still in hand.
   // 4x4 cells = 96 vertices - the same single-VU1-package size as the light
   // pools, which never exhibited the multi-package drop the 5x5 (150-vert)
   // patch showed on the pad walks.
   constexpr int kCells = 4;
+  // Clip space -> slot texel. Tyra's projection does NOT normalize to +-1:
+  // the visible frustum ends at |x|,|y| = w * size/4096, because VU1 scales
+  // the divided vertex by a fixed 2048 (the same convention the portal
+  // window carve spells out). Sampling as if it were plain NDC collapsed
+  // every receiver vertex onto the silhouette's CENTRE texel - a uniform
+  // patch, which is why no shadow SHAPE ever appeared. The V axis is not
+  // flipped either: the projection already carries the Y flip (m11 = -h),
+  // so the slot's rows run the same way the screen's do.
+  const float kUv = 2048.0F / (float)Tyra::RendererCoreShadowMap::size;
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
-    const float gy = terrainHeightAt(scx[s], scz[s]);
-    const float t = (scy[s] - gy) / syd;
-    const float gx = scx[s] - sxd * t, gz = scz[s] - szd * t;
-    // Patch size: proportional to the caster, with the slant stretch CAPPED
-    // at 3.5x its radius. Uncapped (1.9x + 0.35*t) a 3-unit monolith under a
-    // low sun grew a ~14-unit carpet - the camera then stands INSIDE the
-    // quad, so its triangles straddle the near plane every frame, which is
-    // exactly where big triangles are fragile (and it looked wrong anyway).
-    // The cost is a cropped shadow tip at very low sun angles.
-    float half = srad[s] * 1.6F + t * 0.25F;
-    const float halfCap = srad[s] * 3.5F;
-    if (half > halfCap) half = halfCap;
+    const float gx = sgx[s], gz = sgz[s], half = shalf[s];
 
     int v = 0;
     for (int iz = 0; iz < kCells; ++iz) {
@@ -8199,8 +8342,8 @@ void TerrainGame::renderProjShadows() {
           const Vec4 clip = lightVP[s] * w;
           float u = 0.0F, vv = 0.0F;
           if (clip.w > 0.0001F) {
-            u = clip.x / clip.w * 0.5F + 0.5F;
-            vv = 0.5F - clip.y / clip.w * 0.5F;
+            u = 0.5F + clip.x / clip.w * kUv;
+            vv = 0.5F + clip.y / clip.w * kUv;
           }
           b.sts[v + k] = Vec4(u, vv, 1.0F, 0.0F);
         }
