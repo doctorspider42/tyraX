@@ -1,0 +1,1 @@
+{ "id": "bench000000000014", "name": "b14", "type": "box", "position": [-17.04, 20, 15.44], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.46, 0.43, 0.8], "physics": true, "physMass": 1, "physBounce": 0.88, "physFriction": 0.08, "physTumble": true, "physSleep": 3 }

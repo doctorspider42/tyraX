@@ -10,6 +10,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (213) **Fix: examples/physics-playground was not an orphan, it was lost in a
+  merge - restored** (user asked for the second leftover directory to be dealt
+  with in its own commit). It looked like the same class of droppings as (212),
+  and deleting it was the obvious move. It was not: **the README documents it**
+  in detail (the 28-body rigid-body stress bench the VU1 fast path was measured
+  on, 14-16 -> 156 FPS) and links to its own README - so the repo was
+  advertising an example a clone could not open.
+  `git log -m --diff-filter=D` on the `.tyra` named the culprit: it was deleted
+  by the merge of PR #132 (material-editor-uv-unwrap), which had no business
+  touching an example. A merge resolution ate it and left only the scaffold
+  files that happened to be ignored elsewhere. Restored whole from `57d7539a`,
+  its last good tree (72 files: the `.tyra`, `objects/`, `src/`, heights,
+  README, run scripts).
+  Restoring is not copying an old tree back, though - it had been sitting out
+  eight months of codegen. `--resave` migrated the project format and
+  `--refresh-gen` rebuilt the generated half, which moved it onto the modern
+  `src/gen/` layout (it still had the retired `src/scripts/*.gen.cpp` shape) and
+  gave it every runtime that has appeared since, this session's
+  `live_time.gen.cpp` included.
+  One thing that surfaced doing it, worth knowing: **the project `.gitignore` is
+  written by `project::create` only, never by `refreshGenerated`** - so an
+  existing project never picks up a new devkit entry, and deleting it to force a
+  rewrite just leaves the project without one. The restored example got the
+  current template copied in by hand. That create-only behaviour is exactly why
+  (212)'s repo-level net was the right shape of fix: per-project ignore files
+  cannot be relied on to be current.
+  *Verified*: a full Docker build of the restored example returns exit 0 under
+  today's codegen, and the build leaves `git status` clean - the only thing
+  tracked under its `bin/` is the keep-file.
 - (212) **Fix: devkit channel files were still reaching git** (user: "widzę, że
   livedbg.bin i livetime.bin dalej próbują lecieć do gita"). Two causes, one
   symptom.
@@ -39,10 +68,11 @@ Each finished feature lands as its own commit.
   and a `livedbg.bin` into a built example leaves `git status` clean, with
   `git check-ignore` naming the new root rule as the reason; editor builds
   clean.
-  *Flagged, not touched*: `examples/physics-playground` is a second orphan with
-  no `.tyra` (only `.vscode/`, `docker-compose.yml` and seeded `res/hud`
-  images). It leaks nothing - no `bin/` - so it is left for its owner to decide
-  on rather than removed in a fix about something else.
+  *Flagged, not touched*: `examples/physics-playground` looked like a second
+  orphan with no `.tyra` (only `.vscode/`, `docker-compose.yml` and seeded
+  `res/hud` images). It leaks nothing - no `bin/` - so it was left for its owner
+  to decide on rather than removed in a fix about something else. See (213):
+  that turned out to be the right call for the wrong reason.
 - (211) **Debugger: the explanations moved behind the (?)** (user: "dużo mamy
   w zakładce debug litanii ... takie rzeczy, które są jakimś objaśnieniem ukryj
   pod tooltipami"). Seven walls of prose in the Debugger's tabs became a short
