@@ -10,6 +10,88 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (215) **Save and Render stopped working, and the transport became Generate /
+  Record.** Two things in one pass, the first of them my own regression from
+  (213).
+  **The bug.** Owner: "neither saving nor rendering works now". Cause: the
+  cosmetic title fix at the end of (213). `OpenPopup("droneoverwrite")` hashes
+  `"droneoverwrite"`, but `BeginPopupModal("Replace this track?##droneoverwrite")`
+  hashes the WHOLE string - `ImHashStr` only resets the hash on **###**, not `##`
+  (checked in vendor/imgui/imgui.cpp rather than from memory). So the popup was
+  opened under an ID nothing ever drew, and **an open-but-undrawn modal blocks
+  input to its whole window**: every button in the Drone Generator went dead
+  after the first render onto an existing name, and `droneAskWav_` could never be
+  cleared because `IsPopupOpen` kept saying yes. Fixed by giving each popup ONE
+  string constant used by all three calls, with `###` so the title is still
+  readable. **The process lesson is the sharper one**: the scripted check in
+  (213) DID cover this modal and passed - and then I changed the titles and only
+  smoke-ran the result. A cosmetic change to an identifier is not cosmetic; re-run
+  the check that covers it. The new check counts executions of the modal BODY, not
+  just `IsPopupOpen` - the two disagreeing is exactly the failure mode (155 body
+  frames now, 0 before).
+  **The transport.** Owner: "instead of Audition, could there be a normal Record
+  and Play, stopping when the playhead reaches the end instead of playing until
+  you are sick of it - and maybe two modes, generate and record". Both now exist
+  as an explicit mode switch, because they want opposite things from the same
+  synth: **Generate** is free-running sound design (plays until stopped, ignores
+  the piece length, writes nothing, *Restart* re-seeds the random streams), while
+  **Record** is timeline-bound - *Play* starts at the playhead and **stops itself
+  at the end of the piece**, *Rec* does the same with keyframe writing armed, `|<`
+  rewinds, and stopping parks the playhead where playback actually got to so Play
+  resumes instead of restarting (Play from a playhead already at the end rewinds
+  first, like every DAW). The end-of-piece stop is polled on the UI thread: a
+  device must never be torn down from inside its own callback.
+  **Verified** in the editor by script: the modal opens AND draws (IsPopupOpen=1,
+  155 body frames) and Save writes again; Record-mode Play from 4.0 s of a 6 s
+  piece leaves `auditioning=0, head=6.00` a few seconds later - it stopped itself
+  at the end and parked the playhead there; Generate-mode Play is still running at
+  t=9.5 s of the same 6 s piece, i.e. it ignores the length by design.
+
+- (214) **The Windows build had a fourth copy of the dependency list, and it was
+  the one that ran.** Symptom: `fatal error: miniaudio.h: No such file or
+  directory` building (210)'s `src/audiopreview.cpp` on Windows, on a tree that
+  compiled cleanly on Linux - which reads like a cross-platform code bug and is
+  not one. `vendor/miniaudio` was simply never cloned. The guard that exists
+  precisely to prevent that (df9c99c9: `build.ps1` probes every `Build = $true`
+  entry of `deps.ps1` and runs `setup.ps1` itself) worked - it was just in a file
+  nobody executes. **`build` in PowerShell resolves to `build.CMD` before
+  `build.PS1`**, because PATHEXT lists `.CMD` first, and `build.cmd`/`setup.cmd`
+  were full cmd translations of their PowerShell twins carrying their own
+  hardcoded dependency list. That list froze at four entries (imgui, glfw,
+  imguizmo, imnodes) while `deps.ps1` grew to seven, so on the common
+  invocation stb's back-filled headers, ufbx and miniaudio were never fetched
+  and the guard never fired. The one-list-per-platform design was right; there
+  were four lists.
+
+  **Fix: `build.cmd` and `setup.cmd` are now thin wrappers** that shell out to
+  `build.ps1` / `setup.ps1` (`powershell -NoProfile -ExecutionPolicy Bypass
+  -File`, mapping `run`/`clean` to `-Run`/`-Clean` and propagating the exit
+  code). A wrapper cannot drift; the comment in each says so and points at the
+  rule. Windows now has exactly one build script, matching Linux's one.
+
+  **The rule this cost us is now written down**, since "someone edits the
+  Windows script and not the Linux one" is a class of bug, not an incident: a
+  new **"Platform parity"** section in `tyra-editor-dev` inventories every file
+  that exists twice (`deps.ps1`/`deps.sh`, `setup.*`, `build.*`, the
+  `if(WIN32)`/`else()` halves of CMakeLists, the `#ifdef _WIN32`/`#else` halves
+  of `platform.cpp`) with the rule that a pair is edited in one commit or not at
+  all, plus both traps by name; `tyra-testing` gained the PATHEXT trap where the
+  build instructions are and extended its "half-checked until the other side
+  builds" note to the build scripts; `tyra-docs` gained "the platform twin" as a
+  checklist item; `CLAUDE.md` gained the one-line always-on version.
+
+  **Verified.** `./setup.ps1` fetched `vendor/miniaudio`; `./build.ps1` compiled
+  and linked `tyrax-editor.exe` clean, miniaudio included - MinGW needs no extra
+  link library for it (WASAPI is dlopen'd, `ole32` was already there for the
+  file pickers). `cmd.exe /c build.cmd` through the new wrapper reaches the same
+  build (`ninja: no work to do`, exit 0). The Windows audio path itself was
+  probed rather than assumed: a host harness linking `audiopreview.cpp` opened a
+  device, pulled SILENCE for 500 ms and stopped - `ma_device_init` picked the
+  default playback device by name at 44100 Hz, 16 callbacks / 28224 frames
+  arrived on the audio thread, `stop()` joined cleanly. Not re-verified on
+  Linux: the change is Windows-only (two `.cmd` files) and touches nothing
+  `build.sh` reads.
+
 - (213) **A drone patch is a project asset, and rendering asks before it
   overwrites.** Owner request after (212): "let this audio be an asset too - an
   audio project you can twiddle and save - and make the WAV export check whether
@@ -87,51 +169,6 @@ Each finished feature lands as its own commit.
   Worth keeping in mind for any future "fold a tail back" trick: the join needs a
   window, and the window needs to be shorter than the thing it is windowing is
   loud.
-
-- (212) **The Windows build had a fourth copy of the dependency list, and it was
-  the one that ran.** Symptom: `fatal error: miniaudio.h: No such file or
-  directory` building (210)'s `src/audiopreview.cpp` on Windows, on a tree that
-  compiled cleanly on Linux - which reads like a cross-platform code bug and is
-  not one. `vendor/miniaudio` was simply never cloned. The guard that exists
-  precisely to prevent that (df9c99c9: `build.ps1` probes every `Build = $true`
-  entry of `deps.ps1` and runs `setup.ps1` itself) worked - it was just in a file
-  nobody executes. **`build` in PowerShell resolves to `build.CMD` before
-  `build.PS1`**, because PATHEXT lists `.CMD` first, and `build.cmd`/`setup.cmd`
-  were full cmd translations of their PowerShell twins carrying their own
-  hardcoded dependency list. That list froze at four entries (imgui, glfw,
-  imguizmo, imnodes) while `deps.ps1` grew to seven, so on the common
-  invocation stb's back-filled headers, ufbx and miniaudio were never fetched
-  and the guard never fired. The one-list-per-platform design was right; there
-  were four lists.
-
-  **Fix: `build.cmd` and `setup.cmd` are now thin wrappers** that shell out to
-  `build.ps1` / `setup.ps1` (`powershell -NoProfile -ExecutionPolicy Bypass
-  -File`, mapping `run`/`clean` to `-Run`/`-Clean` and propagating the exit
-  code). A wrapper cannot drift; the comment in each says so and points at the
-  rule. Windows now has exactly one build script, matching Linux's one.
-
-  **The rule this cost us is now written down**, since "someone edits the
-  Windows script and not the Linux one" is a class of bug, not an incident: a
-  new **"Platform parity"** section in `tyra-editor-dev` inventories every file
-  that exists twice (`deps.ps1`/`deps.sh`, `setup.*`, `build.*`, the
-  `if(WIN32)`/`else()` halves of CMakeLists, the `#ifdef _WIN32`/`#else` halves
-  of `platform.cpp`) with the rule that a pair is edited in one commit or not at
-  all, plus both traps by name; `tyra-testing` gained the PATHEXT trap where the
-  build instructions are and extended its "half-checked until the other side
-  builds" note to the build scripts; `tyra-docs` gained "the platform twin" as a
-  checklist item; `CLAUDE.md` gained the one-line always-on version.
-
-  **Verified.** `./setup.ps1` fetched `vendor/miniaudio`; `./build.ps1` compiled
-  and linked `tyrax-editor.exe` clean, miniaudio included - MinGW needs no extra
-  link library for it (WASAPI is dlopen'd, `ole32` was already there for the
-  file pickers). `cmd.exe /c build.cmd` through the new wrapper reaches the same
-  build (`ninja: no work to do`, exit 0). The Windows audio path itself was
-  probed rather than assumed: a host harness linking `audiopreview.cpp` opened a
-  device, pulled SILENCE for 500 ms and stopped - `ma_device_init` picked the
-  default playback device by name at 44100 Hz, 16 callbacks / 28224 frames
-  arrived on the audio thread, `stop()` joined cleanly. Not re-verified on
-  Linux: the change is Windows-only (two `.cmd` files) and touches nothing
-  `build.sh` reads.
 
 - (211) **The Drone Generator grew a timeline: keyframes that write themselves
   when you turn a knob.** Follow-up request on (210) - "could a track change over

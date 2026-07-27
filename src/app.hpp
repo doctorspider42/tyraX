@@ -548,6 +548,11 @@ private:
     // Starts/stops live audition. Opening the device also creates the
     // LiveSynth; a machine with no sound card just gets droneAudioError_.
     void droneAudition(bool on);
+    // Transport verbs. dronePlay starts at the playhead (rewinding first when it
+    // is already at the end, like every DAW); droneStop parks the playhead where
+    // playback actually got to.
+    void dronePlay(bool record);
+    void droneStop();
     // Pushes droneParams_ into the running LiveSynth. Every knob edit calls it,
     // so what you hear is always the current patch.
     void dronePushParams();
@@ -1088,6 +1093,12 @@ private:
     std::unique_ptr<dronegen::LiveSynth> droneLive_;
     std::unique_ptr<audiopreview::Device> droneDevice_;
     bool droneAuditioning_ = false;
+    // Transport. Generate mode is free-running sound design (it plays until you
+    // stop it); Record mode is bound to the timeline - it starts at the playhead,
+    // stops itself at the end of the piece, and Rec writes keyframes while it
+    // runs. droneRecording_ is only true in the second case.
+    int droneMode_ = 0;  // 0 = Generate, 1 = Record
+    bool droneRecording_ = false;
     std::string droneAudioError_;
     std::string droneStatus_;
     std::string dronePatchTitle_;

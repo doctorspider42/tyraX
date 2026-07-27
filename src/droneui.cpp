@@ -25,6 +25,17 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 
+// Popup names. ONE spelling each, used by OpenPopup, IsPopupOpen and
+// BeginPopupModal alike, because those three must agree on the ID. Note the
+// THREE hashes: ImHashStr only resets the hash on "###", so a "Title##id" name
+// hashes as the whole string and does NOT match an OpenPopup("id") - which
+// leaves a modal that is open but never drawn, and an open modal swallows every
+// click in the window. That is exactly how a cosmetic title change broke Save
+// and Render (PROGRESS 215).
+constexpr const char* kPopupOverwrite = "Replace this track?###droneoverwrite";
+constexpr const char* kPopupPatchAsk = "Replace this patch?###dronepatchask";
+constexpr const char* kPopupNewAsk = "Unsaved patch###dronenewask";
+
 // --- automation write hook -------------------------------------------------
 
 // Every knob binds straight to a field of the window's `droneParams_`, so the
@@ -306,6 +317,28 @@ void App::droneAudition(bool on) {
         droneDevice_->start(droneParams_.sampleRate,
                             [live](float* out, int frames) { live->render(out, frames); });
     droneAudioError_ = droneAuditioning_ ? std::string() : droneDevice_->error();
+}
+
+void App::dronePlay(bool record) {
+    if (droneMode_ == 1) {
+        // Record mode is timeline-bound: play from the playhead, and rewind when
+        // it is parked at the end so Play always plays something.
+        if (droneHeadSec_ >= (double)droneParams_.lengthSec - 0.05) droneHeadSec_ = 0.0;
+    }
+    droneAudition(true);
+    if (!droneAuditioning_) return;  // no sound card - nothing to drive
+    if (droneMode_ == 1 && droneLive_) droneLive_->seek(droneHeadSec_);
+    droneRecording_ = record && droneMode_ == 1;
+    if (droneRecording_) droneWriteArmed_ = true;
+}
+
+void App::droneStop() {
+    // Park the playhead where playback got to, so Play resumes instead of
+    // restarting (and so the lane editors keep showing that moment).
+    if (droneAuditioning_ && droneLive_)
+        droneHeadSec_ = std::min((double)droneParams_.lengthSec, droneLive_->timeSec());
+    droneAudition(false);
+    droneRecording_ = false;
 }
 
 void App::dronePushParams() {
@@ -915,26 +948,90 @@ void App::drawDroneGeneratorWindow() {
     ImGui::SameLine();
     ImGui::TextDisabled("seed");
 
-    ImGui::SameLine(0.0f, scaled(24.0f));
-    if (droneAuditioning_) {
-        if (ImGui::Button("Stop", ImVec2(scaled(70.0f), 0))) droneAudition(false);
-    } else {
-        if (ImGui::Button("Audition", ImVec2(scaled(70.0f), 0))) droneAudition(true);
+    ImGui::SameLine(0.0f, scaled(20.0f));
+    // Mode picker: two ways to use the same synth. Generate is for dialling a
+    // sound in (free-running, ignores the timeline); Record is for making the
+    // piece (starts at the playhead, stops at the end, writes keyframes).
+    for (int m = 0; m < 2; ++m) {
+        if (m) ImGui::SameLine(0.0f, 2.0f);
+        const bool on = droneMode_ == m;
+        if (on)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::Button(m ? "Record" : "Generate", ImVec2(scaled(72.0f), 0)) &&
+            droneMode_ != m) {
+            droneStop();
+            droneMode_ = m;
+            if (m == 0) droneWriteArmed_ = false;
+        }
+        if (on) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                m ? "Record mode: the transport follows the timeline. Play runs\n"
+                    "from the playhead and STOPS at the end of the piece; Rec does\n"
+                    "the same while every knob you turn drops a keyframe."
+                  : "Generate mode: free-running audition for dialling a sound in.\n"
+                    "It keeps playing until you stop it and ignores the piece's\n"
+                    "length - nothing is written.");
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Plays the patch live through your sound card.\n"
-                          "Every knob you turn is heard immediately - this is the\n"
-                          "same synthesizer that renders the file.");
-    ImGui::SameLine();
-    if (ImGui::Button("Restart") && droneLive_) droneLive_->reset();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Rewinds the audition to bar 1 (and the arc envelope).");
+
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    if (droneMode_ == 1 && ImGui::Button("|<", ImVec2(scaled(28.0f), 0))) droneSeek(0.0);
+    if (droneMode_ == 1) {
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rewind to the start");
+        ImGui::SameLine();
+    }
+    if (droneAuditioning_) {
+        if (ImGui::Button("Stop", ImVec2(scaled(62.0f), 0))) droneStop();
+    } else {
+        if (ImGui::Button("Play", ImVec2(scaled(62.0f), 0))) dronePlay(false);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(droneMode_ == 1
+                                  ? "Plays from the playhead and stops at the end."
+                                  : "Plays the patch until you stop it.");
+    }
+    if (droneMode_ == 1) {
+        ImGui::SameLine();
+        const bool rec = droneRecording_;
+        if (rec)
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.62f, 0.16f, 0.16f, 1.0f));
+        if (ImGui::Button(rec ? "Rec ON" : "Rec", ImVec2(scaled(62.0f), 0))) {
+            if (rec)
+                droneStop();
+            else
+                dronePlay(true);
+        }
+        if (rec) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Plays from the playhead with keyframe writing armed:\n"
+                              "turn a knob and the move is recorded onto its lane.");
+    } else {
+        ImGui::SameLine();
+        if (ImGui::Button("Restart") && droneLive_) {
+            droneLive_->reset();
+            droneHeadSec_ = 0.0;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Rewinds to bar 1 and re-seeds the random streams.");
+    }
+
+    // Record mode stops itself at the end of the piece instead of playing on
+    // forever. Polled here rather than in the audio callback, which must not
+    // touch the device it is being called from.
+    if (droneAuditioning_ && droneMode_ == 1 && droneLive_ &&
+        droneLive_->timeSec() >= (double)p.lengthSec) {
+        droneStop();
+        droneHeadSec_ = (double)p.lengthSec;
+        droneStatus_ = droneRecording_ ? "Reached the end of the piece."
+                                       : "Reached the end of the piece.";
+    }
+
     if (droneAuditioning_ && droneLive_) {
         ImGui::SameLine();
-        const double t = droneLive_->timeSec();
+        const double t = droneHeadTime();
         const float barSec = dronegen::barSeconds(p);
-        ImGui::TextDisabled("t %02d:%05.2f  bar %.1f", (int)(t / 60.0),
-                            std::fmod(t, 60.0), t / barSec + 1.0);
+        ImGui::TextDisabled("%s  bar %.1f", droneRecording_ ? "recording" : "playing",
+                            t / barSec + 1.0);
     } else if (!droneAudioError_.empty()) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "%s",
@@ -1635,7 +1732,7 @@ void App::drawDroneGeneratorWindow() {
     ImGui::SameLine();
     if (ImGui::Button("New")) {
         if (droneDirty_)
-            ImGui::OpenPopup("dronenewask");
+            ImGui::OpenPopup(kPopupNewAsk);
         else
             droneNewPatch();
     }
@@ -1694,7 +1791,7 @@ void App::drawDroneGeneratorWindow() {
         ImGui::EndPopup();
     }
 
-    if (ImGui::BeginPopupModal("Unsaved patch##dronenewask", nullptr,
+    if (ImGui::BeginPopupModal(kPopupNewAsk, nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("This patch has unsaved changes.");
         ImGui::TextDisabled("%s", dronePatchRel_.empty() ? "It was never saved."
@@ -1717,9 +1814,9 @@ void App::drawDroneGeneratorWindow() {
 
     // Overwrite confirmations. Staged by droneStartRender / droneSavePatch, which
     // refuse to touch an existing file until the answer comes back here.
-    if (!droneAskWav_.empty() && !ImGui::IsPopupOpen("droneoverwrite"))
-        ImGui::OpenPopup("droneoverwrite");
-    if (ImGui::BeginPopupModal("Replace this track?##droneoverwrite", nullptr,
+    if (!droneAskWav_.empty() && !ImGui::IsPopupOpen(kPopupOverwrite))
+        ImGui::OpenPopup(kPopupOverwrite);
+    if (ImGui::BeginPopupModal(kPopupOverwrite, nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("%s already exists.", droneAskWav_.c_str());
         std::filesystem::path sidecar(droneAskWav_);
@@ -1746,9 +1843,9 @@ void App::drawDroneGeneratorWindow() {
         ImGui::EndPopup();
     }
 
-    if (!droneAskPatch_.empty() && !ImGui::IsPopupOpen("dronepatchask"))
-        ImGui::OpenPopup("dronepatchask");
-    if (ImGui::BeginPopupModal("Replace this patch?##dronepatchask", nullptr,
+    if (!droneAskPatch_.empty() && !ImGui::IsPopupOpen(kPopupPatchAsk))
+        ImGui::OpenPopup(kPopupPatchAsk);
+    if (ImGui::BeginPopupModal(kPopupPatchAsk, nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("%s already exists.", droneAskPatch_.c_str());
         ImGui::TextDisabled("It is a different patch than the one you have open.");

@@ -62,7 +62,7 @@ deliberate one-line delegation now — it used to be a full cmd translation with
 its OWN four-entry dependency list, which is how a tree that built fine on
 Linux died on Windows with `fatal error: miniaudio.h: No such file or
 directory`: the guard that fetches missing dependencies was in `build.ps1`, and
-`build.ps1` was not what ran (PROGRESS 212). When a Windows build fails on a
+`build.ps1` was not what ran (PROGRESS 214). When a Windows build fails on a
 missing `vendor/` header, check WHICH script ran before suspecting the code.
 
 **Third-party dependencies live in exactly one list per platform: `deps.ps1`

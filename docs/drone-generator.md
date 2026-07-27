@@ -1,8 +1,8 @@
 # Drone Generator
 
 *Tools > Drone Generator* is an ambient / drone music generator built into the
-editor. You dial a piece in against a **live audition** — the knobs are heard as
-you turn them — and **Render** writes `res/audio/<name>.wav` plus a re-editable
+editor. You dial a piece in against **live playback** — the knobs are heard as you
+turn them — and **Render** writes `res/audio/<name>.wav` plus a re-editable
 `<name>.drone` patch, adding the track to the project's Music list. Play it from
 a flow graph with **On Start → Play Music** (Loop on).
 
@@ -154,10 +154,13 @@ the length of the track.
 
 The intended way to make one is not to add a lane by hand:
 
-1. **Arm *Write keyframes*** in the Timeline tab (the label turns red).
-2. Hit **Audition**.
+1. Switch the transport to **Record** mode.
+2. Hit **Rec**. Playback starts at the playhead with keyframe writing armed.
 3. Turn a knob. A lane appears for that parameter with a keyframe at the
    playhead, and the amber dot on the knob says it is automated from now on.
+
+(The *Write keyframes* checkbox in the Timeline tab is the same arm, kept for
+writing at a parked playhead: scrub to a moment, arm, turn a knob.)
 
 That works for **every knob in the tool** without any of them knowing the
 timeline exists: a knob binds straight to a field of the patch, so the pointer it
@@ -196,7 +199,7 @@ The strip under the preset row is the position bar: ticks (bars while they are
 readable, otherwise round seconds), the elapsed fill, a **triangle for every
 keyframe in the piece** so you can see where it changes, the playhead, and a
 `0:27.0 / 1:00` readout. Click or drag it to move the playhead — it **seeks the
-live audition** (`Synth::setTime`), so the timeline drives playback rather than
+live playback** (`Synth::setTime`), so the timeline drives playback rather than
 just reporting it. A seek keeps the delay and reverb tails (it is a jump in the
 piece, not a reset) but re-latches held notes at the chord you landed on instead
 of gliding in from the one you left.
@@ -219,9 +222,26 @@ the patch seed, so:
   harness check for this compares audio rendered from a patch against audio
   rendered from that patch's saved text.
 
-## Auditioning
+## The transport: Generate and Record
 
-*Audition* opens the sound card (miniaudio: WASAPI on Windows,
+The same synth is used two ways, so the transport has two modes:
+
+- **Generate** — free-running sound design. *Play* keeps playing until you stop
+  it and ignores the piece's length; nothing is written. This is the mode for
+  dialling a patch in. *Restart* rewinds to bar 1 and re-seeds the random
+  streams.
+- **Record** — bound to the timeline. *Play* starts **at the playhead and stops
+  at the end of the piece** instead of droning on; *Rec* does the same with
+  keyframe writing armed; `|<` rewinds. Stopping parks the playhead where
+  playback got to, so *Play* resumes rather than restarting.
+
+The end-of-piece stop is polled on the UI thread, not fired from the audio
+callback — a device must never be torn down from inside its own callback.
+
+
+### The audio hand-off
+
+*Play* opens the sound card (miniaudio: WASAPI on Windows,
 ALSA/PulseAudio/JACK on Linux, all loaded at run time — no new system package)
 and plays the patch live. The parameter hand-off is the important part:
 
@@ -231,12 +251,12 @@ and plays the patch live. The parameter hand-off is the important part:
   block.
 - The meters and the scope go the other way through plain atomics. A visualizer
   may race; a device may not.
-- **The audition is the same synthesizer that renders the file** — offline
+- **What you hear is the same synthesizer that renders the file** — offline
   rendering runs the identical block loop, then adds the mastering (loop fold,
   fades, normalization). So a knob cannot sound different in the file than it did
   in the preview.
 
-A machine with no audio device is an expected state, not an error: the button
+A machine with no audio device is an expected state, not an error: the transport
 reports it and the tool keeps working as an offline renderer.
 
 ## A patch is a project asset
