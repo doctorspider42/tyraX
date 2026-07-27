@@ -1035,6 +1035,7 @@ private:
     int giViewScene_ = -1;
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
+    uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
 
     bool showTreeGenerator_ = false;
     treegen::Params treeParams_;

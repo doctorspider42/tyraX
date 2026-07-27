@@ -11193,6 +11193,14 @@ void App::rebuildTreePreview() {
 // readout, and the button. Everything downstream (codegen, texbake, the
 // viewport) only ever READS the cache in .res-baked/gi/.
 void App::drawGiBakeWindow() {
+    // Polled every frame, before the window's own early-out: a bake that
+    // finishes has to reach the VIEWPORT, and applyProjectToViewport is
+    // event-driven - without this the preview would keep showing the previous
+    // bake until the user happened to touch something else.
+    if (hasProject_ && giBakerSeen_ != giBaker_.version()) {
+        giBakerSeen_ = giBaker_.version();
+        applyProjectToViewport();
+    }
     if (!showGiBake_ || !hasProject_) return;
     ImGui::SetNextWindowSize(ImVec2(scaled(560.0f), scaled(520.0f)),
                              ImGuiCond_FirstUseEver);
