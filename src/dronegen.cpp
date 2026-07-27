@@ -385,6 +385,13 @@ const char* const* modTargetNames() {
 // Musical helpers
 // ---------------------------------------------------------------------------
 
+float seekPreroll(const Params& p) {
+    // A quarter of the reverb's RT60, clamped: 1 s is enough for a dry patch and
+    // 3 s is about 140 ms of real time to render, which is as long as a seek can
+    // block the audio thread without the gap becoming a stumble.
+    return clampf(0.25f * p.fx.revDecay + 0.5f, 1.0f, 3.0f);
+}
+
 float noteHz(const Params& p, int midi) {
     return p.tuning * std::pow(2.0f, (float)(midi - 69) / 12.0f);
 }
@@ -542,6 +549,11 @@ struct Synth::Impl {
     float limEnv = 0.0f, limGain = 1.0f;
 
     // --- transport / modulation -------------------------------------------
+    // Set by setTime: the next control block assigns note envelopes directly
+    // instead of smoothing toward them, so a seek lands at the level the piece
+    // actually has there rather than fading in from wherever it was.
+    bool snapEnvelopes = false;
+    std::vector<float> seekScratch;  // pre-roll sink, allocated once
     double samplePos = 0.0;
     float sr = 22050.0f;
     float lfoPhase[kNumLfos] = {};
@@ -657,16 +669,42 @@ void Synth::reset() {
 
 double Synth::timeSec() const { return d_->samplePos / (double)d_->sr; }
 
-void Synth::setTime(double sec) {
+void Synth::setTime(double sec, float prerollSec) {
     Impl& d = *d_;
-    d.samplePos = std::max(0.0, sec) * (double)d.sr;
+    const double target = std::max(0.0, sec);
+    // The pre-roll starts EARLIER than the target and plays up to it, so the
+    // delay and reverb lines arrive holding what the piece actually put there.
+    const double from = std::max(0.0, target - (double)std::max(0.0f, prerollSec));
+
+    d.samplePos = from * (double)d.sr;
     // Held notes must not glide in from wherever the old position left them, so
-    // they re-latch at the new chord (`started` false = snap on the next block).
+    // they re-latch at the new chord (`started` false = snap on the next block),
+    // and their envelopes snap to the settled level instead of fading in.
     for (int l = 0; l < kMaxLayers; ++l)
         for (int n = 0; n < kMaxChordNotes; ++n) d.notes[l][n].started = false;
-    d.nextBell = d.samplePos / (double)d.sr;
-    // Delay and reverb state stay: a seek should sound like a jump in the piece,
-    // not like the room disappeared.
+    d.snapEnvelopes = true;
+    d.nextBell = from;
+
+    // Periodic LFOs have a closed form, so jump them rather than let them drift
+    // in. The random shapes (S&H, smooth) are streams and simply carry on - they
+    // have no "correct" value at a time, only a plausible one.
+    for (int i = 0; i < kNumLfos; ++i) {
+        const Lfo& L = p_.lfos[i];
+        const float hz = L.sync ? std::max(0.0f, L.rate) / barSeconds(p_)
+                                : std::max(0.0f, L.rate);
+        const double ph = hz * from;
+        d.lfoPhase[i] = (float)(ph - std::floor(ph));
+    }
+
+    // Everything else - the tails, the chorus and tape lines, the bell voices -
+    // can only be filled by actually playing into them.
+    const int frames = (int)((target - from) * (double)d.sr);
+    if (frames > 0) {
+        constexpr int kChunk = 2048;
+        if ((int)d.seekScratch.size() < kChunk * 2) d.seekScratch.assign(kChunk * 2, 0.0f);
+        for (int at = 0; at < frames; at += kChunk)
+            render(d.seekScratch.data(), std::min(kChunk, frames - at));
+    }
 }
 
 namespace {
@@ -791,13 +829,15 @@ void Synth::render(float* out, int frames) {
         // ---- chord / progression -----------------------------------------
         const float barPos = (float)std::fmod(tSec / (double)bar, (double)totalBars);
         int stepIdx = 0;
+        float stepStartBars = 0.0f;
         {
             float accBars = 0.0f;
             for (int i = 0; i < stepCount; ++i) {
                 const float b = std::max(0.25f, p.steps[i].bars);
-                if (barPos < accBars + b) { stepIdx = i; break; }
+                if (barPos < accBars + b) { stepIdx = i; stepStartBars = accBars; break; }
                 accBars += b;
                 stepIdx = i;
+                stepStartBars = accBars - b;
             }
         }
         const Step& st = p.steps[stepIdx];
@@ -819,9 +859,19 @@ void Synth::render(float* out, int frames) {
                 }
                 s.gTarget = present ? 1.0f : 0.0f;
                 s.freq += (s.target - s.freq) * glideC;
-                const float envT = s.gTarget > s.gain ? std::max(0.01f, L.attack)
-                                                      : std::max(0.01f, L.release);
-                s.gain += (s.gTarget - s.gain) * (1.0f - std::exp(-dt / envT));
+                if (d.snapEnvelopes) {
+                    // Settling a seek: a note the current chord holds is as loud
+                    // as an attack running since that chord began - which is what
+                    // makes seeking to the end sound like the end instead of like
+                    // the piece starting over.
+                    const float held = (barPos - stepStartBars) * bar;
+                    s.gain = present ? 1.0f - std::exp(-held / std::max(0.01f, L.attack))
+                                     : 0.0f;
+                } else {
+                    const float envT = s.gTarget > s.gain ? std::max(0.01f, L.attack)
+                                                          : std::max(0.01f, L.release);
+                    s.gain += (s.gTarget - s.gain) * (1.0f - std::exp(-dt / envT));
+                }
 
                 // Unison layout: symmetric cents fan, matching stereo fan.
                 for (int u = 0; u < kMaxUnison; ++u) {
@@ -1200,6 +1250,7 @@ void Synth::render(float* out, int frames) {
             out[(size_t)(done + i) * 2 + 1] = busR;
         }
 
+        d.snapEnvelopes = false;
         d.samplePos += block;
         done += block;
     }
@@ -1224,9 +1275,12 @@ void LiveSynth::reset() {
     time_.store(0.0);
 }
 
-void LiveSynth::seek(double sec) {
+void LiveSynth::seek(double sec, bool settle) {
     std::lock_guard<std::mutex> lk(mu_);
-    synth_.setTime(sec);
+    // The pre-roll runs under the lock, so the audio callback's try_lock fails
+    // for a block or two and it outputs silence - a short clean gap at the
+    // moment you jump, which is what a seek sounds like anyway.
+    synth_.setTime(sec, settle ? seekPreroll(synth_.params()) : 0.0f);
     time_.store(sec);
 }
 

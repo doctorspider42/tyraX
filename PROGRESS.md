@@ -10,6 +10,44 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (216) **"Rewind doesn't work, and neither does picking a fragment - once I
+  generate one I want to hear how it starts and how it ends."** Three faults
+  behind one report, two of them trivially mine and the third the interesting
+  one.
+  **The trivial two**: `|<` was drawn only in Record mode, and `dronePlay`
+  seeked to the playhead only in Record mode - so in Generate (the DEFAULT mode)
+  the position bar was decoration: it moved a marker nothing played from. Both
+  fixed by the same realisation - **"let me hear how it ends" is a transport
+  need, not a mode**. Play now starts at the playhead in both modes and `|<`
+  exists in both; what the mode still decides is what happens at the END (Record
+  stops there, Generate plays on) and whether knobs are recorded.
+  **The interesting one**: even where the seek DID run, it only moved the clock,
+  and that is not the same as being at that moment. The envelopes, the glide, the
+  LFO phase and the reverb/delay tails at 0:50 are the product of the history
+  from 0:00 to 0:50 - so jumping there dropped you into the piece's opening
+  fade-in (attacks up to 12 s, reverb up to 40 s), which is exactly what "the
+  fragment doesn't work" sounds like. `Synth::setTime` now **settles**: notes
+  snap to the chord AND to the level an attack running since that chord began
+  would have reached, the periodic LFOs jump to their analytic phase (the random
+  shapes carry on - they have no correct value at a time, only a plausible one),
+  the bell scheduler restarts there, and a **pre-roll of 1-3 s** (scaled by the
+  reverb RT60, since that is the thing being filled) is rendered and discarded to
+  charge the delay and reverb lines. Dragging the playhead passes `settle=false`
+  so scrubbing stays cheap; the release settles once. The pre-roll runs under the
+  synth lock, so the audio thread emits a short clean silence at the jump instead
+  of a glitch - `LiveSynth::render` already outputs silence when it cannot take
+  the lock.
+  **Measured** against the rendered file's own RMS a second either side of the
+  target, across three presets x three positions: a bare clock jump lands at
+  66-113% of the file's level, a settled seek at 80-108%, better on 8 of the 9
+  probes. The residue is tail that 3 s of pre-roll cannot accumulate - a seek is
+  exact for the notes and approximate for the room, which is worth knowing before
+  trusting it as a rendering preview.
+  **Verified in the editor** by script: a stopped seek to 30 s parks the playhead
+  there; Play in GENERATE mode starts at 30.00 (it used to start at 0); rewind
+  while playing drops the live clock to 0.00 and it counts up from there; Record
+  mode from 38 s of a 40 s piece stops itself with the playhead at 40.00.
+
 - (215) **Save and Render stopped working, and the transport became Generate /
   Record.** Two things in one pass, the first of them my own regression from
   (213).

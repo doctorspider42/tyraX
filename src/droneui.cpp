@@ -320,14 +320,13 @@ void App::droneAudition(bool on) {
 }
 
 void App::dronePlay(bool record) {
-    if (droneMode_ == 1) {
-        // Record mode is timeline-bound: play from the playhead, and rewind when
-        // it is parked at the end so Play always plays something.
-        if (droneHeadSec_ >= (double)droneParams_.lengthSec - 0.05) droneHeadSec_ = 0.0;
-    }
+    // Play starts AT THE PLAYHEAD in both modes - "let me hear how it ends" is a
+    // transport need, not a mode. What the mode decides is what happens at the
+    // end (Record stops, Generate plays on) and whether knobs are recorded.
+    if (droneHeadSec_ >= (double)droneParams_.lengthSec - 0.05) droneHeadSec_ = 0.0;
     droneAudition(true);
     if (!droneAuditioning_) return;  // no sound card - nothing to drive
-    if (droneMode_ == 1 && droneLive_) droneLive_->seek(droneHeadSec_);
+    if (droneLive_) droneLive_->seek(droneHeadSec_);  // settles: see setTime
     droneRecording_ = record && droneMode_ == 1;
     if (droneRecording_) droneWriteArmed_ = true;
 }
@@ -594,9 +593,9 @@ double App::droneHeadTime() const {
     return droneHeadSec_;
 }
 
-void App::droneSeek(double sec) {
+void App::droneSeek(double sec, bool settle) {
     droneHeadSec_ = std::max(0.0, std::min((double)droneParams_.lengthSec, sec));
-    if (droneLive_) droneLive_->seek(droneHeadSec_);
+    if (droneLive_) droneLive_->seek(droneHeadSec_, settle);
 }
 
 bool App::droneIsAutomated(size_t offset) const {
@@ -637,7 +636,8 @@ void App::drawDroneTimelineBar() {
     ImGui::InvisibleButton("dronepos", ImVec2(w, h));
     const bool hovered = ImGui::IsItemHovered();
     if (ImGui::IsItemActive())
-        droneSeek((double)((ImGui::GetIO().MousePos.x - p.x) / w) * (double)len);
+        droneSeek((double)((ImGui::GetIO().MousePos.x - p.x) / w) * (double)len, false);
+    if (ImGui::IsItemDeactivated()) droneSeek(droneHeadSec_, true);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 br(p.x + w, p.y + h);
@@ -976,19 +976,20 @@ void App::drawDroneGeneratorWindow() {
     }
 
     ImGui::SameLine(0.0f, scaled(14.0f));
-    if (droneMode_ == 1 && ImGui::Button("|<", ImVec2(scaled(28.0f), 0))) droneSeek(0.0);
-    if (droneMode_ == 1) {
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rewind to the start");
-        ImGui::SameLine();
-    }
+    if (ImGui::Button("|<", ImVec2(scaled(28.0f), 0))) droneSeek(0.0);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rewind to the start (works while playing too)");
+    ImGui::SameLine();
     if (droneAuditioning_) {
         if (ImGui::Button("Stop", ImVec2(scaled(62.0f), 0))) droneStop();
     } else {
         if (ImGui::Button("Play", ImVec2(scaled(62.0f), 0))) dronePlay(false);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(droneMode_ == 1
-                                  ? "Plays from the playhead and stops at the end."
-                                  : "Plays the patch until you stop it.");
+                                  ? "Plays from the playhead and stops at the end\n"
+                                    "of the piece."
+                                  : "Plays from the playhead and keeps going past\n"
+                                    "the end until you stop it.");
     }
     if (droneMode_ == 1) {
         ImGui::SameLine();
@@ -1139,7 +1140,9 @@ void App::drawDroneGeneratorWindow() {
         ImGui::InvisibleButton("wavehit", ImVec2(waveW, availH));
         if (ImGui::IsItemActive())
             droneSeek((double)((ImGui::GetIO().MousePos.x - wp.x) / waveW) *
-                      (double)p.lengthSec);
+                          (double)p.lengthSec,
+                      false);
+        if (ImGui::IsItemDeactivated()) droneSeek(droneHeadSec_, true);
         ImGui::EndChild();
     }
 

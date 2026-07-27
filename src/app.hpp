@@ -587,7 +587,10 @@ private:
     // The playhead: the live transport while auditioning, the scrubbed position
     // otherwise. droneSeek moves both.
     double droneHeadTime() const;
-    void droneSeek(double sec);
+    // `settle` re-establishes the sound at that position (see
+    // dronegen::Synth::setTime); the intermediate frames of a drag pass false
+    // so scrubbing stays cheap, and the release settles once.
+    void droneSeek(double sec, bool settle = true);
 
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.

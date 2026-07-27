@@ -48,6 +48,12 @@ constexpr int kArcPoints = 5; // breakpoints of the piece-long "arc" envelope
 // Automation (the timeline): a lane per parameter, a keyframe per point. Fixed
 // capacity on purpose - `Params` is copied into the audio thread on every edit,
 // so nothing in it may own heap memory (see LiveSynth).
+// How much audio a settling seek renders and throws away, to fill the delay and
+// reverb lines at the new position. Long enough for a room to establish, short
+// enough that a seek feels instant - and scaled by the reverb, because that is
+// the thing being filled (a 20-second tail needs more history than a dry patch).
+float seekPreroll(const struct Params& p);
+
 constexpr int kMaxAutoLanes = 12;
 constexpr int kMaxAutoPoints = 24;
 
@@ -346,11 +352,22 @@ class Synth {
 
     void reset();  // rewinds to t=0 and re-seeds every random stream
 
-    // Jumps the transport to `sec` (the timeline's playhead). Delay and reverb
-    // state deliberately keep playing - it is a seek, not a reset - but held
-    // notes snap to the chord at the new position instead of gliding from the
-    // old one, and the bell scheduler restarts there.
-    void setTime(double sec);
+    // Jumps the transport to `sec` (the timeline's playhead).
+    //
+    // Moving the clock is not enough to HEAR that moment: envelopes, glide, LFO
+    // phase and the reverb/delay tails at 0:50 are the product of the history
+    // from 0 to 0:50, so a bare clock jump lands you in the piece's opening
+    // fade-in wherever you seek. So a seek SETTLES:
+    //   - held notes snap to the chord at the new position (no glide from the
+    //     old one) and their envelopes to the level a chord held since its own
+    //     start would have reached,
+    //   - the periodic LFOs jump to their analytic phase at that time,
+    //   - the bell scheduler restarts there,
+    //   - and `prerollSec` of audio is rendered and thrown away, which is what
+    //     fills the delay and reverb lines - the one part no formula can supply.
+    // The pre-roll costs real time (roughly 1/20th of what it simulates), so the
+    // caller passes 0 while dragging a playhead and kSeekPreroll on release.
+    void setTime(double sec, float prerollSec = 0.0f);
 
     // Interleaved stereo (always 2 channels - a mono render sums afterwards).
     // `frames` is the per-channel sample count.
@@ -380,7 +397,9 @@ class LiveSynth {
     void push(const Params& p);  // UI thread
     void render(float* out, int frames);  // audio thread
     void reset();                // UI thread; takes the lock
-    void seek(double sec);       // UI thread; the timeline's click-to-seek
+    // UI thread; the timeline's click-to-seek. `settle` runs the pre-roll (see
+    // Synth::setTime) - pass false for the intermediate frames of a drag.
+    void seek(double sec, bool settle = true);
 
     double timeSec() const;
     float peakL() const;

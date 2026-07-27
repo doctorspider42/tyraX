@@ -226,14 +226,51 @@ the patch seed, so:
 
 The same synth is used two ways, so the transport has two modes:
 
-- **Generate** — free-running sound design. *Play* keeps playing until you stop
-  it and ignores the piece's length; nothing is written. This is the mode for
-  dialling a patch in. *Restart* rewinds to bar 1 and re-seeds the random
-  streams.
-- **Record** — bound to the timeline. *Play* starts **at the playhead and stops
-  at the end of the piece** instead of droning on; *Rec* does the same with
-  keyframe writing armed; `|<` rewinds. Stopping parks the playhead where
-  playback got to, so *Play* resumes rather than restarting.
+**Both** modes play from the playhead and both have `|<` — "let me hear how it
+ends" is a transport need, not a mode. What the mode decides is what happens at
+the end of the piece and whether knobs are recorded:
+
+- **Generate** — free-running sound design. *Play* runs from the playhead and
+  keeps going past the end until you stop it; nothing is written. This is the
+  mode for dialling a patch in. *Restart* rewinds to bar 1 and re-seeds the
+  random streams.
+- **Record** — *Play* starts at the playhead and **stops at the end of the
+  piece**; *Rec* does the same with keyframe writing armed. Stopping parks the
+  playhead where playback got to, so *Play* resumes rather than restarting (from
+  a playhead already parked at the end, *Play* rewinds first).
+
+### Seeking has to rebuild the moment, not just move the clock
+
+Clicking the position bar at 0:50 and pressing Play must sound like the piece at
+0:50 — and moving the clock there does not do that. The envelopes, the glide, the
+LFO phase and the reverb/delay tails at 0:50 are the product of the history from
+0:00 to 0:50; a bare jump drops you into the opening fade-in wherever you land,
+which is exactly what "selecting a fragment doesn't work" looks and sounds like.
+
+So a seek **settles** (`Synth::setTime`):
+
+- held notes snap to the chord at that position, and their envelopes to the level
+  a chord held since **its own start** would have reached — this is what makes
+  seeking to the end sound like the ending instead of like the piece starting
+  over;
+- the periodic LFOs jump to their analytic phase there (the random shapes are
+  streams and simply carry on — they have no correct value at a time, only a
+  plausible one);
+- the bell scheduler restarts at that point;
+- and a **pre-roll** of 1–3 s (scaled by the reverb's RT60, since that is the
+  thing being filled) is rendered and thrown away, because the tails are the one
+  part no formula can supply.
+
+Measured against the rendered file's own level a second either side of the
+target: a bare clock jump lands at 66–113% of it, the settled seek at 80–108%,
+and the improvement holds on 8 of 9 probes. The residue is the tail that 3 s of
+pre-roll cannot accumulate — a seek is exact for the notes and approximate for
+the room.
+
+Dragging the playhead does **not** settle on every frame (that would render
+audio per frame); it settles once when you let go. The pre-roll runs under the
+synth's lock, so the audio thread emits a short clean silence at the moment you
+jump rather than a glitch.
 
 The end-of-piece stop is polled on the UI thread, not fired from the audio
 callback — a device must never be torn down from inside its own callback.
