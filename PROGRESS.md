@@ -10,6 +10,28 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (131) **Flat casters could never pick a light.** Owner, after (130): "the
+  sphere is perfect, the wall still nothing". Two separate over-conservative
+  guards, both from approximating a caster with a sphere:
+  (a) the "is the light inside the caster?" test used the bounding SPHERE.
+  For a 8.6 x 6.2 x 1 wall that sphere has radius 5.6 and swallows the whole
+  room around it, so every light close enough to matter was discarded and the
+  wall silently cast nothing. Now tested against the caster's BOX, reusing
+  `areaDistSq(areaBasis(...))` from scene_data.hpp - the same oriented-box
+  math areas use, exact and already generated.
+  (b) the elevation bar was 15 degrees, and a light level with a wall's middle
+  sits just under it. Lowered to ~5 degrees, made safe by clamping the ground
+  walk to `r * 4`: a nearly level ray's hit runs to the horizon, and a patch
+  centred out there covers nothing near the caster - which is the part anyone
+  looks at. The shadow now fades out at the patch edge instead of not
+  existing.
+  **The limit that stays** (documented in the README rather than papered
+  over): the shadow is a patch on the TERRAIN. A light BELOW the caster's top
+  throws a shadow with no far edge, and one whose shadow leaves the map draws
+  on nothing. The owner's wall hit both - it sat 3.4 units from the map edge
+  with the torch at mid-wall height. **Verified** in PCSX2 (SW, 50 FPS) with
+  the wall moved inboard and the torch above it: a broad silhouette fans
+  across the ground away from the light, sphere still casting alongside it.
 - (130) **The real reason nothing ever showed: the bags pointed into a
   `std::vector` that kept reallocating.** (128) and (129) were both real bugs
   and both invisible, because the receiver patch was never rasterized at all.

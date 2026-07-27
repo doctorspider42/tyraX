@@ -8210,13 +8210,22 @@ void TerrainGame::renderProjShadows() {
     float bestScore = sunScore;
     bool bestSun = true;
     float lpx = 0.0F, lpy = 0.0F, lpz = 0.0F, reachFade = 1.0F;
+    // "Is the light inside the caster?" is tested against the caster's BOX,
+    // never its bounding sphere: a wall's sphere swallows the whole room
+    // around it, so the sphere test threw away every light close enough to
+    // matter and the flat caster silently cast nothing at all.
+    const AreaBasis casterBox = areaBasis(o.data);
     auto consider = [&](float px, float py, float pz, float radius,
                         float bright, float level) {
       if (radius < 0.01F || bright <= 0.0F || level <= 0.0F) return;
       const float dx = cx - px, dy = cy - py, dz = cz - pz;
       const float d = sqrtf(dx * dx + dy * dy + dz * dz);
-      if (d < r * 1.15F + 0.05F) return;  // the light is inside the caster
-      if (dy > -0.25F * d) return;        // not above it: no ground shadow
+      if (d < 0.05F) return;
+      if (areaDistSq(casterBox, px, py, pz) < 0.04F) return;  // in the caster
+      // Level with the caster or below it: nothing lands on the ground. The
+      // bar is low (~5 degrees) because the patch distance is clamped below -
+      // a flat ray now yields a truncated shadow instead of none.
+      if (dy > -0.08F * d) return;
       const float fall = 1.0F - d / radius;
       if (fall <= 0.0F) return;  // out of the light's reach
       const float score = bright * level * fall;
@@ -8258,7 +8267,7 @@ void TerrainGame::renderProjShadows() {
     const float eDist = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
     if (eDist < 0.0001F) continue;
     ddx /= eDist, ddy /= eDist, ddz /= eDist;
-    if (ddy > -0.25F) continue;  // ray too flat: the ground hit runs away
+    if (ddy > -0.08F) continue;  // level or rising: nothing reaches the ground
 
     // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
     // smears edge texels outward - the border guarantees the edges stay
@@ -8283,11 +8292,19 @@ void TerrainGame::renderProjShadows() {
     // Where the light ray through the caster centre meets the ground. The
     // second sample re-lands the ray on the terrain it actually reaches - a
     // long shadow can walk a fair way up or down a slope.
+    // The hit of a nearly level ray runs to the horizon - a light level with a
+    // wall's middle throws a shadow that genuinely has no far edge - and a
+    // patch centred out there covers nothing near the caster, which is the
+    // part anyone looks at. Walk only as far as one patch can cover: the
+    // shadow then fades out at the patch edge instead of not existing.
+    const float tgMax = r * 4.0F;
     float gy = terrainHeightAt(cx, cz);
     float tg = (cy - gy) / -ddy;
+    if (tg > tgMax) tg = tgMax;
     float gx = cx + ddx * tg, gz = cz + ddz * tg;
     gy = terrainHeightAt(gx, gz);
     tg = (cy - gy) / -ddy;
+    if (tg > tgMax) tg = tgMax;
     gx = cx + ddx * tg, gz = cz + ddz * tg;
 
     // Patch size. A point light diverges, so the umbra at ground range is
