@@ -64,7 +64,13 @@ selectable as "Precise clipping on EE (legacy)" and remains the load-time
 default for pre-M4 `.tyra` files without a `clipping` key — design + status
 in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — bloom
+`RendererCorePostFx` (bloom + film grain + depth of field + god rays via GS
+blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
+`setGodRaysSun` screen position/visibility fed by the game) bright-pass the
+frame on the quarter-res buffers (subtract flat threshold 150, double back
+up - 96 washed the whole frame white, the sky IS bright) and iteratively
+zoom it toward the sun (2 ping-pong passes, s=0.72) before compositing
+additively at half the requested strength; bloom
 takes an optional **bright-pass threshold** (`setBloomThreshold`), one extra
 quarter-res sprite subtracting a flat grey from the downsampled frame through
 `(0 - Cs)*128/128 + Cd`; the GS clamps at zero, so sub-threshold pixels drop
@@ -125,6 +131,14 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
+`VU1_ENV_BASIS_ADDR`), `RendererCoreShadowMap` (projected silhouette
+shadows: 4 lazy-allocated 64×64 VRAM slots + one shared cleared z, the env
+map's raster-redirect bracket per caster - begin(slot) per caster, ONE end();
+the game re-submits the caster's existing bags under a `pushEnvView` "light
+camera" and draws a terrain patch sampling the slot's VRAM-resident texture
+by light-space UVs; `allocate()` is called by generated games only when a
+project has "Cast shadow" objects, and init() re-places the buffers after a
+display-mode VRAM reset), `RendererCoreEnvMap` (128×128 VRAM render target for
 `VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
 (`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
 one qword of 2×2 basis weights per particle, colors one per particle; VU1
@@ -153,6 +167,21 @@ with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
 popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
+`docs/reflective-materials.md`), `Sprite::additive` (2D sprites can opt into the additive blend equation
+Cs*As + Cd - lens-flare ghosts, glows; Renderer2D pins alpha-over per sprite
+otherwise), the **scene dynamic lights** registry
+(`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
+`pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
+`StaPipCore::render` picks the strongest contributor - flashlight or point
+light - per bag on its world bounding sphere and routes it through
+`StaPipQBufferRenderer::setBagLight`; a *point* light is expressed through
+the SAME spot-cone constants - zero direction, `cosCut2 = -1`, saturated
+`invSoft` - so no VU1 program changed and no micro memory was spent;
+`PipelineInfoBag::dynLightPick = false` opts a bag out of the pick - the
+generated games set it on TERRAIN CHUNKS (neighboring chunks picking
+different lights truncate a pool in a hard rectangle at the chunk border;
+the lights' ground pools draw as smooth additive patches instead) and on
+the sky dome (camera-centered - a nearby light would tint the whole sky)),
 `docs/reflective-materials.md`), the TyraX portal through-view machinery
 (`RendererCore3D::pushPortalView` — view-matrix-only swap, main projection
 kept, exact frustum planes at the virtual camera — plus
@@ -359,6 +388,28 @@ banner both, so a previously built ELF still reports.
   them in registers for the whole program (`lq` is cheap), and lane-pack
   related scalar fold state into one register's x/y/z fields (assemble
   candidates with `add.x/y/z reg, vf00, src[x]`, fold once as a vector).
+- **The spot-light cone term's magnitude scales with distance²** — only its
+  SIGN is the (exact, distance-independent) angular cutoff. Size `invSoft`
+  in `buildSpotForBag` off a FRACTION of the range, never the full range:
+  the original `softness / (objRange2 * (1 - cosCut2))` made the flashlight
+  ramp up over its whole reach — black on anything close, full brightness
+  only near the far end, i.e. "it doesn't light what I'm aiming at".
+- **Clamp vertex colors BEFORE the VU1 clipper interpolates them.** The cull
+  programs run `FixColor` (mini 255 / max 0) per vertex right after the spot
+  light; the clip programs feed Sutherland-Hodgman and only clamp in the
+  emitter — after the lerp. An unclamped saturated color (a bright dynamic
+  light easily pushes past 255) then interpolates from its raw value, so a
+  lit surface visibly BRIGHTENS the moment it touches a screen edge and
+  starts being clipped. `stapip_clip_{c,tc}_vu1.vclpp` now clamp before
+  storing into the scratch polygon (float clamp only — `ftoi0` belongs in
+  the emitter). **Budget note:** the ceiling alone (`loi 255` + `mini.xyz`
+  per vertex, 6 instructions) is all that fits — adding the matching
+  `max.xyz … vf00[x]` floor too (9 per program) tripped the real
+  `VU1 pipeline programs overflow into the draw-finish program` assert
+  (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
+  headroom; measure with
+  `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
+  after ANY edit there.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

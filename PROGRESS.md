@@ -5,6 +5,454 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
+- Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
+  god rays, dynamic light on animated models, visible beams, blob shadows.
+
+## Done in the lighting batch
+
+- (131) **Flat casters could never pick a light.** Owner, after (130): "the
+  sphere is perfect, the wall still nothing". Two separate over-conservative
+  guards, both from approximating a caster with a sphere:
+  (a) the "is the light inside the caster?" test used the bounding SPHERE.
+  For a 8.6 x 6.2 x 1 wall that sphere has radius 5.6 and swallows the whole
+  room around it, so every light close enough to matter was discarded and the
+  wall silently cast nothing. Now tested against the caster's BOX, reusing
+  `areaDistSq(areaBasis(...))` from scene_data.hpp - the same oriented-box
+  math areas use, exact and already generated.
+  (b) the elevation bar was 15 degrees, and a light level with a wall's middle
+  sits just under it. Lowered to ~5 degrees, made safe by clamping the ground
+  walk to `r * 4`: a nearly level ray's hit runs to the horizon, and a patch
+  centred out there covers nothing near the caster - which is the part anyone
+  looks at. The shadow now fades out at the patch edge instead of not
+  existing.
+  **The limit that stays** (documented in the README rather than papered
+  over): the shadow is a patch on the TERRAIN. A light BELOW the caster's top
+  throws a shadow with no far edge, and one whose shadow leaves the map draws
+  on nothing. The owner's wall hit both - it sat 3.4 units from the map edge
+  with the torch at mid-wall height. **Verified** in PCSX2 (SW, 50 FPS) with
+  the wall moved inboard and the torch above it: a broad silhouette fans
+  across the ground away from the light, sphere still casting alongside it.
+- (130) **The real reason nothing ever showed: the bags pointed into a
+  `std::vector` that kept reallocating.** (128) and (129) were both real bugs
+  and both invisible, because the receiver patch was never rasterized at all.
+  Found by reproduction, not by reading: a frozen-camera fixture in PCSX2
+  (walkSpeed/lookSpeed 0, flashlight off, player parked 5 units in front of the
+  sphere) plus a `TYRA_LOG` inside `renderProjShadows` proved the pass was
+  doing everything right - `used=2`, patch at `gx=0.28 gz=-21.7 half=2.4`,
+  `stapip.core.render` called - and a debug patch drawn as a solid red quad
+  with a known texture, additive, i.e. byte-for-byte a working light pool,
+  STILL painted nothing.
+  `setupProjShadows` builds `std::vector<ProjShadow>` with `emplace_back`, and
+  each element wires `info->model = &b.mat` and `colorBag->single = &b.color` -
+  **addresses inside the element**. Every reallocation moves the elements out
+  from under every earlier bag, so the pipeline got a freed model matrix and
+  transformed the patch to nowhere. It spares only the LAST element, and
+  `used` counts up from 0, so the one valid slot was never the one in use:
+  the feature could not work once, ever.
+  `setupLightBeams` (only the last light had a beam) and `setupBlobShadows`
+  (no blob shadows at all) had exactly the same bug. `setupLightPools` escaped
+  it purely because someone wrote a matching `reserve()` - which is why the
+  ground pools always looked fine and everything drawn beside them did not.
+  Fixed with a rebind pass at the end of each setup, after the vector has
+  stopped growing; unlike a `reserve()` it cannot be defeated by someone adding
+  an element later. **The rule for anything that follows this pattern: a bag
+  may not hold a pointer into a vector element until the vector is done
+  growing.**
+  **Verified** in PCSX2 (SW renderer, 50 FPS): the sphere throws a real
+  silhouette away from the torch, stretching and diverging with distance -
+  the first time a projected shadow has ever been on screen. That screenshot
+  retro-verifies (128)'s UV mapping (the shadow has a SHAPE, not a uniform
+  square) and (129)'s light pick (it points away from the torch, not along the
+  scene sun).
+- (129) **The shadow now follows the LIGHT, not the sun.** Owner's ask
+  straight after (128): in a night scene the only thing lighting a prop is a
+  torch, so a shadow thrown along an invisible sun vector is meaningless
+  wherever it lands. Each caster now picks its own source: every point light
+  in the scene (dynamic AND baked - a baked light's illumination is static
+  but the CASTER moves, so its shadow can never be baked with it) is scored
+  by how much it actually lights that caster, `bright * live level * linear
+  falloff`, and the scene sun competes on the same list with
+  `SCENE_DIFFUSE * max(sun color)`. A black sun scores 0 and every lit torch
+  beats it; a daylight scene still throws the sun shadow it always did, so
+  no existing project changes behavior. Lights inside the caster's bounding
+  sphere or below it are skipped individually (they cannot throw a ground
+  shadow) rather than disqualifying the caster.
+  The projection got the same upgrade: for a point light the shadow camera's
+  eye sits **at the light**, so the silhouette - and the receiver mapping,
+  which runs through that same view-proj - **diverges**. A prop walking up to
+  a flame grows its shadow; the umbra at ground range is
+  `r * (eDist + tGround) / eDist` across, under the (128)-era cap of 3.5x the
+  caster radius so the camera can never end up standing inside the patch. The
+  FOV is capped at 100 deg for a light almost touching the caster. The sun
+  keeps its parallel stand-in (an eye a fixed distance up the sun vector),
+  which is why both paths share one code path with `bestSun` as the only
+  branch. The ground hit is re-sampled once on the terrain the ray actually
+  reaches - a long shadow walks a fair way up or down a slope. Live level
+  feeds the fade, so a flickering torch's shadow breathes and a *Set Light*
+  off stops it; the shadow also dissolves over the outer quarter of the
+  light's radius instead of popping when you walk out of it.
+  Also here, because a per-caster light makes it matter: the caster's
+  bounding sphere is now the REAL half-diagonal of the scaled box instead of
+  `0.87 * the largest axis`. Identical for a uniform scale (0.5*sqrt(3) =
+  0.866), a third smaller on a wall-like caster - which used to be handed a
+  light frustum sized for a cube it is not, wasting most of the 64x64 slot on
+  empty margin, and which now also stops falsely reading as "the light is
+  inside me".
+  Not included: the **flashlight** does not cast. It is welded to the camera,
+  so its shadow falls exactly behind the object from the player's eye - it
+  would burn a slot to render something you cannot see.
+  **Verified**: PCSX2 screenshot in (130) - the shadow points away from the
+  torch, so the pick really is the point light and not the (black) scene sun.
+- (128) **Projected shadows never had a SHAPE, and under a dynamic light
+  they came out bright.** Owner repro: a sphere and a wall, both with
+  *Projected shadow (live)*, a live point light next to them - no shadow at
+  all, plus "a weird streak" on the ground. Three separate bugs, all in the
+  receiver patch:
+  (a) **The UV mapping assumed OpenGL-style NDC.** Tyra's projection does
+  not normalize to ±1: the visible frustum ends at `|x|,|y| = w * size/4096`
+  because VU1 scales the divided vertex by a fixed 2048 (the convention the
+  portal window carve at `renderPortals` already spells out, and the only
+  place in the generated game that knew it). `u = x/w * 0.5 + 0.5` therefore
+  squeezed the ENTIRE patch into the middle 1.5% of the 64×64 slot - every
+  vertex sampled the silhouette's centre texel, so the "shadow" was a
+  uniform dark quad with no silhouette in it. That is what (122) verified as
+  working: a solid patch reads as a shadow at a distance. Now
+  `u = 0.5 + x/w * 2048/size`, same for v - and NOT flipped, the projection
+  already carries the Y flip (`m11 = -h`), so the slot's rows run the way
+  the screen's do.
+  (b) **`dynLightPick` was left on**, so the black patch was handed to
+  `RendererCore::pickDynLight` like any other bag and got LIT by the very
+  light it was supposed to be shadowing - a bright quad where the shadow
+  belongs. The light pools have set it false since (121) for the mirror
+  reason ("it IS the light"); a shadow needs it for the opposite one. Blob
+  shadows had the same bug and the same one-line fix.
+  (c) **A statically batched caster cast nothing.** A batched object owns no
+  solo bag (`objectBatchOf[i] >= 0` skips `rebuildObjectGeometry`), so the
+  silhouette pass found `objectGeometry[i].parts` empty and `continue`d -
+  silently, and exactly for the ordinary non-moving props most likely to be
+  marked as casters (the repro's wall). Fixed with the pattern
+  `renderViewObject` already uses for the portal through-view: solo-bake on
+  first use, leave a dirty member to the demotion path.
+  **Verified**: PCSX2 screenshot in (130) - the patch carries a real
+  silhouette instead of the uniform square the collapsed UVs produced. Note
+  none of this was observable until (130) landed.
+- (127) **The flashlight's pool sprite is swappable (Player > Flashlight >
+  Pool texture).** Owner's ask right after (126): since the ground pool is
+  what you actually see the beam AS, its sprite is the knob for the beam's
+  SHAPE - a gobo, a cross, a cracked lens. New
+  `SceneObject::flashlightTexture` (res-relative PNG, empty = the built-in
+  procedural corona), imported through the same copy-into-res/hud picker
+  the HUD images use, with a Reset button; serialized inside the existing
+  `flashlight` JSON block (omitted when empty), hashed into the Live Link
+  recipe, baked per scene as `FLASHLIGHT_TEXS` (the "res/" prefix is
+  stripped - the game loads cwd-relative) and picked up in
+  `setupLightPools`, cached by path so a scene switch cannot re-add the
+  same texture. It draws ADDITIVELY, so the shape must live in the RGB
+  channels (alpha is ignored) - the tooltip says so. Point-light beams
+  keep the built-in corona for now.
+- (126) **You could not light your own feet: the flashlight got a ground
+  pool.** Follow-up to (125) - with the beam brightness fixed, aiming
+  straight down still lit nothing. Root cause is structural, not a
+  constant: the spot light is evaluated **per vertex**, so it cannot draw
+  a spot smaller than the mesh tessellation, and the cone footprint at
+  1.8 units (eye height, 17 deg half-angle) is ~0.55 units across - well
+  under one terrain cell, so no vertex ever falls inside it. Fix: the
+  flashlight now also gets an additive ground pool, the same trick the
+  dynamic point lights use since (121) - the view ray is marched to the
+  terrain (0.3-unit steps + 6 bisections, capped at the beam's range) and
+  a corona patch is placed at the hit, radius = hit * tan(angle) * 1.7
+  floored at 0.7 so a straight-down look still gets a visible puddle,
+  fading out over the reach. It is the last entry of `lightPools`
+  (objIndex -1), so it shares the patch builder, the sprite and the
+  bake/load gate (`projectUsesBeams` now also counts a flashlight-enabled
+  Player or a Set Flashlight node). Known approximation: the patch is
+  round, so a grazing beam does not stretch into an ellipse - the
+  per-vertex cone still does that part on bigger geometry.
+  **Verified**: Docker build exit 0, PCSX2 SW renderer at 50 FPS with a
+  bright pool tracking the view on the terrain, `bin/log.txt` free of
+  TYRA banners. Aiming at your feet specifically is the owner's pad
+  check.
+- (125) **The flashlight lit the far end of its range, not what you were
+  looking at.** Owner's diagnosis while pad-walking ("the flashlight is
+  broken, it doesn't shine centrally where you look - and IT was what lit
+  that crate"). The cone term is `clamp01((t^2 - cosCut2*dist2) *
+  invSoft)`: its SIGN is the exact angular cutoff and is
+  distance-independent, but its MAGNITUDE scales with `dist2` - and
+  `buildSpotForBag` sized `invSoft` off the FULL range
+  (`softness / (objRange2 * (1 - cosCut2))`), so the beam ramped up across
+  the entire 26-unit reach: nearly black on everything close to the lamp,
+  full brightness only near the far end. On a camera flashlight that reads
+  exactly as "it doesn't light what I'm aiming at", and it also explains
+  why the batch's point lights looked right - their `invSoft` (1e4 /
+  objRange2) saturates immediately. Fix: saturate at a fraction of the
+  range instead (`kFullBrightAt = 0.18`, i.e. full brightness ~4.7 units
+  out on a 26-unit beam), which leaves the cutoff ANGLE untouched and only
+  crisps the edge. One EE-side constant in `buildSpotForBag`, so the VU1
+  programs and the EE clipper (which shares `StaPipClipperSpot`) stay in
+  sync and no micro memory is spent. **Verified**: PCSX2 SW renderer, same
+  camera as the previous boot - the terrain ahead now carries a bright
+  beam centred on the view instead of a dim near field, 50 FPS.
+- (124) **Lit objects brightened at screen edges: the VU1 clip family
+  clamped colors AFTER interpolating.** Owner spotted it pad-walking the
+  example ("the red crate glows brighter in the screen corner"). The cull
+  programs clamp every vertex color with `FixColor` (mini 255 / max 0)
+  right after `CalculateTyraSpotLight`; the clip programs stored the RAW
+  lit color into the Sutherland-Hodgman scratch polygon and clamped only
+  in the emitter - i.e. after the lerp. A vertex the dynamic light pushed
+  to ~400 therefore dragged a cut edge's midpoint to 250 where the cull
+  path (clamping per vertex first) produces 177, so the same surface
+  visibly brightened the moment it touched a screen edge and started
+  being clipped. Fix: clamp the three colors to 0..255 in
+  `stapip_clip_c_vu1.vclpp` / `stapip_clip_tc_vu1.vclpp` before they go
+  into the polygon (float clamp only - the `ftoi0` stays in the emitter).
+  Pre-existing in the clip family; the batch's bright dynamic lights are
+  just what made it visible. **The first attempt did not fit**: a full
+  clamp pair (mini 255 + max 0) per vertex = 9 instructions per program,
+  and the game asserted `VU1 pipeline programs overflow into the
+  draw-finish program` (path1.cpp:145) on the boot logo - the clip family
+  already lives at the micro-memory ceiling (it is why `clip` replaces
+  `as_is` there in the first place). Shipped version is the CEILING only
+  (3x `loi 255` + `mini.xyz` = 6 instructions per program): the spot light
+  strictly ADDS to non-negative vertex colors, so the emitter's existing
+  max-with-0 remains a sufficient floor. clip_c 258, clip_tc 270 VU
+  instructions. **Verified**: engine + example rebuild, `bin/log.txt`
+  free of TYRA banners (the overflow assert is gone), PCSX2 SW renderer
+  at 50 FPS. The edge-brightening itself is subtle in a still - the
+  owner's pad walk is the real confirmation.
+- (123) **Merged main (AO / portals / split-view / physics / fbx): the
+  `castShadow` name collision.** Main landed baked **ambient occlusion**
+  with a per-object `SceneObject::castShadow` (default TRUE, "this object
+  darkens nearby terrain") while this branch had added `castShadow` for
+  the runtime **projected silhouette** shadow (default false). Same name,
+  opposite defaults, different subsystems - auto-merge kept one field and
+  would have silently turned every object into a shadow caster. This
+  branch's field is now **`projShadow`** end to end (JSON key, Properties
+  checkbox "Projected shadow (live)", multi-select row, Live Link recipe
+  bit 128, `SceneObjectData::projShadow`, `PROJ_SHADOWS_USED`) and the
+  example's three hero objects were re-keyed; main's `castShadow` keeps
+  its AO meaning. Also from the merge: the post-fx packet grew 512 -> 768
+  qwords (main's spread-capable bloom is ~390 worst case, god rays add
+  ~100 - an undersized packet corrupts the GIF stream), the god-rays sun
+  now maps through the LOGICAL height (field rendering halves the buffer),
+  the shadow-map bracket restores the raster at `getRenderHeightF()`, and
+  the scene draw order is mirrors -> portals -> pools -> projected shadows
+  -> blob shadows -> beams.
+- (122) **Pad-walk feedback #2: shadows/pools vanishing with a step
+  sideways - the missing fullClipChecks.** Owner repro: the monolith's
+  projected shadow visible from one spot, gone one step left. Root cause
+  found with a debug boot (patch drawn untextured solid red): the red
+  quad CUT OFF at a hard vertical line mid-screen - the classic
+  fast-culling artifact. Every other runtime bag in the game sets
+  `fullClipChecks = true`; the five NEW bag types from this batch (proj-
+  shadow receiver patches, light pools, blob shadows, beam coronas and
+  cones) left it at the default false, so their PARTIALLY_IN_FRUSTUM
+  packages went through per-triangle ADC culling - and these are BIG
+  near-camera triangles (2-3 world units per cell), so a triangle
+  crossing a screen edge dropped WHOLE, punching giant holes that came
+  and went with the camera (far away the bag is fully in frustum, hence
+  every earlier distant screenshot looked fine). Fix: fullClipChecks on
+  on all five; crossing triangles now clip. **Verified** (Layer 3):
+  reproducing close-spawn boot (-2,0,4) - before: the red debug patch
+  cut at a vertical line + shadows absent; after: the monolith's shadow
+  renders continuously to the screen edge, pools/blob/beams intact,
+  50 FPS on the SW renderer.
+- (121) **Pad-walk feedback fixes: rectangular light-pool seams + the
+  example's plaza past the map edge.** The owner walked examples/lighting
+  and found (a) a torch pool cut into a hard rectangle and (b) "a hole in
+  the floor". (a) is structural: terrain draws in CHUNKS, and the
+  per-bag dynamic-light pick chooses ONE light per chunk - neighboring
+  chunks picking different lights truncate a pool exactly at the chunk
+  border. Fix: `PipelineInfoBag::dynLightPick` (TyraX engine field,
+  default true) - terrain chunks and the sky dome (a nearby light would
+  tint the whole camera-centered dome) opt out and keep the global
+  flashlight state, while each DYNAMIC light now paints its ground pool
+  as a smooth additive terrain-conforming patch (`LightPool`, 4x4 cells,
+  corona sprite tinted by the light color, breathing with
+  `DynLightRt::lastLevel` through additiveBlendFix, TestOnly z, drawn
+  before the shadows). `projectUsesBeams` now also counts dynamic lights
+  (the pools share the corona sprite bake/load). Object bags keep the
+  real per-mesh VU1 pick - a whole object is one bag, no seams. (b) the
+  example's hero shapes stood at z 15..16 on a 28x28 terrain (edge at
+  +/-14) - the "hole" was honestly the end of the world; terrain is now
+  36x36. **Verified** (Layer 3): PCSX2 SW renderer - smooth round pools
+  under both torches and the crystal with no chunk seams, terrain
+  continuing past the plaza, silhouettes landing on real ground, 50 FPS.
+- (120) **examples/lighting - the whole batch in one dusk plaza.** A
+  committed first-person example presenting every lighting-batch feature
+  at once: two flickering dynamic torches with corona + cone beams, a
+  flow-graph-pulsed crystal light (Every 6 s -> Set Light x1.8 -> Delay 3
+  -> Set Light x0.7 - the only logic in the scene), a baked blue lamp for
+  contrast, three "Cast shadow" hero shapes (rotated monolith slab, orb,
+  obelisk) throwing long projected silhouettes under a warm low sun,
+  physics crates with blob shadows, the sun's lens flare (occlusion demo:
+  a tall pillar to hide it behind) + god rays, and the Circle-toggled
+  flashlight competing in the per-mesh light pick. Authored headlessly
+  (scaffold + hand-written manifest/objects, validated by --resave /
+  --dump), generated files regenerated with a Docker build in the same
+  commit (the example-drift rule), root README examples list + example
+  README added. **Verified** (Layer 3): builds exit 0; PCSX2 **software
+  renderer** boots at 50 FPS - dusk sky, sun glow + flare ghosts, blue
+  crystal corona, long dark silhouette shadows stretching from the hero
+  shapes, landed crates; composition tuned across three boots (sun off
+  the monolith's axis, crystal radius/brightness halved, spawn pulled
+  back). Walking the scene with a pad stays the human pass.
+- (119) **Projected silhouette shadows - the real thing, per-object
+  opt-in.** New `SceneObject::castShadow` ("Cast shadow (projected)" in
+  Properties, `castShadow` in JSON, recipe-hashed): the caster's EXISTING
+  render bags re-render each frame into a small VRAM target from a "light
+  camera" looking along the sun (`pushEnvView` with an FOV sized for a
+  ~25% transparent border - CLAMP smears edge texels), and a 5x5
+  terrain-conforming receiver patch under the caster samples the
+  silhouette by light-space UVs (clip = capturedVP * vertex) with a black
+  modulate + alpha-over draw, TestOnly z. Engine: `RendererCoreShadowMap`
+  (sibling of the env map bracket): FOUR 64x64 slots + one shared cleared
+  z-buffer, `begin(slot)` per caster / one `end()` (N+1 PATH1 drains
+  total), VRAM **allocated lazily** via `allocate()` - only projects with
+  casters pay the 80 KB (PROJ_SHADOWS_USED gates the game-side call;
+  init() re-places the buffers after a display-mode VRAM reset).
+  Runtime: the `slots` casters nearest the camera are active (sorted per
+  frame), shadows fade 35..50 units so slot handoffs never pop, the sun
+  ray through the caster center places the patch (slant stretch grows it),
+  skipped entirely when the sun is < ~15 deg above the horizon (degenerate
+  projection). Works for static objects AND animated models (anim bags
+  resubmit after the anim pass, so the silhouette follows the pose).
+  **Verified** (Layer 3): editor builds clean; Docker build (engine +
+  game) exit 0; PCSX2 **software renderer** boots with "Shadow map slots
+  initialized" in bin/log.txt, no TYRA banners, 50 FPS with one active
+  caster (silhouette bracket + patch every frame), and the screenshot
+  shows a darker square footprint under the caster box on the lit
+  terrain, displaced toward the camera as the sun direction dictates.
+  The caster sat in the torch's saturated pool - an eyes-on pass in a
+  neutral scene (and an animated caster) still wants a human look, as
+  does real hardware.
+- (118) **Blob shadows under moving objects.** Project-wide preference
+  (`ProjectSettings::blobShadows`, Preferences > Shadows): every moving
+  caster (third-person avatar, animated models, physics objects; markers/
+  lights excluded, spawn-pool clones don't cast) gets a soft dark quad on
+  the terrain - 4 height samples conform it to slopes, opacity fades to 0
+  as the caster rises 3 units, the flare's soft-glow sprite is the alpha
+  mask (baked even with the flare off), alpha-over blend, z-tested with no
+  z writes (TestOnly) at the end of renderScene. Per-caster vertex arrays
+  on purpose - a shared buffer could still be in DMA flight from the
+  previous caster's submit. BLOB_SHADOWS in scene_data gates setup +
+  texture load.
+- (117) **Visible light beams (Point Light > Beam).** Per-light option
+  (`SceneObject::lightBeam`: none / glow corona / corona + cone shaft,
+  `light.beam` in JSON, combo in Properties): the game draws the light
+  SOURCE, not just its pool - an additive camera-billboarded corona quad
+  (new procedural res/hud/flare-corona.png, shape in RGB because additive
+  bags blend Cs*FIX + Cd and ignore texture alpha; `projectUsesBeams` <->
+  BEAMS_USED gates bake + load) and, for kind 2, an 8-segment cone fan
+  whose vertex colors fade to black at the bottom rim (street-lamp look).
+  Brightness rides `additiveBlendFix` per bag and follows the light's
+  runtime state - `DynLightRt::lastLevel` (intensity x flicker, 0 when
+  hidden/off) is written by updateDynLights and reused, so the corona
+  breathes with the pool of light; baked lights glow steadily. Drawn at
+  the end of renderScene with Precise frustum culling + TestOnly z (walls
+  occlude, no z writes). **Verified** (117, Layer 3): Docker build exit 0,
+  PCSX2 (D3D11) shows the corona + the cone shaft reaching the terrain on
+  a dynamic torch, breathing with the flicker, 50 FPS; corona size retuned
+  0.22 -> 0.14 x radius after the first shot. 118 ran in the same boot
+  with no asserts and a faint darkening at the physics box's base, but the
+  box sat at the frame edge - an eyes-on check in a real scene (avatar
+  walking, object jumping) is still wanted.
+- (116) **Dynamic lights reach animated models (cheap pickup).** The known
+  gap from the flashlight feature (DynPip/anim meshes saw no dynamic light)
+  closed the PS2-era way: `dynLightAt` samples every dynamic light's
+  contribution (scene point lights + the flashlight, falloff mirroring the
+  VU1 shape, rough cone test for the beam) ONCE per animated model per
+  frame at its center, and the result is folded into each part's ambient
+  term (`litColors[3]` = albedo * (sceneAmbient + 128*sample), refreshed in
+  the anim render pass). A character walking into a torch's pool of light
+  brightens with it, at a few EE multiplies per model - no per-vertex work,
+  no VU1 change. Verified: editor + Docker builds clean (the pass compiles
+  and runs in the flare/god-rays boots); a hands-on visual check with a
+  .glb avatar next to a dynamic torch still wants a human eye.
+- (115) **God rays (sun light shafts) - a new GS post-fx pass.** Engine:
+  `PassGodRays` in `RendererCorePostFx` (PassAll now 31, packet 352 -> 512
+  qwords): downsample to the 1/8-res bloom buffers, bright-pass (subtract a
+  flat 150 threshold via the new `sizedQuad`, then double the result back
+  up - threshold 96 washed the whole frame white, the sky IS bright), two
+  ping-pong zoom-toward-the-sun iterations (dst = zoom_s(src) + src/2,
+  s = 0.72 - each zoom samples a window shrunk around the sun, stretching
+  bright pixels into radial streaks), additive composite at HALF the
+  requested strength. The game feeds `setGodRaysSun(px, py, visibility)`
+  every frame (sun projected via getViewProj; visibility eases over a
+  220px off-screen band, 0 behind the camera); strength = authored
+  `ProjectSettings::godRays` (UI Editor pinned "[ God rays ]" entry,
+  per-scene override in Post effects) or the **Set God Rays** flow node.
+  Applied with PassDof right after the scene in both loops, before the
+  flare sprites.
+- (114) **Sun lens flare with raycast occlusion.** The sun sits infinitely
+  far along the lighting direction; `updateSunFx` projects it through the
+  frame's view-proj, and ONE ray toward it per frame (object bounding
+  spheres + a 2-unit terrain march to 80 units - no GS readbacks, pure
+  PS2-era EE) eases the flare in/out (`flareVis`, 6/s). Four additive
+  ghost sprites ride the sun -> screen-center axis (big glow at the sun, a
+  small glow, two rings incl. one mirrored past center), tinted by the
+  scene light color, procedurally baked at build (`menubake::bakeFlarePNG`
+  -> res/hud/flare-{glow,ring}.png, written only when
+  `templates::projectUsesFlare` - authored amount > 0 or a Set Flare node -
+  which also gates the game's texture load via FLARE_USED; the paths load
+  as `hud/...` - `res/...` produced magenta placeholders, the game cwd
+  already maps into res). Engine: `Sprite::additive` (2D additive blend
+  Cs*As + Cd, per sprite, in RendererCore2D). The MAIN glow draws BEFORE
+  the post-fx pass so the god rays streak the sun itself - but only while
+  DoF is off (sprites stamp z across their rect and would punch a blur
+  rectangle into the z-tested DoF composite); with DoF on it joins the
+  other ghosts after the pass. Authored in the UI Editor ("[ Lens flare ]"
+  pinned entry) / Scene > Post effects; **Set Lens Flare** flow node at
+  runtime. **Verified** (114+115 together, Layer 3): Docker build exit 0;
+  PCSX2 boots; screenshots show the tuned pass - first attempt washed the
+  frame white (threshold 96), retuned to 150 + half strength: blue sky
+  intact, soft glow + rings at the sun, the sun's light bleeding below the
+  horizon through the rays, 50 FPS. PCSX2's Vulkan swap chain wedged
+  mid-session (parallel Claude sessions fighting over the emulator);
+  verified on the D3D11 renderer - a SW-renderer pixel pass on the final
+  batch still pending. Note: dyn-light e2e (113) WAS SW-verified.
+- (113) **Dynamic point lights — flickering torches with zero new VU1 code.**
+  Point Light objects gain a **Dynamic (live)** flag (+ **Flicker** 0..1):
+  instead of being baked into vertex colors at build, the light registers
+  with the engine every frame and lights nearby meshes through the SAME VU1
+  spot-light slot the camera flashlight uses. Two tricks make it ~free:
+  (1) a point light is expressed through the existing spot-cone constants
+  (zero direction + `cosCut2 = -1` + `invSoft = 1e4/objRange2` saturates the
+  cone term within ~1% of the range - the radial falloff alone shapes it),
+  so the VU1 programs are byte-identical, no micro-memory pressure; (2) the
+  color programs have ONE light slot per mesh, so `StaPipCore::render` now
+  **picks the strongest contributor per bag** (`RendererCore::pickDynLight`
+  on the bag's world bounding sphere from the frustum-bbox cache; flashlight
+  competes, spot candidates are down-ranked 20x when the sphere sits outside
+  their cone) and `sendObjectData`/the EE clipper consume the pick via
+  `setBagLight`. Engine: `RendererCoreSpotLight::point`, a per-frame
+  `dynLights[8]` registry (`clearDynLights`/`addDynPointLight`), the pick;
+  editor: the flag + flicker in Properties/JSON (`light.dynamic/flicker`),
+  `SceneObjectData.lightDynamic/lightFlicker`, bake skips dynamic lights,
+  `updateDynLights` in both game loops (two-sine wobble, frozen under pause;
+  hidden/streamed-out lights go dark; positions read from the live runtime
+  object so Move Object moves the pool of light), **Set Light flow node**
+  (On + Intensity via `ScriptContext::lightRequest/lightIntensity` request
+  slots), Live Link recipe hash covers the new fields. Also fixed in
+  passing: the empty-scene `SCENE_*_OBJECTS` placeholder row was one value
+  short since the `reflected` field landed (a `""` fell on the int
+  `animModel` - empty scenes did not compile). **Verified** (Layer 3):
+  editor builds clean; scratch fpp project (dynamic torch flicker 0.6 +
+  baked lamp + box + On Start -> Set Light(on, x2)) round-trips, codegen
+  shows the flag/flicker in the table + the request writes in
+  `flow_graph.gen.cpp`; Docker build (engine relink) exit 0; PCSX2
+  **software renderer** at 50 FPS shows the warm pool of light on the
+  terrain + the lit box face, and two screenshots ~0.7 s apart show clearly
+  different brightness (the flicker + x2 intensity working live). Docs:
+  README lighting bullet, tyra-engine-dev + tyra-editor-dev untouched
+  rules-wise (registry pattern documented in the engine skill).
+
+## Also done after the marathon
+
+<!-- NOTE: a past merge committed its conflict markers here; both sides were
+     real, parallel feature batches (reflections vs live-link/mirrors), which
+     is why 104-107 appear twice below (and 113-116 more than once - the
+     lighting, interlacing, font/display-text and navmesh batches numbered
+     in parallel). All kept. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 

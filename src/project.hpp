@@ -230,6 +230,13 @@ struct SceneObject {
     // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
     // casts nothing; it still receives shadows from others.
     bool castShadow = true;
+    // Projected silhouette shadow (runtime, NOT the baked AO above): the
+    // game renders this object's silhouette from the sun into a small VRAM
+    // target every frame and projects it onto the terrain under it - a
+    // real-shape moving shadow. Manual opt-in per object; the 4 nearest
+    // casters are active at a time, each costing a 64x64 silhouette render
+    // plus a small terrain patch.
+    bool projShadow = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -306,6 +313,11 @@ struct SceneObject {
     float flashlightRange = 30.0f;  // world units
     float flashlightAngle = 20.0f;  // cone half-angle, degrees
     std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+    // Texture of the beam's ground pool (res-relative PNG, e.g.
+    // "res/hud/beam.png"). Empty = the built-in procedural corona. The
+    // shape must live in the RGB channels: the pool draws additively and
+    // additive bags ignore texture alpha.
+    std::string flashlightTexture;
 
     // Particle emitter parameters (used when type == Emitter). The particle
     // texture comes from the shared materialPath (first material's map_Kd);
@@ -343,6 +355,17 @@ struct SceneObject {
     // is the shared `color` field above.
     float lightBright = 1.0f;   // intensity added on top of the scene ambient
     float lightRadius = 8.0f;   // world units; contribution fades linearly to 0
+    // Dynamic (live) point light: instead of baking into vertex colors at
+    // build, the game registers it every frame and the engine lights nearby
+    // meshes through the VU1 spot-light slot - it can flicker and be driven
+    // by the Set Light flow node. Max 8 dynamic lights per scene.
+    bool lightDynamic = false;
+    float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
+    // Visible beam drawn at the light source (additive, follows the light's
+    // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
+    // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
+    // lamp / stage light look). Works on baked lights too (steady glow).
+    int lightBeam = 0;
 
     // Camera entity parameter (used when type == Camera): vertical field of
     // view in degrees. A Cutscene Director shot bound to this camera applies
@@ -481,6 +504,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
+           a.projShadow == b.projShadow &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -507,6 +531,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flashlightRange == b.flashlightRange &&
            a.flashlightAngle == b.flashlightAngle &&
            a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.flashlightTexture == b.flashlightTexture &&
            a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.emitterEnabled == b.emitterEnabled &&
@@ -520,6 +545,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
+           a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
            a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
            a.camFeedObjects == b.camFeedObjects &&
@@ -822,6 +849,15 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
+    // Sun lens flare (0 = off, else brightness 0..1): additive sprites along
+    // the sun->screen-center axis, drawn after the 3D scene under the HUD,
+    // occluded by geometry/terrain via one ray cast per frame. The sun sits
+    // infinitely far along lightDir; its tint follows lightColor.
+    float flare = 0.0f;
+    // God rays / light shafts from the sun (0 = off, else strength 0..1):
+    // a bright-pass + radial blur toward the sun's screen position on the GS
+    // (reuses the bloom blur chain), composited additively after the scene.
+    float godRays = 0.0f;
     // Baked ambient occlusion (docs/ambient-occlusion.md): terrain
     // self-shadowing, contact darkening between static geometry and raycast
     // self-AO for imported .obj models - all folded into the baked vertex
@@ -871,6 +907,13 @@ struct ProjectSettings {
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
+
+    // Soft dark blob shadows under moving things (the third-person avatar,
+    // animated models, physics objects): a terrain-conforming alpha-blended
+    // quad through the same soft-glow sprite the flare uses, fading out as
+    // the object rises. Project-wide; grounds objects visually for almost
+    // nothing (one quad per object).
+    bool blobShadows = false;
 
     // In-game outline around usable objects while the player is within
     // highlightDistance (fading silhouette shells drawn after the scene).
@@ -936,6 +979,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.bloomSpread == b.bloomSpread &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
+           a.flare == b.flare && a.godRays == b.godRays &&
+           a.blobShadows == b.blobShadows &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -958,7 +1003,7 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain, depth of field
+    bool postFx = false;      // bloom, grain, depth of field, flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };

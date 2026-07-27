@@ -245,6 +245,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .execInLabels = {"show", "hide", "toggle"},
          .desc = "Sets the target's visibility. Three exec pins: 'show' makes "
                  "it visible, 'hide' invisible, 'toggle' flips it."},
+        {.key = "SetLight", .title = "Set Light", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 2,
+         .numLabels = {"On", "Intensity"}, .idIn = true, .idOut = true,
+         .desc = "Switches a dynamic point light on or off (num[0]) and "
+                 "scales its brightness (num[1], 1 = authored value). The "
+                 "target must be a Point Light object with 'Dynamic (live)' "
+                 "enabled - baked (static) lights cannot change at runtime."},
         {.key = "MoveObjectBy", .title = "Move Object By", .category = "Object",
          .strKind = FlowParamKind::ObjectName, .numCount = 3,
          .numLabels = {"dX", "dY", "dZ"}, .idIn = true, .idOut = true,
@@ -427,6 +434,15 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "SetGrain", .title = "Set Grain", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .desc = "Film grain amount num[0] 0..1 (0 = off)."},
+        {.key = "SetFlare", .title = "Set Lens Flare", .category = "Scene",
+         .numCount = 1, .numLabels = {"Amount"},
+         .desc = "Sun lens flare brightness num[0] 0..1 (0 = off). The flare "
+                 "follows the scene's sun (lighting direction) and hides "
+                 "behind geometry."},
+        {.key = "SetGodRays", .title = "Set God Rays", .category = "Scene",
+         .numCount = 1, .numLabels = {"Amount"},
+         .desc = "God rays (sun light shafts) strength num[0] 0..1 (0 = "
+                 "off). Radial streaks from the sun's screen position."},
         // Authored baseline: Tools > UI Editor > Depth of field.
         {.key = "SetDof", .title = "Set Depth Of Field", .category = "Scene",
          .numCount = 4, .numLabels = {"Focus", "Range", "Amount", "Mode"},

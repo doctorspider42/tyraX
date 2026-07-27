@@ -7380,6 +7380,20 @@ void App::drawPropertiesWindow() {
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
 
+        // Real-shape projected shadow - the RUNTIME one, distinct from the
+        // baked ambient-occlusion "Cast shadow" below: a silhouette
+        // rendered from the sun into a small VRAM target and projected onto
+        // the terrain. The caster pays a second render, hence opt-in.
+        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Real silhouette shadow on the terrain: the object renders a\n"
+                "second time each frame (64x64, from the sun) and the shape\n"
+                "is projected under it. The 4 casters nearest the camera are\n"
+                "active at a time - mark hero objects, not everything.\n"
+                "Follows animation and movement; game-only (no preview).\n"
+                "'Cast shadow' below is the baked, static one.");
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).
@@ -7749,9 +7763,36 @@ void App::drawPropertiesWindow() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Radius", &o.lightRadius, 0.1f, 0.1f, 100.0f, "%.1f units");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled("Previewed live in the viewport; in the game it is\n"
-                            "baked into nearby terrain & object vertex colors\n"
-                            "at build (static light, zero runtime cost).");
+        committed |= ImGui::Checkbox("Dynamic (live)", &o.lightDynamic);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Off: baked into nearby vertex colors at build\n"
+                "(static, zero runtime cost).\n"
+                "On: registered every frame - can flicker, move with its\n"
+                "object and be switched by the Set Light flow node.\n"
+                "The engine lights each mesh with its strongest dynamic\n"
+                "light (one slot per mesh; max 8 per scene).");
+        if (o.lightDynamic) {
+            ImGui::DragFloat("Flicker", &o.lightFlicker, 0.01f, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Torch-like brightness wobble. 0 = steady.");
+        }
+        {
+            const char* beams[] = {"None", "Glow (corona)", "Glow + cone shaft"};
+            committed |= ImGui::Combo("Beam", &o.lightBeam, beams, 3);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Draws the light source itself: an additive camera-facing\n"
+                    "halo, optionally with a cone shaft pointing down (street\n"
+                    "lamp look). Follows flicker / Set Light on dynamic\n"
+                    "lights; steady on baked ones. Game-only (not previewed\n"
+                    "in the viewport).");
+        }
+        if (!o.lightDynamic)
+            ImGui::TextDisabled("Previewed live in the viewport; in the game it is\n"
+                                "baked into nearby terrain & object vertex colors\n"
+                                "at build (static light, zero runtime cost).");
     }
 
     if (o.type == PrimitiveType::SavePoint) {
@@ -8082,6 +8123,51 @@ void App::drawPropertiesWindow() {
         ImGui::TextDisabled("Enabled is the master switch (Set Flashlight flow node\n"
                             "can change it). The toggle button gates the beam on/off\n"
                             "at runtime, but only while Enabled.");
+
+        // Ground-pool texture. Per-vertex lighting cannot draw a spot
+        // smaller than the mesh tessellation, so the beam paints its
+        // ground pool with this sprite - which is also the knob for the
+        // beam's SHAPE (a gobo, a cross, a cracked-lens blob...).
+        ImGui::Spacing();
+        if (o.flashlightTexture.empty())
+            ImGui::TextDisabled("Pool texture: built-in soft circle");
+        else
+            ImGui::TextDisabled("Pool texture: %s", o.flashlightTexture.c_str());
+        if (ImGui::Button(o.flashlightTexture.empty() ? "Pool texture (PNG)..."
+                                                      : "Replace pool texture...")) {
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "hud";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    o.flashlightTexture = "res/hud/" + fileName;
+                    committed = true;
+                } else {
+                    statusMessage_ = "Flashlight texture import failed: " + ec.message();
+                }
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The sprite the beam's ground pool is drawn with - swap it to\n"
+                "reshape the light (gobo, cross, cracked lens). It draws\n"
+                "ADDITIVELY, so put the shape in the RGB channels: black is\n"
+                "transparent, alpha is ignored. Power-of-two sizes only.");
+        if (!o.flashlightTexture.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Reset##flashtex")) {
+                o.flashlightTexture.clear();
+                committed = true;
+            }
+        }
     }
 
     // Attached scripts (Unity-style components): class names registered in
@@ -8371,6 +8457,7 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
+        multiCheck("Projected shadow (live)", &SceneObject::projShadow);
         multiCheck("Cast shadow", &SceneObject::castShadow);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
         if (!anySavePoint) {
@@ -9240,6 +9327,14 @@ void App::drawFlowGraphWindow() {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
             }
+        } else if (n.type == "SetLight") {
+            bool v = n.num[0] != 0.0f;
+            if (ImGui::Checkbox("On", &v)) {
+                n.num[0] = v ? 1.0f : 0.0f;
+                changed = true;
+            }
+            ImGui::DragFloat("Intensity", &n.num[1], 0.02f, 0.0f, 4.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else if (n.type == "SetDof") {
             const char* modes[] = {"Set custom", "Off", "Scene setting"};
             int mode = (int)n.num[3];
@@ -9982,6 +10077,12 @@ void App::drawFlowGraphWindow() {
                             }
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "SetLight") {
+                        n.num[0] = 1.0f;  // on
+                        n.num[1] = 1.0f;  // authored intensity
+                    }
+                    if (std::string(t.key) == "SetFlare") n.num[0] = 0.5f;
+                    if (std::string(t.key) == "SetGodRays") n.num[0] = 0.5f;
                     if (std::string(t.key) == "Raycast") n.num[0] = 50.0f;  // max dist
                     if (std::string(t.key) == "SetDof") {
                         n.num[0] = 20.0f;  // focus distance
@@ -11811,6 +11912,10 @@ void App::drawUiEditorWindow() {
     // sit above a sprite - sprites stamp z = max across their whole rect and
     // would punch sharp rectangles into the blur.
     if (ImGui::Selectable("[ Depth of field ]", uiFxSel_ == 6)) uiFxSel_ = 6;
+    // God rays + lens flare are pinned with DoF: both draw right after the
+    // 3D scene (rays blur the scene itself, flare sprites sit under the HUD).
+    if (ImGui::Selectable("[ God rays ]", uiFxSel_ == 8)) uiFxSel_ = 8;
+    if (ImGui::Selectable("[ Lens flare ]", uiFxSel_ == 7)) uiFxSel_ = 7;
     if (project_.hud.empty())
         ImGui::TextDisabled("No HUD images yet.\nImport a PNG above.");
     ImGui::EndChild();
@@ -11912,6 +12017,42 @@ void App::drawUiEditorWindow() {
             "Per-scene values: Scene > Scene Preferences > Post effects.\n"
             "Runtime: the Set Depth Of Field flow node overrides these\n"
             "(and can restore them with its Scene setting mode).");
+    } else if (uiFxSel_ == 7) {
+        ImGui::SeparatorText("Sun lens flare");
+        ImGui::SliderFloat("Brightness", &project_.settings.flare, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "Additive sprites along the sun-to-center axis, tinted by the\n"
+            "scene light color. The sun sits infinitely far along the\n"
+            "Lighting direction (Preferences > Lighting). 0 = off.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Occlusion is a single ray cast against objects and terrain per "
+            "frame - the flare fades out when the sun hides behind geometry "
+            "and eases back in the open. Draws under the whole HUD stack.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene brightness: Scene > Scene Preferences > Post effects.\n"
+            "Runtime: the Set Lens Flare flow node.");
+    } else if (uiFxSel_ == 8) {
+        ImGui::SeparatorText("God rays (light shafts)");
+        ImGui::SliderFloat("Strength", &project_.settings.godRays, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "Bright parts of the frame streak toward the sun's screen\n"
+            "position (radial-blur GS blits, reusing the bloom chain) and\n"
+            "composite back additively. 0 = off.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Strongest when the sun is on screen or just off the edge - sky "
+            "seen through trees, doorways or fog lights up in shafts. Costs "
+            "a few quarter-res blits per frame, only when enabled.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene strength: Scene > Scene Preferences > Post effects.\n"
+            "Runtime: the Set God Rays flow node.");
     } else if (uiFxSel_ == 3) {
         // --- the pinned USE prompt ------------------------------------------
         HudImage& h = project_.usePrompt;
@@ -25380,6 +25521,14 @@ void App::drawPreferencesModal() {
         ImGui::CloseCurrentPopup();
     }
 
+    ImGui::SeparatorText("Shadows");
+    ImGui::Checkbox("Blob shadows under moving objects", &prefSettings_.blobShadows);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A soft dark quad on the terrain under the third-person avatar,\n"
+            "animated models and physics objects, fading as they rise -\n"
+            "grounds them visually for one quad each. Project-wide.");
+
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
     prefHelp(
@@ -26031,6 +26180,8 @@ void App::drawScenePreferencesModal() {
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
         ImGui::DragFloat("DoF range", &s.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");
+        ImGui::SliderFloat("Lens flare", &s.flare, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("God rays", &s.godRays, 0.0f, 1.0f, "%.2f");
     });
 
     category("Usable objects", ov.highlight, [&] {
