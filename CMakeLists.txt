@@ -90,6 +90,7 @@ add_executable(tyrax-editor
     src/livelogic.cpp
     src/livetime.cpp
     src/vucap.cpp
+    src/bvh.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp
