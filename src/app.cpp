@@ -128,6 +128,10 @@ struct EditorConfig {
     // A way of looking at the scene, like the safe areas and the axis gizmo,
     // so it belongs to the installation rather than to the project.
     bool viewportPs2 = false;
+    // Toolbar run target: false = the emulator (PCSX2), true = a real console
+    // over ps2link. Which machine is on the desk is a property of this PC, not
+    // of the game, so it lives here rather than in the .tyra.
+    bool runOnPs2 = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -199,6 +203,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
+        else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
         else if (match("timeMachineBudgetMb", v))
             cfg.timeMachineBudgetMb = toI(v, 128);
         else if (match("phoneCamSmoothing", v))
@@ -260,6 +265,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeAspect=" << cfg.safeAspect << "\n"
       << "safeOpacity=" << cfg.safeOpacity << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
+      << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
@@ -560,6 +566,7 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.aspect = cfg.safeAspect;
         safeArea_.opacity = cfg.safeOpacity;
         viewportPs2_ = cfg.viewportPs2;
+        runOnPs2_ = cfg.runOnPs2;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
@@ -898,7 +905,7 @@ void App::saveGlobalConfig() {
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
                       safeArea_.opacity, timeBudgetMb_, viewportPs2_,
-                      std::move(recent)});
+                      runOnPs2_, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -1287,12 +1294,23 @@ void App::drawMenuBar() {
     }
 }
 
+// Runs the toolbar's selected target (runOnPs2_). One place, so the Play
+// button, its dropdown and anything else that grows later cannot disagree
+// about what "Run" means.
+void App::runSelectedTarget(bool build) {
+    if (runOnPs2_) runner_.buildAndRunPs2(project_, build);
+    else if (build) runner_.buildAndRun(project_, true);
+    else runner_.runEmulatorOnly(project_);
+}
+
 // Icon toolbar drawn inline in the main menu bar, after the menus. Layout:
-// Save, Build, then two run/stop pairs - [green Play=PCSX2, dropdown, Stop] and
-// [blue Play=PS2, dropdown, Stop]. Each Play has a Visual-Studio-style caret
-// dropdown for the "run without build" variant. Icons are vector-drawn on the
-// menu-bar draw list (the editor loads no icon font) so they stay crisp at any
-// UI scale. Spacing is explicit: a pair sits tight, groups get a wider gap.
+// Save, Build, then ONE run group - [Play, dropdown, Stop] - driving whichever
+// target the dropdown selects (green Play = emulator, blue Play = real PS2),
+// then the live chips. The Visual-Studio-style caret picks the target and
+// carries the run variants (run without build, debug). Icons are vector-drawn
+// on the menu-bar draw list (the editor loads no icon font) so they stay crisp
+// at any UI scale, and they share one stroke weight so the set reads as a set.
+// Spacing is explicit: a pair sits tight, groups get a wider gap.
 void App::drawToolbar() {
     if (!hasProject_) return;
 
@@ -1339,6 +1357,11 @@ void App::drawToolbar() {
         return button(id, lead, h, enabled, tip, paint);
     };
 
+    // One stroke weight for every outlined glyph - that, plus the shared glyph
+    // rect above, is what makes the icons read as one set instead of five
+    // drawings that happen to sit in a row.
+    const float stroke = ImMax(1.5f, h * 0.075f);
+
     // Reusable glyph painters.
     auto paintPlay = [](ImU32 c) {
         return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
@@ -1364,96 +1387,121 @@ void App::drawToolbar() {
         };
     };
 
-    // A Play button immediately followed by a narrow caret dropdown. `run` is
-    // the default (build + run) action; the caret opens `popupId`, whose menu
-    // items the caller renders after all buttons (BeginPopup below). Anchors
-    // the popup just under the caret via `anchor`.
-    const float caretW = h * 0.55f;
-    auto playWithMenu = [&](const char* playId, const char* caretId,
-                            const char* popupId, ImVec2& anchor, bool enabled,
-                            ImU32 color, const char* tip, auto&& onRun) {
-        if (button(playId, gapGroup, h, enabled, tip,
-                   paintPlay(enabled ? color : colDim)))
-            onRun();
-        ImGui::SameLine(0.0f, 1.0f);
-        const ImVec2 cp = ImGui::GetCursorScreenPos();
-        anchor = ImVec2(cp.x, cp.y + h);
-        if (button(caretId, 1.0f, caretW, enabled, "More run options...",
-                   paintCaret(enabled ? colText : colDim)))
-            ImGui::OpenPopup(popupId);
-    };
-
-    // Save (floppy): normal when clean, amber when there are unsaved edits.
-    // Enabled unless we joined a session as a client (the host owns saving).
+    // Save: a floppy drawn as one closed outline with the classic clipped
+    // top-right corner, plus a filled shutter and label. Normal when clean,
+    // amber when there are unsaved edits. Enabled unless we joined a session as
+    // a client (the host owns saving).
     const bool saveAllowed = session_.role() != session::Session::Role::Client;
     if (iconButton(
             "##tb_save", gapGroup, saveAllowed,
             !saveAllowed ? "The session host owns saving"
             : dirty_     ? "Save - unsaved changes (Ctrl+S)"
                          : "Save (Ctrl+S)",
-            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
-                const ImU32 c = dirty_ ? IM_COL32(240, 175, 70, 255) : colText;
+            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
+                const ImU32 c = !en      ? colDim
+                                : dirty_ ? IM_COL32(240, 175, 70, 255)
+                                         : colText;
                 const float w = b.x - a.x, hh = b.y - a.y;
-                dl->AddRect(a, b, c, w * 0.12f, 0, 1.6f);            // body
-                dl->AddRectFilled(ImVec2(a.x + w * 0.22f, a.y),       // shutter
-                                  ImVec2(a.x + w * 0.68f, a.y + hh * 0.32f), c);
-                dl->AddRect(ImVec2(a.x + w * 0.26f, a.y + hh * 0.50f), // label
-                            ImVec2(a.x + w * 0.74f, b.y - hh * 0.06f), c, 0, 0,
-                            1.6f);
+                const float cut = w * 0.30f;  // clipped top-right corner
+                const ImVec2 body[5] = {
+                    ImVec2(a.x, a.y),         ImVec2(b.x - cut, a.y),
+                    ImVec2(b.x, a.y + cut),   ImVec2(b.x, b.y),
+                    ImVec2(a.x, b.y)};
+                dl->AddPolyline(body, 5, c, ImDrawFlags_Closed, stroke);
+                dl->AddRectFilled(ImVec2(a.x + w * 0.24f, a.y),  // shutter
+                                  ImVec2(a.x + w * 0.58f, a.y + hh * 0.34f), c);
+                dl->AddRectFilled(ImVec2(a.x + w * 0.24f, b.y - hh * 0.34f),
+                                  ImVec2(b.x - w * 0.24f, b.y), c);  // label
             }))
         saveAll("Saved");
 
-    // Build only (no run) - a hammer, so it reads apart from the Play triangles.
-    if (iconButton("##tb_build", gapGroup, !busy,
+    // Build only (no run): an isometric box - the build's output - in the same
+    // stroke as the floppy, so the pair reads as one family and neither is
+    // confused with the filled Play/Stop shapes.
+    if (iconButton("##tb_build", gapPair, !busy,
                    "Build (no run) (Ctrl+Shift+B)",
                    [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                       const ImU32 c = en ? IM_COL32(210, 180, 120, 255) : colDim;
+                       const ImU32 c = en ? colText : colDim;
                        const float w = b.x - a.x, hh = b.y - a.y;
-                       // handle: lower-left up to the head
-                       dl->AddLine(ImVec2(a.x + 0.30f * w, b.y),
-                                   ImVec2(a.x + 0.66f * w, a.y + 0.34f * hh), c,
-                                   ImMax(2.0f, w * 0.13f));
-                       // head: a thick short bar across the top of the handle
-                       dl->AddLine(ImVec2(a.x + 0.40f * w, a.y + 0.12f * hh),
-                                   ImVec2(b.x, a.y + 0.42f * hh), c,
-                                   ImMax(3.0f, w * 0.26f));
+                       const float cx = a.x + w * 0.5f;
+                       const float sh = hh * 0.26f;  // corner shoulder height
+                       const ImVec2 top(cx, a.y), bot(cx, b.y);
+                       const ImVec2 ul(a.x, a.y + sh), ur(b.x, a.y + sh);
+                       const ImVec2 ll(a.x, b.y - sh), lr(b.x, b.y - sh);
+                       const ImVec2 mid(cx, a.y + sh * 2.0f);
+                       const ImVec2 hex[6] = {top, ur, lr, bot, ll, ul};
+                       dl->AddPolyline(hex, 6, c, ImDrawFlags_Closed, stroke);
+                       dl->AddLine(mid, ul, c, stroke);  // the three edges
+                       dl->AddLine(mid, ur, c, stroke);  // meeting at the front
+                       dl->AddLine(mid, bot, c, stroke); // corner
                    }))
         runner_.buildAndRun(project_, false);
 
-    // --- Emulator group: green Play (+dropdown) + Stop PCSX2 -------------
-    ImVec2 emuMenuAnchor, ps2MenuAnchor;
-    playWithMenu("##tb_run_emu", "##tb_run_emu_more", "emu_run_menu",
-                 emuMenuAnchor, !busy, IM_COL32(95, 200, 115, 255),
-                 "Build && Run in PCSX2 (F5)",
-                 [&] { runner_.buildAndRun(project_, true); });
-    // Stop PCSX2: cancels a running build, else closes the emulator. Always
-    // available (can't detect a stray PCSX2; taskkill is a no-op if none runs).
-    if (iconButton("##tb_stop_emu", gapPair, true,
-                   busy ? "Cancel build" : "Stop PCSX2", paintStop(colStop))) {
+    // --- Run group: Play (+ target dropdown) + Debug + Stop ----------------
+    // ONE pair for both targets; the dropdown picks which machine it drives and
+    // the Play glyph's color says so (green = emulator, blue = real PS2).
+    const bool targetReady = !runOnPs2_ || ps2Ready;
+    const bool debugProfile = project_.settings.buildProfile == "debug";
+    const ImU32 colTarget = runOnPs2_ ? IM_COL32(80, 160, 245, 255)
+                                      : IM_COL32(95, 200, 115, 255);
+    const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
+    // Debug is Run plus opening the Debugger panel. It needs the debug build
+    // profile - Live Link, the Live Debugger and Live Logic exist nowhere else -
+    // but it stays on the bar either way, dimmed, saying where to switch it on.
+    const char* debugTip =
+        !debugProfile ? "Debug needs the Debug build profile (Project > "
+                        "Preferences > Build > Profile).\nLive Link, the Live "
+                        "Debugger and Live Logic only exist in debug builds."
+        : runOnPs2_   ? "Debug on PS2: build && run, and open the Debugger (F9)"
+                      : "Debug in PCSX2: build && run, and open the Debugger (F9)";
+    const bool debugEnabled = !busy && targetReady && debugProfile;
+    if (iconButton("##tb_run", gapGroup, !busy && targetReady,
+                   !targetReady    ? noIpTip
+                   : runOnPs2_     ? "Build && Run on PS2 (F6)"
+                                   : "Build && Run in PCSX2 (F5)",
+                   paintPlay(!busy && targetReady ? colTarget : colDim)))
+        runSelectedTarget(true);
+    ImGui::SameLine(0.0f, 1.0f);
+    const ImVec2 caretPos = ImGui::GetCursorScreenPos();
+    const ImVec2 runMenuAnchor(caretPos.x, caretPos.y + h);
+    if (button("##tb_run_more", 1.0f, h * 0.55f, true,
+               "Run target and options...", paintCaret(colText)))
+        ImGui::OpenPopup("run_menu");
+    // Debug: the Play triangle in the target color with a breakpoint dot on its
+    // lower-left vertex - "run, with the debugger attached" said in two symbols
+    // the toolbar already uses. The dot sits ON the vertex so the two read as
+    // one mark, and both survive being 10 px wide the way a drawn bug would not.
+    if (iconButton("##tb_debug", gapPair, debugEnabled, debugTip,
+                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
+                       const float w = b.x - a.x, hh = b.y - a.y;
+                       const float x0 = a.x + w * 0.16f, y1 = b.y - hh * 0.12f;
+                       dl->AddTriangleFilled(
+                           ImVec2(x0, a.y), ImVec2(x0, y1),
+                           ImVec2(b.x, (a.y + y1) * 0.5f),
+                           en ? colTarget : colDim);
+                       dl->AddCircleFilled(ImVec2(x0, y1), w * 0.22f,
+                                           en ? colStop : colDim);
+                   })) {
+        runSelectedTarget(true);
+        showDebugger_ = true;
+    }
+    // Stop: cancels a running build, else stops the selected target - closes
+    // PCSX2, or on the console kills the file server + resets ps2link. The
+    // emulator side is always available (a stray PCSX2 can't be detected, and
+    // the kill is a no-op when none runs).
+    const bool stopEnabled = busy || targetReady;
+    if (iconButton("##tb_stop", gapPair, stopEnabled,
+                   busy            ? "Cancel build"
+                   : !targetReady  ? noIpTip
+                   : runOnPs2_     ? "Stop the game on the PS2"
+                                   : "Stop PCSX2",
+                   paintStop(stopEnabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
+        else if (runOnPs2_) runner_.stopPs2(project_);
         else runner_.stopEmulator();
     }
 
-    // --- Console group: blue Play (+dropdown) + Stop PS2 ----------------
-    // Both disabled until a ps2link IP is configured (Edit > Preferences).
-    playWithMenu("##tb_run_ps2", "##tb_run_ps2_more", "ps2_run_menu",
-                 ps2MenuAnchor, !busy && ps2Ready, IM_COL32(80, 160, 245, 255),
-                 ps2Ready ? "Build && Run on PS2 (F6)"
-                          : "Set 'PS2 (ps2link) IP' in Edit > Preferences first.",
-                 [&] { runner_.buildAndRunPs2(project_, true); });
-    // Stop PS2: cancels a running build, else stops the game on the console
-    // (kills the file server + resets ps2link + silences the SPU).
-    const bool stopPs2Enabled = busy || ps2Ready;
-    if (iconButton("##tb_stop_ps2", gapPair, stopPs2Enabled,
-                   busy ? "Cancel build"
-                        : ps2Ready ? "Stop the game on the PS2"
-                                   : "Set 'PS2 (ps2link) IP' in Edit > Preferences first.",
-                   paintStop(stopPs2Enabled ? colStop : colDim))) {
-        if (busy) runner_.cancel();
-        else runner_.stopPs2(project_);
-    }
-
-    // Live Link chip: a dot + label after the run groups, ALSO the on/off
+    // Live Link chip: a dot + label after the run group, ALSO the on/off
     // switch (clicking toggles the project's Live Link preference, same as
     // Build > Live Link). Shown whenever the project builds in the debug
     // profile: gray "LIVE off" = disabled, dim "LIVE (build)" = enabled but
@@ -1669,22 +1717,37 @@ void App::drawToolbar() {
         }
     }
 
-    // Dropdown menus for the two Play carets (anchored just under each caret).
-    ImGui::SetNextWindowPos(emuMenuAnchor);
-    if (ImGui::BeginPopup("emu_run_menu")) {
-        if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
-            runner_.runEmulatorOnly(project_);
-        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
-            runner_.buildAndRun(project_, false);
-        ImGui::EndPopup();
-    }
-    ImGui::SetNextWindowPos(ps2MenuAnchor);
-    if (ImGui::BeginPopup("ps2_run_menu")) {
-        if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false,
-                            !busy && ps2Ready))
-            runner_.buildAndRunPs2(project_, false);
-        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
-            runner_.buildAndRun(project_, false);
+    // The Play caret's dropdown (anchored just under the caret): which machine
+    // to run on, then the run variants for it. Debug needs the debug build
+    // profile - Live Link, the Debugger and Live Logic only exist there - so
+    // the entry stays visible but disabled and says where to turn it on.
+    ImGui::SetNextWindowPos(runMenuAnchor);
+    if (ImGui::BeginPopup("run_menu")) {
+        if (ImGui::MenuItem("Emulator (PCSX2)", nullptr, !runOnPs2_)) {
+            runOnPs2_ = false;
+            saveGlobalConfig();
+        }
+        if (ImGui::MenuItem("PlayStation 2 (ps2link)", nullptr, runOnPs2_,
+                            ps2Ready)) {
+            runOnPs2_ = true;
+            saveGlobalConfig();
+        }
+        if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", noIpTip);
+        ImGui::Separator();
+        const char* runKey = runOnPs2_ ? "F6" : "F5";
+        const char* noBuildKey = runOnPs2_ ? "Ctrl+F6" : "Ctrl+F5";
+        if (ImGui::MenuItem("Run", runKey, false, !busy && targetReady))
+            runSelectedTarget(true);
+        if (ImGui::MenuItem("Run without build", noBuildKey, false,
+                            !busy && targetReady))
+            runSelectedTarget(false);
+        if (ImGui::MenuItem("Debug", nullptr, false, debugEnabled)) {
+            runSelectedTarget(true);
+            showDebugger_ = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", debugTip);
         ImGui::EndPopup();
     }
 }

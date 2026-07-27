@@ -62,9 +62,19 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
-    // Icon toolbar drawn inline in the main menu bar (Save / Run in PCSX2 /
-    // Run on PS2 / Stop). Custom vector-drawn - the editor loads no icon font.
+    // Icon toolbar drawn inline in the main menu bar (Save / Build / Run / Stop
+    // + the live chips). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
+    // Which machine the toolbar's Run/Stop pair drives: false = the emulator
+    // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
+    // `runOnPs2`) - which console is on this desk is not project data. The Play
+    // glyph is green for the emulator and blue for the PS2, so the target is
+    // readable without opening the dropdown. F5/Ctrl+F5 and F6/Ctrl+F6 stay
+    // target-explicit and ignore this.
+    bool runOnPs2_ = false;
+    // Build && run (or run only) on the selected target - what the toolbar's
+    // Play button and its dropdown entries call, so the two can never disagree.
+    void runSelectedTarget(bool build);
     // UI (DPI) scaling. uiScaleUser_ == 0 means "auto" (follow the monitor's
     // content scale); a value > 0 is an explicit multiplier (1.0 == 100%).
     // applyUiScale() recomputes the effective scale and re-applies it to the

@@ -10,6 +10,63 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (214) **One run group in the menu bar, with a target dropdown** (user:
+  "zamiast dwóch guzików do włączania i zatrzymywania niech jest dropdown z
+  wyborem Emulator/Playstation 2"). The toolbar carried two full run/stop pairs
+  side by side - green Play + Stop for PCSX2, blue Play + Stop for the console -
+  which is four buttons and two carets for a choice you make once a week. They
+  collapsed into ONE Play/Stop pair whose caret picks the target
+  (*Emulator (PCSX2)* / *PlayStation 2 (ps2link)*, the latter disabled with the
+  usual "set the ps2link IP" tooltip until one exists) and then offers the run
+  variants for it: **Run**, **Run without build**, **Debug**. The colors did the
+  identifying work before and still do - the Play triangle is green for the
+  emulator and blue for the console - so the target is readable without opening
+  the dropdown, and Stop follows the same selection (cancel a build, else close
+  PCSX2 / kill the file server + reset ps2link).
+  Two small rules came out of it. The target is **machine-global**
+  (`EditorConfig::runOnPs2`, editor.ini) - which console is on this desk is not
+  a property of the game, exactly like `ps2LinkIp` and `emulatorPath` next to
+  it - and F5/Ctrl+F5, F6/Ctrl+F6 deliberately stay **target-explicit**: a
+  keyboard shortcut that silently changes meaning is worse than two shortcuts.
+  `App::runSelectedTarget(build)` is the one place that maps the selection onto
+  the Runner, so the button and its menu cannot drift apart. **Debug** is Run
+  plus opening the Debugger panel, and it is disabled outside the debug build
+  profile with a tooltip naming where to switch it - Live Link, the Live
+  Debugger and Live Logic only exist there, which is the whole reason the entry
+  is separate from Run. On the user's follow-up ("niech debug zawsze jest
+  widoczne (obok play)") it also got its own **button next to Play** rather than
+  living only in the dropdown: it is the second thing you press all day, and
+  paying a dropdown for it every time is the cost the old four-button bar was
+  supposed to buy back. It is drawn as the Play triangle in the target color
+  with a **breakpoint dot on its lower-left vertex** - the dot sits ON the
+  vertex so the two read as one mark - because a literal bug is mush at the
+  ~10 px this glyph rect gives you, while a triangle and a disc are the two
+  shapes that survive it. Always visible, greyed with the explaining tooltip
+  when the profile is release; the dropdown keeps its Debug row (same code
+  path) since that list is where the three run variants are discoverable.
+  The Save and Build glyphs were redrawn to match. The old pair had a
+  1.6-px-outlined floppy next to a hammer built from 2- and 3-px lines, so they
+  read as two different drawings; now both are outlines at one `stroke`
+  (`max(1.5, h*0.075)`) inside the shared glyph rect - a floppy with the classic
+  clipped corner, and an isometric box for the build's output - which leaves the
+  FILLED shapes (Play, Stop) meaning "this does something to the running game"
+  and the outlined ones meaning "this touches the project". Neutral text color
+  for both, the amber-when-dirty save being the one deliberate exception.
+  *Verified*: editor builds clean and runs; the config round-trip checked by
+  hand-editing `runOnPs2=1` into editor.ini, opening a project (which rewrites
+  the file through `saveGlobalConfig`) and finding the 1 still there, so both
+  the read and the write path are live. The glyph geometry was checked by
+  replaying the same coordinates in a throwaway PIL script at h=21/32/52 rather
+  than guessing whether a 10-px cube reads as a cube - it does. The same script
+  picked the Debug glyph out of four candidates at h=21: a detached dot beside a
+  shrunken triangle reads as "play, bullet", the dot ON the vertex reads as one
+  symbol, and a hollow ring (the nicer breakpoint) fills in solid at that size.
+  **The toolbar in
+  situ is unverified**: this box is a Wayland session with no capture tooling
+  (the editor is a native Wayland client, so the XWayland XGetImage fallback
+  finds no window either), so the hover/click feel and the layout at the real
+  DPI want a human look.
+
 - (213) **Fix: examples/physics-playground was not an orphan, it was lost in a
   merge - restored** (user asked for the second leftover directory to be dealt
   with in its own commit). It looked like the same class of droppings as (212),
@@ -39,6 +96,7 @@ Each finished feature lands as its own commit.
   *Verified*: a full Docker build of the restored example returns exit 0 under
   today's codegen, and the build leaves `git status` clean - the only thing
   tracked under its `bin/` is the keep-file.
+
 - (212) **Fix: devkit channel files were still reaching git** (user: "widzę, że
   livedbg.bin i livetime.bin dalej próbują lecieć do gita"). Two causes, one
   symptom.
