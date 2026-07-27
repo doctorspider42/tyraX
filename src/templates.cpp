@@ -23,6 +23,7 @@
 #include "glbparser.hpp"
 #include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
 #include "livelogic.hpp"  // Live Logic IR - the interpreter is generated from it
+#include "livetime.hpp"  // time-machine wire format - shared with the editor
 #include "menubake.hpp"
 #include "meshlod.hpp"
 #include "navmesh.hpp"
@@ -17407,6 +17408,12 @@ bool liveDebugOn(const Project& p, const DbgSymbols& syms) {
     return liveDebugEnabled(p) && !syms.nodes.empty();
 }
 
+// The time machine (docs/time-machine.md): the same shape of switch again. It
+// needs no graphs - a scene of physics props is worth rewinding on its own.
+bool liveTimeOn(const Project& p) {
+    return p.settings.buildProfile == "debug" && p.settings.timeMachine;
+}
+
 // Live Logic (docs/live-logic.md) is the same shape of switch: a debug-profile
 // feature behind its own preference, and pointless with nothing to patch.
 bool liveLogicOn(const Project& p) {
@@ -17571,6 +17578,7 @@ std::string flowGraphScript(const Project& p) {
         out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
                "hits / halt / force-fire\n";
     const bool logicOn = liveLogicOn(p);
+    const bool timeOn = liveTimeOn(p);
     if (logicOn)
         out << "#include \"scripts/live_logic.gen.hpp\"  // Live Logic: a "
                "patched graph runs on the interpreter\n";
@@ -19326,6 +19334,58 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         out << "}\n";
     }
 
+    // The time machine's view of the same variables (docs/time-machine.md):
+    // read for a capture, written back for a restore. Its own pair rather than
+    // the debugger's, because rewinding must work with the debugger off - and
+    // both are generated from the one variable list above, so they cannot
+    // disagree about what slot N is.
+    if (timeOn) {
+        const size_t total = intVars.size() + boolVars.size() + posVars.size();
+        out << "\n// Time machine (docs/time-machine.md): the flow variables, "
+               "both directions.\n"
+               "int flowTimeVarCount() { return "
+            << total << "; }\n"
+               "void flowTimeRead(int index, float* out3) {\n"
+               "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
+        if (total == 0) {
+            out << "  (void)index;  // this project defines no flow variables\n";
+        } else {
+            out << "  switch (index) {\n";
+            size_t slot = 0;
+            for (size_t i = 0; i < intVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = (float)flowInt[" << i
+                    << "]; break;  // " << intVars[i] << "\n";
+            for (size_t i = 0; i < boolVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = flowBool[" << i
+                    << "] ? 1.0F : 0.0F; break;  // " << boolVars[i] << "\n";
+            for (size_t i = 0; i < posVars.size(); ++i, ++slot)
+                out << "    case " << slot << ":\n      out3[0] = flowPos[" << i
+                    << "][0]; out3[1] = flowPos[" << i << "][1]; out3[2] = flowPos["
+                    << i << "][2];\n      break;  // " << posVars[i] << "\n";
+            out << "    default: break;\n  }\n";
+        }
+        out << "}\n"
+               "void flowTimeWrite(int index, const float* in3) {\n";
+        if (total == 0) {
+            out << "  (void)index; (void)in3;\n";
+        } else {
+            out << "  switch (index) {\n";
+            size_t slot = 0;
+            for (size_t i = 0; i < intVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": flowInt[" << i
+                    << "] = (int)in3[0]; break;  // " << intVars[i] << "\n";
+            for (size_t i = 0; i < boolVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": flowBool[" << i
+                    << "] = in3[0] != 0.0F; break;  // " << boolVars[i] << "\n";
+            for (size_t i = 0; i < posVars.size(); ++i, ++slot)
+                out << "    case " << slot << ":\n      flowPos[" << i
+                    << "][0] = in3[0]; flowPos[" << i << "][1] = in3[1]; flowPos["
+                    << i << "][2] = in3[2];\n      break;  // " << posVars[i] << "\n";
+            out << "    default: break;\n  }\n";
+        }
+        out << "}\n";
+    }
+
     // Live Logic: the interpreter runs patched graphs from another translation
     // unit, so it reaches the flow variables (statics above) through these.
     // Same shape as the debugger's watch table, both directions.
@@ -21067,6 +21127,374 @@ static std::string liveDebugSymFile(const Project& p) {
 // global Script polls that file every few frames; otherwise the file compiles
 // to an empty translation unit. Records address objects by the stable id
 // hash baked into scene_data.hpp (SCENE_*_OBJECT_ID_HASHES), so a session
+// ---------------------------------------------------------------------------
+// The time machine: src/gen/live_time.gen.cpp (docs/time-machine.md).
+//
+// The game captures everything it MUTATES into bin/livetime.bin every few
+// frames; the editor keeps those captures and can push one back through
+// bin/livetime.rst, which puts the running game where it was. With Live Logic
+// that closes the loop: rewind, patch a graph, watch the fix play out on the
+// situation that just broke.
+//
+// Like the Live Logic pump this is an ordinary global Script, not a game-loop
+// hook - everything it touches is reachable through ScriptContext, including
+// moving the player (ctx.teleport, the Spawn Player At node's own mechanism).
+// That is what keeps it out of the two duplicated game templates entirely.
+//
+// Binary layout v1 (little-endian, both sides are LE; the editor's twin lives
+// in src/livetime.hpp/.cpp - change one and the other must follow):
+//   u32 magic 'TXTM', u32 version=1, u32 seq, u32 frame, i32 scene,
+//   u32 stateBytes, u64 layout, u32 flags, u32 objectCount, u32 rsvd[2]
+//   state:
+//     u16 objectCount, then 100 bytes per object:
+//       f32 position[3], rotation[3], scale[3], color[3]   (48)
+//       f32 velocityX/Y/Z, spin[3], flatTgt[3]             (36)
+//       i16 restFrames, u16 flags(1 visible|2 active|4 dirty)
+//       i16 animClip, u16 animFlags(1 playing|2 loop|4 restart|8 finished)
+//       f32 animSpeed, animFade                            (16)
+//     u16 playerFlags(1 = the capture carries a player), f32 pos[3], yaw, pitch
+//     u16 varCount, then 3 floats per flow variable
+//     u16 saveCount, then 1 float per save value
+//   u32 footer = seq ^ 0x5A5A5A5A   (guards torn/partial reads)
+//
+// The layout hash is what makes a restore safe: it mixes the object/variable/
+// save counts, so a snapshot taken before a rebuild that changed the scene is
+// refused instead of writing garbage over a differently shaped world.
+static const char* TPL_LIVE_TIME_CPP = R"TIME(// Generated by TyraX. Do not edit - regenerated on every build.
+// The time machine (docs/time-machine.md): debug builds with Project >
+// Preferences > Build > "Time machine" on; otherwise this file is an empty
+// translation unit.
+//
+// Two files next to the ELF, on the same host: filesystem the game already
+// loads its assets from (PCSX2's Host Filesystem / the ps2link file server):
+//
+//   livetime.bin  written here, read by the editor - one capture of everything
+//                 the game mutates, rewritten every few frames.
+//   livetime.rst  written by the editor, read here - a capture to go back to.
+//
+// The layout is documented field by field above the generator in the editor's
+// templates.cpp and parsed in src/livetime.hpp; the two ends must agree, so
+// change them together. Torn writes are rejected by an exact-size +
+// footer-echo check on both sides, and a restore is applied only when its
+// sequence number changes.
+#include <tyra>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+
+// The flow variables are statics in flow_graph.gen.cpp, so their accessors
+// live there too - same arrangement the Live Debugger's watch table uses.
+int flowTimeVarCount();
+void flowTimeRead(int index, float* out3);
+void flowTimeWrite(int index, const float* in3);
+
+namespace livetime {
+namespace {
+
+typedef unsigned long long tllu64;
+constexpr u32 TM_MAGIC = 0x4D545854;  // "TXTM"
+constexpr u32 TM_VERSION = 1;
+constexpr int TM_HEADER = 48;
+constexpr u32 TM_FOOTER_XOR = 0x5A5A5A5A;
+constexpr int TM_OBJ_STRIDE = 100;
+// Authored objects plus the runtime spawn pool: a capture covers the clones
+// too, or rewinding past a Spawn Object leaves the clone standing there.
+constexpr int TM_MAX_OBJECTS = {{MAX_OBJECTS}};
+constexpr int TM_MAX_VARS = {{MAX_VARS}};
+constexpr int TM_MAX_SAVES = {{MAX_SAVES}};
+constexpr tllu64 TM_LAYOUT = {{LAYOUT}}ull;
+constexpr int TM_STATE_MAX = 2 + TM_MAX_OBJECTS * TM_OBJ_STRIDE + 22 + 2 +
+                             TM_MAX_VARS * 12 + 2 + TM_MAX_SAVES * 4;
+
+unsigned char buf[TM_HEADER + TM_STATE_MAX + 4];
+
+u32 seqOut = 0;         // captures written
+u32 frameNo = 0;        // monotonic across restores: the history's ordering key
+u32 lastRestoreSeq = 0;  // the restore we last applied
+int cooldown = 1;
+unsigned int lastGen = 0xFFFFFFFFu;
+
+inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
+inline void put32(unsigned char* p, u32 v) { memcpy(p, &v, 4); }
+inline void putf(unsigned char* p, float v) { memcpy(p, &v, 4); }
+inline unsigned short get16(const unsigned char* p) {
+  unsigned short v; memcpy(&v, p, 2); return v;
+}
+inline u32 get32(const unsigned char* p) { u32 v; memcpy(&v, p, 4); return v; }
+inline float getf(const unsigned char* p) { float v; memcpy(&v, p, 4); return v; }
+
+/** Writes the mutable state into `p`, returns the byte count. The ONE walk
+ * over the world: restore() below reads exactly the same fields in exactly the
+ * same order, and both live here so they cannot drift. */
+int capture(ScriptContext& ctx, unsigned char* p) {
+  unsigned char* const start = p;
+  int count = ctx.objectCount;
+  if (count > TM_MAX_OBJECTS) count = TM_MAX_OBJECTS;
+  put16(p, (unsigned short)count);
+  p += 2;
+  for (int i = 0; i < count; ++i) {
+    const RuntimeObject& o = ctx.objects[i];
+    for (int k = 0; k < 3; ++k) putf(p + k * 4, o.data.position[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 12 + k * 4, o.data.rotation[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 24 + k * 4, o.data.scale[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 36 + k * 4, o.data.color[k]);
+    putf(p + 48, o.velocityX);
+    putf(p + 52, o.velocityY);
+    putf(p + 56, o.velocityZ);
+    for (int k = 0; k < 3; ++k) putf(p + 60 + k * 4, o.spin[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 72 + k * 4, o.flatTgt[k]);
+    put16(p + 84, (unsigned short)o.restFrames);
+    put16(p + 86, (unsigned short)((o.visible ? 1 : 0) | (o.active ? 2 : 0) |
+                                   (o.dirty ? 4 : 0)));
+    put16(p + 88, (unsigned short)o.animClip);
+    put16(p + 90,
+          (unsigned short)((o.animPlaying ? 1 : 0) | (o.animLoop ? 2 : 0) |
+                           (o.animRestart ? 4 : 0) | (o.animFinished ? 8 : 0)));
+    putf(p + 92, o.animSpeed);
+    putf(p + 96, o.animFade);
+    p += TM_OBJ_STRIDE;
+  }
+
+  // The walker: position and facing, taken from the same ScriptContext fields
+  // the flow nodes read. Its vertical velocity and camera boom live in the
+  // game class and are NOT captured - a rewind lands you standing where you
+  // were, which is the honest thing the channel can promise from out here.
+  put16(p, 1);
+  putf(p + 2, ctx.playerPosition.x);
+  putf(p + 6, ctx.playerPosition.y);
+  putf(p + 10, ctx.playerPosition.z);
+  const float lx = ctx.playerLook.x, lz = ctx.playerLook.z;
+  putf(p + 14, atan2f(lx, lz));
+  putf(p + 18, asinf(ctx.playerLook.y < -1.0F   ? -1.0F
+                     : (ctx.playerLook.y > 1.0F ? 1.0F : ctx.playerLook.y)));
+  p += 22;
+
+  int vars = flowTimeVarCount();
+  if (vars > TM_MAX_VARS) vars = TM_MAX_VARS;
+  put16(p, (unsigned short)vars);
+  p += 2;
+  for (int i = 0; i < vars; ++i, p += 12) {
+    float v[3];
+    flowTimeRead(i, v);
+    putf(p + 0, v[0]);
+    putf(p + 4, v[1]);
+    putf(p + 8, v[2]);
+  }
+
+  int saves = ctx.saveValueCount;
+  if (saves > TM_MAX_SAVES) saves = TM_MAX_SAVES;
+  put16(p, (unsigned short)saves);
+  p += 2;
+  for (int i = 0; i < saves; ++i, p += 4) putf(p, ctx.saveValues[i]);
+
+  return (int)(p - start);
+}
+
+/** Reads back exactly what capture() wrote. */
+void restore(ScriptContext& ctx, const unsigned char* p, int bytes) {
+  const unsigned char* const end = p + bytes;
+  if (p + 2 > end) return;
+  int count = (int)get16(p);
+  p += 2;
+  if (count > ctx.objectCount) count = ctx.objectCount;
+  if (p + (size_t)count * TM_OBJ_STRIDE > end) return;
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& o = ctx.objects[i];
+    for (int k = 0; k < 3; ++k) o.data.position[k] = getf(p + k * 4);
+    for (int k = 0; k < 3; ++k) o.data.rotation[k] = getf(p + 12 + k * 4);
+    for (int k = 0; k < 3; ++k) o.data.scale[k] = getf(p + 24 + k * 4);
+    for (int k = 0; k < 3; ++k) o.data.color[k] = getf(p + 36 + k * 4);
+    o.velocityX = getf(p + 48);
+    o.velocityY = getf(p + 52);
+    o.velocityZ = getf(p + 56);
+    for (int k = 0; k < 3; ++k) o.spin[k] = getf(p + 60 + k * 4);
+    for (int k = 0; k < 3; ++k) o.flatTgt[k] = getf(p + 72 + k * 4);
+    o.restFrames = (short)get16(p + 84);
+    const unsigned short fl = get16(p + 86);
+    o.visible = (fl & 1) != 0;
+    o.active = (fl & 2) != 0;
+    o.animClip = (short)get16(p + 88);
+    const unsigned short af = get16(p + 90);
+    o.animPlaying = (af & 1) != 0;
+    o.animLoop = (af & 2) != 0;
+    o.animRestart = (af & 4) != 0;
+    o.animFinished = (af & 8) != 0;
+    o.animSpeed = getf(p + 92);
+    o.animFade = getf(p + 96);
+    // ALWAYS dirty, whatever the capture said: a restored object has moved as
+    // far as the renderer is concerned, and a batched member that is not
+    // demoted keeps drawing at its old place (see staticBatchEligible).
+    o.dirty = true;
+    p += TM_OBJ_STRIDE;
+  }
+
+  if (p + 22 > end) return;
+  if (get16(p) & 1) {
+    // Moving the player is a REQUEST the loop consumes, exactly as the Spawn
+    // Player At node makes it - the walker's own state lives in the game class
+    // and this is the door into it.
+    ctx.teleport = true;
+    ctx.teleportPos = Tyra::Vec4(getf(p + 2), getf(p + 6), getf(p + 10));
+    ctx.teleportYaw = getf(p + 14) * (180.0F / 3.14159265F);
+  }
+  p += 22;
+
+  if (p + 2 > end) return;
+  int vars = (int)get16(p);
+  p += 2;
+  if (vars > flowTimeVarCount()) vars = flowTimeVarCount();
+  if (p + (size_t)vars * 12 > end) return;
+  for (int i = 0; i < vars; ++i, p += 12) {
+    const float v[3] = {getf(p + 0), getf(p + 4), getf(p + 8)};
+    flowTimeWrite(i, v);
+  }
+
+  if (p + 2 > end) return;
+  int saves = (int)get16(p);
+  p += 2;
+  if (saves > ctx.saveValueCount) saves = ctx.saveValueCount;
+  if (p + (size_t)saves * 4 > end) return;
+  for (int i = 0; i < saves; ++i, p += 4) ctx.saveValues[i] = getf(p);
+}
+
+void writeCapture(ScriptContext& ctx) {
+  const int stateBytes = capture(ctx, buf + TM_HEADER);
+  ++seqOut;
+  put32(buf + 0, TM_MAGIC);
+  put32(buf + 4, TM_VERSION);
+  put32(buf + 8, seqOut);
+  put32(buf + 12, frameNo);
+  put32(buf + 16, (u32)ctx.scene);
+  put32(buf + 20, (u32)stateBytes);
+  put32(buf + 24, (u32)(TM_LAYOUT & 0xFFFFFFFFull));
+  put32(buf + 28, (u32)(TM_LAYOUT >> 32));
+  put32(buf + 32, 0);
+  put32(buf + 36, (u32)ctx.objectCount);
+  put32(buf + 40, 0);
+  put32(buf + 44, 0);
+  put32(buf + TM_HEADER + stateBytes, seqOut ^ TM_FOOTER_XOR);
+
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livetime.bin").c_str(), "wb");
+  if (!f) return;
+  fwrite(buf, 1, (size_t)(TM_HEADER + stateBytes + 4), f);
+  fclose(f);
+}
+
+void pollRestore(ScriptContext& ctx) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livetime.rst").c_str(), "rb");
+  if (!f) return;  // nothing to go back to (the usual case)
+  const size_t got = fread(buf, 1, sizeof(buf), f);
+  fclose(f);
+  if (got < (size_t)TM_HEADER + 4) return;
+  if (get32(buf + 0) != TM_MAGIC || get32(buf + 4) != TM_VERSION) return;
+  const u32 seq = get32(buf + 8);
+  if (seq == lastRestoreSeq) return;  // already applied
+  const u32 stateBytes = get32(buf + 20);
+  if (stateBytes > (u32)TM_STATE_MAX) return;
+  if (got < (size_t)TM_HEADER + stateBytes + 4) return;
+  if (get32(buf + TM_HEADER + stateBytes) != (seq ^ TM_FOOTER_XOR)) return;
+  // A capture from a differently built game describes a world this one does
+  // not have. Refuse it rather than write it somewhere plausible-looking.
+  const tllu64 layout = (tllu64)get32(buf + 24) | ((tllu64)get32(buf + 28) << 32);
+  if (layout != TM_LAYOUT) {
+    lastRestoreSeq = seq;  // do not re-read it every poll
+    TYRA_LOG("Time machine: ignoring a capture from another build");
+    return;
+  }
+  if ((s32)get32(buf + 16) != ctx.scene) {
+    lastRestoreSeq = seq;
+    TYRA_LOG("Time machine: that capture belongs to another scene");
+    return;
+  }
+  lastRestoreSeq = seq;
+  restore(ctx, buf + TM_HEADER, (int)stateBytes);
+  TYRA_LOG("Time machine: restored capture ", (int)seq);
+}
+
+/** An ordinary global Script, like the Live Logic pump: everything the walk
+ * touches is on ScriptContext, so no game-loop hook and nothing in the two
+ * duplicated game templates. */
+class TimeMachine : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    // A scene (re)load rebuilds the world from its baked state; captures from
+    // before it describe a different one. The editor drops the history when it
+    // sees the frame counter go backwards, so reset it here.
+    if (ctx.sceneGeneration != lastGen) {
+      lastGen = ctx.sceneGeneration;
+      frameNo = 0;
+      seqOut = 0;
+    }
+    ++frameNo;
+    // Over ps2link every fopen is a network round-trip; PCSX2's host
+    // filesystem is plain local IO, so capture ~10x/s there.
+    if (--cooldown > 0) return;
+    cooldown = Tyra::IrxLoader::keepIopResident ? {{POLL_PS2LINK}} : {{POLL}};
+    pollRestore(ctx);
+    writeCapture(ctx);
+  }
+};
+TimeMachine g_timeMachine;
+const bool g_timeMachineRegistered = []() {
+  getScripts().push_back(&g_timeMachine);
+  return true;
+}();
+
+}  // namespace
+}  // namespace livetime
+}  // namespace {{NS}}
+)TIME";
+
+static std::string liveTimeSource(const Project& p) {
+    if (!liveTimeOn(p)) {
+        const std::string why = p.settings.buildProfile != "debug"
+                                    ? "this is a release build"
+                                    : "the \"Time machine\" preference is off";
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// Time machine: nothing to compile here - " +
+               why +
+               ".\n// See docs/time-machine.md (Project > Preferences > "
+               "Build).\n";
+    }
+
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes)
+        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+    maxObjects += 32;  // the runtime spawn pool (MAX_SPAWNED_OBJECTS)
+    std::vector<std::string> intVars, boolVars, posVars;
+    collectFlowVars(p, intVars, boolVars, posVars);
+    const size_t vars = intVars.size() + boolVars.size() + posVars.size();
+    const size_t saves = p.saveValues.size();
+
+    // Identity of the state SHAPE. A capture only goes back into a game whose
+    // world has the same dimensions - anything else would be writing one
+    // scene's numbers over another's.
+    uint64_t layout = 1469598103934665603ull;
+    auto mix = [&layout](uint64_t v) {
+        layout = (layout ^ v) * 1099511628211ull;
+    };
+    mix(1);  // layout version - bump when the walk above changes
+    mix(maxObjects);
+    mix(vars);
+    mix(saves);
+    for (const SceneData& sc : p.scenes) mix(sc.objects.size());
+
+    std::string s = TPL_LIVE_TIME_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{MAX_OBJECTS}}", std::to_string(maxObjects));
+    s = replaceAll(s, "{{MAX_VARS}}", std::to_string(vars ? vars : 1));
+    s = replaceAll(s, "{{MAX_SAVES}}", std::to_string(saves ? saves : 1));
+    s = replaceAll(s, "{{LAYOUT}}", std::to_string(layout));
+    s = replaceAll(s, "{{POLL}}", std::to_string(livetime::kCaptureFrames));
+    s = replaceAll(s, "{{POLL_PS2LINK}}",
+                   std::to_string(livetime::kCaptureFramesPs2Link));
+    return s;
+}
+
 // survives renames/reorders, spawns NEWLY ADDED objects through the runtime
 // spawn pool (templateIdx names an equal-recipe authored object to clone) and
 // hides deleted ones (absence from the snapshot = deleted; restored on undo).
@@ -24639,6 +25067,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scripts\\live_debug.gen.hpp", liveDebugHeader(p)},
         {"src\\gen\\live_debug.gen.cpp", liveDebugSource(p)},
         {"src\\gen\\livedbg.sym", liveDebugSymFile(p)},
+        {"src\\gen\\live_time.gen.cpp", liveTimeSource(p)},
         {"src\\gen\\live_link.gen.cpp", liveLinkScript(p)},
         {"src\\gen\\live_tex.gen.cpp", liveTexScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},

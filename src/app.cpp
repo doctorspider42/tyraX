@@ -118,6 +118,10 @@ struct EditorConfig {
     bool safeCentre = false, safeBothRegions = false;
     int safeAspect = 0;  // 0 follow project, 1 = 4:3, 2 = 16:9
     float safeOpacity = 0.55f;
+    // Time machine (docs/time-machine.md): how much RAM the capture history may
+    // hold. Machine-global because it is a memory budget for THIS PC, not a
+    // property of the game - and it is a ceiling, not an allocation.
+    int timeMachineBudgetMb = 128;
     // Viewport output mode (docs/ps2-viewport.md): false = the editor's own
     // free-aspect image, true = the scene rasterized at the GS framebuffer
     // size of the project's display mode and shown the way a TV shows it.
@@ -195,6 +199,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
+        else if (match("timeMachineBudgetMb", v))
+            cfg.timeMachineBudgetMb = toI(v, 128);
         else if (match("phoneCamSmoothing", v))
             cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
         // One line per entry, written in list order (most recent first).
@@ -254,6 +260,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeAspect=" << cfg.safeAspect << "\n"
       << "safeOpacity=" << cfg.safeOpacity << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
+      << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
@@ -553,6 +560,7 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.aspect = cfg.safeAspect;
         safeArea_.opacity = cfg.safeOpacity;
         viewportPs2_ = cfg.viewportPs2;
+        timeBudgetMb_ = cfg.timeMachineBudgetMb;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -709,6 +717,7 @@ void App::drawUI() {
     // Read what the running game reports about its flow graphs, and push
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
+    livetimeTick();
 
     // Hot-patch edited flow graphs into the running game (throttled; writes
     // only when the compiled program actually changed).
@@ -888,7 +897,8 @@ void App::saveGlobalConfig() {
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
-                      safeArea_.opacity, viewportPs2_, std::move(recent)});
+                      safeArea_.opacity, timeBudgetMb_, viewportPs2_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -22286,6 +22296,152 @@ int App::dbgTimerFrames(int key) const {
     return -1;
 }
 
+// --- The time machine -------------------------------------------------------
+// docs/time-machine.md. The reader is deliberately dumb: the payload is a
+// codegen detail, so the editor stores the bytes and hands the right ones back.
+// What it does own is the history and its budget.
+
+void App::livetimeTick() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !project_.settings.timeMachine ||
+        project_.settings.buildProfile != "debug") {
+        if (!timeHistory_.empty()) timeHistory_.clear();
+        timeHaveLast_ = false;
+        timeScrub_ = -1;
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (now < timeNextTick_) return;
+    // The game rewrites its capture every 6 frames (~8 Hz at 50 Hz); reading
+    // faster than it writes only costs disk hits for the same bytes.
+    timeNextTick_ = now + 0.1;
+
+    timeHistory_.setBudget((size_t)timeBudgetMb_ << 20);
+
+    livetime::Snapshot s;
+    if (!livetime::readSnapshot(
+            (fs::path(project_.dir) / "bin" / "livetime.bin").string(), s))
+        return;  // no capture yet, or a torn write - retry next tick
+    if (!timeHistory_.ingest(s)) return;  // same capture as last time
+    timeLast_ = s;
+    timeHaveLast_ = true;
+    timeLastSeen_ = now;
+    // A capture that arrived after a rewind means the game is running forward
+    // again, so stop pinning the scrub to a frame that is now in the past.
+    if (timeScrub_ >= (int)timeHistory_.count()) timeScrub_ = -1;
+}
+
+void App::timeMachineRewind(int index) {
+    namespace fs = std::filesystem;
+    if (index < 0 || index >= (int)timeHistory_.count()) return;
+    livetime::Snapshot s = timeHistory_.at((size_t)index);
+    // The game applies a restore when the sequence CHANGES, so a capture can be
+    // pushed twice (rewind, run, rewind to the same spot) only if the number
+    // moves. Counting up from the newest capture keeps it ahead of anything the
+    // game has seen.
+    timeRestoreSeq_ = timeHistory_.newest().seq + 1 + timeRestoreSeq_ % 1000;
+    s.seq = timeRestoreSeq_;
+    const std::string err = livetime::writeRestore(
+        (fs::path(project_.dir) / "bin" / "livetime.rst").string(), s);
+    if (!err.empty()) {
+        timeStatus_ = "Rewind failed: " + err;
+        return;
+    }
+    char msg[128];
+    std::snprintf(msg, sizeof(msg), "Rewound %u frames (to frame %u)",
+                  timeHistory_.newest().frame - timeHistory_.at((size_t)index).frame,
+                  timeHistory_.at((size_t)index).frame);
+    timeStatus_ = msg;
+}
+
+void App::drawTimeMachinePanel() {
+    if (project_.settings.buildProfile != "debug") {
+        ImGui::TextDisabled(
+            "Rewinding needs the debug build profile\n"
+            "(Project > Preferences > Build).");
+        return;
+    }
+    if (!project_.settings.timeMachine) {
+        ImGui::TextDisabled(
+            "The time machine is off for this project\n"
+            "(Project > Preferences > Build > Time machine).");
+        return;
+    }
+    if (timeHistory_.empty()) {
+        ImGui::TextDisabled(
+            "No captures yet. Build & run (F5), and the game starts\n"
+            "streaming its state a few times a second.");
+        return;
+    }
+
+    const size_t count = timeHistory_.count();
+    const uint32_t newestFrame = timeHistory_.newest().frame;
+    // Frames -> seconds at the project's refresh rate: what the user actually
+    // wants to know is "how far back can I go", in the units they think in.
+    const float hz = project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+    ImGui::Text("%zu captures, %.1f s of history", count,
+                (float)timeHistory_.frameSpan() / hz);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%.1f of %d MB)",
+                        (double)timeHistory_.bytes() / (1024.0 * 1024.0),
+                        timeBudgetMb_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "The history lives in the editor's memory, never on disk - the\n"
+            "only files the channel touches are two fixed-size ones next to\n"
+            "the ELF. Closing the project drops it. The budget is in\n"
+            "Edit > Preferences.");
+    if (ImGui::GetTime() - timeLastSeen_ > 2.0)
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                           "The game stopped reporting - this history is frozen.");
+
+    // The scrub picks WHICH capture; nothing happens to the game until Rewind.
+    int scrub = timeScrub_ < 0 ? (int)count - 1 : timeScrub_;
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    char label[64];
+    std::snprintf(label, sizeof(label), "-%.1f s",
+                  (float)(newestFrame - timeHistory_.at((size_t)ImClamp(
+                                                            scrub, 0, (int)count - 1))
+                                            .frame) /
+                      hz);
+    if (ImGui::SliderInt("##rewindscrub", &scrub, 0, (int)count - 1, label))
+        timeScrub_ = scrub;
+    scrub = ImClamp(scrub, 0, (int)count - 1);
+
+    const livetime::Snapshot& sel = timeHistory_.at((size_t)scrub);
+    ImGui::TextDisabled("frame %u, scene %d, %d objects, %zu B", sel.frame,
+                        sel.scene, sel.objectCount, sel.state.size());
+
+    if (ImGui::Button("Rewind to here")) timeMachineRewind(scrub);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Puts the RUNNING game back into this capture: object transforms,\n"
+            "physics, animation, flow variables, save values and where the\n"
+            "player stands. The game keeps running from there - with Live\n"
+            "Logic on you can edit a graph first and watch the new logic play\n"
+            "out on the old situation.");
+    ImGui::SameLine();
+    if (ImGui::Button("Live")) timeScrub_ = -1;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Follow the newest capture again.");
+    ImGui::SameLine();
+    if (ImGui::Button("Clear history")) {
+        timeHistory_.clear();
+        timeScrub_ = -1;
+        timeStatus_ = "History cleared";
+    }
+
+    if (!timeStatus_.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", timeStatus_.c_str());
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled(
+        "Not rewound yet: the walker's fall speed and camera boom, graph\n"
+        "timers, sequences, audio and particles. See docs/time-machine.md.");
+}
+
 void App::livedbgTick() {
     namespace fs = std::filesystem;
     if (!hasProject_ || !project_.settings.liveDebug ||
@@ -23082,6 +23238,14 @@ void App::drawDebuggerWindow() {
             }
             ImGui::EndChild();
         }
+        ImGui::EndTabItem();
+    }
+
+    // Rewind: the same axis as the Timeline above, but it moves the WORLD.
+    // The execution log says what ran on frame N; this puts the game back into
+    // the state it was in on frame N (docs/time-machine.md).
+    if (ImGui::BeginTabItem("Rewind")) {
+        drawTimeMachinePanel();
         ImGui::EndTabItem();
     }
 
@@ -24842,6 +25006,19 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
     ImGui::EndDisabled();
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
+    ImGui::EndDisabled();
+    prefHelp(
+        "The game captures everything it mutates - object transforms,\n"
+        "physics, animation, flow variables, save values, where the player\n"
+        "stands - a few times a second, and the editor keeps a history of\n"
+        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
+        "game back into any of them, with no rebuild and no reboot; with Live\n"
+        "Logic on you can fix a graph first and watch the new logic play out\n"
+        "on the situation that just broke. Costs one small file written next\n"
+        "to the ELF every few frames, and nothing at all in a release build.\n"
+        "See docs/time-machine.md.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("EE crash handler (experimental)",
                     &prefSettings_.eeCrashHandler);

@@ -624,6 +624,15 @@ struct ProjectSettings {
     // they were compiled to.
     bool liveLogic = true;
 
+    // Debug profile only: compile the time machine into the game
+    // (docs/time-machine.md). The game captures everything it mutates - object
+    // transforms and physics, the walkers, flow variables, save values - into
+    // bin/livetime.bin every few frames; the editor keeps a history of those
+    // captures and can push one back through bin/livetime.rst, which puts the
+    // running game where it was. Off = neither file is ever touched and the
+    // generated runtime is an empty translation unit.
+    bool timeMachine = true;
+
     // Debug profile only, EXPERIMENTAL and off by default: install the engine's
     // EE crash handler, which turns a real CPU exception (bad pointer, address
     // error, reserved instruction) into a crash.txt report instead of a silent
@@ -889,7 +898,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
-           a.liveLogic == b.liveLogic &&
+           a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&

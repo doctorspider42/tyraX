@@ -10,6 +10,77 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (210) **The time machine: putting the running PlayStation 2 back where it
+  was** (user, after the last merge: "zróbmy to A i B z oryginalnego pomysłu z
+  tym time machine", then "niech mi to dysku nie zapierdoli"). **Phase A of that
+  idea turned out to be already built** - it arrived with main in the previous
+  merge as Live Logic, which is exactly the "graph VM + hot patch over the
+  existing channel" pitch, done well. The Debugger's "rewindable timeline" is a
+  LOG of what executed, not a rewind of the world. So what was actually missing
+  was phase B, and this is it: a fourth live channel that streams the WORLD.
+  The game captures everything it mutates into `bin/livetime.bin` every 6 frames
+  (25 under ps2link), the editor keeps those captures in a RAM history, and
+  pushing one back through `bin/livetime.rst` snaps the console into it and lets
+  it run on. With Live Logic that closes the loop nobody has on this hardware:
+  rewind a few seconds, fix the graph on the running game, watch the fix play
+  out on the situation that just broke.
+  Three decisions carry it. **The editor does not understand the payload**: what
+  is in a capture is a codegen detail, so `src/livetime.hpp` stores bytes and
+  hands the right ones back, and a `layout` hash mixing the object/variable/save
+  counts is what refuses a capture that belongs to a differently built world (or
+  another scene). That kept the host side at ~180 lines and made the whole
+  format harness-testable. **The runtime is an ordinary global `Script`**, like
+  the Live Logic pump - not a game-loop hook - because everything the walk
+  touches is reachable through `ScriptContext`, *including moving the player*:
+  a restore raises `ctx.teleport`, the same request the Spawn Player At node
+  makes. That is what keeps it out of the two duplicated game templates
+  entirely, and it means a restored player still goes through the game's own
+  bounds and collision rather than around them (the e2e below caught exactly
+  that: asking for x=25 on a 40-unit terrain lands at 19, the playable clamp,
+  and that is the game being right). **The history is RAM, not disk** - the
+  user's constraint, and the better design anyway: the only files are two
+  fixed-size ones next to the ELF, so the footprint is bounded by construction
+  rather than by remembering to clean up. Budget in Edit > Preferences (128 MB
+  ~ seven minutes), oldest out first, Clear in the panel, Runner deletes both
+  files at build start.
+  A capture holds every runtime object (transform, colour, physics velocities /
+  spin / settle targets / sleep counter, visibility, layer residency, animation
+  state), where the player stands and faces, every flow variable and every save
+  value. What it does NOT hold is named in the panel and the doc rather than
+  discovered later: the walker's fall speed and camera boom (they live in the
+  game class this deliberately does not reach into), each graph class's own
+  timers and edge latches, sequences mid-play, menus, audio and particles. The
+  frame counter deliberately keeps counting FORWARD across a rewind - it is the
+  history's ordering key, which is also how the editor detects a restarted game
+  (frame went backwards -> drop a history that is no longer a continuation).
+  *Verified* in four layers, and the last one is the real one. **Host harness**
+  (the 104/105/208 pattern): encode/parse round trip, four flavours of torn or
+  malformed write rejected - including the tell-tale one, a new header over an
+  old body, where the footer still echoes the previous seq - ring eviction at
+  the budget, budget lowered evicting immediately, repeats ignored,
+  restart-clears-history, and a capture larger than the whole budget still
+  keeping the newest one. **Codegen**: `--refresh-gen` emits `live_time.gen.cpp`
+  and the flow-variable accessors next to the Live Debugger's. **PS2
+  toolchain**: a full Docker build compiles the generated runtime clean under
+  `-Wall` and links it into the ELF. **On the console (PCSX2)**: the game
+  streamed captures at ~8.5/s (seq 204 -> 221 -> 237, frames 1219 -> 1417, 33
+  objects, 3328 B of state, layout hash stable) and the editor's parser decoded
+  what the game wrote, byte for byte - the two twins agree. Then the whole
+  feature, proven with DATA on the console rather than pixels (what tyra-testing
+  says to do): keep a capture, move the world on, push the kept capture back,
+  and read what the game says about ITSELF - `player 0.00 1.80 0.00` ->
+  `19.00 1.80 -13.00` -> **`0.00 1.80 0.00`, back where it was**, with the game
+  logging `Time machine: restored capture N`. A `PARSE FAILED` in the middle of
+  one run was the footer guard catching a torn read in the wild, which is the
+  guard doing its job. Disk over a 45 s session: both channel files still 3380
+  bytes, same file count, no `.tmp` leftovers.
+  *Not done here*, and said plainly rather than left to be found: the graph
+  classes' own state needs each generated `FlowGraphScript_*` to grow a
+  capture/restore over exactly the members codegen emitted for it (the 11
+  emission sites want a shared `addMember` helper first), and the editor's
+  Rewind tab has not been looked at by a human - this box's compositor refuses
+  non-interactive screen capture (see tyra-testing), so the panel is verified as
+  code and as behaviour, not as a picture.
 - (209) **New projects boot the full-height PAL frame** (user: make the full PAL
   mode the default, "nie tego przygranego"). `ProjectSettings::palFullHeight`
   now defaults ON for **new** projects: on a PAL console the region-following
