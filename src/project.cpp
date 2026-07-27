@@ -941,6 +941,21 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"aoStrength\": " << fmtFloat(p.settings.aoStrength) << ",\n"
          << "    \"aoRadius\": " << fmtFloat(p.settings.aoRadius) << ",\n"
+         << "    \"giEnabled\": " << (p.settings.giEnabled ? "true" : "false")
+         << ",\n"
+         << "    \"giRays\": " << p.settings.giRays << ",\n"
+         << "    \"giBounces\": " << p.settings.giBounces << ",\n"
+         << "    \"giSkyLight\": " << fmtFloat(p.settings.giSkyLight) << ",\n"
+         << "    \"giSunLight\": " << fmtFloat(p.settings.giSunLight) << ",\n"
+         << "    \"giAmbientFloor\": " << fmtFloat(p.settings.giAmbientFloor)
+         << ",\n"
+         << "    \"giProbes\": " << (p.settings.giProbes ? "true" : "false")
+         << ",\n"
+         << "    \"giProbeSpacing\": " << fmtFloat(p.settings.giProbeSpacing)
+         << ",\n"
+         << "    \"giProbeHeight\": " << fmtFloat(p.settings.giProbeHeight)
+         << ",\n"
+         << "    \"giProbeLevels\": " << p.settings.giProbeLevels << ",\n"
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -3035,6 +3050,34 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.aoRadius = (float)v->numberOr(2.5);
         if (st.aoRadius < 0.1f) st.aoRadius = 0.1f;
         if (st.aoRadius > 50.0f) st.aoRadius = 50.0f;
+        // Baked global illumination (docs/global-illumination.md). Every read
+        // defaults to the struct initializer, which is what a project saved
+        // before GI existed loads as - i.e. off, and identical to before.
+        if (const auto* v = s->find("giEnabled")) st.giEnabled = v->boolOr(false);
+        if (const auto* v = s->find("giRays")) st.giRays = (int)v->numberOr(128);
+        if (st.giRays < 8) st.giRays = 8;
+        if (st.giRays > 1024) st.giRays = 1024;
+        if (const auto* v = s->find("giBounces"))
+            st.giBounces = (int)v->numberOr(2);
+        if (st.giBounces < 0) st.giBounces = 0;
+        if (st.giBounces > 8) st.giBounces = 8;
+        if (const auto* v = s->find("giSkyLight"))
+            st.giSkyLight = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("giSunLight"))
+            st.giSunLight = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("giAmbientFloor"))
+            st.giAmbientFloor = clamp01((float)v->numberOr(0.03));
+        if (const auto* v = s->find("giProbes")) st.giProbes = v->boolOr(true);
+        if (const auto* v = s->find("giProbeSpacing"))
+            st.giProbeSpacing = (float)v->numberOr(3.0);
+        if (st.giProbeSpacing < 0.5f) st.giProbeSpacing = 0.5f;
+        if (const auto* v = s->find("giProbeHeight"))
+            st.giProbeHeight = (float)v->numberOr(2.0);
+        if (st.giProbeHeight < 0.25f) st.giProbeHeight = 0.25f;
+        if (const auto* v = s->find("giProbeLevels"))
+            st.giProbeLevels = (int)v->numberOr(4);
+        if (st.giProbeLevels < 1) st.giProbeLevels = 1;
+        if (st.giProbeLevels > 16) st.giProbeLevels = 16;
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
