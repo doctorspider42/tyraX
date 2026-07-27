@@ -4,6 +4,8 @@
 #include "scripts/sequences.gen.hpp"  // Play/Stop Sequence nodes
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
+#include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
+#include "scripts/live_logic.gen.hpp"  // Live Logic: a patched graph runs on the interpreter
 
 #include <math.h>
 #include <stdio.h>
@@ -17,6 +19,12 @@ class FlowGraphScript_0_3 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 3)) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -27,20 +35,42 @@ class FlowGraphScript_0_3 : public Script {
     }
     frame++;
     if (delay5 > 0 && --delay5 == 0) {
+      livedbg::hit(5);
       if (ctx.lightRequest && 3 >= 0 && 3 < ctx.objectCount) {
         ctx.lightRequest[3] = 1;
         ctx.lightIntensity[3] = 0.7F;
       }
     }
-    if (!started) {
-      started = true;
+    livedbg::timer(4, delay5);
+    if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
+      livedbg::hit(0);
+      livedbg::hit(1);
       if (ctx.lightRequest && 3 >= 0 && 3 < ctx.objectCount) {
         ctx.lightRequest[3] = 1;
         ctx.lightIntensity[3] = 1.0F;
       }
     }
+    if (!started) {
+      started = true;
+      livedbg::hit(0);
+      livedbg::hit(1);
+      if (ctx.lightRequest && 3 >= 0 && 3 < ctx.objectCount) {
+        ctx.lightRequest[3] = 1;
+        ctx.lightIntensity[3] = 1.0F;
+      }
+    }
+    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
+      livedbg::hit(2);
+      livedbg::hit(3);
+      if (ctx.lightRequest && 3 >= 0 && 3 < ctx.objectCount) {
+        ctx.lightRequest[3] = 1;
+        ctx.lightIntensity[3] = 1.8F;
+      }
+    }
     if (--every3 <= 0) {
       every3 = everyFrames(6.0F);
+      livedbg::hit(2);
+      livedbg::hit(3);
       if (ctx.lightRequest && 3 >= 0 && 3 < ctx.objectCount) {
         ctx.lightRequest[3] = 1;
         ctx.lightIntensity[3] = 1.8F;
@@ -55,6 +85,38 @@ class FlowGraphScript_0_3 : public Script {
   int delay5 = 0;
   int every3 = 1;
 };
+
+// Live Debugger watch table (docs/live-debugger.md): the flow variables
+// in one shared order - ints, then bools, then positions.
+int flowDbgVarCount() { return 0; }
+void flowDbgReadVar(int index, float* out3) {
+  out3[0] = out3[1] = out3[2] = 0.0F;
+  (void)index;  // this project defines no flow variables
+}
+
+// Live Logic (docs/live-logic.md): flow-variable access for the
+// interpreter - patched graphs read and write the very same arrays the
+// compiled ones do, so a hot-patched graph shares state with the rest.
+void flowLiveSetVarInt(int index, int value) {
+  (void)index; (void)value;
+}
+void flowLiveSetVarBool(int index, bool value) {
+  (void)index; (void)value;
+}
+void flowLiveSetVarPos(int index, const float* v3) {
+  (void)index; (void)v3;
+}
+int flowLiveGetVarInt(int index) {
+  (void)index;
+  return 0;
+}
+bool flowLiveGetVarBool(int index) {
+  (void)index;
+  return false;
+}
+void flowLiveGetVarPos(int index, float* out3) {
+  (void)index; (void)out3;
+}
 
 }  // namespace Lighting
 

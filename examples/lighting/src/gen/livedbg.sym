@@ -3,7 +3,6 @@
 # scene objects (stable editor id) and flow-graph node ids.
 1
 hash bf981f4fa6f92692
-# The build this was generated with carries no debugger runtime.
 nodes 6
 n 0 0 lga3crystal00001 1 OnStart
 n 1 0 lga3crystal00001 2 SetLight

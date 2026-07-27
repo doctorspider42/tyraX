@@ -22,9 +22,9 @@ OBJEXT      := o
 # ps2sdk's libeedebug, which the engine's crash handler uses to hook the EE
 # exception vectors. Release builds carry neither, and KEEPSYM off means no
 # unstripped copy of the ELF is kept - see docs/devkit.md.
-CFLAGS      := 
-KEEPSYM     := 0
-LIB         := -ltyra
+CFLAGS      := -g
+KEEPSYM     := 1
+LIB         := -ltyra -leedebug
 LIBDIRS     := -L$(ENGINEDIR)/bin
 INC         := -I$(INCDIR) -I$(ENGINEDIR)/inc
 INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc

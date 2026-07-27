@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
   // the letterboxed NTSC-size picture. Resolved here, before engine init,
   // so the whole boot (logo, loading screen) already runs in it; the menu
   // "DEFAULT" display option maps back to whatever this resolves to.
-  if (false &&
+  if (true &&
       options.displayMode == Tyra::DisplayMode::Interlaced &&
       (options.videoMode == Tyra::VideoMode::PAL ||
        (options.videoMode == Tyra::VideoMode::Auto &&
