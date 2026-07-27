@@ -458,6 +458,111 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (215) **Baked global illumination + light probes**
+  ([docs/global-illumination.md](docs/global-illumination.md),
+  [examples/global-illumination](examples/global-illumination)). Static geometry
+  gets a baked multi-bounce lightmap; everything that moves gets its light from
+  a probe grid. Behind `ProjectSettings::giEnabled`, off by default, and every
+  reader defaults to the struct initializer - a project saved before GI existed
+  bakes and renders exactly as it did.
+
+  **Why it was tractable:** almost none of it is new machinery. Getting a
+  per-texel image onto PS2 geometry through two blend passes - with the region
+  layout, the bake cache, the texbake plumbing and the codegen tables - is what
+  the AO and emissive work cost, and a better integrator reuses all of it byte
+  for byte. Three things were genuinely missing.
+
+  1. **A scene-level BVH over real triangles.** Visibility used to reduce every
+     object to an analytic box or sphere and slab-test it, so a cylinder cast a
+     rectangular shadow and a model cast its AABB. `gibake::build` tessellates
+     the scene for real - primitives through primmesh (the same source the
+     viewport draws from), static .obj through objparser, the terrain as a
+     heightfield resampled onto a grid the bake can afford - and traces it.
+     matbake's BVH moved out of its anonymous namespace into `src/bvh.cpp`
+     unchanged rather than being copied; two subtly different answers to one
+     question is exactly the bug that would have followed.
+  2. **One integrator instead of "direct light from analytic emitters".** Sky,
+     sun, emissive materials and baked point lights are now one hemisphere
+     gather. The sky's authored dome colour IS its radiance (remapped by the
+     same zenith exponent the generated dome build uses), the sun is shadowed
+     through one ray, and the `kEmisShadowSamples` silhouette-disk penumbra
+     hack is gone - it was what an area source needed when the only primitive
+     was a slab test, and the geometry answers it directly now. Point lights
+     keep their exact pool shape and gain a shadow ray. Calibrated on purpose:
+     at the defaults an open horizontal surface receives ~0.53 against the flat
+     `ambient` 0.55 it replaces, so turning GI on re-lights a scene without
+     re-exposing it.
+  3. **Bounces**, as iterated radiosity over the triangle set feeding each pass
+     back into the next, then one final gather per lightmap texel. This is the
+     milestone the whole thing is for and the one people will point at: a red
+     wall tints the floor beside it.
+
+  **The VRAM constraint shaped everything.** The atlas is 256^2 RGBA32 = 256 KB,
+  already ~19% of the GS's ~1.33 MB with no LRU (docs/gs-vram.md), so it cannot
+  grow. GI therefore does not add a channel or a pass - it REPLACES what the RGB
+  channel means, from "baked emissive light" to "incoming light, all sources,
+  all bounces". Emissive materials became one source among several instead of a
+  special case. Occlusion stays in A and is not redundant: it still darkens the
+  dynamic light the bake can never contain, and it is finer than the probe grid.
+
+  **Which route a surface's light takes is the correctness story**, and the
+  reason the old "a surface must declare its route or the term lands twice" rule
+  needed two new flags. A lightmapped object's vertex shade goes BLACK
+  (`SCENE_AO_ATLAS_GI` + `g_giLightmap`) and the additive pass puts every photon
+  back per pixel; everything else - imported models, textured receivers, batched
+  props, physics bodies, spawn-pool clones, textured terrain - reads the probe
+  grid once per vertex at scene load in `pushVert`, the same cost class as the
+  AO term beside it. In every GI case the ambient + directional term, the point
+  lights and the emissive pools are skipped, because the baked answer already
+  holds them. Textured surfaces deliberately keep the vertex path: a flat
+  additive term over a texture blows out its dark texels, which is the
+  pre-existing rule for this atlas - probes are what make obeying it free.
+
+  **Probes** are L1 spherical harmonics, 12 bytes + 1 liveness byte each,
+  emitted as `inc/probe_data.gen.hpp`. Reconstruction is
+  `shade(n) = L0 + (2/3)*dot(L1, n)` - the exact clamped-cosine convolution, so
+  a uniform environment of radiance L returns L for every normal - and the
+  lookup is a WEIGHTED trilinear where a probe buried in a solid weighs zero,
+  so a wall's black interior never bleeds into the room beside it. Animated
+  meshes have one VU1 light slot, so their per-frame sample is split: L0 into
+  the ambient term (the slot PROGRESS 116 already built for dynamic lights) and
+  L1 reconstructed along the sun direction into the light slot - a character
+  walking into a doorway darkens AND keeps directional shading instead of going
+  flat.
+
+  **The bake is explicit and cached**, because a build that silently re-bakes
+  lighting is a build nobody runs. `.res-baked/gi/scene<N>.gi` is written by
+  *Tools > Bake Global Illumination* (worker thread, progress, cancel) or
+  `--bake-gi`; codegen, texbake and the viewport only READ it, and a stale or
+  missing cache falls the whole scene back to the pre-GI bake together, with the
+  Bake window saying so per scene. The signature hashes CONTENT, not mtimes -
+  a bake takes minutes and a touch/checkout/copy must not throw it away, and the
+  example ships its cache, which a fresh clone would otherwise invalidate the
+  instant it landed on disk.
+
+  **Two things bitten during development, written down because they cost time.**
+  The `gi` flags were not serialized into the cache at first: the pixels said
+  "all the light is here" while the flag said otherwise, and the first PS2 boot
+  came out correct-but-flat rather than obviously broken. And under GI a region
+  must be KEPT even when its answer is black - a dark corner is a result, not an
+  absence, and dropping it sends the corner back to the vertex path where it
+  renders brighter than the lit wall beside it.
+
+  **Verified** at the full e2e layer, PCSX2 software renderer, on the purpose-
+  built `examples/global-illumination` (13 objects, 32x32 terrain, ~10 s bake):
+  the back wall is pink on the red half and cyan-green on the green half though
+  it is painted white, the floor and both pillars take the colour of the wall
+  they stand near, contact shadows land under the block, and the frame holds
+  **50.16 FPS** - against **49.90** for the same scene with GI switched off,
+  which renders flat grey. The A/B screenshots are the evidence; the console
+  does no extra work at all, the lighting is a texture and a table. The generated
+  game also compiles clean on the PS2 toolchain, and the shipped cache is
+  accepted from the repo copy (different path, different mtimes), which is what
+  the content-hashed signature is for. Editor viewport twin verified by
+  screenshot. **Not covered:** a real-PS2 pass, and the GUI Bake window's
+  progress/cancel path was exercised through its headless twin rather than by
+  hand.
+
 - (214) **One run group in the menu bar, with a target dropdown** (user:
   "zamiast dwóch guzików do włączania i zatrzymywania niech jest dropdown z
   wyborem Emulator/Playstation 2"). The toolbar carried two full run/stop pairs

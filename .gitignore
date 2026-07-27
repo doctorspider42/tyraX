@@ -57,5 +57,10 @@ vendor/tyra/engine/bin/
 # project template declares them ignorable too (TPL_GITIGNORE in templates.cpp).
 examples/*/bin/
 examples/*/obj/
-examples/*/.res-baked/
+examples/*/.res-baked/*
+# ...except the baked global-illumination cache, which is NOT build output:
+# nothing regenerates it but an explicit bake (docs/global-illumination.md), so
+# an example that ships GI has to ship the bake or a fresh clone would build it
+# with the lighting silently switched off.
+!examples/*/.res-baked/gi/
 examples/*/*.history

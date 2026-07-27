@@ -79,6 +79,7 @@ TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp] [unitsPerMeter]
 TYRAX --build <projectDir> [--run]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
+TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
@@ -95,6 +96,20 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   old release-profile behavior has to set it explicitly).
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
+- `--bake-gi` runs the whole global-illumination bake for every scene
+  (docs/global-illumination.md) into `.res-baked/gi/` and then refreshes the
+  generated files, so the probe table and the lightmap flags follow - **no
+  Docker, no GUI**. It is the headless twin of *Tools > Bake Global
+  Illumination* and the only practical way to verify GI in a script: bake,
+  grep `inc/ao_data.gen.hpp` for `SCENE_AO_ATLAS_GIS`/`SCENE_AO_MAP_GIS` (1 =
+  the scene shipped GI), check `inc/probe_data.gen.hpp` has a
+  `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
+  against the same project with `"giEnabled": false` in its `.tyra`. Two
+  traps worth knowing: the bake is NEVER part of a build (a build only READS
+  the cache), so a change to the scene silently falls it back to the pre-GI
+  lighting until you re-bake; and it prints per scene how long it took plus
+  the atlas/terrain/probe dimensions, which is the fastest sanity check that
+  it saw any geometry at all (`atlas 0` means no eligible receivers).
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
   out — **no Docker**. Because `project::load` runs every format migration,
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:
