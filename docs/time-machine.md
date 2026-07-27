@@ -34,24 +34,30 @@ Everything the running game mutates that the channel can reach through
   rotation, scale, colour; the physics state (velocities, spin, the
   settle-flatten targets, the sleep counter); visibility and layer residency;
   and the animation state (clip, playing/looping, speed, crossfade).
-- **Where the player stands** and which way they face.
+- **The walker** — where the player stands, which way they face, their fall
+  speed and the camera boom.
 - **Every flow variable** — the Set/Get Int, Bool and Position nodes' storage.
 - **Every save value.**
+- **Every graph's own state** — armed `Delay` countdowns, `Every N Seconds`
+  counters, edge latches ("has this trigger fired"), and the values latched on
+  a node's outputs. This is what makes a rewind put the *logic* back and not
+  just the world it acts on: after rewinding, a `Delay` armed five seconds ago
+  is armed again with the time it had left.
 
-### What it does not hold — yet
+The graph walk is emitted from the very list that declares those members
+(`addMember` in `flowGraphScript`), so a new piece of per-graph state joins the
+capture by construction rather than by anyone remembering.
+
+### What it does not hold
 
 Named here rather than discovered later:
 
-- **The walker's fall speed and camera boom.** They live in the game class,
-  which this channel deliberately does not reach into (that is what keeps it out
-  of the two duplicated game templates). A rewind lands you standing where you
-  were.
-- **Flow-graph timers and edge latches.** Each generated graph class keeps its
-  own state — an armed `Delay`, "has this trigger fired". A rewind restores the
-  world those graphs act on, not their own counters, so a `Delay` armed before
-  the rewind still lands after it.
 - **Sequences mid-play, open menus, audio playback position, particles.** Each
-  is a separate "does rewinding this even mean anything" question.
+  is a separate "does rewinding this even mean anything" question, and each
+  would need its own answer rather than a blanket memcpy.
+- **Anything a user-owned `terrain_game.cpp` keeps for itself.** The channel
+  reaches what the generated game publishes on `ScriptContext`; state you added
+  by hand is yours.
 
 The Rewind tab lists these under the controls, so the panel never implies more
 than it does.
@@ -83,7 +89,15 @@ Everything it touches is on `ScriptContext`, including moving the player: a
 restore raises `ctx.teleport`, the same request the **Spawn Player At** node
 makes, and the game's own loop consumes it. That is why a restored player is
 still subject to the playable bounds and to collision — the rewind goes through
-the game, not around it.
+the game, not around it. The walker's motion rides alongside it under a
+`teleportMotion` flag, so a rewind restores the fall you were in while an
+ordinary Spawn Player At keeps landing you standing still.
+
+Each graph's state is reached without touching `Script` — a user-ownable header
+that must stay the user's. Instead every generated graph class records its own
+instance in its constructor and carries a `timeCapture`/`timeRestore` pair over
+exactly the fields codegen declared for it; three free functions in the same
+translation unit lay them end to end.
 
 The editor side is [`src/livetime.hpp`](../src/livetime.hpp) (formats, the
 history ring and its budget — no GL, no ImGui, harness-testable) plus

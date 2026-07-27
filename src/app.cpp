@@ -22339,7 +22339,8 @@ void App::timeMachineRewind(int index) {
     // pushed twice (rewind, run, rewind to the same spot) only if the number
     // moves. Counting up from the newest capture keeps it ahead of anything the
     // game has seen.
-    timeRestoreSeq_ = timeHistory_.newest().seq + 1 + timeRestoreSeq_ % 1000;
+    const uint32_t base = timeHistory_.newest().seq;
+    timeRestoreSeq_ = (timeRestoreSeq_ > base ? timeRestoreSeq_ : base) + 1;
     s.seq = timeRestoreSeq_;
     const std::string err = livetime::writeRestore(
         (fs::path(project_.dir) / "bin" / "livetime.rst").string(), s);
@@ -22438,8 +22439,10 @@ void App::drawTimeMachinePanel() {
 
     ImGui::Separator();
     ImGui::TextDisabled(
-        "Not rewound yet: the walker's fall speed and camera boom, graph\n"
-        "timers, sequences, audio and particles. See docs/time-machine.md.");
+        "Rewound: objects (transform, physics, animation), the walker and its\n"
+        "motion, flow variables, save values, and every graph's own timers and\n"
+        "latches. Not rewound: sequences mid-play, menus, audio and particles.\n"
+        "See docs/time-machine.md.");
 }
 
 void App::livedbgTick() {

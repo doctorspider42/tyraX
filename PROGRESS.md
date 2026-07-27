@@ -81,6 +81,46 @@ Each finished feature lands as its own commit.
   Rewind tab has not been looked at by a human - this box's compositor refuses
   non-interactive screen capture (see tyra-testing), so the panel is verified as
   code and as behaviour, not as a picture.
+  *Follow-up, same session (user: "dopieść to koncertowo"):* both gaps named
+  above are closed, so a rewind now puts the LOGIC back and not just the world
+  it acts on.
+  **The graphs' own state.** Each generated `FlowGraphScript_*` carries a
+  `timeCapture`/`timeRestore` pair over exactly the fields codegen declared for
+  it, plus `kTimeBytes`; three free functions in the same TU lay the classes end
+  to end. The enabling change is small and is the whole point: the eleven sites
+  that used to stream a member declaration into `members` now go through one
+  `addMember(type, name, init, kind, count)`, which writes the declaration AND
+  records how the snapshot walks it - so a field added to a graph joins the
+  capture by construction instead of by anyone remembering. `frame` and
+  `started` join the walk; **`generation` deliberately does not** - it is the
+  scene-reload guard, and restoring a stale one would make the graph believe the
+  scene reloaded and wipe itself. Reaching the instances needed no virtual on
+  `Script` (a user-ownable header that must stay the user's): each class records
+  `this` in its constructor. A first attempt walked `getScripts()` from a
+  static-init lambda instead - wrong, because TYRA_SCRIPT's registrations are
+  emitted at the END of the file, so the lambda would run before the instance
+  existed (and it dragged RTTI in).
+  **The walker's motion.** `ScriptContext` gained `playerVelY`/`playerBoom`,
+  published every frame by both duplicated game loops, and a `teleportMotion`
+  flag the restore raises: a rewind puts the fall you were in back, while an
+  ordinary Spawn Player At keeps landing you standing still. That is the one
+  place this feature had to touch the two game templates, and it is three lines
+  in each.
+  The capture's player block grew 22 -> 30 bytes and the graph block rides
+  behind its own length, so the **layout version was bumped** - old captures are
+  refused rather than misread, which is exactly what that hash is for.
+  *Verified* on PCSX2 with a graph built for it (`--apply-graph`: an *Every N
+  Seconds* driving a `ticks` variable plus an armed `Delay`). The generated walk
+  came out 13 bytes - `frame`, `started`, `delay3`, `every1` - and on the
+  console: `ticks` climbed 10 -> 15 over nine seconds, a rewind to the frame
+  where it was 10 brought it back, and two seconds later it read **11** - i.e.
+  the graph resumed counting from the restored point instead of carrying on at
+  15. That is the difference between rewinding the world and rewinding the
+  logic, and it is the number that proves it. The `-Wall` PS2 build stayed clean
+  (the one warning in the log is pre-existing, in live_debug.gen.cpp).
+  Still not verified by a human: the Rewind tab as a picture, and a falling
+  player's restored velocity (it needs a pad; the field round-trips through the
+  capture and the branch that applies it is exercised by every rewind).
 - (209) **New projects boot the full-height PAL frame** (user: make the full PAL
   mode the default, "nie tego przygranego"). `ProjectSettings::palFullHeight`
   now defaults ON for **new** projects: on a PAL console the region-following

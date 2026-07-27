@@ -3821,6 +3821,8 @@ void TerrainGame::loop() {
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.playerVelY = players[0].velY;
+  scriptCtx.playerBoom = players[0].boom;
   scriptCtx.player2Active =
       MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
   scriptCtx.player2Position =
@@ -3881,7 +3883,11 @@ void TerrainGame::loop() {
       players[0].x = scriptCtx.teleportPos.x;
       players[0].y = scriptCtx.teleportPos.y;
       players[0].z = scriptCtx.teleportPos.z;
-      players[0].velY = 0.0F;
+      // A rewind restores the motion it captured; every other teleport (the
+      // Spawn Player At node, a memory-card load) lands standing still.
+      players[0].velY = scriptCtx.teleportMotion ? scriptCtx.playerVelY : 0.0F;
+      if (scriptCtx.teleportMotion) players[0].boom = scriptCtx.playerBoom;
+      scriptCtx.teleportMotion = false;
       players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
       if (playerTwoActive && players[1].objIndex >= 0) {
         players[1].x = players[0].x + 1.2F;
@@ -12493,6 +12499,8 @@ void TerrainGame::loop() {
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.playerVelY = players[0].velY;
+  scriptCtx.playerBoom = players[0].boom;
   scriptCtx.player2Active =
       MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
   scriptCtx.player2Position =
@@ -12574,7 +12582,11 @@ void TerrainGame::loop() {
       players[0].x = scriptCtx.teleportPos.x;
       players[0].y = scriptCtx.teleportPos.y;
       players[0].z = scriptCtx.teleportPos.z;
-      players[0].velY = 0.0F;
+      // A rewind restores the motion it captured; every other teleport (the
+      // Spawn Player At node, a memory-card load) lands standing still.
+      players[0].velY = scriptCtx.teleportMotion ? scriptCtx.playerVelY : 0.0F;
+      if (scriptCtx.teleportMotion) players[0].boom = scriptCtx.playerBoom;
+      scriptCtx.teleportMotion = false;
       players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
       if (playerTwoActive && players[1].objIndex >= 0) {
         players[1].x = players[0].x + 1.2F;
@@ -13701,6 +13713,14 @@ struct ScriptContext {
   // sequence player writes cameraOverride = true + cameraEye/cameraAt every
   // frame such a cutscene is active; the game applies them to the frame camera
   // just before rendering, and the player writes false when the cutscene ends.
+  // Time machine (docs/time-machine.md): the walker's own motion, which lives
+  // in the game class rather than in the object table. Published every frame
+  // so a capture can see it; a restore writes them back next to ctx.teleport
+  // and the teleport branch picks them up - gated on teleportMotion, because
+  // an ordinary Spawn Player At must keep landing you standing still.
+  float playerVelY = 0.0F;
+  float playerBoom = 0.0F;
+  bool teleportMotion = false;
   bool cameraOverride = false;
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
@@ -17579,6 +17599,9 @@ std::string flowGraphScript(const Project& p) {
                "hits / halt / force-fire\n";
     const bool logicOn = liveLogicOn(p);
     const bool timeOn = liveTimeOn(p);
+    // Classes whose own state the time machine walks, in emission order - the
+    // order the free functions below lay them out in a capture.
+    std::vector<std::string> timeScriptClasses;
     if (logicOn)
         out << "#include \"scripts/live_logic.gen.hpp\"  // Live Logic: a "
                "patched graph runs on the interpreter\n";
@@ -18964,6 +18987,26 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
         std::ostringstream members;
         std::ostringstream flagResets;
+        // A graph's own state - armed Delays, edge latches, latched node
+        // outputs. It is what makes "the same trigger does not fire twice"
+        // work, so a rewind that restores the world but not this leaves the
+        // graphs living in the future (docs/time-machine.md).
+        //
+        // `addMember` is the ONE place a member is declared: it writes the
+        // declaration and records how the snapshot walks it. A field added
+        // straight to `members` would be invisible to a rewind, which is
+        // exactly the silent kind of wrong this avoids.
+        struct WalkField {
+            std::string name;
+            int count;  // scalars (1, or the array length)
+            char kind;  // 'i' int, 'b' bool, 'f' float, 'c' char
+        };
+        std::vector<WalkField> walk;
+        auto addMember = [&](const char* type, const std::string& name,
+                             const char* init, char kind, int count) {
+            members << "  " << type << " " << name << " = " << init << ";\n";
+            walk.push_back({name, count, kind});
+        };
 
         // Per-frame node state, ticked before the trigger scans so anything
         // armed this frame starts counting/moving on the NEXT frame:
@@ -18980,7 +19023,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     flagResets << "      flowSpawned[" << k << "] = -1;\n";
             } else if (n.type == "Delay") {
                 const std::string var = "delay" + std::to_string(n.id);
-                members << "  int " << var << " = 0;\n";
+                addMember("int", var, "0", 'i', 1);
                 flagResets << "      " << var << " = 0;\n";
                 clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
                        << linkedActions(n.id, "      ") << "    }\n";
@@ -19017,7 +19060,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 const std::string var = "move" + std::to_string(n.id);
-                members << "  bool " << var << " = false;\n";
+                addMember("bool", var, "false", 'b', 1);
                 flagResets << "      " << var << " = false;\n";
                 const auto e = posExpr(n);
                 const float speed = n.num[3] > 0.001f ? n.num[3] : 2.0f;
@@ -19061,20 +19104,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             // Get Position latches only its position - its object output
             // stays the compile-time resolution.
             if (t->idOut && n.type != "GetPosition") {
-                members << "  int objOut" << id << " = -1;\n";
+                addMember("int", "objOut" + id, "-1", 'i', 1);
                 flagResets << "      objOut" << id << " = -1;\n";
             }
             if (t->boolOut) {
-                members << "  bool boolOut" << id << " = false;\n";
+                addMember("bool", "boolOut" + id, "false", 'b', 1);
                 flagResets << "      boolOut" << id << " = false;\n";
             }
             if (t->posOut) {
-                members << "  float posOut" << id << "[3] = {};\n";
+                addMember("float", "posOut" + id + "[3]", "{}", 'f', 3);
                 flagResets << "      posOut" << id << "[0] = posOut" << id
                            << "[1] = posOut" << id << "[2] = 0.0F;\n";
             }
             if (t->textOut) {
-                members << "  char textOut" << id << "[64] = {};\n";
+                addMember("char", "textOut" + id + "[64]", "{}", 'c', 64);
                 flagResets << "      textOut" << id << "[0] = 0;\n";
             }
         }
@@ -19157,7 +19200,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     idxStr = dyn;
                 }
                 const std::string flag = "near" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
                 clsOut << "    " << (dyn.empty() ? "{" : "if (" + dyn + " >= 0) {")
@@ -19178,7 +19221,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 const std::string flag = "inArea" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 clsOut << "    {\n      const bool isIn = flowInArea(ctx, "
                        << idx << ", " << intLit(n.num[0])
@@ -19201,7 +19244,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     idxStr = dyn;
                 }
                 const std::string flag = "seen" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 clsOut << "    "
                        << (dyn.empty() ? "{" : "if (" + dyn + " >= 0) {")
@@ -19217,7 +19260,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // tracks the measured dt, and a modulo against a moving
                 // divisor can skip its == 0 frame entirely at uncapped FPS.
                 const std::string var = "every" + std::to_string(n.id);
-                members << "  int " << var << " = 1;\n";  // first frame fires
+                addMember("int", var, "1", 'i', 1);  // first frame fires
                 flagResets << "      " << var << " = 1;\n";
                 clsOut << "    if (--" << var << " <= 0) {\n      " << var
                        << " = everyFrames(" << floatLit(n.num[0]) << ");\n"
@@ -19256,7 +19299,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 const std::string flag = "cond" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 clsOut << "    {\n      const bool c = " << expr
                     << ";\n      if (c && !" << flag << ") {\n"
@@ -19280,6 +19323,68 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             clsOut << "  }\n";
         }
 
+        // The time machine's walk over this graph's own state
+        // (docs/time-machine.md), emitted from the very list that declared the
+        // members below. `frame` and `started` join it - "has On Start fired"
+        // is state a rewind must put back - but `generation` deliberately does
+        // NOT: it is the scene-reload guard, and restoring a stale one would
+        // make the graph believe the scene reloaded and wipe itself.
+        if (timeOn) {
+            int bytes = 4 + 1;  // frame + started
+            for (const WalkField& w : walk)
+                bytes += w.count * (w.kind == 'b' || w.kind == 'c' ? 1 : 4);
+            clsOut << "\n public:\n"
+                      "  // Time machine (docs/time-machine.md): this graph's own\n"
+                      "  // state - armed Delays, edge latches, latched outputs.\n"
+                      "  "
+                   << cls << "() { g_time_" << cls << " = this; }\n"
+                   << "  static const unsigned int kTimeBytes = " << bytes
+                   << ";\n";
+            // Capture and restore are one pair over one list, in one order.
+            for (int pass = 0; pass < 2; ++pass) {
+                const bool cap = pass == 0;
+                clsOut << (cap ? "  void timeCapture(unsigned char* p) const {\n"
+                               : "  void timeRestore(const unsigned char* p) {\n");
+                int off = 0;
+                auto one = [&](const std::string& name, char kind, int idx) {
+                    const std::string src =
+                        idx < 0 ? name : name + "[" + std::to_string(idx) + "]";
+                    if (kind == 'b') {
+                        clsOut << (cap ? "    p[" + std::to_string(off) +
+                                             "] = " + src + " ? 1 : 0;\n"
+                                       : "    " + src + " = p[" +
+                                             std::to_string(off) + "] != 0;\n");
+                        off += 1;
+                    } else if (kind == 'c') {
+                        clsOut << (cap ? "    p[" + std::to_string(off) +
+                                             "] = (unsigned char)" + src + ";\n"
+                                       : "    " + src + " = (char)p[" +
+                                             std::to_string(off) + "];\n");
+                        off += 1;
+                    } else {
+                        clsOut << (cap ? "    memcpy(p + " + std::to_string(off) +
+                                             ", &" + src + ", 4);\n"
+                                       : "    memcpy(&" + src + ", p + " +
+                                             std::to_string(off) + ", 4);\n");
+                        off += 4;
+                    }
+                };
+                one("frame", 'i', -1);
+                one("started", 'b', -1);
+                for (const WalkField& w : walk) {
+                    // The declaration carries the array bounds ("posOut7[3]");
+                    // the walk needs the bare name.
+                    std::string base = w.name;
+                    const size_t br = base.find('[');
+                    if (br != std::string::npos) base = base.substr(0, br);
+                    for (int k = 0; k < w.count; ++k)
+                        one(base, w.kind, w.count == 1 ? -1 : k);
+                }
+                clsOut << "  }\n";
+            }
+            timeScriptClasses.push_back(cls);
+        }
+
         clsOut << "\n private:\n"
                "  unsigned int generation = 0;\n"
                "  int frame = 0;\n"
@@ -19291,6 +19396,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         }
         clsOut << members.str() << "};\n";
 
+        // One instance per class (TYRA_SCRIPT makes exactly one) remembered in
+        // its constructor, so the walk below reaches it without a virtual on
+        // Script - a user-ownable header that must stay as the user's.
+        if (timeOn)
+            out << "class " << cls << ";\n"
+                << cls << "* g_time_" << cls << " = nullptr;\n";
         out << replaceAll(clsOut.str(), "{{FLAG_RESETS}}", flagResets.str());
 
         registrations << "TYRA_SCRIPT(" << ns << "::" << cls << ");\n";
@@ -19332,6 +19443,40 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             out << "    default: break;\n  }\n";
         }
         out << "}\n";
+    }
+
+    // The graphs' own state, laid end to end in class-emission order. The
+    // runtime asks for the size, hands over a buffer and gets it back; it never
+    // needs to know what a graph keeps, which is the point.
+    if (timeOn) {
+        size_t total = 0;
+        out << "\n// Time machine (docs/time-machine.md): every graph's own "
+               "state.\n"
+               "unsigned int flowTimeScriptBytes() {\n  return ";
+        if (timeScriptClasses.empty()) {
+            out << "0";
+        } else {
+            for (size_t i = 0; i < timeScriptClasses.size(); ++i)
+                out << (i ? " +\n         " : "") << timeScriptClasses[i]
+                    << "::kTimeBytes";
+        }
+        out << ";\n}\n";
+        for (int pass = 0; pass < 2; ++pass) {
+            const bool cap = pass == 0;
+            out << (cap ? "void flowTimeScriptCapture(unsigned char* p) {\n"
+                        : "void flowTimeScriptRestore(const unsigned char* p) {\n");
+            if (timeScriptClasses.empty()) out << "  (void)p;\n";
+            for (const std::string& c : timeScriptClasses) {
+                // A null instance cannot happen (TYRA_SCRIPT constructs one per
+                // class at static init), but the offset must advance either way
+                // or every later graph in the capture shifts.
+                out << "  if (g_time_" << c << ") g_time_" << c
+                    << "->" << (cap ? "timeCapture" : "timeRestore") << "(p);\n"
+                    << "  p += " << c << "::kTimeBytes;\n";
+            }
+            out << "}\n";
+        }
+        (void)total;
     }
 
     // The time machine's view of the same variables (docs/time-machine.md):
@@ -21191,6 +21336,11 @@ namespace {{NS}} {
 int flowTimeVarCount();
 void flowTimeRead(int index, float* out3);
 void flowTimeWrite(int index, const float* in3);
+// ...and so does each graph's own state (armed Delays, edge latches): the
+// classes live in that translation unit, so the walk over them does too.
+unsigned int flowTimeScriptBytes();
+void flowTimeScriptCapture(unsigned char* p);
+void flowTimeScriptRestore(const unsigned char* p);
 
 namespace livetime {
 namespace {
@@ -21207,8 +21357,10 @@ constexpr int TM_MAX_OBJECTS = {{MAX_OBJECTS}};
 constexpr int TM_MAX_VARS = {{MAX_VARS}};
 constexpr int TM_MAX_SAVES = {{MAX_SAVES}};
 constexpr tllu64 TM_LAYOUT = {{LAYOUT}}ull;
-constexpr int TM_STATE_MAX = 2 + TM_MAX_OBJECTS * TM_OBJ_STRIDE + 22 + 2 +
-                             TM_MAX_VARS * 12 + 2 + TM_MAX_SAVES * 4;
+constexpr int TM_GRAPH_BYTES = {{GRAPH_BYTES}};
+constexpr int TM_STATE_MAX = 2 + TM_MAX_OBJECTS * TM_OBJ_STRIDE + 30 + 2 +
+                             TM_MAX_VARS * 12 + 2 + TM_MAX_SAVES * 4 + 2 +
+                             TM_GRAPH_BYTES;
 
 unsigned char buf[TM_HEADER + TM_STATE_MAX + 4];
 
@@ -21259,10 +21411,9 @@ int capture(ScriptContext& ctx, unsigned char* p) {
     p += TM_OBJ_STRIDE;
   }
 
-  // The walker: position and facing, taken from the same ScriptContext fields
-  // the flow nodes read. Its vertical velocity and camera boom live in the
-  // game class and are NOT captured - a rewind lands you standing where you
-  // were, which is the honest thing the channel can promise from out here.
+  // The walker: where it stands, which way it faces, and how it is moving.
+  // The motion (fall speed, camera boom) lives in the game class, which
+  // publishes it onto ScriptContext each frame for exactly this.
   put16(p, 1);
   putf(p + 2, ctx.playerPosition.x);
   putf(p + 6, ctx.playerPosition.y);
@@ -21271,7 +21422,9 @@ int capture(ScriptContext& ctx, unsigned char* p) {
   putf(p + 14, atan2f(lx, lz));
   putf(p + 18, asinf(ctx.playerLook.y < -1.0F   ? -1.0F
                      : (ctx.playerLook.y > 1.0F ? 1.0F : ctx.playerLook.y)));
-  p += 22;
+  putf(p + 22, ctx.playerVelY);
+  putf(p + 26, ctx.playerBoom);
+  p += 30;
 
   int vars = flowTimeVarCount();
   if (vars > TM_MAX_VARS) vars = TM_MAX_VARS;
@@ -21290,6 +21443,21 @@ int capture(ScriptContext& ctx, unsigned char* p) {
   put16(p, (unsigned short)saves);
   p += 2;
   for (int i = 0; i < saves; ++i, p += 4) putf(p, ctx.saveValues[i]);
+
+  // The graphs' own state, one opaque block. Its size is fixed by the build,
+  // so it rides behind a length the reader can check rather than trust.
+  const unsigned int gs = flowTimeScriptBytes();
+  if (gs > (unsigned int)TM_GRAPH_BYTES) {
+    // Cannot happen with the bound the editor computes, and if it ever did,
+    // an unrewound graph block beats a smashed buffer.
+    put16(p, 0);
+    p += 2;
+  } else {
+    put16(p, (unsigned short)gs);
+    p += 2;
+    flowTimeScriptCapture(p);
+    p += gs;
+  }
 
   return (int)(p - start);
 }
@@ -21332,16 +21500,20 @@ void restore(ScriptContext& ctx, const unsigned char* p, int bytes) {
     p += TM_OBJ_STRIDE;
   }
 
-  if (p + 22 > end) return;
+  if (p + 30 > end) return;
   if (get16(p) & 1) {
     // Moving the player is a REQUEST the loop consumes, exactly as the Spawn
     // Player At node makes it - the walker's own state lives in the game class
-    // and this is the door into it.
+    // and this is the door into it. teleportMotion is what tells that branch
+    // this is a rewind and not a spawn, so the fall speed comes back too.
     ctx.teleport = true;
     ctx.teleportPos = Tyra::Vec4(getf(p + 2), getf(p + 6), getf(p + 10));
     ctx.teleportYaw = getf(p + 14) * (180.0F / 3.14159265F);
+    ctx.playerVelY = getf(p + 22);
+    ctx.playerBoom = getf(p + 26);
+    ctx.teleportMotion = true;
   }
-  p += 22;
+  p += 30;
 
   if (p + 2 > end) return;
   int vars = (int)get16(p);
@@ -21359,6 +21531,16 @@ void restore(ScriptContext& ctx, const unsigned char* p, int bytes) {
   if (saves > ctx.saveValueCount) saves = ctx.saveValueCount;
   if (p + (size_t)saves * 4 > end) return;
   for (int i = 0; i < saves; ++i, p += 4) ctx.saveValues[i] = getf(p);
+
+  if (p + 2 > end) return;
+  const unsigned int gs = (unsigned int)get16(p);
+  p += 2;
+  // A block that is not exactly this build's size belongs to other graphs -
+  // the layout hash should have caught it, so refuse rather than guess.
+  if (gs == 0) return;  // the capture carried no graph block
+  if (gs != flowTimeScriptBytes() || p + gs > end) return;
+  flowTimeScriptRestore(p);
+  p += gs;
 }
 
 void writeCapture(ScriptContext& ctx) {
@@ -21468,6 +21650,18 @@ static std::string liveTimeSource(const Project& p) {
     std::vector<std::string> intVars, boolVars, posVars;
     collectFlowVars(p, intVars, boolVars, posVars);
     const size_t vars = intVars.size() + boolVars.size() + posVars.size();
+    // Upper bound on the graphs' own state. The exact figure is a sum of
+    // per-class constants in flow_graph.gen.cpp, which this translation unit
+    // can only ask for at runtime - so size the buffer for the worst case a
+    // node can contribute (a 64-byte latched text output, plus a position, an
+    // object id and a flag) and let the runtime guard below refuse anything
+    // that somehow still does not fit.
+    size_t graphBytes = 0;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (!o.flowGraph.empty())
+                graphBytes += 5 + o.flowGraph.nodes.size() * 96;
+    if (graphBytes == 0) graphBytes = 8;
     const size_t saves = p.saveValues.size();
 
     // Identity of the state SHAPE. A capture only goes back into a game whose
@@ -21477,10 +21671,11 @@ static std::string liveTimeSource(const Project& p) {
     auto mix = [&layout](uint64_t v) {
         layout = (layout ^ v) * 1099511628211ull;
     };
-    mix(1);  // layout version - bump when the walk above changes
+    mix(2);  // layout version - bump when the walk above changes
     mix(maxObjects);
     mix(vars);
     mix(saves);
+    mix(graphBytes);
     for (const SceneData& sc : p.scenes) mix(sc.objects.size());
 
     std::string s = TPL_LIVE_TIME_CPP;
@@ -21488,6 +21683,7 @@ static std::string liveTimeSource(const Project& p) {
     s = replaceAll(s, "{{MAX_OBJECTS}}", std::to_string(maxObjects));
     s = replaceAll(s, "{{MAX_VARS}}", std::to_string(vars ? vars : 1));
     s = replaceAll(s, "{{MAX_SAVES}}", std::to_string(saves ? saves : 1));
+    s = replaceAll(s, "{{GRAPH_BYTES}}", std::to_string(graphBytes));
     s = replaceAll(s, "{{LAYOUT}}", std::to_string(layout));
     s = replaceAll(s, "{{POLL}}", std::to_string(livetime::kCaptureFrames));
     s = replaceAll(s, "{{POLL_PS2LINK}}",
