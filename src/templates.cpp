@@ -14317,15 +14317,25 @@ bin/*.elf.sym
 .vscode/
 .res-baked/
 docker-compose.yml
-# Devkit runtime files (docs/devkit.md): the editor <-> game channel and
-# a crash report. Written next to the ELF while you work, never shipped.
+# Devkit runtime files (docs/devkit.md): the editor <-> game channels, a
+# crash report and the game's log. Written next to the ELF while you work,
+# never shipped. bin/.gitignore already ignores the whole directory - this
+# list is the readable one, and the fallback for a project that took bin/
+# under its own control.
 bin/livedbg.bin
 bin/livedbg.cmd
 bin/livelink.bin
 bin/livelink.sig
 bin/livelogic.bin
+bin/livetex.bin
+bin/livetime.bin
+bin/livetime.rst
+bin/vucap.bin
 bin/crash.txt
 bin/log.txt
+bin/ps2link.run
+# Atomic writes land as a sibling .tmp before the rename.
+bin/*.tmp
 # Codegen's devkit side tables: regenerated on every build (the editor reads
 # them next to the sources), so they are artifacts, not source.
 src/gen/livedbg.sym

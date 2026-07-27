@@ -48,3 +48,14 @@ vendor/tyra/*
 !vendor/tyra/audsrv-pan/
 vendor/tyra/engine/obj/
 vendor/tyra/engine/bin/
+
+# Example projects are ordinary generated projects, and running one drops the
+# devkit channel files (livedbg.bin, livetime.bin, livelink.*, log.txt...) into
+# its bin/. Each project ships its own .gitignore for that, but a project whose
+# build output was committed BEFORE it had one keeps leaking - so this is the
+# net at the repo level. All four are build output or local state, and the
+# project template declares them ignorable too (TPL_GITIGNORE in templates.cpp).
+examples/*/bin/
+examples/*/obj/
+examples/*/.res-baked/
+examples/*/*.history

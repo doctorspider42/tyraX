@@ -10,6 +10,39 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (212) **Fix: devkit channel files were still reaching git** (user: "widzę, że
+  livedbg.bin i livetime.bin dalej próbują lecieć do gita"). Two causes, one
+  symptom.
+  The generated project `.gitignore` listed the devkit files as they existed
+  when it was written and had drifted since: `livetime.bin`/`livetime.rst` (new
+  in 210), plus `livetex.bin`, `vucap.bin` and `ps2link.run`, which nobody had
+  added either. It now lists every file `FileUtils::fromCwd` writes next to the
+  ELF, and `bin/*.tmp` for the sibling temp an atomic write lands as. **A new
+  channel file has to join that list**, even though `bin/.gitignore` already
+  ignores the whole directory - that list is the readable record and the
+  fallback for a project that took `bin/` under its own control.
+  The real leak was in THIS repo, though: `examples/endless-scroller` was not a
+  project at all - no `.tyra`, no `src/`, no `res/`, no Makefile, just committed
+  build leftovers, exactly as (164) found when it could not be resaved and left
+  it flagged. Without a project it never got the `bin/.gitignore` every other
+  example has, so every run of anything in `examples/` dropped fresh
+  `livedbg.bin` / `livetime.bin` / `log.txt` into `git status` there. Removed
+  (32 files: a stale ELF, baked HUD sprites, `.res-baked/`, `.vscode/`,
+  `docker-compose.yml`, an undo history - all build output, all recoverable from
+  history if anyone ever wants them).
+  The systemic half is a repo-level net so this class cannot come back:
+  `examples/*/bin|obj|.res-baked|*.history` are ignored at the root as well.
+  Example projects ARE ordinary generated projects and running one writes the
+  channel files; relying on each project having committed its own ignore file
+  first is what failed here.
+  *Verified*: fresh `--new` emits the completed list; dropping a `livetime.bin`
+  and a `livedbg.bin` into a built example leaves `git status` clean, with
+  `git check-ignore` naming the new root rule as the reason; editor builds
+  clean.
+  *Flagged, not touched*: `examples/physics-playground` is a second orphan with
+  no `.tyra` (only `.vscode/`, `docker-compose.yml` and seeded `res/hud`
+  images). It leaks nothing - no `bin/` - so it is left for its owner to decide
+  on rather than removed in a fix about something else.
 - (211) **Debugger: the explanations moved behind the (?)** (user: "dużo mamy
   w zakładce debug litanii ... takie rzeczy, które są jakimś objaśnieniem ukryj
   pod tooltipami"). Seven walls of prose in the Debugger's tabs became a short

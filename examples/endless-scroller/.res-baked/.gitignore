@@ -1,9 +1,0 @@
-# Authored assets (models, textures, materials, ui, audio, sfx) are
-# checked in - a pulled project must render without missing files. Only
-# build-regenerated output is ignored.
-/menus/
-
-# Baked animated-model output (.glb is the source; .tskl/.tanm are
-# regenerated from it on every build).
-/models/*.tskl
-/models/*.tanm
