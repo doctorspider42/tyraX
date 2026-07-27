@@ -80,11 +80,16 @@ add_executable(tyrax-editor
     src/audiopreview.cpp
     src/assetbrowser.cpp
     src/camtake.cpp
+    src/devsession.cpp
     src/flownode.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
+    src/elfsym.cpp
+    src/livedbg.cpp
+    src/livelogic.cpp
+    src/vucap.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp

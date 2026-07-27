@@ -611,6 +611,27 @@ struct ProjectSettings {
     // for anyone who does not want their debug builds patched from outside.
     bool liveLink = true;
 
+    // Debug profile only: compile the Live Debugger runtime into the game -
+    // the flow graphs report every node they run to the editor, and the editor
+    // can set breakpoints, stop/step the game and force-fire a trigger
+    // (docs/live-debugger.md). Off = no instrumentation, no reporting, and
+    // livedbg.bin / livedbg.cmd are never touched by either side.
+    bool liveDebug = true;
+
+    // Debug profile only: compile the Live Logic interpreter into the game, so
+    // the editor can hot-patch an edited flow graph into the RUNNING game with
+    // no rebuild (docs/live-logic.md). Off = graphs only ever run as the C++
+    // they were compiled to.
+    bool liveLogic = true;
+
+    // Debug profile only, EXPERIMENTAL and off by default: install the engine's
+    // EE crash handler, which turns a real CPU exception (bad pointer, address
+    // error, reserved instruction) into a crash.txt report instead of a silent
+    // freeze. Measured under PCSX2, ps2sdk's ee_dbg_install() wedges the game
+    // the moment it goes in, so this needs a real console (or a hand-written
+    // exception stub) before it can be the default - see docs/devkit.md.
+    bool eeCrashHandler = false;
+
     // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
     // drivers and maps keys/mouse onto a virtual pad (bindings live in the
     // generated controls.hpp). Works in PCSX2 (the editor configures its
@@ -867,7 +888,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
-           a.liveLink == b.liveLink &&
+           a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
+           a.liveLogic == b.liveLogic &&
+           a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&
@@ -1266,7 +1289,13 @@ struct WindowLayout {
 
 // Built-in DockBuilder recipe ids (WindowLayout::recipe). The arrangement lives
 // in App::buildLayoutRecipe; only the id travels in the .tyra file.
-enum class LayoutRecipe { None = -1, Default = 0, Director = 1, Material = 2 };
+enum class LayoutRecipe {
+    None = -1,
+    Default = 0,
+    Director = 1,
+    Material = 2,
+    Debugger = 3
+};
 
 // One custom screen effect placed in the screen stack. The effect body lives
 // in a <project>/screen-effects/<stem>.screenfx file (loaded into
@@ -1809,6 +1838,12 @@ struct Project {
     // Viewport camera projection (Viewport::Projection): 0 perspective,
     // 1 ortho (free), 2..7 the locked Top/Bottom/Front/Back/Right/Left views.
     int viewProjection = 0;
+    // Live Debugger breakpoints (docs/live-debugger.md), as
+    // "<objectId>:<nodeId>" - the owning object's stable id and the flow-graph
+    // node id, so they survive renames, reorders and rebuilds. Personal
+    // editing state: kept in the .tyra like the selection, but deliberately
+    // NOT a collaboration section (a peer's breakpoints are their own).
+    std::vector<std::string> debugBreakpoints;
     // Named window layouts (docking arrangements), switchable from the Layout
     // menu and edited by simply rearranging windows. Every project keeps at
     // least one; seedBuiltinLayouts() fills a fresh/legacy project with the

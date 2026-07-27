@@ -10,8 +10,8 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (192) **The Drone Generator grew a timeline: keyframes that write themselves
-  when you turn a knob.** Follow-up request on (191) - "could a track change over
+- (211) **The Drone Generator grew a timeline: keyframes that write themselves
+  when you turn a knob.** Follow-up request on (210) - "could a track change over
   time, with the keyframe inserting itself when something is turned, plus a
   position bar like foobar". Both halves fell out of machinery (191) already had.
   **Any parameter is automatable because the lane list is not a list.**
@@ -70,11 +70,11 @@ Each finished feature lands as its own commit.
   the playhead and the playhead line; the position bar shows the keyframe
   triangles and the time readout; and the Space tab's Cutoff knob reads the
   automated **5200 Hz** with the amber dot while its neighbours have neither -
-  screenshots via the `TYRAX_SHOT` self-capture from (191).
+  screenshots via the `TYRAX_SHOT` self-capture from (210).
   **Still needs a human**: whether writing automation by ear feels right, and
   whether 0.35 s is the merge window a hand actually wants.
 
-- (191) **Ambient / drone music generator: *Tools > Drone Generator*.** User
+- (210) **Ambient / drone music generator: *Tools > Drone Generator*.** User
   request - "a few tools so a background track can actually be crafted, knobs to
   turn like in the priciest VST plugins". A game needs a background bed and the
   editor had no way to make one: music could only be imported. This is a real
@@ -182,6 +182,833 @@ Each finished feature lands as its own commit.
   meters - and it is now the documented answer for verifying editor UI on Linux
   (see tyra-testing). **Still needs a human**: whether the presets sound *good*,
   and the feel of dragging the knobs.
+- (209) **New projects boot the full-height PAL frame** (user: make the full PAL
+  mode the default, "nie tego przygranego"). `ProjectSettings::palFullHeight`
+  now defaults ON for **new** projects: on a PAL console the region-following
+  `interlaced` mode boots the true 512-line 576i frame instead of the
+  letterboxed NTSC-size 448-line picture - 14% more picture, which is most of
+  what a 50 Hz signal is for. It follows the skill's rule about defaults to the
+  letter: the STRUCT initializer stays `false` (that is what a project saved
+  before the key loads as, and flipping it would retroactively change what
+  every existing project outputs) and `project::create` assigns the new answer,
+  next to the debug profile / Live Link / keyboard-mouse block that is there
+  for the same reason. NTSC consoles are untouched - the generated `main.cpp`
+  gates the promotion on `graph_get_region()`, so one build still serves both
+  regions.
+  Also flipped, because the two would otherwise disagree in the viewport: the
+  PS2 output mode (191) resolved `videoSystem: auto` as NTSC ("what every
+  console renders at least"), which would have shown a fresh project the 448
+  picture its own settings say it will not boot in Europe. It now shows the PAL
+  one whenever `palFullHeight` is on and the video system is not explicitly
+  `ntsc` - the flag is ONLY meaningful on a PAL console, so a project that sets
+  it is authored for PAL, and the taller frame is the one whose extra 64 lines
+  need composing for. That also puts it in step with the safe-area overlay,
+  whose *NTSC picture inside PAL* guide draws the shorter picture INSIDE the
+  taller one and enables in exactly this configuration - it had been drawing an
+  inner box for a region difference the viewport was not showing.
+  *Verified* end to end rather than by reading the diff: `--new` writes
+  `"palFullHeight": true` and the generated `src/main.cpp` carries the promotion
+  (`if (true && ... Interlaced && (PAL || (Auto && graph_get_region() == PAL)))
+  -> Pal576i`), while a **`--resave` of examples/script-demo** (which predates
+  the key) comes back out with no `palFullHeight` line at all - the old
+  behavior, untouched, which is the regression this rule exists to prevent. The
+  191 harness gained the two new resolutions (`auto` + palFullHeight -> 512x512,
+  explicit `ntsc` -> 512x448) and a check that the struct default is still
+  letterbox; all 11 display-mode cases and the rest of the suite pass.
+- (208) **PS2 output in the viewport: looking at the scene the way the console
+  draws it** (user: "zróbmy ten viewport, ale niech jest opcja wyboru między
+  tym, co mamy teraz i tym nowym"). The viewport lied in three ways that cost
+  time later - it rasterized at monitor resolution, framed to whatever shape
+  the panel was docked to, and drew square pixels. *Viewport output* (the
+  viewport gear, *View > Viewport output*, machine-global `viewportPs2` in
+  editor.ini - a way of looking, like the safe areas, so it never dirties the
+  .tyra) switches between the editor's own image and the console's: the scene
+  rasterized at the **GS framebuffer size** of the project's display mode, then
+  point-scaled into the 4:3 / 16:9 rectangle a television shows, everything
+  outside it black. Written up in docs/ps2-viewport.md.
+  Three things carry it. **The render size is decoupled from the panel size**
+  by `render()` reassigning its own `width`/`height` params to the GS size
+  (they are by value): the entire ~900-line scene pass moves to 512x448 with no
+  site knowing, and one new presentation pass (`PS2_FS`, sharing GRADE_VS and
+  `gradeVao_`) scales `fbo_`/`gradeFbo_` into the panel-sized `outFbo_`. The
+  grading pass therefore runs at GS resolution *before* the scale-up - the
+  order the console grades in. **The letterbox lives in the camera**
+  (`CamView::boxSx/boxSy`): the picture no longer fills the viewport, so image
+  coords are PANEL coords that camRay divides by the box and projectToImage
+  multiplies back - which is what keeps picking, both raycasts and the
+  measuring tape on the picture, for free, because the skill's "one camera, one
+  place" rule already routed all of them through those two. It is a pure scale,
+  not a scale+offset, because a letterbox is centred by construction. The one
+  consumer that does NOT go through camRay is the transform gizmo (ImGuizmo
+  gets `projMatrix()` and draws over the whole panel rect), so `projMatrix()`
+  is the box-scaled twin of the matrix `render()` draws with.
+  **The geometry is not computed in the viewport**: `App::ps2ViewportOutput` is
+  the host twin of the engine's `RendererSettings::updateGeometry` plus the
+  scan-out choice in `RendererCoreGS::presentFrameBuffer`, so a new engine
+  display mode is one entry in each and nothing in viewport.cpp (written into
+  both skills). It also resolves the one thing the editor cannot know: with
+  `videoSystem: auto`, whether `palFullHeight` promotes to the 512-line frame
+  depends on the console that boots the disc, so the editor assumes NTSC - the
+  shorter picture, i.e. what every console renders at least.
+  What it does NOT fake, on purpose: 16-bit dithering (this engine's
+  framebuffer is `GS_PSM_32` - there is nothing to dither), CLUT textures (the
+  Material Editor answers that per material; scene-wide is a separate job), and
+  the temporal flicker between fields (the editor does not run at the field
+  rate, so a simulated strobe would be a different artifact wearing the same
+  name - field rendering's real cost, half the vertical resolution, IS shown).
+  Texture filtering needed nothing: the engine draws bilinear with mipmapping
+  off (`max_level = 0`), which is what the viewport already did, and the
+  distance shimmer appears on its own once the raster is 512x448.
+  **The finding worth keeping**: Tyra keeps the stock `aspectRatio = 512/448`
+  as its 4:3 baseline, so a sphere is a CIRCLE in the GS buffer and the TV
+  widens it - the console's picture is horizontally stretched by
+  (4/3)/(512/448) = **1.167**, and the editor had simply never shown it.
+  Reproducing the engine's projection rather than an idealized one is the whole
+  point of the mode, so it stays.
+  *Verified* with two throwaway harnesses (the 104/105 pattern - `#define
+  private public`, link against `build/`'s objects minus main.cpp). The
+  **host** one pins the parts that would fail silently: the display-mode table
+  against values read off the engine headers (11 cases incl. both
+  `palFullHeight` resolutions and 1080i's pillarboxed widescreen window), the
+  letterbox fit, and a project/unproject round trip through it in five
+  panel/aspect combinations (worst miss 1.3e-5 world units, and 0 with the mode
+  off). It also pins the viewport's letterbox against `drawSafeAreaOverlay`'s
+  own fit - they draw the same rectangle and drifting apart would put the
+  guides off the picture. The **GL** one is the visual pass this machine could
+  not otherwise get (the compositor refuses non-interactive screen capture):
+  a hidden GLFW window, the real `Viewport`, real `render()` calls at a
+  1200x675 panel, `glReadPixels` to PNG - which is better than a screenshot
+  anyway, since it isolates the viewport image from the UI. It confirmed the
+  programs link, the fb sizes (512x448 / 512x224 / panel), the bars (900 of
+  1200 px at 4:3, none at 16:9), that the gizmo projection and
+  `projectToImage` agree on every test point, and - by measuring a centred
+  sphere - the stretch: **0.99 w/h in editor mode, 1.18 in PS2 output** against
+  1.167 predicted (one GS pixel is 1.76 panel px here, so that is inside the
+  quantization). What is NOT verified: how it looks inside the real editor
+  window with the UI around it, and the gizmo dragged by hand - the numbers say
+  they are right, a human should still look once.
+  *Follow-up, same session:* the user's first screenshot showed the gear sitting
+  ON TOP of "Center view". The gear predates this change and had picked the
+  bottom-left corner for itself (`scaled(8)` inset, a fixed `scaled(22)` box)
+  while the button row picks the same corner with its own numbers (a bare `8.0f`
+  inset, `GetFrameHeight()` slot) - so they overlapped at 1x and drifted further
+  apart at every other DPI scale, since only one of the two insets scaled. Now
+  there is one definition of where the row starts (`App::viewportGearSpan`),
+  the gear is the row's first item at its height and inset, and it is centred
+  on the SmallButtons (which are only a font tall, so a square button left at
+  the same top edge hangs below the row). The gear glyph took the same
+  treatment - it derived its centre from the corner instead of from the button,
+  which is exactly how it would have been left behind again. Not
+  screenshot-verified (see above), but the two rects cannot overlap by
+  construction now: the row starts at the gear's right edge plus one
+  `ItemSpacing.x`.
+- (207) **Measured: ps2link's extra commands are not the free lunch they look
+  like.** Before building anything on them, the question was whether the tools
+  `ps2client --help` advertises - `dumpmem`, `scrdump`, `startvu`/`stopvu`,
+  `dumpreg` - already give hardware memory dumps and framebuffer grabs for free
+  (they are implemented on the PS2 side, by ps2link). Tested against the
+  owner's console; they do not.
+  - `dumpmem <addr> <size> host:<file>` **creates the destination and writes
+    nothing**, with the PS2 answering `EE: pkoDumpMem() write failed` - vestigial
+    pko-era plumbing whose host-write path this ps2client/ps2link pair does not
+    complete. Without a `host:` prefix it targets `mc0:/PS2LINK/` instead.
+  - `scrdump` exits 0 and produces no file anywhere.
+  Two things worth more than the commands themselves came out of it. **A console
+  with a game loaded cannot be commanded**: any client that connects is
+  immediately conscripted as the game's file server, so `reset` and `dumpmem`
+  both returned -1 while the game's `host:` opens scrolled past - and when a
+  `listen` server was attached first so a command COULD get through, that
+  command **froze the game**. And **`reset` is reliable only with nothing else
+  attached** (exit 0 then; -1 every time otherwise), which is exactly the
+  runner's sequence and why a scripted redeploy earlier in the session could not
+  take.
+  So a hardware framebuffer grab or live memory dump means **patching ps2link** -
+  the workflow exists (`tools/ps2link-usbhid/` already clones a pinned ps2link,
+  applies a patch and builds it in Docker for the USB HID stack) - and it stays
+  hardware-only, since PCSX2 runs no ps2link at all. That asymmetry is the
+  standing argument for the devkit riding the host filesystem: one
+  implementation, both targets. Written into the tyra-testing skill so the next
+  session does not re-run the experiment.
+
+- (206) **A static model's vertex count, next to its triangle count.** Owner's
+  ask, and the properties panel was inconsistent about it: an animated `.glb`
+  reported "%d verts", a static `.obj` reported triangles only. Now it shows
+  both, plus the **unique position count**, because those are three different
+  measurements and the gap between them is worth seeing: vertices are what
+  reaches VU1 (three per triangle, corners split wherever a normal, UV or
+  material differs), positions are the `v` count the modelling tool showed. A
+  hovered tooltip says so, and ties it to the chunk size *Debugger > Stats*
+  reports. `Model::positionCount` was already parsed and simply never surfaced.
+  *Verified* with a harness over `objparser.cpp.obj` on the owner's own model:
+  `Cottage_FREE.obj` is **4281 triangles, 12843 vertices, 3351 unique
+  positions** - a 1.28x split factor. Which closes the loop on 204/205: 12843
+  vertices at 108 per VU1 chunk is ~119 chunks, exactly the scatter the flush
+  map showed, and 80% of that frame's 16101 vertices.
+
+- (205) **The frame's vital signs, and a map of its draws.** Owner's ask after
+  204 ("okienko ze statami... ile miejsca w VU, co się da"), and the answer to
+  the 37-flush problem it left behind. **Not one number here is newly measured**
+  - the engine counts frames and VRAM residency, the VU1 tap sees every draw,
+  the scene knows its objects; they were counted on the console and never
+  carried across. The snapshot (v4) now carries them, and the Debugger grew a
+  **Stats** tab: FPS, flushes/quadwords/vertices to VU1, GS VRAM free with a
+  bar, its low-water mark, resident/peak textures, binds/hits/uploads/evictions
+  (with a warning line when anything is being evicted), free EE RAM, and the
+  object counts.
+  The **flush map** is the part that changes how the VU panel is used: one row
+  per bag flush of the last frame (vertices, quadwords, unpacks, microprogram),
+  fattest highlighted, and **clicking a row captures that draw**. Finding a
+  model in a 37-flush frame becomes reading a table.
+  Three judgement calls worth recording:
+  **EE RAM is measured on request only.** `Info::getAvailableRAM` finds it by
+  allocating every free block until malloc fails and then freeing the chain -
+  accurate, and a heap storm nobody wants on a timer. The panel has a button and
+  reports which frame the value came from.
+  **The largest position stream is reported as a statistic**, because it is not
+  a curiosity: the pipeline cuts a mesh at exactly the VU1 buffer's capacity for
+  its vertex layout, so that number IS the capacity (108 on the owner's scene,
+  24 on the test fixture) - the answer to "how much room is there in VU1?" that
+  204 could only reach by hand.
+  **Positions are counted on the EE as "the UNPACK to VU1 address 2"**, checked
+  against three different microprograms on hardware first; the tap walks tags
+  only, never vertex data.
+  *Verified* in PCSX2 against the fixture: 50 fps, 9 flushes, 819 quadwords,
+  2484 vertices, and VRAM figures that match the game's own `VRAMSTAT` log line
+  to the digit (1.01 MB free, low 0.95, largest 1032 KB, 1 resident). The flush
+  map's EE-side vertex counts agree with the editor's independent decode of the
+  same capture (282 either way) - two implementations, one answer. The RAM
+  button came back with 27.25 MB free at frame 571. **v3 snapshots still
+  parse**, proven twice: a hand-built v3 file through a harness, and the owner's
+  console - which is running yesterday's build - read live as "frame 175326".
+  **And then on the real PS2**, minutes later, once the owner redeployed (a
+  scripted `ps2client reset` will not take while the previous game still holds
+  the link - F6 from the editor does): 50 fps, **37 bag flushes, 3401
+  quadwords, 16101 vertices in one frame**, largest stream **108** - the VU1
+  capacity figure 204 had to derive by reading engine source. VRAM 0.73 MB free
+  with 3 textures resident, 5502 binds against 5498 hits and **zero evictions**
+  (that scene is not thrashing; it is simply large). The object counts match
+  the project exactly - 3 active of 35 pool slots, 2 visible, the third being
+  the invisible FPP player marker. The flush map named the model's draws on
+  sight: flush 23 at 1380 vertices, then 30, 25, 26, 33 - all 108-vertex chunks
+  of the same cottage. The panel itself is unscreenshotted as ever (blank
+  editor window, see 191).
+
+- (204) **Reading a frame off the owner's real PS2, and what "my model shows 2
+  meshes" actually was.** The tooling from 201-203 got its first real use, on
+  hardware, against a scene the owner built: a 3351-vertex `Cottage_FREE.obj`
+  that the VU panel kept showing as a couple of tiny meshes.
+  **Two answers, neither of them a bug.** The capture was **bag flush 0 of 37**,
+  and flush 0 is terrain - 12 chunks of 21 vertices, all under microprogram 176.
+  And the cottage never appears as one mesh anyway: the static pipeline cuts a
+  bag into chunks of `getMaxVertCountByBag()`, which asks the VU1 program how
+  many vertices its buffer holds - **108** for this layout - so a triangulated
+  cottage is ~120 chunks scattered over flushes 17-36, at most 16 buffers to a
+  flush, interleaved with terrain. The frame submits ~16k vertices in 37 flushes
+  and uses three microprograms (176 for the terrain-ish bags, 1164/1346 for
+  others).
+  **How it was read** is the reusable part. The game runs over ps2link, so
+  there is no emulator process, and the editor cannot be open (it would fight
+  the probe over `livedbg.cmd`) - but closing it kills the `ps2client` that
+  serves `host:`. The way out is `ps2client listen`: a game orphaned for twenty
+  minutes was blocked on its next file operation and **resumed within seconds**
+  when a server answered - no redeploy, no rebuild. With the server hosted by
+  the probe instead of the editor, a script pinned all 37 flushes in turn and
+  dumped each one; the per-flush table is what made the answer obvious. Written
+  up in the tyra-testing skill.
+  **The next feature this argues for** is a flush map: the game already counts
+  every flush, so a one-line-per-flush summary (index, quadwords, meshes,
+  vertices) would put that table in the panel instead of a 37-step script.
+
+- (203) **Session pointers: a running editor says what it has open.** 202 could
+  only guess from `editor.ini`, and the owner's own machine broke it twice over
+  in one sitting: their project lives in `F:\Tyra-Projects` (not the default
+  folder the scan knows), and it never reached the recent list at all despite
+  being open - unreproduced afterwards, since a fresh open registers correctly.
+  So the editor now publishes the answer instead: `devsession.hpp`, one file per
+  process under `%LOCALAPPDATA%\tyra-editor\sessions\<pid>.ini`
+  (`$XDG_STATE_HOME/tyra-editor/sessions/` off Windows - the XDG state dir, this
+  being state rather than config or cache), refreshed every ~4 s and deleted on
+  exit. It carries the open project, scene, build profile, the live-layer
+  switches, what the editor believes the GAME is doing (live / halted / frame),
+  and the **transport**.
+  Three design points, each a deliberate rejection of the obvious thing:
+  **a file per pid, not one shared file** - several editors run at once here
+  (parallel worktrees, a second instance for a collaboration session), and per
+  pid means no locking, no merge, no last-writer-wins; **the heartbeat, not a
+  pid probe**, decides liveness - asking the OS whether a pid is alive differs
+  per platform and lies after pid reuse, while "touched 4 seconds ago" means the
+  same everywhere; **stale sessions are listed, not hidden** - a crashed
+  editor's last known project is information. `--debug-state` reads sessions
+  first, then the recent list, then the folder scan.
+  **Why the transport is in there**: on ps2link the host file server is a
+  `ps2client` the RUNNER spawns, so closing the editor freezes every devkit file
+  mid-session - the console keeps running and answering pings while
+  `livedbg.bin` stops advancing and commands are never read. That is exactly how
+  this session's attempt to walk 37 bag flushes on the owner's real PS2 died,
+  and it looked like a hang until the transport explained it.
+  *Verified* two ways: a harness linking `devsession.cpp.obj` covers three
+  instances coexisting, field round-trips, a 5-minute-old heartbeat reading as
+  stale but still listed, a day-old one being reaped, and `retire` removing
+  every pointer; then the real thing - the editor launched on the owner's
+  project reported `pid 18148 LIVE F:\Tyra-Projects\debugger, heartbeat 3s ago,
+  profile debug, over ps2link`, with the transport picked up from the
+  `bin/ps2link.run` marker. Linux paths are written but **untested**: the editor
+  is a Windows build today, so that half is compile-shaped, not proven.
+
+- (202) **`--debug-state`: which project is this machine actually debugging?**
+  Owner's question, and it was a fair one: asked about "the last VU capture" of
+  the scene they had open, the honest answer was that finding it meant guessing
+  at paths - a search of the obvious folders in this session turned up nothing,
+  because projects live wherever the user put them. The editor already knows:
+  `editor.ini`'s recent list is rewritten the moment a project is OPENED, so
+  entry 0 is the last one. The new CLI reads it (plus a scan of the default
+  projects folder, which catches projects made by `--new` and never opened in
+  the GUI - that gap is real, the fixtures in this branch are all like that) and
+  prints each project's devkit artifacts with **how old** they are, decoding the
+  headers inline: `vucap.bin` as "frame 661, flush 2/9, 16 mesh(es), 94 tris in,
+  512x448", `livedbg.bin` as "frame 1111, scene 0, HALTED". The last line names
+  the freshest artifact on the machine, which is the answer nine times in ten.
+  `--debug-state <dir>` reports one project when the path is known.
+  **Ages, not timestamps** - no timezone, no format, and "71m ago" answers the
+  real question ("is this from this session?") in a way "2026-07-26 20:44" does
+  not. The two bits of editor.ini this needs are exposed through a 20-line
+  `src/editorcfg.hpp`, defined in app.cpp, so the config parser stays the only
+  thing that knows the file's shape and the CLI pulls in no GUI.
+  *Verified* by running it: it lists the project opened last, the two in
+  `~/TyraProjects` that were never opened here, and a `--debug-state <dir>` on
+  this branch's PCSX2 fixture decodes its capture header. Written up in the
+  tyra-testing skill (with the rule that a running game's process command line
+  beats every file, and that neither the editor nor PCSX2 may be killed by name
+  - the owner may be sitting in front of one). **Found the hard way while
+  building it**: the owner had the editor open, so the link step failed with
+  "cannot open output file tyrax-editor.exe: Permission denied" - the check
+  binary was linked under another name instead of killing their session.
+
+- (201) **Making the VU capture actually answer questions** (owner, after 196:
+  "the meshes in there do not tell me much"). They did not: the panel showed one
+  model-space wireframe out of a dozen, always from the same draw, and left every
+  interpretation to the reader. Four changes, and the theme is that each one is
+  either measured or withheld.
+  1. **Pick your draw.** A frame sends one chain per bag flush, always in the
+     same order, so "the next packet" meant the same picture forever. The capture
+     now carries its flush index and the button WALKS them - click, click, click
+     and you step through the frame's draws - with a *pin flush* toggle to hold
+     one instead. The index is exact rather than "the first flush after arming"
+     (arming lands mid-frame, so a `>=` test drifts forward and skips draws);
+     waiting for the real number costs at most a frame, and an index past what
+     the frame sends wraps to 0. The request rides in spare bits of the command
+     flags word (bit 4 = "index in bits 8-23"), so no format version moved and a
+     game built before it keeps grabbing the first flush.
+  2. **The mesh list says something.** Vertices, triangles, model-space size,
+     degenerate-triangle count and the microprogram each mesh runs under - the
+     last one recovered from the chain's MSCAL/MSCNT order, since the UNPACK does
+     not carry it (a chain that only says MSCNT re-runs what an earlier chain
+     loaded, and now reads `program carried over` instead of `-1`).
+  3. **A findings block**, in amber, above the hex: a staged packet that misses
+     the drawing window, triangles spanning nearly the whole 4096-unit plane,
+     degenerate input triangles, fully transparent vertices in a packet that does
+     not blend, vertices behind the camera. The drawing window is real geometry,
+     not a guess - the capture now carries the game's LIVE render resolution
+     (decided at runtime from display mode + region, so the editor cannot know it
+     from project settings) and the engine's `XYOFFSET = 2048 - size/2` gives the
+     bounds.
+  4. **v4 capture format** for the above: a 32-byte header (flush index, flushes
+     per frame, render width/height). v1-v3 still decode.
+  **Two findings were deleted after they lied**, and that is the part worth
+  keeping: "60 of 60 staged vertices are off screen" came from scanning all 1024
+  quadwords of VU1 memory, which is never cleared and full of earlier runs'
+  packets (scoped to the biggest geometry packet now); and a per-vertex
+  off-window warning fires on ordinary terrain, since a triangle crossing the
+  screen edge legitimately has vertices outside the window and the GS scissors it
+  (the finding tests whether the whole packet misses the window instead). The
+  `w <= 0` check is likewise withheld on multi-mesh flushes, where VU1 memory's
+  single MVP cannot be paired with the vertices being transformed. The
+  "spans the whole plane" threshold is 3500 of 4096 units for the same reason -
+  near-camera terrain covers several screens legitimately.
+  *Verified* in PCSX2 with the scratch fixture from 200: a clean boot walks
+  flushes 0,1,2,3 with visibly different chains (67 qw/22 blocks vs 97 qw/32),
+  `--pin 4` returns flush 4 three times running, and the header reports
+  `512x448`, which is what that build renders. The **first walk run looked
+  off-by-one and was not**: a leftover `livedbg.cmd` from the previous run is
+  applied at boot and eats capture 0 (now in the tyra-testing skill). The
+  editor's half of the command encoding was checked by a four-case harness
+  linking `livedbg.cpp.obj` (auto = bit 3 only, pin 7 = `0x718`, idle leaks
+  nothing, a changed index counts as a changed state). The crash course this grew
+  out of is now the bulk of the VU section in docs/devkit.md. **Still not
+  screenshot-verified** - the panel needs clicks and this machine renders the
+  editor window blank (see 191).
+
+- (200) **The VU panel showed the same capture forever** (reported by the owner:
+  "every VU frame dump shows me the same result with this geometry"). Two causes,
+  both real, and the screenshot named the first one: the header said *frame 2551*
+  while the game was running at frame 4876.
+  1. **The editor re-read `bin/vucap.bin` only when its SIZE changed.** A second
+     capture of the same draw is the same length down to the byte - the chain is
+     built from the same bag and the VU1 memory tail is a fixed 16 KiB - so every
+     capture after the first was a no-op while the game kept overwriting the file.
+     It keys on `last_write_time` now. A half-written file (the game writes it
+     from inside a frame, in several `fwrite`s) is detected by its missing 16 KiB
+     VU1-memory tail and retried rather than committed, and the button says
+     "waiting for the game..." until the answer to *your* click lands, because two
+     captures legitimately look alike.
+  2. **The wireframe drew one mesh out of a dozen.** One flush is a whole bag: the
+     chain carries a position stream per mesh, and the preview showed the largest
+     one - which, being model space, is byte-identical from frame to frame no
+     matter where the camera is. The decoder now lists every position stream
+     (`vertexUnpacks`) and the panel gets a mesh slider; they cannot be drawn
+     together, each mesh being in its own model space. Positions are told apart
+     from the same-sized ST/Q array beside them by their w component (the pipeline
+     packs `(x, y, z, 1.0)`), with the old largest-V4_32 rule kept as a fallback so
+     an unrecognised chain still previews something.
+  *Verified* end to end in PCSX2 rather than by reading the code: a scratch FPP
+  project (a two-node graph attached to the player, since a project with no
+  runnable node generates no devkit layer at all and therefore no capture), then
+  a ~90-line Python probe writing `livedbg.cmd` with the capture bit three times
+  in a row. Result: `size=24576` all three times, frames 661 / 805 / 955, three
+  distinct mtimes - the size-keyed cache proven dead, the timestamp key proven
+  live. `--dump-vucap` on those captures lists **12 position streams** in one
+  flush (11 of 21 verts, 2 of 3) where the panel used to show exactly one, and a
+  deliberately truncated copy decodes without `hasVuMem` and without crashing,
+  which is the torn-read guard's trigger. The GUI panel itself is *not*
+  screenshot-verified: driving it needs clicks, and this machine still renders
+  the editor window blank (see 191).
+
+- (199) **A textured terrain drew PURE BLACK on real hardware while PCSX2 was
+  fine** - reported with a photo of a physical console: sky, the house, and
+  black where the ground should be ("should be the project's default colour").
+  Three separate defects on one path, all of them emulator-invisible.
+  **(1) The path the game is told to open could contain `..`.** A terrain
+  material's `map_Kd` is relative to the .mtl's own folder, so a texture one
+  directory over resolved to `materials/../textures/x.png` - and **the PS2
+  cannot walk `..`** (the same invariant the Asset Browser enforces for
+  Wavefront siblings). PCSX2's `host:` fs resolves it through the OS and shows
+  nothing wrong; a disc has no such entry at all. `resolveTerrainMaterial` now
+  emits a `lexically_normal()` path, which is also where texbake had already
+  copied the file - the two used to disagree.
+  **(2) A missing texture drew the ground black.** `buildTerrainChunk` decided
+  `textured` from the BUILD-time `TERRAIN_TEXTURE >= 0` and scaled the vertex
+  colours for a GS modulate (128 = 1.0), but the bind further down also required
+  the texture to be *loaded* - so a failed load left colours scaled for a
+  modulate that never happened. **Measured A/B** in PCSX2 with the baked PNG
+  deleted from `bin/`: before, the ground sampled **(0, 0, 0)** over the whole
+  lower frame; after, **(234, 234, 234)**, i.e. the material's Kd at full scale
+  - the "default colour" the owner expected. `textured` now means "actually
+  loaded", so the colour scale, the additive-light rescale (`emisK`) and the bind
+  can no longer disagree.
+  **(3) Nothing re-armed a chunk when its texture landed later.** Scene textures
+  come through the one-job-per-frame stream queue; `loadScene` drains that queue
+  before building any chunk, so boot was safe, but a chunk built during play (the
+  streamed ring, layer residency) got no texture bag and would only ever be
+  fixed by leaving the view rect and coming back. A completed terrain-texture job
+  now frees the built chunks so the ordinary budgeted pass rebuilds them (buffers
+  keep their capacity - a rebuild, not an allocation).
+  **Verified**: a scratch project given a red/blue checker terrain texture still
+  renders it at full brightness in PCSX2 after the change (sampled (231,36,37) /
+  (36,36,232) - no halving), the normalized path appears in
+  `texture_data.gen.hpp` as `textures/ground.png`, and the game builds on the PS2
+  toolchain. **Not verified**: the owner's actual console (no hardware here), so
+  which of the three was *their* trigger is unconfirmed - (1) is the likely one
+  if the project deploys from a disc.
+
+- (198) **ImGui ID conflict in the Debugger's object watch** (reported by the
+  owner with the "3 visible items with conflicting ID" popup on screen). The
+  per-axis position plots were three `PlotLines` calls sharing the label
+  `"##plot"` inside one `PushID` scope - three widgets claiming one ID, which is
+  also why hovering them was ambiguous. Now `##plotX/Y/Z`. The count in the
+  popup (3) pinpointed it exactly; the rest of the window was audited at the
+  same time (the other loops do push an id, and the watch table's rows are
+  text-only, so they claim no id). Fixed structurally and compiles; **not
+  visually confirmed** - this machine still renders the editor window blank
+  (see 191).
+
+- (197) **The number plane: a flow graph can now COMPUTE a value instead of
+  only typing one in.** Reported by the owner: "you cannot pass a value into a
+  node through an input at all", wanting the simplest possible thing - a button
+  that increases a variable by 1. Both halves landed.
+  **A fifth link kind** (`FlowLinkNum`, pink circle pins): a number output wired
+  into a number input REPLACES that node's `num[0]` param, exactly the way a
+  position link overrides X/Y/Z - one convention, so every consumer behaves the
+  same and the Properties panel says *"Value: from link"* instead of showing a
+  param the game ignores. Sources: **Number** (a literal), **Get Int**,
+  **Get Save Value** (which already existed as a text source and now doubles as
+  a numeric one). Combining: **Add / Subtract / Multiply / Divide** fold over
+  ALL their wired inputs (the logic-gate precedent), with the `B` param as the
+  second operand when only one input is wired - so `Get Int -> Add (B 1) ->
+  Set Int` is read-modify-write. **Number At Least** bridges back to the bool
+  plane, **Number To Text** into the text plane (so a computed value reaches
+  Display Text). Consumers with a number input: Set Int, Set Bool, Set/Add Save
+  Value, Value At Least, Int At Least - a threshold can now itself be computed.
+  **And the short path**, because the ask deserved two nodes and not four:
+  Set Int grew an `add` exec pin (`set` / `add`, the Set-Object-Visible merge
+  pattern) and Set Bool a `toggle` pin. On Button -> Set Int/add with Value 1 IS
+  the counter.
+  Pin ids widened from 16 to 32 slots per node (never persisted - the stride is
+  now `kFlowPinSlots` in one place, with `flowPinNode`/`flowPinKind` replacing
+  the `% 16` arithmetic app.cpp had inlined).
+  **Two traps handled.** (1) Live Logic's IR carries `num[4]` as compile-time
+  CONSTANTS, so a wired value would silently run as the node's typed-in param -
+  `capability()` now rejects a graph containing a number link by name, and the
+  interpreter's Set Int / Set Bool bodies honor `in.pin` so the add/toggle pins
+  stay exact twins of the generated C++. (2) An int variable named ONLY by a
+  Get Int must still take its slot in `collectFlowVars`, or every index after it
+  shifts and a patched graph writes the wrong variable - both copies of that
+  list (templates.cpp and livelogic.cpp) updated together.
+  **Also fixed while here**, both pre-existing and both now load-bearing for the
+  add pin: the AI path dropped `toPin` in BOTH directions (`graphJson` never
+  wrote it, `parseGraph` never read it), so asking the model to edit a graph
+  silently rewrote every hide/toggle branch link to pin 0 - it now round-trips,
+  the catalog names each merged node's pins, and a pin the target does not have
+  is dropped like any other invalid link. And PCSX2 refuses a boot ELF whose
+  path mixes separators ("does not exist" for a file that plainly does), which a
+  project opened through a forward-slash path produces - the Runner hands it a
+  native path now.
+  **Verified end to end on the running game** (PCSX2, debug profile, the Live
+  Debugger's own watch channel reading the real variables): 12 x Cross ->
+  `score` = 12 with the trigger and the add node each reporting 12 hits;
+  1 x Circle -> `score` = 24 (Get Int -> Multiply B=2 -> Set Int, through two
+  number links) and `flag` 0 -> 1 (the toggle pin); the Number At Least(10) ->
+  On Condition edge fired exactly ONCE on the way up; `minus` = -5 from a
+  Subtract chain and `third` = 0 through the divide-by-zero-safe `flowNumDiv`.
+  The screenshot shows **"Score: 24"** on the PS2 picture - Get Int -> Number To
+  Text -> Display Text, live. Codegen inspected for all 22 nodes / 22 links, the
+  game compiles on the PS2 toolchain, and the graph round-trips through
+  `objects/*.json` (11 number links, 2 pins) and `--dump-graph`.
+  **Not verified**: the graph editor's own visuals (this machine still renders
+  the editor window blank - see 191) and real hardware.
+
+- (196) **Reading back what VU1 produced: the staged GIF packets, decoded**
+  (docs/devkit.md). Follow-up to 195 - having the INPUT was half the answer; this
+  is the other half. Arming a capture now also snapshots **all 1024 quadwords of
+  VU1 data memory** right after that chain ran: the engine waits for VIF1 and for
+  the microprogram (`VIF1_STAT` VPS/VEW, bounded spin), hands the memory over
+  through a second null-by-default hook, and the devkit uninstalls it
+  immediately - so the stall happens for the one frame you asked about.
+  **What the editor gets out of it**: the MVP the mesh was given (quadword 0,
+  printed as uploaded), the vertex arrays as VU1 read them, and - the point of
+  the exercise - the **GIF packets the program staged for XGKICK**, decoded to GS
+  vertices: screen-space X/Y in 12.4 fixed point, 24-bit Z, RGBAQ, ST, with PRIM
+  and the REGS list spelled out. Verified on the console: `gif 1 @VU1 23:
+  TRIANGLE +ABE nloop=21 nreg=2 [RGBAQ, XYZF2] EOP` with 21 plausible
+  screen-space vertices, alongside the small `A+D` tag packets the pipeline
+  emits in-band. That is the number the GS was about to rasterize, per vertex.
+  **The host reference stayed a hint, on purpose.** The editor also runs the same
+  transform (`clip = MVP * v`, `ndc = clip / w`, `screen = scale * (ndc + 1)`,
+  ftoi4 - read straight out of `ScaleVertexToGSFormat` in vcl_sml.i) and diffs
+  it. First read looked like a win (X agreeing to the LSB, Y off by ~400 px) and
+  the tempting conclusion was "VU1 has a Y bug". It is not: printing the pairs
+  showed those vertices share almost the same X, so the agreement was weak
+  evidence - and more importantly **one flush carries SEVERAL meshes in one
+  chain** while VU1 memory holds only the LAST MVP uploaded, so input block and
+  output packet are not reliably paired. The tool now says exactly that, in the
+  CLI and in the panel, and prints the out/ref pairs for a human to judge.
+  Turning it into a verdict is one small step, written down in the docs: capture
+  the object-data chain (the MVP upload) together with the qbuffer chain, and
+  capture a single-bag flush. Not guessed at in this entry.
+  Also fixed from 195: only packets carrying XYZF2/XYZ2 count as geometry (the
+  `A+D` tag packets were inflating the clip accounting), and the reference
+  computes both screen-Y conventions and reports which one fits rather than
+  assuming the GS axis direction.
+  **Verified**: `--dump-vucap` end to end against a live capture (24576 bytes =
+  chain + 24 referenced blocks + 16 KiB of VU1 memory); MVP, scales, 14 GIF
+  packets and their vertices all decode; the game keeps running normally
+  afterwards (the stall is one frame). **Not verified**: the panel view (the
+  machine's blank-editor state from 191), the mesh-to-packet pairing (above), and
+  real hardware.
+
+- (195) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
+  with the geometry** (docs/devkit.md). User request - "debugowanie VU to zawsze
+  była jebaczka, jakby był podgląd tego co VU wygenerowało...". You cannot print
+  from a microprogram and its output goes straight to the GS, but its INPUT is
+  ours: every vertex the static pipeline draws leaves the EE as one DMA chain
+  from `StaPipQBufferRenderer::sendPacket()`. So that is where the tap went.
+  **The seam** (`vendor/tyra/.../stapip_vu_tap.hpp`): the engine carries a NULL
+  function pointer plus the branch that tests it, once per bag flush - the
+  capture code lives in the generated devkit TU, so a release build links none of
+  it (the zero-cost rule from 186 holds, and the audit watches it).
+  **The editor side** (`src/vucap.{hpp,cpp}`, no GL/ImGui) decodes the chain: DMA
+  tags, VIF codes (STCYCL / FLUSH / MSCAL / UNPACK with format + VU1 destination
+  address), every UNPACKed block read back as floats, and the vertex stream drawn
+  as an orbitable **wireframe** in the new Debugger "VU" tab. `--dump-vucap`
+  prints the same decode headlessly, which is how the parser was tested.
+  **The two things that made it real work**, both found by looking at a live
+  capture instead of guessing: the pipeline sends vertex arrays **by reference**
+  (a `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at ANOTHER address,
+  the tag itself being one quadword), so (a) a chain walker must advance by 1 for
+  those and `1 + qwc` only for inline `cnt`/`next` - my first version advanced
+  past 21 phantom quadwords and started decoding data as tags, producing tags
+  like `refe qwc=32789` and float garbage; and (b) the capture has to FOLLOW
+  those references on the EE while the addresses are live, or the editor gets the
+  structure with none of the geometry. The tap now copies each referenced block
+  along and the file carries an index of them (format v2).
+  **Verified in PCSX2** end to end: armed a capture on the running fixture, the
+  game logged `VU capture: 73 qw chain + 24 referenced block(s)`, and the decode
+  reads exactly like the pipeline it came from - `UNPACK V4_32 num=2 -> VU1 addr
+  0` (scales + GIF tag, inline), two referenced `V4_32 num=21` blocks at VU1 addr
+  2 and 23 (double-buffered vertex data), `FLUSH`, `MSCAL 176` (the microprogram
+  entry point), and a vertex stream of 21 real model-space positions in triangle
+  triples (`95.827 -5.757 0.000 1.000`, sharing vertices pairwise as a split quad
+  does). **Not verified**: the wireframe view itself (the machine's blank-editor
+  state from 184) and real hardware.
+
+- (194) **Crashes stop being invisible: TYRAX banners, an EE crash handler with
+  a symbolized backtrace, and a post-mortem from the devkit's own history**
+  (docs/devkit.md). User question, and the honest answer was "nothing nice
+  happens": a `TYRA_ASSERT` was reported well, but a REAL EE exception (bad
+  pointer, address error, reserved instruction) printed nothing, halted nothing
+  and left the game frozen in silence - the worst class of bug was the least
+  visible one. Also renamed the engine's error block banner from TYRA to
+  **TYRAX** (the blocks are a TyraX modification; the editor accepts the old
+  banner too, so an ELF built before the rename still reports).
+  **What ships working:**
+  (a) **The heartbeat post-mortem.** The devkit already knows whether the game
+  is alive (a snapshot every few frames). When that stops with no crash report
+  and no assertion, the Debugger says "the game stopped reporting at frame N"
+  and shows what it still holds from the seconds before: the last flow-graph
+  nodes that ran, the watched objects' positions, the armed timers. Works on
+  hardware and in PCSX2, needs nothing from the game.
+  (b) **Symbolization.** `Makefile.base` now keeps an UNSTRIPPED copy of the ELF
+  (`bin/<name>.elf.sym`) when the generated Makefile sets `KEEPSYM=1` - the
+  debug profile also compiles with `-g` and links `-leedebug`, release neither -
+  and `elfsym::symbolize` runs the PS2 toolchain's `addr2line` in the build
+  container to turn an address into a function + source line. Also exposed as
+  `--symbolize <dir> <addr>...`. **Verified**: `0x00120000` ->
+  `Dbgdemo::TerrainGame::renderOnePortalView(int)` at
+  `/src/src/terrain_game.cpp:7913`. Note the shipped ELF is stripped
+  (`strip --strip-all`), which is exactly why the copy exists.
+  (c) **The crash report path**: `bin/crash.txt` (decoded cause, EPC, BadVAddr,
+  all 32 GPRs, backtrace candidates) parsed by the editor into a red section at
+  the top of the Debugger, with Resolve names / Copy report / Dismiss and the
+  post-mortem context underneath. Verified against a synthetic report in the
+  exact format the game writes, symbolized end to end.
+  (d) **The TYRAX banner, verified live**: a test `.flownode` raising
+  `TYRA_SOFT_ERROR` produced the block in the running game's log with the new
+  banner and `File : src/gen/flow_graph.gen.cpp:45`.
+  **The engine part** (`vendor/tyra/engine/{inc,src}/debug/crash_handler.*`) is
+  written on ps2sdk's **libeedebug** - `ee_dbg_install` + level-1/2 handlers hand
+  a C function the whole `EE_RegFrame`, so no hand-written exception stub is
+  needed. The handler captures the frame, harvests plausible return addresses off
+  the stack (no frame pointers at -O3, so it is a scan the editor then names),
+  and **redirects the frame's EPC at a trampoline** so the report is written from
+  ORDINARY context - doing file I/O inside the exception context is the classic
+  way to turn a crash into a hang. It lives in its own TU, so a project that
+  never installs it links none of it (archive semantics) - the release audit
+  stays clean.
+  **But it is OFF by default** (`ProjectSettings::eeCrashHandler`, Preferences >
+  Build, marked experimental), because of what the measurements said. Two traps
+  were found the hard way, both now permanent comments: hooking **cause 0
+  (Interrupt)** hijacks vblank/timer/DMA dispatch so no thread ever runs again
+  (the game froze with the last frame up and NOTHING in the log - which is
+  precisely how the bug presented), and **cause 8 (Syscall)** plus TLB refill /
+  TLB modified must be left to the kernel because they are how ordinary memory
+  traffic and every kernel service are serviced, not faults. After narrowing to
+  genuine faults only (4, 5, 6, 7, 9, 10..13, 15) the game STILL dies the moment
+  `ee_dbg_install()` runs under PCSX2 - so it is the install itself, in the
+  emulator. Also learned: writing to address 0 does NOT fault on the PS2 (main
+  RAM starts there) and a misaligned load did not fault under PCSX2 either, so
+  the emulator cannot even produce the exception this is meant to catch. Hence:
+  the code stays, the switch stays off, and the hardware pass is the user's -
+  the alternative would have been shipping a feature that hangs a debug build on
+  boot.
+  Also: `bin/livedbg.bin`/`livedbg.cmd`/`livelink.*`/`livelogic.bin`/`crash.txt`
+  and `src/gen/livedbg.sym` / `livelogic.built` are now named explicitly in the
+  generated project's `.gitignore` (user request - the nested `bin/.gitignore`
+  covered them, but only in projects created after it), and the ISO export skips
+  them plus any `*.sym`.
+
+- (193) **The devkit gets a receipt: a release build provably carries none of
+  it - plus armed-timer reporting, Fire-and-continue, per-frame object watches
+  and a visible breakpoint marker** (docs/devkit.md). The user's condition for
+  going further with debugging tools was blunt and correct: "make sure we don't
+  pay for it later - in release nothing of the debug code loads, no memory, none
+  of it". So this entry is half feature, half proof.
+  **The proof.** `src/elfsym.{hpp,cpp}` is a small ELF32 reader (sections,
+  symbols, section bytes). On top of it, `elfsym::auditRelease` scans a built ELF
+  for anything the three live layers would leave behind and reports the cost in
+  numbers. Two signals, because the PS2 toolchain STRIPS the symbol table (so
+  symbol matching alone would silently always pass): each generated devkit
+  runtime now plants a deliberate `TXDEVKIT-<layer>` marker string
+  (`__attribute__((used))` so -O3 keeps it), and the channel file names
+  (`livedbg.bin`, `livelogic.bin`, ...) are the independent second signal - the
+  polling code cannot exist without them. `--audit-release <dir>` exits 0/1 so a
+  script can gate a release, and **every release build audits itself** in the
+  Runner and prints the verdict into the build log.
+  **Measured** (same project, same assets, only the profile changed): debug =
+  text 1848 KiB / bss 284 KiB and four devkit findings; release = text 1830 KiB /
+  bss 139 KiB and *clean*. So the devkit costs ~18 KiB of code and ~145 KiB of
+  RAM while working, and nothing in what ships. The audit was also negative-
+  tested: run against the debug ELF it correctly FAILS and names the four
+  strings, which is the only way to know the check can fail at all.
+  **The bug the user reported**, and it was not the breakpoint: with `On Button
+  -> Delay 1s -> Set Int`, force-firing the trigger never hit a breakpoint on the
+  Set Int, while the same graph without the Delay did. A `Delay` does not wait -
+  it arms a countdown that advances one frame at a time, and a force-fire on a
+  HALTED game deliberately runs exactly one frame (a halted game runs no scripts,
+  so nobody would ever check `forced()`). One frame arms the timer; then
+  everything freezes again and the branch behind it never comes. Fixed on both
+  sides of the confusion: (a) every armed countdown is now REPORTED - the graphs
+  call `livedbg::timer(key, framesLeft)` each frame (native and interpreted
+  alike), the snapshot carries them, and the panel says "1 armed timer, next in
+  1.2 s" with the frames left shown on the node itself; (b) **Fire and continue**
+  (node context menu, or Shift+click on Fire) fires the branch AND resumes, so
+  the countdown reaches zero. Ordering trap found on the console: the timer list
+  must be cleared AFTER the flush, not at the top of the tick - the graphs report
+  while they run, i.e. after the pump, so clearing first flushed an empty list
+  every time (it did, until measured).
+  **Object watch.** The editor can name up to 8 runtime objects; the game samples
+  them EVERY FRAME (position/rotation/scale/color + visible/active/dirty) into a
+  per-object ring it flushes whole, so what arrives is a true 50 Hz curve instead
+  of one point per flush. New Debugger tab "Objects": live values, a plot per
+  axis over ~30 s, and the path drawn **in the viewport** as a trail (projected
+  app-side from `Viewport::viewMatrix/projMatrix` - no renderer change) with a
+  head dot for "here it is now".
+  **The breakpoint marker was invisible for a real reason** (user: "it shows up
+  under the node and is hard to see"): imnodes runs its editor in a CHILD window,
+  and a child renders on top of its parent's content - so everything drawn into
+  the Flow Graph window's draw list after `EndNodeEditor` sat UNDERNEATH the
+  nodes. The badges now go into their own borderless, input-less overlay child
+  laid over the canvas (a later sibling child draws on top), and the marker moved
+  out of the title bar into an IDE-style gutter left of the node: a ringed dot
+  plus a bar down the node's left edge, yellow with a pulsing halo when the game
+  is stopped on it.
+  **Verified** in PCSX2 on the entry-191/192 fixture: armed timer reported as
+  `(key 4, 51 frames)` matching the 1 s Delay; object watch delivering 6
+  consecutive per-frame samples per flush (50 Hz under a 6-frame cadence) with
+  the frame numbers strictly +1; and then both new features against a STRUCTURAL
+  hot patch - a `Move Object By` node that does not exist in the built ELF was
+  compiled by the editor, patched in, and the watch showed the object's X climb
+  0.5 units/s frame by frame (6.0 -> 7.5 over 3 s). Release audit clean, debug
+  audit correctly dirty. **Not verified here**: the editor's own panels and the
+  new overlay/trail drawing (the machine is still in the blank-editor-window
+  state of entry 191 - the data paths behind them are the ones measured above),
+  and ps2link on real hardware.
+
+- (192) **Live Logic: editing a flow graph changes the RUNNING game - the last
+  thing in the pipeline that always needed a rebuild** (docs/live-logic.md).
+  Graphs compile to C++, so editing one meant Docker + make + reboot. Now the
+  EDITOR compiles the graph instead - into a pre-resolved instruction list
+  (`src/livelogic.hpp`: object references are runtime indices, variables /
+  save values / HUD texts / scenes are table indices, positions are
+  literal/variable/object operands, bool conditions are a small RPN program,
+  exec chains are linearized into blocks with a `Delay` owning the block it
+  arms) - writes it to `bin/livelogic.bin` on the same host: channel Live Link
+  and the Live Debugger use, and a generated interpreter
+  (`src/gen/live_logic.gen.cpp`) runs it while the natively compiled script for
+  that object stands down (`if (livelogic::patched(scene, idx)) return;` - so
+  exactly one of the two runs, never both). Delete the patch and native logic
+  resumes. Toolbar chip **LOGIC (n)**; the Debugger gains a **Logic** tab.
+  **The design call that makes this shippable:** an interpreter case is a
+  SECOND implementation of a node's semantics, i.e. a twin that can drift from
+  `flowGraphScript`. So the supported set is explicit and small (triggers On
+  Start / Every N / On Button / Near Object / On Condition; object, scene, HUD,
+  variable and save actions; Delay, Log; the logic gates and their bool
+  sources), everything else is REPORTED per graph ("Play Sound", "the graph did
+  not exist at build time") with the chip going amber, and the opcode
+  numbering, block kinds and cond ops all live in ONE header - the generated
+  interpreter's enums and dispatch switch are emitted from it, and a missing
+  case becomes a `#error` in the generated file rather than a silently dead
+  opcode. A patched graph writes the same `flowInt/flowBool/flowPos` arrays
+  (accessors emitted next to them), the same save values and the same
+  RuntimeObject state as compiled code, and carries the same Live-Debugger node
+  keys - so breakpoints, hit counters and the timeline keep working on
+  hot-patched logic.
+  **Verified in PCSX2** with the entry-191 fixture (On Start -> Set Var Int;
+  Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int), measured through the
+  Live Debugger's own telemetry - the debugger is the instrument that proves
+  the patch landed: native baseline 1.00 fires/s; after a patch of *the same
+  running ELF* (Every N 1 s -> 0.2 s, On Start value 1 -> 42, Delay 2 s ->
+  0.5 s) the trigger chain ran at exactly **5.00 fires/s** with every node in
+  the chain in lockstep, the flow variable read **42**, and On Start fired
+  exactly once. A second patch (Delay 0.3 s) made a branch that was
+  **unreachable in the built ELF** run at 1.00/s and set its variable to 5 -
+  new behavior in a game nobody rebuilt. Deleting the patch returned the game
+  to 1.00 fires/s natively; the game log shows `LiveLogic: patched 1 graph(s),
+  4 instruction(s)` and `patch withdrawn - native scripts resume`.
+  Compilation itself was verified headlessly first (a host harness linking
+  `livelogic.cpp` + the editor's other non-GUI objects, printing blocks/instrs
+  and writing the patch - this machine cannot render the editor GUI, see 180).
+  **The bug worth remembering:** the first e2e run showed the rate change but
+  garbage debug keys and a dead delay - the generated parser's instruction
+  stride was 44 while the encoder wrote 50 bytes, so every instruction after
+  the first was misaligned. Two things hid it: block data parses fine (the
+  visible effect still worked) and the ELF had been built by an editor binary
+  from *before* the stride fix. Both ends now derive the layout from one
+  documented field list, and the sizes are asserted by the round-trip harness.
+  **Not verified here**: the editor-side panel/chip (same blank-window state as
+  191 - the patch path itself was driven by the harness, which calls exactly
+  what `App::liveLogicTick` calls), and ps2link on real hardware.
+
+- (191) **Live Debugger: breakpoints, pause/step and a rewindable execution
+  timeline for a game running on the PlayStation 2** (docs/live-debugger.md).
+  Live Link streams edits INTO the running game; this is the return channel.
+  A debug build reports every flow-graph node it runs, so the Flow Graph
+  window becomes a live instrument - node titles glow as they fire and fade
+  over 0.6 s, the exec links behind them thicken and light up, cumulative hit
+  counters sit in the node corners, breakpoints show as red dots (yellow on
+  the one that stopped the game). Right-click a node for *Set breakpoint* /
+  *Fire now in the running game*. The new **Debugger** panel (Tools > Debugger,
+  F9, plus a built-in "Debugger" window layout: graph centre, panel right)
+  carries the transport (Pause/Continue F10, Step frame F11, **Step node** =
+  run until anything fires), a **watch table** of every flow variable and save
+  value, the breakpoint list, and the **timeline**: one column per frame that
+  had a fire, ~900 frames deep, clickable - and while rewound the graph
+  overlay replays THAT frame instead of the live one, through the same drawing
+  code. Toolbar **DBG chip** = fps / halted@frame / rebuild-needed.
+  **How it rides**: no new transport - the same host: filesystem Live Link
+  uses. The game writes `bin/livedbg.bin` every 6 frames (25 under ps2link:
+  hit table + a 192-entry ring of recent fires carrying their AGE in frames +
+  watch values + halted flag), and reads `bin/livedbg.cmd` (full breakpoint
+  list, halt/step, force-fire keys). Torn writes die on an exact-size +
+  footer-echo check on both ends; a command applies only when its seq changes;
+  the Runner deletes both files at build start so a stale halt can't freeze a
+  fresh boot. Host side in `src/livedbg.cpp` (no GL/ImGui - formats + the
+  timeline model), game side generated into `src/gen/live_debug.gen.cpp`.
+  **Keys, not names**: codegen (`debugSymbols`) numbers the instrumented nodes
+  (scene -> object -> node) and writes `src/gen/livedbg.sym` mapping each key
+  to a scene + STABLE object id + node id (so breakpoints survive renames and
+  reorders), with the table's hash baked into the ELF - a mismatch shows as
+  amber "DBG (rebuild)" instead of highlighting the wrong nodes. Breakpoints
+  live in the `.tyra` as editor state, deliberately not a collaboration
+  section. **The halt reuses the pause that already existed**: `livedbg::halted()`
+  is OR'd into the generated loop's `menuActive`/`menuOwnsPad`, so scripts,
+  walker, particles and animation freeze exactly like a pausing menu while the
+  GS keeps presenting - you can look at what you stopped. Two design notes
+  worth keeping: a breakpoint reports AFTER its node's action ran (a node
+  cannot report itself before it runs), so the halt takes effect from the next
+  frame - frame granularity, stated in the docs rather than faked; and a
+  force-fire that arrives while the game is stopped silently becomes a
+  one-frame step, because a halted game runs no scripts and nobody would ever
+  ask `forced()`. The frame counter is the game's LOGIC clock: it stops while
+  halted, so "halted at frame N" stays N. Cost when off (release, preference
+  off, or no runnable node in any graph): the generated TU is empty, every
+  entry point an inline no-op, `halted()` a compile-time false - the loop's
+  `|| livedbg::halted()` folds away.
+  **Verified** (PCSX2, D3D11, a fixture project with a 6-node graph: On Start
+  -> Set Var Int, Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int):
+  codegen inspected headlessly (`--refresh-gen`: hits emitted per trigger and
+  action, the forced-fire duplicate branch, the halted early-out, the watch
+  accessor, and the sym file's 6 nodes + 2 vars); then the whole channel
+  against the running console. Telemetry: `On Start` 1 hit, the 1-second
+  trigger chain 40+ and climbing in step, `score`/`ticked` shown live, sym
+  hash matching the ELF's. Transport, each step measured from the snapshots:
+  a breakpoint on the `Every 1 s` node halted the game (`brk=2`) and froze
+  every counter for 2 s, Continue resumed it; Pause froze the frame counter
+  too; **Step frame advanced exactly 1 frame**; a force-fire of `On Start`
+  while halted ran its whole branch once (both nodes 1 -> 2 hits) and advanced
+  exactly one frame; Step node stopped on the next fire one frame later; a
+  breakpoint on an unreachable node never fired. PCSX2 kept reporting FPS 50 /
+  Speed 100% while halted (screenshot) - the freeze is logic-only, as designed.
+  The fixture also caught a real graph bug by itself: the 2 s Delay never
+  fired because the 1 s trigger re-arms it - visible as a node with 0 hits
+  next to neighbours at 45, which is exactly what this feature is for.
+  **Not verified here**: the editor-side panel and graph overlay could not be
+  screenshot-checked - this machine is in the known white-window state (the
+  editor draws its title bar and nothing else; entry 101's notes and the
+  earlier sessions blame an AMD GL present quirk). Confirmed not a regression
+  by capturing a main-branch build side by side: same blank window. The panel/overlay code compiles clean and its data comes from
+  the same snapshots verified above, but a human should still eyeball the
+  glow/timeline once. ps2link (real hardware) uses identical code paths on a
+  25-frame cadence; untested.
+
 - (190) **Fix: Build & Run was broken on Windows - PCSX2 refused to boot the
   ELF because the path had MIXED separators.** Diagnosed as a detour in (189)
   and deferred there; this is the fix. Regression from the Linux port

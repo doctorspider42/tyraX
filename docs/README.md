@@ -36,6 +36,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   views: the clickable axis gizmo in the corner, the other three ways to
   switch (button, View menu, numpad), what orbiting an axis view does, and
   why a parallel view draws what is behind the camera.
+- [PS2 output in the viewport](ps2-viewport.md) - looking at the scene the way
+  the console draws it: rasterized at the GS framebuffer size of the display
+  mode, point scaled into the TV's 4:3 / 16:9 picture, field rendering's halved
+  vertical resolution, and why GS pixels are 16.7% too wide. Pairs with the
+  [safe areas](safe-areas.md), which draw the same rectangle as a guide.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) -
   inserted and pasted objects resting on the terrain or on the object below
   instead of sinking into it, the `End` drop-to-floor command, and the paste
@@ -94,6 +99,23 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [The devkit, and its zero-cost promise](devkit.md) - the live channels, the
+  crash reporting, the VU1 packet inspector, and the release audit; the three live channels
+  (Live Link / Live Debugger / Live Logic) as one development kit, what a debug
+  build actually costs in code and RAM, and the release audit that PROVES a
+  shipped ELF carries none of it (`--audit-release`, run automatically after
+  every release build).
+- [Live Logic (edit a flow graph with no rebuild)](live-logic.md) - the
+  flow-graph interpreter debug builds carry: what the editor can hot-patch into
+  a running game and what still needs a build, the pre-resolved instruction
+  format, how a patched graph shares state (and debugger keys) with compiled
+  ones, and the cost.
+- [Live Debugger (step through the running game's logic)](live-debugger.md) -
+  breakpoints on flow-graph nodes, pause/step/step-node of a game running on
+  the console, the live node highlighting and hit counters in the Flow Graph,
+  the watch table (flow variables + save values), the rewindable execution
+  timeline, firing a trigger from the editor, and the file channel + symbol
+  table it all rides on.
 - [Live collaboration sessions](collaboration.md) - real-time multi-user
   editing: hosting a project, joining over the LAN with a code, what syncs
   live and how conflicts resolve (host-ordered last-write-wins), presence

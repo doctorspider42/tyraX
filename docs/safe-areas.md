@@ -37,7 +37,8 @@ height**, and only in one case this project can produce — see below.
 
 The two regions only show different amounts of picture when the project boots the
 **full-height PAL frame**: `Preferences > PAL picture` (`palFullHeight`) with the
-region-following `interlaced` display mode. Then a PAL console renders **512
+region-following `interlaced` display mode — which is how **new projects start**,
+so this is the normal case rather than the exotic one. Then a PAL console renders **512
 lines** where NTSC renders **448**, so Europe sees more at the top and bottom of
 the *same* scene.
 
@@ -45,6 +46,16 @@ the *same* scene.
 missing 56 lines split top and bottom) so you can check a shot works in both. The
 option is disabled otherwise, because with any fixed display mode both regions get
 the identical letterboxed picture and a second rectangle would be a lie.
+
+## The guides draw the picture; the PS2 output mode renders into it
+
+The same gear also switches the viewport to
+[PS2 output](ps2-viewport.md), which rasterizes the scene at the GS framebuffer
+size and fits it into **the same rectangle** these guides outline. With it on the
+frame is not a guide over a wider image any more — it is the edge of the picture,
+and the camera frames what the player will actually see. The two fits are kept
+identical on purpose (`App::drawSafeAreaOverlay` and `Viewport::ps2LetterBox`),
+so the guides keep landing on the picture either way.
 
 ## What it does not cover
 

@@ -57,6 +57,14 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
         if (fs::path(rel).extension() == ".iso") continue;
         // runtime artifacts of previous host runs - never ship them
         if (rel == "log.txt" || rel == "ps2link.run") continue;
+        // Devkit runtime files + the unstripped symbol copy: work artifacts of
+        // a debug session, never disc content (docs/devkit.md).
+        if (rel == "livedbg.bin" || rel == "livedbg.cmd" ||
+            rel == "livelink.bin" || rel == "livelink.sig" ||
+            rel == "livelogic.bin" || rel == "crash.txt")
+            continue;
+        if (rel.size() > 4 && rel.compare(rel.size() - 4, 4, ".sym") == 0)
+            continue;
         remaining.insert(rel);
     }
     if (remaining.empty()) return "bin/ is empty - build the project first.";
