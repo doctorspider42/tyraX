@@ -13,6 +13,8 @@
 #include <string>
 
 namespace Lighting {
+class FlowGraphScript_0_3;
+FlowGraphScript_0_3* g_time_FlowGraphScript_0_3 = nullptr;
 
 // Scene "main": graph of "crystal" (object 3)
 class FlowGraphScript_0_3 : public Script {
@@ -78,6 +80,24 @@ class FlowGraphScript_0_3 : public Script {
     }
   }
 
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_3() { g_time_FlowGraphScript_0_3 = this; }
+  static const unsigned int kTimeBytes = 13;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    memcpy(p + 5, &delay5, 4);
+    memcpy(p + 9, &every3, 4);
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    memcpy(&delay5, p + 5, 4);
+    memcpy(&every3, p + 9, 4);
+  }
+
  private:
   unsigned int generation = 0;
   int frame = 0;
@@ -92,6 +112,29 @@ int flowDbgVarCount() { return 0; }
 void flowDbgReadVar(int index, float* out3) {
   out3[0] = out3[1] = out3[2] = 0.0F;
   (void)index;  // this project defines no flow variables
+}
+
+// Time machine (docs/time-machine.md): every graph's own state.
+unsigned int flowTimeScriptBytes() {
+  return FlowGraphScript_0_3::kTimeBytes;
+}
+void flowTimeScriptCapture(unsigned char* p) {
+  if (g_time_FlowGraphScript_0_3) g_time_FlowGraphScript_0_3->timeCapture(p);
+  p += FlowGraphScript_0_3::kTimeBytes;
+}
+void flowTimeScriptRestore(const unsigned char* p) {
+  if (g_time_FlowGraphScript_0_3) g_time_FlowGraphScript_0_3->timeRestore(p);
+  p += FlowGraphScript_0_3::kTimeBytes;
+}
+
+// Time machine (docs/time-machine.md): the flow variables, both directions.
+int flowTimeVarCount() { return 0; }
+void flowTimeRead(int index, float* out3) {
+  out3[0] = out3[1] = out3[2] = 0.0F;
+  (void)index;  // this project defines no flow variables
+}
+void flowTimeWrite(int index, const float* in3) {
+  (void)index; (void)in3;
 }
 
 // Live Logic (docs/live-logic.md): flow-variable access for the
