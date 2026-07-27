@@ -18,6 +18,7 @@
 #include "elfsym.hpp"
 #include "vucap.hpp"
 #include "livedbg.hpp"
+#include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
 #include "project.hpp"
@@ -61,9 +62,19 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
-    // Icon toolbar drawn inline in the main menu bar (Save / Run in PCSX2 /
-    // Run on PS2 / Stop). Custom vector-drawn - the editor loads no icon font.
+    // Icon toolbar drawn inline in the main menu bar (Save / Build / Run / Stop
+    // + the live chips). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
+    // Which machine the toolbar's Run/Stop pair drives: false = the emulator
+    // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
+    // `runOnPs2`) - which console is on this desk is not project data. The Play
+    // glyph is green for the emulator and blue for the PS2, so the target is
+    // readable without opening the dropdown. F5/Ctrl+F5 and F6/Ctrl+F6 stay
+    // target-explicit and ignore this.
+    bool runOnPs2_ = false;
+    // Build && run (or run only) on the selected target - what the toolbar's
+    // Play button and its dropdown entries call, so the two can never disagree.
+    void runSelectedTarget(bool build);
     // UI (DPI) scaling. uiScaleUser_ == 0 means "auto" (follow the monitor's
     // content scale); a value > 0 is an explicit multiplier (1.0 == 100%).
     // applyUiScale() recomputes the effective scale and re-applies it to the
@@ -1779,6 +1790,27 @@ private:
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     void livedbgTick();
     void drawDebuggerWindow();
+
+    // The time machine (docs/time-machine.md): the third direction of the same
+    // host: channel. The game captures everything it mutates into
+    // bin/livetime.bin every few frames; livetimeTick() (each frame from
+    // drawUI, self-throttled) folds those captures into a RAM history and
+    // timeMachineRewind() writes one back to bin/livetime.rst, which puts the
+    // running game where it was. The history is deliberately not persisted -
+    // see the budget note on livetime::History.
+    int timeBudgetMb_ = 128;        // EditorConfig::timeMachineBudgetMb
+    livetime::History timeHistory_;
+    livetime::Snapshot timeLast_;   // newest capture seen
+    bool timeHaveLast_ = false;
+    double timeNextTick_ = 0.0;     // ImGui::GetTime() gate for the reader
+    double timeLastSeen_ = 0.0;     // when a capture last arrived (staleness)
+    int timeScrub_ = -1;            // history index being inspected (-1 = live)
+    uint32_t timeRestoreSeq_ = 0;   // sequence of the last restore we pushed
+    std::string timeStatus_;        // last action, shown in the panel
+    void livetimeTick();
+    /** Pushes history entry `index` back into the running game. */
+    void timeMachineRewind(int index);
+    void drawTimeMachinePanel();
 
     // Crash reporting (docs/devkit.md). A real EE exception is not a
     // TYRA_ASSERT: with the engine's crash handler installed the game writes

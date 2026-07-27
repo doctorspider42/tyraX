@@ -318,6 +318,11 @@ bool Runner::launchPCSX2(const Project& p) {
     // Live Logic: the fresh build compiles every graph natively again, so
     // a leftover patch would make the game interpret a stale program.
     fs::remove(fs::path(p.dir) / "bin" / "livelogic.bin", logEc);
+    // The time machine (docs/time-machine.md): a leftover livetime.rst would
+    // teleport the fresh boot into the last session's world on its first poll,
+    // and a stale livetime.bin would read as history that never happened.
+    fs::remove(fs::path(p.dir) / "bin" / "livetime.bin", logEc);
+    fs::remove(fs::path(p.dir) / "bin" / "livetime.rst", logEc);
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -500,6 +505,8 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "livedbg.bin", logEc);
     fs::remove(fs::path(binDir) / "livedbg.cmd", logEc);
     fs::remove(fs::path(binDir) / "livelogic.bin", logEc);
+    fs::remove(fs::path(binDir) / "livetime.bin", logEc);
+    fs::remove(fs::path(binDir) / "livetime.rst", logEc);
 
     // ps2link passes execee arguments in a non-standard way that the game's
     // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied

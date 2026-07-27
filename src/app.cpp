@@ -118,12 +118,20 @@ struct EditorConfig {
     bool safeCentre = false, safeBothRegions = false;
     int safeAspect = 0;  // 0 follow project, 1 = 4:3, 2 = 16:9
     float safeOpacity = 0.55f;
+    // Time machine (docs/time-machine.md): how much RAM the capture history may
+    // hold. Machine-global because it is a memory budget for THIS PC, not a
+    // property of the game - and it is a ceiling, not an allocation.
+    int timeMachineBudgetMb = 128;
     // Viewport output mode (docs/ps2-viewport.md): false = the editor's own
     // free-aspect image, true = the scene rasterized at the GS framebuffer
     // size of the project's display mode and shown the way a TV shows it.
     // A way of looking at the scene, like the safe areas and the axis gizmo,
     // so it belongs to the installation rather than to the project.
     bool viewportPs2 = false;
+    // Toolbar run target: false = the emulator (PCSX2), true = a real console
+    // over ps2link. Which machine is on the desk is a property of this PC, not
+    // of the game, so it lives here rather than in the .tyra.
+    bool runOnPs2 = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -195,6 +203,9 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
+        else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
+        else if (match("timeMachineBudgetMb", v))
+            cfg.timeMachineBudgetMb = toI(v, 128);
         else if (match("phoneCamSmoothing", v))
             cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
         // One line per entry, written in list order (most recent first).
@@ -254,6 +265,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeAspect=" << cfg.safeAspect << "\n"
       << "safeOpacity=" << cfg.safeOpacity << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
+      << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
+      << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
@@ -553,6 +566,8 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.aspect = cfg.safeAspect;
         safeArea_.opacity = cfg.safeOpacity;
         viewportPs2_ = cfg.viewportPs2;
+        runOnPs2_ = cfg.runOnPs2;
+        timeBudgetMb_ = cfg.timeMachineBudgetMb;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -709,6 +724,7 @@ void App::drawUI() {
     // Read what the running game reports about its flow graphs, and push
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
+    livetimeTick();
 
     // Hot-patch edited flow graphs into the running game (throttled; writes
     // only when the compiled program actually changed).
@@ -888,7 +904,8 @@ void App::saveGlobalConfig() {
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
-                      safeArea_.opacity, viewportPs2_, std::move(recent)});
+                      safeArea_.opacity, timeBudgetMb_, viewportPs2_,
+                      runOnPs2_, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -1277,12 +1294,23 @@ void App::drawMenuBar() {
     }
 }
 
+// Runs the toolbar's selected target (runOnPs2_). One place, so the Play
+// button, its dropdown and anything else that grows later cannot disagree
+// about what "Run" means.
+void App::runSelectedTarget(bool build) {
+    if (runOnPs2_) runner_.buildAndRunPs2(project_, build);
+    else if (build) runner_.buildAndRun(project_, true);
+    else runner_.runEmulatorOnly(project_);
+}
+
 // Icon toolbar drawn inline in the main menu bar, after the menus. Layout:
-// Save, Build, then two run/stop pairs - [green Play=PCSX2, dropdown, Stop] and
-// [blue Play=PS2, dropdown, Stop]. Each Play has a Visual-Studio-style caret
-// dropdown for the "run without build" variant. Icons are vector-drawn on the
-// menu-bar draw list (the editor loads no icon font) so they stay crisp at any
-// UI scale. Spacing is explicit: a pair sits tight, groups get a wider gap.
+// Save, Build, then ONE run group - [Play, dropdown, Stop] - driving whichever
+// target the dropdown selects (green Play = emulator, blue Play = real PS2),
+// then the live chips. The Visual-Studio-style caret picks the target and
+// carries the run variants (run without build, debug). Icons are vector-drawn
+// on the menu-bar draw list (the editor loads no icon font) so they stay crisp
+// at any UI scale, and they share one stroke weight so the set reads as a set.
+// Spacing is explicit: a pair sits tight, groups get a wider gap.
 void App::drawToolbar() {
     if (!hasProject_) return;
 
@@ -1329,6 +1357,11 @@ void App::drawToolbar() {
         return button(id, lead, h, enabled, tip, paint);
     };
 
+    // One stroke weight for every outlined glyph - that, plus the shared glyph
+    // rect above, is what makes the icons read as one set instead of five
+    // drawings that happen to sit in a row.
+    const float stroke = ImMax(1.5f, h * 0.075f);
+
     // Reusable glyph painters.
     auto paintPlay = [](ImU32 c) {
         return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
@@ -1354,96 +1387,121 @@ void App::drawToolbar() {
         };
     };
 
-    // A Play button immediately followed by a narrow caret dropdown. `run` is
-    // the default (build + run) action; the caret opens `popupId`, whose menu
-    // items the caller renders after all buttons (BeginPopup below). Anchors
-    // the popup just under the caret via `anchor`.
-    const float caretW = h * 0.55f;
-    auto playWithMenu = [&](const char* playId, const char* caretId,
-                            const char* popupId, ImVec2& anchor, bool enabled,
-                            ImU32 color, const char* tip, auto&& onRun) {
-        if (button(playId, gapGroup, h, enabled, tip,
-                   paintPlay(enabled ? color : colDim)))
-            onRun();
-        ImGui::SameLine(0.0f, 1.0f);
-        const ImVec2 cp = ImGui::GetCursorScreenPos();
-        anchor = ImVec2(cp.x, cp.y + h);
-        if (button(caretId, 1.0f, caretW, enabled, "More run options...",
-                   paintCaret(enabled ? colText : colDim)))
-            ImGui::OpenPopup(popupId);
-    };
-
-    // Save (floppy): normal when clean, amber when there are unsaved edits.
-    // Enabled unless we joined a session as a client (the host owns saving).
+    // Save: a floppy drawn as one closed outline with the classic clipped
+    // top-right corner, plus a filled shutter and label. Normal when clean,
+    // amber when there are unsaved edits. Enabled unless we joined a session as
+    // a client (the host owns saving).
     const bool saveAllowed = session_.role() != session::Session::Role::Client;
     if (iconButton(
             "##tb_save", gapGroup, saveAllowed,
             !saveAllowed ? "The session host owns saving"
             : dirty_     ? "Save - unsaved changes (Ctrl+S)"
                          : "Save (Ctrl+S)",
-            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
-                const ImU32 c = dirty_ ? IM_COL32(240, 175, 70, 255) : colText;
+            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
+                const ImU32 c = !en      ? colDim
+                                : dirty_ ? IM_COL32(240, 175, 70, 255)
+                                         : colText;
                 const float w = b.x - a.x, hh = b.y - a.y;
-                dl->AddRect(a, b, c, w * 0.12f, 0, 1.6f);            // body
-                dl->AddRectFilled(ImVec2(a.x + w * 0.22f, a.y),       // shutter
-                                  ImVec2(a.x + w * 0.68f, a.y + hh * 0.32f), c);
-                dl->AddRect(ImVec2(a.x + w * 0.26f, a.y + hh * 0.50f), // label
-                            ImVec2(a.x + w * 0.74f, b.y - hh * 0.06f), c, 0, 0,
-                            1.6f);
+                const float cut = w * 0.30f;  // clipped top-right corner
+                const ImVec2 body[5] = {
+                    ImVec2(a.x, a.y),         ImVec2(b.x - cut, a.y),
+                    ImVec2(b.x, a.y + cut),   ImVec2(b.x, b.y),
+                    ImVec2(a.x, b.y)};
+                dl->AddPolyline(body, 5, c, ImDrawFlags_Closed, stroke);
+                dl->AddRectFilled(ImVec2(a.x + w * 0.24f, a.y),  // shutter
+                                  ImVec2(a.x + w * 0.58f, a.y + hh * 0.34f), c);
+                dl->AddRectFilled(ImVec2(a.x + w * 0.24f, b.y - hh * 0.34f),
+                                  ImVec2(b.x - w * 0.24f, b.y), c);  // label
             }))
         saveAll("Saved");
 
-    // Build only (no run) - a hammer, so it reads apart from the Play triangles.
-    if (iconButton("##tb_build", gapGroup, !busy,
+    // Build only (no run): an isometric box - the build's output - in the same
+    // stroke as the floppy, so the pair reads as one family and neither is
+    // confused with the filled Play/Stop shapes.
+    if (iconButton("##tb_build", gapPair, !busy,
                    "Build (no run) (Ctrl+Shift+B)",
                    [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                       const ImU32 c = en ? IM_COL32(210, 180, 120, 255) : colDim;
+                       const ImU32 c = en ? colText : colDim;
                        const float w = b.x - a.x, hh = b.y - a.y;
-                       // handle: lower-left up to the head
-                       dl->AddLine(ImVec2(a.x + 0.30f * w, b.y),
-                                   ImVec2(a.x + 0.66f * w, a.y + 0.34f * hh), c,
-                                   ImMax(2.0f, w * 0.13f));
-                       // head: a thick short bar across the top of the handle
-                       dl->AddLine(ImVec2(a.x + 0.40f * w, a.y + 0.12f * hh),
-                                   ImVec2(b.x, a.y + 0.42f * hh), c,
-                                   ImMax(3.0f, w * 0.26f));
+                       const float cx = a.x + w * 0.5f;
+                       const float sh = hh * 0.26f;  // corner shoulder height
+                       const ImVec2 top(cx, a.y), bot(cx, b.y);
+                       const ImVec2 ul(a.x, a.y + sh), ur(b.x, a.y + sh);
+                       const ImVec2 ll(a.x, b.y - sh), lr(b.x, b.y - sh);
+                       const ImVec2 mid(cx, a.y + sh * 2.0f);
+                       const ImVec2 hex[6] = {top, ur, lr, bot, ll, ul};
+                       dl->AddPolyline(hex, 6, c, ImDrawFlags_Closed, stroke);
+                       dl->AddLine(mid, ul, c, stroke);  // the three edges
+                       dl->AddLine(mid, ur, c, stroke);  // meeting at the front
+                       dl->AddLine(mid, bot, c, stroke); // corner
                    }))
         runner_.buildAndRun(project_, false);
 
-    // --- Emulator group: green Play (+dropdown) + Stop PCSX2 -------------
-    ImVec2 emuMenuAnchor, ps2MenuAnchor;
-    playWithMenu("##tb_run_emu", "##tb_run_emu_more", "emu_run_menu",
-                 emuMenuAnchor, !busy, IM_COL32(95, 200, 115, 255),
-                 "Build && Run in PCSX2 (F5)",
-                 [&] { runner_.buildAndRun(project_, true); });
-    // Stop PCSX2: cancels a running build, else closes the emulator. Always
-    // available (can't detect a stray PCSX2; taskkill is a no-op if none runs).
-    if (iconButton("##tb_stop_emu", gapPair, true,
-                   busy ? "Cancel build" : "Stop PCSX2", paintStop(colStop))) {
+    // --- Run group: Play (+ target dropdown) + Debug + Stop ----------------
+    // ONE pair for both targets; the dropdown picks which machine it drives and
+    // the Play glyph's color says so (green = emulator, blue = real PS2).
+    const bool targetReady = !runOnPs2_ || ps2Ready;
+    const bool debugProfile = project_.settings.buildProfile == "debug";
+    const ImU32 colTarget = runOnPs2_ ? IM_COL32(80, 160, 245, 255)
+                                      : IM_COL32(95, 200, 115, 255);
+    const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
+    // Debug is Run plus opening the Debugger panel. It needs the debug build
+    // profile - Live Link, the Live Debugger and Live Logic exist nowhere else -
+    // but it stays on the bar either way, dimmed, saying where to switch it on.
+    const char* debugTip =
+        !debugProfile ? "Debug needs the Debug build profile (Project > "
+                        "Preferences > Build > Profile).\nLive Link, the Live "
+                        "Debugger and Live Logic only exist in debug builds."
+        : runOnPs2_   ? "Debug on PS2: build && run, and open the Debugger (F9)"
+                      : "Debug in PCSX2: build && run, and open the Debugger (F9)";
+    const bool debugEnabled = !busy && targetReady && debugProfile;
+    if (iconButton("##tb_run", gapGroup, !busy && targetReady,
+                   !targetReady    ? noIpTip
+                   : runOnPs2_     ? "Build && Run on PS2 (F6)"
+                                   : "Build && Run in PCSX2 (F5)",
+                   paintPlay(!busy && targetReady ? colTarget : colDim)))
+        runSelectedTarget(true);
+    ImGui::SameLine(0.0f, 1.0f);
+    const ImVec2 caretPos = ImGui::GetCursorScreenPos();
+    const ImVec2 runMenuAnchor(caretPos.x, caretPos.y + h);
+    if (button("##tb_run_more", 1.0f, h * 0.55f, true,
+               "Run target and options...", paintCaret(colText)))
+        ImGui::OpenPopup("run_menu");
+    // Debug: the Play triangle in the target color with a breakpoint dot on its
+    // lower-left vertex - "run, with the debugger attached" said in two symbols
+    // the toolbar already uses. The dot sits ON the vertex so the two read as
+    // one mark, and both survive being 10 px wide the way a drawn bug would not.
+    if (iconButton("##tb_debug", gapPair, debugEnabled, debugTip,
+                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
+                       const float w = b.x - a.x, hh = b.y - a.y;
+                       const float x0 = a.x + w * 0.16f, y1 = b.y - hh * 0.12f;
+                       dl->AddTriangleFilled(
+                           ImVec2(x0, a.y), ImVec2(x0, y1),
+                           ImVec2(b.x, (a.y + y1) * 0.5f),
+                           en ? colTarget : colDim);
+                       dl->AddCircleFilled(ImVec2(x0, y1), w * 0.22f,
+                                           en ? colStop : colDim);
+                   })) {
+        runSelectedTarget(true);
+        showDebugger_ = true;
+    }
+    // Stop: cancels a running build, else stops the selected target - closes
+    // PCSX2, or on the console kills the file server + resets ps2link. The
+    // emulator side is always available (a stray PCSX2 can't be detected, and
+    // the kill is a no-op when none runs).
+    const bool stopEnabled = busy || targetReady;
+    if (iconButton("##tb_stop", gapPair, stopEnabled,
+                   busy            ? "Cancel build"
+                   : !targetReady  ? noIpTip
+                   : runOnPs2_     ? "Stop the game on the PS2"
+                                   : "Stop PCSX2",
+                   paintStop(stopEnabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
+        else if (runOnPs2_) runner_.stopPs2(project_);
         else runner_.stopEmulator();
     }
 
-    // --- Console group: blue Play (+dropdown) + Stop PS2 ----------------
-    // Both disabled until a ps2link IP is configured (Edit > Preferences).
-    playWithMenu("##tb_run_ps2", "##tb_run_ps2_more", "ps2_run_menu",
-                 ps2MenuAnchor, !busy && ps2Ready, IM_COL32(80, 160, 245, 255),
-                 ps2Ready ? "Build && Run on PS2 (F6)"
-                          : "Set 'PS2 (ps2link) IP' in Edit > Preferences first.",
-                 [&] { runner_.buildAndRunPs2(project_, true); });
-    // Stop PS2: cancels a running build, else stops the game on the console
-    // (kills the file server + resets ps2link + silences the SPU).
-    const bool stopPs2Enabled = busy || ps2Ready;
-    if (iconButton("##tb_stop_ps2", gapPair, stopPs2Enabled,
-                   busy ? "Cancel build"
-                        : ps2Ready ? "Stop the game on the PS2"
-                                   : "Set 'PS2 (ps2link) IP' in Edit > Preferences first.",
-                   paintStop(stopPs2Enabled ? colStop : colDim))) {
-        if (busy) runner_.cancel();
-        else runner_.stopPs2(project_);
-    }
-
-    // Live Link chip: a dot + label after the run groups, ALSO the on/off
+    // Live Link chip: a dot + label after the run group, ALSO the on/off
     // switch (clicking toggles the project's Live Link preference, same as
     // Build > Live Link). Shown whenever the project builds in the debug
     // profile: gray "LIVE off" = disabled, dim "LIVE (build)" = enabled but
@@ -1659,22 +1717,37 @@ void App::drawToolbar() {
         }
     }
 
-    // Dropdown menus for the two Play carets (anchored just under each caret).
-    ImGui::SetNextWindowPos(emuMenuAnchor);
-    if (ImGui::BeginPopup("emu_run_menu")) {
-        if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
-            runner_.runEmulatorOnly(project_);
-        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
-            runner_.buildAndRun(project_, false);
-        ImGui::EndPopup();
-    }
-    ImGui::SetNextWindowPos(ps2MenuAnchor);
-    if (ImGui::BeginPopup("ps2_run_menu")) {
-        if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false,
-                            !busy && ps2Ready))
-            runner_.buildAndRunPs2(project_, false);
-        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
-            runner_.buildAndRun(project_, false);
+    // The Play caret's dropdown (anchored just under the caret): which machine
+    // to run on, then the run variants for it. Debug needs the debug build
+    // profile - Live Link, the Debugger and Live Logic only exist there - so
+    // the entry stays visible but disabled and says where to turn it on.
+    ImGui::SetNextWindowPos(runMenuAnchor);
+    if (ImGui::BeginPopup("run_menu")) {
+        if (ImGui::MenuItem("Emulator (PCSX2)", nullptr, !runOnPs2_)) {
+            runOnPs2_ = false;
+            saveGlobalConfig();
+        }
+        if (ImGui::MenuItem("PlayStation 2 (ps2link)", nullptr, runOnPs2_,
+                            ps2Ready)) {
+            runOnPs2_ = true;
+            saveGlobalConfig();
+        }
+        if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", noIpTip);
+        ImGui::Separator();
+        const char* runKey = runOnPs2_ ? "F6" : "F5";
+        const char* noBuildKey = runOnPs2_ ? "Ctrl+F6" : "Ctrl+F5";
+        if (ImGui::MenuItem("Run", runKey, false, !busy && targetReady))
+            runSelectedTarget(true);
+        if (ImGui::MenuItem("Run without build", noBuildKey, false,
+                            !busy && targetReady))
+            runSelectedTarget(false);
+        if (ImGui::MenuItem("Debug", nullptr, false, debugEnabled)) {
+            runSelectedTarget(true);
+            showDebugger_ = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", debugTip);
         ImGui::EndPopup();
     }
 }
@@ -22427,6 +22500,157 @@ int App::dbgTimerFrames(int key) const {
     return -1;
 }
 
+// --- The time machine -------------------------------------------------------
+// docs/time-machine.md. The reader is deliberately dumb: the payload is a
+// codegen detail, so the editor stores the bytes and hands the right ones back.
+// What it does own is the history and its budget.
+
+void App::livetimeTick() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !project_.settings.timeMachine ||
+        project_.settings.buildProfile != "debug") {
+        if (!timeHistory_.empty()) timeHistory_.clear();
+        timeHaveLast_ = false;
+        timeScrub_ = -1;
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (now < timeNextTick_) return;
+    // The game rewrites its capture every 6 frames (~8 Hz at 50 Hz); reading
+    // faster than it writes only costs disk hits for the same bytes.
+    timeNextTick_ = now + 0.1;
+
+    timeHistory_.setBudget((size_t)timeBudgetMb_ << 20);
+
+    livetime::Snapshot s;
+    if (!livetime::readSnapshot(
+            (fs::path(project_.dir) / "bin" / "livetime.bin").string(), s))
+        return;  // no capture yet, or a torn write - retry next tick
+    if (!timeHistory_.ingest(s)) return;  // same capture as last time
+    timeLast_ = s;
+    timeHaveLast_ = true;
+    timeLastSeen_ = now;
+    // A capture that arrived after a rewind means the game is running forward
+    // again, so stop pinning the scrub to a frame that is now in the past.
+    if (timeScrub_ >= (int)timeHistory_.count()) timeScrub_ = -1;
+}
+
+void App::timeMachineRewind(int index) {
+    namespace fs = std::filesystem;
+    if (index < 0 || index >= (int)timeHistory_.count()) return;
+    livetime::Snapshot s = timeHistory_.at((size_t)index);
+    // The game applies a restore when the sequence CHANGES, so a capture can be
+    // pushed twice (rewind, run, rewind to the same spot) only if the number
+    // moves. Counting up from the newest capture keeps it ahead of anything the
+    // game has seen.
+    const uint32_t base = timeHistory_.newest().seq;
+    timeRestoreSeq_ = (timeRestoreSeq_ > base ? timeRestoreSeq_ : base) + 1;
+    s.seq = timeRestoreSeq_;
+    const std::string err = livetime::writeRestore(
+        (fs::path(project_.dir) / "bin" / "livetime.rst").string(), s);
+    if (!err.empty()) {
+        timeStatus_ = "Rewind failed: " + err;
+        return;
+    }
+    char msg[128];
+    std::snprintf(msg, sizeof(msg), "Rewound %u frames (to frame %u)",
+                  timeHistory_.newest().frame - timeHistory_.at((size_t)index).frame,
+                  timeHistory_.at((size_t)index).frame);
+    timeStatus_ = msg;
+}
+
+void App::drawTimeMachinePanel() {
+    if (project_.settings.buildProfile != "debug") {
+        ImGui::TextDisabled(
+            "Rewinding needs the debug build profile\n"
+            "(Project > Preferences > Build).");
+        return;
+    }
+    if (!project_.settings.timeMachine) {
+        ImGui::TextDisabled(
+            "The time machine is off for this project\n"
+            "(Project > Preferences > Build > Time machine).");
+        return;
+    }
+    if (timeHistory_.empty()) {
+        ImGui::TextDisabled(
+            "No captures yet. Build & run (F5), and the game starts\n"
+            "streaming its state a few times a second.");
+        return;
+    }
+
+    const size_t count = timeHistory_.count();
+    const uint32_t newestFrame = timeHistory_.newest().frame;
+    // Frames -> seconds at the project's refresh rate: what the user actually
+    // wants to know is "how far back can I go", in the units they think in.
+    const float hz = project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+    ImGui::Text("%zu captures, %.1f s of history", count,
+                (float)timeHistory_.frameSpan() / hz);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%.1f of %d MB)",
+                        (double)timeHistory_.bytes() / (1024.0 * 1024.0),
+                        timeBudgetMb_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "The history lives in the editor's memory, never on disk - the\n"
+            "only files the channel touches are two fixed-size ones next to\n"
+            "the ELF. Closing the project drops it. The budget is in\n"
+            "Edit > Preferences.");
+    if (ImGui::GetTime() - timeLastSeen_ > 2.0)
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                           "The game stopped reporting - this history is frozen.");
+
+    // The scrub picks WHICH capture; nothing happens to the game until Rewind.
+    int scrub = timeScrub_ < 0 ? (int)count - 1 : timeScrub_;
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    char label[64];
+    std::snprintf(label, sizeof(label), "-%.1f s",
+                  (float)(newestFrame - timeHistory_.at((size_t)ImClamp(
+                                                            scrub, 0, (int)count - 1))
+                                            .frame) /
+                      hz);
+    if (ImGui::SliderInt("##rewindscrub", &scrub, 0, (int)count - 1, label))
+        timeScrub_ = scrub;
+    scrub = ImClamp(scrub, 0, (int)count - 1);
+
+    const livetime::Snapshot& sel = timeHistory_.at((size_t)scrub);
+    ImGui::TextDisabled("frame %u, scene %d, %d objects, %zu B", sel.frame,
+                        sel.scene, sel.objectCount, sel.state.size());
+
+    if (ImGui::Button("Rewind to here")) timeMachineRewind(scrub);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Puts the RUNNING game back into this capture: object transforms,\n"
+            "physics, animation, flow variables, save values and where the\n"
+            "player stands. The game keeps running from there - with Live\n"
+            "Logic on you can edit a graph first and watch the new logic play\n"
+            "out on the old situation.");
+    ImGui::SameLine();
+    if (ImGui::Button("Live")) timeScrub_ = -1;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Follow the newest capture again.");
+    ImGui::SameLine();
+    if (ImGui::Button("Clear history")) {
+        timeHistory_.clear();
+        timeScrub_ = -1;
+        timeStatus_ = "History cleared";
+    }
+
+    if (!timeStatus_.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", timeStatus_.c_str());
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("What a rewind puts back");
+    prefHelp(
+        "Objects (transform, physics, animation), the walker and its motion,\n"
+        "flow variables, save values, and every graph's own timers and\n"
+        "latches.\n\n"
+        "NOT put back: sequences mid-play, menus, audio and particles.\n"
+        "See docs/time-machine.md.");
+}
+
 void App::livedbgTick() {
     namespace fs = std::filesystem;
     if (!hasProject_ || !project_.settings.liveDebug ||
@@ -23034,11 +23258,13 @@ void App::drawDebuggerWindow() {
                                           nodeLabel(*n).c_str());
                 }
         }
-        if (!project_.settings.eeCrashHandler)
-            ImGui::TextDisabled(
-                "Tip: Preferences > Build > \"EE crash handler\" makes the game "
-                "write a\nregister dump and backtrace instead of just going "
-                "quiet (experimental).");
+        if (!project_.settings.eeCrashHandler) {
+            ImGui::TextDisabled("Tip: turn the EE crash handler on");
+            prefHelp(
+                "Preferences > Build > \"EE crash handler\" makes the game write\n"
+                "a register dump and a backtrace instead of just going quiet\n"
+                "(experimental).");
+        }
     }
 
     // Armed countdowns, right under the transport: a Delay only advances on
@@ -23226,6 +23452,14 @@ void App::drawDebuggerWindow() {
         ImGui::EndTabItem();
     }
 
+    // Rewind: the same axis as the Timeline above, but it moves the WORLD.
+    // The execution log says what ran on frame N; this puts the game back into
+    // the state it was in on frame N (docs/time-machine.md).
+    if (ImGui::BeginTabItem("Rewind")) {
+        drawTimeMachinePanel();
+        ImGui::EndTabItem();
+    }
+
     // Nodes: everything instrumented in the graph currently being edited, with
     // its hit count, a breakpoint toggle and (for triggers) a Fire button.
     if (ImGui::BeginTabItem("Nodes")) {
@@ -23309,10 +23543,11 @@ void App::drawDebuggerWindow() {
     if (ImGui::BeginTabItem("Stats")) {
         const livedbg::Stats& st = dbgSnap_.stats;
         if (!live || !st.valid) {
-            ImGui::TextWrapped(
-                "No stats. They arrive with the game's snapshots - run a debug "
-                "build with the Live Debugger on. (A game built before this "
-                "panel existed reports none: rebuild it.)");
+            ImGui::TextDisabled("No stats yet.");
+            prefHelp(
+                "They arrive with the game's snapshots - run a debug build with\n"
+                "the Live Debugger on. A game built before this panel existed\n"
+                "reports none: rebuild it.");
         } else {
             ImGui::SeparatorText("Frame");
             ImGui::Text("%d FPS", st.fps);
@@ -23320,12 +23555,13 @@ void App::drawDebuggerWindow() {
             ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
                                 "%u vertices",
                                 st.flushes, st.qw, st.verts);
-            if (st.maxChunkVerts)
-                ImGui::TextDisabled(
-                    "Largest single stream: %d vertices - that IS the VU1 "
-                    "buffer's capacity for this vertex layout, and the size a "
-                    "mesh gets cut into.",
-                    st.maxChunkVerts);
+            if (st.maxChunkVerts) {
+                ImGui::TextDisabled("Largest single stream: %d vertices",
+                                    st.maxChunkVerts);
+                prefHelp(
+                    "That IS the VU1 buffer's capacity for this vertex layout,\n"
+                    "and the size a mesh gets cut into.");
+            }
 
             ImGui::SeparatorText("GS VRAM");
             const float freeMB = st.vramFreeKB / 1024.0f;
@@ -23638,10 +23874,10 @@ void App::drawDebuggerWindow() {
                         "vertices, 12.4 units.",
                         dbgVuCap_.diffMaxX, dbgVuCap_.diffMaxY,
                         dbgVuCap_.diffCompared);
-                    ImGui::TextWrapped(
-                        "One flush can carry several meshes and VU1 memory holds "
-                        "only the LAST MVP, so this comparison is exact only for a "
-                        "single-mesh flush - read it as a hint, not a verdict "
+                    prefHelp(
+                        "One flush can carry several meshes and VU1 memory holds\n"
+                        "only the LAST MVP, so this comparison is exact only for\n"
+                        "a single-mesh flush - read it as a hint, not a verdict\n"
                         "(docs/devkit.md).");
                 }
             }
@@ -23676,11 +23912,12 @@ void App::drawDebuggerWindow() {
                             livedbg::kMaxWatchObjects);
         if (dbgObjWatch_.empty()) {
             ImGui::Separator();
-            ImGui::TextWrapped(
-                "Nothing watched. Select an object and click \"+ Watch "
-                "selected\" - the game will report its position, rotation, "
-                "scale, color and flags EVERY frame, and the path it takes is "
-                "drawn in the viewport.");
+            ImGui::TextDisabled("Nothing watched yet.");
+            prefHelp(
+                "Select an object and click \"+ Watch selected\" above. The game\n"
+                "then reports that object's position, rotation, scale, color and\n"
+                "flags EVERY frame, and the path it takes is drawn in the\n"
+                "viewport.");
         }
         for (size_t i = 0; i < dbgObjWatch_.size(); ++i) {
             DbgObjTrack& t = dbgObjWatch_[i];
@@ -23770,10 +24007,10 @@ void App::drawDebuggerWindow() {
                         "Release profile - graphs run as compiled C++ only.");
                     break;
                 case LogicState::NoBuild:
-                    ImGui::TextWrapped(
-                        "No built-graph list yet. Build & Run (F5) once; after "
-                        "that, editing a graph takes effect in the running game "
-                        "without another build.");
+                    ImGui::TextDisabled("No built-graph list yet.");
+                    prefHelp(
+                        "Build & Run (F5) once; after that, editing a graph takes\n"
+                        "effect in the running game without another build.");
                     break;
                 case LogicState::InSync:
                     ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.6f, 1.0f),
@@ -24983,6 +25220,19 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
     ImGui::EndDisabled();
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
+    ImGui::EndDisabled();
+    prefHelp(
+        "The game captures everything it mutates - object transforms,\n"
+        "physics, animation, flow variables, save values, where the player\n"
+        "stands - a few times a second, and the editor keeps a history of\n"
+        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
+        "game back into any of them, with no rebuild and no reboot; with Live\n"
+        "Logic on you can fix a graph first and watch the new logic play out\n"
+        "on the situation that just broke. Costs one small file written next\n"
+        "to the ELF every few frames, and nothing at all in a release build.\n"
+        "See docs/time-machine.md.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("EE crash handler (experimental)",
                     &prefSettings_.eeCrashHandler);
