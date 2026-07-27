@@ -4555,6 +4555,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
+            f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp" ||

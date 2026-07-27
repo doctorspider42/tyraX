@@ -13,6 +13,7 @@
 #include "camtake.hpp"
 #include "history.hpp"
 #include "phonecam.hpp"
+#include "gibake.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
 #include "elfsym.hpp"
@@ -535,6 +536,9 @@ private:
     // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
     // into res/models/trees and drops a Model object in - see treegen.hpp.
     void drawTreeGeneratorWindow();
+    // Tools > Bake Global Illumination: per-scene staleness + the bake itself
+    // on gibake::Baker's worker thread (docs/global-illumination.md).
+    void drawGiBakeWindow();
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
@@ -1020,6 +1024,18 @@ private:
     // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
     // rebuilt into these on any param change; treePreviewVersion_ tells the
     // viewport when to re-upload. treeName_ is the asset base name.
+    // Tools > Bake Global Illumination (docs/global-illumination.md). The bake
+    // is EXPLICIT - never part of a build - so this window is where a project
+    // learns that its lighting is stale, and the one place that fixes it.
+    bool showGiBake_ = false;
+    gibake::Baker giBaker_;
+    // The probe grid currently uploaded to the viewport: reloaded when the
+    // scene changes, the model is edited (which can stale the bake) or a bake
+    // finishes.
+    int giViewScene_ = -1;
+    uint64_t giViewSerial_ = ~0ull;
+    uint64_t giViewVersion_ = ~0ull;
+
     bool showTreeGenerator_ = false;
     treegen::Params treeParams_;
     int treePreset_ = 0;

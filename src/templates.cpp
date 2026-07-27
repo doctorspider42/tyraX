@@ -18,6 +18,7 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
+#include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
@@ -2372,6 +2373,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
 #include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
@@ -2604,6 +2606,93 @@ V3 shadeOf(const V3& n) {
   if (s.z > 1.0F) s.z = 1.0F;
   return s;
 }
+
+/** Baked light probes (docs/global-illumination.md). The scene lightmap
+ * covers static untextured geometry; this covers everything else - imported
+ * models, textured receivers, physics bodies, spawn-pool clones and (once per
+ * frame rather than once at load) animated models.
+ *
+ * One sample is L1 spherical harmonics: L0, the average radiance, plus L1,
+ * its direction. giShade below is the clamped-cosine convolution
+ *   shade(n) = L0 + (2/3) * dot(L1, n)
+ * which returns exactly L for a uniform environment of radiance L, and goes
+ * to zero looking away from a bright hemisphere. The host reference is
+ * gibake::sampleProbes and the viewport fragment shader's giProbe() is the
+ * third copy - change one, change all three. */
+struct GiSample {
+  float l0[3];
+  float l1[3][3];  // [axis][channel]
+};
+
+/** True when the active scene has a probe grid AND the point is inside it
+ * with at least one live neighbour. Weighted trilinear over the 8 surrounding
+ * probes; a probe buried in solid geometry weighs nothing, so a wall's black
+ * interior never bleeds into the room next to it. */
+bool giProbeAt(float wx, float wy, float wz, GiSample& out) {
+  const GiProbeGridData* g = SCENE_PROBES;
+  if (!g || g->dim[0] <= 0) return false;
+  const float p[3] = {wx, wy, wz};
+  int i0[3];
+  float f[3];
+  for (int k = 0; k < 3; ++k) {
+    const float step = g->step[k] > 0.000001F ? g->step[k] : 1.0F;
+    float t = (p[k] - g->origin[k]) / step;
+    if (t < 0.0F) t = 0.0F;
+    if (t > (float)(g->dim[k] - 1)) t = (float)(g->dim[k] - 1);
+    i0[k] = (int)t;
+    if (i0[k] > g->dim[k] - 2) i0[k] = g->dim[k] - 2 < 0 ? 0 : g->dim[k] - 2;
+    f[k] = g->dim[k] > 1 ? t - (float)i0[k] : 0.0F;
+  }
+  float acc[12] = {0};
+  float wsum = 0.0F;
+  for (int c = 0; c < 8; ++c) {
+    const int dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;
+    int ix = i0[0] + dx, iy = i0[1] + dy, iz = i0[2] + dz;
+    if (ix > g->dim[0] - 1) ix = g->dim[0] - 1;
+    if (iy > g->dim[1] - 1) iy = g->dim[1] - 1;
+    if (iz > g->dim[2] - 1) iz = g->dim[2] - 1;
+    const int idx = ix + g->dim[0] * (iy + g->dim[1] * iz);
+    if (!g->live[idx]) continue;
+    const float w = (dx ? f[0] : 1.0F - f[0]) * (dy ? f[1] : 1.0F - f[1]) *
+                    (dz ? f[2] : 1.0F - f[2]);
+    if (w <= 0.0F) continue;
+    wsum += w;
+    const signed char* sh = g->sh + idx * 12;
+    for (int k = 0; k < 12; ++k) acc[k] += w * (float)sh[k];
+  }
+  if (wsum <= 0.00001F) return false;
+  const float dec = g->scale / (127.0F * wsum);
+  for (int k = 0; k < 3; ++k) {
+    out.l0[k] = acc[k] * dec;
+    out.l1[0][k] = acc[3 + k] * dec;
+    out.l1[1][k] = acc[6 + k] * dec;
+    out.l1[2][k] = acc[9 + k] * dec;
+  }
+  return true;
+}
+
+V3 giShade(const GiSample& s, const V3& n) {
+  float c[3];
+  for (int k = 0; k < 3; ++k) {
+    float t = s.l0[k] + (2.0F / 3.0F) * (s.l1[0][k] * n.x + s.l1[1][k] * n.y +
+                                         s.l1[2][k] * n.z);
+    if (t < 0.0F) t = 0.0F;
+    if (t > 1.0F) t = 1.0F;
+    c[k] = t;
+  }
+  return V3{c[0], c[1], c[2]};
+}
+
+/** Staged by the geometry builders: this surface's light comes from the probe
+ * grid, so the ambient + directional term, the baked point lights and the
+ * emissive pools must ALL stay out of its vertex colors - the probe already
+ * contains every one of them. */
+bool g_giProbeShade = false;
+
+/** ...and this one: the surface's light comes from the scene LIGHTMAP, per
+ * pixel through the additive atlas pass. Its vertex shade is black; the pass
+ * puts the whole thing back. */
+bool g_giLightmap = false;
 
 /** Point lights (SceneObject type 9) of the active scene, collected once per
  * scene load. pointLightAt runs PER VERTEX while baking terrain chunks and
@@ -3114,7 +3203,24 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
-  V3 shade = shadeOf(n);
+  // Global illumination takes the whole shade over when it owns the surface
+  // (docs/global-illumination.md): black here for a lightmapped one - the
+  // additive atlas pass puts every photon back per pixel - and the probe
+  // irradiance for one on the vertex path. Either way the ambient +
+  // directional term is already inside the baked answer, so it must not be
+  // added a second time here.
+  V3 shade;
+  GiSample giSample;
+  bool giHere = false;
+  if (g_giLightmap) {
+    shade = {0.0F, 0.0F, 0.0F};
+    giHere = true;
+  } else if (g_giProbeShade && giProbeAt(wp.x, wp.y, wp.z, giSample)) {
+    shade = giShade(giSample, n);
+    giHere = true;
+  } else {
+    shade = shadeOf(n);
+  }
   // Ambient occlusion multiplies the directional shade BEFORE the point
   // lights add on top (light pools stay bright inside dark corners). selfAo
   // is the model's baked raycast self-occlusion (255 = open). With the
@@ -3135,13 +3241,16 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
       aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
     shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
   }
-  const V3 pl = pointLightAt(wp, n);
-  shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
-  // Emissive materials nearby light this surface too - same additive slot as
-  // the point lights (both sit on top of the AO-multiplied directional term).
-  if (!g_emisAtlas) {
-    const V3 el = emissiveLightAt(wp, n);
-    shade.x += el.x, shade.y += el.y, shade.z += el.z;
+  // Baked point lights and emissive pools sit on top of the AO-multiplied
+  // directional term - unless GI already answered for this surface, in which
+  // case both are inside that answer.
+  if (!giHere) {
+    const V3 pl = pointLightAt(wp, n);
+    shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
+    if (!g_emisAtlas) {
+      const V3 el = emissiveLightAt(wp, n);
+      shade.x += el.x, shade.y += el.y, shade.z += el.z;
+    }
   }
   if (shade.x > 1.0F) shade.x = 1.0F;
   if (shade.y > 1.0F) shade.y = 1.0F;
@@ -5597,14 +5706,47 @@ void TerrainGame::updateAndRenderAnimObjects() {
       dynLightAt(engine, o.data.position[0],
                  o.data.position[1] + o.data.scale[1] * 0.5F,
                  o.data.position[2], dl);
-      const float amb2 = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
+      // Baked global illumination for everything that moves
+      // (docs/global-illumination.md): one probe sample at the model's centre
+      // per frame. amb[] takes the probe's L0 - the average radiance around
+      // the model - instead of the scene's flat ambient, and dif[] takes the
+      // probe's L1 evaluated along the SUN direction, which is what keeps a
+      // character shaded rather than flat: the shared animLightDirs[0] still
+      // points at the sun, so reconstructing the field along it turns the
+      // grid's directionality back into the one VU1 light slot these meshes
+      // have. A character walking from sunlight into a doorway darkens and
+      // picks up the interior's colour, all for a lookup and ~10 flops.
+      float amb[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT};
+      float dif[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      GiSample gs;
+      if (giProbeAt(o.data.position[0],
+                    o.data.position[1] + o.data.scale[1] * 0.5F,
+                    o.data.position[2], gs)) {
+        const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+        for (int k = 0; k < 3; ++k) {
+          float a = gs.l0[k];
+          if (a < 0.0F) a = 0.0F;
+          amb[k] = 128.0F * a;
+          float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
+                                     gs.l1[2][k] * sun.z);
+          if (d < 0.0F) d = 0.0F;
+          dif[k] = 128.0F * d;
+        }
+      }
       const GameAnimModel& gam = gameAnimModels[o.data.animModel];
       for (size_t p = 0; p < g.animParts.size(); ++p) {
         if (!g.animParts[p].bag) continue;
         const float* base = gam.src->parts[p].color;
+        g.animParts[p].litColors[0].set(dif[0] * base[0], dif[1] * base[1],
+                                        dif[2] * base[2], 1.0F);
         g.animParts[p].litColors[3].set(
-            (amb2 + 128.0F * dl[0]) * base[0], (amb2 + 128.0F * dl[1]) * base[1],
-            (amb2 + 128.0F * dl[2]) * base[2], 128.0F);
+            (amb[0] + 128.0F * dl[0]) * base[0],
+            (amb[1] + 128.0F * dl[1]) * base[1],
+            (amb[2] + 128.0F * dl[2]) * base[2], 128.0F);
       }
     }
     for (size_t p = 0; p < g.animParts.size(); ++p) {
@@ -9240,6 +9382,12 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     g_aoAtlasRects = &SCENE_AO_ATLAS_RECTS[SCENE_AO_ATLAS_FIRST[index]];
     g_aoSts = &g.parts[0].aoSts;
   }
+  // Global illumination: the lightmap covers this object when its atlas light
+  // channel is a GI channel; everything else the grid reaches - imported
+  // models, textured receivers, physics bodies, spawned clones - takes the
+  // probe path. Never both (docs/global-illumination.md).
+  g_giLightmap = SCENE_AO_ATLAS_GI && g_emisAtlas;
+  g_giProbeShade = !g_giLightmap && SCENE_PROBES != nullptr;
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
@@ -9359,6 +9507,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g_emisAtlas = false;
   g_aoSts = nullptr;
   g_aoOff = false;
+  g_giLightmap = false;
+  g_giProbeShade = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -9641,6 +9791,10 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       g_aoAtlas = false;
       g_aoSts = nullptr;
       g_aoOff = true;  // imported models get no receive/self AO
+      // ...but they DO get global illumination, from the probe grid - which
+      // is the whole reason models were left parked on the vertex path.
+      g_giLightmap = false;
+      g_giProbeShade = SCENE_PROBES != nullptr;
       g_primKd = nullptr;
       g_primTextured = false;
       g_primUvRect = nullptr;
@@ -9888,6 +10042,12 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   g_primKd = gmat ? gmat->kd : nullptr;
   g_primKe = gmat ? gmat->ke : nullptr;  // batch members share one material
   g_primTextured = gmat && gmat->texture;
+  // A batched member never carries a lightmap region (the atlas keeps its
+  // receivers solo), so its global illumination comes from the probe grid.
+  // Staged explicitly: these are globals, and inheriting whatever the last
+  // rebuildObjectGeometry left set would shade a whole batch by accident.
+  g_giLightmap = false;
+  g_giProbeShade = SCENE_PROBES != nullptr;
   for (size_t k = 0; k < b.members.size(); ++k) {
     RuntimeObject& o = runtimeObjects[b.members[k]];
     // Members are never dirty here: scene load consumes the flag at
@@ -9921,6 +10081,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   g_primKd = nullptr;
   g_primKe = nullptr;
   g_primTextured = false;
+  g_giProbeShade = false;
   if (b.vertices.empty()) {
     b.bag.reset();
     return;
@@ -12960,24 +13121,46 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     emisCollectLocal(chx, chy, chz,
                      0.5F * sqrtf(cw * cw + cd * cd) + hy, -1);
   }
+  // Global illumination on the ground (docs/global-illumination.md). Two
+  // routes, never both: an UNTEXTURED terrain takes it per pixel from the map
+  // RGB (terrainGi - the vertex shade goes black and the additive pass puts
+  // the whole thing back, modulated by the ground's own tint); a TEXTURED one
+  // cannot - a flat additive term over a texture blows out its dark texels -
+  // so it stays on the vertex path and reads the probe grid there. The
+  // terrain grid is dense enough (one sample per cell) that probes look right
+  // on it, which is not true of a two-triangle box face.
+  const bool terrainGi = terrainMapLit && SCENE_AO_MAP_GI;
+  const bool terrainProbeGi = !terrainGi && SCENE_PROBES != nullptr;
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
     const float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
-    V3 s = shadeOf(n);
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
+    V3 s;
+    bool giHere = terrainGi;
+    GiSample gs;
+    if (terrainGi) {
+      s = {0.0F, 0.0F, 0.0F};
+    } else if (terrainProbeGi && giProbeAt(wp.x, wp.y, wp.z, gs)) {
+      s = giShade(gs, n);
+      giHere = true;
+    } else {
+      s = shadeOf(n);
+    }
     // Terrain ambient occlusion arrives per pixel through the AO map pass
     // (ao_data.gen.hpp) - nothing to fold into the vertex shade here.
-    const V3 pl = pointLightAt(wp, n);
-    s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    if (!giHere) {
+      const V3 pl = pointLightAt(wp, n);
+      s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    }
     // Emissive materials pool light on the ground under them too (the local
     // emitter list is collected once for this chunk, above). With the terrain
     // lightmap lit this is the TEXTURED path instead - the vertex grid is one
     // sample per terrain cell, which quantises every pool and every shadow
     // edge into cell-sized squares, so the light rides the map's RGB and the
     // additive pass puts it down per pixel. It must not land in both.
-    if (!terrainMapLit) {
+    if (!terrainMapLit && !giHere) {
       const V3 el = emissiveLightAt(wp, n);
       s.x += el.x, s.y += el.y, s.z += el.z;
     }
@@ -16023,12 +16206,22 @@ static std::string aoDataHeader(const Project& p) {
     std::vector<bool> hasMap(sceneCount, false);
     std::vector<bool> mapOcc(sceneCount, false);
     std::vector<bool> mapLit(sceneCount, false);
+    std::vector<bool> atlasGi(sceneCount, false);
+    std::vector<bool> mapGi(sceneCount, false);
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
         const ProjectSettings srs = project::resolvedSettings(p, sc);
-        // The atlas carries occlusion AND baked emissive light, so it is built
+        // Baked global illumination, when the scene has a fresh one
+        // (docs/global-illumination.md). The GI bake is EXPLICIT and cached -
+        // a build never runs it - so this is a pure read: a missing or stale
+        // cache falls the scene back to the emissive-only bake below, which
+        // is bit-for-bit what a pre-GI project produced.
+        const gibake::Bake gi = gibake::load(p, si);
+        // The atlas carries occlusion AND baked light, so it is built
         // whenever either exists - only the terrain map below is AO-gated.
-        const aobake::SceneLightAtlas atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn);
+        const aobake::SceneLightAtlas atlas =
+            gi.valid ? gi.atlas : aobake::bakeSceneLightAtlas(p, sc, aabbFn);
+        atlasGi[si] = atlas.gi;
         if (atlas.size > 0 && !atlas.rects.empty()) {
             hasAtlas[si] = true;
             out << "static const AoAtlasRect S" << si << "_AO_RECTS["
@@ -16061,15 +16254,18 @@ static std::string aoDataHeader(const Project& p) {
         // its RGB carries the baked emissive light, which is what puts the
         // pools and their shadows on the ground per pixel instead of per
         // ~2-metre vertex.
-        const aobake::AoImage map = aobake::terrainAOMap(
-            sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-            (float)sc.terrain.depth,
-            aobake::collectOccluders(sc.objects, aabbFn),
-            aobake::collectEmitters(p.dir, sc.objects, aabbFn), srs.aoRadius,
-            srs.aoStrength, srs.aoEnabled);
+        const aobake::AoImage map =
+            gi.valid ? gi.terrain
+                     : aobake::terrainAOMap(
+                           sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                           (float)sc.terrain.depth,
+                           aobake::collectOccluders(sc.objects, aabbFn),
+                           aobake::collectEmitters(p.dir, sc.objects, aabbFn),
+                           srs.aoRadius, srs.aoStrength, srs.aoEnabled);
         hasMap[si] = map.size > 0;
         mapOcc[si] = map.hasAlpha;
         mapLit[si] = map.hasLight;
+        mapGi[si] = map.gi;
     }
     out << "static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {";
     for (int si = 0; si < sceneCount; ++si)
@@ -16115,6 +16311,21 @@ static std::string aoDataHeader(const Project& p) {
            "static const unsigned char SCENE_AO_MAP_LITS[] = {";
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << (mapLit[si] ? 1 : 0);
+    // Global illumination (docs/global-illumination.md): the light channel of
+    // these two images carries ALL the incoming light, not just the emissive
+    // add-on. Wherever it does, the geometry must drop its own ambient +
+    // directional + point-light + emissive vertex shade, or the scene is lit
+    // twice. Per SCENE for the terrain, per OBJECT for the atlas (through
+    // SCENE_AO_ATLAS_LIT, which is exactly the set the bake wrote a light
+    // channel for).
+    out << "};\n"
+           "static const unsigned char SCENE_AO_ATLAS_GIS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << (atlasGi[si] ? 1 : 0);
+    out << "};\n"
+           "static const unsigned char SCENE_AO_MAP_GIS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << (mapGi[si] ? 1 : 0);
     out << "};\n"
            "}  // namespace\n\n"
            "#define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]\n"
@@ -16127,7 +16338,73 @@ static std::string aoDataHeader(const Project& p) {
            "#define SCENE_AO_ATLAS_PATH SCENE_AO_ATLAS_PATHS[g_activeScene]\n"
            "#define SCENE_AO_MAP_PATH SCENE_AO_MAP_PATHS[g_activeScene]\n"
            "#define SCENE_AO_MAP_OCC SCENE_AO_MAP_OCCS[g_activeScene]\n"
-           "#define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]\n";
+           "#define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]\n"
+           "#define SCENE_AO_ATLAS_GI SCENE_AO_ATLAS_GIS[g_activeScene]\n"
+           "#define SCENE_AO_MAP_GI SCENE_AO_MAP_GIS[g_activeScene]\n";
+    return out.str();
+}
+
+// inc/probe_data.gen.hpp - the baked light-probe grid
+// (docs/global-illumination.md). The lightmap covers static geometry; this is
+// what lights everything that moves - the player, NPCs, animated models,
+// physics bodies and spawn-pool clones - plus every static surface that
+// cannot take a lightmap (imported models, textured receivers).
+//
+// L1 spherical harmonics, 4 coefficients x 3 channels at one byte each: 12
+// bytes per probe plus one liveness byte. Always emitted; scenes with no bake
+// get a null grid and every read folds away to the old flat ambient.
+static std::string probeDataHeader(const Project& p) {
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "// Baked light probes (docs/global-illumination.md). sh holds 12\n"
+           "// signed bytes per probe - L0.rgb then L1x.rgb, L1y.rgb, L1z.rgb -\n"
+           "// decoded as coefficient = byte / 127 * scale. live = 0 marks a\n"
+           "// probe that sits inside solid geometry; the lookup weighs it at\n"
+           "// zero instead of dragging a wall's interior into the room.\n"
+           "// Probes are indexed x + dim[0] * (y + dim[1] * z).\n\n"
+           "namespace {\n"
+           "struct GiProbeGridData {\n"
+           "  float origin[3];\n"
+           "  float step[3];\n"
+           "  int dim[3];\n"
+           "  float scale;\n"
+           "  const signed char* sh;\n"
+           "  const unsigned char* live;\n"
+           "};\n\n";
+    const int sceneCount = (int)p.scenes.size();
+    std::vector<bool> has(sceneCount, false);
+    for (int si = 0; si < sceneCount; ++si) {
+        const gibake::Bake gi = gibake::load(p, si);
+        if (!gi.valid || gi.probes.empty()) continue;
+        const gibake::ProbeGrid& g = gi.probes;
+        has[si] = true;
+        out << "static const signed char S" << si << "_PROBE_SH["
+            << g.sh.size() << "] = {";
+        for (size_t i = 0; i < g.sh.size(); ++i)
+            out << (i ? "," : "") << (int)g.sh[i];
+        out << "};\n"
+               "static const unsigned char S"
+            << si << "_PROBE_LIVE[" << g.live.size() << "] = {";
+        for (size_t i = 0; i < g.live.size(); ++i)
+            out << (i ? "," : "") << (int)g.live[i];
+        out << "};\n"
+               "static const GiProbeGridData S"
+            << si << "_PROBES = {{" << floatLit(g.origin[0]) << ", "
+            << floatLit(g.origin[1]) << ", " << floatLit(g.origin[2]) << "}, {"
+            << floatLit(g.step[0]) << ", " << floatLit(g.step[1]) << ", "
+            << floatLit(g.step[2]) << "}, {" << g.dim[0] << ", " << g.dim[1]
+            << ", " << g.dim[2] << "}, " << floatLit(g.scale) << ", S" << si
+            << "_PROBE_SH, S" << si << "_PROBE_LIVE};\n";
+    }
+    out << "\nstatic const GiProbeGridData* const SCENE_PROBE_GRIDS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (has[si] ? ("&S" + std::to_string(si) + "_PROBES") : "nullptr");
+    if (sceneCount == 0) out << "nullptr";
+    out << "};\n"
+           "}  // namespace\n\n"
+           "#define SCENE_PROBES SCENE_PROBE_GRIDS[g_activeScene]\n";
     return out.str();
 }
 
@@ -26700,6 +26977,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\ao_data.gen.hpp", aoDataHeader(p)},
+        {"inc\\probe_data.gen.hpp", probeDataHeader(p)},
         {"inc\\save_system.gen.hpp", saveSystemHeader(p)},
         {"src\\save_system.gen.cpp", saveSystemSource(p)},
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},

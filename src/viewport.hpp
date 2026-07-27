@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "aobake.hpp"
+#include "gibake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
 #include "project.hpp"
@@ -101,6 +102,23 @@ public:
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
+
+    // Baked global illumination preview (docs/global-illumination.md). The
+    // editor must show the same light the console will, or authoring a bake is
+    // guesswork - so the scene's probe grid is uploaded as a 3D texture and the
+    // fragment shader evaluates it per pixel, REPLACING the ambient +
+    // directional shade exactly the way the generated game replaces it per
+    // vertex. An empty grid (no bake, or a stale one) restores the classic
+    // preview with one call.
+    //
+    // Where this preview is honest and where it is not: the game gives static
+    // untextured geometry a per-TEXEL lightmap, whose contact shadows are
+    // sharper than a 3-unit probe grid can be. Everything else - models,
+    // textured surfaces, physics bodies, characters - is probe-lit in the game
+    // too, and there this is exact.
+    void setGiProbes(const gibake::ProbeGrid& g);
+    void clearGiProbes() { setGiProbes(gibake::ProbeGrid()); }
+    bool giProbesLoaded() const { return giDim_[0] > 0; }
 
     // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
     // self-occlusion is multiplied into the terrain vertex colors (the same
@@ -555,6 +573,17 @@ private:
     int uAoSelfObj_ = -1, uAoGround_ = -1, uAoReceive_ = -1;
     int uAoPos_ = -1, uAoAx_ = -1, uAoAy_ = -1, uAoAz_ = -1, uAoObj_ = -1;
     int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
+    // Baked GI probe grid (see setGiProbes)
+    int uGiOn_ = -1, uGiProbes_ = -1, uGiOrigin_ = -1, uGiStep_ = -1,
+        uGiDim_ = -1, uGiScale_ = -1;
+    uint32_t giTex_ = 0;
+    float giOrigin_[3] = {0, 0, 0};
+    float giStep_[3] = {1, 1, 1};
+    int giDim_[3] = {0, 0, 0};
+    float giScale_ = 1.0f;
+    std::vector<uint8_t> giPixels_;  // staged until the GL context exists
+    bool giUploadPending_ = false;
+    void uploadGiProbes();
     bool aoOn_ = false;
     float aoStrength_ = 0.55f;
     float aoRadius_ = 2.5f;

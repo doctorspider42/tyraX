@@ -14,6 +14,7 @@
 
 #include "objparser.hpp"
 #include "primmesh.hpp"
+#include "wire.hpp"   // fnv1a64/hashFile - the bake signature hashes CONTENT
 
 namespace fs = std::filesystem;
 
@@ -23,7 +24,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr uint32_t kCacheMagic = 0x49475854u;  // "TXGI"
-constexpr uint32_t kCacheVersion = 1;
+constexpr uint32_t kCacheVersion = 2;
 
 // Rotation order X, then Y, then Z - the twin of templates.cpp rotated(),
 // aobake's and the viewport's model matrix. Keep in sync.
@@ -862,16 +863,20 @@ uint64_t signature(const Project& p, const SceneData& sc, const Settings& st) {
 
     // The files a bake reads: a repainted texture or an edited .mtl must make
     // the cache stale even though nothing in the model changed.
+    //
+    // CONTENT, not mtime. Two reasons, both real: a bake takes minutes and a
+    // `touch` (or a checkout, or a copy) must not throw it away - and the
+    // example projects ship their cache, which a fresh `git clone` would
+    // otherwise invalidate the instant it landed on disk.
     std::map<std::string, int> seen;
     auto mixFile = [&](const std::string& rel) {
         if (rel.empty() || !seen.emplace(rel, 1).second) return;
-        std::error_code ec;
-        const fs::path abs = fs::path(p.dir) / rel;
         mixS(h, rel);
-        mix64(h, (uint64_t)fs::file_size(abs, ec));
-        const auto tm = fs::last_write_time(abs, ec);
-        if (!ec)
-            mix64(h, (uint64_t)tm.time_since_epoch().count());
+        uint64_t fh = 0, fsz = 0;
+        if (wire::hashFile((fs::path(p.dir) / rel).string(), fh, fsz)) {
+            mix64(h, fh);
+            mix64(h, fsz);
+        }
     };
     mixFile(rs.terrainMaterial);
     for (const SceneObject& o : sc.objects) {
@@ -943,7 +948,12 @@ bool write(const std::string& path, const Bake& b) {
     wr(f, kCacheMagic);
     wr(f, kCacheVersion);
     wr(f, b.signature);
-    // atlas
+    // atlas. The `gi` flags travel WITH the pixels: they are what tells the
+    // generated game to drop its own ambient + directional shade, and a cache
+    // whose pixels say "all the light is here" while the flag says otherwise
+    // renders the scene twice as bright as it was baked.
+    wr(f, (uint8_t)(b.atlas.gi ? 1 : 0));
+    wr(f, (uint8_t)(b.terrain.gi ? 1 : 0));
     wr(f, (int32_t)b.atlas.size);
     wrVec(f, b.atlas.alpha);
     wrVec(f, b.atlas.light);
@@ -973,6 +983,11 @@ bool read(const std::string& path, Bake& b) {
     if (!rd(f, magic) || !rd(f, version)) return false;
     if (magic != kCacheMagic || version != kCacheVersion) return false;
     if (!rd(f, b.signature)) return false;
+    uint8_t gi8 = 0;
+    if (!rd(f, gi8)) return false;
+    b.atlas.gi = gi8 != 0;
+    if (!rd(f, gi8)) return false;
+    b.terrain.gi = gi8 != 0;
     int32_t v32 = 0;
     if (!rd(f, v32)) return false;
     b.atlas.size = v32;
@@ -1054,13 +1069,31 @@ Bake bakeScene(const Project& p, int sceneIndex,
     out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight);
     step(0.40f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
+    // A TEXTURED terrain cannot take a lightmap for the same reason a textured
+    // object cannot: the additive pass adds a flat term over the texture and
+    // blows out its dark texels, and the base pass would have to go black to
+    // avoid double-counting - which throws the texture away. So a textured
+    // ground gets an occlusion-only map here and takes its light from the
+    // probe grid per vertex, which its dense cell grid can carry. The light
+    // channel is left EMPTY rather than filled with the legacy emissive bake:
+    // the probes already contain those emitters, and two sources of the same
+    // photons is the one mistake this whole design is arranged to avoid.
+    const ProjectSettings rs = project::resolvedSettings(p, sc);
+    bool terrainTextured = false;
+    if (!rs.terrainMaterial.empty()) {
+        std::vector<objparser::MtlMaterial> mats;
+        if (objparser::loadMtl(
+                (fs::path(p.dir) / rs.terrainMaterial).string(), mats) &&
+            !mats.empty())
+            terrainTextured = !mats.front().texture.empty();
+    }
     out.terrain = aobake::terrainAOMap(
         sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
         (float)sc.terrain.depth, aobake::collectOccluders(sc.objects, aabbFn),
-        aobake::collectEmitters(p.dir, sc.objects, aabbFn),
-        project::resolvedSettings(p, sc).aoRadius,
-        project::resolvedSettings(p, sc).aoStrength,
-        project::resolvedSettings(p, sc).aoEnabled, &giLight);
+        terrainTextured ? std::vector<aobake::Emitter>()
+                        : aobake::collectEmitters(p.dir, sc.objects, aabbFn),
+        rs.aoRadius, rs.aoStrength, rs.aoEnabled,
+        terrainTextured ? nullptr : &giLight);
     step(0.70f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
     out.probes = bakeProbes(s, st, cancel, [&](float t) { step(0.70f, 0.3f, t); });

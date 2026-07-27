@@ -1,3 +1,4 @@
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
+#include "gibake.hpp"
 #include "livedbg.hpp"
 #include "vucap.hpp"
 #include "app.hpp"
@@ -573,6 +575,54 @@ static int refreshGenFromCli(int argc, char** argv) {
     return 0;
 }
 
+// Bakes global illumination for every scene (docs/global-illumination.md) into
+// .res-baked/gi/, then refreshes the generated files so the probe table and
+// the lightmap flags follow immediately. The GUI's Tools > Bake Global
+// Illumination runs the same gibake::bakeScene on a worker thread; this is the
+// headless twin - it is what a build server or a test harness uses, and it is
+// how the bake gets verified without clicking anything.
+static int bakeGiFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (!p.settings.giEnabled) {
+        std::fprintf(stderr,
+                     "error: global illumination is off for this project "
+                     "(Preferences > Lighting)\n");
+        return 1;
+    }
+    const std::atomic<bool> never{false};
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const gibake::Bake b = gibake::bakeScene(p, si, &never, nullptr);
+        if (!b.valid) {
+            std::fprintf(stderr, "error: bake failed for scene %d\n", si);
+            return 1;
+        }
+        if (!gibake::write(gibake::cachePath(p, si), b)) {
+            std::fprintf(stderr, "error: cannot write the bake for scene %d\n", si);
+            return 1;
+        }
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        std::printf("baked GI: %s (atlas %d, terrain %d, probes %dx%dx%d) %.1fs\n",
+                    p.scenes[si].name.c_str(), b.atlas.size, b.terrain.size,
+                    b.probes.dim[0], b.probes.dim[1], b.probes.dim[2], secs);
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    return 0;
+}
+
 // The GUI's AI settings (editor.ini) as CLI defaults, so --ai-graph without
 // flags behaves like the editor. Only the ai* keys are read here; the full
 // config lives in app.cpp.
@@ -954,6 +1004,8 @@ int main(int argc, char** argv) {
         return applyGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--refresh-gen") == 0)
         return refreshGenFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
+        return bakeGiFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)
         return aiGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--add-ai-support") == 0)
@@ -971,6 +1023,8 @@ int main(int argc, char** argv) {
             "capture\n"
             "  --resave <projectDir>\n"
             "  --refresh-gen <projectDir>\n"
+            "  --bake-gi <projectDir>                  bake global "
+            "illumination + light probes\n"
             "AI-agent tools (docs/ai-tools.md):\n"
             "  --dump <projectDir>\n"
             "  --list-nodes <projectDir>\n"
