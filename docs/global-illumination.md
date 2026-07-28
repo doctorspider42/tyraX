@@ -6,8 +6,10 @@ either: the ray tracing happens on your desktop and ships as one texture and one
 table.
 
 Turn it on in *Tools > Bake Global Illumination*, press **Bake this scene**, and
-build. See [examples/global-illumination](../examples/global-illumination) for
-the demo it was built against.
+build. Two example projects: [global-illumination](../examples/global-illumination)
+is the one-room proof (a red wall and a green wall, and nothing else coloured),
+[gi-showcase](../examples/gi-showcase) is the guided walk with one station per
+thing GI changes.
 
 ---
 
@@ -104,6 +106,20 @@ The lookup is a **weighted** trilinear over the 8 surrounding probes. A probe
 that sits inside solid geometry is marked dead at bake time (most of its rays
 hit a back face right next to the origin) and weighs **zero**, so a wall's black
 interior never bleeds into the room next to it.
+
+**The sun and the point lights are added analytically, not sampled.** A ray that
+escapes comes back with the sky *dome's* colour, which carries no sun disc, and
+a finite ray set cannot find a delta light anyway — so each is projected onto L1
+by hand, behind one shadow ray. The least-squares fit of a clamped cosine over
+the sphere is `max(0, n·s) ≈ 1/4 + 1/2 (n·s)`, and the reconstruction above is
+`L0 + (2/3)(L1·n)`, so a light of strength *E* from direction *s* contributes
+`0.25·E` to L0 and `0.75·E·s` to L1. At `n = s` that returns `0.75·E` against the
+true `1.0·E` and lifts the back hemisphere by `0.25·E` — the inherent L1 trade,
+and the reason a probe-lit character looks soft rather than hard-edged.
+
+Skipping this is not subtle and does not look like a bug: probes deliver only
+the *bounce* of the sunlight around them, and characters read about 30% darker
+than the lightmapped ground they stand on.
 
 Animated meshes have exactly one VU1 light slot, so their per-frame sample is
 split: **L0 goes into the ambient term**, and **L1 is reconstructed along the sun
@@ -216,6 +232,21 @@ Said out loud in the Bake window too, not just here:
   light is here" while the flag says otherwise renders the scene at double
   brightness. (This was a real bug during development — the flags were not
   serialized, and the first PS2 boot came out looking correct-but-flat.)
+- **"Cast shadow" off does NOT remove an emissive surface from the bake.** That
+  switch means "light passes through me" and is honoured for everything else,
+  but an emitter *is* the light — there is no way to have one without the
+  geometry. Dropping it produced exactly the symptom you would not connect: a
+  plate that still glowed (the `Ke` floor is a vertex-colour term, independent
+  of the bake) lighting absolutely nothing around it.
+- **The signature ignores objects that contribute nothing** — markers, spawn
+  points, the player, cameras, areas, decals, mirrors, portals. They cannot
+  change what the bake produces, and hashing them only manufactures false
+  staleness: nudging a spawn point would throw away a ten-minute bake and
+  silently drop the scene back to classic lighting.
+- **A station outside the terrain is not a subtle mistake.** The walker clamps
+  the player to the terrain bounds, so every spawn past the edge lands in the
+  same place — which reads as "the camera is broken" rather than "you walked off
+  the map". Cost three rebuilds while authoring `examples/gi-showcase`.
 
 ---
 

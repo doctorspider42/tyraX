@@ -24,7 +24,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr uint32_t kCacheMagic = 0x49475854u;  // "TXGI"
-constexpr uint32_t kCacheVersion = 2;
+constexpr uint32_t kCacheVersion = 4;
 
 // Rotation order X, then Y, then Z - the twin of templates.cpp rotated(),
 // aobake's and the viewport's model matrix. Keep in sync.
@@ -305,6 +305,25 @@ void appendMesh(Scene& s, const std::vector<float>& verts, const float pos[3],
     }
 }
 
+// Does this object change what the bake produces at all? The exact complement
+// of the types build() skips: markers, spawn points, the player, cameras,
+// areas, decals, mirrors, portals and animated models put nothing into the
+// BVH and emit no light.
+bool contributesToBake(const SceneObject& o) {
+    switch (o.type) {
+        case PrimitiveType::Box:
+        case PrimitiveType::SavePoint:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::Plane:
+        case PrimitiveType::PointLight: return true;
+        case PrimitiveType::Model:
+            return !o.modelPath.empty() && !animatedModelPath(o.modelPath);
+        default: return false;
+    }
+}
+
 std::vector<float> primitiveMesh(PrimitiveType type, int detail) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
@@ -428,10 +447,17 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
 
     // --- objects ------------------------------------------------------------
     for (const SceneObject& o : sc.objects) {
-        // "Cast shadow" off already means "light passes through me"; honouring
-        // it here keeps that switch meaning one thing.
-        if (!o.castShadow) continue;
         const MatInfo& mi = materialInfo(p.dir, o.materialPath, matCache, texCache);
+        // "Cast shadow" off already means "light passes through me", and
+        // honouring it here keeps that switch meaning one thing - but an
+        // EMISSIVE surface is the light itself, and there is no way to have
+        // the light without the geometry that emits it. Dropping one produced
+        // exactly the symptom you would expect and not connect: a plate that
+        // still glowed (the Ke floor is a vertex-colour term) lighting
+        // absolutely nothing around it.
+        const bool emits = mi.emission[0] > 0.0f || mi.emission[1] > 0.0f ||
+                           mi.emission[2] > 0.0f;
+        if (!o.castShadow && !emits) continue;
         float albedo[3], emission[3];
         for (int k = 0; k < 3; ++k) {
             albedo[k] = o.color[k] * mi.kd[k] * mi.texMean[k];
@@ -678,6 +704,50 @@ void bakeOneProbe(const Scene& s, const float wp[3], int rays, uint32_t seed,
         L0[k] = acc0[k] * inv + s.ambientFloor;
         for (int a = 0; a < 3; ++a) L1[a][k] = 3.0f * acc1[a][k] * inv;
     }
+
+    // The sun and the point lights are NOT in the ray sampling: a ray that
+    // escapes comes back with the sky DOME's colour, which carries no sun
+    // disc, and a ray that hits geometry comes back with that surface's
+    // radiosity. So without this a probe would deliver only the BOUNCE of the
+    // sunlight around it - which is exactly what made a character read ~30%
+    // darker than the lightmapped ground it stands on (measured; the bug this
+    // block exists to fix).
+    //
+    // Projected onto L1 analytically rather than sampled, because a delta
+    // light is not something a finite ray set can find. The least-squares fit
+    // of a clamped cosine over the sphere is
+    //     max(0, n.s)  ~=  1/4 + 1/2 (n.s)
+    // and the reconstruction below is L0 + (2/3)(L1.n), so a light of strength
+    // E arriving from direction s contributes 0.25*E to L0 and 0.75*E*s to L1.
+    // At n = s that returns 0.75*E against the true 1.0*E and lifts the back
+    // hemisphere by 0.25*E - the inherent L1 trade, and the reason a character
+    // lit this way looks soft rather than hard-edged.
+    auto addDirectional = [&](const float dir[3], const float col[3]) {
+        for (int k = 0; k < 3; ++k) {
+            L0[k] += 0.25f * col[k];
+            for (int a = 0; a < 3; ++a) L1[a][k] += 0.75f * col[k] * dir[a];
+        }
+    };
+    if (s.sunColor[0] > 0.0f || s.sunColor[1] > 0.0f || s.sunColor[2] > 0.0f) {
+        bvh::Hit h;
+        if (!bvh::trace(s.tree, wp, s.sunDir, 1e6f, true, h))
+            addDirectional(s.sunDir, s.sunColor);
+    }
+    for (const Scene::PointLight& L : s.lights) {
+        float d[3] = {L.pos[0] - wp[0], L.pos[1] - wp[1], L.pos[2] - wp[2]};
+        const float dist = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (dist >= L.radius || dist < 1e-4f) continue;
+        const float invD = 1.0f / dist;
+        d[0] *= invD, d[1] *= invD, d[2] *= invD;
+        float att = 1.0f - dist / L.radius;
+        att *= att;  // the same pool shape pointLightAt bakes
+        bvh::Hit h;
+        if (bvh::trace(s.tree, wp, d, dist - 1e-3f, true, h)) continue;
+        const float col[3] = {L.bright * att * L.color[0],
+                              L.bright * att * L.color[1],
+                              L.bright * att * L.color[2]};
+        addDirectional(d, col);
+    }
     live = inside < rays / 2;
 }
 
@@ -880,6 +950,13 @@ uint64_t signature(const Project& p, const SceneData& sc, const Settings& st) {
     };
     mixFile(rs.terrainMaterial);
     for (const SceneObject& o : sc.objects) {
+        // Objects that contribute NEITHER geometry nor light are left out
+        // entirely - markers, spawn points, the player, cameras, areas,
+        // decals, mirrors, portals. They cannot change what the bake produces,
+        // so hashing them only manufactures false staleness: dragging the
+        // player's spawn one metre would throw away a ten-minute bake and
+        // silently drop the scene back to classic lighting.
+        if (!contributesToBake(o)) continue;
         mix64(h, (uint64_t)o.type);
         mix64(h, o.castShadow ? 1 : 0);
         mix64(h, o.primDetail);

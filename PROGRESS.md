@@ -563,6 +563,55 @@ Each finished feature lands as its own commit.
   progress/cancel path was exercised through its headless twin rather than by
   hand.
 
+- (216) **A guided walk for the GI feature - and the three bugs authoring it
+  found** (user: "dodaj jeszcze przykladowy level z prezentacja efektu").
+  `examples/gi-showcase` is five stations along one straight walk, one per thing
+  baked global illumination changes: colour bleeding, the sky as a light with
+  real occlusion, an interior that goes dark away from its doorway (and warm
+  where the light bounced off the one sunlit strip of its floor), an emissive
+  plate throwing a soft-edged shadow, and a corridor lit by nothing but bounce.
+  Third person on purpose, so the probe grid visibly lights the avatar too.
+
+  Building it is what surfaced the bugs, which is the argument for building
+  examples at all:
+
+  - **Probes never received direct sun.** A ray that escapes comes back with
+    the sky DOME's colour, which carries no sun disc, and a finite ray set
+    cannot find a delta light anyway - so probes were delivering only the
+    BOUNCE of the sunlight around them. Characters read ~30% darker than the
+    lightmapped ground they stood on, which looks like a washed-out model, not
+    a missing light. Fixed by projecting the sun and the baked point lights
+    onto L1 analytically behind one shadow ray: the least-squares fit of a
+    clamped cosine is `max(0, n.s) ~= 1/4 + 1/2 (n.s)`, so a light of strength
+    E from direction s adds `0.25*E` to L0 and `0.75*E*s` to L1.
+  - **"Cast shadow" off removed an EMISSIVE surface from the bake.** That
+    switch means "light passes through me" and is honoured for everything
+    else, but an emitter IS the light. The symptom was one you would never
+    connect to that checkbox: a plate that still glowed (the Ke floor is a
+    vertex-colour term, independent of the bake) lighting absolutely nothing.
+  - **The bake signature hashed objects that cannot change it.** Nudging a
+    spawn point threw away the bake and silently dropped the scene back to
+    classic lighting. Markers, cameras, areas, decals, mirrors and portals are
+    skipped now - the exact complement of what `build()` puts in the BVH.
+
+  One authoring trap worth the line it costs: **a station outside the terrain
+  is not a subtle mistake.** The walker CLAMPS the player to the terrain
+  bounds, so every spawn past the edge lands in the same place and every
+  screenshot comes out identical - which reads as a broken camera, not as
+  walking off the map. Cost three rebuilds before the penny dropped; the whole
+  walk is now authored from z = 0 down and shifted onto the map by one
+  constant.
+
+  **Verified** per station in PCSX2 (software renderer), each with the player
+  spawned at that station: bleeding on the back wall and both pillars; the deep
+  slot darker than the shallow one in the same paint; the room black at the back
+  with a warm gradient off the orange strip; the alcove warm with the post's
+  shadow across it; the corridor dim with its blue end tinting what arrives.
+  **50 FPS throughout.** `examples/global-illumination` was re-baked (the cache
+  format went to v4 with these fixes) and both examples ship their cache.
+  **Not covered:** still no real-PS2 pass, and walking between the stations is a
+  hands-on check - every shot here is a spawn, not a walk.
+
 - (214) **One run group in the menu bar, with a target dropdown** (user:
   "zamiast dwóch guzików do włączania i zatrzymywania niech jest dropdown z
   wyborem Emulator/Playstation 2"). The toolbar carried two full run/stop pairs
