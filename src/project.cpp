@@ -189,7 +189,9 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
                 (l.kind == FlowLinkText ? ", \"text\": true" : "") +
                 (l.kind == FlowLinkNum ? ", \"number\": true" : "") +
-                (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") + " }";
+                (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") +
+                (l.fromPin ? ", \"fpin\": " + std::to_string(l.fromPin) : "") +
+                " }";
     }
     return json + "] }";
 }
@@ -299,6 +301,10 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkNum;
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
+            // "fpin" = which exec OUTPUT of the source the link leaves (Branch's
+            // true/false, Sequence's 1..4). Omitted at 0, which is every link
+            // written before multi-output nodes existed.
+            if (const auto* v = jl.find("fpin")) l.fromPin = (int)v->numberOr(0);
             if (l.kind == FlowLinkExec && !l.toPin)
                 for (const Retarget& r : retargets)
                     if (r.nodeId == l.toNode) l.toPin = r.pin;

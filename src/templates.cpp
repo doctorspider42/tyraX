@@ -19805,6 +19805,8 @@ std::string flowGraphScript(const Project& p) {
     bool anyInArea = false;
     bool anyNumDiv = false;
     bool anyRotateBy = false;
+    bool anyRandom = false;
+    bool anyTween = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
@@ -19815,6 +19817,8 @@ std::string flowGraphScript(const Project& p) {
                 anyInArea |= (n.type == "InArea");
                 anyNumDiv |= (n.type == "NumDiv");
                 anyRotateBy |= (n.type == "RotateObjectBy");
+                anyRandom |= (n.type == "RandomBranch");
+                anyTween |= (n.type == "Tween");
             }
     const bool anyNav = anyNavAiNode(p);
 
@@ -19957,6 +19961,45 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "static inline float flowWrapDeg(float deg) {\n"
                "  return (deg > 360.0F || deg < -360.0F) ? fmodf(deg, 360.0F)\n"
                "                                         : deg;\n"
+               "}\n";
+    }
+
+    if (anyRandom) {
+        // A graph's randomness, not the game's: one xorshift32 shared by every
+        // Random Branch. Seeded from a constant on purpose - the EE has no
+        // wall clock at boot worth seeding from, and a run that reproduces is
+        // worth more than one that surprises. Games wanting a different roll
+        // each session can stir it from a save value.
+        out << "\n// Random Branch: xorshift32, shared by every graph in the "
+               "project.\n"
+               "static unsigned int g_flowRandState = 0x1234567U;\n"
+               "static inline unsigned int flowRand() {\n"
+               "  unsigned int x = g_flowRandState;\n"
+               "  x ^= x << 13;\n"
+               "  x ^= x >> 17;\n"
+               "  x ^= x << 5;\n"
+               "  g_flowRandState = x;\n"
+               "  return x;\n"
+               "}\n";
+    }
+
+    if (anyTween) {
+        out << "\n// Tween Value: the eased 0..1 ramp and the value it drives.\n"
+               "// Recomputed wherever the number output is read, so the curve\n"
+               "// and the value cannot drift apart.\n"
+               "static inline float flowEase(float t, int mode) {\n"
+               "  if (t < 0.0F) t = 0.0F;\n"
+               "  if (t > 1.0F) t = 1.0F;\n"
+               "  if (mode == 1) return t * t;                      // ease in\n"
+               "  if (mode == 2) return t * (2.0F - t);             // ease out\n"
+               "  if (mode == 3) return t * t * (3.0F - 2.0F * t);  // smooth\n"
+               "  return t;\n"
+               "}\n"
+               "static inline float flowTween(float elapsed, float secs,\n"
+               "                              float from, float to, int ease) {\n"
+               "  const float t = secs > 0.0001F ? flowEase(elapsed / secs, ease)\n"
+               "                                 : 1.0F;\n"
+               "  return from + (to - from) * t;\n"
                "}\n";
     }
 
@@ -20249,6 +20292,25 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "0.0F";
                 return "ctx.saveValues[" + std::to_string(vi) + "]";
+            }
+            // Flow-control nodes that publish a number: their state member, read
+            // live. Not pure (they run), but on the value plane they read like
+            // any other source.
+            if (n.type == "Counter")
+                return "(float)count" + std::to_string(n.id);
+            if (n.type == "Timer") return "timerT" + std::to_string(n.id);
+            if (n.type == "ForLoop")
+                return "(float)loopIdx" + std::to_string(n.id);
+            if (n.type == "Tween") {
+                // Recomputed from the elapsed time wherever it is read, so the
+                // eased curve and the value can never disagree.
+                int ease = (int)std::lround(n.num[3]);
+                if (ease < 0) ease = 0;
+                if (ease > 3) ease = 3;
+                return "flowTween(twT" + std::to_string(n.id) + ", " +
+                       floatLit(n.num[2] > 0.0f ? n.num[2] : 0.0f) + ", " +
+                       floatLit(n.num[0]) + ", " + floatLit(n.num[1]) + ", " +
+                       std::to_string(ease) + ")";
             }
             if (!flowNumFolds(*t)) return "0.0F";  // not a Math node
 
@@ -20555,12 +20617,32 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return (int)usedSounds.size() - 1;
         };
 
+        // The exec walker, forward-declared: a flow-control node (Branch,
+        // Sequence, Gate, ...) emits the chain hanging off each of its OWN exec
+        // outputs inline, and it is actionCode that emits those nodes - so the
+        // two are mutually recursive. Assigned right after emitExec is defined
+        // below; nothing calls actionCode before then.
+        std::function<std::string(int, int, const std::string&,
+                                  std::vector<int>&)>
+            emitExecPin;
+
         // action node -> inline statements. `pin` is the exec input the link
         // fired (FlowLink::toPin): a merged node (Set Object Visible's
         // show/hide/toggle) switches its body on it, every other node ignores
-        // it because it only has pin 0.
-        auto actionCode = [&](const FlowNode& n, const std::string& pad,
-                              int pin) -> std::string {
+        // it because it only has pin 0. `visited` is the exec path that reached
+        // this node, threaded through so a flow-control node's own branches can
+        // recurse without re-entering a node already on the path.
+        auto actionCode = [&](const FlowNode& n, const std::string& pad, int pin,
+                              std::vector<int>& visited) -> std::string {
+            // The chain hanging off exec output `outPin` of THIS node. Each
+            // branch walks with its own COPY of the path: two outputs of one
+            // Sequence may legitimately reach the same action (it then runs
+            // twice, which is what the wiring says), while a link back into the
+            // path is still caught as a cycle.
+            auto branch = [&](int outPin, const std::string& bpad) {
+                std::vector<int> sub = visited;
+                return emitExecPin(n.id, outPin, bpad, sub);
+            };
             std::ostringstream c;
             // dyn: the target is a runtime handle (Spawn Object clone or a
             // custom node's object output); the whole action is then wrapped in
@@ -20734,9 +20816,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << ");\n";
             } else if (n.type == "Delay") {
                 // arm (or restart) the countdown; the per-frame block at the
-                // top of update() fires the linked actions when it hits 0
-                c << pad << "delay" << n.id << " = everyFrames("
-                  << floatLit(n.num[0]) << ");\n";
+                // top of update() fires the linked actions when it hits 0.
+                // everyFrames() runs at ARM time, so a wired number works here
+                // as-is - the delay can be computed.
+                c << pad << "delay" << n.id << " = everyFrames(" << numOperand(n)
+                  << ");\n";
             } else if (n.type == "MoveObjectTo") {
                 c << pad << "move" << n.id << " = true;\n";
             } else if (n.type == "SetSaveText") {
@@ -20796,16 +20880,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        n.type == "SetFlare" || n.type == "SetGodRays") {
                 // Bloom's re-add FIX is a whole byte, so it accepts up to 2
                 // (over-add, hot glow); grain / flare / god rays top out at 1.
-                int v = (int)(n.num[0] * 128.0f + 0.5f);
                 const int hi = n.type == "SetBloom" ? 255 : 128;
-                if (v < 0) v = 0;
-                if (v > hi) v = hi;
-                c << pad << "ctx."
-                  << (n.type == "SetBloom"    ? "bloom"
-                      : n.type == "SetGrain"  ? "grain"
-                      : n.type == "SetFlare"  ? "flare"
-                                              : "godRays")
-                  << " = " << v << ";\n";
+                const char* field = n.type == "SetBloom"   ? "bloom"
+                                    : n.type == "SetGrain" ? "grain"
+                                    : n.type == "SetFlare" ? "flare"
+                                                           : "godRays";
+                const std::string wired = numInput(n);
+                if (wired.empty()) {
+                    // Nothing wired: fold the clamp at codegen time.
+                    int v = (int)(n.num[0] * 128.0f + 0.5f);
+                    if (v < 0) v = 0;
+                    if (v > hi) v = hi;
+                    c << pad << "ctx." << field << " = " << v << ";\n";
+                } else {
+                    // A wired number (a Tween ramping the effect up) has to be
+                    // clamped where it is read.
+                    c << pad << "{\n"
+                      << pad << "  int a = (int)(" << wired << " * 128.0F + 0.5F);\n"
+                      << pad << "  if (a < 0) a = 0;\n"
+                      << pad << "  if (a > " << hi << ") a = " << hi << ";\n"
+                      << pad << "  ctx." << field << " = a;\n"
+                      << pad << "}\n";
+                }
             } else if (n.type == "SetDof") {
                 // Mode (num[3]): 0 = set the custom params, 1 = off,
                 // 2 = restore the scene's authored setting (-2 request).
@@ -20996,10 +21092,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                       << pad << "}\n";
                 }
             } else if (n.type == "SetMusicVolume") {
-                int vol = (int)n.num[0];
-                if (vol < 0) vol = 0;
-                if (vol > 100) vol = 100;
-                c << pad << "ctx.engine->audio.song.setVolume(" << vol << ");\n";
+                const std::string wired = numInput(n);
+                if (wired.empty()) {
+                    int vol = (int)n.num[0];
+                    if (vol < 0) vol = 0;
+                    if (vol > 100) vol = 100;
+                    c << pad << "ctx.engine->audio.song.setVolume(" << vol
+                      << ");\n";
+                } else {
+                    c << pad << "{\n"
+                      << pad << "  int v = (int)(" << wired << ");\n"
+                      << pad << "  if (v < 0) v = 0;\n"
+                      << pad << "  if (v > 100) v = 100;\n"
+                      << pad << "  ctx.engine->audio.song.setVolume(v);\n"
+                      << pad << "}\n";
+                }
             } else if (n.type == "SetValue" || n.type == "AddValue") {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) {
@@ -21123,6 +21230,204 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << floatLit(n.num[0]) << ", " << floatLit(n.num[1]) << ");\n";
             } else if (n.type == "StopAi") {
                 c << pad << "navStop(ctx, " << objIdx << ");\n";
+            // ---------------------------------------------------------------
+            // Flow control. Each of these decides which of its own exec
+            // outputs continues, and emits that chain inline - so the whole
+            // construct is ordinary C++ control flow with no dispatch cost.
+            // Their state members are declared in the per-node state pass
+            // below (one place, so the time machine's walk sees them).
+            } else if (n.type == "Branch") {
+                std::string cond = boolInputsOr(n);
+                if (cond.empty()) cond = "false";  // nothing wired
+                const std::string yes = branch(0, pad + "  ");
+                const std::string no = branch(1, pad + "  ");
+                if (yes.empty() && no.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (Branch): neither output is wired\n";
+                } else if (yes.empty()) {
+                    c << pad << "if (!(" << cond << ")) {\n" << no << pad << "}\n";
+                } else {
+                    c << pad << "if (" << cond << ") {\n" << yes << pad << "}\n";
+                    if (!no.empty()) c << pad << "else {\n" << no << pad << "}\n";
+                }
+            } else if (n.type == "Sequence") {
+                // Each output in its own block: two branches may both declare
+                // locals (a Move Object To glide does), and the whole point of
+                // this node is that output 1 finishes before output 2 starts.
+                for (int e = 0; e < 4; ++e) {
+                    const std::string ch = branch(e, pad + "  ");
+                    if (ch.empty()) continue;
+                    c << pad << "{  // Sequence output " << (e + 1) << "\n" << ch
+                      << pad << "}\n";
+                }
+            } else if (n.type == "DoOnce") {
+                const std::string v = "once" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = false;  // Do Once: armed again\n";
+                } else {
+                    const std::string ch = branch(0, pad + "  ");
+                    c << pad << "if (!" << v << ") {\n" << pad << "  " << v
+                      << " = true;\n" << ch << pad << "}\n";
+                }
+            } else if (n.type == "DoN") {
+                const std::string v = "doN" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = 0;  // Do N Times: count restarted\n";
+                } else {
+                    const std::string ch = branch(0, pad + "  ");
+                    c << pad << "if ((float)" << v << " < " << numOperand(n)
+                      << ") {\n" << pad << "  ++" << v << ";\n" << ch << pad
+                      << "}\n";
+                }
+            } else if (n.type == "Gate") {
+                const std::string v = "gate" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = true;   // Gate opened\n";
+                } else if (pin == 2) {
+                    c << pad << v << " = false;  // Gate closed\n";
+                } else {
+                    const std::string ch = branch(0, pad + "  ");
+                    if (!ch.empty())
+                        c << pad << "if (" << v << ") {\n" << ch << pad << "}\n";
+                }
+            } else if (n.type == "FlipFlop") {
+                const std::string v = "flip" + std::to_string(n.id);
+                const std::string a = branch(0, pad + "  ");
+                const std::string b = branch(1, pad + "  ");
+                if (a.empty() && b.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (Flip Flop): neither output is wired\n";
+                } else {
+                    c << pad << "if (!" << v << ") {\n" << a << pad << "} else {\n"
+                      << b << pad << "}\n" << pad << v << " = !" << v << ";\n";
+                }
+            } else if (n.type == "SwitchNumber") {
+                std::vector<std::string> cases;
+                for (int e = 0; e < 4; ++e) cases.push_back(branch(e, pad + "    "));
+                const std::string other = branch(4, pad + "    ");
+                bool any = !other.empty();
+                for (const std::string& s : cases) any |= !s.empty();
+                if (!any) {
+                    c << pad << "// node " << n.id
+                      << " (Switch Number): no output is wired\n";
+                } else {
+                    c << pad << "{\n" << pad << "  const int sw" << n.id
+                      << " = (int)lroundf(" << numOperand(n) << ");\n";
+                    bool first = true;
+                    for (int e = 0; e < 4; ++e) {
+                        if (cases[e].empty()) continue;
+                        c << pad << "  " << (first ? "if" : "else if") << " (sw"
+                          << n.id << " == " << e << ") {\n" << cases[e] << pad
+                          << "  }\n";
+                        first = false;
+                    }
+                    if (!other.empty()) {
+                        if (first) {
+                            // Only "else" is wired: every value takes it, so
+                            // the comparison would be dead code.
+                            c << pad << "  (void)sw" << n.id << ";\n" << other;
+                        } else {
+                            c << pad << "  else if (sw" << n.id << " < 0 || sw"
+                              << n.id << " > 3) {\n" << other << pad << "  }\n";
+                        }
+                    }
+                    c << pad << "}\n";
+                }
+            } else if (n.type == "RandomBranch") {
+                int outs = (int)std::lround(n.num[0]);
+                if (outs < 2) outs = 2;
+                if (outs > 4) outs = 4;
+                std::vector<std::string> arms;
+                bool any = false;
+                for (int e = 0; e < outs; ++e) {
+                    arms.push_back(branch(e, pad + "    "));
+                    any |= !arms.back().empty();
+                }
+                if (!any) {
+                    c << pad << "// node " << n.id
+                      << " (Random Branch): no output is wired\n";
+                } else {
+                    c << pad << "{\n" << pad << "  const int pick" << n.id
+                      << " = (int)(flowRand() % " << outs << "U);\n";
+                    for (int e = 0; e < outs; ++e) {
+                        if (arms[e].empty()) continue;
+                        c << pad << "  " << (e == 0 ? "if" : "else if") << " (pick"
+                          << n.id << " == " << e << ") {\n" << arms[e] << pad
+                          << "  }\n";
+                    }
+                    c << pad << "}\n";
+                }
+            } else if (n.type == "Cooldown") {
+                // The countdown itself is ticked in the per-frame prologue; here
+                // the only question is whether the valve is open.
+                const std::string v = "cool" + std::to_string(n.id);
+                const std::string ch = branch(0, pad + "  ");
+                if (!ch.empty())
+                    c << pad << "if (" << v << " <= 0.0F) {\n" << pad << "  " << v
+                      << " = " << floatLit(n.num[0] > 0.0f ? n.num[0] : 0.0f)
+                      << ";\n" << ch << pad << "}\n";
+            } else if (n.type == "Counter") {
+                const std::string v = "count" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = 0;  // Counter reset\n";
+                } else {
+                    long every = std::lround(n.num[0]);
+                    if (every < 1) every = 1;
+                    const std::string ch = branch(0, pad + "  ");
+                    c << pad << "++" << v << ";\n";
+                    if (!ch.empty()) {
+                        if (every == 1)
+                            c << pad << "{\n" << ch << pad << "}\n";
+                        else
+                            c << pad << "if (" << v << " % " << every
+                              << " == 0) {\n" << ch << pad << "}\n";
+                    }
+                }
+            } else if (n.type == "Timer") {
+                const std::string t0 = "timerT" + std::to_string(n.id);
+                const std::string r = "timerRun" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << r << " = false;  // Timer stopped\n";
+                } else if (pin == 2) {
+                    c << pad << t0 << " = 0.0F;  // Timer reset\n";
+                } else {
+                    c << pad << r << " = true;   // Timer started\n";
+                }
+            } else if (n.type == "Tween") {
+                const std::string t0 = "twT" + std::to_string(n.id);
+                const std::string r = "twRun" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << r << " = false;  // Tween stopped where it is\n";
+                } else {
+                    c << pad << t0 << " = 0.0F;\n" << pad << r << " = true;\n";
+                }
+            } else if (n.type == "ForLoop") {
+                const std::string v = "loopIdx" + std::to_string(n.id);
+                const std::string body = branch(0, pad + "    ");
+                const std::string done = branch(1, pad + "  ");
+                if (body.empty() && done.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (For Loop): neither output is wired\n";
+                } else {
+                    c << pad << "{\n"
+                      << pad << "  int times" << n.id << " = (int)lroundf("
+                      << numOperand(n) << ");\n"
+                      << pad << "  if (times" << n.id << " < 0) times" << n.id
+                      << " = 0;\n"
+                      // The cap is the whole reason this is safe on the EE: the
+                      // body runs inside one frame, so an unbounded count from
+                      // the number plane would be a hang, not a slow frame.
+                      << pad << "  if (times" << n.id << " > 64) times" << n.id
+                      << " = 64;\n";
+                    if (!body.empty())
+                        c << pad << "  for (" << v << " = 0; " << v << " < times"
+                          << n.id << "; ++" << v << ") {\n" << body << pad
+                          << "  }\n";
+                    else
+                        c << pad << "  " << v << " = times" << n.id << ";\n";
+                    if (!done.empty()) c << done;
+                    c << pad << "}\n";
+                }
             } else if (const CustomFlowNode* cn = flowCustomNode(n.type)) {
                 const FlowNodeType* t = &cn->type;
                 c << pad << "// node " << n.id << " (" << n.type << ")\n";
@@ -21200,18 +21505,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return dbgHit(n, pad) + c.str();
         };
 
-        // Emit the actions reached by exec links out of `fromId`. A custom
-        // node with exec_out fires its own downstream inline right after it
-        // runs (so raycast -> [exec] -> Hide Object sequences the data
-        // dependency); `visited` guards against exec cycles. Built-in Delay's
-        // exec-out fires from its per-frame countdown, not here, so it does not
-        // recurse. Pure data / trigger nodes never "run".
-        std::function<std::string(int, const std::string&, std::vector<int>&)> emitExec =
-            [&](int fromId, const std::string& pad,
-                std::vector<int>& visited) -> std::string {
+        // Emit the actions reached by exec links out of exec OUTPUT `fromPin` of
+        // `fromId`. A custom node with exec_out fires its own downstream inline
+        // right after it runs (so raycast -> [exec] -> Hide Object sequences the
+        // data dependency); `visited` guards against exec cycles. Built-in
+        // Delay's exec-out fires from its per-frame countdown, not here, so it
+        // does not recurse. Pure data / trigger nodes never "run".
+        std::function<std::string(int, int, const std::string&,
+                                  std::vector<int>&)>
+            emitExec = [&](int fromId, int fromPin, const std::string& pad,
+                           std::vector<int>& visited) -> std::string {
             std::ostringstream c;
             for (const FlowLink& l : fg.links) {
-                if (l.kind != FlowLinkExec || l.fromNode != fromId) continue;
+                if (l.kind != FlowLinkExec || l.fromNode != fromId ||
+                    l.fromPin != fromPin)
+                    continue;
                 const FlowNode* m = nodeById(l.toNode);
                 if (!m) continue;
                 const FlowNodeType* t = flowNodeType(m->type);
@@ -21227,18 +21535,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 visited.push_back(key);
-                c << actionCode(*m, pad, l.toPin);
+                c << actionCode(*m, pad, l.toPin, visited);
                 if (t->execThrough &&
                     (flowCustomNode(m->type) || m->type == "Raycast" ||
                      m->type == "GetPosition"))
-                    c << emitExec(m->id, pad, visited);
+                    c << emitExec(m->id, 0, pad, visited);
             }
             return c.str();
         };
-        // all actions exec-linked to a trigger (pure data nodes never "run")
+        emitExecPin = emitExec;
+        // all actions exec-linked to a trigger's / an armed timer's output
+        // (pure data nodes never "run")
         auto linkedActions = [&](int triggerId, const std::string& pad) {
             std::vector<int> visited;
-            return emitExec(triggerId, pad, visited);
+            return emitExec(triggerId, 0, pad, visited);
         };
 
         const std::string cls =
@@ -21373,6 +21683,80 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        << "        pos[2] += dz / dist * step;\n"
                        << "      }\n"
                        << "      " << obj << ".dirty = true;\n"
+                       << "    }\n";
+            } else if (n.type == "DoOnce") {
+                const std::string v = "once" + std::to_string(n.id);
+                addMember("bool", v, "false", 'b', 1);
+                flagResets << "      " << v << " = false;\n";
+            } else if (n.type == "DoN") {
+                const std::string v = "doN" + std::to_string(n.id);
+                addMember("int", v, "0", 'i', 1);
+                flagResets << "      " << v << " = 0;\n";
+            } else if (n.type == "Gate") {
+                // "Start open" is both the initializer and what a scene reload
+                // goes back to - a gate is state, and a rewind must restore it.
+                const std::string v = "gate" + std::to_string(n.id);
+                const char* init = n.num[0] != 0.0f ? "true" : "false";
+                addMember("bool", v, init, 'b', 1);
+                flagResets << "      " << v << " = " << init << ";\n";
+            } else if (n.type == "FlipFlop") {
+                const std::string v = "flip" + std::to_string(n.id);
+                addMember("bool", v, "false", 'b', 1);
+                flagResets << "      " << v << " = false;\n";
+            } else if (n.type == "Counter") {
+                const std::string v = "count" + std::to_string(n.id);
+                addMember("int", v, "0", 'i', 1);
+                flagResets << "      " << v << " = 0;\n";
+            } else if (n.type == "ForLoop") {
+                // A member rather than a loop-local, so the node's number output
+                // (the iteration index) is a name that exists everywhere - it
+                // simply holds the last index once the loop is over.
+                const std::string v = "loopIdx" + std::to_string(n.id);
+                addMember("int", v, "0", 'i', 1);
+                flagResets << "      " << v << " = 0;\n";
+            } else if (n.type == "Cooldown") {
+                const std::string v = "cool" + std::to_string(n.id);
+                addMember("float", v, "0.0F", 'f', 1);
+                flagResets << "      " << v << " = 0.0F;\n";
+                clsOut << "    if (" << v << " > 0.0F) {\n"
+                       << "      " << v << " -= g_frameDt;\n"
+                       << "      if (" << v << " < 0.0F) " << v << " = 0.0F;\n"
+                       << "    }\n";
+            } else if (n.type == "Timer") {
+                const std::string t0 = "timerT" + std::to_string(n.id);
+                const std::string r = "timerRun" + std::to_string(n.id);
+                addMember("float", t0, "0.0F", 'f', 1);
+                addMember("bool", r, "false", 'b', 1);
+                flagResets << "      " << t0 << " = 0.0F;\n"
+                           << "      " << r << " = false;\n";
+                const float dur = n.num[0];
+                clsOut << "    if (" << r << ") {\n"
+                       << "      " << t0 << " += g_frameDt;\n";
+                if (dur > 0.0f) {
+                    clsOut << "      if (" << t0 << " >= " << floatLit(dur)
+                           << ") {\n"
+                           << "        " << t0 << " = " << floatLit(dur) << ";\n"
+                           << "        " << r << " = false;\n"
+                           << linkedActions(n.id, "        ") << "      }\n";
+                }
+                clsOut << "    }\n";
+            } else if (n.type == "Tween") {
+                const std::string t0 = "twT" + std::to_string(n.id);
+                const std::string r = "twRun" + std::to_string(n.id);
+                addMember("float", t0, "0.0F", 'f', 1);
+                addMember("bool", r, "false", 'b', 1);
+                flagResets << "      " << t0 << " = 0.0F;\n"
+                           << "      " << r << " = false;\n";
+                const float secs = n.num[2] > 0.0f ? n.num[2] : 0.0f;
+                // The value itself is not stored: it is a pure function of the
+                // elapsed time (numExprImpl emits flowTween), so consumers read
+                // it live and nothing can go stale.
+                clsOut << "    if (" << r << ") {\n"
+                       << "      " << t0 << " += g_frameDt;\n"
+                       << "      if (" << t0 << " >= " << floatLit(secs) << ") {\n"
+                       << "        " << t0 << " = " << floatLit(secs) << ";\n"
+                       << "        " << r << " = false;\n"
+                       << linkedActions(n.id, "        ") << "      }\n"
                        << "    }\n";
             }
         }

@@ -287,9 +287,29 @@ templates.cpp and the identical walk in livelogic.cpp) — a variable named only
 by a getter still takes its index slot, and a missing entry shifts every index
 after it.
 
+**A node that decides where exec goes next** (the `Flow` category: Branch,
+Sequence, Gate, Switch Number, Timer, Tween, For Loop): set `execOutCount` +
+`execOutLabels` and emit each branch yourself. The branch a link LEAVES is
+`FlowLink::fromPin` (serialized `"fpin": N`, omitted at 0); output 0 keeps the
+original pin slot 1, outputs 1..7 take slots 18..24 (`kFlowMaxExecOut` = 8), and
+**`flowExecOutCount(t)` is the one answer** to "how many outputs does this type
+have" - read by the editor's pin submission, both link-validity checks (editor
+AND `aigen.cpp`) and codegen. Inside `actionCode` the local `branch(outPin, pad)`
+returns that output's whole chain as inline C++, so a Branch costs one `if`; each
+branch walks with its OWN COPY of the visited path, because two outputs of one
+Sequence may legitimately reach the same action (it then runs twice, which is
+what the wiring says) while a link back into the path is still a cycle. Nodes
+needing per-frame state (Timer, Tween, Cooldown) declare it through `addMember`
+in the per-node state pass and tick in the `update()` prologue like Delay - never
+straight into `members`, or the time machine cannot see it. **Live Logic cannot
+patch a branching node**: a block is a straight instruction list, so
+`capability()` rejects any graph where `flowExecOutCount > 1`, and
+`livelogic.cpp`'s own exec walk filters `fromPin != 0` to stay honest with
+codegen's.
+
 **Several triggers on one node** (show/hide/toggle/add): set `execInCount` +
 `execInLabels` on the `FlowNodeType` and switch on the `pin` argument in
-`actionCode(n, pad, pin)`. The pin a link fires is `FlowLink::toPin`
+`actionCode(n, pad, pin, visited)`. The pin a link fires is `FlowLink::toPin`
 (serialized `"pin": N`, omitted at 0); pin ids come from `flowExecInPin` (slot 2
 for the first, spare slots 10..15 for the rest — `kFlowMaxExecIn` = 7). Do NOT
 add a Show*/Hide* *pair* of node types: that was the old convention and the five

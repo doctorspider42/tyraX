@@ -23,6 +23,11 @@
 // An action may expose SEVERAL exec inputs (Set Object Visible: show / hide /
 // toggle); FlowLink::toPin says which one a link targets, so one node replaces
 // what used to be a pair of Show*/Hide* nodes.
+// Symmetrically, an action may expose several exec OUTPUTS (Branch: true /
+// false; Sequence: 1..4) - FlowLink::fromPin says which one a link leaves.
+// That is what makes the exec plane a real control-flow language rather than a
+// list of things a trigger does: a "Flow" node reads a condition or its own
+// state and decides WHICH of its outputs continues.
 // Object-referencing nodes resolve their target in this order:
 //  1. incoming object link  ->  the source node's resolved object
 //  2. explicit object name (str)
@@ -58,6 +63,10 @@ struct FlowLink {
     // node's first pin, "> do" on a single-input action). Index into the
     // target type's execInLabels.
     int toPin = 0;
+    // Which exec OUTPUT of fromNode this link leaves (exec links only; 0 = a
+    // trigger's "then" / an action's "after", the only output most nodes have).
+    // Index into the source type's execOutLabels.
+    int fromPin = 0;
 };
 
 struct FlowGraph {
@@ -77,7 +86,7 @@ inline bool operator==(const FlowNode& a, const FlowNode& b) {
 
 inline bool operator==(const FlowLink& a, const FlowLink& b) {
     return a.id == b.id && a.fromNode == b.fromNode && a.toNode == b.toNode &&
-           a.kind == b.kind && a.toPin == b.toPin;
+           a.kind == b.kind && a.toPin == b.toPin && a.fromPin == b.fromPin;
 }
 
 inline bool operator==(const FlowGraph& a, const FlowGraph& b) {
@@ -90,6 +99,12 @@ inline bool operator==(const FlowGraph& a, const FlowGraph& b) {
 // bottom) reserves slot 2 plus slots 10..15 for them, so seven is the ceiling
 // - well past what any node needs (the widest is show/hide/toggle).
 constexpr int kFlowMaxExecIn = 7;
+
+// Exec OUTPUT pins per node. Output 0 keeps the original slot 1 (a trigger's
+// "then", an action's "after"), outputs 1..7 take the spare slots 18..24 - so
+// eight, again well past what any node needs (the widest is Switch Number's
+// four cases plus "else").
+constexpr int kFlowMaxExecOut = 8;
 
 enum class FlowParamKind {
     None,
@@ -147,6 +162,14 @@ struct FlowNodeType {
     // node's codegen switches on it. Ignored by triggers and pure nodes.
     int execInCount = 1;
     const char* execInLabels[kFlowMaxExecIn] = {};
+    // Exec OUTPUT pins on an action - the control-flow half. 0 keeps the old
+    // rules (a trigger has its "then", an execThrough action its "after",
+    // everything else none); >= 1 gives the node that many LABELED outputs and
+    // the branch a link leaves is FlowLink::fromPin. A node declaring these
+    // emits the chain hanging off each output itself, which is what makes
+    // Branch / Sequence / Gate expressible at all.
+    int execOutCount = 0;
+    const char* execOutLabels[kFlowMaxExecOut] = {};
     // One-paragraph behavior description - THE documentation of the node.
     // Shown in the editor (add-menu tooltips, hovering a node) and fed to
     // the AI flow-graph generator's catalog, so a node added with a desc is
@@ -238,10 +261,121 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Fires when the target's animation clip reaches its last "
                  "frame (animated .glb model objects only)."},
         {.key = "Delay", .title = "Delay", .category = "Time", .numCount = 1,
-         .numLabels = {"Seconds"}, .execThrough = true,
+         .numLabels = {"Seconds"}, .numIn = true, .execThrough = true,
          .desc = "Exec input arms a timer; the 'after' exec output fires once "
                  "num[0] seconds elapse. Re-arming while counting restarts "
-                 "the timer."},
+                 "the timer. A linked number overrides num[0], so the wait "
+                 "can be computed."},
+        // ------------------------------------------------------------------
+        // Flow control. These are the nodes that make the exec plane a
+        // language: each one decides WHICH of its own exec outputs continues
+        // (FlowLink::fromPin), instead of just doing a thing. Every chain is
+        // emitted inline by codegen, so a Branch costs one C++ `if`.
+        {.key = "Branch", .title = "Branch (If)", .category = "Flow",
+         .boolIn = true, .execOutCount = 2, .execOutLabels = {"true", "false"},
+         .desc = "The if/else of the graph: on exec it evaluates its bool "
+                 "input ONCE and continues out of 'true' or out of 'false'. "
+                 "Unlike On Condition (which fires on a rising edge whenever "
+                 "the condition becomes true) this runs only when something "
+                 "execs it, so it answers \"is it true right now?\" at a "
+                 "moment you choose. With no bool wired it always takes "
+                 "'false'."},
+        {.key = "Sequence", .title = "Sequence", .category = "Flow",
+         .execOutCount = 4, .execOutLabels = {"1", "2", "3", "4"},
+         .desc = "Fires its outputs 1, 2, 3, 4 in that order, each one's whole "
+                 "chain completing before the next starts. Use it when the "
+                 "ORDER matters - several links out of one trigger pin run in "
+                 "link order, which is invisible in the editor. Unused outputs "
+                 "cost nothing."},
+        {.key = "DoOnce", .title = "Do Once", .category = "Flow",
+         .execInCount = 2, .execInLabels = {"do", "reset"}, .execOutCount = 1,
+         .execOutLabels = {"then"},
+         .desc = "Passes the FIRST exec through and then nothing: the gate for "
+                 "a one-shot inside a trigger that keeps firing (Near Object, "
+                 "On Update). The 'reset' pin arms it again. Resets on scene "
+                 "reload."},
+        {.key = "DoN", .title = "Do N Times", .category = "Flow",
+         .numCount = 1, .numLabels = {"Times"}, .numIn = true,
+         .execInCount = 2, .execInLabels = {"do", "reset"}, .execOutCount = 1,
+         .execOutLabels = {"then"},
+         .desc = "Passes the first num[0] (Times) execs through, then blocks. "
+                 "'reset' starts the count over. Times <= 0 blocks everything; "
+                 "a linked number overrides num[0]."},
+        {.key = "Gate", .title = "Gate", .category = "Flow", .numCount = 1,
+         .numLabels = {"Start open"}, .execInCount = 3,
+         .execInLabels = {"enter", "open", "close"}, .execOutCount = 1,
+         .execOutLabels = {"then"},
+         .desc = "A valve on the exec plane: exec into 'enter' continues out of "
+                 "'then' only while the gate is open. 'open' and 'close' flip "
+                 "it, num[0] Start open says which state it boots in. Cleaner "
+                 "than a bool variable + Branch when the STATE is what you are "
+                 "modelling (a door being unlocked, a phase being active)."},
+        {.key = "FlipFlop", .title = "Flip Flop", .category = "Flow",
+         .execOutCount = 2, .execOutLabels = {"A", "B"},
+         .desc = "Alternates: the first exec goes out of 'A', the next out of "
+                 "'B', then A again. The two-state toggle without a variable - "
+                 "a light switch, an in/out door, a stance change."},
+        {.key = "SwitchNumber", .title = "Switch Number", .category = "Flow",
+         .numCount = 1, .numLabels = {"Value"}, .numIn = true,
+         .execOutCount = 5, .execOutLabels = {"= 0", "= 1", "= 2", "= 3", "else"},
+         .desc = "Routes exec by a number: rounds its input (a wired number, "
+                 "else num[0]) and continues out of the matching output, or out "
+                 "of 'else' when it is not 0..3. The dispatch for a state "
+                 "machine kept in an int variable."},
+        {.key = "RandomBranch", .title = "Random Branch", .category = "Flow",
+         .numCount = 1, .numLabels = {"Outputs"}, .execOutCount = 4,
+         .execOutLabels = {"A", "B", "C", "D"},
+         .desc = "Continues out of one output picked at random. num[0] Outputs "
+                 "(2..4) says how many are in play, so a 3-way pick does not "
+                 "need D wired. Use it for idle barks, wander directions, loot "
+                 "rolls."},
+        {.key = "Cooldown", .title = "Cooldown", .category = "Flow",
+         .numCount = 1, .numLabels = {"Seconds"}, .execOutCount = 1,
+         .execOutLabels = {"then"},
+         .desc = "Passes exec through at most once every num[0] seconds and "
+                 "silently swallows the rest - the rate limiter for a trigger "
+                 "that fires every frame (Near Object) or a weapon that must "
+                 "not fire faster than it reloads. Unlike Delay nothing is "
+                 "queued: a swallowed exec is gone, not postponed."},
+        {.key = "Counter", .title = "Counter", .category = "Flow",
+         .numCount = 1, .numLabels = {"Every"}, .numOut = true,
+         .execInCount = 2, .execInLabels = {"count", "reset"},
+         .execOutCount = 1, .execOutLabels = {"then"},
+         .desc = "Counts execs into 'count' and fires 'then' every num[0] "
+                 "(Every) of them (Every 1 = every time, 3 = every third). Its "
+                 "number output is the running total, so it doubles as a "
+                 "graph-local tally without touching a variable. 'reset' zeroes "
+                 "both."},
+        {.key = "Timer", .title = "Timer", .category = "Flow", .numCount = 1,
+         .numLabels = {"Duration"}, .numOut = true, .execInCount = 3,
+         .execInLabels = {"start", "stop", "reset"}, .execOutCount = 1,
+         .execOutLabels = {"finished"},
+         .desc = "A stopwatch: 'start' runs it, 'stop' pauses it, 'reset' zeroes "
+                 "it. Its number output is the elapsed SECONDS, readable while "
+                 "running - wire it into Number To Text for an on-screen clock. "
+                 "With num[0] Duration > 0 the 'finished' output fires the frame "
+                 "it reaches that many seconds and the timer stops itself; "
+                 "Duration 0 = runs forever."},
+        {.key = "Tween", .title = "Tween Value", .category = "Flow",
+         .numCount = 4, .numLabels = {"From", "To", "Seconds", "Ease"},
+         .numOut = true, .execInCount = 2, .execInLabels = {"start", "stop"},
+         .execOutCount = 1, .execOutLabels = {"finished"},
+         .desc = "Drives a NUMBER from num[0] (From) to num[1] (To) over num[2] "
+                 "(Seconds) and fires 'finished' when it arrives. num[3] Ease: "
+                 "0 linear, 1 ease in, 2 ease out, 3 smooth (in-out). Its "
+                 "number output is the live value - wire it into Set Object "
+                 "Color, Set Bloom, Set Music Volume, a position, anything on "
+                 "the number plane, and that parameter animates. Frame-rate "
+                 "independent. 'stop' freezes it where it is."},
+        {.key = "ForLoop", .title = "For Loop", .category = "Flow",
+         .numCount = 1, .numLabels = {"Times"}, .numIn = true, .numOut = true,
+         .execOutCount = 2, .execOutLabels = {"body", "done"},
+         .desc = "Runs its 'body' chain num[0] (Times) times, then fires 'done' "
+                 "once. Its number output is the 0-based iteration index, so "
+                 "the body can spread things out (spawn 8 objects in a ring). "
+                 "The whole loop runs inside ONE frame, so keep Times small - "
+                 "it is capped at 64, and a body that moves objects re-bakes "
+                 "their geometry per iteration."},
         // Object params already default to self when empty; Self makes the
         // reference explicit and wireable into any pin.
         {.key = "Self", .title = "Self", .category = "Object", .idOut = true,
@@ -472,21 +606,25 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .numCount = 1, .numLabels = {"On"},
          .desc = "num[0] = 1 re-applies the scene's fog, 0 disables it."},
         {.key = "SetBloom", .title = "Set Bloom", .category = "Scene",
-         .numCount = 1, .numLabels = {"Amount"},
+         .numCount = 1, .numLabels = {"Amount"}, .numIn = true,
          .desc = "Bloom amount num[0] 0..2 (0 = off, 1 = the blur fully "
-                 "re-added, above that over-added for a hot glow)."},
+                 "re-added, above that over-added for a hot glow). A linked "
+                 "number overrides num[0] - wire a Tween into it to ramp the "
+                 "glow up."},
         {.key = "SetGrain", .title = "Set Grain", .category = "Scene",
-         .numCount = 1, .numLabels = {"Amount"},
-         .desc = "Film grain amount num[0] 0..1 (0 = off)."},
+         .numCount = 1, .numLabels = {"Amount"}, .numIn = true,
+         .desc = "Film grain amount num[0] 0..1 (0 = off). A linked number "
+                 "overrides num[0]."},
         {.key = "SetFlare", .title = "Set Lens Flare", .category = "Scene",
-         .numCount = 1, .numLabels = {"Amount"},
+         .numCount = 1, .numLabels = {"Amount"}, .numIn = true,
          .desc = "Sun lens flare brightness num[0] 0..1 (0 = off). The flare "
                  "follows the scene's sun (lighting direction) and hides "
-                 "behind geometry."},
+                 "behind geometry. A linked number overrides num[0]."},
         {.key = "SetGodRays", .title = "Set God Rays", .category = "Scene",
-         .numCount = 1, .numLabels = {"Amount"},
+         .numCount = 1, .numLabels = {"Amount"}, .numIn = true,
          .desc = "God rays (sun light shafts) strength num[0] 0..1 (0 = "
-                 "off). Radial streaks from the sun's screen position."},
+                 "off). Radial streaks from the sun's screen position. A "
+                 "linked number overrides num[0]."},
         // Authored baseline: Tools > UI Editor > Depth of field.
         {.key = "SetDof", .title = "Set Depth Of Field", .category = "Scene",
          .numCount = 4, .numLabels = {"Focus", "Range", "Amount", "Mode"},
@@ -560,7 +698,9 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Stops the music."},
         {.key = "SetMusicVolume", .title = "Set Music Volume",
          .category = "Audio", .numCount = 1, .numLabels = {"Volume"},
-         .desc = "num[0] Volume 0..100."},
+         .numIn = true,
+         .desc = "num[0] Volume 0..100. A linked number overrides num[0], so "
+                 "a Tween can fade the music out."},
         {.key = "PlaySound", .title = "Play Sound", .category = "Audio",
          .strKind = FlowParamKind::SoundTrack, .numCount = 2,
          .numLabels = {"Volume", "Channel"},
@@ -861,9 +1001,10 @@ std::string writeExample(const std::string& projectDir);
 // imnodes pin ids derived from node ids: `pin % kFlowPinSlots` encodes the pin
 // KIND, `pin / kFlowPinSlots` the node. Slots 0..9 are the fixed pins (object-id
 // in / exec out / exec in / object-id out / position in / position out / bool in
-// / bool out / text in / text out), 10..15 a node's 2nd..7th exec input, and
-// 16..17 the number plane. Pin ids are never persisted, so widening the stride
-// is safe - it went 8 -> 16 -> 32 without touching a single project file.
+// / bool out / text in / text out), 10..15 a node's 2nd..7th exec input,
+// 16..17 the number plane and 18..24 a node's 2nd..8th exec OUTPUT. Pin ids are
+// never persisted, so widening the stride is safe - it went 8 -> 16 -> 32
+// without touching a single project file.
 constexpr int kFlowPinSlots = 32;
 
 inline int flowIdInPin(int nodeId) { return nodeId * kFlowPinSlots; }
@@ -897,6 +1038,42 @@ inline int flowExecInIndex(int slot) {
     if (slot == 2) return 0;
     if (slot >= 10 && slot < 10 + kFlowMaxExecIn - 1) return slot - 9;
     return -1;
+}
+
+// Exec output `pin` of a node: the first keeps the original slot 1 (so every
+// link ever saved still resolves), the rest take the spare slots 18..24.
+inline int flowExecOutPin(int nodeId, int pin) {
+    return pin <= 0 ? nodeId * kFlowPinSlots + 1
+                    : nodeId * kFlowPinSlots + 17 + pin;
+}
+
+// Inverse of flowExecOutPin for a pin slot: the exec output index, or -1 when
+// the slot is not an exec output.
+inline int flowExecOutIndex(int slot) {
+    if (slot == 1) return 0;
+    if (slot >= 18 && slot < 18 + kFlowMaxExecOut - 1) return slot - 17;
+    return -1;
+}
+
+// How many exec outputs a node type actually has. The ONE answer read by the
+// editor (which pins to submit), the link pruning and codegen - a node type
+// declaring execOutCount and one relying on trigger/execThrough must not be
+// two different questions.
+inline int flowExecOutCount(const FlowNodeType& t) {
+    if (t.pure) return 0;
+    if (t.trigger) return 1;
+    if (t.execOutCount > 0)
+        return t.execOutCount > kFlowMaxExecOut ? kFlowMaxExecOut : t.execOutCount;
+    return t.execThrough ? 1 : 0;
+}
+
+// Label shown on exec output `pin` of `t`. A trigger's lone output is "then",
+// an execThrough action's is "after"; a multi-output node labels its own.
+inline const char* flowExecOutLabel(const FlowNodeType& t, int pin) {
+    if (t.execOutCount > 0 && pin >= 0 && pin < t.execOutCount &&
+        t.execOutLabels[pin])
+        return t.execOutLabels[pin];
+    return t.trigger ? "then" : "after";
 }
 
 // A number input that FOLDS over several links (the Math nodes) rather than

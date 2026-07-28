@@ -12561,6 +12561,86 @@ Each finished feature lands as its own commit.
   did not use (an object-LINK target via Self, `stop` on pin 1) was read out of
   `flow_graph.gen.cpp` and compiled in Docker.
 
+- (223) **The exec plane becomes a language: multiple exec OUTPUTS and the Flow
+  category** (user asked for a survey of the node set and then "jedź po kolei ze
+  wszystkim" - this is stage 1 of six).
+
+  The audit that started it is worth recording, because it named the real
+  ceiling. 96 built-in nodes across 16 categories, and **no if/else**: a
+  `FlowLink` carried `toPin` but nothing for the source side, so a node had at
+  most one exec output (`trigger`, or `execThrough` for Delay/Raycast/Get
+  Position). The only bridge from the bool plane back to exec was *On Condition*
+  - a rising-edge *trigger*, which answers "when did this become true", never
+  "is it true at this moment". Every classic control-flow node (Branch,
+  Sequence, Gate, Flip-Flop, Switch, Random Branch, For Loop) was inexpressible
+  for the same one reason.
+
+  So: `FlowLink::fromPin` (serialized `"fpin": N`, omitted at 0 - which is every
+  link ever written, so no migration), `FlowNodeType::execOutCount` +
+  `execOutLabels`, and pin slots 18..24 for outputs 1..7 inside the existing
+  stride-32 space (`kFlowMaxExecOut` = 8). **`flowExecOutCount(t)` is the single
+  answer** to how many outputs a type has - the editor's pin submission, both
+  link-validity checks (the editor's prune AND `aigen.cpp`'s, which are twins)
+  and codegen all read it, rather than each re-deriving it from
+  trigger/execThrough. Output 0 deliberately keeps the original slot 1, so a
+  saved graph's links resolve unchanged.
+
+  Thirteen nodes in a new **Flow** category: **Branch (If)**, **Sequence**,
+  **Do Once**, **Do N Times**, **Gate**, **Flip Flop**, **Switch Number**,
+  **Random Branch**, **Cooldown**, **Counter**, **Timer**, **Tween Value**,
+  **For Loop**. All of it compiles to ordinary C++ control flow - a Branch is
+  one `if`, a For Loop one `for` - because `actionCode` gained a local
+  `branch(outPin, pad)` that returns that output's whole chain inline. That
+  needed `emitExec` and `actionCode` to become mutually recursive (a
+  forward-declared `std::function`, assigned right after `emitExec` is defined)
+  and `visited` threaded through `actionCode`. **Each branch walks with its own
+  COPY of the path**, which is the one subtle decision here: two outputs of one
+  Sequence reaching the same action means it runs twice, which is what the
+  wiring says - but a link back into the path is still caught as a cycle.
+
+  Two of the thirteen carry most of the weight. **Timer** publishes its elapsed
+  seconds on the number plane (an on-screen clock is Timer → Number To Text →
+  Display Text, no variable involved), and **Tween Value** drives a number
+  From→To over Seconds with four eases and fires `finished` - so *any* number
+  input animates without a graph running every frame. Which immediately exposed
+  a second gap: `Set Bloom`, `Set Grain`, `Set Lens Flare`, `Set God Rays`,
+  `Set Music Volume` and `Delay` had **no `numIn` at all**, so the value plane
+  could not reach them and the very first test graph had its Tween → Set Bloom
+  link pruned as invalid. They accept a wired number now, clamped at the read
+  site when one is wired and folded at codegen time when none is (a wired
+  `everyFrames()` argument needed nothing - it already runs at arm time).
+  Tween's value is deliberately NOT stored: `numExprImpl` emits
+  `flowTween(elapsed, ...)`, recomputed wherever it is read, so the eased curve
+  and the value cannot drift apart.
+
+  State discipline followed the Delay precedent exactly: Timer/Tween/Cooldown
+  tick in the `update()` prologue and every member goes through `addMember`, so
+  all nine new kinds of per-node state join the **time machine's capture walk**
+  by construction - a rewind puts a half-open gate, a mid-flight tween and a
+  cooling-down valve back. **Live Logic cannot patch a branching graph** and now
+  says so: a block is a straight instruction list, so `capability()` rejects any
+  node with `flowExecOutCount > 1`, and `livelogic.cpp`'s own exec walk filters
+  `fromPin != 0` - today unreachable (every branching type is unsupported
+  anyway), but the walk would silently run BOTH arms if a supported node ever
+  gained a branch. The For Loop's 64-iteration cap is the same kind of
+  defensiveness: the body runs inside one frame, so an unbounded count off the
+  number plane would be a hang, not a slow frame.
+
+  Verified by codegen, which is the layer that matters for a language change: a
+  scratch `--new ... fpp` project, a 43-node / 46-link graph exercising every
+  new node and every branch shape (`--apply-graph`, which validates with the
+  same rules the editor prunes by - it is what caught the Set Bloom gap, as
+  "Dropped 1 invalid link"), then `--refresh-gen` and a read of
+  `flow_graph.gen.cpp`. Every construct came out as the intended C++: the
+  Sequence as three commented blocks in order, the Branch as `if/else`, Switch
+  Number as a chained `if` on `lroundf` with the `else` arm guarded by
+  `< 0 || > 3`, the For Loop with its clamp and the index as a member so the
+  number output is a name that exists outside the loop, Tween → Set Bloom as
+  `flowTween(twT100, 1.5F, 0.0F, 2.0F, 3)` clamped into `ctx.bloom`, and all
+  nine state members present in the scene-reload reset block. Editor builds
+  clean. Not yet run in PCSX2 - that comes with the later stages, whose nodes
+  share these mechanisms.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch

@@ -50,6 +50,10 @@ over guessing from this file.
 - `pin`: on an exec link only - which labeled exec input of a merged node it
   fires (e.g. Set Int has `0`=set, `1`=add). Omit for the first pin.
   `--list-nodes` names the pins of every merged node.
+- `fpin`: on an exec link only - which labeled exec **output** of a
+  flow-control node it leaves (Branch `0`=true, `1`=false; Sequence `0..3`;
+  Switch Number `0..3` plus `4`=else). Omit for the node's first output.
+  `--list-nodes` names those too.
 - The editor's native storage uses bool flags (`"data"`, `"pos"`, `"bool"`,
   `"text"`, `"number"`) instead of `"kind"`; `--apply-graph` accepts both.
 
@@ -57,19 +61,41 @@ over guessing from this file.
 
 - **Triggers** (On Start, On Update, On Button, Near Object, In Area, On Used, Every N
   Seconds, On Animation Finished, On Condition, On Menu Event) have an exec **output**;
-  **actions** have only an exec **input** - to run several actions, wire each
-  of them from the trigger (they run in link order). The only non-trigger exec
+  most **actions** have only an exec **input** - to run several actions, wire
+  each of them from the trigger (they run in link order). The non-trigger exec
   outputs are the "fires later" ones (Delay's after-timeout, Raycast's
-  after-cast); use **Delay** to sequence actions over time. **Pure** nodes
+  after-cast) and the whole **Flow** category. **Pure** nodes
   (logic gates, getters, converters) have no exec pins and evaluate every
   frame on demand.
+- **Reach for the Flow category instead of improvising control flow.** These
+  are the nodes that decide which of their OWN outputs continues (`fpin`):
+  - **Branch (If)** - if/else on a bool, evaluated at the moment it runs.
+    Different from On Condition, which is a *trigger* on a rising edge.
+  - **Sequence** - four outputs fired in order, when the order matters.
+  - **Do Once** / **Do N Times** - make a repeating trigger (On Update, Near
+    Object) fire a one-shot; both have a `reset` pin.
+  - **Cooldown** - rate-limit a trigger. Swallowed execs are LOST, not queued
+    (that is Delay).
+  - **Gate** - an open/close valve; **Flip Flop** - alternate A/B.
+  - **Switch Number** - dispatch a state machine kept in an int variable.
+  - **Counter** - fire every N-th exec; its number output is the tally.
+  - **Timer** - a stopwatch whose number output is the elapsed seconds
+    (wire it through Number To Text for an on-screen clock); fires `finished`
+    at Duration.
+  - **Tween Value** - drive a number From→To over Seconds with an ease and
+    fire `finished`. Its number output animates ANY number input (bloom, music
+    volume, a save value, a position component), which is how a parameter is
+    animated without touching On Update.
+  - **For Loop** - `body` runs Times times with the index on the number output,
+    then `done`. Whole loop is one frame; capped at 64.
 - Object-parameter nodes resolve their target: incoming **object link** →
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge
   back to execution with **On Condition** (fires on the rising edge).
 - A position link into a node with X/Y/Z params overrides those params; a
   **number** link overrides the target's `num[0]` the same way. Number sources
-  are Number / Get Int / Get Save Value; Add/Subtract/Multiply/Divide fold over
+  are Number / Get Int / Get Save Value / Timer / Tween / Counter / For Loop;
+  Add/Subtract/Multiply/Divide fold over
   **all** their wired number inputs (with one input wired, `num[0]` is the
   second operand); Number At Least bridges to the bool plane and Number To Text
   to the text plane.

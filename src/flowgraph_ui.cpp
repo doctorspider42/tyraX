@@ -179,8 +179,14 @@ void App::drawFlowGraphWindow() {
             if (ok) {
                 switch (l.kind) {
                     case FlowLinkExec:
-                        ok = (from->trigger || from->execThrough) && !to->trigger &&
-                             !to->pure;
+                        // Both ends must still HAVE the pin the link names: a
+                        // node type that lost an output (or a graph saved with a
+                        // wider one) would otherwise hand imnodes a pin that was
+                        // never submitted.
+                        ok = l.fromPin >= 0 &&
+                             l.fromPin < flowExecOutCount(*from) &&
+                             l.toPin >= 0 && !to->trigger && !to->pure &&
+                             l.toPin < (to->execInCount < 1 ? 1 : to->execInCount);
                         break;
                     case FlowLinkObject: ok = from->idOut && to->idIn; break;
                     case FlowLinkPos: ok = from->posOut && to->posIn; break;
@@ -737,7 +743,7 @@ void App::drawFlowGraphWindow() {
         }
         if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
             n.type == "SetFog" || n.type == "SetParticles" ||
-            n.type == "SetWidescreen") {
+            n.type == "SetWidescreen" || n.type == "Gate") {
             bool v = n.num[0] != 0.0f;
             if (ImGui::Checkbox(t->numLabels[0], &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
@@ -830,6 +836,33 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled(
                 "Seconds 0 = until the next Vibrate Pad.\n"
                 "Big 0 + Small off stops the vibration.");
+        } else if (n.type == "Tween") {
+            // From/To are whatever the driven parameter is (a color channel, a
+            // volume, a world coordinate), so they stay free drags; Ease is the
+            // one enumerated field.
+            ImGui::DragFloat("From", &n.num[0], 0.1f);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("To", &n.num[1], 0.1f);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Seconds", &n.num[2], 0.05f, 0.0f, 600.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            const char* eases[] = {"Linear", "Ease in", "Ease out",
+                                   "Smooth (in-out)"};
+            int ease = (int)n.num[3];
+            ease = ease < 0 ? 0 : ease > 3 ? 3 : ease;
+            if (ImGui::Combo("Ease", &ease, eases, 4)) {
+                n.num[3] = (float)ease;
+                changed = true;
+            }
+            ImGui::TextDisabled("Wire the number output into\nwhatever should animate.");
+        } else if (n.type == "RandomBranch") {
+            int outs = (int)n.num[0];
+            outs = outs < 2 ? 2 : outs > 4 ? 4 : outs;
+            if (ImGui::SliderInt("Outputs", &outs, 2, 4)) {
+                n.num[0] = (float)outs;
+                changed = true;
+            }
+            ImGui::TextDisabled("Only the first %d outputs\nare ever picked.", outs);
         } else if (n.type == "DisplayText") {
             // X/Y are a normalized screen position (center anchor), so they need
             // a much finer step than the generic 0.1 drag.
@@ -866,7 +899,18 @@ void App::drawFlowGraphWindow() {
                                     std::strcmp(t->numLabels[a], "LOS") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
-                if (isChannel) {
+                // Whole-number params (Do N Times, Counter's Every, For Loop's
+                // Times): a 0.1 drag on a repeat count offers fractions that
+                // codegen rounds away.
+                const bool isCount = std::strcmp(t->numLabels[a], "Times") == 0 ||
+                                     std::strcmp(t->numLabels[a], "Every") == 0;
+                if (isCount) {
+                    int v = (int)n.num[a];
+                    if (ImGui::DragInt(t->numLabels[a], &v, 0.2f, 0, 999)) {
+                        n.num[a] = (float)(v < 0 ? 0 : v);
+                        changed = true;
+                    }
+                } else if (isChannel) {
                     // SPU channel 0-23; -1 = rotate through channels
                     ImGui::SliderFloat("Channel", &n.num[a], -1.0f, 23.0f,
                                        n.num[a] < 0.0f ? "auto" : "%.0f");
@@ -910,6 +954,14 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
         if (n.type == "Raycast")
             ImGui::TextDisabled("Casts from the player's eye along\nthe view direction on exec.");
+        if (n.type == "Branch")
+            ImGui::TextDisabled("Nothing wired = always 'false'.\nEvaluated at the moment it runs.");
+        if (n.type == "Sequence")
+            ImGui::TextDisabled("Each output's whole chain finishes\nbefore the next one starts.");
+        if (n.type == "Cooldown")
+            ImGui::TextDisabled("Swallowed execs are LOST,\nnot queued (that is Delay).");
+        if (n.type == "ForLoop")
+            ImGui::TextDisabled("Runs inside one frame.\nCapped at 64 iterations.");
         if (n.type == "ChasePlayer" || n.type == "FleePlayer" ||
             n.type == "PatrolWaypoints")
             ImGui::TextDisabled(
@@ -971,11 +1023,7 @@ void App::drawFlowGraphWindow() {
             ImNodes::PopColorStyle();
         }
         if (!t->pure) {
-            if (t->trigger) {
-                ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-                rightLabel("then", false);
-                ImNodes::EndOutputAttribute();
-            } else {
+            if (!t->trigger) {
                 // One pin per exec input: a plain action draws the lone
                 // "> do", a merged one a labeled pin per branch (show/hide).
                 const int execIns = t->execInCount < 1 ? 1 : t->execInCount;
@@ -984,12 +1032,14 @@ void App::drawFlowGraphWindow() {
                     ImGui::Text("> %s", flowExecInLabel(*t, e));
                     ImNodes::EndInputAttribute();
                 }
-                if (t->execThrough) {
-                    // action that fires its own exec pulse later (Delay)
-                    ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-                    rightLabel("after", false);
-                    ImNodes::EndOutputAttribute();
-                }
+            }
+            // One pin per exec output: a trigger's "then", an execThrough
+            // action's "after", or a flow-control node's labeled branches.
+            const int execOuts = flowExecOutCount(*t);
+            for (int e = 0; e < execOuts; ++e) {
+                ImNodes::BeginOutputAttribute(flowExecOutPin(n.id, e));
+                rightLabel(flowExecOutLabel(*t, e), false);
+                ImNodes::EndOutputAttribute();
             }
         }
         if (t->idOut) {
@@ -1066,12 +1116,12 @@ void App::drawFlowGraphWindow() {
                 (ImU32)ImColor(1.0f, 0.55f + 0.35f * g, 0.20f,
                                0.55f + 0.45f * g));
             ImNodes::PushStyleVar(ImNodesStyleVar_LinkThickness, 3.0f + 2.0f * g);
-            ImNodes::Link(l.id, flowOutPin(l.fromNode),
+            ImNodes::Link(l.id, flowExecOutPin(l.fromNode, l.fromPin),
                           flowExecInPin(l.toNode, l.toPin));
             ImNodes::PopStyleVar();
             ImNodes::PopColorStyle();
         } else {
-            ImNodes::Link(l.id, flowOutPin(l.fromNode),
+            ImNodes::Link(l.id, flowExecOutPin(l.fromNode, l.fromPin),
                           flowExecInPin(l.toNode, l.toPin));
         }
     }
@@ -1220,18 +1270,23 @@ void App::drawFlowGraphWindow() {
     // New link dragged between pins. Pin kinds by id (flowPinKind): 0 = object
     // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
     // 5 = position out, 6 = bool in, 7 = bool out, 8 = text in, 9 = text out,
-    // 10..15 = the node's 2nd..7th exec in, 16/17 = number in/out.
+    // 10..15 = the node's 2nd..7th exec in, 16/17 = number in/out,
+    // 18..24 = the node's 2nd..8th exec out.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
         const int a = flowPinKind(startPin), b = flowPinKind(endPin);
         int outPin = -1, inPin = -1;
         int kind = FlowLinkExec;
-        int toPin = 0;  // which exec input of the target the link fires
-        const int aExec = flowExecInIndex(a), bExec = flowExecInIndex(b);
-        if ((a == 1 && bExec >= 0) || (aExec >= 0 && b == 1)) {
-            outPin = a == 1 ? startPin : endPin;
-            inPin = a == 1 ? endPin : startPin;
-            toPin = a == 1 ? bExec : aExec;
+        int toPin = 0;    // which exec input of the target the link fires
+        int fromPin = 0;  // which exec output of the source it leaves
+        const int aExecIn = flowExecInIndex(a), bExecIn = flowExecInIndex(b);
+        const int aExecOut = flowExecOutIndex(a), bExecOut = flowExecOutIndex(b);
+        if ((aExecOut >= 0 && bExecIn >= 0) || (aExecIn >= 0 && bExecOut >= 0)) {
+            const bool aIsOut = aExecOut >= 0 && bExecIn >= 0;
+            outPin = aIsOut ? startPin : endPin;
+            inPin = aIsOut ? endPin : startPin;
+            fromPin = aIsOut ? aExecOut : bExecOut;
+            toPin = aIsOut ? bExecIn : aExecIn;
         } else if ((a == 3 && b == 0) || (a == 0 && b == 3)) {
             outPin = a == 3 ? startPin : endPin;
             inPin = a == 0 ? startPin : endPin;
@@ -1259,6 +1314,7 @@ void App::drawFlowGraphWindow() {
             l.toNode = flowPinNode(inPin);
             l.kind = kind;
             l.toPin = toPin;
+            l.fromPin = fromPin;
             // A single-value input takes at most one link, so a second drag
             // REPLACES it - dragging onto an occupied "Value" pin should just
             // rewire, not silently stack a link codegen would ignore. Bool-in,
@@ -1275,12 +1331,14 @@ void App::drawFlowGraphWindow() {
                     if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);
             }
-            // toPin is part of the identity: the same trigger may drive two
-            // different branches of one merged node.
+            // Both pins are part of the identity: the same trigger may drive two
+            // different branches of one merged node, and a Branch's true and
+            // false outputs may legitimately meet at the same action.
             bool duplicate = false;
             for (const FlowLink& e : fg.links)
                 duplicate |= (e.kind == l.kind && e.fromNode == l.fromNode &&
-                              e.toNode == l.toNode && e.toPin == l.toPin);
+                              e.toNode == l.toNode && e.toPin == l.toPin &&
+                              e.fromPin == l.fromPin);
             if (!duplicate) {
                 l.id = fg.nextId++;
                 fg.links.push_back(l);
@@ -1512,6 +1570,20 @@ void App::drawFlowGraphWindow() {
                         n.num[2] = 1.0f;   // amount (num[3] mode: 0 = set)
                     }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
+                    // Flow control: a node whose count/duration is 0 does
+                    // nothing at all, which reads as broken rather than as
+                    // "not configured yet".
+                    if (std::string(t.key) == "DoN") n.num[0] = 3.0f;
+                    if (std::string(t.key) == "Gate") n.num[0] = 1.0f;  // starts open
+                    if (std::string(t.key) == "RandomBranch") n.num[0] = 2.0f;
+                    if (std::string(t.key) == "Cooldown") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "Counter") n.num[0] = 1.0f;  // every time
+                    if (std::string(t.key) == "Timer") n.num[0] = 0.0f;  // runs forever
+                    if (std::string(t.key) == "ForLoop") n.num[0] = 4.0f;
+                    if (std::string(t.key) == "Tween") {
+                        n.num[1] = 1.0f;  // 0 -> 1, the useful default ramp
+                        n.num[2] = 1.0f;  // over a second
+                    }
                     // A fresh rotate/spin node starts on the yaw: it is what
                     // almost every turning prop wants, and a node whose every
                     // param is 0 looks broken.
