@@ -681,6 +681,44 @@ Each finished feature lands as its own commit.
   `build.ps1` - whose only change is the patch's new name - is unrun, there
   being no PowerShell here.
 
+- (221) **The Input Map was the one window a layout could not carry.**
+  `App::showFlagForKey` mapped 17 keys to their show-flags, but
+  `kLayoutWindowKeys` - the array both `applyOpenWindows` and
+  `captureOpenWindows` walk - listed only 16 and omitted `"input"`. So the
+  Input Map fell out of the layout system in both directions: opening it and
+  saving lost it (capture never looked at the flag), and switching to a layout
+  that does not want it never closed it, which is exactly the leak the comment
+  in `applyOpenWindows` says the reset exists to prevent. Not a design
+  decision - `git log -S` dates the `showFlagForKey` line to the Input Map
+  commit (21783972, 2026-07-25) and the array to the layouts commit
+  (6e61b3bf, 2026-07-14): the newer feature edited the resolver two lines above
+  the list and missed the list. One key appended, plus a comment saying the two
+  must agree and which half is the dangerous one to forget.
+  **Appended, not inserted**, though nothing forced it: `project.cpp` writes
+  `openWindows` as a JSON string array and reads it back by name (`"open": [...]`
+  per layout), so the order is cosmetic - appending just keeps saved `.tyra`
+  diffs stable. The keys live in `app.cpp` and nowhere else (grepped
+  `phonecam`/`gibake` across src, docs, skills), so there is no second list to
+  follow.
+  *Verified* by a matched GUI A/B on one fixture (`--new layoutfix ... empty`
+  with `"open": ["input"]` seeded into the active Default layout), driving the
+  editor with synthetic clicks + a screenshot per step, then reading the
+  rewritten `.tyra`: **pre-fix** the window did not open at startup and Ctrl+S
+  rewrote `"open": ["input"]` to `[]` (the silent loss), and with the Input Map
+  opened by hand from *Tools* a switch to Director left it floating over the
+  new arrangement (the leak). **Post-fix**, same fixture and same clicks: it
+  opens from the layout, survives the save, and the Director switch closes it -
+  and the switch's capture wrote Default `["input"]` / Director `["cutscene"]`,
+  i.e. the flag was set on the way out and cleared on the way in. The baseline
+  binary for the A/B was this branch with the one-line change stashed, not an
+  older build. One trap worth recording: after `git stash pop` the exe on disk
+  is still the baseline one, and a run against it reads exactly like the fix
+  not working - the first "post-fix" run here was that, until the rebuild.
+  Docs: this entry plus a `kLayoutWindowKeys` note in tyra-editor-dev. README's
+  window-layouts bullets stay true (they describe what a layout stores, never
+  the key set), and no doc enumerated the optional windows, so there was
+  nothing else to correct.
+
 - (218) **The projected shadow stopped blinking, and one flag for "do not bake
   my light"** (user, after 217: "cien pod graczem tak sobie lubi mrugac znikac
   czasami, troszke tak, jakby sie klocil o priorytet z powierzchnia, na ktora
