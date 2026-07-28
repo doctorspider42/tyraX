@@ -3162,6 +3162,10 @@ void App::drawMaterialEditorWindow() {
                 "its texture. Wheel zooms, drag pans. Hover a face in 3D to\n"
                 "light up its texture region; hover a triangle in the panel\n"
                 "to outline it on the mesh.");
+        // Its own line: the row above is already full at a narrow split.
+        ImGui::TextDisabled("Light");
+        ImGui::SameLine();
+        if (previewLightCombo("##mat_light", matEdLight_)) saveGlobalConfig();
 
         // preview-mesh stats (import sanity: sizes, UV presence)
         if (matBakeBuildMeshes(sel.name)) {
@@ -3660,6 +3664,7 @@ void App::drawMaterialEditorWindow() {
         desc.pitchDeg = matEdPitch_;
         desc.zoom = matEdZoom_;
         desc.displayMode = matEdDisplayMode_;
+        desc.light = previewLight(matEdLight_);
         if (matBakePreviewMode_ == 2 && !matBakeMaps_.empty()) {
             // raw-map view: the baked map replaces the material's look
             desc.texRel = "@matbake-view";

@@ -13805,3 +13805,42 @@ Each finished feature lands as its own commit.
   Unrelated to entry 215's white-window note, which is a Windows/AMD present
   quirk: this Linux box renders and captures both the editor viewport and the
   emulated game correctly.
+
+- (222) **Fix: the Material and Animation Editor previews shared one render
+  target** - `renderAnimPreview` (added with the Animation Editor) called
+  `ensurePreviewFramebuffer` and returned `prevTex_`, i.e. the Material
+  Editor's target. Both are optional tool windows
+  that can be open at once (both are `kLayoutWindowKeys` entries, so a project
+  layout opens them together at startup), both size their preview from their own
+  content region, and both render inside one UI frame - so whichever ran second
+  re-allocated the shared texture at its own size (`glTexImage2D` thrash every
+  frame) and both `ImGui::Image` calls sampled it, leaving each window showing
+  the other's subject, stretched. Gave the animation preview its own
+  `animFbo_/animTex_/animDepth_` (+ `shutdown()` cleanup), and factored the
+  duplicated backdrop build out into `ensurePreviewBackdrop()` - the meshes are
+  fixed studio geometry and are the only thing worth sharing. Verified with a
+  pre/post screenshot pair of one project whose layout opens both windows: on
+  the baseline the Material Editor pane says "Sphere / 352 tris" while drawing a
+  squashed wobbler; after the fix it draws its own sphere with `ground.mtl` and
+  the Animation Editor its wobbler, both at a stable aspect.
+
+- (223) **Material / Animation Editor previews can override the ambience they
+  bake with** - a scene authored dark (a cavern preset, low brightness) made its
+  own previews unreadable, since a preview deliberately shades with the scene's
+  light: what you preview is what ships. Asked for right after entry 106, by
+  someone who could not see anything in either preview on a dark scene. A
+  **Light** combo in both panels picks *Scene ambience* (default, what ships),
+  *Neutral studio* (the engine's default directional light) or any of the
+  project's ambience presets; the selection persists per machine in editor.ini
+  (`matEdLight`/`animEdLight`), and a preset name that no longer exists falls
+  back to the scene. The implementation matters because **shading is baked into
+  vertex colors**, not a uniform: `setLighting` is the scene-wide setter and
+  rebuilds every mesh (terrain AO grid included), so instead a `ScopedShade`
+  guard swaps the `g*` light globals only while the preview bakes - free for the
+  animation preview (its pose upload re-bakes the vertex shade every frame
+  anyway), and for the material preview a private set of unit shapes plus the
+  light folded into the `matPrevModel_` cache key. Verified in the running
+  editor on a project switched to its dark `cavern` preset: both previews are
+  dark on *Scene ambience*, light up independently when each is switched to
+  *Neutral studio*, a named preset (`Default`, warm light) reads differently
+  from neutral, and both selections survive a restart.
