@@ -3,16 +3,19 @@
 #   ./build.sh          - configure (if needed) + build
 #   ./build.sh --run    - build and launch the editor
 #   ./build.sh --clean  - remove the build directory first
+#   ./build.sh --dev    - fast iteration build (-O1) into build-dev/
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 RUN=0
 CLEAN=0
+DEV=0
 for arg in "$@"; do
     case "$arg" in
         --run|-Run)     RUN=1 ;;
         --clean|-Clean) CLEAN=1 ;;
-        *) echo "Unknown option: $arg (expected --run and/or --clean)" >&2; exit 2 ;;
+        --dev|-Dev)     DEV=1 ;;
+        *) echo "Unknown option: $arg (expected --run, --clean and/or --dev)" >&2; exit 2 ;;
     esac
 done
 
@@ -91,21 +94,35 @@ if [ -n "$missing" ]; then
     fi
 fi
 
-if [ "$CLEAN" = 1 ] && [ -d build ]; then
-    echo "== Cleaning build directory =="
-    rm -rf build
+# Dev gets its OWN build directory on purpose. Flipping CMAKE_BUILD_TYPE in one
+# directory invalidates every object, so sharing it would mean a full rebuild on
+# every switch - which is the exact cost the mode exists to avoid.
+if [ "$DEV" = 1 ]; then
+    BUILD_DIR=build-dev
+    BUILD_TYPE=Dev
+else
+    BUILD_DIR=build
+    BUILD_TYPE=Release
 fi
 
-if [ ! -f build/build.ninja ]; then
-    echo "== Configuring (cmake) =="
-    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+if [ "$CLEAN" = 1 ] && [ -d "$BUILD_DIR" ]; then
+    echo "== Cleaning $BUILD_DIR =="
+    rm -rf "$BUILD_DIR"
+fi
+
+if [ ! -f "$BUILD_DIR/build.ninja" ]; then
+    echo "== Configuring (cmake, $BUILD_TYPE) =="
+    cmake -S . -B "$BUILD_DIR" -G Ninja "-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
 fi
 
 echo "== Building =="
-cmake --build build
+cmake --build "$BUILD_DIR"
 
-echo "OK: build/tyrax-editor"
+echo "OK: $BUILD_DIR/tyrax-editor"
+if [ "$DEV" = 1 ]; then
+    echo "NOTE: Dev build (-O1) - fast to compile, slow at the host bakes. Not for release or benchmarks."
+fi
 
 if [ "$RUN" = 1 ]; then
-    exec ./build/tyrax-editor
+    exec "./$BUILD_DIR/tyrax-editor"
 fi

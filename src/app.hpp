@@ -1591,7 +1591,9 @@ private:
     char newLocation_[512] = "";
     int newWidth_ = 100;
     int newDepth_ = 100;
-    int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // Index into kNewPresets (app.cpp): FPP / Third person / Empty. Starts on
+    // Empty, which is what a fresh project has always been.
+    int newTemplate_ = 2;
     // World scale (docs/world-scale.md), picked while the project is created -
     // afterwards it is a setting that deliberately rescales nothing, so the
     // honest moment to ask is before there is any content. Index into the
@@ -1659,10 +1661,10 @@ private:
     int discCapacity_ = 2;    // 0 = fit to data, 1 = CD-R 700 MB, 2 = DVD-5
 
     // "Project Preferences" modal staging (applied on OK). Edits project-wide
-    // defaults only (project_.settings + terrain + game template).
+    // defaults only (project_.settings + terrain). The game template is NOT
+    // staged - it is fixed at creation and the dialog only displays it.
     bool openPreferencesPopup_ = false;
     TerrainConfig prefTerrain_;
-    int prefTemplate_ = 0;
     ProjectSettings prefSettings_;
 
     // "Editor Preferences" modal staging (Edit > Preferences, applied on Save).
