@@ -36,7 +36,7 @@ the scoop MinGW kit rather than the MSVC one.
 **Linux**
 
 ```bash
-# 1. Install prerequisites (toolchain + X11/Wayland/GL headers + zenity)
+# 1. Install prerequisites (toolchain + X11/Wayland/GL headers + zenity + ccache)
 ./setup.sh --deps
 # + Docker (running) and PCSX2 (package, flatpak or AppImage, with BIOS configured)
 
@@ -48,7 +48,7 @@ the scoop MinGW kit rather than the MSVC one.
 
 Both build scripts handle the rest: clone the `vendor/` dependencies on first run, check the toolchain (and name the exact install command when something is missing), configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency lists live in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
 
-`-Dev`/`--dev` builds for **iteration speed instead of run speed** (`-O1`, into its own `build-dev/` so switching back and forth costs nothing): a clean build is roughly a third faster and a one-file edit rebuilds in a few seconds. The host bakes (GI, material raytracing, ambient occlusion, texture quantization) are genuinely slow in it, so it is for working on the UI and the model, never for a release or a benchmark. If **ccache** (or sccache) is on `PATH`, CMake picks it up automatically — which matters here because the repo is normally checked out in several git worktrees at once, each with its own build directory compiling the same translation units from scratch. `-DTYRAX_COMPILER_CACHE=OFF` opts out.
+`-Dev`/`--dev` builds for **iteration speed instead of run speed** (`-O1`, into its own `build-dev/` so switching back and forth costs nothing): a clean build is roughly a third faster and a one-file edit rebuilds in a few seconds. The host bakes (GI, material raytracing, ambient occlusion, texture quantization) are genuinely slow in it, so it is for working on the UI and the model, never for a release or a benchmark. If **ccache** (or sccache) is on `PATH`, CMake picks it up automatically — which matters here because the repo is normally checked out in several git worktrees at once, each with its own build directory compiling the same translation units from scratch. `setup.sh --deps` installs it on Linux, `scoop install ccache` on Windows; because CMake caches the *miss*, installing it after a build directory already exists needs a `-Clean`/`--clean` (or a deleted build dir) before it takes effect. `-DTYRAX_COMPILER_CACHE=OFF` opts out.
 
 Everything the two platforms disagree about — spawning child processes, native file dialogs, where the machine-global config lives, which system fonts exist, how to reveal a file in the file manager — lives behind [`src/platform.hpp`](src/platform.hpp). Projects are portable between the two: the `.tyra` format is identical, and a font referenced by a name this OS doesn't have falls back instead of failing the bake.
 
