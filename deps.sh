@@ -45,15 +45,24 @@ PS2_TOOLS=(
 # editor has no built-in file browser, so without zenity (or kdialog) every
 # Open/Import button has nothing to open (see platform::pickFile).
 #
+# ccache is the one OPTIONAL entry: nothing needs it, but CMake picks it up off
+# PATH (TYRAX_COMPILER_CACHE in CMakeLists.txt) and this repo is normally
+# checked out in several worktrees at once, each recompiling the same TUs from
+# scratch. Installed here so that pickup actually happens on Linux - the
+# Windows README says `scoop install ccache` for the same reason. Note
+# find_program caches the miss, so installing it AFTER a build directory exists
+# needs a reconfigure (`./build.sh --clean`, or delete the build dir) before it
+# takes effect.
+#
 # `setup.sh --deps` installs the list for whichever package manager it finds;
 # build.sh names it when a tool or header is missing. One list per family
 # because the split of the X11 headers into packages differs everywhere - the
 # CONTENT is the same set every time, so a new dependency has to be added to
 # all four or that distro's users get a link error instead of a clear message.
-SYSTEM_PACKAGES_apt="build-essential cmake ninja-build git pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity"
-SYSTEM_PACKAGES_dnf="gcc-c++ cmake ninja-build git pkgconf-pkg-config mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity"
-SYSTEM_PACKAGES_pacman="base-devel cmake ninja git pkgconf mesa libx11 libxrandr libxinerama libxcursor libxi libxkbcommon wayland wayland-protocols zenity"
-SYSTEM_PACKAGES_zypper="gcc-c++ cmake ninja git pkg-config Mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity"
+SYSTEM_PACKAGES_apt="build-essential cmake ninja-build git pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity ccache"
+SYSTEM_PACKAGES_dnf="gcc-c++ cmake ninja-build git pkgconf-pkg-config mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache"
+SYSTEM_PACKAGES_pacman="base-devel cmake ninja git pkgconf mesa libx11 libxrandr libxinerama libxcursor libxi libxkbcommon wayland wayland-protocols zenity ccache"
+SYSTEM_PACKAGES_zypper="gcc-c++ cmake ninja git pkg-config Mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache"
 
 # Package manager for THIS machine -> "<manager>|<install command>|<packages>",
 # or "" when none is recognised. Sourced by both setup.sh (to install) and
