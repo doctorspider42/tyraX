@@ -32,6 +32,7 @@ box you are on; they take the same flags and do the same things.
 ./build.ps1          # → build/tyrax-editor.exe (fetches missing vendor deps itself)
 ./build.ps1 -Run     # build + launch the GUI
 ./build.ps1 -Clean   # full rebuild
+./build.ps1 -Dev     # -O1 iteration build → build-dev/tyrax-editor.exe
 ```
 
 ```bash
@@ -39,10 +40,30 @@ box you are on; they take the same flags and do the same things.
 ./build.sh           # → build/tyrax-editor
 ./build.sh --run     # build + launch the GUI
 ./build.sh --clean   # full rebuild
+./build.sh --dev     # -O1 iteration build → build-dev/tyrax-editor
 ```
 
+A clean Release build is ~1-1.5 min on 16 cores; a one-file edit to the UI is a
+few seconds. **`-Dev`/`--dev` is for the edit-compile-look loop** — `-O1`
+instead of `-O3` (which is about two thirds of the compile time), in its own
+`build-dev/` so alternating with Release costs nothing. Two rules: never
+benchmark or ship a Dev build, and **never use one to verify anything that
+bakes** — gibake/matbake/aobake/pngquant are raytracers and quantizers, and at
+-O1 a bake that takes seconds takes minutes, which reads as a hang rather than
+as the flag you chose. Verify bakes with the Release build. If ccache/sccache
+is on `PATH` CMake uses it automatically, which is what makes switching
+worktrees cheap.
+
+**Timing a build honestly:** back-to-back clean builds on a laptop drift ~20%
+from thermals alone, so a single before/after pair proves nothing. Alternate
+the two variants (A, B, A, B, …) and compare like rounds — and read
+`build/.ninja_log` (`start_ms end_ms mtime output`) rather than guessing where
+the time went: it tells you the per-target durations, and summing
+`end-start` against the wall clock gives the real parallelism, which is how the
+26k-line-app.cpp critical path and the libimgui.a ordering stall were found.
+
 `build.cmd` / `setup.cmd` exist for plain `cmd.exe` and double-clicks. They are
-**wrappers only** — they map `run`/`clean` onto `-Run`/`-Clean` and forward to
+**wrappers only** — they map `run`/`clean`/`dev` onto `-Run`/`-Clean`/`-Dev` and forward to
 `build.ps1`/`setup.ps1` with `-ExecutionPolicy Bypass`. Never give them logic of
 their own: they used to carry a hand-copied dependency list, it drifted behind
 `deps.ps1`, and a fresh clone got "vendor\tyra is not an empty directory" from
@@ -105,7 +126,7 @@ probe is still absent after a fetch.
 `TYRAX` below.)
 
 ```
-TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp] [unitsPerMeter]
+TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter]
 TYRAX --build <projectDir> [--run]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
@@ -118,7 +139,12 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
 
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
   Dockerfile) **without Docker** — instant way to get a fixture. `fpp` seeds a
-  single Player entity; `empty` is an orbit-camera scene with no objects.
+  single Player entity in walk mode and `thirdperson` the same entity in
+  third-person mode (both generate the SAME game sources — the mode is a
+  per-object property); `empty` is an orbit-camera scene with no objects. The
+  preset is the project's permanent `template` field, so it is also the way to
+  fixture either game template — the editor deliberately offers no way to
+  switch afterwards.
   Defaults match the *New Project* dialog: 100x100 terrain, 1 unit = 1 m, the
   **debug** profile with Live Link on, USB keyboard & mouse off. It echoes the
   terrain size and world scale, so `--new` + a grep over the `.tyra` is the

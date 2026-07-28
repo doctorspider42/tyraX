@@ -3,6 +3,7 @@ REM cmd entry point for build.ps1. Usage:
 REM   build.cmd          - configure (if needed) + build
 REM   build.cmd run      - build and launch the editor
 REM   build.cmd clean    - remove the build directory first
+REM   build.cmd dev      - fast iteration build (-O1) into build-dev\
 REM
 REM This is a WRAPPER ON PURPOSE. It used to carry its own copy of the
 REM vendor-dependency guard, checking four hardcoded directories, and drifted
@@ -19,10 +20,12 @@ cd /d "%~dp0"
 
 set "DO_RUN="
 set "DO_CLEAN="
+set "DO_DEV="
 for %%A in (%*) do call :arg "%%~A" || exit /b 2
 
 set "ARGS="
 if defined DO_CLEAN set "ARGS=%ARGS% -Clean"
+if defined DO_DEV   set "ARGS=%ARGS% -Dev"
 if defined DO_RUN   set "ARGS=%ARGS% -Run"
 
 call :findps || exit /b 1
@@ -35,7 +38,9 @@ if /i "%~1"=="run"    ( set "DO_RUN=1"   & exit /b 0 )
 if /i "%~1"=="-run"   ( set "DO_RUN=1"   & exit /b 0 )
 if /i "%~1"=="clean"  ( set "DO_CLEAN=1" & exit /b 0 )
 if /i "%~1"=="-clean" ( set "DO_CLEAN=1" & exit /b 0 )
-echo Unknown option: %~1 ^(expected "run" and/or "clean"^)
+if /i "%~1"=="dev"    ( set "DO_DEV=1"   & exit /b 0 )
+if /i "%~1"=="-dev"   ( set "DO_DEV=1"   & exit /b 0 )
+echo Unknown option: %~1 ^(expected "run", "clean" and/or "dev"^)
 exit /b 2
 
 :findps

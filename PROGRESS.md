@@ -453,10 +453,11 @@ Each finished feature lands as its own commit.
      is why 104-107 appear twice below (and 113-116 more than once - the
      lighting, interlacing, font/display-text and navmesh batches numbered
      in parallel). All kept.
-     Same again for 210-217: the Drone Generator batch and the baked-GI /
-     shadows / ps2link batch were written against the same base and numbered
-     in parallel. The drone set is the one directly below; main's set follows
-     it, running up to 219. Continue from 220. -->
+     Same again for 210-221: the Drone Generator batch and the baked-GI /
+     shadows / ps2link / presets batch were written against the same base and
+     numbered in parallel (main's own set repeats 216, 217 and 219 for the same
+     reason). The drone set is the one directly below; main's set follows it,
+     running up to 221. Continue from 222. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
@@ -860,6 +861,68 @@ Each finished feature lands as its own commit.
   meters - and it is now the documented answer for verifying editor UI on Linux
   (see tyra-testing). **Still needs a human**: whether the presets sound *good*,
   and the feel of dragging the knobs.
+- (219) **Three starting presets, and the choice is now permanent** (user:
+  "Zaktualizuj presety. Niech do wyboru jest tylko fpp, third person i empty.
+  Jak juz sie go wybierze, to niech sie juz nie da tego zmieniac w
+  preferencjach projektu").
+
+  *New Project* offers **FPP (first person)**, **Third person** and **Empty
+  (orbit camera)**. Third person is the new one: the same player-entity
+  template as FPP with the seeded Player object in mode 2, so the camera sits
+  on a boom behind it and its avatar is that object's own animated model -
+  assigned later in Properties, the rig and the movement work without one.
+  `Project::gameTemplate` grew a third value (`"thirdperson"`); the two player
+  presets generate the SAME sources, which is why the fork in
+  `templates::generate` is now `Project::hasPlayerTemplate()` rather than a
+  string compare against `"fpp"`. Unknown template strings still clamp to
+  `"orbit"` on load, so nothing old moves.
+
+  **The lock is the point of the change.** *Project > Preferences* used to
+  carry a Template combo that rewrote `gameTemplate` on OK - which quietly
+  regenerates `src/terrain_game.cpp` / `inc/terrain_game.hpp` from a different
+  template, and those are **user-ownable** files: the switch either overwrites
+  work or, on a file whose ownership marker was deleted, leaves an owned source
+  that no longer matches what the project builds. The row is now disabled and
+  says so, `prefTemplate_` is gone (a staged field that can never be edited is
+  a trap waiting for the next contributor), and the OK path no longer writes
+  `gameTemplate` at all. What stays editable is the thing that should be: the
+  Player object's own Mode / camera style / boom - a per-object property, not a
+  source fork. The preset labels/strings live in ONE table (`kNewPresets` in
+  app.cpp) read by the dialog and by the read-only Preferences row.
+
+  **Empty now really is empty** (owner, on the PR: "Empty should be without
+  that orbiting camera. Let's just create an empty scene. User can then program
+  their own code, or add a player"). The template's automatic turntable is what
+  a scene with NO Player object falls back to, so the fix is a create-only
+  default rather than a source change: `project::create` sets
+  `settings.orbitSpeed = 0` for the empty preset, which parks the camera at a
+  fixed vantage looking at the origin. The struct initializer keeps 1.0, so
+  every project saved before this keeps its turntable, and the Preferences
+  slider still turns it back on - it just is not what a new project does before
+  the user has built anything. Labels followed: "Empty (no objects)", and the
+  Preferences section is "Camera" with a `(?)` saying what 0 means and that a
+  scene with a Player ignores it entirely.
+
+  **Verified** (layers 0-2 + a driven GUI check): editor builds clean on Linux;
+  `--new` with `fpp` / `thirdperson` / `empty` writes `"template": "fpp"` /
+  `"thirdperson"` / `"orbit"`, seeds the Player at `"mode": "walk"` /
+  `"thirdperson"` / no object, and emits `PLAYER_MODES = {0}` / `{2}` into
+  `scene_data.hpp`; the FPP and third-person `src/terrain_game.cpp` are
+  byte-identical apart from the project namespace, while the empty one forks as
+  before. `--resave` round-trips `"thirdperson"`, an unknown preset argument and
+  a hand-edited unknown `"template"` both clamp to `"orbit"`. The GUI was driven
+  with `wayland-control.py`: the New Project combo lists exactly the three
+  presets, and in Preferences the Game row shows "Third person" greyed - a click
+  on it opens no dropdown. A third-person project also **builds in Docker (exit
+  0) and boots** in PCSX2 at 50 FPS.
+
+  The static camera was measured, not eyeballed, because "the picture did not
+  change" and "the game froze" look identical: two full-screen captures 6 s
+  apart, cropped to the render rect, differ in **0 of 512120 pixels** with the
+  empty preset - and in **205312** after flipping that same project's
+  `orbitSpeed` back to 1 and rebuilding. The A/B is the point: without the
+  second run the zero proves nothing.
+
 - (215) **Baked global illumination + light probes**
   ([docs/global-illumination.md](docs/global-illumination.md),
   [examples/global-illumination](examples/global-illumination)). Static geometry
@@ -1020,6 +1083,44 @@ Each finished feature lands as its own commit.
   `PKO_CMD_PORT`) and from `runner.cpp`, not from a flash-and-boot; and
   `build.ps1` - whose only change is the patch's new name - is unrun, there
   being no PowerShell here.
+
+- (221) **The Input Map was the one window a layout could not carry.**
+  `App::showFlagForKey` mapped 17 keys to their show-flags, but
+  `kLayoutWindowKeys` - the array both `applyOpenWindows` and
+  `captureOpenWindows` walk - listed only 16 and omitted `"input"`. So the
+  Input Map fell out of the layout system in both directions: opening it and
+  saving lost it (capture never looked at the flag), and switching to a layout
+  that does not want it never closed it, which is exactly the leak the comment
+  in `applyOpenWindows` says the reset exists to prevent. Not a design
+  decision - `git log -S` dates the `showFlagForKey` line to the Input Map
+  commit (21783972, 2026-07-25) and the array to the layouts commit
+  (6e61b3bf, 2026-07-14): the newer feature edited the resolver two lines above
+  the list and missed the list. One key appended, plus a comment saying the two
+  must agree and which half is the dangerous one to forget.
+  **Appended, not inserted**, though nothing forced it: `project.cpp` writes
+  `openWindows` as a JSON string array and reads it back by name (`"open": [...]`
+  per layout), so the order is cosmetic - appending just keeps saved `.tyra`
+  diffs stable. The keys live in `app.cpp` and nowhere else (grepped
+  `phonecam`/`gibake` across src, docs, skills), so there is no second list to
+  follow.
+  *Verified* by a matched GUI A/B on one fixture (`--new layoutfix ... empty`
+  with `"open": ["input"]` seeded into the active Default layout), driving the
+  editor with synthetic clicks + a screenshot per step, then reading the
+  rewritten `.tyra`: **pre-fix** the window did not open at startup and Ctrl+S
+  rewrote `"open": ["input"]` to `[]` (the silent loss), and with the Input Map
+  opened by hand from *Tools* a switch to Director left it floating over the
+  new arrangement (the leak). **Post-fix**, same fixture and same clicks: it
+  opens from the layout, survives the save, and the Director switch closes it -
+  and the switch's capture wrote Default `["input"]` / Director `["cutscene"]`,
+  i.e. the flag was set on the way out and cleared on the way in. The baseline
+  binary for the A/B was this branch with the one-line change stashed, not an
+  older build. One trap worth recording: after `git stash pop` the exe on disk
+  is still the baseline one, and a run against it reads exactly like the fix
+  not working - the first "post-fix" run here was that, until the rebuild.
+  Docs: this entry plus a `kLayoutWindowKeys` note in tyra-editor-dev. README's
+  window-layouts bullets stay true (they describe what a layout stores, never
+  the key set), and no doc enumerated the optional windows, so there was
+  nothing else to correct.
 
 - (218) **The projected shadow stopped blinking, and one flag for "do not bake
   my light"** (user, after 217: "cien pod graczem tak sobie lubi mrugac znikac
@@ -12016,6 +12117,94 @@ Each finished feature lands as its own commit.
   they may require real hardware events in PCSX2, so LMB/RMB/MMB need a
   hands-on click test; keyboard covers every mapped action meanwhile.
   Editor GUI checkbox is compile-verified only (stock ImGui pattern).
+
+- (220) **The editor builds in parallel now** — asked as "czy my obecnie
+  budujemy edytor w 64 bitach? Dałoby się jakoś go buildować bardziej
+  równolegle, żeby przyspieszyć?". 64-bit: yes, and never was anything else
+  (`x86_64-w64-mingw32`, PE machine `0x8664`, no 32-bit path in the tree).
+  Parallel: ninja was already running `-j18` on 16 cores, so the interesting
+  answer came from `build/.ninja_log` — a clean build was **97.5 s wall for
+  803 s of CPU, i.e. 8.2x on a 16-core box**, with the machine idle at 1-5 jobs
+  for the first 19 s and the last 40 s. Two causes, both fixed:
+
+  **A 17 s stall in front of the whole editor.** The two generated headers
+  (`ai_support_gen.hpp`, `icon_gen.hpp` — 0.1 s of work) were listed straight in
+  `tyrax-editor`'s source list, so CMake attached their `add_custom_command` to
+  that target and gave them order-only deps on everything it **links**. They
+  waited for `libimgui.a`, and since every editor `.obj` order-depends on them,
+  so did the entire editor: nothing editor-side started until `imgui.cpp` (16.9 s)
+  finished. They now live in their own `tyrax-generated` custom target, which has
+  no link dependencies — `app.cpp` starts at t=2.8 s instead of t=19.6 s.
+
+  **app.cpp WAS the build.** 26 427 lines, 269 top-level functions, ~48 s to
+  compile on its own — everything else finished by ~70 s and then one core
+  ground through it. Optimization is where that time goes (measured on the old
+  file: 21 s at -O0, 37 s at -O1, 60 s at -O2, 66 s at -O3) and it scales worse
+  than linearly with TU size, so the fix is fewer lines per TU, not fewer
+  passes. Split into the shell (11 686 lines) plus six subsystem TUs —
+  `props_ui` / `flowgraph_ui` / `hud_ui` / `cutscene_ui` / `mateditor_ui` /
+  `devkit_ui` — following the **assetbrowser.cpp precedent**: still `App::`
+  members declared in app.hpp, only the definitions moved. `app.hpp` is
+  untouched. The fixed cost of a new TU here is 3.4 s (measured: an empty TU
+  carrying app.cpp's include prologue), which is why it is six files and not
+  twenty, and why they skip `icon_gen.hpp` and the STB `*_IMPLEMENTATION`
+  defines. Nine file-scope statics turned out to be used by more than one of
+  the six; they moved into a new **`app_internal.hpp`** rather than being
+  duplicated — that header exists for exactly that reason and nothing else.
+
+  Also added, since the answer to "faster" is not only parallelism: a **`Dev`
+  build type** (`-O1`, `-Dev`/`--dev`/`build.cmd dev`) in its own `build-dev/`
+  so alternating with Release costs nothing, and **automatic ccache/sccache
+  pickup** — this repo lives in several git worktrees at once, each recompiling
+  the same TUs from scratch. The Dev flags needed `FORCE`-if-empty: compiler
+  detection inside `project()` already creates an empty
+  `CMAKE_CXX_FLAGS_DEV` cache entry for the requested build type, so a plain
+  `set(... CACHE ...)` is silently a no-op and Dev compiled with no `-O` at all.
+  Caught by grepping the generated `build.ninja` for the actual `FLAGS` line
+  rather than trusting the configure output.
+
+  **Verified.** Correctness first: the same project generated by the old and the
+  new exe is **91 files, byte-identical** once the per-run random object/project
+  ids are normalized (`--new rgtest 64 64 fpp` then `--refresh-gen`, whole-tree
+  sha256 compare) — create/save/`refreshGenerated`/`templates::generate` plus the
+  baked `res/hud` PNGs, every `.gen.*`, the Makefile and the compose file. One
+  trap if you repeat this: **both binaries have to sit in the same directory.**
+  `vendor/tyra` is resolved relative to `platform::exePath()`, so a baseline exe
+  left in a scratch folder silently falls back to `.` and two files
+  (`docker-compose.yml`'s engine volume + its derived hash, and the VS Code
+  include path) differ for that reason alone — which reads exactly like a real
+  regression. The UI is what
+  actually moved, so all six windows were forced open through the layout's
+  `open` list in the `.tyra` and screenshotted: Properties renders the full
+  Player section including `walkSpeedDrag` (the helper that moved into
+  app_internal.hpp) at "5.00 units/s", plus Phone Camera, the Debugger's tab
+  strip and a docked Material Editor. All seven TUs compiled clean on the first
+  attempt and the link had no duplicate or missing symbols.
+
+  Timings, and the trap in measuring them: back-to-back clean builds on this
+  laptop drift ~20% from thermals, and a single before/after pair had me
+  believing anything between 72 s and 88 s. Three **alternating** rounds
+  (A=HEAD, B=working tree, A, B, A, B): A 111/103/102 s, B 82/81/84 s — every B
+  round beat its neighbouring A by 19-29 s, median **103 s → 82 s**. Parallelism
+  8.2x → 13.6x, and occupancy is now pegged at 18/18 for the first 45 s, i.e.
+  the build became throughput-bound instead of critical-path-bound. Longest
+  single TU (uncontended): app.cpp 48 s → 27 s. The number that matters daily:
+  **editing one panel is 9 s end to end** (8 s in Dev), where before *any* edit
+  anywhere in the UI paid the full app.cpp compile. Dev vs Release measured
+  back-to-back through the scripts: 60 s vs 79 s clean.
+
+  **Not covered / left on the table.** Linux is untested — `build.sh` and
+  `build.cmd` got the same `--dev`/`dev` flag by inspection, there is no Linux
+  box here. `templates.cpp` (27 141 lines, ~32 s) is now the tail of a clean
+  build and wants the same treatment, but it is codegen held in raw string
+  literals and was out of scope. A PCH was measured and **rejected for now**:
+  ~3 s saved per TU but a 200 MB `.gch` costing 7.5 s to build, which mattered
+  when the critical path dominated and is only worth revisiting now that the
+  build is throughput-bound. Unity builds are the wrong direction here — they
+  would recreate exactly the huge-TU problem just fixed. Noted in passing and
+  filed separately rather than fixed here: `"input"` is in
+  `App::showFlagForKey` but missing from `kLayoutWindowKeys`, so the Input Map
+  is the one optional window a named layout can neither restore nor close.
 
 ## Backlog (rough order)
 
