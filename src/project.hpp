@@ -244,6 +244,25 @@ struct SceneObject {
     // a Raycast latch, a custom node's object output), or one you simply want
     // to keep relightable.
     bool bakedLighting = true;
+    // Dynamic lighting (docs/global-illumination.md). Opt-in, and a different
+    // deal from bakedLighting above rather than a stronger version of it: the
+    // object moves to the LIT VU1 program - one base colour plus a light bag
+    // whose colours are re-read from the probe grid every frame - which is
+    // exactly how animated models are lit. So it relights with zero latency,
+    // including while it spins.
+    //
+    // What it costs, and it is not nothing:
+    //  - the engine refuses per-vertex colours on a lit bag ("Multicolor is
+    //    not supported with lighting"), so the object gives up everything the
+    //    bake put in them - contact AO, per-face variation - and gets VU1's
+    //    N.L instead;
+    //  - a lit bag takes no dynamic-light slot, so the flashlight and the live
+    //    point lights have to be folded into its ambient term by hand (the
+    //    animated models already do this - dynLightAt);
+    //  - it needs a per-vertex normal array it does not otherwise keep.
+    // For things that TUMBLE it is worth all of that; for things that merely
+    // slide, leaving bakedLighting off is cheaper and looks better.
+    bool dynamicLighting = false;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -520,6 +539,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
+           a.dynamicLighting == b.dynamicLighting &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&

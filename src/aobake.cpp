@@ -1059,7 +1059,8 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         // one. `bakedLighting` is the manual override on top, for the channels
         // no build-time scan can see (Live Link, a Raycast latch, a custom
         // node's object output).
-        if (!o.bakedLighting || project::objectRuntimeMovable(o, movableRefs))
+        if (!o.bakedLighting || o.dynamicLighting ||
+            project::objectRuntimeMovable(o, movableRefs))
             continue;
         // An emissive surface takes neither bake: the atlas passes multiply and
         // add per pixel AFTER the emissive floor is already in the vertex

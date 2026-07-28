@@ -670,6 +670,19 @@ class TerrainGame : public Tyra::Game {
     // base pass (alpha-over blend of a black texture = per-pixel darkening).
     // aoSts map this part's vertices into the object's atlas regions; shares
     // the vertices and bboxVersion like the env pass does.
+    // Dynamic lighting (docs/global-illumination.md, opt-in per object): this
+    // part renders through the LIT VU1 program instead of baked vertex colors,
+    // and its four light colors are re-read from the probe grid every frame.
+    // The engine refuses per-vertex colors on a lit bag ("Multicolor is not
+    // supported with lighting"), so litBase is the ONE base color and every
+    // bit of shading is VU1's N.L - exactly the deal animated models take.
+    std::vector<Tyra::Vec4> litNormals;
+    Tyra::Color litBase;
+    float litAlbedo[3] = {1.0F, 1.0F, 1.0F};
+    Tyra::Vec4 litColors[4];
+    std::unique_ptr<Tyra::StaPipLightingBag> litBag;
+    std::unique_ptr<Tyra::PipelineDirLightsBag> litLights;
+    std::unique_ptr<Tyra::StaPipColorBag> litColorBag;
     std::vector<Tyra::Vec4> aoSts;
     std::vector<Tyra::Color> aoCols;  // flat BLACK - the texture's alpha is
                                       // the whole occlusion (see the rebuild)
@@ -813,6 +826,9 @@ class TerrainGame : public Tyra::Game {
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
+  // Dynamic lighting (docs/global-illumination.md): refills the light bag
+  // of every opt-in object from the probe grid, once per frame.
+  void updateDynLitObjects();
   // Directional light for the animated pass, mirroring the baked static
   // look. The manual dir-lights layout: colors[0..2] + ambient in [3].
   Tyra::Vec4 animLightColors[4];
@@ -1582,6 +1598,19 @@ class TerrainGame : public Tyra::Game {
     // base pass (alpha-over blend of a black texture = per-pixel darkening).
     // aoSts map this part's vertices into the object's atlas regions; shares
     // the vertices and bboxVersion like the env pass does.
+    // Dynamic lighting (docs/global-illumination.md, opt-in per object): this
+    // part renders through the LIT VU1 program instead of baked vertex colors,
+    // and its four light colors are re-read from the probe grid every frame.
+    // The engine refuses per-vertex colors on a lit bag ("Multicolor is not
+    // supported with lighting"), so litBase is the ONE base color and every
+    // bit of shading is VU1's N.L - exactly the deal animated models take.
+    std::vector<Tyra::Vec4> litNormals;
+    Tyra::Color litBase;
+    float litAlbedo[3] = {1.0F, 1.0F, 1.0F};
+    Tyra::Vec4 litColors[4];
+    std::unique_ptr<Tyra::StaPipLightingBag> litBag;
+    std::unique_ptr<Tyra::PipelineDirLightsBag> litLights;
+    std::unique_ptr<Tyra::StaPipColorBag> litColorBag;
     std::vector<Tyra::Vec4> aoSts;
     std::vector<Tyra::Color> aoCols;  // flat BLACK - the texture's alpha is
                                       // the whole occlusion (see the rebuild)
@@ -1725,6 +1754,9 @@ class TerrainGame : public Tyra::Game {
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
+  // Dynamic lighting (docs/global-illumination.md): refills the light bag
+  // of every opt-in object from the probe grid, once per frame.
+  void updateDynLitObjects();
   // Directional light for the animated pass, mirroring the baked static
   // look. The manual dir-lights layout: colors[0..2] + ambient in [3].
   Tyra::Vec4 animLightColors[4];
@@ -2699,6 +2731,16 @@ V3 giShade(const GiSample& s, const V3& n) {
  * contains every one of them. */
 bool g_giProbeShade = false;
 
+/** Dynamic lighting (docs/global-illumination.md): this object renders through
+ * the LIT VU1 program, so pushVert must NOT bake any light into its color -
+ * VU1 does the shading from the per-frame light bag. What it collects instead
+ * is the per-vertex NORMAL that program needs, in the space the bag's light
+ * matrix expects: local for a g_bakeLocal object (physics bodies keep local
+ * vertices plus a world matrix, so VU1 rotates the normal too), world for
+ * everything else (its matrix is identity). Getting that space wrong does not
+ * crash - it lights the object as if it never turned. */
+std::vector<Vec4>* g_litNormals = nullptr;
+
 /** ...and this one: the surface's light comes from the scene LIGHTMAP, per
  * pixel through the additive atlas pass. Its vertex shade is black; the pass
  * puts the whole thing back. */
@@ -3210,6 +3252,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
+  const V3 ln = n;  // ...and the matching un-rotated normal
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
@@ -3222,7 +3265,15 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   V3 shade;
   GiSample giSample;
   bool giHere = false;
-  if (g_giLightmap) {
+  if (g_litNormals) {
+    // VU1 lights this one. Its color must carry the ALBEDO only - the light
+    // arrives per frame through the bag, and doubling it here is the same
+    // mistake the lightmap/probe routes are arranged to avoid.
+    g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
+                                        : Vec4(n.x, n.y, n.z, 0.0F));
+    shade = {1.0F, 1.0F, 1.0F};
+    giHere = true;
+  } else if (g_giLightmap) {
     shade = {0.0F, 0.0F, 0.0F};
     giHere = true;
   } else if (g_giProbeShade && giProbeAt(wp.x, wp.y, wp.z, giSample)) {
@@ -3245,7 +3296,10 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
       const AoAtlasRect& rc = g_aoAtlasRects[g_aoRegion];
       g_aoSts->push_back(Vec4(rc.u0 + u * rc.du, rc.v0 + v * rc.dv, 1.0F, 0.0F));
     }
-  } else if (SCENE_AO_ENABLED && !g_aoOff) {
+  } else if (SCENE_AO_ENABLED && !g_aoOff && !g_litNormals) {
+    // No vertex AO on a dynamically lit object either: it is contact
+    // darkening measured at the spawn, and this object's whole premise is
+    // that it does not stay there.
     float aoM = aoShadeMul(wp, n, true);
     if (selfAo != 255)
       aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
@@ -4463,6 +4517,7 @@ void TerrainGame::loop() {
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
+  updateDynLitObjects();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -5527,6 +5582,66 @@ void TerrainGame::setupAnimObject(int index) {
 // flashlight) are sampled once per model per frame into the ambient term
 // (see the dynLightAt pickup below) - a character walking into a torch's
 // pool of light brightens with it.
+/** Dynamic lighting (docs/global-illumination.md) - the opt-in per-object twin
+ * of what animated models have always done. One probe sample at the object's
+ * centre per frame, split the way a single VU1 light slot forces: L0 into the
+ * ambient term, L1 reconstructed along the sun direction into the one
+ * directional slot. dynLightAt goes in too, because the engine hands a LIT bag
+ * no dynamic-light slot (StaPipCore::render) - without folding it in by hand,
+ * an object that opted into dynamic lighting would be the one thing in the
+ * scene the flashlight cannot touch. */
+void TerrainGame::updateDynLitObjects() {
+  if (!SCENE_PROBES) return;
+  // The shared light DIRECTIONS - the anim path sets these too, but it bails
+  // out early when a scene has no animated models, and this pass must not
+  // depend on that having happened.
+  animLightDirs[0].set(SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z, 1.0F);
+  animLightDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+  animLightDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+  const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.visible || o.data.dynLit == 0) continue;
+    if (i >= (int)objectGeometry.size()) continue;
+    ObjectGeometry& g = objectGeometry[i];
+    if (g.parts.empty() || !g.parts[0].litBag) continue;
+
+    float amb[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                    128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                    128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT};
+    float dif[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                    128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                    128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+    GiSample gs;
+    if (giProbeAt(o.data.position[0], o.data.position[1], o.data.position[2],
+                  gs)) {
+      for (int k = 0; k < 3; ++k) {
+        float a = gs.l0[k];
+        if (a < 0.0F) a = 0.0F;
+        amb[k] = 128.0F * a;
+        float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
+                                   gs.l1[2][k] * sun.z);
+        if (d < 0.0F) d = 0.0F;
+        dif[k] = 128.0F * d;
+      }
+    }
+    float dl[3];
+    dynLightAt(engine, o.data.position[0], o.data.position[1],
+               o.data.position[2], dl);
+    for (GeoPart& part : g.parts) {
+      if (!part.litBag) continue;
+      const float* base = part.litAlbedo;
+      part.litColors[0].set(dif[0] * base[0], dif[1] * base[1],
+                            dif[2] * base[2], 1.0F);
+      part.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+      part.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+      part.litColors[3].set((amb[0] + 128.0F * dl[0]) * base[0],
+                            (amb[1] + 128.0F * dl[1]) * base[1],
+                            (amb[2] + 128.0F * dl[2]) * base[2], 128.0F);
+    }
+  }
+}
+
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
@@ -9513,6 +9628,17 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   // probe path. Never both (docs/global-illumination.md).
   g_giLightmap = SCENE_AO_ATLAS_GI && g_emisAtlas;
   g_giProbeShade = !g_giLightmap && SCENE_PROBES != nullptr;
+  // Dynamic lighting wins over both: VU1 lights this object from a bag the
+  // frame loop refills, so nothing may be baked into its vertices at all.
+  // Needs a probe grid to read - without one there is nothing to be dynamic
+  // ABOUT, and the object keeps the ordinary baked path.
+  const bool dynLit = o.data.dynLit != 0 && SCENE_PROBES != nullptr;
+  if (dynLit) {
+    g_giLightmap = false;
+    g_giProbeShade = false;
+    g.parts[0].litNormals.clear();
+    g_litNormals = &g.parts[0].litNormals;
+  }
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
@@ -9634,6 +9760,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g_aoOff = false;
   g_giLightmap = false;
   g_giProbeShade = false;
+  g_litNormals = nullptr;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -9857,7 +9984,48 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     } else {
       part.emisBag.reset();
     }
+    // Dynamic lighting: swap this part onto the LIT VU1 program. The engine
+    // asserts that a lit bag has no per-vertex colors, so the base color
+    // becomes ONE value and every bit of shading comes from VU1's N.L against
+    // the light bag the frame loop refills (updateDynLitObjects).
+    if (dynLit && part.litNormals.size() == part.vertices.size() &&
+        !part.vertices.empty()) {
+      // The albedo the light colors get folded into - the same product the
+      // baked path would have put in the vertex colors.
+      const float* kd = o.data.type == 5 && gm && pi < (int)gm->parts.size()
+                            ? gm->parts[pi].kd
+                            : (gmat ? gmat->kd : nullptr);
+      for (int k = 0; k < 3; ++k)
+        part.litAlbedo[k] = o.data.color[k] * (kd ? kd[k] : 1.0F);
+      part.litBase = Color(128.0F, 128.0F, 128.0F, 128.0F);
+      if (!part.litBag) {
+        part.litColorBag = std::make_unique<StaPipColorBag>();
+        part.litBag = std::make_unique<StaPipLightingBag>();
+        part.litLights = std::make_unique<PipelineDirLightsBag>(true);
+      }
+      part.litColorBag->single = &part.litBase;
+      part.litColorBag->many = nullptr;
+      // GOURAUD, not the static path's flat. A lit bag shades per VERTEX, and
+      // flat shading takes one corner's normal for the whole triangle - on a
+      // cylinder that lights half the segments off a normal pointing away and
+      // the object comes out dark and hard-banded (it did).
+      part.infoBag->shadingType = TyraShadingGouraud;
+      part.litBag->lightMatrix = part.infoBag->model;
+      part.litBag->normals = part.litNormals.data();
+      part.litLights->setLightsManually(part.litColors, animLightDirs);
+      part.litBag->dirLights = part.litLights.get();
+      part.bag->color = part.litColorBag.get();
+      part.bag->lighting = part.litBag.get();
+    } else if (part.litBag) {
+      part.infoBag->shadingType = TyraShadingFlat;
+      part.litBag.reset();
+      part.litLights.reset();
+      part.litColorBag.reset();
+      part.bag->color = part.colorBag.get();
+      part.bag->lighting = nullptr;
+    }
   }
+  g_litNormals = nullptr;
 }
 
 // Static mesh LOD (docs/model-pipeline.md). Two object kinds keep the full
@@ -14369,6 +14537,7 @@ void TerrainGame::loop() {
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
+  updateDynLitObjects();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -16673,6 +16842,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
            "  int projShadow; // 1 = live projected silhouette shadow (the\n"
            "                  // per-object AO 'castShadow' is baked, not here)\n"
+           "  int dynLit;     // 1 = lit by the LIT VU1 program from the probe\n"
+           "                  // grid every frame instead of baked vertex colors\n"
+           "                  // (docs/global-illumination.md)\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -16897,6 +17069,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << o.collisionMode << ", "
                     << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
                     << ", " << (o.projShadow ? 1 : 0)
+                    << ", " << (o.dynamicLighting ? 1 : 0)
                     << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)

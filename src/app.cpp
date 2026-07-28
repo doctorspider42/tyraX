@@ -7422,6 +7422,21 @@ void App::drawPropertiesWindow() {
                 "moves. The bake already excludes anything it can prove moves\n"
                 "(physics, pickable, usable, save-state, streamed, or moved by\n"
                 "a flow graph) - this is for the rest.");
+        // Opt-in dynamic lighting: the LIT VU1 program + a per-frame probe
+        // sample, the same deal animated models take.
+        if (ImGui::Checkbox("Dynamic lighting", &o.dynamicLighting))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Relight this object from the light probes EVERY FRAME, with\n"
+                "no latency - so it stays lit correctly even while it spins:\n"
+                "it moves to the lit VU1 program, exactly like an animated model.\n"
+                "The trade is real - the engine allows no per-vertex colors on a\n"
+                "lit mesh, so the object gives up everything the bake put there\n"
+                "(contact AO, per-face variation) and gets one base color plus\n"
+                "VU1's lighting instead. Worth it for things that TUMBLE; for\n"
+                "things that only slide, just untick 'Baked lighting' above.\n"
+                "Needs a baked probe grid; without one it does nothing.");
     }
 
     if (isArea) {

@@ -960,6 +960,7 @@ uint64_t signature(const Project& p, const SceneData& sc, const Settings& st) {
         mix64(h, (uint64_t)o.type);
         mix64(h, o.castShadow ? 1 : 0);
         mix64(h, o.bakedLighting ? 1 : 0);
+        mix64(h, o.dynamicLighting ? 1 : 0);
         mix64(h, o.primDetail);
         mix64(h, o.physics ? 1 : 0);
         mix64(h, o.pickable ? 1 : 0);
