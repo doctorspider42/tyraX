@@ -76,6 +76,19 @@ bool hookAutomated(const void* field) {
 
 // --- the rotary ------------------------------------------------------------
 
+// A drag has to remember where it is BETWEEN frames, not just where the value
+// landed. A stepped dial rounds its value to a whole step every frame, so a
+// drag that only accumulates within one frame has to clear half a step in a
+// single mouse move or it rounds straight back to where it started - which is
+// why Octave (7 steps) needed a 17-pixel jerk to move at all and felt dead,
+// while Root (61 steps) always worked. One entry is enough: ImGui only ever
+// has one active item.
+struct KnobDrag {
+    ImGuiID id = 0;
+    float raw = 0.0f;  // un-stepped, un-rounded position of the drag
+};
+KnobDrag g_knobDrag;
+
 // A VST-style knob. Vertical drag turns it (Shift = fine, Ctrl = coarse),
 // double-click returns it to `def`, and the value is drawn under the dial.
 //
@@ -83,11 +96,14 @@ bool hookAutomated(const void* field) {
 // frequency or time knob needs: linear pixels-per-Hz makes everything under
 // 1 kHz a single pixel of a 14 kHz sweep. A symmetric range (-x..+x) is drawn
 // bipolar, filling from the centre - so pan and mod amounts read at a glance.
+// `step` > 0 quantizes the dial (knobInt passes 1), which is what makes the
+// drawn pointer and the readout agree with the whole number the caller stores.
 // `hook` is false only when knobInt calls this with a scratch float - it writes
 // the keyframe itself, from the int it actually owns.
 bool knob(const char* label, float* v, float lo, float hi, float def,
           const char* fmt, float scale, float curve = 1.0f,
-          const char* tip = nullptr, bool hook = true, bool autoMark = false) {
+          const char* tip = nullptr, bool hook = true, bool autoMark = false,
+          float step = 0.0f) {
     const float cell = 62.0f * scale;
     const float dia = 42.0f * scale;
     const bool bipolar = lo < 0.0f && hi > 0.0f && std::fabs(lo + hi) < 1e-4f;
@@ -115,6 +131,7 @@ bool knob(const char* label, float* v, float lo, float hi, float def,
     }
 
     const ImVec2 p = ImGui::GetCursorScreenPos();
+    const ImGuiID id = ImGui::GetID("dial");
     ImGui::InvisibleButton("dial", ImVec2(cell, dia));
     const bool active = ImGui::IsItemActive();
     const bool hovered = ImGui::IsItemHovered();
@@ -130,22 +147,40 @@ bool knob(const char* label, float* v, float lo, float hi, float def,
         t = std::max(0.0f, std::min(1.0f, t));
         return lo + span * std::pow(t, curve);
     };
+    auto settle = [&](float val) {
+        if (step > 0.0f) val = lo + step * std::round((val - lo) / step);
+        return std::max(std::min(lo, hi), std::min(std::max(lo, hi), val));
+    };
 
-    if (active) {
+    if (ImGui::IsItemActivated()) {
+        g_knobDrag.id = id;
+        g_knobDrag.raw = *v;
+    }
+    if (active && g_knobDrag.id == id) {
         const ImGuiIO& io = ImGui::GetIO();
         const float d = -io.MouseDelta.y - io.MouseDelta.x * 0.15f;
         if (d != 0.0f) {
             float sens = 1.0f / (200.0f * scale);
             if (io.KeyShift) sens *= 0.2f;
             if (io.KeyCtrl) sens *= 3.0f;
-            *v = fromNorm(toNorm(*v) + d * sens);
-            *v = std::max(std::min(lo, hi), std::min(std::max(lo, hi), *v));
-            changed = true;
+            g_knobDrag.raw = fromNorm(toNorm(g_knobDrag.raw) + d * sens);
+            // Only report an edit when the stored value really moved: a stepped
+            // dial spends most of its travel inside one step, and a knob that
+            // claimed a change every frame would re-generate the piece for
+            // nothing.
+            const float nv = settle(g_knobDrag.raw);
+            if (nv != *v) {
+                *v = nv;
+                changed = true;
+            }
         }
     }
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        *v = def;
-        changed = true;
+        g_knobDrag.raw = def;
+        if (*v != def) {
+            *v = def;
+            changed = true;
+        }
     }
 
     const float t = toNorm(*v);
@@ -213,8 +248,10 @@ bool knobInt(const char* label, int* v, int lo, int hi, int def, const char* fmt
     float f = (float)*v;
     // The dial is told "no hook" (its float is a scratch copy) but the marker
     // still has to appear, so the automation flag is queried on the int itself.
+    // The step of 1 is what makes the drag survive between frames - see
+    // KnobDrag; without it a short-range dial (Octave, Semi, Unison) is stuck.
     knob(label, &f, (float)lo, (float)hi, (float)def, fmt, scale, 1.0f, tip, false,
-         hookAutomated(v));
+         hookAutomated(v), 1.0f);
     const int nv = std::max(lo, std::min(hi, (int)std::lround(f)));
     if (nv == *v) return false;
     *v = nv;
@@ -1275,11 +1312,15 @@ void App::drawDroneGeneratorWindow() {
                 dirty |= ImGui::Checkbox(lbl, &L.on);
                 ImGui::SameLine();
                 ImGui::TextDisabled("%s", dronegen::waveNames()[L.wave]);
-                float lv = L.level;
-                if (knob("level", &lv, 0.0f, 1.0f, 0.5f, "%.2f", s)) {
-                    L.level = lv;
-                    dirty = true;
-                }
+                // The very same parameter as the layer's own Level knob below,
+                // deliberately: this strip exists so four stacks can be
+                // balanced without four tab clicks, not to add a second gain.
+                // It binds straight to the field, so it automates like any
+                // other knob (a scratch copy would have no address the write
+                // hook recognises, and would silently record nothing).
+                dirty |= knob("level", &L.level, 0.0f, 1.0f, 0.5f, "%.2f", s, 1.0f,
+                              "The same control as this layer's Level knob -\n"
+                              "the two always read alike.");
                 ImGui::EndGroup();
                 ImGui::PopID();
             }

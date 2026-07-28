@@ -26,6 +26,22 @@ That is also why the default render format is **22050 Hz stereo 16-bit**: it is
 what `AudioSong::load` documents. The Music list's per-track *PS2 build* options
 (rate / mono) still apply on top for a network deploy, see the tooltip there.
 
+## Turning the knobs
+
+Drag a dial vertically to turn it, **Shift** for fine and **Ctrl** for coarse,
+**double-click** to put it back to its default. Whole-number dials — *Octave*,
+*Semi*, *Unison*, *Root*, *Beats*, the bell octave and range — step, and a step
+is about 30 pixels of travel regardless of how few steps the dial has. (They
+step because the drag position is kept apart from the value: a stepped dial that
+only accumulated within one frame would need half a step of movement in a single
+mouse move to leave the value it started on, so the short-range ones — Octave
+has seven steps — sat there looking broken.)
+
+The **Mix** strip at the top of *Layers* is not a second set of gains: each of
+its four dials is the *same* parameter as that layer's *Level* knob, so the two
+always read alike. It exists so four stacks can be balanced without four tab
+clicks.
+
 ## The signal chain
 
 ```

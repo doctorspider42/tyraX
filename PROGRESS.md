@@ -10,6 +10,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (217) **"Octave, Semi and Unison don't want to turn."** Reported against the
+  Drone Generator, and the report was exactly right - those three dials were
+  dead, while *Root* and *Tuning* right next to them were fine, which is the
+  clue. `knobInt` handed the dial a **scratch float re-seeded from the int every
+  frame**, so a drag only ever accumulated within one frame: to move at all it
+  had to clear half a step in a single mouse move. At 200 px of travel for the
+  whole range that is 100/span pixels in one frame - 17 px for Octave (7 steps),
+  20 px for Unison (6), 4 px for Semi - while Root, with 61 steps, needed 1.7 px
+  and always worked. Fixed by keeping the drag's **un-stepped position in the
+  widget** for the life of the drag (one `KnobDrag` entry keyed by item ID -
+  ImGui only ever has one active item) and giving `knob` a `step` argument that
+  quantizes it: the dial now moves a step every ~30 px however few steps it has,
+  and the drawn pointer, the readout and the stored int finally agree. The same
+  change makes every knob report an edit only when the value **actually moved**,
+  where before any mouse motion at all counted - a stepped dial spends most of
+  its travel inside one step, and each false edit re-generated the piece.
+  Second half of the same report - *"the third Level syncs with the Level at the
+  bottom"* - is the tool working as designed and reads as a bug only because
+  nothing said so: the **Mix** strip is the layer's own *Level*, one parameter
+  shown twice so four stacks can be balanced without four tab clicks. It now
+  says that in its tooltip and in `docs/drone-generator.md`, and while there the
+  strip was bound **straight to the field** instead of to a copy - a scratch
+  address means nothing to the automation write hook, so the mixer's dials had
+  been silently recording no keyframes at all.
+  *Verified* to the build layer (`build.ps1`, clean) plus a read-through of the
+  arithmetic above; **the hands-on turn is the owner's** - driving the mouse on
+  this machine is off the table while they are at it.
+
 - (216) **"Rewind doesn't work, and neither does picking a fragment - once I
   generate one I want to hear how it starts and how it ends."** Three faults
   behind one report, two of them trivially mine and the third the interesting
