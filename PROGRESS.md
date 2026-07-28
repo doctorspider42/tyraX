@@ -10,6 +10,86 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (132) **Opt-in dynamic lighting: three real bugs, and the banding that was
+  never there.** Picking up the backlog entry left by the WIP commit, which
+  listed three suspects in order. All three were settled, two of them were
+  bugs, and the headline symptom - "the cylinder still bands" - turned out to
+  be a **misread of the screen**.
+  - **Suspect (1), normal/vertex alignment: not a bug for primitives, but a
+    real one for models.** A primitive cannot drift, because the normal is
+    pushed *inside* `pushVert` - one normal per vertex, by construction, for
+    every builder. But `g_litNormals` pointed at `parts[0]` for the whole
+    object, so a multi-part model piled every part's normals into part 0: the
+    `litNormals.size() == vertices.size()` gate then failed for *every* part,
+    no part got a lit bag, and the model rendered at the flat white albedo
+    `pushVert` had already written - worse than not opting in. The capture is
+    now staged per part. **Verified** on a two-material `.obj` in PCSX2: two
+    parts, `verts == norms` on both, a lit bag on both.
+  - **Suspect (2), the color space: a bug, and exactly half a stop.**
+    `pushVert` builds an UNTEXTURED surface in 0..255 and a textured one in
+    128 = 1.0 modulation; `updateDynLitObjects` built its light colors at 128
+    for everything, copied from the animated-model precedent - which is always
+    textured. Every untextured dyn-lit object was therefore exactly half as
+    bright as the same object baked. Now `GeoPart::litScale` per part, and the
+    per-object terms are kept as 0..1 fractions until they meet it (one object
+    can hold both kinds). **Verified** by measurement, not by eye: with the
+    visible side of the test cylinder facing away from the sun, `N.L` clamps to
+    0 and the surface must land on the ambient term exactly - the log said
+    `amb=(72.8, 119.3, 147.2)` and the framebuffer said `(71, 121, 151)`.
+  - **Suspect (3), the pointer `setLightsManually` keeps: not a bug.** Read
+    back through the bag on the console: `bagptr == &part.litColors[0]` and the
+    value written that frame comes straight back out. `g.parts` is sized once at
+    the top of `rebuildObjectGeometry` and the bags are wired at the bottom, so
+    the (130) rule is already satisfied here.
+  - **A fourth one nobody had listed: static batching silently ate the whole
+    feature.** `staticBatchEligible` did not exclude `dynamicLighting`, so a
+    plain authored box or cylinder with the flag on - no physics, no script, no
+    layer - was merged into a combined batch bag, rebuilt by
+    `rebuildStaticBatch` with `g_litNormals == nullptr`, and quietly rendered
+    with ordinary baked shading while its lit bag never drew. **Verified** by
+    A/B on the generated table: the `batchStatic` column flips 1 -> 0 with the
+    exclusion in.
+  - **A fifth: the object rendered black for a frame on every rebuild.**
+    `renderObjects` rebuilds a dirty object from *inside* the draw loop, i.e.
+    after this frame's `updateDynLitObjects` has already run, so a freshly
+    wired bag drew once with the zero-initialized `litColors`. Not just at
+    load - that is every Live Link edit. The per-object fill is now
+    `fillDynLitColors(index)` and `rebuildObjectGeometry` calls it the moment
+    it wires a lit bag.
+
+  **And the banding: there wasn't any.** The screen's X axis runs opposite to
+  world X, and the striped cylinder in the test scene was the *reference* one -
+  a `bakedLighting: false` primitive on the per-vertex probe path, whose hard
+  diagonal wedges are the known two-triangle seam the lightmap exists to avoid
+  (`TyraShadingFlat` on every static bag makes each triangle one color). The
+  dyn-lit cylinder standing beside it shades smoothly, max adjacent step 1-2
+  units across its whole width. The proof took forcing the ambient slot to a
+  loud red: the wedged cylinder did not change color, the *other* one turned
+  red. Worth writing down as a method - a per-object A/B in ONE frame is only
+  as good as knowing which object is which, and "left" is not a fact.
+
+  **A dead end, recorded so nobody re-derives it.** Before that, the flat
+  wedges looked exactly like a shading-mode bug, and the engine has a real
+  structural hazard that would explain one: `addBuffersDataToPacket` stamps the
+  GS PRIM giftag for a **whole half-ring of 16 buffers** from the renderer-wide
+  `prim_t`, long after `setInfo` wrote it for one bag - so a mesh can inherit a
+  later mesh's shading/blending/AA. Deriving those fields per buffer from
+  `buffers[i]->bag->info` compiles and is arguably more correct, but an A/B of
+  the two engine builds came out **byte-identical (0 differing pixels)**, so it
+  fixes nothing observable and was reverted rather than shipped unproven. If
+  someone hits a mesh drawing with a neighbour's PRIM attributes, that loop is
+  where to look.
+
+  **Verified** in PCSX2 (software renderer, 50 FPS) on a scratch fixture: three
+  cylinders side by side - dyn-lit, lightmapped, probe-baked - plus a
+  two-material static model with the flag on. Screen capture on this Wayland
+  box needed a workaround worth knowing: the compositor refuses non-interactive
+  capture (`gnome-screenshot` hangs on the portal), so PCSX2 was run under
+  XWayland (`QT_QPA_PLATFORM=xcb`) and grabbed with a ~50-line `XGetImage`
+  tool - which also makes the result *measurable* (pixel rows, plateau widths)
+  instead of eyeballed. The feature still needs the owner's own scene before it
+  is called done; the backlog entry carries what is left.
+
 - (131) **Flat casters could never pick a light.** Owner, after (130): "the
   sphere is perfect, the wall still nothing". Two separate over-conservative
   guards, both from approximating a caster with a sphere:
@@ -11562,58 +11642,37 @@ Each finished feature lands as its own commit.
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch
-  `claude/gi-dynamic-lighting-wip`, do NOT merge as-is;
-  docs/global-illumination.md is the surrounding design). An object may opt
-  into being lit by the LIT VU1 program with its four light colours re-read
-  from the probe grid every frame - the deal animated models already take - so
-  it relights with zero latency, including while it spins. Everything is wired
-  (`SceneObject::dynamicLighting`, the `dynLit` scene-data column, the
-  per-part `StaPipLightingBag`, `updateDynLitObjects()`); a detail-16 cylinder
-  renders at 50 FPS and is *still wrong*: hard vertical bands.
+  `claude/gi-dynamic-lighting-wip`; docs/global-illumination.md is the
+  surrounding design). An object may opt into being lit by the LIT VU1 program
+  with its four light colours re-read from the probe grid every frame - the
+  deal animated models already take - so it relights with zero latency,
+  including while it spins. Entry (132) settled the three suspects the WIP
+  commit left, plus two more nobody had listed, and established that the
+  reported banding was a misread of the screen: the dyn-lit cylinder shades
+  smoothly. What is left before this can merge:
+  - **The owner has not seen it in their own scene.** Everything so far is a
+    scratch fixture of primitives plus a two-material model.
+  - **One probe sample per OBJECT, taken at its origin.** That is the whole
+    point (it moves, so it cannot be baked), but it means a large object is lit
+    as if it stood at its own centre, and an object whose origin sits inside
+    geometry reads that occlusion over its whole surface. Decide whether that
+    is the documented deal or whether big objects want a second sample.
+  - **The directional term is reconstructed along the SUN**, not along the
+    probe's own dominant L1 direction: `dif = (2/3) * dot(L1, sun)` and then
+    VU1 multiplies it by `N.L(sun)`. In a bounce-lit interior the light does
+    not come from the sun, so the shading leans the wrong way. Using L1's
+    direction as the one directional slot is the obvious next experiment - the
+    VU1 side already takes an arbitrary direction matrix.
+  - **A textured dyn-lit part is untested.** `litScale` handles the 128 vs 255
+    split by construction, but no fixture has exercised it.
+  - Then: a README bullet, a docs/global-illumination.md section, and an
+    example (or a dyn-lit prop dropped into `examples/gi-showcase`).
 
-  **What was already found and fixed on that branch** (these are real and
-  worth keeping regardless of whether the feature lands):
-  - **The dir-light direction array is a MATRIX, not three vectors.** VU1 does
-    `out = D[0]*n.x + D[1]*n.y + D[2]*n.z` and `out.i` - the term multiplying
-    light colour i - is ROW i dotted with the normal, so the array must hold
-    the TRANSPOSE of the directions. The generated game had filled it
-    row-wise since the animated-model work, which silently degrades a single
-    sun to `out.x = SCENE_LIGHT_X * n.x`: shading that follows one coordinate
-    of the normal, scaled by one coordinate of the light. **Every animated
-    model in every project has been lit that way**; the fix visibly brightens
-    and re-shades the third-person cat in `examples/gi-showcase`. The contract
-    is now documented in the engine's `pipeline_lighting_options.hpp`, which
-    is where the next person will look - the engine never fills that array
-    itself, it forwards the caller's pointer, so the convention lived nowhere.
-  - A lit part needs `TyraShadingGouraud`; the static path's `TyraShadingFlat`
-    takes one corner's normal for the whole triangle.
-  - `StaPipVU1Cull_D` (the untextured lit program) **never reads the colour
-    bag** - the entire output is `CalculateTyraDirectionalLights`. So
-    `colorBag->single` is irrelevant to the result and the albedo must be
-    folded into the light colours, exactly as the anim path does.
-  - `setLightsManually` stores POINTERS (not copies), so per-frame writes do
-    reach the bag - that was ruled out, not fixed.
-  - `TYRA_ASSERT` compiles to `((void)0)` in release, so the engine's
-    "Multicolor is not supported with lighting" guard is NOT a safety net in a
-    shipped build.
-
-  **What is still wrong, and the remaining suspects in order:**
-  1. **Normal/vertex index alignment per builder.** The banding follows the
-     cylinder's segments exactly. `g_litNormals` is pointed at
-     `g.parts[0].litNormals` for the whole object, which is fine for a
-     one-part primitive but is WRONG for a multi-part model - every part's
-     normals land in part 0. Check the primitive builders emit exactly one
-     normal per `pushVert` in the same order, and make the capture per part.
-  2. **What the lit program expects of the ambient slot vs the 0..255 static
-     colour space.** The anim precedent is always textured or material-backed;
-     an untextured lit mesh may want a different scale.
-  3. The pointer `setLightsManually` keeps into `part.litColors`, which
-     dangles if `g.parts` ever reallocates after the bag is wired.
-
-  Next session: start at (1) - dump the first few normals next to their
-  vertices for one cylinder (the Live Debugger watch list or a plain TYRA_LOG
-  will do) rather than reasoning about it.
-
+  **The two engine-level facts this work established** are worth keeping
+  whatever happens to the feature - both are now in
+  docs/global-illumination.md's trap list: the untextured/textured colour-space
+  split for a lit bag, and `StaPipVU1Cull_D` never reading the colour bag at
+  all (the albedo must be folded into the light colours).
 
 - **Session internet exposure** — today sessions are LAN (or any mesh VPN:
   Tailscale/ZeroTier make remote peers look local, zero code). The researched

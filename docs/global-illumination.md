@@ -254,6 +254,20 @@ Said out loud in the Bake window too, not just here:
   change what the bake produces, and hashing them only manufactures false
   staleness: nudging a spawn point would throw away a ten-minute bake and
   silently drop the scene back to classic lighting.
+- **A lit VU1 bag lands in a different colour space depending on whether the
+  part is textured.** `pushVert` builds an untextured surface in 0..255 and a
+  textured one in 128 = 1.0 modulation, and the light colours handed to a lit
+  bag must match: 128 for a textured part, 255 for an untextured one
+  (`GeoPart::litScale`). The animated-model precedent is always textured, so
+  copying its 128 makes every untextured object exactly half as bright as the
+  same object baked - which reads as "the probe sample is too dark" and sends
+  you looking in the wrong place entirely.
+- **`StaPipVU1Cull_D` - the untextured lit program - never reads the colour
+  bag.** Its whole output is `CalculateTyraDirectionalLights`, so
+  `colorBag->single` cannot tint anything: the albedo has to be folded into the
+  light colours before they reach the bag, exactly as the animated path does.
+  (And `TYRA_ASSERT` is `((void)0)` in release, so the engine's "Multicolor is
+  not supported with lighting" guard is not a safety net in a shipped build.)
 - **A station outside the terrain is not a subtle mistake.** The walker clamps
   the player to the terrain bounds, so every spawn past the edge lands in the
   same place — which reads as "the camera is broken" rather than "you walked off

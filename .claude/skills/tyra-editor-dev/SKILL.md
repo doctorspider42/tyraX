@@ -698,6 +698,21 @@ project tree passes that far sooner than a Windows `TyraProjects` path does.
   `bboxVersion`: the engine's package-bbox cache is keyed by the vertex pointer,
   so differing stamps make each pass recompute the boxes the previous one just
   built, every frame.
+  **A bag lit by VU1 instead of baked** (the opt-in per-object dynamic
+  lighting, `GeoPart::litBag`) inverts the usual arrangement, and three things
+  go with it: the per-vertex NORMAL capture is per PART, not per object
+  (`g_litNormals` staged inside each builder loop - point it at `parts[0]` for
+  a whole model and every part's normals pile into part 0, the
+  size-equals-vertices gate fails, and the model renders at the flat white
+  albedo `pushVert` wrote); the light colours must be built in the same colour
+  space `pushVert` uses for that part (255 untextured / 128 textured -
+  `GeoPart::litScale`), because the untextured lit program never reads the
+  colour bag at all and the albedo has to ride in the light; and the object
+  must be excluded from `staticBatchEligible` or the batch rebuild - which
+  knows nothing about lit bags - silently renders it with ordinary baked
+  shading. Seed the colours where the bag is WIRED, not only in the per-frame
+  pass: `renderObjects` rebuilds a dirty object from inside the draw loop,
+  after that frame's update has already run.
 - **Shadowing an analytic light** is a segment test against those same
   occluder shapes (`aobake::shapeBlocksRay` - slab for a box, quadratic for a
   sphere; twins in the generated game and the viewport FS). Three things go

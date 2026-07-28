@@ -679,6 +679,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> litNormals;
     Tyra::Color litBase;
     float litAlbedo[3] = {1.0F, 1.0F, 1.0F};
+    // The color space the finished light lands in. VU1 clamps its sum to 255
+    // and the GS reads it raw, so an UNTEXTURED lit surface has to be built in
+    // the same 0..255 the baked vertex path uses (pushVert's `scale`); only a
+    // TEXTURED one wants 128 = 1.0 modulation. The animated-model precedent is
+    // always textured, which is why 128 looked like the whole answer and made
+    // every untextured dyn-lit object exactly half as bright as its bake.
+    float litScale = 255.0F;
     Tyra::Vec4 litColors[4];
     std::unique_ptr<Tyra::StaPipLightingBag> litBag;
     std::unique_ptr<Tyra::PipelineDirLightsBag> litLights;
@@ -829,6 +836,7 @@ class TerrainGame : public Tyra::Game {
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
   void updateDynLitObjects();
+  void fillDynLitColors(int index);
   // Directional light for the animated pass, mirroring the baked static
   // look. The manual dir-lights layout: colors[0..2] + ambient in [3].
   Tyra::Vec4 animLightColors[4];
@@ -1607,6 +1615,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> litNormals;
     Tyra::Color litBase;
     float litAlbedo[3] = {1.0F, 1.0F, 1.0F};
+    // The color space the finished light lands in. VU1 clamps its sum to 255
+    // and the GS reads it raw, so an UNTEXTURED lit surface has to be built in
+    // the same 0..255 the baked vertex path uses (pushVert's `scale`); only a
+    // TEXTURED one wants 128 = 1.0 modulation. The animated-model precedent is
+    // always textured, which is why 128 looked like the whole answer and made
+    // every untextured dyn-lit object exactly half as bright as its bake.
+    float litScale = 255.0F;
     Tyra::Vec4 litColors[4];
     std::unique_ptr<Tyra::StaPipLightingBag> litBag;
     std::unique_ptr<Tyra::PipelineDirLightsBag> litLights;
@@ -1757,6 +1772,7 @@ class TerrainGame : public Tyra::Game {
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
   void updateDynLitObjects();
+  void fillDynLitColors(int index);
   // Directional light for the animated pass, mirroring the baked static
   // look. The manual dir-lights layout: colors[0..2] + ambient in [3].
   Tyra::Vec4 animLightColors[4];
@@ -5607,31 +5623,49 @@ void TerrainGame::updateDynLitObjects() {
   animLightDirs[0].set(SCENE_LIGHT_X, 0.0F, 0.0F, 1.0F);
   animLightDirs[1].set(SCENE_LIGHT_Y, 0.0F, 0.0F, 1.0F);
   animLightDirs[2].set(SCENE_LIGHT_Z, 0.0F, 0.0F, 1.0F);
-  const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
     if (!o.active || !o.visible || o.data.dynLit == 0) continue;
-    if (i >= (int)objectGeometry.size()) continue;
-    ObjectGeometry& g = objectGeometry[i];
-    if (g.parts.empty() || !g.parts[0].litBag) continue;
+    fillDynLitColors(i);
+  }
+}
 
-    float amb[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                    128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                    128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT};
-    float dif[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
-                    128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
-                    128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+// The light colors for ONE dyn-lit object, read from the probe grid at its
+// position. Split out of the per-frame pass because geometry is also rebuilt
+// from INSIDE the render loop (renderObjects re-runs a dirty object), i.e.
+// after this frame's updateDynLitObjects has already been and gone: a bag
+// wired there would draw once with the zero-initialized litColors - black for
+// a frame on every rebuild, which is every Live Link edit, not just the load.
+// rebuildObjectGeometry therefore calls this the moment it wires a lit bag.
+void TerrainGame::fillDynLitColors(int i) {
+  if (!SCENE_PROBES) return;
+  if (i < 0 || i >= (int)runtimeObjects.size()) return;
+  if (i >= (int)objectGeometry.size()) return;
+  RuntimeObject& o = runtimeObjects[i];
+  ObjectGeometry& g = objectGeometry[i];
+  if (g.parts.empty()) return;
+  const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+  {
+    // Kept as 0..1 FRACTIONS here and scaled per part below: the color space
+    // a lit surface lands in depends on whether that part is textured
+    // (GeoPart::litScale), and this object may hold both kinds at once.
+    float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                    SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                    SCENE_BRIGHTNESS * SCENE_AMBIENT};
+    float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                    SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                    SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
     GiSample gs;
     if (giProbeAt(o.data.position[0], o.data.position[1], o.data.position[2],
                   gs)) {
       for (int k = 0; k < 3; ++k) {
         float a = gs.l0[k];
         if (a < 0.0F) a = 0.0F;
-        amb[k] = 128.0F * a;
+        amb[k] = a;
         float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
                                    gs.l1[2][k] * sun.z);
         if (d < 0.0F) d = 0.0F;
-        dif[k] = 128.0F * d;
+        dif[k] = d;
       }
     }
     float dl[3];
@@ -5640,13 +5674,14 @@ void TerrainGame::updateDynLitObjects() {
     for (GeoPart& part : g.parts) {
       if (!part.litBag) continue;
       const float* base = part.litAlbedo;
-      part.litColors[0].set(dif[0] * base[0], dif[1] * base[1],
-                            dif[2] * base[2], 1.0F);
+      const float s = part.litScale;
+      part.litColors[0].set(s * dif[0] * base[0], s * dif[1] * base[1],
+                            s * dif[2] * base[2], 1.0F);
       part.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
       part.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
-      part.litColors[3].set((amb[0] + 128.0F * dl[0]) * base[0],
-                            (amb[1] + 128.0F * dl[1]) * base[1],
-                            (amb[2] + 128.0F * dl[2]) * base[2], 128.0F);
+      part.litColors[3].set(s * (amb[0] + dl[0]) * base[0],
+                            s * (amb[1] + dl[1]) * base[1],
+                            s * (amb[2] + dl[2]) * base[2], 128.0F);
     }
   }
 }
@@ -9651,11 +9686,17 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   // Needs a probe grid to read - without one there is nothing to be dynamic
   // ABOUT, and the object keeps the ordinary baked path.
   const bool dynLit = o.data.dynLit != 0 && SCENE_PROBES != nullptr;
+  bool needsLitSeed = false;
   if (dynLit) {
     g_giLightmap = false;
     g_giProbeShade = false;
-    g.parts[0].litNormals.clear();
-    g_litNormals = &g.parts[0].litNormals;
+    // The normal capture is PER PART. A model draws one bag per MTL part and
+    // each bag carries its own normal array, so pointing the capture at part 0
+    // for the whole object piles every part's normals into part 0: the
+    // size == vertices check below then fails for every part, no part gets a
+    // lit bag, and the object renders at the white albedo pushVert already
+    // wrote. Staged inside the loops instead.
+    for (GeoPart& part : g.parts) part.litNormals.clear();
   }
 
   if (o.data.type == 5) {
@@ -9666,6 +9707,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
       // parallel to the vertex array, one byte per vertex.
       const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
@@ -9684,6 +9726,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     g_envNormals =
         (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
+    g_litNormals = dynLit ? &p0.litNormals : nullptr;
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 2: addCylinder(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -10010,11 +10053,17 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         !part.vertices.empty()) {
       // The albedo the light colors get folded into - the same product the
       // baked path would have put in the vertex colors.
+      const bool litTextured = o.data.type == 5 && gm && pi < (int)gm->parts.size()
+                                   ? gm->parts[pi].texture != nullptr
+                                   : (gmat && gmat->texture);
       const float* kd = o.data.type == 5 && gm && pi < (int)gm->parts.size()
                             ? gm->parts[pi].kd
                             : (gmat ? gmat->kd : nullptr);
       for (int k = 0; k < 3; ++k)
         part.litAlbedo[k] = o.data.color[k] * (kd ? kd[k] : 1.0F);
+      // Same split pushVert makes for the baked path: modulation scale for a
+      // textured surface, the full 0..255 for an untextured one.
+      part.litScale = litTextured ? 128.0F : 255.0F;
       part.litBase = Color(128.0F, 128.0F, 128.0F, 128.0F);
       if (!part.litBag) {
         part.litColorBag = std::make_unique<StaPipColorBag>();
@@ -10034,6 +10083,11 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.litBag->dirLights = part.litLights.get();
       part.bag->color = part.litColorBag.get();
       part.bag->lighting = part.litBag.get();
+      // Seed the colors now: a rebuild triggered from inside renderObjects
+      // draws this bag before the next updateDynLitObjects (see
+      // fillDynLitColors), and a lit bag handed the zero-initialized array
+      // renders the object black.
+      needsLitSeed = true;
     } else if (part.litBag) {
       part.infoBag->shadingType = TyraShadingFlat;
       part.litBag.reset();
@@ -10044,6 +10098,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     }
   }
   g_litNormals = nullptr;
+  if (needsLitSeed) fillDynLitColors(index);
 }
 
 // Static mesh LOD (docs/model-pipeline.md). Two object kinds keep the full
@@ -16779,6 +16834,12 @@ static bool staticBatchEligible(const SceneObject& o,
     if (o.pickable) return false;     // carried/thrown - moves at runtime
     if (o.saveState) return false;    // a loaded save repositions it
     if (o.reflected) return false;    // re-submitted into the env map pass
+    // Dynamic lighting is a per-OBJECT bag on the lit VU1 program, refilled
+    // from the probe grid every frame. A batch merges members into one baked
+    // bag built by rebuildStaticBatch, which knows nothing about it - the
+    // object would silently render with ordinary baked shading and its lit
+    // bag would never draw.
+    if (o.dynamicLighting) return false;
     if (!o.textureFeed.empty()) return false;  // live feed rebinds textures
     if (o.drawDistance != 0.0f) return false;  // per-object distance cut-off
     if (!o.layer.empty()) return false;        // streamed in/out with a layer
