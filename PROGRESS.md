@@ -720,7 +720,8 @@ Each finished feature lands as its own commit.
      shadows / ps2link / presets batch were written against the same base and
      numbered in parallel (main's own set repeats 216, 217 and 219 for the same
      reason). The drone set is the one directly below; main's set follows it,
-     running up to 223. Continue from 225. -->
+     running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
+     at the head of that second section. Continue from 225. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
@@ -755,6 +756,60 @@ Each finished feature lands as its own commit.
   runtime code, and the Docker game build compiles (=== Build OK ===). The
   visual pass (does a sidestep actually play StrafeL on a real rigged model)
   needs a hands-on pad test with a model that has such clips.
+
+- (223) **The material-preset writer truncated long layer names, and the corrupt
+  file reported success.** GCC 15 at -O3 on Linux named it exactly:
+  `'", "mortar": ' directive output may be truncated writing 12 bytes into a
+  region of size between 10 and 92` in `App::matEdSavePreset`, with the note
+  `output 179 or more bytes (assuming 271) into a destination of size 256`. Not
+  a pedantic warning - the layer name goes through `%s` unbounded and thirteen
+  numeric fields follow it, so a long-ish name cuts the line mid-JSON, the
+  written `.matpreset` is silently unreadable by `matEdApplyPreset`, and the
+  user is told *Saved material preset X* (`matEdPresetError_` stays clear). The
+  line is now streamed straight to the `ofstream`, with only the floats
+  formatted individually through `"%.4g"` into a 64-byte local, so nothing has a
+  length cap any more; the stream state is checked after the write, so a
+  write failure now becomes the same "Cannot write the preset file." the open
+  failure already produced.
+
+  **Byte-identity was the constraint** - existing presets have to keep
+  round-tripping - so it was measured rather than assumed: 200 000 random layers
+  over the ranges the UI actually produces, old writer vs new, **zero
+  differences** across the 199 972 that fit, and the only 28 that differed were
+  exactly the ones where the old `char buf[256]` truncated. Worth noting for its
+  own sake: those 28 had **ordinary 16-character names**. The wide `%.4g` values
+  are enough on their own, so this was never only a pathological-name bug.
+
+  **Verified through the real functions, not a copy.** A scratch harness links
+  every `build/` object but `main.cpp.o` and calls `App::matEdSavePreset` then
+  `App::matEdApplyPreset` on a live `App`. The trick that makes it cheap is
+  `matEdPaintW_ = 0`: that turns regen/composite/save-target into no-ops, so the
+  preset path runs with **no GL context at all**. Three smart-mask layers, one
+  named with 60 characters, saved to a 716-byte file and read back with **all 14
+  fields identical**; the same layer through the OLD writer fails `json::parse`
+  outright, its last line ending `..."breakupScale": 12, "mor`. `./build.sh
+  --clean` is warning-free and links, and the editor was launched on a `--new`
+  fixture with the Material Editor pre-opened through the layout's `open` list
+  to confirm the panel still draws. **Not covered**: the click-through in the
+  panel itself - a smart-mask layer needs a model plus a finished bake before
+  *Save preset* is even reachable - so the buttons stay a hands-on test; what
+  the harness drove is the code behind them.
+
+  Two more `-Wformat-truncation` sites in the same build, both pre-existing and
+  both fixed here, because "the Linux build is clean" is only useful as an
+  absolute: `devkit_ui.cpp`'s flush-map row label (`"%zu"` into `char[16]`,
+  widened to 24 - a 64-bit `size_t` wants 21), and `iso9660.cpp`'s PVD
+  timestamp, where the fix is **not** a bigger buffer. A `struct tm` field is a
+  plain `int` as far as the compiler knows, so `%04d` is an 11-byte directive
+  and no buffer short of 68 bytes silences it; reducing each field to its digit
+  count first (`% 10000u` / `% 100u`, printed `%04u`/`%02u`) is what makes the
+  16-byte stamp provably 16 bytes. Checked by writing an image and reading
+  offsets 813/830 back out: `2026072821201800` - sixteen digits, today's date,
+  trailing `00`, creation and modification equal.
+
+  All three sites predate the app.cpp split (PR #168), which relocated them
+  rather than introducing them: compiling the pre-split `app.cpp` against its
+  own tree at the same `-O3` emits the same warnings.
 
 - (217) **"Octave, Semi and Unison don't want to turn."** Reported against the
   Drone Generator, and the report was exactly right - those three dials were
