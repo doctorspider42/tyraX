@@ -758,6 +758,7 @@ void App::drawUI() {
     drawInputMapWindow();
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
+    drawGiBakeWindow();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
@@ -1280,6 +1281,8 @@ void App::drawMenuBar() {
                 treePreviewDirty_ = true;
             }
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Bake Global Illumination...")) showGiBake_ = true;
             ImGui::EndMenu();
         }
 
@@ -3731,6 +3734,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
@@ -3743,7 +3747,7 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
-    "debugger", "phonecam", "assets"};
+    "debugger", "phonecam", "assets",   "gibake"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -11179,6 +11183,176 @@ void App::rebuildTreePreview() {
     treeLeafTex_ = treegen::bakeLeafTexture(treeParams_);
     ++treePreviewVersion_;
     treePreviewDirty_ = false;
+}
+
+// Tools > Bake Global Illumination (docs/global-illumination.md).
+//
+// The bake is deliberately NOT part of the build: it takes seconds to minutes,
+// and a build that silently re-bakes lighting is a build nobody runs. So this
+// window owns the whole loop - the quality knobs, the per-scene staleness
+// readout, and the button. Everything downstream (codegen, texbake, the
+// viewport) only ever READS the cache in .res-baked/gi/.
+void App::drawGiBakeWindow() {
+    // Polled every frame, before the window's own early-out: a bake that
+    // finishes has to reach the VIEWPORT, and applyProjectToViewport is
+    // event-driven - without this the preview would keep showing the previous
+    // bake until the user happened to touch something else.
+    if (hasProject_ && giBakerSeen_ != giBaker_.version()) {
+        giBakerSeen_ = giBaker_.version();
+        applyProjectToViewport();
+    }
+    if (!showGiBake_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(560.0f), scaled(520.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Bake Global Illumination", &showGiBake_)) {
+        ImGui::End();
+        return;
+    }
+    ProjectSettings& st = project_.settings;
+    bool changed = false;
+
+    if (ImGui::Checkbox("Enable baked global illumination", &st.giEnabled))
+        changed = true;
+    prefHelp(
+        "Static geometry gets a baked multi-bounce lightmap; everything that "
+        "moves gets its light from a probe grid. Off = the classic ambient + "
+        "directional lighting, unchanged.");
+    ImGui::TextDisabled(
+        "Sky, sun, emissive materials and baked point lights become one\n"
+        "integrator with bounces. Costs the PS2 nothing at runtime.");
+    ImGui::Separator();
+
+    ImGui::BeginDisabled(!st.giEnabled || giBaker_.running());
+    ImGui::SeparatorText("Quality");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderInt("Rays per texel", &st.giRays, 16, 512)) changed = true;
+    prefHelp("Hemisphere rays per lightmap texel and per probe. More = less "
+             "noise in the bounce, linearly more bake time.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderInt("Bounces", &st.giBounces, 0, 6)) changed = true;
+    prefHelp("0 = direct light + sky only. 1 already gives colour bleeding; "
+             "2 is the useful default.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Sky light", &st.giSkyLight, 0.0f, 3.0f, "%.2f"))
+        changed = true;
+    prefHelp("How strongly the sky dome lights the scene. At 1.0 an open "
+             "surface receives about what the flat Ambient used to give it.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Sun light", &st.giSunLight, 0.0f, 3.0f, "%.2f"))
+        changed = true;
+    prefHelp("Multiplier on the scene's directional light - which GI shadows "
+             "for the first time.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Ambient floor", &st.giAmbientFloor, 0.0f, 0.3f,
+                           "%.3f"))
+        changed = true;
+    prefHelp("A constant added everywhere. Real GI makes a sealed room with no "
+             "light source pitch black; this keeps it readable.");
+
+    ImGui::SeparatorText("Light probes");
+    if (ImGui::Checkbox("Bake a probe grid", &st.giProbes)) changed = true;
+    prefHelp("What lights the player, NPCs, animated models, physics bodies, "
+             "imported models and textured surfaces. Without it those keep the "
+             "flat ambient while the static half gets GI - which shows.");
+    ImGui::BeginDisabled(!st.giProbes);
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Spacing", &st.giProbeSpacing, 1.0f, 12.0f, "%.1f u"))
+        changed = true;
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Level height", &st.giProbeHeight, 0.5f, 8.0f,
+                           "%.1f u"))
+        changed = true;
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderInt("Levels", &st.giProbeLevels, 1, 12)) changed = true;
+    prefHelp("Vertical layers above the lowest ground. 12 bytes per probe in "
+             "EE RAM.");
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+
+    if (changed) commitChange();
+
+    ImGui::SeparatorText("Scenes");
+    const gibake::Settings gst = gibake::settingsOf(st);
+    int staleCount = 0;
+    if (ImGui::BeginTable("giscenes", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Scene");
+        ImGui::TableSetupColumn("Bake");
+        ImGui::TableSetupColumn("Contents");
+        ImGui::TableHeadersRow();
+        for (int si = 0; si < (int)project_.scenes.size(); ++si) {
+            gibake::Bake b;
+            const bool present =
+                gibake::read(gibake::cachePath(project_, si), b);
+            const bool fresh =
+                present && st.giEnabled &&
+                b.signature == gibake::signature(project_, project_.scenes[si],
+                                                 gst);
+            if (!fresh) ++staleCount;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(project_.scenes[si].name.c_str());
+            ImGui::TableNextColumn();
+            if (fresh)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "baked");
+            else if (present)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "stale");
+            else
+                ImGui::TextDisabled("not baked");
+            ImGui::TableNextColumn();
+            if (present)
+                ImGui::Text("lightmap %d, ground %d, probes %dx%dx%d",
+                            b.atlas.size, b.terrain.size, b.probes.dim[0],
+                            b.probes.dim[1], b.probes.dim[2]);
+            else
+                ImGui::TextDisabled("-");
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    if (giBaker_.running()) {
+        ImGui::ProgressBar(giBaker_.progress(),
+                           ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(giBaker_.status().c_str());
+        if (ImGui::Button("Cancel", ImVec2(scaled(140.0f), 0)))
+            giBaker_.cancel();
+    } else {
+        ImGui::BeginDisabled(!st.giEnabled);
+        if (ImGui::Button("Bake this scene", ImVec2(scaled(140.0f), 0))) {
+            saveProject();  // the bake reads the project from disk-backed state
+            giBaker_.start(project_, {project_.activeScene});
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Bake all scenes", ImVec2(scaled(140.0f), 0))) {
+            saveProject();
+            giBaker_.start(project_, {});
+        }
+        ImGui::EndDisabled();
+        if (st.giEnabled && staleCount > 0) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                               "%d scene(s) need a bake", staleCount);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("What this does not do");
+    // Said out loud in the UI rather than in a changelog - every one of these
+    // is a question someone would otherwise file as a bug.
+    ImGui::TextWrapped(
+        "Nothing here is real time. Moving a crate does not move its light "
+        "until the next bake.\n"
+        "GI does not buy more dynamic lights: the flashlight and live point "
+        "lights are unchanged.\n"
+        "Textured surfaces and imported models take their light from the "
+        "probe grid, not the lightmap - a flat additive term over a texture "
+        "would blow out its dark texels.\n"
+        "The editor preview evaluates the probe grid per pixel, so the "
+        "console's per-texel contact shadows are sharper than what you see "
+        "here.");
+    ImGui::End();
 }
 
 // Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a
@@ -24719,6 +24893,20 @@ void App::applyProjectToViewport() {
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
     viewport_.setAmbientOcclusion(rs.aoEnabled, rs.aoStrength, rs.aoRadius);
+    // Baked global illumination (docs/global-illumination.md): the viewport
+    // shows what the console will, so it reads the SAME cache codegen and
+    // texbake read. Reloaded only when the scene, the bake or the model
+    // changes - gibake::load hashes the whole scene, which is not a
+    // per-frame cost.
+    if (giViewScene_ != project_.activeScene ||
+        giViewSerial_ != modelEditSerial_ ||
+        giViewVersion_ != giBaker_.version()) {
+        giViewScene_ = project_.activeScene;
+        giViewSerial_ = modelEditSerial_;
+        giViewVersion_ = giBaker_.version();
+        const gibake::Bake b = gibake::load(project_, project_.activeScene);
+        viewport_.setGiProbes(b.valid ? b.probes : gibake::ProbeGrid());
+    }
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's
     // (its Enabled flag is the initial state - the toggle button / flow graph

@@ -11,6 +11,7 @@
 #include <stb_image.h>
 
 #include "aobake.hpp"    // model AO sidecars (<model>.aov)
+#include "gibake.hpp"    // the baked global-illumination cache
 #include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
 #include "objparser.hpp"
 #include "pngquant.hpp"
@@ -440,9 +441,13 @@ std::string bake(const Project& p,
         const fs::path rel = fs::relative(e.path(), baked, ec);
         // stoch/ holds generated supertiles with no res/ source - regenerated
         // wholesale below, so leave them out of the vanished-source sweep.
-        // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too.
+        // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too, and
+        // gi/ holds the global-illumination bake cache - written by an
+        // explicit bake, never by a build, so a build must not sweep it away.
         const std::string top0 = rel.begin()->generic_string();
-        if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas") continue;
+        if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
+            top0 == "gi")
+            continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
         if (rel.filename().string().rfind("tyra-atlas-", 0) == 0) continue;
@@ -593,16 +598,25 @@ std::string bake(const Project& p,
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             const SceneData& sc = p.scenes[si];
             const ProjectSettings srs = project::resolvedSettings(p, sc);
+            // Baked global illumination, when the scene has a fresh one
+            // (docs/global-illumination.md). Pixels and rects must come from
+            // ONE bake or the UVs point at the wrong texels - codegen reads
+            // the same cache, so a stale one falls both sides back together.
+            const gibake::Bake gi = gibake::load(p, (int)si);
             // Neither image is gated on the AO preference: both carry baked
-            // emissive light as well, so a scene can have glowing lamps and
-            // no ambient occlusion at all.
+            // light as well, so a scene can have glowing lamps and no ambient
+            // occlusion at all.
             {
-                const aobake::AoImage map = aobake::terrainAOMap(
-                    sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-                    (float)sc.terrain.depth,
-                    aobake::collectOccluders(sc.objects, aabbFn),
-                    aobake::collectEmitters(p.dir, sc.objects, aabbFn),
-                    srs.aoRadius, srs.aoStrength, srs.aoEnabled);
+                const aobake::AoImage map =
+                    gi.valid ? gi.terrain
+                             : aobake::terrainAOMap(
+                                   sc.heights, sc.hmW, sc.hmD,
+                                   (float)sc.terrain.width,
+                                   (float)sc.terrain.depth,
+                                   aobake::collectOccluders(sc.objects, aabbFn),
+                                   aobake::collectEmitters(p.dir, sc.objects,
+                                                           aabbFn),
+                                   srs.aoRadius, srs.aoStrength, srs.aoEnabled);
                 if (map.size > 0 &&
                     writeAlphaPng(
                         baked / "aomap" / ("scene" + std::to_string(si) + ".png"),
@@ -610,7 +624,8 @@ std::string bake(const Project& p,
                     ++aoTexCount;
             }
             const aobake::SceneLightAtlas atlas =
-                aobake::bakeSceneLightAtlas(p, sc, aabbFn);
+                gi.valid ? gi.atlas
+                         : aobake::bakeSceneLightAtlas(p, sc, aabbFn);
             if (atlas.size > 0 &&
                 writeAlphaPng(
                     baked / "aoatlas" / ("scene" + std::to_string(si) + ".png"),

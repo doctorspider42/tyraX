@@ -61,6 +61,9 @@ The editor executable on this machine: `{TYRAX_EXE}`
   (fast codegen check; dangling references appear as `unknown ...` comments in
   `flow_graph.gen.cpp`)
 - `--build <projectDir> [--run]` - full Docker build (+ PCSX2 launch)
+- `--bake-gi <projectDir>` - bake global illumination + light probes
+  (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
+  a scene falls its lighting back to classic shading until you re-bake)
 - `--resave <projectDir>` - load + save with validation/migrations
 
 ## Building and debugging

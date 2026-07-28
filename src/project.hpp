@@ -867,6 +867,30 @@ struct ProjectSettings {
     float aoStrength = 0.55f;  // 0..1, how dark full occlusion gets
     float aoRadius = 2.5f;     // world units the contact darkening reaches
 
+    // Baked global illumination (docs/global-illumination.md). Project-wide on
+    // purpose - unlike the sky/lighting above these are not part of the
+    // ambience-preset overlay: a preset changes what the light LOOKS like, the
+    // bake quality is a project decision. Nothing here reaches the game
+    // directly; it drives the host bake in gibake, whose OUTPUT ships as the
+    // scene lightmap's RGB channel plus inc/probe_data.gen.hpp.
+    //
+    // The bake is explicit (Tools > Bake Global Illumination) and cached in
+    // .res-baked/gi/ - a build never silently re-bakes it. A stale or missing
+    // cache simply falls the scene back to the pre-GI emissive-only lighting.
+    bool giEnabled = false;
+    int giRays = 128;    // hemisphere rays per lightmap texel / per probe
+    int giBounces = 2;   // interreflection passes (0 = direct + sky only)
+    float giSkyLight = 1.0f;  // the sky dome's strength as a light source
+    float giSunLight = 1.0f;  // the directional sun's strength
+    // A constant added to every gather. Real GI makes a sealed room with no
+    // light source pitch black, which reads as "the bake is broken" rather
+    // than "you forgot a lamp"; this is the floor under that.
+    float giAmbientFloor = 0.03f;
+    bool giProbes = true;        // bake the light-probe grid
+    float giProbeSpacing = 3.0f; // world units between probes, horizontally
+    float giProbeHeight = 2.0f;  // ...and between vertical levels
+    int giProbeLevels = 4;       // vertical levels above the lowest ground
+
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
     // tiled by the map's "-s" scale (repeats per world unit), otherwise the
@@ -973,7 +997,14 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
-           a.aoRadius == b.aoRadius &&
+           a.aoRadius == b.aoRadius && a.giEnabled == b.giEnabled &&
+           a.giRays == b.giRays && a.giBounces == b.giBounces &&
+           a.giSkyLight == b.giSkyLight && a.giSunLight == b.giSunLight &&
+           a.giAmbientFloor == b.giAmbientFloor &&
+           a.giProbes == b.giProbes &&
+           a.giProbeSpacing == b.giProbeSpacing &&
+           a.giProbeHeight == b.giProbeHeight &&
+           a.giProbeLevels == b.giProbeLevels &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
