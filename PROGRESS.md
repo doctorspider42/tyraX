@@ -12943,6 +12943,95 @@ Each finished feature lands as its own commit.
   Sound); positional 3D one-shots; and editor-side comment boxes / reroute nodes,
   which are graph presentation rather than nodes.
 
+- (229) **The whole 84-node expansion, verified in PCSX2 by numbers rather than
+  by looking at it** (user: "Śmiało uruchamiaj").
+
+  Entries 223-228 each stopped at the codegen layer. This is the boot. One
+  fixture at `~/tyra-projects/flowe2e` (52-char ELF path - the ~145 limit is
+  real), a **79-node graph on the player and an 8-node graph on a crate**, every
+  new mechanism wired to an UNATTENDED trigger (On Start / On Update / Every N
+  Seconds) so nothing needs a pad, and each one made to write a **distinct,
+  predictable integer** into a flow variable. Docker build exit 0 in 147 s; the
+  PS2 toolchain compiled `flow_graph.gen.cpp` and `screen_fx.gen.cpp` at
+  `-Wall -O3` with **no warnings from either** - which is the first new fact,
+  because none of this generated C++ had ever met `mips64r5900el-ps2-elf-g++`.
+  Then 50 FPS on the software renderer, `is executing`, no assertion, no TYRA
+  error banner, `VRAMSTAT reup=0 evict=0`.
+
+  **The instrument is worth more than the run.** A ~60-line host harness links
+  the editor's OWN snapshot decoder (`src/livedbg.cpp`, no GL/ImGui) and prints
+  `bin/livedbg.bin` plus `src/gen/livedbg.sym`: per-node hit counts with node ids
+  and types, every watch variable by name, armed timers. So "did this node fire,
+  how often, and what did it leave behind" is a command, not a screenshot - and
+  the probe cannot disagree with the format the way a hand-rolled Python reader
+  could. `hashMatch=1` says the ELF's symbol table is the one the editor thinks
+  it is.
+
+  At frame 2239 (~45.7 s at 49 FPS), 66 instrumented nodes:
+
+  | mechanism | expected | measured |
+  |---|---|---|
+  | Sequence order + Math fold (x10 + N per output) | 1234 | **1234** |
+  | Do Once under 2238 On Update fires | 1 | node hit 2238, chain **1** |
+  | Cooldown 0.5 s over 45.7 s | ~91 | **90** |
+  | Counter Every 3 | floor(448/3) = 149 | cnt **448**, third **149** |
+  | Timer Duration 2 | finished 1, elapsed 2 | **1**, **2** |
+  | Tween 0->100 over 1 s | 100, finished 1 | **100**, **1** |
+  | For Loop Times 5 (one frame) | body 5, done 1 | **5**, **1** |
+  | Flip Flop over 448 fires | 224 / 224 | **224 / 224** |
+  | Branch on a true bool | true 448, false 0 | **448 / 0** |
+  | Switch Number on 2 | case2 448, others 0 | **448 / 0 / 0** |
+  | Random Branch, 3 arms | sum = 448, all hit | **145 + 152 + 151 = 448** |
+  | Vector: (10,0,10) rotated 90 deg about Y | x 10, z -10, dist 14 | **10, -10, 14** |
+  | Scene Time | ~45.7 | **45** |
+  | Look At: crate (4,1,4) -> player (0,y,0) | yaw -135 | **-135** |
+  | Set Object Scale (2,3,4) -> Get Object Scale.Y | 3 | **3** |
+  | Value At Most + On Condition | 1 | **1** |
+  | Event bus: 224 Send Event fires | 224 deliveries | pong **224** |
+  | Set Player Input lock + Delay-driven unlock | 2 | **2** |
+
+  Two of those rows are better than a pass. **`payload = 446` is the one-frame
+  delivery latency measured as a number**: the payload is a counter that ticks
+  every 0.1 s, sends happen every 0.2 s, and the last delivered value trails the
+  live counter (448) by exactly the 2 ticks that fit in that window. And
+  **`quiet = 225`** comes from a *second* On Event on the same name whose exec
+  output is unwired: its BOOL output still drove a NOT into an On Condition and
+  counted 225 rising edges of "no event this frame" against 224 events. (That
+  node's own hit count is 0, and correctly so - codegen does not instrument a
+  trigger with an empty chain. Not a bug; noting it so nobody reads it as one.)
+
+  **The four things a variable cannot hold were measured off the screen**, on the
+  software renderer, with PIL rather than an eyeball:
+  - **Letterbox bars**: rows are *exactly* `0,0,0` outside a lit band, and the
+    black covers **0.223 / 0.221** of the game image's height against the
+    `0.22106F` that codegen folded from `seqBarsFractions(cinema)` - within the
+    20-px sampling step.
+  - **Set Screen Effect really overrides the authored params.** The placement was
+    authored as a dim BLUE wash (Amount 0.35, RGB 0.1/0/0.2); the graph's `set`
+    pin wrote Amount 0.5, **Red 1.0**. The frame came out strongly red
+    (R/B = 2.25). Had the parameters still been the old function-local `const`,
+    the frame would have been faintly blue - so the writable-global change is
+    proven by the colour being the wrong one for the baked values.
+  - **Set Screen Fade driven by a Tween**: identical frame composition (same
+    crate, same checkerboard, same bars) at mean brightness **11.1** mid-ramp and
+    **99.2** after the Tween reached 0.
+  - **Camera Shake**: and here the first attempt measured **0 pixels differing**
+    across four captures 250 ms apart. Not a bug - the fixture asked for
+    amplitude 0.05 units, which the ease-out cuts to 0.03, and a 3 cm camera
+    TRANSLATION (eye and aim move together by design) is sub-pixel at 512x448
+    with nothing closer than 5.6 m. At amplitude 2.0 the horizon sweeps a
+    **215-pixel** span and up to **545k pixels** differ between consecutive
+    captures. Worth recording as the trap it is: a shake that cannot be seen and
+    a shake that is not happening look identical, and the fix is arithmetic, not
+    debugging. (The zero-difference baseline was itself useful - it says the
+    fixture's frames are otherwise perfectly static, which is what makes this a
+    clean instrument.)
+
+  **Still not verified, and deliberately**: whether `Set Player Input`'s lock
+  actually stops a player who is pressing something - it fired twice on schedule,
+  but with no input in an unattended run there is nothing to block. That half
+  stays a hands-on test, per the standing convention.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch
