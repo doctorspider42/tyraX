@@ -563,6 +563,40 @@ Each finished feature lands as its own commit.
   progress/cancel path was exercised through its headless twin rather than by
   hand.
 
+- (217) **Projected shadows land on GEOMETRY, not only the terrain** (user, on
+  the GI showcase: "a mozemy zrobic, zeby byl normalnie projektowany na modelu?
+  Bo tak sobie mysle, ze czesto moze byc w praktyce sytuacja, ze chodzimy w grze
+  po szpitalu, jak w Silent Hill i tam terenu nie bedzie"). Exactly right, and
+  the feature had the hole: `renderProjShadows` built its receiver patch from
+  `terrainHeightAt()`, which is fine outdoors and useless indoors. A level made
+  of geometry - a corridor, a hospital floor, a platform - has its real floor
+  metres above the heightfield, so the patch was laid down UNDER it and the
+  shadow simply never appeared. Not a subtle failure, and not one anyone would
+  trace back to the terrain: the object casts, the slot renders, nothing shows.
+
+  `projCollectReceivers` / `projSurfaceAt` answer the question that actually
+  matters - the highest solid surface at (x, z) at or below the caster's
+  underside, terrain included. Extents are the same box the WALKER stands on
+  (collidePlayer's box mode: a model's real mesh AABB, a primitive's unit scale
+  box, rotation ignored), so the shadow lands exactly where the feet do instead
+  of on a second, disagreeing idea of the floor. Candidates are collected ONCE
+  per shadow and never per patch vertex - the point-light dcache lesson; a patch
+  is 25 unique points and scanning the object table at each of them is how a big
+  scene loses a millisecond per shadow. The list is re-collected per SLOT in the
+  patch loop, which runs after every caster has been through and would otherwise
+  inherit the last caster's receivers.
+
+  The GI showcase gained the player's own live shadow (*Projected shadow
+  (live)* on the third-person cat) and a low platform in the open to step onto -
+  the one thing in that level that is not baked, next to five stations that are.
+
+  **Verified** in PCSX2: the cat's silhouette lands on the white floor BOX (top
+  0.05 above a terrain the patch used to be pinned to) and on the raised
+  platform (top 0.6 - where the old code would have buried the patch 0.55 deep
+  inside it), at **49.96 FPS**, i.e. the shadow costs nothing measurable on top
+  of the baked lighting. **Not covered:** walking on/off the platform is a
+  hands-on check; every shot is a spawn.
+
 - (216) **A guided walk for the GI feature - and the three bugs authoring it
   found** (user: "dodaj jeszcze przykladowy level z prezentacja efektu").
   `examples/gi-showcase` is five stations along one straight walk, one per thing

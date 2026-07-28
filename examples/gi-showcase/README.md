@@ -13,11 +13,26 @@ your desktop.
 
 | Station | Where | What it shows |
 | --- | --- | --- |
-| **1 — Colour bleeding** | straight ahead | A red wall and a green wall facing each other across a white floor. The back wall between them is *painted white* and comes out pink on one half, cyan-green on the other; each pillar takes the colour of the wall it stands near, on the side that faces it. This is the milestone the whole feature is for. |
+| **1 — Colour bleeding** | straight ahead | A red wall and a green wall facing each other across a white floor. The back wall between them is *painted white* and comes out pink on one half, cyan-green on the other; each pillar takes the colour of the wall it stands near, on the side that faces it. This is the milestone the whole feature is for. A low platform on the left is there for the *un*baked half — see below. |
 | **2 — The sky is a light** | left and right of the path | Two slots in the same white material: one shallow and open, one deep and narrow. Same sun, same paint — the deep one darkens toward its floor because less *sky* reaches it. A post stands in each so you can compare the same object twice. |
 | **3 — An interior, and its doorway** | left, roofed | Walk in. The room falls off to near-black at the back, and the four identical white cubes marching away from the door fade with it. The first three metres of floor are orange — the only part the low sun still reaches — and everything warm deeper in is light that hit *that* and bounced. |
 | **4 — An emissive material is a real area light** | ahead, roofed | A glowing plate along the left wall. The whole alcove goes warm, the ceiling most of all; the post in the middle throws a **soft-edged** shadow across the room, because the source has real area and the bake traces its actual geometry. |
 | **5 — Bounce is the only light left** | at the end, roofed | A corridor open only at the near end. The far end is lit by nothing but light that bounced off the walls on the way in, and the blue back wall tints what little arrives. The wobbling mesh standing there is **animated**, so it reads that light from the probe grid once per frame, wherever it is — its twin outside in the sun is the same object with the same material. |
+
+## The one thing here that is *not* baked
+
+The cat casts a **live projected shadow** (*Properties > Projected shadow
+(live)*): her silhouette is rendered from the sun into a 64×64 VRAM slot every
+frame and projected onto the surface under her. Nothing about it is in the bake
+— which is the point. The baked half cannot follow anything that moves; this is
+what keeps her feet on the floor while she walks.
+
+Step onto the low platform at station 1 and the shadow steps up with her. The
+receiver patch is built on **whatever solid surface is under the caster**, not
+on the terrain: in a level like this the terrain is 60 cm below the floor and is
+not the floor at all — and in an indoor game (a corridor, a hospital) it would
+be metres below and never seen. The extents are the same box the walker stands
+on, so the shadow lands exactly where the feet do.
 
 ## Turning it off
 

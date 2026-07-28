@@ -188,13 +188,14 @@ inline bool areaHoldsObject(const AreaBasis& b,
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[36] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[37] = {
     {0, {0.0F, -0.25F, -16.0F}, {0.0F, 0.0F, 0.0F}, {26.0F, 0.6F, 108.0F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // floor
     {0, {-7.5F, 3.0F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 6.0F, 18.0F}, {0.86F, 0.1F, 0.08F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s1-wall-red
     {0, {7.5F, 3.0F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 6.0F, 18.0F}, {0.1F, 0.7F, 0.16F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s1-wall-green
     {0, {0.0F, 3.0F, 13.3F}, {0.0F, 0.0F, 0.0F}, {15.6F, 6.0F, 0.6F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s1-wall-back
     {2, {-4.6F, 1.7F, 18.0F}, {0.0F, 0.0F, 0.0F}, {1.3F, 3.4F, 1.3F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // s1-pillar-left
     {2, {4.6F, 1.7F, 18.0F}, {0.0F, 0.0F, 0.0F}, {1.3F, 3.4F, 1.3F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // s1-pillar-right
+    {0, {-3.2F, 0.3F, 24.5F}, {0.0F, 0.0F, 0.0F}, {5.0F, 0.6F, 5.0F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s1-platform
     {0, {-8.5F, 2.0F, 4.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 4.0F, 9.0F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s2-open-left
     {0, {-3.5F, 2.0F, 4.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 4.0F, 9.0F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s2-open-right
     {0, {-6.0F, 2.0F, -0.2F}, {0.0F, 0.0F, 0.0F}, {5.6F, 4.0F, 0.6F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s2-open-back
@@ -224,13 +225,13 @@ constexpr SceneObjectData SCENE_0_OBJECTS[36] = {
     {0, {0.0F, 5.3F, -60.0F}, {0.0F, 0.0F, 0.0F}, {7.6F, 0.6F, 16.0F}, {0.88F, 0.87F, 0.84F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // s5-corridor-roof
     {5, {0.0F, 0.9F, -66.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.92F, 0.94F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, "Twist", 1, 1, 0.6F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // s5-wobbler-deep
     {5, {7.5F, 0.9F, -58.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.92F, 0.94F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, "Twist", 1, 1, 0.6F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // s5-wobbler-sun
-    {6, {0.0F, 0.0F, 34.0F}, {0.0F, 180.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {0.85F, 0.72F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {6, {0.0F, 0.0F, 34.0F}, {0.0F, 180.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {0.85F, 0.72F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, 1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {36};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {37};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[36] = {0xad41f8b4597b8242ULL, 0x84f98e2ed1ee480dULL, 0x978820becd04110cULL, 0xbb0d434b25fe05c1ULL, 0xa73f7e3a5770602dULL, 0x5a2772e875095786ULL, 0x862ac757f65377bcULL, 0x963c2151490f89beULL, 0x78141950c26e4449ULL, 0x3cf639897f145aa3ULL, 0x4c67f4f1ad170af6ULL, 0x561b5b4f1a358123ULL, 0x7b2513fb77796e09ULL, 0x4ca281b86b2785c5ULL, 0xca250917d413c2a3ULL, 0x3e84bc540e2291baULL, 0xded65c5cb7682e93ULL, 0xde6e74f9837e45a7ULL, 0x3b24bda89ddc13f2ULL, 0x5258942ec31949c1ULL, 0x7da0d5c5ba174f78ULL, 0xe38e383043afa26fULL, 0x4f912823f6fa54ceULL, 0x71f4334096aa4e79ULL, 0x61f5321e5f90afb2ULL, 0xfad513667efc3375ULL, 0xf796db2041ee2696ULL, 0x5794e11bc163c591ULL, 0x500dd6c896c522acULL, 0xc3e55441c0a7aa1aULL, 0x2e159ca6484bd967ULL, 0x1c864af96b8ffc16ULL, 0x3517ce88e665965bULL, 0x46f54c9e4905cc19ULL, 0x73b02f522bfae828ULL, 0xef4f4787c9a3e18eULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[37] = {0xad41f8b4597b8242ULL, 0x84f98e2ed1ee480dULL, 0x978820becd04110cULL, 0xbb0d434b25fe05c1ULL, 0xa73f7e3a5770602dULL, 0x5a2772e875095786ULL, 0xa410b407f1283b6aULL, 0x862ac757f65377bcULL, 0x963c2151490f89beULL, 0x78141950c26e4449ULL, 0x3cf639897f145aa3ULL, 0x4c67f4f1ad170af6ULL, 0x561b5b4f1a358123ULL, 0x7b2513fb77796e09ULL, 0x4ca281b86b2785c5ULL, 0xca250917d413c2a3ULL, 0x3e84bc540e2291baULL, 0xded65c5cb7682e93ULL, 0xde6e74f9837e45a7ULL, 0x3b24bda89ddc13f2ULL, 0x5258942ec31949c1ULL, 0x7da0d5c5ba174f78ULL, 0xe38e383043afa26fULL, 0x4f912823f6fa54ceULL, 0x71f4334096aa4e79ULL, 0x61f5321e5f90afb2ULL, 0xfad513667efc3375ULL, 0xf796db2041ee2696ULL, 0x5794e11bc163c591ULL, 0x500dd6c896c522acULL, 0xc3e55441c0a7aa1aULL, 0x2e159ca6484bd967ULL, 0x1c864af96b8ffc16ULL, 0x3517ce88e665965bULL, 0x46f54c9e4905cc19ULL, 0x73b02f522bfae828ULL, 0xef4f4787c9a3e18eULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -368,7 +369,7 @@ constexpr int CATCH_CANDIDATES[1] = {-1};
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
 
-constexpr int PLAYER_INDEXES[SCENE_COUNT] = {35};
+constexpr int PLAYER_INDEXES[SCENE_COUNT] = {36};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {2};
 constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.11F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
@@ -442,7 +443,7 @@ constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 constexpr int FLARE_USED = 0;
 constexpr int BEAMS_USED = 0;
 constexpr int BLOB_SHADOWS = 0;
-constexpr int PROJ_SHADOWS_USED = 0;
+constexpr int PROJ_SHADOWS_USED = 1;
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
 constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
 constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
@@ -495,7 +496,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 36;
+constexpr int SAVE_OBJECT_MAX = 37;
 
 }  // namespace Gi_showcase
 

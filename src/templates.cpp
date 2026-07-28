@@ -1409,6 +1409,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> projCasters;         // authored caster object indices
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
+  // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
+  // floor is boxes metres above the heightfield, and a patch built on the
+  // heightfield alone ends up underneath it (see projCollectReceivers).
+  void projCollectReceivers(float cx, float cz, float reach, float yMax);
+  float projSurfaceAt(float x, float z);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
@@ -2316,6 +2321,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> projCasters;         // authored caster object indices
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
+  // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
+  // floor is boxes metres above the heightfield, and a patch built on the
+  // heightfield alone ends up underneath it (see projCollectReceivers).
+  void projCollectReceivers(float cx, float cz, float reach, float yMax);
+  float projSurfaceAt(float x, float z);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
@@ -8252,6 +8262,86 @@ void TerrainGame::setupProjShadows() {
 // one end() drain total), then drop each slot's receiver patch onto the
 // terrain with per-vertex UVs computed through the captured light
 // view-proj. Real silhouette shape - follows animation and movement.
+/** Receiver surfaces for the projected shadows.
+ *
+ * The patch used to be built on the TERRAIN alone. That is fine outdoors and
+ * useless indoors: a level made of geometry - a corridor, a hospital floor, a
+ * platform, anything Silent Hill shaped - has its real floor metres above the
+ * heightfield, so the patch was laid down UNDER it and the shadow simply never
+ * appeared. This answers the question that actually matters: what is the
+ * highest solid surface at (x, z) at or below yMax, terrain included.
+ *
+ * Extents are the same box the WALKER stands on (collidePlayer's box mode:
+ * a model's real mesh AABB, a primitive's unit scale box, rotation ignored),
+ * so the shadow lands exactly where the feet do rather than on a second,
+ * disagreeing idea of the floor.
+ *
+ * Candidates are collected ONCE per shadow and never per patch vertex - the
+ * point-light dcache lesson. A patch is 25 unique points; scanning the object
+ * table at each of them is how a big scene loses a millisecond per shadow. */
+struct ProjRecv {
+  float minX, maxX, minZ, maxZ, top;
+};
+std::vector<ProjRecv> g_projRecv;
+
+void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
+                                       float yMax) {
+  g_projRecv.clear();
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.active || !o.visible) continue;
+    if (o.data.collision == 2) continue;  // no collision = nothing to stand on
+    const int t = o.data.type;
+    // The marker/volume skip list, same membership collidePlayer uses: a
+    // shadow must not land on a spawn point or the inside of an Area.
+    if (t == 4 || t == 6 || t == 7 || t == 8 || t == 9 || t == 11 || t == 13 ||
+        t == 14 || t == 17)
+      continue;
+    const GameModel* gm = nullptr;
+    if (t == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    const SkelModel* am = nullptr;
+    if (t == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      am = gameAnimModels[o.data.animModel].src.get();
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    V3 lc = {0.0F, 0.0F, 0.0F};
+    const float* mn = gm ? gm->mn : (am ? am->min : nullptr);
+    const float* mx = gm ? gm->mx : (am ? am->max : nullptr);
+    if (mn && mx) {
+      lc = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+            0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+            0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+    }
+    ProjRecv r;
+    r.minX = o.data.position[0] + lc.x - ex;
+    r.maxX = o.data.position[0] + lc.x + ex;
+    r.minZ = o.data.position[2] + lc.z - ez;
+    r.maxZ = o.data.position[2] + lc.z + ez;
+    r.top = o.data.position[1] + lc.y + ey;
+    // At or below the caster's feet (a small tolerance for standing exactly
+    // ON a surface), and overlapping the patch's footprint.
+    if (r.top > yMax) continue;
+    if (r.maxX < cx - reach || r.minX > cx + reach) continue;
+    if (r.maxZ < cz - reach || r.minZ > cz + reach) continue;
+    g_projRecv.push_back(r);
+    if (g_projRecv.size() >= 24) break;  // a patch never needs more
+  }
+}
+
+float TerrainGame::projSurfaceAt(float x, float z) {
+  float best = terrainHeightAt(x, z);
+  for (const ProjRecv& r : g_projRecv) {
+    if (r.top <= best) continue;
+    if (x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) continue;
+    best = r.top;
+  }
+  return best;
+}
+
 void TerrainGame::renderProjShadows() {
   if (projShadows.empty()) return;
 
@@ -8301,7 +8391,11 @@ void TerrainGame::renderProjShadows() {
   float sgx[Tyra::RendererCoreShadowMap::slots],
       sgz[Tyra::RendererCoreShadowMap::slots],
       shalf[Tyra::RendererCoreShadowMap::slots],
-      sfade[Tyra::RendererCoreShadowMap::slots];
+      sfade[Tyra::RendererCoreShadowMap::slots],
+      // The caster's underside, kept per slot: the patch loop below runs after
+      // every caster has been through, so it has to re-collect each one's
+      // receivers rather than inherit the last caster's list.
+      syMax[Tyra::RendererCoreShadowMap::slots];
   int used = 0;
 
   for (const Cand& c : cands) {
@@ -8440,11 +8534,17 @@ void TerrainGame::renderProjShadows() {
     // part anyone looks at. Walk only as far as one patch can cover: the
     // shadow then fades out at the patch edge instead of not existing.
     const float tgMax = r * 4.0F;
-    float gy = terrainHeightAt(cx, cz);
+    // Receivers first: everything below is asking "where is the floor", and
+    // indoors the floor is geometry. yMax is the caster's own underside (feet
+    // for the anim/player types the lift above accounts for) plus a little,
+    // so a surface it is standing ON counts and the one it is standing UNDER
+    // does not.
+    projCollectReceivers(cx, cz, tgMax + r * 3.5F, cy - r + 0.35F);
+    float gy = projSurfaceAt(cx, cz);
     float tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
     float gx = cx + ddx * tg, gz = cz + ddz * tg;
-    gy = terrainHeightAt(gx, gz);
+    gy = projSurfaceAt(gx, gz);
     tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
     gx = cx + ddx * tg, gz = cz + ddz * tg;
@@ -8463,6 +8563,7 @@ void TerrainGame::renderProjShadows() {
     if (half > halfCap) half = halfCap;
 
     sgx[used] = gx, sgz[used] = gz, shalf[used] = half;
+    syMax[used] = cy - r + 0.35F;
     const float dist = sqrtf(c.d2);
     sfade[used] =
         (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
@@ -8489,6 +8590,7 @@ void TerrainGame::renderProjShadows() {
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
     const float gx = sgx[s], gz = sgz[s], half = shalf[s];
+    projCollectReceivers(gx, gz, half + 0.5F, syMax[s]);
 
     int v = 0;
     for (int iz = 0; iz < kCells; ++iz) {
@@ -8497,10 +8599,10 @@ void TerrainGame::renderProjShadows() {
         const float x1 = gx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * half;
         const float z0 = gz + ((float)iz / kCells - 0.5F) * 2.0F * half;
         const float z1 = gz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * half;
-        const Vec4 p00(x0, terrainHeightAt(x0, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p10(x1, terrainHeightAt(x1, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p11(x1, terrainHeightAt(x1, z1) + 0.05F, z1, 1.0F);
-        const Vec4 p01(x0, terrainHeightAt(x0, z1) + 0.05F, z1, 1.0F);
+        const Vec4 p00(x0, projSurfaceAt(x0, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p10(x1, projSurfaceAt(x1, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p11(x1, projSurfaceAt(x1, z1) + 0.05F, z1, 1.0F);
+        const Vec4 p01(x0, projSurfaceAt(x0, z1) + 0.05F, z1, 1.0F);
         b.verts[v + 0] = p00, b.verts[v + 1] = p10, b.verts[v + 2] = p11;
         b.verts[v + 3] = p00, b.verts[v + 4] = p11, b.verts[v + 5] = p01;
         for (int k = 0; k < 6; ++k) {

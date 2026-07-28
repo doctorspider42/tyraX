@@ -879,6 +879,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> projCasters;         // authored caster object indices
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
+  // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
+  // floor is boxes metres above the heightfield, and a patch built on the
+  // heightfield alone ends up underneath it (see projCollectReceivers).
+  void projCollectReceivers(float cx, float cz, float reach, float yMax);
+  float projSurfaceAt(float x, float z);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
