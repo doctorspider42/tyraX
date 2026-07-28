@@ -232,6 +232,21 @@ asserts on the emitted strings. This works because `project.cpp`,
 tiny host harness without the GUI. Fine pattern; keep such harnesses in the
 scratchpad, not the repo.
 
+**`App`'s own private methods are reachable from such a harness too**, which is
+the difference between testing a copy of the logic and testing the shipped
+function. Link every `build/CMakeFiles/tyrax-editor.dir/**/*.o` except
+`main.cpp.o` (plus `libimgui.a`, glfw and `-ldl -lrt -lm -lGLX -lOpenGL
+-lpthread`, `-no-pie`), and reach the members with `#define private public`
+before `#include "app.hpp"`. Two rules make it work: include **every header
+app.hpp includes first, normally**, so the macro only ever reaches app.hpp's own
+body (libstdc++'s `<sstream>` fails to compile otherwise — *redeclared with
+different access*), and neutralise whatever pulls in GL. For the Material
+Editor that is `matEdPaintW_ = 0`, which makes `matEdRegenLayer` /
+`matEdComposite` / `matEdSavePaintTarget` early-return, so a real
+`matEdSavePreset` → file → `matEdApplyPreset` round trip runs **with no GL
+context at all** (PROGRESS 222). What it cannot cover is the panel around the
+call — say so rather than implying a click-through happened.
+
 **Collaboration sessions are headless-testable the same way**: `session.cpp` +
 `wire.cpp` have no GUI dependency, so a harness can run a host `Session` and a
 client `Session` **in one process over 127.0.0.1 with real sockets** (drain

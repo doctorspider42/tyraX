@@ -1987,26 +1987,39 @@ void App::matEdSavePreset(const std::string& name) {
         return;
     }
     out << "{\n  \"layers\": [\n";
-    char buf[256];
+    // The layer name is user-supplied and unbounded, so the line goes straight
+    // to the stream - a fixed line buffer truncates mid-JSON on a long name and
+    // writes a silently corrupt preset that matEdApplyPreset cannot read back.
+    // Only the floats are formatted, each on its own, to keep "%.4g" output.
+    auto g4 = [](float v) {
+        char b[64];
+        std::snprintf(b, sizeof(b), "%.4g", (double)v);
+        return std::string(b);
+    };
     for (size_t i = 0; i < gens.size(); ++i) {
         const MatEdLayer& l = *gens[i];
         std::string nm = l.name;
         for (char& c : nm)
             if (c == '"' || c == '\\') c = '\'';
-        std::snprintf(
-            buf, sizeof(buf),
-            "    {\"name\": \"%s\", \"blend\": %d, \"opacity\": %.4g, "
-            "\"color\": [%.4g, %.4g, %.4g], \"source\": %d, \"lo\": %.4g, "
-            "\"hi\": %.4g, \"invert\": %s, \"scale\": %.4g, \"seed\": %u, "
-            "\"breakup\": %.4g, \"breakupScale\": %.4g, \"mortar\": %.4g}%s",
-            nm.c_str(), l.blend, l.opacity, l.genColor[0], l.genColor[1],
-            l.genColor[2], (int)l.gen.source, l.gen.rangeLo, l.gen.rangeHi,
-            l.gen.invert ? "true" : "false", l.gen.scale, l.gen.seed,
-            l.gen.breakupAmount, l.gen.breakupScale, l.gen.mortar,
-            i + 1 < gens.size() ? "," : "");
-        out << buf << "\n";
+        out << "    {\"name\": \"" << nm << "\", \"blend\": " << l.blend
+            << ", \"opacity\": " << g4(l.opacity) << ", \"color\": ["
+            << g4(l.genColor[0]) << ", " << g4(l.genColor[1]) << ", "
+            << g4(l.genColor[2]) << "], \"source\": " << (int)l.gen.source
+            << ", \"lo\": " << g4(l.gen.rangeLo)
+            << ", \"hi\": " << g4(l.gen.rangeHi)
+            << ", \"invert\": " << (l.gen.invert ? "true" : "false")
+            << ", \"scale\": " << g4(l.gen.scale) << ", \"seed\": " << l.gen.seed
+            << ", \"breakup\": " << g4(l.gen.breakupAmount)
+            << ", \"breakupScale\": " << g4(l.gen.breakupScale)
+            << ", \"mortar\": " << g4(l.gen.mortar) << "}"
+            << (i + 1 < gens.size() ? "," : "") << "\n";
     }
     out << "  ]\n}\n";
+    out.flush();
+    if (!out) {
+        matEdPresetError_ = "Cannot write the preset file.";
+        return;
+    }
     matEdPresetError_.clear();
     statusMessage_ = "Saved material preset " + name;
 }
