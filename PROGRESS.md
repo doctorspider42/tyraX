@@ -12671,3 +12671,43 @@ Each finished feature lands as its own commit.
   this machine is still in the white-window state from 101/PROGRESS notes (the
   AMD GL present quirk reproduces on baseline builds), so screenshots capture
   nothing - the visual pass needs a human.
+
+- (216) **Build: the .cmd scripts were a third dependency list, and it had
+  drifted** (user report on a fresh clone: `setup.cmd` complained that
+  `vendor\tyra` is not empty - "it isn't and never will be" - and `build.cmd`
+  then failed on a missing ufbx). Entry 102 collapsed setup and build onto the
+  one list in `deps.ps1`, but `setup.cmd`/`build.cmd` were never part of that:
+  they carried their own hand-copied six-repo list and their own four-directory
+  guard. Both were stale in exactly the way 102 predicted - no `vendor/ufbx`
+  anywhere, so cmake reached `Cannot find source file: vendor/ufbx/ufbx.c`; no
+  PS2 tools; `.git` as the "is it there" probe instead of a file the build
+  compiles; and a plain `git clone` into `vendor\tyra`, whose engine sources are
+  versioned in this repo, so every run printed `fatal: destination path already
+  exists and is not an empty directory` as if something were broken.
+  The fix is to delete the duplicate rather than repair it: both .cmd files are
+  now wrappers that locate `pwsh.exe` (else `powershell.exe`) and forward to
+  `setup.ps1`/`build.ps1` with `-NoProfile -ExecutionPolicy Bypass`, `build.cmd`
+  mapping its `run`/`clean` words onto `-Run`/`-Clean` and propagating the exit
+  code. `-ExecutionPolicy Bypass` is the only reason to keep a .cmd at all -
+  that, and double-clicking. There is now one list (`deps.ps1`) and one
+  implementation per platform; a `.cmd` that grows logic again is the bug.
+  Rode along in the same pass, from a second user report - a wall of MSVC
+  errors (C2026 *string too big* across `templates.cpp`, plus C2589/C2660 in
+  `wire.cpp`) from someone who opened the folder in Visual Studio and built the
+  default `x64-Debug` preset. That is not fixable: `templates.cpp` is ~1.3 MB of
+  raw string literals in 48 chunks averaging ~27 KB, and MSVC's cap is a hard
+  16380 bytes **per literal** - splitting every PS2 template into 16 KB pieces
+  to please a compiler this project does not target is not a trade worth making
+  (the `windows.h` `min` macro eating `std::min` in `wire.cpp` is the same
+  build, and merely the first symptom that scrolls past). So the Windows
+  toolchain being MinGW-w64 GCC *only* is now stated where people look: the
+  README Quickstart, the Requirements list, and the tyra-testing skill, with the
+  error text spelled out so the next report is recognised as a wrong CMake kit
+  rather than a code bug.
+  *Verified* on Linux, which shares the implementation the wrappers now call:
+  `./setup.sh` on this worktree (vendor/ held only the in-tree `tyra`) cloned
+  imgui/glfw/imguizmo/imnodes/stb/**ufbx** plus both PS2 tools and printed
+  `OK: vendor/tyra already present` - the exact complaint the .cmd path used to
+  produce, gone - and `./build.sh` went through to `OK: build/tyrax-editor`.
+  The .cmd wrappers themselves are **unchecked by execution**: no cmd.exe on
+  this machine. They need one run on Windows.

@@ -39,8 +39,22 @@ box you are on; they take the same flags and do the same things.
 ./build.sh --clean   # full rebuild
 ```
 
+`build.cmd` / `setup.cmd` exist for plain `cmd.exe` and double-clicks. They are
+**wrappers only** — they map `run`/`clean` onto `-Run`/`-Clean` and forward to
+`build.ps1`/`setup.ps1` with `-ExecutionPolicy Bypass`. Never give them logic of
+their own: they used to carry a hand-copied dependency list, it drifted behind
+`deps.ps1`, and a fresh clone got "vendor\tyra is not an empty directory" from
+setup plus "Cannot find source file: vendor/ufbx/ufbx.c" from cmake.
+
 Needs `scoop install mingw cmake ninja` (Windows) or `./setup.sh --deps`
-(Linux — apt/dnf/pacman/zypper, the lists live in deps.sh). build.sh checks
+(Linux — apt/dnf/pacman/zypper, the lists live in deps.sh). **The Windows
+compiler is MinGW-w64 GCC; MSVC is not a supported target and no flag makes it
+one** — `src/templates.cpp` holds the PS2 templates as raw string literals far
+past MSVC's hard 16380-byte cap per literal, so Visual Studio's default
+`x64-Debug` CMake preset dies with a wall of *C2026 string too big* (plus
+C2589/C2660 in `wire.cpp`, where `windows.h`'s `min` macro eats `std::min`).
+Report of that error means "you configured with the wrong kit", not a code bug.
+build.sh checks
 the tools and the pkg-config headers up front, names the exact install command
 for the distro it is on, and refuses to configure rather than failing later
 inside cmake. This is also the compile check for everything under `src/` —

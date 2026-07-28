@@ -1,62 +1,48 @@
 @echo off
-REM Builds the editor (cmd version of build.ps1). Usage:
+REM cmd entry point for build.ps1. Usage:
 REM   build.cmd          - configure (if needed) + build
 REM   build.cmd run      - build and launch the editor
 REM   build.cmd clean    - remove the build directory first
+REM
+REM This is a WRAPPER ON PURPOSE. It used to carry its own copy of the
+REM vendor-dependency guard, checking four hardcoded directories, and drifted
+REM behind deps.ps1 - so a fresh clone walked straight into cmake with
+REM vendor/ufbx missing and failed with "Cannot find source file:
+REM vendor/ufbx/ufbx.c". build.ps1 probes the ONE list in deps.ps1; keep the
+REM guard there, not here.
 setlocal
 cd /d "%~dp0"
 
 set "DO_RUN="
 set "DO_CLEAN="
-for %%A in (%*) do (
-    if /i "%%~A"=="run"   set "DO_RUN=1"
-    if /i "%%~A"=="clean" set "DO_CLEAN=1"
+for %%A in (%*) do call :arg "%%~A" || exit /b 2
+
+set "ARGS="
+if defined DO_CLEAN set "ARGS=%ARGS% -Clean"
+if defined DO_RUN   set "ARGS=%ARGS% -Run"
+
+call :findps || exit /b 1
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0build.ps1"%ARGS%
+exit /b %ERRORLEVEL%
+
+:arg
+REM %1 = one command-line word, mapped onto the build.ps1 switch it names.
+if /i "%~1"=="run"    ( set "DO_RUN=1"   & exit /b 0 )
+if /i "%~1"=="-run"   ( set "DO_RUN=1"   & exit /b 0 )
+if /i "%~1"=="clean"  ( set "DO_CLEAN=1" & exit /b 0 )
+if /i "%~1"=="-clean" ( set "DO_CLEAN=1" & exit /b 0 )
+echo Unknown option: %~1 ^(expected "run" and/or "clean"^)
+exit /b 2
+
+:findps
+REM PowerShell 7 if it is installed, else the Windows PowerShell every Windows
+REM box ships with. Both run build.ps1 unchanged.
+set "PS="
+for %%P in (pwsh.exe) do if not defined PS if exist "%%~$PATH:P" set "PS=%%~$PATH:P"
+for %%P in (powershell.exe) do if not defined PS if exist "%%~$PATH:P" set "PS=%%~$PATH:P"
+if not defined PS (
+    echo Neither pwsh.exe nor powershell.exe was found on PATH.
+    echo build.cmd only forwards to build.ps1 - run that directly instead.
+    exit /b 1
 )
-
-REM Dependencies in vendor\
-if not exist "vendor\imgui" goto :setup
-if not exist "vendor\glfw" goto :setup
-if not exist "vendor\imguizmo" goto :setup
-if not exist "vendor\imnodes" goto :setup
-goto :toolchain
-
-:setup
-echo == Cloning dependencies (setup.cmd) ==
-call "%~dp0setup.cmd" || goto :error
-
-:toolchain
-REM g++ from scoop's mingw is often not on PATH in fresh shells
-where g++ >nul 2>&1
-if %errorlevel%==0 goto :clean
-set "MINGW_BIN=%USERPROFILE%\scoop\apps\mingw\current\bin"
-if exist "%MINGW_BIN%\g++.exe" (
-    set "PATH=%MINGW_BIN%;%PATH%"
-) else (
-    echo g++ not found. Install the toolchain first: scoop install mingw cmake ninja
-    goto :error
-)
-
-:clean
-if defined DO_CLEAN if exist "build" (
-    echo == Cleaning build directory ==
-    rmdir /s /q "build"
-)
-
-if not exist "build\build.ninja" (
-    echo == Configuring (cmake) ==
-    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ || (echo cmake configure failed & goto :error)
-)
-
-echo == Building ==
-cmake --build build || (echo build failed & goto :error)
-
-echo OK: build\tyrax-editor.exe
-
-if defined DO_RUN start "" "%~dp0build\tyrax-editor.exe"
-
-endlocal
 exit /b 0
-
-:error
-endlocal
-exit /b 1
