@@ -888,14 +888,19 @@ void App::drawFlowGraphWindow() {
             // drag step would take a very long mouse journey to reach 90.
             const bool isAngle = n.type == "RotateObjectBy" ||
                                  n.type == "SetRotation" ||
-                                 n.type == "SpinObject";
+                                 n.type == "SpinObject" ||
+                                 n.type == "PosRotateY";
             for (int a = firstNum; a < t->numCount; ++a) {
-                if (a == 0 && numLinked && !flowNumFolds(*t)) {
+                // A wired number REPLACES num[0] - unless the node says the
+                // wire is an operand of its own (Clamp's value between its Min
+                // and Max), in which case every param stays editable.
+                if (a == 0 && numLinked && !flowNumFolds(*t) && !t->numInExtra) {
                     ImGui::TextDisabled("%s: from link", t->numLabels[0]);
                     continue;
                 }
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
                                     std::strcmp(t->numLabels[a], "Once") == 0 ||
+                                    std::strcmp(t->numLabels[a], "Whole") == 0 ||
                                     std::strcmp(t->numLabels[a], "LOS") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
@@ -940,15 +945,23 @@ void App::drawFlowGraphWindow() {
             int wired = 0;
             for (const FlowLink& l : fg.links)
                 if (l.kind == FlowLinkNum && l.toNode == n.id) ++wired;
+            const char* opLabel = n.type == "NumAdd"   ? "+ B"
+                                  : n.type == "NumSub" ? "- B"
+                                  : n.type == "NumMul" ? "x B"
+                                  : n.type == "NumDiv" ? "/ B"
+                                  : n.type == "NumMod" ? "% B"
+                                  : n.type == "NumPow" ? "^ Exponent"
+                                  : n.type == "NumMin" ? "vs B (smaller wins)"
+                                  : n.type == "NumMax" ? "vs B (larger wins)"
+                                                       : "with B";
+            const char* bName =
+                std::strcmp(t->numLabels[0], "B") == 0 ? "B" : t->numLabels[0];
             if (wired >= 2)
-                ImGui::TextDisabled("B unused: %d inputs wired.", wired);
+                ImGui::TextDisabled("%s unused: %d inputs wired.", bName, wired);
             else if (wired == 1)
-                ImGui::TextDisabled("input %s B", n.type == "NumAdd"   ? "+"
-                                                  : n.type == "NumSub" ? "-"
-                                                  : n.type == "NumMul" ? "x"
-                                                                       : "/");
+                ImGui::TextDisabled("input %s", opLabel);
             else
-                ImGui::TextDisabled("Nothing wired: result is B.");
+                ImGui::TextDisabled("Nothing wired: result is %s.", bName);
         }
         if (n.type == "ValueAtLeast" || n.type == "VarAtLeast")
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
@@ -1584,6 +1597,25 @@ void App::drawFlowGraphWindow() {
                         n.num[1] = 1.0f;  // 0 -> 1, the useful default ramp
                         n.num[2] = 1.0f;  // over a second
                     }
+                    // Math / Vector: an identity default, so dropping the node
+                    // in and wiring it changes nothing until a param is touched.
+                    if (std::string(t.key) == "NumPow") n.num[0] = 2.0f;
+                    if (std::string(t.key) == "NumMod") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "NumClamp") n.num[1] = 1.0f;
+                    if (std::string(t.key) == "NumLerp") n.num[1] = 1.0f;
+                    if (std::string(t.key) == "NumRemap") {
+                        n.num[1] = 1.0f;  // in  0..1
+                        n.num[3] = 1.0f;  // out 0..1
+                    }
+                    if (std::string(t.key) == "NumEquals") n.num[1] = 0.01f;
+                    if (std::string(t.key) == "NumInRange") n.num[1] = 1.0f;
+                    if (std::string(t.key) == "Oscillate") {
+                        n.num[0] = 1.0f;  // amplitude
+                        n.num[1] = 1.0f;  // one cycle a second
+                    }
+                    if (std::string(t.key) == "RollRandom") n.num[1] = 1.0f;
+                    if (std::string(t.key) == "PosScale") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "PosRotateY") n.num[0] = 90.0f;
                     // A fresh rotate/spin node starts on the yaw: it is what
                     // almost every turning prop wants, and a node whose every
                     // param is 0 looks broken.

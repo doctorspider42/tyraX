@@ -275,12 +275,32 @@ bool logic folds into inline C++ expressions.
 convention for every consumer, mirroring `posIn` over X/Y/Z. Codegen resolves
 it to a self-contained float C++ expression (`numExprImpl` / `numOperand` in
 `flowGraphScript`, the bool-plane shape) so a value needs no runtime slot;
-`flowNumFolds()` — a *pure* node with both pins, i.e. a Math node — is the
-single predicate deciding whether an input folds over every link or takes only
-the first, read by the editor's link pruning AND by codegen. Two things a new
+`flowNumFolds()` is the single predicate deciding whether an input folds over
+every link or takes only the first, read by the editor's link pruning AND by
+codegen — and it reads two **declared** flags rather than inferring anything:
+`numFold` (n-ary: Add, Min, Modulo) and `numInExtra` ("the wire is an operand of
+its own, num[0] is a separate param" — Clamp's value between its Min/Max, Number
+At Least's value against its Threshold). Both exist because inference was wrong:
+`pure && numIn && numOut` is true of a unary Sine too, and the editor's "num[0]
+came from the link" notice was a lie on every At-Least node. Two things a new
 number consumer must do: read `numOperand(n)` instead of `n.num[0]`, and accept
 that **Live Logic cannot patch it** (`capability()` rejects any graph with a
-number link — the IR carries num[] as compile-time constants). Two things a new
+number link — the IR carries num[] as compile-time constants).
+
+**A value plane and the position plane can feed each other** (Get X reads a
+position, With X writes one from a number), so `posExprImpl` and `numExprImpl`
+are mutually recursive through the forward-declared `numInputVis`/`numOperandVis`
+— and those take the **visited path**, not a fresh one. A cycle that hops planes
+is invisible to either guard alone, and starting a fresh path at the boundary
+recurses until the stack goes; conversely `numExprImpl` must drop **its own id**
+from the path before calling `posExprImpl`, or the position walk reads the node
+as visited and silently skips its own input link. Both bugs were hit building the
+Vector nodes; `--refresh-gen` on a deliberate pos→num→pos cycle is the check.
+One cost to know: a position is three independent C++ **expressions**, so a long
+Vector chain is re-emitted once per component per consumer. Constant chains fold
+away in the compiler; a chain with a wired angle really does pay its trig per
+component (`PosRotateY` folds `sinf`/`cosf` at codegen time when the angle is a
+typed-in constant for exactly this reason). Two things a new
 *int* consumer must do: round (the plane is float, `flowInt` is not) and, if it
 names variables, join BOTH copies of the collect list (`collectFlowVars` in
 templates.cpp and the identical walk in livelogic.cpp) — a variable named only

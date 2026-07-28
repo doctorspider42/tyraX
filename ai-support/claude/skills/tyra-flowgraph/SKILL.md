@@ -88,14 +88,39 @@ over guessing from this file.
     animated without touching On Update.
   - **For Loop** - `body` runs Times times with the index on the number output,
     then `done`. Whole loop is one frame; capped at 64.
+- **The Math category is a full calculator, so do not fake arithmetic with
+  variables.** n-ary (fold over every wired link): Add, Subtract, Multiply,
+  Divide, Min, Max, Modulo, Power. Unary (one wired input): Absolute, Negate,
+  Sign, Floor, Ceiling, Round, Square Root, Sine, Cosine (both in DEGREES),
+  Clamp, Lerp, Remap Range. Comparators into the bool plane: Number At Least /
+  At Most / Equals (with a tolerance) / In Range. Clocks: **Scene Time**
+  (seconds since the scene loaded), **Frame Time** (last frame's duration) and
+  **Oscillate** (a sine wave on the scene clock - the node for a pulsing light,
+  one `sinf` instead of a per-frame graph). **Roll Random** is an ACTION, not a
+  pure node: it latches its roll and fires `then`, so two consumers see the
+  same number instead of two different ones.
+  On Clamp / Lerp / Remap / the comparators the wired number is the SUBJECT and
+  the num params stay separate config - unlike the usual "a wired number
+  replaces num[0]".
+- **The Vector category computes positions.** A position input takes exactly one
+  link, so these are all unary and COMPOSE by chaining: **Position** (a literal),
+  **Offset Position**, **Scale Position**, **Rotate Around Y**, **With X / With
+  Y / With Z** (replace one component, which is how a computed number becomes a
+  coordinate), **Snap To Terrain** (put a computed point ON the ground - the node
+  to place before Spawn Object), plus the readers **Get X / Get Y / Get Z**,
+  **Distance To Point** and **Terrain Height At**. **Roll Point In Area** is an
+  action like Roll Random: it latches a random point inside an Area object.
+  A ring of 8 objects is For Loop -> (index x 45) -> Rotate Around Y of a
+  Position -> Snap To Terrain -> Spawn Object.
 - Object-parameter nodes resolve their target: incoming **object link** →
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge
   back to execution with **On Condition** (fires on the rising edge).
 - A position link into a node with X/Y/Z params overrides those params; a
   **number** link overrides the target's `num[0]` the same way. Number sources
-  are Number / Get Int / Get Save Value / Timer / Tween / Counter / For Loop;
-  Add/Subtract/Multiply/Divide fold over
+  are Number / Get Int / Get Save Value / Timer / Tween / Counter / For Loop /
+  Scene Time / Frame Time / Oscillate / Roll Random and the Vector getters;
+  Add/Subtract/Multiply/Divide/Min/Max/Modulo/Power fold over
   **all** their wired number inputs (with one input wired, `num[0]` is the
   second operand); Number At Least bridges to the bool plane and Number To Text
   to the text plane.

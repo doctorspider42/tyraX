@@ -150,10 +150,23 @@ struct FlowNodeType {
     bool textOut = false; // exposes a text value as a text output
     // Number plane. numIn = a wired number REPLACES this node's num[0] param
     // (the one convention, so every consumer behaves the same); numOut = the
-    // node is a number source. A node with both AND pure is a Math node: its
-    // input pin folds over several links instead of taking just the first.
+    // node is a number source.
     bool numIn = false;
     bool numOut = false;
+    // The number input FOLDS over every wired link (a + b + c) instead of
+    // taking only the first - the n-ary Math nodes (Add, Min, Modulo...). It
+    // used to be inferred from `pure && numIn && numOut`, which was true of
+    // every combining node but is wrong for a UNARY one (Absolute, Sine,
+    // Clamp): those are pure, read a number and produce one, and a second
+    // wired link would be silently ignored. So it is declared.
+    bool numFold = false;
+    // The wired number is an operand of its OWN rather than a replacement for
+    // num[0]. That is the shape of every node whose SUBJECT is the wire:
+    // Number At Least tests the wired value against its Threshold param, Clamp
+    // holds the wired value between Min and Max. Without saying so the editor
+    // hides those params and claims they come "from link", while codegen keeps
+    // reading what was typed - a silent disagreement between the two.
+    bool numInExtra = false;
     // action that ALSO has an exec output fired later (Delay's "after >")
     bool execThrough = false;
     // Exec input pins on an action. 1 = the plain "> do" pin. More than one
@@ -795,33 +808,174 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "node or any number input."},
         {.key = "NumAdd", .title = "Add", .category = "Math", .numCount = 1,
          .numLabels = {"B"}, .pure = true, .numIn = true, .numOut = true,
+         .numFold = true,
          .desc = "Pure number: every wired number input summed. With exactly "
                  "ONE input wired it adds num[0] (B) to it - Get Int -> Add "
                  "(B 1) -> Set Int is the read-modify-write counter. With none "
                  "wired it is just B."},
         {.key = "NumSub", .title = "Subtract", .category = "Math",
          .numCount = 1, .numLabels = {"B"}, .pure = true, .numIn = true,
-         .numOut = true,
+         .numOut = true, .numFold = true,
          .desc = "Pure number: the wired number inputs subtracted in LINK "
                  "order (a - b - c). With one input wired it subtracts num[0] "
                  "(B) from it; with none it is -B."},
         {.key = "NumMul", .title = "Multiply", .category = "Math",
          .numCount = 1, .numLabels = {"B"}, .pure = true, .numIn = true,
-         .numOut = true,
+         .numOut = true, .numFold = true,
          .desc = "Pure number: every wired number input multiplied. With one "
                  "input wired it multiplies by num[0] (B); with none it is B."},
         {.key = "NumDiv", .title = "Divide", .category = "Math",
          .numCount = 1, .numLabels = {"B"}, .pure = true, .numIn = true,
-         .numOut = true,
+         .numOut = true, .numFold = true,
          .desc = "Pure number: the wired number inputs divided in LINK order "
                  "(a / b / c). With one input wired it divides by num[0] (B). "
                  "Division by zero yields 0 instead of a NaN."},
         {.key = "NumAtLeast", .title = "Number At Least", .category = "Math",
          .numCount = 1, .numLabels = {"Threshold"}, .pure = true,
-         .boolOut = true, .numIn = true,
+         .boolOut = true, .numIn = true, .numInExtra = true,
          .desc = "Pure bool: the wired number >= num[0] (Threshold) - the "
                  "bridge from the number plane into the logic gates and On "
                  "Condition."},
+        // The rest of the number plane's arithmetic. The n-ary ones fold over
+        // every wired link (.numFold), the unary ones read only the first - a
+        // distinction the editor's link pruning and codegen both take from
+        // that one flag.
+        {.key = "NumMin", .title = "Min", .category = "Math", .numCount = 1,
+         .numLabels = {"B"}, .pure = true, .numIn = true, .numOut = true,
+         .numFold = true,
+         .desc = "Pure number: the SMALLEST of every wired number input. With "
+                 "one input wired it is min(input, num[0]) - the usual way to "
+                 "cap a value; with none it is B."},
+        {.key = "NumMax", .title = "Max", .category = "Math", .numCount = 1,
+         .numLabels = {"B"}, .pure = true, .numIn = true, .numOut = true,
+         .numFold = true,
+         .desc = "Pure number: the LARGEST of every wired number input. With "
+                 "one input wired it is max(input, num[0]) - a floor under a "
+                 "value; with none it is B."},
+        {.key = "NumMod", .title = "Modulo", .category = "Math", .numCount = 1,
+         .numLabels = {"B"}, .pure = true, .numIn = true, .numOut = true,
+         .numFold = true,
+         .desc = "Pure number: the wired inputs taken modulo each other in LINK "
+                 "order (a % b % c). With one input wired it is input % num[0] "
+                 "- the wrap-around for cycling through N states or keeping an "
+                 "angle inside 360. A zero divisor yields 0, not a NaN."},
+        {.key = "NumPow", .title = "Power", .category = "Math", .numCount = 1,
+         .numLabels = {"Exponent"}, .pure = true, .numIn = true, .numOut = true,
+         .numFold = true,
+         .desc = "Pure number: the wired inputs raised to each other in LINK "
+                 "order. With one input wired it is input ^ num[0] (Exponent); "
+                 "Exponent 2 squares, 0.5 is a square root."},
+        {.key = "NumAbs", .title = "Absolute", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: the wired number without its sign. The distance "
+                 "of a value from zero - pair it with Number At Most for \"is "
+                 "it close to X\"."},
+        {.key = "NumNeg", .title = "Negate", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: the wired number with its sign flipped."},
+        {.key = "NumSign", .title = "Sign", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: -1 if the wired number is negative, 1 if "
+                 "positive, 0 if exactly zero. The direction of a value without "
+                 "its size."},
+        {.key = "NumFloor", .title = "Floor", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: the wired number rounded DOWN to a whole "
+                 "number."},
+        {.key = "NumCeil", .title = "Ceiling", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: the wired number rounded UP to a whole number."},
+        {.key = "NumRound", .title = "Round", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: the wired number rounded to the NEAREST whole "
+                 "number."},
+        {.key = "NumSqrt", .title = "Square Root", .category = "Math",
+         .pure = true, .numIn = true, .numOut = true,
+         .desc = "Pure number: the square root of the wired number (0 for a "
+                 "negative input rather than a NaN)."},
+        {.key = "NumClamp", .title = "Clamp", .category = "Math", .numCount = 2,
+         .numLabels = {"Min", "Max"}, .pure = true, .numIn = true,
+         .numOut = true, .numInExtra = true,
+         .desc = "Pure number: the wired number held between num[0] (Min) and "
+                 "num[1] (Max). The guard to put in front of anything that "
+                 "must stay in range - a health bar, a volume, a camera "
+                 "distance."},
+        {.key = "NumLerp", .title = "Lerp", .category = "Math", .numCount = 2,
+         .numLabels = {"From", "To"}, .pure = true, .numIn = true,
+         .numOut = true, .numInExtra = true,
+         .desc = "Pure number: blends from num[0] (From) to num[1] (To) by the "
+                 "wired number, which is the 0..1 fraction (clamped). The "
+                 "manual counterpart of Tween Value - use it when you already "
+                 "have the fraction (a Timer's elapsed / its duration)."},
+        {.key = "NumRemap", .title = "Remap Range", .category = "Math",
+         .numCount = 4, .numLabels = {"In min", "In max", "Out min", "Out max"},
+         .pure = true, .numIn = true, .numOut = true, .numInExtra = true,
+         .desc = "Pure number: rescales the wired number from the range "
+                 "num[0]..num[1] onto num[2]..num[3] (clamped to the output "
+                 "range). The one node between \"a distance in world units\" "
+                 "and \"a 0..1 amount\" that everything else wants."},
+        {.key = "NumSin", .title = "Sine", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: the sine of the wired number, taken as DEGREES "
+                 "(so 90 = 1). With Rotate Around Y it is how you place things "
+                 "on a circle."},
+        {.key = "NumCos", .title = "Cosine", .category = "Math", .pure = true,
+         .numIn = true, .numOut = true,
+         .desc = "Pure number: the cosine of the wired number, taken as "
+                 "DEGREES (so 0 = 1)."},
+        // Comparators. Number At Least already covers >=; these are the rest of
+        // the bridge from the value plane into the logic gates.
+        {.key = "NumAtMost", .title = "Number At Most", .category = "Math",
+         .numCount = 1, .numLabels = {"Threshold"}, .pure = true,
+         .boolOut = true, .numIn = true, .numInExtra = true,
+         .desc = "Pure bool: the wired number <= num[0] (Threshold)."},
+        {.key = "NumEquals", .title = "Number Equals", .category = "Math",
+         .numCount = 2, .numLabels = {"Value", "Tolerance"}, .pure = true,
+         .boolOut = true, .numIn = true, .numInExtra = true,
+         .desc = "Pure bool: the wired number equals num[0] (Value) within "
+                 "num[1] (Tolerance). Floats almost never land on an exact "
+                 "value, so the tolerance is a parameter rather than a hidden "
+                 "epsilon - 0.5 tests \"rounds to Value\"."},
+        {.key = "NumInRange", .title = "Number In Range", .category = "Math",
+         .numCount = 2, .numLabels = {"Min", "Max"}, .pure = true,
+         .boolOut = true, .numIn = true, .numInExtra = true,
+         .desc = "Pure bool: the wired number is between num[0] (Min) and "
+                 "num[1] (Max), both ends included."},
+        // Time. Both read the graph's own clock - seconds since the scene this
+        // graph belongs to was (re)loaded.
+        {.key = "SceneTime", .title = "Scene Time", .category = "Math",
+         .pure = true, .numOut = true,
+         .desc = "Pure number: SECONDS since this scene started (this graph's "
+                 "own clock, so it resets with the scene and rewinds with the "
+                 "time machine). Wire it into Number To Text for a play "
+                 "timer, or into Sine for anything that should pulse."},
+        {.key = "FrameTime", .title = "Frame Time", .category = "Math",
+         .pure = true, .numOut = true,
+         .desc = "Pure number: how long the LAST frame took, in seconds. "
+                 "Multiply a per-second rate by it to make a per-frame step "
+                 "frame-rate independent."},
+        {.key = "Oscillate", .title = "Oscillate", .category = "Math",
+         .numCount = 3, .numLabels = {"Amplitude", "Hz", "Offset"},
+         .pure = true, .numOut = true,
+         .desc = "Pure number: a sine wave riding the scene clock - num[2] "
+                 "(Offset) plus num[0] (Amplitude) times a wave repeating "
+                 "num[1] (Hz) times a second. THE node for a pulsing light, a "
+                 "breathing glow, a bobbing prop: it costs one sinf where doing "
+                 "it by hand costs a graph running every frame."},
+        // Random needs a moment, not an expression: a pure random would re-roll
+        // on every read, so two consumers of \"the same\" number would disagree.
+        // So it is an action that LATCHES its roll, with an exec output to
+        // sequence what reads it.
+        {.key = "RollRandom", .title = "Roll Random", .category = "Math",
+         .numCount = 3, .numLabels = {"Min", "Max", "Whole"}, .numOut = true,
+         .execOutCount = 1, .execOutLabels = {"then"},
+         .desc = "On exec, rolls a random number between num[0] (Min) and "
+                 "num[1] (Max) and LATCHES it on the number output; the 'then' "
+                 "output fires right after, so whatever reads the roll runs "
+                 "after it. num[2] Whole = 1 rounds to a whole number (a dice "
+                 "roll, a random index for Switch Number). The number output "
+                 "keeps the last roll until the next exec - it is a value, not "
+                 "a fresh surprise per read."},
         {.key = "OpenMenu", .title = "Open Menu", .category = "Menus",
          .strKind = FlowParamKind::MenuName,
          .desc = "Opens the menu named str."},
@@ -829,6 +983,93 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .trigger = true, .strKind = FlowParamKind::Text, .boolOut = true,
          .desc = "Fires the frame a menu entry with Flow event name str is "
                  "selected. Also usable as a bool source."},
+        // ------------------------------------------------------------------
+        // The position plane's own arithmetic. A position INPUT takes exactly
+        // one link (unlike the bool/number planes), so these are all unary:
+        // one position in, one out, with the second operand as params or on the
+        // number plane. Chained, they compose - Position -> With X -> Offset ->
+        // Snap To Terrain is a computed spawn point.
+        {.key = "PosConst", .title = "Position", .category = "Vector",
+         .numCount = 3, .numLabels = {"X", "Y", "Z"}, .posOut = true,
+         .pure = true,
+         .desc = "Pure position: the constant (X, Y, Z). The literal of the "
+                 "position plane - the starting point to feed the other Vector "
+                 "nodes when you are not reading one off an object."},
+        {.key = "PosGetX", .title = "Get X", .category = "Vector", .posIn = true,
+         .pure = true, .numOut = true,
+         .desc = "Pure number: the X of the linked position. With Get Position "
+                 "this is how a coordinate reaches the Math nodes."},
+        {.key = "PosGetY", .title = "Get Y", .category = "Vector", .posIn = true,
+         .pure = true, .numOut = true,
+         .desc = "Pure number: the Y (height) of the linked position."},
+        {.key = "PosGetZ", .title = "Get Z", .category = "Vector", .posIn = true,
+         .pure = true, .numOut = true,
+         .desc = "Pure number: the Z of the linked position."},
+        {.key = "PosWithX", .title = "With X", .category = "Vector",
+         .numCount = 1, .numLabels = {"X"}, .posIn = true, .posOut = true,
+         .pure = true, .numIn = true,
+         .desc = "Pure position: the linked position with its X replaced by "
+                 "num[0] (or by a wired number). Chain With X / With Y / With Z "
+                 "to build a position out of computed numbers."},
+        {.key = "PosWithY", .title = "With Y", .category = "Vector",
+         .numCount = 1, .numLabels = {"Y"}, .posIn = true, .posOut = true,
+         .pure = true, .numIn = true,
+         .desc = "Pure position: the linked position with its Y (height) "
+                 "replaced by num[0] or a wired number."},
+        {.key = "PosWithZ", .title = "With Z", .category = "Vector",
+         .numCount = 1, .numLabels = {"Z"}, .posIn = true, .posOut = true,
+         .pure = true, .numIn = true,
+         .desc = "Pure position: the linked position with its Z replaced by "
+                 "num[0] or a wired number."},
+        {.key = "PosOffset", .title = "Offset Position", .category = "Vector",
+         .numCount = 3, .numLabels = {"dX", "dY", "dZ"}, .posIn = true,
+         .posOut = true, .pure = true,
+         .desc = "Pure position: the linked position shifted by (dX, dY, dZ). "
+                 "\"Two units above that object\" is Get Position -> Offset "
+                 "Position (dY 2)."},
+        {.key = "PosScale", .title = "Scale Position", .category = "Vector",
+         .numCount = 1, .numLabels = {"Factor"}, .posIn = true, .posOut = true,
+         .pure = true, .numIn = true,
+         .desc = "Pure position: the linked position multiplied by num[0] "
+                 "(Factor), or by a wired number. Scaling a position treats it "
+                 "as a direction from the world origin - it is the node for "
+                 "lengthening an offset, not for moving a point."},
+        {.key = "PosRotateY", .title = "Rotate Around Y", .category = "Vector",
+         .numCount = 1, .numLabels = {"Degrees"}, .posIn = true, .posOut = true,
+         .pure = true, .numIn = true,
+         .desc = "Pure position: the linked position turned num[0] DEGREES "
+                 "about the world Y axis (through the origin). Offset Position "
+                 "-> Rotate Around Y -> Offset Position back is how you put "
+                 "things on a ring; feed the angle from a For Loop's index x "
+                 "(360 / count) to place a whole circle of them."},
+        {.key = "PosDistance", .title = "Distance To Point",
+         .category = "Vector", .numCount = 3, .numLabels = {"X", "Y", "Z"},
+         .posIn = true, .pure = true, .numOut = true,
+         .desc = "Pure number: the straight-line distance from the linked "
+                 "position to (X, Y, Z). Wire it through Number At Most for a "
+                 "proximity test the Near Object trigger cannot express (any "
+                 "two points, not the player and an object)."},
+        {.key = "PosTerrainY", .title = "Terrain Height At",
+         .category = "Vector", .posIn = true, .pure = true, .numOut = true,
+         .desc = "Pure number: the ground height under the linked position - "
+                 "the same bilinear heightmap the player walks on."},
+        {.key = "PosOnTerrain", .title = "Snap To Terrain",
+         .category = "Vector", .numCount = 1, .numLabels = {"Lift"},
+         .posIn = true, .posOut = true, .pure = true,
+         .desc = "Pure position: the linked position with its Y set to the "
+                 "ground height there plus num[0] (Lift). The node to put in "
+                 "front of Spawn Object so a computed spawn point lands ON the "
+                 "terrain instead of inside it or in mid-air."},
+        // Same reasoning as Roll Random: a pure random point would be a
+        // different point per read.
+        {.key = "RollAreaPoint", .title = "Roll Point In Area",
+         .category = "Vector", .strKind = FlowParamKind::AreaName,
+         .posOut = true, .execOutCount = 1, .execOutLabels = {"then"},
+         .desc = "On exec, picks a random point inside the Area object named "
+                 "str and LATCHES it on the position output; 'then' fires right "
+                 "after. Spawn scattering, wander targets, random patrol - the "
+                 "volume is read live, so a moving area moves the scatter with "
+                 "it."},
         {.key = "PosToText", .title = "Position To Text", .category = "Convert",
          .posIn = true, .pure = true, .textOut = true,
          .desc = "Pure converter: linked position -> text."},
@@ -1076,11 +1317,12 @@ inline const char* flowExecOutLabel(const FlowNodeType& t, int pin) {
     return t.trigger ? "then" : "after";
 }
 
-// A number input that FOLDS over several links (the Math nodes) rather than
-// taking just the first one. Read by the editor (which prunes extra links on a
-// single-value input) and by codegen (which folds), so the two cannot disagree.
+// A number input that FOLDS over several links (the n-ary Math nodes) rather
+// than taking just the first one. Read by the editor (which prunes extra links
+// on a single-value input) and by codegen (which folds), so the two cannot
+// disagree.
 inline bool flowNumFolds(const FlowNodeType& t) {
-    return t.pure && t.numIn && t.numOut;
+    return t.numFold && t.numIn && t.numOut;
 }
 
 // Label shown on exec input `pin` of `t` ("> do" when the type declares none).

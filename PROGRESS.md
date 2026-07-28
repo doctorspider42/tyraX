@@ -12641,6 +12641,80 @@ Each finished feature lands as its own commit.
   clean. Not yet run in PCSX2 - that comes with the later stages, whose nodes
   share these mechanisms.
 
+- (224) **The value plane grows arithmetic, and learns to reach positions**
+  (stage 2 of the flow-graph expansion; the survey in 223 named these next).
+
+  The number plane had four operators and one comparison. It now has the rest:
+  n-ary **Min / Max / Modulo / Power** folding like Add does, the unary shapers
+  **Absolute, Negate, Sign, Floor, Ceiling, Round, Square Root, Sine, Cosine**
+  (degrees), **Clamp**, **Lerp**, **Remap Range**, the comparators **At Most /
+  Equals / In Range**, and three clocks - **Scene Time**, **Frame Time** and
+  **Oscillate**, a sine wave on the scene clock that answers "make this light
+  pulse" with one `sinf` instead of a graph running every frame. Plus a new
+  **Vector** category: **Position** (a literal), **Offset / Scale / Rotate
+  Around Y / With X / With Y / With Z / Snap To Terrain**, and the readers **Get
+  X / Get Y / Get Z / Distance To Point / Terrain Height At**.
+
+  Two design constraints shaped the whole set. First, **a position input takes
+  exactly one link** (unlike bool and number, which fold), so every Vector node
+  is unary - the second operand is either params or a number wire, and you build
+  a vector by CHAINING (Position -> With X -> Offset -> Snap To Terrain) rather
+  than by feeding a three-input Make Position, which the model cannot express
+  until typed multi-outputs land. That turned out to be fine and arguably better:
+  the ring-of-eight-crates test graph is For Loop -> index x 45 -> Rotate Around
+  Y -> Snap To Terrain -> Spawn Object and reads left to right.
+
+  Second, **randomness cannot be a pure node**. A pure random is an expression
+  re-evaluated at every read, so `Set Int` and a `Switch Number` reading "the
+  same" roll would see two different numbers. So **Roll Random** and **Roll Point
+  In Area** are actions that LATCH their result and fire a `then` output - which
+  is only expressible because of stage 223's exec outputs. Roll Point In Area
+  samples through `areaBasis` (the same basis `pointInArea` tests against), so a
+  ROTATED area scatters inside itself rather than inside its axis-aligned bound.
+
+  **Two flags replaced two pieces of inference, and one of them was a live bug.**
+  `flowNumFolds` was `pure && numIn && numOut` - true of a unary Sine as well as
+  an n-ary Add, so it is now the declared `numFold`. And the editor's "num[0]:
+  from link" notice assumed a wired number always REPLACES num[0]; on a node
+  whose subject IS the wire (Clamp's value between its Min/Max) that hides real
+  params and claims they came from the link while codegen keeps reading what was
+  typed. **That was already wrong for the existing Number At Least** - wiring a
+  number into it hid its Threshold. Hence `numInExtra`, declared on the seven
+  nodes of that shape.
+
+  **The two planes now feed each other, which cost two bugs worth writing down.**
+  `posExprImpl` and `numExprImpl` became mutually recursive (Get X reads a
+  position, With X writes one from a number). (1) `numExprImpl` pushes its own id
+  before dispatching, so handing that path straight to `posExprImpl` made the
+  position walk read the node as already visited and skip its own input link -
+  `Get X` of a five-node Vector chain silently resolved to the graph owner's
+  position, which looks entirely plausible in the generated C++. Its own id has
+  to be dropped. (2) The obvious fix - a fresh path at the plane boundary - makes
+  a pos->num->pos cycle recurse until the stack goes, because `numInput` starts
+  fresh at a consumer's top level. So the boundary carries the path
+  (`numInputVis`/`numOperandVis`), and a deliberate cycle graph
+  (With X <- Add <- Get X <- that same With X) is now a codegen regression check:
+  it terminates and resolves to a finite expression. The residual cost is
+  honest and documented - a position is three independent C++ expressions, so a
+  Vector chain is re-emitted per component per consumer; constant chains fold
+  away in the compiler, and `Rotate Around Y` folds its `sinf`/`cosf` at codegen
+  time when the angle is typed rather than wired for exactly that reason.
+
+  Every generated helper is gated on the one node type that needs it (a `used`
+  set over the project's node types), and every one of them exists to stop a
+  graph producing a NaN or an infinity that then lands in a position, a save file
+  or the GS: zero divisors yield 0, a negative square root yields 0, a
+  zero-width Remap range yields its output minimum, Lerp clamps its fraction.
+
+  Verified by codegen again: a 58-node / 66-link graph over a seeded project (a
+  box and a rotated Area, written into `objects/` by hand since there is no CLI
+  to add objects) wiring one Get Int through all sixteen shapers, three
+  comparators into an AND into On Condition, the full Vector chain into Spawn
+  Object, and the ring loop. `--apply-graph` accepted all 66 links, and the
+  generated C++ was read component by component - the chain's Y really is
+  `3.0F * 2.0F` after With Y 3 and Scale 2, the folded 45-degree rotation really
+  is `0.707107F`, and the cycle fixture terminates. Editor builds clean.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch
