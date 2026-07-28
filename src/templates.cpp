@@ -8738,7 +8738,19 @@ void TerrainGame::renderProjShadows() {
     // patch centred out there covers nothing near the caster, which is the
     // part anyone looks at. Walk only as far as one patch can cover: the
     // shadow then fades out at the patch edge instead of not existing.
-    const float tgMax = r * 4.0F;
+    // How far the ray may travel before the patch is placed. The cap is on
+    // the SIDEWAYS run, not on the ray length: what runs away is a nearly
+    // LEVEL ray (a light beside the caster throws a shadow with no far edge,
+    // and a patch centred out at the horizon covers nothing anyone looks at).
+    // A caster high in the air is the opposite case - its ray is steep and the
+    // long distance is a DROP, which is exactly where the shadow belongs.
+    // Capping the ray length conflated the two and left a thrown object's
+    // patch hanging half way down, with the silhouette mostly outside it: on
+    // the ground that read as a stray dark sliver next to the real shadow.
+    const float horizRun = sqrtf(ddx * ddx + ddz * ddz);
+    const float latMax = r * 4.0F;
+    const float tgMax =
+        horizRun > 0.0001F ? latMax / horizRun : 1.0e9F;
     // Receivers first: everything below is asking "where is the floor", and
     // indoors the floor is geometry. yMax is the caster's own underside (feet
     // for the anim/player types the lift above accounts for) plus a little,

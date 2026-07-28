@@ -10,6 +10,26 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (137) **A thrown object's shadow landed half way down** - what (136) left
+  open, and the other half of what the owner saw as "several shadows".
+
+  `tg`, the distance the light ray travels before the patch is placed, was
+  capped at `r * 4`. That cap exists for a real reason: a nearly LEVEL ray (a
+  light beside the caster) has no far edge at all, and a patch centred out at
+  the horizon covers nothing anyone is looking at. But it was applied to the
+  RAY LENGTH, which conflates that case with its opposite - a caster high in
+  the air, whose ray is steep and whose long distance is a DROP, exactly where
+  the shadow belongs. A sphere seven units up therefore got its patch about
+  half way down, with the silhouette mostly outside it, and the sliver that
+  survived read as a second stray shadow beside the real one.
+
+  The cap is now on the SIDEWAYS run (`tg * horizRun <= r * 4`), which is the
+  thing that actually runs away. A level ray is capped exactly as before
+  (`horizRun` is ~1 there); a vertical drop is not capped at all.
+
+  **Verified** on the owner's scene: 1426 pixels changed, all of them inside
+  the ground band - the stray slivers went and nothing above the horizon moved.
+
 - (136) **A projected shadow could stand up in the air.** Owner, with a
   screenshot of four spheres hanging in a line: black curtains climbing out of
   the ground into the sky, "the higher, the more of it".
