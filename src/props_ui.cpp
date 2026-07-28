@@ -1234,7 +1234,9 @@ void App::drawPropertiesWindow() {
                     "Extra Player object - the game uses only the first two.");
         }
         if (o.playerMode == 2)
-            ImGui::TextDisabled("Third person: X jumps. The avatar faces where it walks.");
+            ImGui::TextDisabled(o.playerFaceCamera
+                                    ? "Third person: X jumps. The avatar faces the camera."
+                                    : "Third person: X jumps. The avatar faces where it walks.");
         else
             ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
 
@@ -1261,6 +1263,9 @@ void App::drawPropertiesWindow() {
                         o.playerWalkClip.clear();
                         o.playerRunClip.clear();
                         o.playerJumpClip.clear();
+                        o.playerBackClip.clear();
+                        o.playerStrafeLeftClip.clear();
+                        o.playerStrafeRightClip.clear();
                         committed = true;
                     }
                 }
@@ -1325,6 +1330,23 @@ void App::drawPropertiesWindow() {
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
                         "\"Play Animation\" one-shot plays to the end first.");
+                    // Directional locomotion: only meaningful with the avatar
+                    // facing the camera - otherwise it turns into the movement
+                    // and every step is a forward step.
+                    committed |= ImGui::Checkbox("Face camera (strafe)",
+                                                 &o.playerFaceCamera);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "The avatar keeps facing the camera instead of turning\n"
+                            "into the movement direction; sideways/backward steps\n"
+                            "play the directional clips below.");
+                    if (o.playerFaceCamera) {
+                        clipCombo("Back clip", o.playerBackClip, true);
+                        clipCombo("Strafe left clip", o.playerStrafeLeftClip, true);
+                        clipCombo("Strafe right clip", o.playerStrafeRightClip, true);
+                        ImGui::TextDisabled(
+                            "<none> = the walk clip covers that direction.");
+                    }
                     // Each Player object carries its own LOD overrides - in a
                     // two-player scene that gives P1 and P2 independent
                     // avatar LOD settings.

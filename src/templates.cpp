@@ -1150,6 +1150,9 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
+    // the walk clip covers that direction.
+    int backClip = -1, strafeLClip = -1, strafeRClip = -1;
     // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
     float boom = 0;
     // This player's own view; the dispatcher (or the split-screen render
@@ -1197,9 +1200,11 @@ class TerrainGame : public Tyra::Game {
   float splitBandN[2][3];  // inward top/bottom plane normals (apex = camera)
   float splitBandP[3];     // the apex
   // Picks the third-person avatar's locomotion clip from its planar speed
-  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  // (fraction of full walk speed), grounded state and - with face-camera
+  // (strafe) locomotion - the movement direction relative to the avatar's
+  // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded);
+                       bool grounded, float moveLocal);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -2094,6 +2099,9 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
+    // the walk clip covers that direction.
+    int backClip = -1, strafeLClip = -1, strafeRClip = -1;
     // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
     float boom = 0;
     // This player's own view; the dispatcher (or the split-screen render
@@ -2141,9 +2149,11 @@ class TerrainGame : public Tyra::Game {
   float splitBandN[2][3];  // inward top/bottom plane normals (apex = camera)
   float splitBandP[3];     // the apex
   // Picks the third-person avatar's locomotion clip from its planar speed
-  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  // (fraction of full walk speed), grounded state and - with face-camera
+  // (strafe) locomotion - the movement direction relative to the avatar's
+  // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded);
+                       bool grounded, float moveLocal);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -6574,6 +6584,14 @@ void TerrainGame::loadScene(int sceneIndex) {
           PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
       P.jumpClip =
           PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
+      P.backClip =
+          PP_BACK_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_BACK_CLIP(pi)) : -1;
+      P.strafeLClip = PP_STRAFE_L_CLIP(pi)[0]
+                          ? resolveClipIndex(P.objIndex, PP_STRAFE_L_CLIP(pi))
+                          : -1;
+      P.strafeRClip = PP_STRAFE_R_CLIP(pi)[0]
+                          ? resolveClipIndex(P.objIndex, PP_STRAFE_R_CLIP(pi))
+                          : -1;
       // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
       // pose from frame one. Without this, setupAnimObject's default (clip 0)
       // would look like a scripted one-shot when idle isn't clip 0, and a
@@ -9427,16 +9445,29 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
         P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
-    // Turn the avatar toward its movement direction (shortest-arc lerp).
+    // Turn the avatar (shortest-arc lerp): toward its movement direction, or
+    // with face-camera (strafe) locomotion toward the camera yaw - sideways
+    // and backward movement then keep the avatar oriented toward the camera
+    // and the directional clips play instead of the body swinging around.
     const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
-    if (movedLen > 0.0005F) {
-      float desired = atan2f(movedX, movedZ);
+    const bool moving = movedLen > 0.0005F;
+    if (moving || PP_FACE_CAMERA(pi)) {
+      const float desired = PP_FACE_CAMERA(pi) ? P.yaw : atan2f(movedX, movedZ);
       float d = desired - P.faceYaw;
       while (d > PI) d -= 2.0F * PI;
       while (d < -PI) d += 2.0F * PI;
       float k = PP_TURN_RATE(pi) * g_frameScale;
       if (k > 1.0F) k = 1.0F;
       P.faceYaw += d * k;
+    }
+    // Movement direction in the avatar's own frame (0 = straight ahead,
+    // negative = toward the avatar's right - the strafe convention above);
+    // drivePlayerAnim picks the strafe/back clips from it.
+    float moveLocal = 0.0F;
+    if (moving) {
+      moveLocal = atan2f(movedX, movedZ) - P.faceYaw;
+      while (moveLocal > PI) moveLocal -= 2.0F * PI;
+      while (moveLocal < -PI) moveLocal += 2.0F * PI;
     }
 
     // Camera boom: the eye rides PP_CAM_DIST behind/above the head along
@@ -9519,7 +9550,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
       const float step = PP_WALK_SPEED(pi) * g_frameScale;
-      drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+      drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
+                      moveLocal);
     }
     return;
   }
@@ -9637,7 +9669,8 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
-                                  float speedFrac, bool grounded) {
+                                  float speedFrac, bool grounded,
+                                  float moveLocal) {
   if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
   const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
@@ -9647,16 +9680,33 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
     want = P.jumpClip;
   else if (speedFrac < 0.12F)
     want = P.idleClip;
-  else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
-    want = P.walkClip;
-  else
-    want = P.runClip;
+  else {
+    // Moving: directional family first. Sectors around the facing - within
+    // 60 deg of straight ahead = walk/run, within 60 deg of straight back =
+    // backpedal, the two side quadrants = sidestep (negative moveLocal is
+    // toward the avatar's right). An unmapped direction falls back to walk,
+    // so a model with only idle/walk keeps today's behavior exactly.
+    const float a = moveLocal < 0.0F ? -moveLocal : moveLocal;
+    int dir = -1;
+    if (a > 2.0943951F)  // > 120 deg
+      dir = P.backClip;
+    else if (a > 1.0471976F)  // 60..120 deg
+      dir = moveLocal < 0.0F ? P.strafeRClip : P.strafeLClip;
+    if (dir >= 0)
+      want = dir;
+    else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+      want = P.walkClip;
+    else
+      want = P.runClip;
+  }
   if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
       body.animClip == P.idleClip || body.animClip == P.walkClip ||
-      body.animClip == P.runClip || body.animClip == P.jumpClip;
+      body.animClip == P.runClip || body.animClip == P.jumpClip ||
+      body.animClip == P.backClip || body.animClip == P.strafeLClip ||
+      body.animClip == P.strafeRClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
 
   if (body.animClip != want) {
@@ -9668,7 +9718,7 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want == P.walkClip || want == P.runClip)
+  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F)
     body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
   else
     body.animSpeed = base;
@@ -18323,6 +18373,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         playerClip("WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
         playerClip("RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
         playerClip("JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
+        // Directional clips only reach the game with face-camera locomotion on:
+        // with turn-to-face they would flicker in during the turn transient
+        // (moveLocal is briefly sideways while the avatar swings around).
+        playerClip("BACK_CLIPS", [](const SceneObject& o) {
+            return o.playerFaceCamera ? o.playerBackClip : std::string();
+        });
+        playerClip("STRAFE_L_CLIPS", [](const SceneObject& o) {
+            return o.playerFaceCamera ? o.playerStrafeLeftClip : std::string();
+        });
+        playerClip("STRAFE_R_CLIPS", [](const SceneObject& o) {
+            return o.playerFaceCamera ? o.playerStrafeRightClip : std::string();
+        });
+        out << "constexpr bool " << pre << "FACE_CAMERAS[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "")
+                << (ps[si] && ps[si]->playerFaceCamera ? "true" : "false");
+        out << "};\n";
     }
     out << "\n";
 
@@ -18712,6 +18779,11 @@ inline int everyFrames(float seconds) {
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
+// Directional locomotion (face-camera / strafe mode).
+#define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
+#define PP_STRAFE_L_CLIP(pi) PP_TBL(pi, STRAFE_L_CLIPS)
+#define PP_STRAFE_R_CLIP(pi) PP_TBL(pi, STRAFE_R_CLIPS)
+#define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]

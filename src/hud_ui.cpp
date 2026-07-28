@@ -2700,6 +2700,67 @@ void App::renameAnimClipRefs(const std::string& model, const std::string& from,
         }
 }
 
+// Resolves a stored preview-light selection into the viewport override. An
+// unknown preset name (renamed or deleted since editor.ini was written) falls
+// back to the scene, which is also the default - the previews are meant to
+// show what ships, the override is the opt-out.
+Viewport::PreviewLight App::previewLight(const std::string& sel) const {
+    Viewport::PreviewLight l;
+    if (sel.empty()) return l;  // off: the scene's own ambience
+    if (sel == "*") {
+        l.on = true;  // AmbiencePreset's own defaults = the neutral studio look
+        const AmbiencePreset n;
+        for (int i = 0; i < 3; ++i) l.dir[i] = n.lightDir[i], l.color[i] = n.lightColor[i];
+        l.ambient = n.ambient;
+        l.diffuse = n.diffuse;
+        l.brightness = n.brightness;
+        return l;
+    }
+    for (const AmbiencePreset& a : project_.ambiencePresets) {
+        if (a.name != sel) continue;
+        l.on = true;
+        for (int i = 0; i < 3; ++i) l.dir[i] = a.lightDir[i], l.color[i] = a.lightColor[i];
+        l.ambient = a.ambient;
+        l.diffuse = a.diffuse;
+        l.brightness = a.brightness;
+        return l;
+    }
+    return l;
+}
+
+bool App::previewLightCombo(const char* label, std::string& sel) {
+    const char* current = sel.empty()  ? "Scene ambience"
+                          : sel == "*" ? "Neutral studio"
+                                       : sel.c_str();
+    bool changed = false;
+    ImGui::SetNextItemWidth(scaled(170));
+    if (ImGui::BeginCombo(label, current)) {
+        if (ImGui::Selectable("Scene ambience", sel.empty()) && !sel.empty()) {
+            sel.clear();
+            changed = true;
+        }
+        if (ImGui::Selectable("Neutral studio", sel == "*") && sel != "*") {
+            sel = "*";
+            changed = true;
+        }
+        if (!project_.ambiencePresets.empty()) ImGui::Separator();
+        for (const AmbiencePreset& a : project_.ambiencePresets)
+            if (ImGui::Selectable(a.name.c_str(), sel == a.name) && sel != a.name) {
+                sel = a.name;
+                changed = true;
+            }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Light this preview bakes with.\n\n"
+            "Scene ambience shows what the object will really look like\n"
+            "in-game - but a dark scene makes the preview dark too.\n"
+            "Neutral studio, or any ambience preset, lights the preview\n"
+            "instead without touching the scene or the build.");
+    return changed;
+}
+
 void App::drawAnimEditorWindow() {
     if (!showAnimEditor_ || !hasProject_) return;
 
@@ -2848,6 +2909,7 @@ void App::drawAnimEditorWindow() {
         d.pitchDeg = animEdPitch_;
         d.zoom = animEdZoom_;
         d.wireframe = animEdWireframe_;
+        d.light = previewLight(animEdLight_);
         const int pw = (int)std::max(scaled(240), ImGui::GetContentRegionAvail().x);
         const int ph = (int)scaled(300);
         const uint32_t tex = viewport_.renderAnimPreview(pw, ph, d);
@@ -2878,12 +2940,15 @@ void App::drawAnimEditorWindow() {
     ImGui::SameLine();
     if (ImGui::Button("|<", ImVec2(scaled(34), 0))) animEdTime_ = 0.0f;
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(-scaled(150));
+    // Room on the same line for the Wireframe box + the preview-light combo.
+    ImGui::SetNextItemWidth(-scaled(340));
     if (ImGui::SliderFloat("##ae_time", &animEdTime_, 0.0f,
                            outDur > 0.0001f ? outDur : 1.0f, "%.3f s"))
         animEdPlaying_ = false;
     ImGui::SameLine();
     ImGui::Checkbox("Wireframe", &animEdWireframe_);
+    ImGui::SameLine();
+    if (previewLightCombo("##ae_light", animEdLight_)) saveGlobalConfig();
 
     // --- the edit itself ----------------------------------------------------
     ImGui::SeparatorText("Clip");

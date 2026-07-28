@@ -89,6 +89,12 @@ struct EditorConfig {
     // Material Editor: the preview panel's share of the window width
     // (0.25..0.75), set by dragging the splitter between the columns.
     float matEdSplit = 0.48f;
+    // Lighting the Material / Animation Editor previews bake with: "" = the
+    // scene's ambience, "*" = the neutral studio default, anything else = an
+    // ambience preset name. A view preference of this machine, not project
+    // data - which is also why a stale name silently falls back to the scene.
+    std::string matEdLight;
+    std::string animEdLight;
     // Collision-aware placement (docs/object-placement.md): inserted and
     // pasted objects rest on the surface under them instead of sinking into
     // it. A workflow preference like the navigation scheme, so it lives here
@@ -179,6 +185,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("aiModel", v)) cfg.ai.model = v;
         else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
+        else if (match("matEdLight", v)) cfg.matEdLight = v;
+        else if (match("animEdLight", v)) cfg.animEdLight = v;
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
         else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
         else if (match("phoneCamPort", v)) cfg.phoneCamPort = toI(v, cfg.phoneCamPort);
@@ -241,6 +249,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiModel=" << cfg.ai.model << "\n"
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
       << "matEdSplit=" << cfg.matEdSplit << "\n"
+      << "matEdLight=" << cfg.matEdLight << "\n"
+      << "animEdLight=" << cfg.animEdLight << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
       << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n"
       << "phoneCamPort=" << cfg.phoneCamPort << "\n"
@@ -472,6 +482,8 @@ int App::run(const std::string& initialProjectDir) {
         globalSessionCacheDir_ = cfg.sessionCacheDir;
         globalAi_ = cfg.ai;
         matEdSplit_ = cfg.matEdSplit;
+        matEdLight_ = cfg.matEdLight;
+        animEdLight_ = cfg.animEdLight;
         placementSnap_ = cfg.placementSnap;
         showAxisGizmo_ = cfg.axisGizmo;
         phoneCamPrefs_ = cfg.phoneCam;
@@ -872,7 +884,8 @@ void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_, placementSnap_, showAxisGizmo_,
+                      matEdSplit_, matEdLight_, animEdLight_,
+                      placementSnap_, showAxisGizmo_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,

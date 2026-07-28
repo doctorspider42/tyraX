@@ -720,11 +720,96 @@ Each finished feature lands as its own commit.
      shadows / ps2link / presets batch were written against the same base and
      numbered in parallel (main's own set repeats 216, 217 and 219 for the same
      reason). The drone set is the one directly below; main's set follows it,
-     running up to 221. Continue from 222. -->
+     running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
+     at the head of that second section. Continue from 225. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
+
+- (224) **Directional third-person locomotion: face-camera (strafe) mode +
+  back/strafe-left/strafe-right clips.** Until now the avatar always turned
+  into its movement direction, so one walk clip covered every step. New Player
+  fields (`playerFaceCamera` + `playerBackClip`/`playerStrafeLeftClip`/
+  `playerStrafeRightClip`, all optional): with **Face camera (strafe)** on the
+  avatar keeps facing the camera yaw (same shortest-arc turn-rate lerp) while
+  the stick moves it in any direction, and `drivePlayerAnim` now takes the
+  movement direction in the avatar's frame (`moveLocal`, wrapped ±π) and picks
+  the clip by sector — within 60° of ahead = walk/run (speed split unchanged),
+  within 60° of straight back = back clip, side quadrants = strafe clips
+  (negative `moveLocal` = the avatar's right, matching the existing
+  shoulder/strafe convention). Unmapped directions fall back to walk, so a
+  model with only idle/walk behaves exactly as before; the playback-speed
+  scaling that stops foot-sliding now covers all moving clips. Directional
+  clip names are blanked at codegen when face-camera is off — with turn-to-face
+  they'd flicker in during the turn transient. Full property chain: fields +
+  `operator==`, thirdPerson JSON save/load (defaulted reads, backward
+  compatible), `liveLinkRecipeHash`, Properties UI (checkbox + three combos,
+  shown only in face-camera mode), per-scene codegen arrays
+  (`PLAYER_BACK_CLIPS`/`PLAYER_STRAFE_L/R_CLIPS`/`PLAYER_FACE_CAMERAS`) +
+  scene-load `resolveClipIndex` wiring. Merged onto the two-player rig
+  (219/221): the clip indices live in `PlayerCtl` and the tables are emitted
+  per player slot (`PLAYER_*` + `PLAYER2_*`, read through the `PP_*` macros),
+  so P2 gets its own strafe set for free. Verified: editor builds clean;
+  scratch project patched to third-person + all clips round-trips through
+  `--resave` (fields persist), `--refresh-gen` emits the arrays and the new
+  runtime code, and the Docker game build compiles (=== Build OK ===). The
+  visual pass (does a sidestep actually play StrafeL on a real rigged model)
+  needs a hands-on pad test with a model that has such clips.
+
+- (223) **The material-preset writer truncated long layer names, and the corrupt
+  file reported success.** GCC 15 at -O3 on Linux named it exactly:
+  `'", "mortar": ' directive output may be truncated writing 12 bytes into a
+  region of size between 10 and 92` in `App::matEdSavePreset`, with the note
+  `output 179 or more bytes (assuming 271) into a destination of size 256`. Not
+  a pedantic warning - the layer name goes through `%s` unbounded and thirteen
+  numeric fields follow it, so a long-ish name cuts the line mid-JSON, the
+  written `.matpreset` is silently unreadable by `matEdApplyPreset`, and the
+  user is told *Saved material preset X* (`matEdPresetError_` stays clear). The
+  line is now streamed straight to the `ofstream`, with only the floats
+  formatted individually through `"%.4g"` into a 64-byte local, so nothing has a
+  length cap any more; the stream state is checked after the write, so a
+  write failure now becomes the same "Cannot write the preset file." the open
+  failure already produced.
+
+  **Byte-identity was the constraint** - existing presets have to keep
+  round-tripping - so it was measured rather than assumed: 200 000 random layers
+  over the ranges the UI actually produces, old writer vs new, **zero
+  differences** across the 199 972 that fit, and the only 28 that differed were
+  exactly the ones where the old `char buf[256]` truncated. Worth noting for its
+  own sake: those 28 had **ordinary 16-character names**. The wide `%.4g` values
+  are enough on their own, so this was never only a pathological-name bug.
+
+  **Verified through the real functions, not a copy.** A scratch harness links
+  every `build/` object but `main.cpp.o` and calls `App::matEdSavePreset` then
+  `App::matEdApplyPreset` on a live `App`. The trick that makes it cheap is
+  `matEdPaintW_ = 0`: that turns regen/composite/save-target into no-ops, so the
+  preset path runs with **no GL context at all**. Three smart-mask layers, one
+  named with 60 characters, saved to a 716-byte file and read back with **all 14
+  fields identical**; the same layer through the OLD writer fails `json::parse`
+  outright, its last line ending `..."breakupScale": 12, "mor`. `./build.sh
+  --clean` is warning-free and links, and the editor was launched on a `--new`
+  fixture with the Material Editor pre-opened through the layout's `open` list
+  to confirm the panel still draws. **Not covered**: the click-through in the
+  panel itself - a smart-mask layer needs a model plus a finished bake before
+  *Save preset* is even reachable - so the buttons stay a hands-on test; what
+  the harness drove is the code behind them.
+
+  Two more `-Wformat-truncation` sites in the same build, both pre-existing and
+  both fixed here, because "the Linux build is clean" is only useful as an
+  absolute: `devkit_ui.cpp`'s flush-map row label (`"%zu"` into `char[16]`,
+  widened to 24 - a 64-bit `size_t` wants 21), and `iso9660.cpp`'s PVD
+  timestamp, where the fix is **not** a bigger buffer. A `struct tm` field is a
+  plain `int` as far as the compiler knows, so `%04d` is an 11-byte directive
+  and no buffer short of 68 bytes silences it; reducing each field to its digit
+  count first (`% 10000u` / `% 100u`, printed `%04u`/`%02u`) is what makes the
+  16-byte stamp provably 16 bytes. Checked by writing an image and reading
+  offsets 813/830 back out: `2026072821201800` - sixteen digits, today's date,
+  trailing `00`, creation and modification equal.
+
+  All three sites predate the app.cpp split (PR #168), which relocated them
+  rather than introducing them: compiling the pre-split `app.cpp` against its
+  own tree at the same `-O3` emits the same warnings.
 
 - (217) **"Octave, Semi and Unison don't want to turn."** Reported against the
   Drone Generator, and the report was exactly right - those three dials were
@@ -14276,3 +14361,42 @@ Each finished feature lands as its own commit.
   Unrelated to entry 215's white-window note, which is a Windows/AMD present
   quirk: this Linux box renders and captures both the editor viewport and the
   emulated game correctly.
+
+- (222) **Fix: the Material and Animation Editor previews shared one render
+  target** - `renderAnimPreview` (added with the Animation Editor) called
+  `ensurePreviewFramebuffer` and returned `prevTex_`, i.e. the Material
+  Editor's target. Both are optional tool windows
+  that can be open at once (both are `kLayoutWindowKeys` entries, so a project
+  layout opens them together at startup), both size their preview from their own
+  content region, and both render inside one UI frame - so whichever ran second
+  re-allocated the shared texture at its own size (`glTexImage2D` thrash every
+  frame) and both `ImGui::Image` calls sampled it, leaving each window showing
+  the other's subject, stretched. Gave the animation preview its own
+  `animFbo_/animTex_/animDepth_` (+ `shutdown()` cleanup), and factored the
+  duplicated backdrop build out into `ensurePreviewBackdrop()` - the meshes are
+  fixed studio geometry and are the only thing worth sharing. Verified with a
+  pre/post screenshot pair of one project whose layout opens both windows: on
+  the baseline the Material Editor pane says "Sphere / 352 tris" while drawing a
+  squashed wobbler; after the fix it draws its own sphere with `ground.mtl` and
+  the Animation Editor its wobbler, both at a stable aspect.
+
+- (223) **Material / Animation Editor previews can override the ambience they
+  bake with** - a scene authored dark (a cavern preset, low brightness) made its
+  own previews unreadable, since a preview deliberately shades with the scene's
+  light: what you preview is what ships. Asked for right after entry 106, by
+  someone who could not see anything in either preview on a dark scene. A
+  **Light** combo in both panels picks *Scene ambience* (default, what ships),
+  *Neutral studio* (the engine's default directional light) or any of the
+  project's ambience presets; the selection persists per machine in editor.ini
+  (`matEdLight`/`animEdLight`), and a preset name that no longer exists falls
+  back to the scene. The implementation matters because **shading is baked into
+  vertex colors**, not a uniform: `setLighting` is the scene-wide setter and
+  rebuilds every mesh (terrain AO grid included), so instead a `ScopedShade`
+  guard swaps the `g*` light globals only while the preview bakes - free for the
+  animation preview (its pose upload re-bakes the vertex shade every frame
+  anyway), and for the material preview a private set of unit shapes plus the
+  light folded into the `matPrevModel_` cache key. Verified in the running
+  editor on a project switched to its dark `cavern` preset: both previews are
+  dark on *Scene ambience*, light up independently when each is switched to
+  *Neutral studio*, a named preset (`Default`, warm light) reads differently
+  from neutral, and both selections survive a restart.

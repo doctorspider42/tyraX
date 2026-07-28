@@ -755,6 +755,39 @@ Vec3 shadeOf(Vec3 n) {
     return s;
 }
 
+// Swaps the baked-light globals for the lifetime of the guard, so a caller can
+// bake ITS meshes under different light without touching anyone else's.
+// setLighting() is the wrong tool for that: it is the scene-wide setter and
+// rebuilds every mesh (terrain AO grid included) on any change - here the
+// values only need to hold while the preview bakes. A guard built from an
+// override that is off does nothing, so every bake site can wrap itself
+// unconditionally.
+struct ScopedShade {
+    bool active;
+    float dir[3], amb, dif, col[3], bri;
+    explicit ScopedShade(const Viewport::PreviewLight& l) : active(l.on) {
+        if (!active) return;
+        for (int i = 0; i < 3; ++i) dir[i] = gLightDir[i], col[i] = gLightColor[i];
+        amb = gAmbient, dif = gDiffuse, bri = gBrightness;
+        float lx = l.dir[0], ly = l.dir[1], lz = l.dir[2];
+        const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
+        if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
+        else lx = 0.0f, ly = 1.0f, lz = 0.0f;
+        gLightDir[0] = lx, gLightDir[1] = ly, gLightDir[2] = lz;
+        gAmbient = l.ambient;
+        gDiffuse = l.diffuse;
+        for (int i = 0; i < 3; ++i) gLightColor[i] = l.color[i];
+        gBrightness = l.brightness;
+    }
+    ~ScopedShade() {
+        if (!active) return;
+        for (int i = 0; i < 3; ++i) gLightDir[i] = dir[i], gLightColor[i] = col[i];
+        gAmbient = amb, gDiffuse = dif, gBrightness = bri;
+    }
+    ScopedShade(const ScopedShade&) = delete;
+    ScopedShade& operator=(const ScopedShade&) = delete;
+};
+
 // Vertex layout: pos(3) + color(3) + uv(2)
 void pushShaded(std::vector<float>& v, Vec3 p, Vec3 n, float tu = 0, float tv = 0) {
     const Vec3 s = shadeOf(n);
@@ -1267,6 +1300,7 @@ void Viewport::shutdown() {
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
+    for (Mesh& m : prevLitShape_) destroyMesh(m);
     destroyMesh(treePrevBark_);
     destroyMesh(treePrevLeaves_);
     if (treePrevBarkTex_) glDeleteTextures(1, &treePrevBarkTex_);
@@ -1283,6 +1317,9 @@ void Viewport::shutdown() {
     if (prevFbo_) glDeleteFramebuffers(1, &prevFbo_);
     if (prevTex_) glDeleteTextures(1, &prevTex_);
     if (prevDepth_) glDeleteRenderbuffers(1, &prevDepth_);
+    if (animFbo_) glDeleteFramebuffers(1, &animFbo_);
+    if (animTex_) glDeleteTextures(1, &animTex_);
+    if (animDepth_) glDeleteRenderbuffers(1, &animDepth_);
     if (treeFbo_) glDeleteFramebuffers(1, &treeFbo_);
     if (treeTex_) glDeleteTextures(1, &treeTex_);
     if (treeDepth_) glDeleteRenderbuffers(1, &treeDepth_);
@@ -2052,6 +2089,39 @@ void Viewport::ensurePreviewFramebuffer(int width, int height) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// Animation Editor preview target. Separate from prevFbo_ - the Material and
+// Animation Editors are both optional tool windows that can be open at the
+// same time, each sizing its preview from its own content region within one UI
+// frame. One shared target would be re-allocated twice per frame (size
+// thrashing) and both ImGui::Image calls would sample the same texture, so
+// each window would show the other's subject.
+void Viewport::ensureAnimFramebuffer(int width, int height) {
+    if (animFbo_ && width == animFbW_ && height == animFbH_) return;
+    animFbW_ = width;
+    animFbH_ = height;
+
+    if (!animFbo_) glGenFramebuffers(1, &animFbo_);
+    if (!animTex_) glGenTextures(1, &animTex_);
+    if (!animDepth_) glGenRenderbuffers(1, &animDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, animTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, animDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, animFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, animTex_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                              animDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "animation preview framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 // Tree Generator preview target - the twin of ensurePreviewFramebuffer, kept
 // separate so the two tools never share one render target (see the members).
 void Viewport::ensureTreeFramebuffer(int width, int height) {
@@ -2668,13 +2738,52 @@ void Viewport::buildMatPrevAnimated(const std::string& modelRel,
     if (matPrevModel_.radius < 0.01f) matPrevModel_.radius = 0.01f;
 }
 
+// Cache key of a preview light override. "-" when it is off, so the shared
+// scene-lit meshes keep their plain keys.
+std::string Viewport::previewLightKey(const PreviewLight& l) {
+    if (!l.on) return "-";
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f",
+                  l.dir[0], l.dir[1], l.dir[2], l.ambient, l.diffuse, l.color[0],
+                  l.color[1], l.color[2], l.brightness);
+    return buf;
+}
+
+// box_/sphere_/cylinder_/cone_ carry the scene's baked shade and belong to the
+// viewport; an overriding preview draws private copies re-baked under `l`.
+const Viewport::Mesh& Viewport::litShape(int shape, const PreviewLight& l) {
+    const Mesh* shared = shape == 0   ? &box_
+                         : shape == 2 ? &cylinder_
+                         : shape == 3 ? &cone_
+                                      : &sphere_;
+    if (!l.on) return *shared;
+    const int slot = (shape >= 0 && shape < 4) ? shape : 1;
+    const std::string key = previewLightKey(l);
+    if (key != prevLightKey_) {  // values changed - the whole set is stale
+        for (Mesh& m : prevLitShape_) destroyMesh(m);
+        prevLightKey_ = key;
+    }
+    if (!prevLitShape_[slot].vao) {
+        const ScopedShade shade(l);
+        prevLitShape_[slot] = uploadMesh(slot == 0   ? unitBox()
+                                        : slot == 2 ? unitCylinder()
+                                        : slot == 3 ? unitCone()
+                                                    : unitSphere());
+    }
+    return prevLitShape_[slot];
+}
+
 const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
-    const std::string& modelRel, const std::string& mtlRel) {
-    const std::string key = modelRel + "|" + mtlRel;
+    const std::string& modelRel, const std::string& mtlRel,
+    const PreviewLight& light) {
+    // The light is part of the key: it is baked into these vertex colors, so
+    // changing it has to re-bake the parts (same as swapping the model).
+    const std::string key = modelRel + "|" + mtlRel + "|" + previewLightKey(light);
     if (matPrevModel_.key == key) return &matPrevModel_;
 
     clearMatPrevModel();
     matPrevModel_.key = key;
+    const ScopedShade shade(light);
 
     if (isAnimatedModelPath(modelRel)) {
         buildMatPrevAnimated(modelRel, mtlRel);
@@ -4247,7 +4356,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     const MatPrevModel* model = nullptr;
     int shape = d.shape;
     if (shape == 4) {
-        model = matPrevModelDraw(d.modelRel, d.mtlRel);
+        model = matPrevModelDraw(d.modelRel, d.mtlRel, d.light);
         if (!model->ok) {
             model = nullptr;
             shape = 1;
@@ -4384,15 +4493,12 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     } else {
         // unit shapes sit at the origin - that's the rounded-normal centre
         static const float origin[3] = {0.0f, 0.0f, 0.0f};
-        const Mesh* mesh = shape == 0   ? &box_
-                           : shape == 2 ? &cylinder_
-                           : shape == 3 ? &cone_
-                                        : &sphere_;
+        const Mesh& mesh = litShape(shape, d.light);
         for (int a = 0; a < 3; ++a) emissive[a] = checker ? 0.0f : d.ke[a];
         if (checker)
-            draw(*mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
+            draw(mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
         else
-            draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
+            draw(mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
                  glTexture(d.texRel), glTexture(d.reflRel), d.reflStrength,
                  d.reflSky, d.reflRounded, origin, texHasAlpha(d.texRel));
     }
@@ -4403,11 +4509,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             for (const MatPrevPart& part : matPrevModel_.parts)
                 draw(part.mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
         } else {
-            const Mesh* mesh = shape == 0   ? &box_
-                               : shape == 2 ? &cylinder_
-                               : shape == 3 ? &cone_
-                                            : &sphere_;
-            draw(*mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
+            draw(litShape(shape, d.light), viewProj, 0.05f, 0.05f, 0.06f, 0);
         }
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
@@ -4617,7 +4719,8 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     if (!program_) return 0;
     if (width < 1) width = 1;
     if (height < 1) height = 1;
-    ensurePreviewFramebuffer(width, height);
+    ensureAnimFramebuffer(width, height);
+    ensurePreviewBackdrop();
 
     AnimModelDraw* ad = animModelDraw(d.modelRel, d.materialRel);
     const glbparser::Baked* b = (ad && ad->ok) ? &ad->baked : nullptr;
@@ -4646,40 +4749,15 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
                 }
             }
         }
+        // The pose upload re-bakes the vertex shade anyway (once per frame),
+        // so an ambience override costs nothing extra here. The VBOs are
+        // shared with the scene, but the scene pass re-poses every visible
+        // instance from its own clock - and thus under the scene's light.
+        const ScopedShade shade(d.light);
         uploadAnimPose(*ad, first, count, d.time * (b->fps > 0.01f ? b->fps : 12.0f));
     }
 
-    if (!prevBg_.vao) {
-        std::vector<float> q;
-        const float bot[3] = {0.09f, 0.10f, 0.13f}, top[3] = {0.24f, 0.27f, 0.34f};
-        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
-        pushVertexColor(q, 1, -1, 0, bot[0], bot[1], bot[2]);
-        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
-        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
-        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
-        pushVertexColor(q, -1, 1, 0, top[0], top[1], top[2]);
-        prevBg_ = uploadMesh(q);
-    }
-    if (!prevFloor_.vao) {
-        std::vector<float> f;
-        const int n = 8;
-        const float ext = 2.0f, cell = 2.0f * ext / n;
-        for (int z = 0; z < n; ++z)
-            for (int x = 0; x < n; ++x) {
-                const float g = ((x + z) % 2 == 0) ? 0.30f : 0.235f;
-                const float ax = -ext + x * cell, az = -ext + z * cell;
-                const float bx = ax + cell, bz = az + cell;
-                pushVertexColor(f, ax, 0, az, g, g, g);
-                pushVertexColor(f, bx, 0, az, g, g, g);
-                pushVertexColor(f, ax, 0, bz, g, g, g);
-                pushVertexColor(f, bx, 0, az, g, g, g);
-                pushVertexColor(f, bx, 0, bz, g, g, g);
-                pushVertexColor(f, ax, 0, bz, g, g, g);
-            }
-        prevFloor_ = uploadMesh(f);
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, animFbo_);
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glEnable(GL_DEPTH_TEST);
@@ -4768,7 +4846,7 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     // The scene pass re-poses every visible instance from its own clock, so
     // hijacking the shared VBOs for this preview cannot desync anything.
-    return prevTex_;
+    return animTex_;
 }
 
 void Viewport::ensureThumbFramebuffer() {
