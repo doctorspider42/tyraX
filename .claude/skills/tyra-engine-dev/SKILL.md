@@ -346,6 +346,17 @@ banner both, so a previously built ELF still reports.
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
+- **A texture's wrap mode does nothing in 3D.** `Texture::setWrapSettings`
+  reaches the GS only through `path3` (2D sprites) and the post-fx blits;
+  NOTHING in the static or dynamic 3D pipeline ever emits `GS_REG_CLAMP`, so a
+  3D mesh samples with whatever the last 2D draw or post-fx pass left in that
+  register - which is global state you do not control. If a 3D mesh's texture
+  coordinates can leave 0..1, clamp them where you BUILD them, on the EE, and
+  do not reason about wrap modes at all. (Found via the projected shadows: the
+  receiver patch's STs come out of a light projection and ran -0.38..1.39, so
+  the silhouette was sampled a second time and left thin dark streaks at the
+  patch edges. Writing `GS_SET_CLAMP` from the shadow pass changed nothing
+  measurable; clamping the STs fixed it exactly.)
 - **Never submit bags with `frustumCulling = None`.** Off-screen geometry wraps
   the GS 4096-px raster window → "objects render twice / giant smeared
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real

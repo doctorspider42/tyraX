@@ -85,8 +85,22 @@ warnings matter, the build is expected to be clean.
 
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
-`src/platform.*`, `wire.cpp`, the Runner or CMakeLists needs a build on both,
-or say so in PROGRESS.md.
+`src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
+build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
+must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
+`build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
+`#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
+tyra-editor-dev ("Platform parity"). Editing one side only is the single most
+repeated way a change lands broken on the platform its author doesn't use.
+
+**On Windows, `build` is `build.cmd`.** PATHEXT resolves `.CMD` before `.PS1`,
+so the bare command runs the wrapper, which just calls `build.ps1`. That is a
+deliberate one-line delegation now — it used to be a full cmd translation with
+its OWN four-entry dependency list, which is how a tree that built fine on
+Linux died on Windows with `fatal error: miniaudio.h: No such file or
+directory`: the guard that fetches missing dependencies was in `build.ps1`, and
+`build.ps1` was not what ran (PROGRESS 214). When a Windows build fails on a
+missing `vendor/` header, check WHICH script ran before suspecting the code.
 
 **Third-party dependencies live in exactly one list per platform: `deps.ps1`
 and `deps.sh`.** `setup.ps1`/`setup.sh` fetch from them and `build.ps1`/
@@ -141,8 +155,8 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
 - `--bake-gi` runs the whole global-illumination bake for every scene
   (docs/global-illumination.md) into `.res-baked/gi/` and then refreshes the
   generated files, so the probe table and the lightmap flags follow - **no
-  Docker, no GUI**. It is the headless twin of *Tools > Bake Global
-  Illumination* and the only practical way to verify GI in a script: bake,
+  Docker, no GUI**. It is the headless twin of the *Global illumination*
+  tab in *Tools > Ambience Editor* and the only practical way to verify GI in a script: bake,
   grep `inc/ao_data.gen.hpp` for `SCENE_AO_ATLAS_GIS`/`SCENE_AO_MAP_GIS` (1 =
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
@@ -374,6 +388,17 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
+  The editor can also **capture its own framebuffer**, on either OS and with no
+  display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally
+  `TYRAX_SHOT_EVERY=<seconds>`, default 2) and it writes `<dir>/shotNN.png` every
+  interval (`App::captureFrameIfRequested`). It reads what the editor DREW rather
+  than what was presented, so it is the one path that survives the AMD present
+  quirk that leaves the window blank. It cannot click anything: to reach a panel
+  that needs a menu click, pre-open it by adding its key to the active layout's
+  `open` list in the project's `.tyra` (`kLayoutWindowKeys` in app.cpp has the
+  names — `"drone"`, `"tree"`, `"material"`, ...). PROGRESS 210/211 verified a
+  whole tool window this way, including reading values off the knobs.
+
   For **editor viewport** work an **offscreen GL harness** (PROGRESS 208) is
   still the better instrument when you want numbers instead of a picture.
   A hidden GLFW window (`GLFW_VISIBLE` false, `GLFW_INCLUDE_NONE`
@@ -387,6 +412,25 @@ Notes:
   eyeballed, and works with no display permissions at all. What it cannot
   cover — the surrounding UI and anything dragged by hand — say so in
   PROGRESS.md and leave it for a human.
+
+  **A capture is worth more when it is measured** (PROGRESS 132). Whichever
+  tool produced the PNG, read pixel ROWS out of it rather than eyeballing:
+  plateau widths and adjacent-step sizes are what told flat shading apart from
+  Gouraud on a cylinder, and two engine builds A/B'd from a frozen fixture came
+  out byte-identical, which is a much stronger statement than "looks the same".
+  A few lines of PIL will do it.
+  Driving PCSX2 by hand (rather than through `--build --run`) inherits none of
+  the launcher's setup: the Runner is what forces `HostFs` and the USB ports in
+  `PCSX2.ini`, so run through the editor at least once first, and set
+  `Renderer = 13` (software) in that ini while PCSX2 is **closed** — it rewrites
+  the file on exit.
+
+  **When an A/B compares two objects in ONE frame, prove which is which**
+  before reading anything into it. The screen's X runs opposite to world X in
+  the generated game (a Player at yaw 0 looks along +Z), so "the left one" is
+  the object at *positive* X. An hour went into a banding hypothesis about the
+  wrong cylinder. The cheap disambiguator: force one object's colour to
+  something absurd for a single run and see which one changes.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then
@@ -619,7 +663,12 @@ Notes:
   the same way. If that is blank too, GUI visual verification is unavailable
   for this session: say so in PROGRESS rather than claiming a visual check
   that did not happen.
-- **Audio**: EE-side logs are invisible, so meter the PCSX2 process instead —
+- **Audio**: the *editor's* own audio (the Drone Generator's audition,
+  `src/audiopreview.cpp`) is testable directly — a host harness can open the
+  device and print peak levels (PROGRESS 210), and the generator's DSP needs no
+  device at all: link `dronegen.cpp` alone, render a preset and measure the
+  samples (automation included — PROGRESS 211). For the GAME's audio, EE-side
+  logs are invisible, so meter the PCSX2 process instead —
   on Windows the WASAPI session peak meter (e.g. via `AudioMeterInformation`),
   on Linux `pactl list sink-inputs` (the PCSX2 sink input's volume/peak, or a
   short `parec` capture of the monitor source). Silence vs bursts at expected
@@ -642,7 +691,7 @@ Notes:
 
 | Change | Minimum honest verification |
 |---|---|
-| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (`screenshot-window.ps1` on Windows, `wayland-control.py` on Linux — both can drive the UI too) |
+| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (`screenshot-window.ps1` on Windows, `wayland-control.py` on Linux — both can drive the UI too; `TYRAX_SHOT=<dir>` self-capture when neither can see the window) |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |

@@ -10,6 +10,269 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (138) **The "shadow corners": a projected shadow sampled its own silhouette
+  twice.** Owner, after (136) and (137), with a magnified crop: thin dark
+  streaks still sitting on the ground beside the real shadow - and the original
+  "the shadow tiles" report, which is the same thing seen bigger.
+
+  The receiver patch is sized in WORLD units while its texture coordinates come
+  out of the light's projection, so its outer ring lands outside 0..1 by design
+  - measured `u = -0.38 .. 1.39`. The code assumed the GS wrap mode would take
+  care of that ("CLAMP smears edge texels outward - the border guarantees the
+  edges stay empty"), and **nothing ever set it**: `Texture::setWrapSettings`
+  reaches the GS only through `path3` and the post-fx blits, and no 3D pipeline
+  in this engine emits `GS_REG_CLAMP` at all. So the patch sampled with
+  whatever global state the last 2D draw happened to leave - in practice
+  REPEAT, which fetched a second copy of the silhouette at the patch edge.
+
+  Writing `GS_SET_CLAMP` from the shadow pass was tried first and **measured to
+  change nothing** (two engine builds, byte-identical frames), so that was
+  reverted rather than shipped on a theory. The STs are clamped on the EE
+  instead, which is better anyway: it depends on no global GS state, and it is
+  free - the light frustum is sized to leave the silhouette a ~22% transparent
+  border, so the edge those vertices now sample is empty by construction and
+  only the outer ring of a 4x4 patch moves at all.
+
+  **Verified** on the owner's scene: exactly **28 pixels** changed, all in a
+  thin band on the ground where the streaks were, and the real shadow came out
+  byte-identical at every sample point.
+
+  The general rule went into the engine skill's pitfalls, because it is not
+  about shadows: **if a 3D mesh's texture coordinates can leave 0..1, clamp
+  them where you build them - a wrap mode set on the texture is silently
+  ignored in 3D.**
+
+- (137) **A thrown object's shadow landed half way down** - what (136) left
+  open, and the other half of what the owner saw as "several shadows".
+
+  `tg`, the distance the light ray travels before the patch is placed, was
+  capped at `r * 4`. That cap exists for a real reason: a nearly LEVEL ray (a
+  light beside the caster) has no far edge at all, and a patch centred out at
+  the horizon covers nothing anyone is looking at. But it was applied to the
+  RAY LENGTH, which conflates that case with its opposite - a caster high in
+  the air, whose ray is steep and whose long distance is a DROP, exactly where
+  the shadow belongs. A sphere seven units up therefore got its patch about
+  half way down, with the silhouette mostly outside it, and the sliver that
+  survived read as a second stray shadow beside the real one.
+
+  The cap is now on the SIDEWAYS run (`tg * horizRun <= r * 4`), which is the
+  thing that actually runs away. A level ray is capped exactly as before
+  (`horizRun` is ~1 there); a vertical drop is not capped at all.
+
+  **Verified** on the owner's scene: 1426 pixels changed, all of them inside
+  the ground band - the stray slivers went and nothing above the horizon moved.
+
+- (136) **A projected shadow could stand up in the air.** Owner, with a
+  screenshot of four spheres hanging in a line: black curtains climbing out of
+  the ground into the sky, "the higher, the more of it".
+
+  The receiver patch is a 4x4 heightfield and it asked `projSurfaceAt` for a
+  height at EVERY vertex. That function answers "the top of any receiver whose
+  footprint contains this point", which is the right question for *placing* a
+  patch and the wrong one for *shaping* one: a receiver is any visible solid,
+  so a prop standing inside the patch punched a cliff into it - one vertex on
+  the ground, its neighbour on the prop's roof - and the quad between them
+  rasterized as a wall. Casters in the AIR made it spectacular, because the
+  receiver cut-off is the caster's own underside: the higher the caster, the
+  more objects qualify as "floor", so a stack of spheres each drew a curtain up
+  through the ones below it.
+
+  The patch now decides what it lies on ONCE, at its centre: on the terrain it
+  samples the terrain per vertex as before (smooth by nature, and following the
+  relief is the whole point), on geometry it stays flat at the height the
+  centre found - which is what a floor is. The cost, said out loud: a patch
+  that overhangs the edge of a small platform instead of folding down beside
+  it. A shadow that floats a little beats one that stands up in the air.
+
+  **Verified** on the owner's own scene (`shadow-problem`, copied out of
+  ~/TyraProjects so their working copy was left alone), in PCSX2 on the
+  software renderer: 3937 pixels of sky stopped being covered, and the
+  difference is confined to the curtain's bounding box - nothing else in the
+  frame moved.
+
+  **Not fixed, and now the visible remainder**: the shadow of a caster high
+  above the ground lands SHORT. `tg` is clamped to `r * 4`, so a sphere 7 units
+  up throws its patch about half way to where the shadow really belongs, and
+  the silhouette is then mostly outside its own patch - what is left reads as a
+  thin dark sliver on the ground. That clamp is deliberate (an unclamped patch
+  runs to the horizon and the camera ends up inside it) but it was tuned for
+  casters standing on the floor, and a thrown object is exactly the case it
+  handles worst. Backlog.
+
+- (135) **The GI bake moved into the Ambience Editor** (owner's ask). It was
+  its own *Tools* window; it is now the **Global illumination** tab of *Tools >
+  Ambience Editor*, beside the presets. That window is already where a scene's
+  light is authored - the sky, the sun, the AO strength and radius - and the
+  bake is the last step of the same job, so having it somewhere else was the
+  odd part.
+
+  It is a TAB rather than a section inside the preset editor on purpose: the GI
+  settings are project-wide plus a per-scene cache, not part of a mood bundle,
+  and folding them into an `AmbiencePreset` would have implied they travel with
+  one. `drawAmbienceWindow` now owns the tab bar and calls
+  `drawAmbiencePresets` / `drawGiBakeSection`.
+
+  Two details worth keeping straight if this moves again. The bake's
+  finished-version poll (`App::giBakerPoll`) had been living at the top of the
+  old window function and now runs from `drawUI` directly - a bake that
+  finishes must reach the viewport whether or not anything is open, and hanging
+  that off a window body is exactly the bug that would look like "the preview
+  is stale". And `showGiBake_` survives as "show me the GI tab" rather than a
+  window flag, so the *Tools > Bake Global Illumination...* menu item still
+  works (it opens the Ambience Editor on that tab) and a saved window layout
+  that had the old window open still lands somewhere sensible.
+
+  **Verified** by driving the running editor with main's `wayland-control.py`:
+  clicked the menu item, screenshotted the Ambience Editor opening straight on
+  the GI tab with the whole bake UI on it (quality sliders, probe grid, the
+  scenes table showing `main / baked / lightmap 128, ground 256, probes
+  15x4x15`, both Bake buttons), then clicked back to *Presets* and
+  screenshotted that intact. The editor staying alive through both is the
+  Begin/End balance check - ImGui asserts on a mismatch, and this refactor
+  moved four of them.
+
+- (134) **The editor's ground went one flat colour after a GI bake** (owner
+  report; the game was fine). The viewport lit the TERRAIN from the probe grid
+  like everything else, and that is wrong twice over. One probe sample every
+  ~3 units over a broadly flat ground is nearly constant, so the whole terrain
+  came out one tone - and because the fragment shader replaces `shade` with the
+  probe answer outright, while the terrain carries its own tint IN the vertex
+  colour (objects carry theirs in a uniform), the ground also lost its green
+  and took the sky's colour. Measured over the same 3175 ground pixels, the
+  mean went from `(122,171,228)` - a pale sky blue - to `(48,105,60)`.
+
+  The console never did this: `buildTerrainChunk` gives an UNTEXTURED terrain
+  the per-texel lightmap (`terrainGi`: the vertex shade goes black and the
+  additive pass puts the light back, modulated by the ground's own tint) and
+  only falls back to probes when the terrain is TEXTURED, where a flat additive
+  term would blow out the dark texels. The viewport now makes the same split:
+  `Viewport::setGiTerrain` takes the baked map out of the same `.res-baked/gi/`
+  cache the game reads, `buildTerrainChunkMesh`'s `shadeAt` samples it right
+  where the game's `shadeAt` does, and a new `uGiSkipProbe` keeps the fragment
+  shader off the probes for those draws (and off the point lights and emissive
+  pools, which are inside the baked answer already).
+
+  Where the two still differ, and deliberately: the game reads that image per
+  PIXEL through an additive pass, the preview samples it per terrain VERTEX.
+  That is a resolution difference, not a different answer - and the render grid
+  is one sample per cell, which is what the game's own vertex path uses.
+
+  **Verified** with an offscreen viewport harness (the PROGRESS 208 pattern) so
+  the image is measurable rather than eyeballed: a hidden GLFW window, a real
+  `Viewport`, `grabPreviewRgb` to a PNG, and a `noterr` switch that skips the
+  new setter so one binary produces both sides of the A/B. The editor's own
+  window cannot be captured any other way here - it is a native Wayland
+  surface, so X11 tools see nothing (main's `wayland-control.py` can, and is
+  the right tool for the surrounding UI; the harness is better for the
+  viewport image itself because it isolates it).
+
+- (133) **A dyn-lit object's one light slot now points where the probe says the
+  light IS.** VU1 gives these meshes a single directional slot, and
+  `updateDynLitObjects` used to reconstruct the probe's L1 term along the SUN,
+  then let VU1 multiply it by `N.L(sun)`. That is only right when the sun is
+  the light: in a room lit by a bounce off a coloured wall the field points at
+  the wall, so the shading leaned the wrong way and a surface facing the actual
+  light got nothing. The direction is now L1's own dominant direction (the
+  luminance-weighted mean of the per-channel L1 vectors), which makes the slot
+  EXACT at that direction - the term there is the probe's own answer - and
+  degrades smoothly off it. A probe with no directionality at all keeps the
+  sun; L0 carries the whole answer there anyway.
+
+  That needed per-OBJECT directions, so `GeoPart` grew `litDirs[3]` and the bag
+  no longer points at the shared `animLightDirs`. **Verified** in PCSX2 on a
+  fixture with a big red wall beside the cylinders: the computed direction came
+  out `(0.524, 0.789, 0.323)` against a sun of `(0.369, 0.819, 0.439)` - a real
+  swing, and in the physically right direction, which is *away* from the wall,
+  because a 14x8 wall removes more sky from that side than its red bounce puts
+  back. The rendered lobe follows: the lit gradient now spans about twice as
+  much of the cylinder's width before it clamps to ambient.
+
+  **The animated-model path still reconstructs along the sun** and still shares
+  one global direction array (`updateAndRenderAnimObjects`). The same argument
+  applies to it word for word and the fix is the same shape - it was left out
+  of this commit only because it touches every animated model in every project
+  and deserves its own before/after. Backlog.
+
+- (132) **Opt-in dynamic lighting: three real bugs, and the banding that was
+  never there.** Picking up the backlog entry left by the WIP commit, which
+  listed three suspects in order. All three were settled, two of them were
+  bugs, and the headline symptom - "the cylinder still bands" - turned out to
+  be a **misread of the screen**.
+  - **Suspect (1), normal/vertex alignment: not a bug for primitives, but a
+    real one for models.** A primitive cannot drift, because the normal is
+    pushed *inside* `pushVert` - one normal per vertex, by construction, for
+    every builder. But `g_litNormals` pointed at `parts[0]` for the whole
+    object, so a multi-part model piled every part's normals into part 0: the
+    `litNormals.size() == vertices.size()` gate then failed for *every* part,
+    no part got a lit bag, and the model rendered at the flat white albedo
+    `pushVert` had already written - worse than not opting in. The capture is
+    now staged per part. **Verified** on a two-material `.obj` in PCSX2: two
+    parts, `verts == norms` on both, a lit bag on both.
+  - **Suspect (2), the color space: a bug, and exactly half a stop.**
+    `pushVert` builds an UNTEXTURED surface in 0..255 and a textured one in
+    128 = 1.0 modulation; `updateDynLitObjects` built its light colors at 128
+    for everything, copied from the animated-model precedent - which is always
+    textured. Every untextured dyn-lit object was therefore exactly half as
+    bright as the same object baked. Now `GeoPart::litScale` per part, and the
+    per-object terms are kept as 0..1 fractions until they meet it (one object
+    can hold both kinds). **Verified** by measurement, not by eye: with the
+    visible side of the test cylinder facing away from the sun, `N.L` clamps to
+    0 and the surface must land on the ambient term exactly - the log said
+    `amb=(72.8, 119.3, 147.2)` and the framebuffer said `(71, 121, 151)`.
+  - **Suspect (3), the pointer `setLightsManually` keeps: not a bug.** Read
+    back through the bag on the console: `bagptr == &part.litColors[0]` and the
+    value written that frame comes straight back out. `g.parts` is sized once at
+    the top of `rebuildObjectGeometry` and the bags are wired at the bottom, so
+    the (130) rule is already satisfied here.
+  - **A fourth one nobody had listed: static batching silently ate the whole
+    feature.** `staticBatchEligible` did not exclude `dynamicLighting`, so a
+    plain authored box or cylinder with the flag on - no physics, no script, no
+    layer - was merged into a combined batch bag, rebuilt by
+    `rebuildStaticBatch` with `g_litNormals == nullptr`, and quietly rendered
+    with ordinary baked shading while its lit bag never drew. **Verified** by
+    A/B on the generated table: the `batchStatic` column flips 1 -> 0 with the
+    exclusion in.
+  - **A fifth: the object rendered black for a frame on every rebuild.**
+    `renderObjects` rebuilds a dirty object from *inside* the draw loop, i.e.
+    after this frame's `updateDynLitObjects` has already run, so a freshly
+    wired bag drew once with the zero-initialized `litColors`. Not just at
+    load - that is every Live Link edit. The per-object fill is now
+    `fillDynLitColors(index)` and `rebuildObjectGeometry` calls it the moment
+    it wires a lit bag.
+
+  **And the banding: there wasn't any.** The screen's X axis runs opposite to
+  world X, and the striped cylinder in the test scene was the *reference* one -
+  a `bakedLighting: false` primitive on the per-vertex probe path, whose hard
+  diagonal wedges are the known two-triangle seam the lightmap exists to avoid
+  (`TyraShadingFlat` on every static bag makes each triangle one color). The
+  dyn-lit cylinder standing beside it shades smoothly, max adjacent step 1-2
+  units across its whole width. The proof took forcing the ambient slot to a
+  loud red: the wedged cylinder did not change color, the *other* one turned
+  red. Worth writing down as a method - a per-object A/B in ONE frame is only
+  as good as knowing which object is which, and "left" is not a fact.
+
+  **A dead end, recorded so nobody re-derives it.** Before that, the flat
+  wedges looked exactly like a shading-mode bug, and the engine has a real
+  structural hazard that would explain one: `addBuffersDataToPacket` stamps the
+  GS PRIM giftag for a **whole half-ring of 16 buffers** from the renderer-wide
+  `prim_t`, long after `setInfo` wrote it for one bag - so a mesh can inherit a
+  later mesh's shading/blending/AA. Deriving those fields per buffer from
+  `buffers[i]->bag->info` compiles and is arguably more correct, but an A/B of
+  the two engine builds came out **byte-identical (0 differing pixels)**, so it
+  fixes nothing observable and was reverted rather than shipped unproven. If
+  someone hits a mesh drawing with a neighbour's PRIM attributes, that loop is
+  where to look.
+
+  **Verified** in PCSX2 (software renderer, 50 FPS) on a scratch fixture: three
+  cylinders side by side - dyn-lit, lightmapped, probe-baked - plus a
+  two-material static model with the flag on. Screen capture on this Wayland
+  box needed a workaround worth knowing: the compositor refuses non-interactive
+  capture (`gnome-screenshot` hangs on the portal), so PCSX2 was run under
+  XWayland (`QT_QPA_PLATFORM=xcb`) and grabbed with a ~50-line `XGetImage`
+  tool - which also makes the result *measurable* (pixel rows, plateau widths)
+  instead of eyeballed. The feature still needs the owner's own scene before it
+  is called done; the backlog entry carries what is left.
+
 - (131) **Flat casters could never pick a light.** Owner, after (130): "the
   sphere is perfect, the wall still nothing". Two separate over-conservative
   guards, both from approximating a caster with a sphere:
@@ -452,12 +715,415 @@ Each finished feature lands as its own commit.
      real, parallel feature batches (reflections vs live-link/mirrors), which
      is why 104-107 appear twice below (and 113-116 more than once - the
      lighting, interlacing, font/display-text and navmesh batches numbered
-     in parallel). All kept. -->
+     in parallel). All kept.
+     Same again for 210-221: the Drone Generator batch and the baked-GI /
+     shadows / ps2link / presets batch were written against the same base and
+     numbered in parallel (main's own set repeats 216, 217 and 219 for the same
+     reason). The drone set is the one directly below; main's set follows it,
+     running up to 221. Continue from 222. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
+- (217) **"Octave, Semi and Unison don't want to turn."** Reported against the
+  Drone Generator, and the report was exactly right - those three dials were
+  dead, while *Root* and *Tuning* right next to them were fine, which is the
+  clue. `knobInt` handed the dial a **scratch float re-seeded from the int every
+  frame**, so a drag only ever accumulated within one frame: to move at all it
+  had to clear half a step in a single mouse move. At 200 px of travel for the
+  whole range that is 100/span pixels in one frame - 17 px for Octave (7 steps),
+  20 px for Unison (6), 4 px for Semi - while Root, with 61 steps, needed 1.7 px
+  and always worked. Fixed by keeping the drag's **un-stepped position in the
+  widget** for the life of the drag (one `KnobDrag` entry keyed by item ID -
+  ImGui only ever has one active item) and giving `knob` a `step` argument that
+  quantizes it: the dial now moves a step every ~30 px however few steps it has,
+  and the drawn pointer, the readout and the stored int finally agree. The same
+  change makes every knob report an edit only when the value **actually moved**,
+  where before any mouse motion at all counted - a stepped dial spends most of
+  its travel inside one step, and each false edit re-generated the piece.
+  Second half of the same report - *"the third Level syncs with the Level at the
+  bottom"* - is the tool working as designed and reads as a bug only because
+  nothing said so: the **Mix** strip is the layer's own *Level*, one parameter
+  shown twice so four stacks can be balanced without four tab clicks. It now
+  says that in its tooltip and in `docs/drone-generator.md`, and while there the
+  strip was bound **straight to the field** instead of to a copy - a scratch
+  address means nothing to the automation write hook, so the mixer's dials had
+  been silently recording no keyframes at all.
+  *Verified* to the build layer (`build.ps1`, clean) plus a read-through of the
+  arithmetic above; **the hands-on turn is the owner's** - driving the mouse on
+  this machine is off the table while they are at it.
+
+- (216) **"Rewind doesn't work, and neither does picking a fragment - once I
+  generate one I want to hear how it starts and how it ends."** Three faults
+  behind one report, two of them trivially mine and the third the interesting
+  one.
+  **The trivial two**: `|<` was drawn only in Record mode, and `dronePlay`
+  seeked to the playhead only in Record mode - so in Generate (the DEFAULT mode)
+  the position bar was decoration: it moved a marker nothing played from. Both
+  fixed by the same realisation - **"let me hear how it ends" is a transport
+  need, not a mode**. Play now starts at the playhead in both modes and `|<`
+  exists in both; what the mode still decides is what happens at the END (Record
+  stops there, Generate plays on) and whether knobs are recorded.
+  **The interesting one**: even where the seek DID run, it only moved the clock,
+  and that is not the same as being at that moment. The envelopes, the glide, the
+  LFO phase and the reverb/delay tails at 0:50 are the product of the history
+  from 0:00 to 0:50 - so jumping there dropped you into the piece's opening
+  fade-in (attacks up to 12 s, reverb up to 40 s), which is exactly what "the
+  fragment doesn't work" sounds like. `Synth::setTime` now **settles**: notes
+  snap to the chord AND to the level an attack running since that chord began
+  would have reached, the periodic LFOs jump to their analytic phase (the random
+  shapes carry on - they have no correct value at a time, only a plausible one),
+  the bell scheduler restarts there, and a **pre-roll of 1-3 s** (scaled by the
+  reverb RT60, since that is the thing being filled) is rendered and discarded to
+  charge the delay and reverb lines. Dragging the playhead passes `settle=false`
+  so scrubbing stays cheap; the release settles once. The pre-roll runs under the
+  synth lock, so the audio thread emits a short clean silence at the jump instead
+  of a glitch - `LiveSynth::render` already outputs silence when it cannot take
+  the lock.
+  **Measured** against the rendered file's own RMS a second either side of the
+  target, across three presets x three positions: a bare clock jump lands at
+  66-113% of the file's level, a settled seek at 80-108%, better on 8 of the 9
+  probes. The residue is tail that 3 s of pre-roll cannot accumulate - a seek is
+  exact for the notes and approximate for the room, which is worth knowing before
+  trusting it as a rendering preview.
+  **Verified in the editor** by script: a stopped seek to 30 s parks the playhead
+  there; Play in GENERATE mode starts at 30.00 (it used to start at 0); rewind
+  while playing drops the live clock to 0.00 and it counts up from there; Record
+  mode from 38 s of a 40 s piece stops itself with the playhead at 40.00.
+
+- (215) **Save and Render stopped working, and the transport became Generate /
+  Record.** Two things in one pass, the first of them my own regression from
+  (213).
+  **The bug.** Owner: "neither saving nor rendering works now". Cause: the
+  cosmetic title fix at the end of (213). `OpenPopup("droneoverwrite")` hashes
+  `"droneoverwrite"`, but `BeginPopupModal("Replace this track?##droneoverwrite")`
+  hashes the WHOLE string - `ImHashStr` only resets the hash on **###**, not `##`
+  (checked in vendor/imgui/imgui.cpp rather than from memory). So the popup was
+  opened under an ID nothing ever drew, and **an open-but-undrawn modal blocks
+  input to its whole window**: every button in the Drone Generator went dead
+  after the first render onto an existing name, and `droneAskWav_` could never be
+  cleared because `IsPopupOpen` kept saying yes. Fixed by giving each popup ONE
+  string constant used by all three calls, with `###` so the title is still
+  readable. **The process lesson is the sharper one**: the scripted check in
+  (213) DID cover this modal and passed - and then I changed the titles and only
+  smoke-ran the result. A cosmetic change to an identifier is not cosmetic; re-run
+  the check that covers it. The new check counts executions of the modal BODY, not
+  just `IsPopupOpen` - the two disagreeing is exactly the failure mode (155 body
+  frames now, 0 before).
+  **The transport.** Owner: "instead of Audition, could there be a normal Record
+  and Play, stopping when the playhead reaches the end instead of playing until
+  you are sick of it - and maybe two modes, generate and record". Both now exist
+  as an explicit mode switch, because they want opposite things from the same
+  synth: **Generate** is free-running sound design (plays until stopped, ignores
+  the piece length, writes nothing, *Restart* re-seeds the random streams), while
+  **Record** is timeline-bound - *Play* starts at the playhead and **stops itself
+  at the end of the piece**, *Rec* does the same with keyframe writing armed, `|<`
+  rewinds, and stopping parks the playhead where playback actually got to so Play
+  resumes instead of restarting (Play from a playhead already at the end rewinds
+  first, like every DAW). The end-of-piece stop is polled on the UI thread: a
+  device must never be torn down from inside its own callback.
+  **Verified** in the editor by script: the modal opens AND draws (IsPopupOpen=1,
+  155 body frames) and Save writes again; Record-mode Play from 4.0 s of a 6 s
+  piece leaves `auditioning=0, head=6.00` a few seconds later - it stopped itself
+  at the end and parked the playhead there; Generate-mode Play is still running at
+  t=9.5 s of the same 6 s piece, i.e. it ignores the length by design.
+
+- (214) **The Windows build had a fourth copy of the dependency list, and it was
+  the one that ran.** Symptom: `fatal error: miniaudio.h: No such file or
+  directory` building (210)'s `src/audiopreview.cpp` on Windows, on a tree that
+  compiled cleanly on Linux - which reads like a cross-platform code bug and is
+  not one. `vendor/miniaudio` was simply never cloned. The guard that exists
+  precisely to prevent that (df9c99c9: `build.ps1` probes every `Build = $true`
+  entry of `deps.ps1` and runs `setup.ps1` itself) worked - it was just in a file
+  nobody executes. **`build` in PowerShell resolves to `build.CMD` before
+  `build.PS1`**, because PATHEXT lists `.CMD` first, and `build.cmd`/`setup.cmd`
+  were full cmd translations of their PowerShell twins carrying their own
+  hardcoded dependency list. That list froze at four entries (imgui, glfw,
+  imguizmo, imnodes) while `deps.ps1` grew to seven, so on the common
+  invocation stb's back-filled headers, ufbx and miniaudio were never fetched
+  and the guard never fired. The one-list-per-platform design was right; there
+  were four lists.
+
+  **Fix: `build.cmd` and `setup.cmd` are now thin wrappers** that shell out to
+  `build.ps1` / `setup.ps1` (`powershell -NoProfile -ExecutionPolicy Bypass
+  -File`, mapping `run`/`clean` to `-Run`/`-Clean` and propagating the exit
+  code). A wrapper cannot drift; the comment in each says so and points at the
+  rule. Windows now has exactly one build script, matching Linux's one.
+
+  **The rule this cost us is now written down**, since "someone edits the
+  Windows script and not the Linux one" is a class of bug, not an incident: a
+  new **"Platform parity"** section in `tyra-editor-dev` inventories every file
+  that exists twice (`deps.ps1`/`deps.sh`, `setup.*`, `build.*`, the
+  `if(WIN32)`/`else()` halves of CMakeLists, the `#ifdef _WIN32`/`#else` halves
+  of `platform.cpp`) with the rule that a pair is edited in one commit or not at
+  all, plus both traps by name; `tyra-testing` gained the PATHEXT trap where the
+  build instructions are and extended its "half-checked until the other side
+  builds" note to the build scripts; `tyra-docs` gained "the platform twin" as a
+  checklist item; `CLAUDE.md` gained the one-line always-on version.
+
+  **Verified.** `./setup.ps1` fetched `vendor/miniaudio`; `./build.ps1` compiled
+  and linked `tyrax-editor.exe` clean, miniaudio included - MinGW needs no extra
+  link library for it (WASAPI is dlopen'd, `ole32` was already there for the
+  file pickers). `cmd.exe /c build.cmd` through the new wrapper reaches the same
+  build (`ninja: no work to do`, exit 0). The Windows audio path itself was
+  probed rather than assumed: a host harness linking `audiopreview.cpp` opened a
+  device, pulled SILENCE for 500 ms and stopped - `ma_device_init` picked the
+  default playback device by name at 44100 Hz, 16 callbacks / 28224 frames
+  arrived on the audio thread, `stop()` joined cleanly. Not re-verified on
+  Linux: the change is Windows-only (two `.cmd` files) and touches nothing
+  `build.sh` reads.
+
+- (213) **A drone patch is a project asset, and rendering asks before it
+  overwrites.** Owner request after (212): "let this audio be an asset too - an
+  audio project you can twiddle and save - and make the WAV export check whether
+  the file exists first".
+  **The document half.** The generator's bottom bar became a document bar: *New*
+  / *Open...* / *Save*, the open patch's project-relative path, and a `*` while it
+  has edits the file does not (`dronePatchRel_` + `droneDirty_`, cleared by save,
+  load and render, set by the same per-frame `dirty` flag that already pushed
+  parameters to the audition). *Open...* lists every `.drone` in `res/` so a patch
+  is picked by name instead of hunted for in a file dialog - the dialog stays,
+  under *Browse for a file...*, for patches from outside the project, and one
+  opened from there deliberately does NOT become the open document until it is
+  saved somewhere inside it. A render writes the WAV *and* the patch beside it and
+  the pair becomes the document, so "render" and "save" stopped being two
+  different ideas of what the current work is.
+  **The asset half**: `.drone` is now its own `AssetKind` ("audio project") rather
+  than falling through to Other. It counts under the *Audio* filter chip, has its
+  own tile colour (appended, because `kindColor`'s cases are numeric and inserting
+  one would have shifted every existing colour), and its inspector READS the patch
+  - length, rate, layers on, automation lanes, whether it has been rendered - with
+  an *Open in Drone Generator* button. Double-clicking the patch or its rendered
+  track opens it, and a track with a patch beside it grows an *Edit* button in
+  *Project > Music*. Still editor-only: texbake keeps it off the disc.
+  **The guard.** *Render WAV* stages its target and raises a modal instead of
+  writing when the file exists ("Rendering replaces the track and the patch saved
+  beside it" / Replace / Cancel); `droneSavePatch` does the same when the target is
+  a *different* patch than the open one - saving over your own is what save means.
+  The reason it matters: a render writes TWO files under a name typed into a text
+  box, and the patch is the only copy of the work (a WAV can always be re-rendered
+  from a patch, never the other way round).
+  **Verified** with a scripted pass inside the editor: render #1 to a free name
+  prompts nothing and adopts `res/audio/selftest.drone` with dirty cleared; render
+  #2 onto that name stages the prompt and the modal is open instead of a render
+  starting; Save to a free name succeeds, adopts the path and clears dirty; Save
+  onto another patch returns false and stages the confirmation with the right
+  path; the picker finds both patches; New clears the path and resets the value;
+  reopening returns the saved value (999 Hz cutoff, dirty 0) - and the files on
+  disk carry the right values independently of the UI.
+  **A methodology note worth keeping**: the first version of that check read state
+  inside `printf` argument lists, and C++ does not sequence a call against the
+  other arguments - three "failures" were the test reading values from before the
+  call. If a scripted check disagrees with a file on disk, suspect the check.
+
+- (212) **The seamless loop ticked, and it was the fold that did it.** Owner
+  report on (210): with *Seamless loop* on there is a clear tick - "not at the end
+  of the file, but where the tail starts". Exactly right, and the description
+  located the bug: the seam itself is continuous by construction (the wrapped tail
+  at index 0 IS the piece's own continuation past `nMain`, so it lines up with the
+  last sample of the file), but the fold added `loopTail` seconds of tail and then
+  simply STOPPED. The reverb is nowhere near finished at that point - 6 seconds of
+  tail under a 9-to-22-second RT60 is still around -10 dB - so the sum drops to
+  the bare head in one sample: a step discontinuity a whole `loopTail` INTO the
+  file, which is precisely where it was heard.
+  **Measured before fixing anything**, as a neighbour-sample jump at the splice
+  index against the p99 jump over the surrounding second: 0.333 vs 0.055 on *Init
+  Drone*, 0.369 on *Ritual Bells*, 0.275 on *Machine Room* - and on every preset
+  the worst jump sat at offset -1, i.e. exactly on the boundary, which is what
+  distinguishes a splice artifact from ordinary program material.
+  **The fix** is to window the folded tail so it reaches zero AT the splice:
+  unity for the first half of the window, then a raised cosine to zero - zero
+  value *and* zero slope, so neither the sample nor its slope jumps. Unity-then-
+  fade rather than a full-window Hann on purpose: a Hann attenuates the loudest
+  part of the wrapped tail by 6 dB, which is audible as the wrap losing its room.
+  After the fix every preset's worst jump around the splice is BELOW its own p99
+  neighbour jump (0.026 vs 0.042 on Init Drone, 13x smaller than before) and the
+  worst position is scattered instead of pinned to the boundary - what is left is
+  program material, not a splice. Checked at the extremes too: a 0.5 s tail (the
+  knob minimum) and an 18 s tail both come out at 0.5x/0.4x of p99, the
+  non-seamless path is untouched, and both paths stay deterministic.
+  **The related rough edge, now visible instead of mysterious.** The window kills
+  the click at any length, but a tail much shorter than the decay still fades out
+  while the room is ringing - smooth, yet the wrap reads as losing its space. The
+  Master tab now says so when *Loop tail* is under 60% of the reverb decay and
+  offers **Match decay** (tail = the decay, capped by 30 s and 90% of the piece).
+  Worth keeping in mind for any future "fold a tail back" trick: the join needs a
+  window, and the window needs to be shorter than the thing it is windowing is
+  loud.
+
+- (211) **The Drone Generator grew a timeline: keyframes that write themselves
+  when you turn a knob.** Follow-up request on (210) - "could a track change over
+  time, with the keyframe inserting itself when something is turned, plus a
+  position bar like foobar". Both halves fell out of machinery (191) already had.
+  **Any parameter is automatable because the lane list is not a list.**
+  `paramTable()` is built by walking the SAME field visitor the `.drone` writer
+  uses (`visitParams`), recording each scalar's byte offset inside `Params` - so a
+  parameter is automatable the moment it is saveable, 137 of them today, with no
+  third list to keep in step. A lane is `{param index, keyframes}`;
+  `applyAutomation` writes the fields by offset.
+  **And a knob needs no wiring at all.** Every knob binds straight to a field of
+  the window's `droneParams_`, so the pointer it was handed IS that parameter's
+  address: `AutoWriteHook` turns "a knob changed" into "write a keyframe on the
+  lane at that byte offset", and arming *Write keyframes* automates all ~137
+  parameters without one of the ~100 knob call sites mentioning automation. The
+  same hook answers "is this field automated?", which draws the amber dot on the
+  dial and the AUTOMATED line in its tooltip - otherwise a knob springing back in
+  Read mode is inexplicable. Read/Write behaves like a DAW: with Write off an
+  automated knob DISPLAYS what the timeline is playing (the host applies
+  automation to `droneParams_` each frame at the playhead) and moving it does not
+  stick.
+  **Design constraints that shaped it.** `Params` is copied into the audio thread
+  on every edit, so it may own no heap memory: lanes are fixed-capacity (12 lanes
+  x 24 points, ~2.4 KB). A knob dragged for seconds would otherwise leave a
+  keyframe smear, so `autoWrite` MOVES a point within 0.35 s instead of adding
+  one, and once a lane is full the nearest point always wins - a long take cannot
+  overflow the budget. Automation is applied inside the synth's OWN copy of the
+  patch at control rate, before the eff block, so the LFOs/arc/mod matrix still
+  layer on top instead of being replaced. Tempo, format (rate/length/stereo), the
+  mastering block and the enums are excluded (`autoExcluded`): `barSeconds` is
+  read once per `render()` call, so a tempo lane would look like it worked and
+  quietly do nothing - better to not offer it.
+  **The transport bar** is the foobar-ish part: ticks (bars while they are
+  readable, else round seconds), elapsed fill, a triangle for every keyframe in
+  the piece, the playhead and `0:27.0 / 1:00`. Clicking it **seeks the live
+  audition** (`Synth::setTime` -> `LiveSynth::seek`), which keeps the delay and
+  reverb tails (a seek is a jump in the piece, not a reset) but re-latches held
+  notes at the chord you landed on instead of gliding in from the one you left.
+  `droneHeadSec_` is the single playhead truth - the bar, the waveform marker, the
+  lane editors and the values the knobs display all read it. Serialization is one
+  line per lane (`auto.filter.cutoff = 0:300, 27:5200, 60:900`), keyed by NAME so
+  a lane survives the field list growing; an unknown key is dropped like any
+  other.
+  **Verified.** Harness over `dronegen.cpp` alone: the table resolves the probed
+  keys and correctly EXCLUDES seed/bpm/master.*; offset lookup finds
+  `filter.cutoff`; evaluation interpolates and holds (400 / 3200 / 6000 / 6000);
+  40 rapid writes inside 0.8 s collapse to **3** points (the merge rule);
+  `applyAutomation` writes the field; a `.drone` round trip keeps the lane, its
+  point count and its values; an automated render is **bit-identical** on a
+  re-run; all ten presets still render healthy and deterministic with the
+  automation branch in the block loop. The audible check needed a control before
+  it meant anything - my first probe (a 2 kHz/150 Hz ratio) read BACKWARDS
+  because the patch has no energy at 150 Hz, so static renders at cutoff 250 vs
+  9000 were rendered as the reference: they separate 0.00008 -> 0.00111 at 1 kHz,
+  and the swept render moves 0.00025 -> 0.00094 across the same sweep, i.e. the
+  lane really opens the filter. In the editor (throwaway demo hook, removed):
+  the Timeline tab draws three lanes with their curves, points, per-lane value at
+  the playhead and the playhead line; the position bar shows the keyframe
+  triangles and the time readout; and the Space tab's Cutoff knob reads the
+  automated **5200 Hz** with the amber dot while its neighbours have neither -
+  screenshots via the `TYRAX_SHOT` self-capture from (210).
+  **Still needs a human**: whether writing automation by ear feels right, and
+  whether 0.35 s is the merge window a hand actually wants.
+
+- (210) **Ambient / drone music generator: *Tools > Drone Generator*.** User
+  request - "a few tools so a background track can actually be crafted, knobs to
+  turn like in the priciest VST plugins". A game needs a background bed and the
+  editor had no way to make one: music could only be imported. This is a real
+  synthesizer, host-side, whose output is an ordinary asset - `res/audio/x.wav`
+  in the 16-bit 22050 Hz stereo format `Tyra::AudioSong` already streams, plus a
+  re-editable `x.drone` patch next to it. **Nothing about the PS2 side changed**:
+  no object type, no serialization field, no codegen, no engine work - the
+  treegen precedent, and the reason the whole thing is reviewable.
+  **What it is** (`src/dronegen.cpp`, host-only, no GL, no `Project`): four
+  oscillator layers (sine/triangle/saw/square/pulse/FM/organ; saw/square/pulse
+  PolyBLEP band-limited, organ drops partials past Nyquist rather than folding
+  them - a drone is exactly the signal that gives you all day to hear aliasing),
+  each up to six chord voices x five detuned unison copies with stereo fan and a
+  slow per-voice random **drift** (what keeps a 30-second chord from sounding
+  frozen), a per-layer chord-degree mask so one layer is a sub and another a pad;
+  an eight-step **chord progression** that **glides** between chords; a filtered
+  **air bed**; sparse **bells** (FM / Karplus-Strong pluck / glass, quantized to
+  beat or bar, drawn from the chord or the scale, with their own delay/reverb
+  sends - they bypass the master filter on purpose, a low-passed bell is a thud);
+  a Cytomic TPT **SVF**; **three LFOs plus a five-point arc envelope over the
+  whole piece, through a six-row modulation matrix** onto 15 destinations - the
+  part that turns a patch into a piece; then drive, three-tap ensemble chorus,
+  tape wow/flutter/hiss, ping-pong delay on musical divisions, an **8-line FDN
+  reverb** (normalized Hadamard feedback, per-line damping, in-loop low cut,
+  modulated lengths, input diffuser, predelay; RT60 to 40 s - an FDN and not a
+  comb bank because comb filters ring metallic long before a 30-second tail),
+  **shimmer** (a two-window granular pitch shifter inside the reverb's feedback,
+  the one place its window seams are inaudible), tilt EQ, M/S width with the bass
+  summed to mono (a wide low end collapses through a TV), limiter and 16-bit
+  TPDF dither.
+  **The two design decisions worth remembering.** (1) *Seamless loops add, they
+  do not crossfade*: background music plays with `song.inLoop = true`, so the
+  render runs past the end and **adds** that tail over the beginning - which is
+  literally what a looping player hears at the wrap. Measured on *Deep Space
+  Hum*: RMS in the last second before the wrap 0.1545 vs 0.1530 at the start of
+  the file; with the option off the same measurement is 0.1688 vs 0.0351, i.e.
+  the thud you have heard in a hundred games. (2) *The audition IS the renderer*:
+  `Synth` renders blocks, the editor's audio device pulls from it through
+  `LiveSynth`, and the offline `render()` runs the identical block loop and only
+  then applies the mastering - so a knob cannot sound different in the file than
+  it did in the preview. The UI/audio hand-off is a `try_lock` in the AUDIO
+  thread (a UI stalled in a file dialog must never starve the device; it keeps
+  the previous parameters for another block), while meters/scope go the other way
+  through plain atomics - a visualizer may race, a device may not.
+  **New dependency**: `vendor/miniaudio` (single header, in deps.sh + deps.ps1),
+  wrapped by `src/audiopreview.cpp` - the only TU that includes it and the
+  editor's only audio *output* path. It dlopen's its backends (WASAPI /
+  ALSA/Pulse/JACK), so **no new system package** and no link-time dependency; a
+  machine with no sound card is an expected state (the button says so and the
+  tool stays an offline renderer).
+  **UI** (`src/droneui.cpp`, its own TU - the assetbrowser.cpp precedent): a
+  VST-style rotary for every parameter (vertical drag, Shift = fine, double-click
+  resets, log-ish curve for frequency/time knobs, symmetric ranges drawn bipolar
+  from the centre), the arc curve editor, the chord table showing the note names
+  it spells, the mod matrix, a live scope + 32-band analyzer + peak meters, a
+  rendered-waveform overview with a playhead, and ten presets. Everything is
+  **deterministic in `Params`** (every random stream derives from the seed
+  through a mixer), so a re-render is byte-identical and *Roll* re-seeds instead
+  of re-rolling the patch. The `.drone` sidecar joins `App::assetSidecars`, so the
+  Asset Browser carries it on rename/move/delete - and **double-clicking a track
+  reopens the piece that made it**. `toText`/`fromText` walk ONE field list
+  (`visitParams`), the project's section-writer trick: a field added there is
+  saved and loaded, with no second list to forget.
+  **Verified.** (a) Host harness over `dronegen.cpp` alone (the treegen pattern):
+  all ten presets rendered - no NaN/Inf, DC offset < 6e-5, peak 0.890 = the
+  normalization target, 1-second RMS windows inside 0.10..0.30 (no holes, no
+  spikes), a second render **bit-identical**, and audio rendered from a patch's
+  saved `.drone` text identical to the original; 1/6-octave spectra confirm what
+  each patch claims (Init Drone: 53 Hz fundamental + 107/428/605 harmonics with a
+  smooth falloff; Machine Room rolls off to -77 dB near Nyquist, i.e. PolyBLEP
+  works; Glacial Shimmer shows the octave stack 1976 / 3952 / 7904 Hz the
+  shimmer builds). Live path checked to produce the same first block as the
+  offline synth, and the scope/meters to fill. (b) Real audio device opened on
+  this Linux box (ALSA via miniaudio), played 3 s, took a live parameter push,
+  and the transport advanced in real time. (c) Inside the running editor, with a
+  throwaway self-drive hook: all six tabs drawn (no ImGui assert), *Audition*
+  opened the device, and *Render* wrote `res/audio/selftest.wav` (2 ch / 22050 Hz
+  / 16-bit / 12.0 s, verified by reading the file back) plus `selftest.drone`,
+  added the track to the project's Music list and saved the project.
+  (d) Owner-reported bug, fixed in the same entry: the *Mix*, *Damp*, *Level* and
+  *Low cut* knobs raised Dear ImGui's "2 visible items with conflicting ID"
+  error - a delay *Mix* and a reverb *Mix* in one panel hash to the same ID,
+  which breaks hover/drag state, not just the warning. `knob()` now honours the
+  **`##` convention** (display name is the label up to `##`, the whole string is
+  the ID) and the four colliding pairs are spelled `Mix##delay` / `Mix##reverb`
+  etc. **Both members** of a pair carry a suffix so neither reads as "the real
+  one". Verified twice: a script that extracts every `knob`/`knobInt` label per
+  tab and reports duplicates (Air & Bells `Level`x2; Space `Mix`x2, `Damp`x2,
+  `Low cut`x2 - `Low cut` had not been noticed by eye yet), and a runtime check
+  inside `knob()` printing any repeat of the ID **ImGui actually assigned**
+  (`GetItemID`) within one frame, with all six tabs cycled: 0 duplicates, and
+  240 hits when one collision was reintroduced on purpose as a control.
+  *Dead end worth recording*: ImGui's own conflict detector cannot be driven
+  headlessly - it fires only via `HoveredIdPreviousFrameItemCount`, and a
+  synthetic cursor (`AddMousePosEvent` before `NewFrame`, dwelling on a grid of
+  10 000+ positions) never produced a single hovered ITEM even though the
+  hovered WINDOW resolved correctly. Comparing IDs at draw time is the check
+  that works; do not spend an hour on the fake-cursor route again.
+  (e) Screenshots: this machine runs GNOME on Wayland, which **denies external
+  capture** (`org.gnome.Shell.Screenshot` -> AccessDenied) and gives GLFW no X11
+  window to grab, so the editor grew a small **framebuffer self-capture**
+  (`TYRAX_SHOT=<dir>`, interval via `TYRAX_SHOT_EVERY`, off unless set): it reads
+  back its own window with `glReadPixels` and writes PNGs. That is what produced
+  the shots used to check the knob rendering, the layout of all six tabs and the
+  meters - and it is now the documented answer for verifying editor UI on Linux
+  (see tyra-testing). **Still needs a human**: whether the presets sound *good*,
+  and the feel of dragging the knobs.
 - (219) **Three starting presets, and the choice is now permanent** (user:
   "Zaktualizuj presety. Niech do wyboru jest tylko fpp, third person i empty.
   Jak juz sie go wybierze, to niech sie juz nie da tego zmieniac w
@@ -680,6 +1346,44 @@ Each finished feature lands as its own commit.
   `PKO_CMD_PORT`) and from `runner.cpp`, not from a flash-and-boot; and
   `build.ps1` - whose only change is the patch's new name - is unrun, there
   being no PowerShell here.
+
+- (221) **The Input Map was the one window a layout could not carry.**
+  `App::showFlagForKey` mapped 17 keys to their show-flags, but
+  `kLayoutWindowKeys` - the array both `applyOpenWindows` and
+  `captureOpenWindows` walk - listed only 16 and omitted `"input"`. So the
+  Input Map fell out of the layout system in both directions: opening it and
+  saving lost it (capture never looked at the flag), and switching to a layout
+  that does not want it never closed it, which is exactly the leak the comment
+  in `applyOpenWindows` says the reset exists to prevent. Not a design
+  decision - `git log -S` dates the `showFlagForKey` line to the Input Map
+  commit (21783972, 2026-07-25) and the array to the layouts commit
+  (6e61b3bf, 2026-07-14): the newer feature edited the resolver two lines above
+  the list and missed the list. One key appended, plus a comment saying the two
+  must agree and which half is the dangerous one to forget.
+  **Appended, not inserted**, though nothing forced it: `project.cpp` writes
+  `openWindows` as a JSON string array and reads it back by name (`"open": [...]`
+  per layout), so the order is cosmetic - appending just keeps saved `.tyra`
+  diffs stable. The keys live in `app.cpp` and nowhere else (grepped
+  `phonecam`/`gibake` across src, docs, skills), so there is no second list to
+  follow.
+  *Verified* by a matched GUI A/B on one fixture (`--new layoutfix ... empty`
+  with `"open": ["input"]` seeded into the active Default layout), driving the
+  editor with synthetic clicks + a screenshot per step, then reading the
+  rewritten `.tyra`: **pre-fix** the window did not open at startup and Ctrl+S
+  rewrote `"open": ["input"]` to `[]` (the silent loss), and with the Input Map
+  opened by hand from *Tools* a switch to Director left it floating over the
+  new arrangement (the leak). **Post-fix**, same fixture and same clicks: it
+  opens from the layout, survives the save, and the Director switch closes it -
+  and the switch's capture wrote Default `["input"]` / Director `["cutscene"]`,
+  i.e. the flag was set on the way out and cleared on the way in. The baseline
+  binary for the A/B was this branch with the one-line change stashed, not an
+  older build. One trap worth recording: after `git stash pop` the exe on disk
+  is still the baseline one, and a run against it reads exactly like the fix
+  not working - the first "post-fix" run here was that, until the rebuild.
+  Docs: this entry plus a `kLayoutWindowKeys` note in tyra-editor-dev. README's
+  window-layouts bullets stay true (they describe what a layout stores, never
+  the key set), and no doc enumerated the optional windows, so there was
+  nothing else to correct.
 
 - (218) **The projected shadow stopped blinking, and one flag for "do not bake
   my light"** (user, after 217: "cien pod graczem tak sobie lubi mrugac znikac
@@ -11752,9 +12456,36 @@ Each finished feature lands as its own commit.
   anywhere in the UI paid the full app.cpp compile. Dev vs Release measured
   back-to-back through the scripts: 60 s vs 79 s clean.
 
-  **Not covered / left on the table.** Linux is untested — `build.sh` and
-  `build.cmd` got the same `--dev`/`dev` flag by inspection, there is no Linux
-  box here. `templates.cpp` (27 141 lines, ~32 s) is now the tail of a clean
+  **Linux, tested afterwards on an 8-core box** (the entry above shipped with
+  it untested — `build.sh`/`build.cmd` had only had the `--dev` flag added by
+  inspection). Everything holds: clean Release 7 m 16 s, clean Dev 3 m 45 s,
+  and editing one panel 46 s Release / 29 s Dev against 2 m 28 s for the
+  `app.cpp` shell — the same shape as the Windows numbers, scaled to half the
+  cores. The ordering fix is visible in the generated `build.ninja`:
+  `tyrax-generated` carries no order-only dep on `libimgui.a`, so the editor
+  objects no longer queue behind it. `CMAKE_CXX_FLAGS_DEV` lands as `-O1 -g0`
+  in `build-dev/`'s cache and in the actual compile line. The compiler-cache
+  hook was exercised with a stub launcher on `TYRAX_COMPILER_CACHE=<path>`: it
+  reaches both the editor target and the vendored glfw subdirectory, and `OFF`
+  removes it. No ccache on that box, i.e. the `AUTO`-finds-nothing path is the
+  one the timings above ran through.
+
+  **The split introduces no new warnings on GCC 15.** Worth stating because a
+  smaller TU gives GCC a bigger inlining budget and can surface analysis the
+  26 k-line file never reached: compiling the pre-split `app.cpp` against its
+  own `src/` at the same `-O3` emits exactly the two `-Wformat-truncation`
+  sites that `mateditor_ui.cpp` and `devkit_ui.cpp` emit now. Pre-existing and
+  merely relocated — but the `matEdSavePreset` one is a real 256-byte buffer
+  that a long layer name overruns, and is filed separately. All six windows
+  were re-opened through the Tools menu on Wayland (Properties with
+  `walkSpeedDrag` at "5.00 units/s", Flow Graph, Debug, Cutscene Director,
+  Material Editor, UI Editor) and the editor exited with an empty log.
+  `--new`/`--refresh-gen`/`--dump` all clean. Fixed in passing: `ccache` was
+  added to the Windows quickstart only, so on Linux the pickup this entry adds
+  had nothing to pick up — it is now in `deps.sh`'s four package lists and the
+  Linux quickstart.
+
+  **Not covered / left on the table.** `templates.cpp` (27 141 lines, ~32 s) is now the tail of a clean
   build and wants the same treatment, but it is codegen held in raw string
   literals and was out of scope. A PCH was measured and **rejected for now**:
   ~3 s saved per TU but a 200 MB `.gch` costing 7.5 s to build, which mattered
@@ -11831,6 +12562,39 @@ Each finished feature lands as its own commit.
   `flow_graph.gen.cpp` and compiled in Docker.
 
 ## Backlog (rough order)
+
+- **Finish opt-in dynamic lighting per object** (branch
+  `claude/gi-dynamic-lighting-wip`; docs/global-illumination.md is the
+  surrounding design). An object may opt into being lit by the LIT VU1 program
+  with its four light colours re-read from the probe grid every frame - the
+  deal animated models already take - so it relights with zero latency,
+  including while it spins. Entry (132) settled the three suspects the WIP
+  commit left, plus two more nobody had listed, and established that the
+  reported banding was a misread of the screen: the dyn-lit cylinder shades
+  smoothly. What is left before this can merge:
+  - **The owner has not seen it in their own scene.** Everything so far is a
+    scratch fixture of primitives plus a two-material model.
+  - **One probe sample per OBJECT, taken at its origin.** That is the whole
+    point (it moves, so it cannot be baked), but it means a large object is lit
+    as if it stood at its own centre, and an object whose origin sits inside
+    geometry reads that occlusion over its whole surface. Decide whether that
+    is the documented deal or whether big objects want a second sample.
+  - **The ANIMATED-model path still reconstructs along the sun** (entry 133 did
+    the dyn-lit one). `updateAndRenderAnimObjects` evaluates L1 along
+    `SCENE_LIGHT_*` and every model shares one `animLightDirs`, so a character
+    in a bounce-lit interior leans the same wrong way this just fixed. Same
+    shape of fix: per-model directions plus the dominant-L1 direction. Kept
+    separate because it touches every animated model in every project.
+  - **A textured dyn-lit part is untested.** `litScale` handles the 128 vs 255
+    split by construction, but no fixture has exercised it.
+  - Then: a README bullet, a docs/global-illumination.md section, and an
+    example (or a dyn-lit prop dropped into `examples/gi-showcase`).
+
+  **The two engine-level facts this work established** are worth keeping
+  whatever happens to the feature - both are now in
+  docs/global-illumination.md's trap list: the untextured/textured colour-space
+  split for a lit bag, and `StaPipVU1Cull_D` never reading the colour bag at
+  all (the albedo must be folded into the light colours).
 
 - **Session internet exposure** — today sessions are LAN (or any mesh VPN:
   Tailscale/ZeroTier make remote peers look local, zero code). The researched

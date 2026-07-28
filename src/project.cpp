@@ -345,6 +345,7 @@ std::string objectJson(const SceneObject& o) {
         (o.reflected ? std::string(", \"reflected\": true") : "") +
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
         (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
+        (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
@@ -2642,6 +2643,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(true);
         if (const auto* v = jo.find("bakedLighting"))
             o.bakedLighting = v->boolOr(true);
+        if (const auto* v = jo.find("dynamicLighting"))
+            o.dynamicLighting = v->boolOr(false);
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
@@ -4376,6 +4379,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // a live edit of it cannot show without a rebuild.
     fnvMix(h, o.castShadow ? 1 : 0);
     fnvMix(h, o.bakedLighting ? 1 : 0);
+    fnvMix(h, o.dynamicLighting ? 1 : 0);
     // Physics material: baked into SCENE_OBJECTS, never live-patched (the
     // snapshot record carries only transform + color), and copied wholesale
     // by a spawned clone. Only meaningful while `physics` is on - the runtime
