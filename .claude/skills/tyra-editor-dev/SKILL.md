@@ -187,6 +187,23 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
+**`dirty` is a re-bake, so per-frame motion must not go through a graph.**
+Setting `RuntimeObject::dirty` makes `renderScene` rebuild that object's whole
+**world-space** vertex array on the EE. That is correct for a one-shot (Move /
+Rotate / Set Object Position, a recolor) and ruinous per frame per object — so
+a feature that moves something *continuously* belongs in a game-loop pass with
+the **matrix fast path**, not in a flow node fired every frame:
+`rebuildObjectGeometry(i, /*localSpace=*/true)` ONCE (gated on
+`physFastPathEligible`) bakes local-space vertices, and from then on
+`updateObjMat` refreshes `objectGeometry[i].objMat` and VU1 applies the motion —
+the object's entire per-frame render cost. Built for physics bodies (PROGRESS
+116), now also `updateSpinners()` (the Spin Object node, PROGRESS 221): the
+node writes only a RATE onto the RuntimeObject and the loop integrates it.
+Ineligible objects (usable, reflective, animated models) must fall back to
+`dirty`. The inherited trade-off: baked shading freezes at the pose the object
+was promoted in — fine for something permanently in motion, wrong for a prop
+that moves once.
+
 **New object type** → `PrimitiveType` enum (0–17 used so far, `kPrimitiveTypeCount`
 bounds "every type" loops; keep values stable, they're serialized) →
 mesh/marker in viewport.cpp → insert menu in app.cpp →

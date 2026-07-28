@@ -11765,6 +11765,71 @@ Each finished feature lands as its own commit.
   `App::showFlagForKey` but missing from `kLayoutWindowKeys`, so the Input Map
   is the one optional window a named layout can neither restore nor close.
 
+- (221) **Rotation nodes, and an honest answer to "how do I make something spin
+  forever?"** (user: "Dodaj node do rotate obiektu. Pytanie tez takie, jest
+  jakis trigger onupdate we flowgraph? Czy powinien w ogole byc? Jakbym chcial
+  zrobic taka logike, ze cos sie caly czas obraca, jak to najlepiej i
+  najwydajniej zrobic?")
+
+  The position family had three shapes (delta / absolute / glide) and rotation
+  had **none** - turning a prop meant the `spin.flownode` custom node from
+  examples/custom-nodes. Rotation now has the same three: **Rotate Object By**
+  (delta in degrees), **Set Object Rotation** (absolute) and **Spin Object**
+  (continuous, degrees per SECOND, start/stop exec pins).
+
+  On the trigger question: an every-frame trigger already existed by accident -
+  `everyFrames(0)` clamps to 1, so *Every N Seconds* with Seconds 0 fires every
+  frame - and nothing said so anywhere. It is now spelled **On Update**, which
+  costs one registry entry and a codegen branch that emits no condition at all
+  (`update()` is already per-frame). Worth having for discoverability; NOT the
+  answer to continuous motion, and its `desc` says so.
+
+  **The performance answer is the interesting half, and it is why Spin Object
+  is not just sugar over Rotate Object By.** Writing a transform from a graph
+  sets `RuntimeObject::dirty`, and `renderScene` then re-bakes that object's
+  whole **world-space** vertex array on the EE. Per frame, per spinner. So the
+  rate lives on `RuntimeObject::spinRate` (deg/s, next to the physics `spin`
+  but independent of it - physics owns that one and zeroes it on sleep), and a
+  new `TerrainGame::updateSpinners()` integrates it right after the physics
+  pass. Crucially it also **promotes each spinner onto the matrix fast path
+  once** (`rebuildObjectGeometry(i, true)` when `physFastPathEligible`): local-
+  space vertices baked a single time, `objMat` refreshed per frame, VU1 applies
+  the motion - the exact mechanism the thrown-crate work (entry 116) built for
+  physics bodies, which is where the 14 → 156 FPS in that bench came from.
+  A permanently rotating coin therefore costs one matrix rebuild per frame and
+  nothing else; ineligible objects (usable, reflective, animated models) fall
+  back to `dirty` and pay the re-bake, honestly and only then. The trade-off is
+  inherited too: baked shading freezes at the promotion pose - which is right
+  for something whose orientation never stops changing anyway.
+
+  Chain covered: registry (`.desc` on all four, so the add-menu tooltips, node
+  hover and the AI generator's catalog documented themselves), codegen +
+  `flowWrapDeg` (fmodf, not the physics pass's single ±720 fold - a typed-in
+  delta is not a small per-frame step), the `updateSpinners` call in **both**
+  duplicated game loops, the Live Logic interpreter (3 opcodes + `BK_OnUpdate`,
+  so these nodes hot-patch like the rest), and the **time machine capture walk**
+  (`spinRate` joins it, stride 100 → 112, layout version 2 → 3 - a rewind that
+  did not put the spin back would silently strand a stopped fan). Batching
+  needed nothing: `strKind == ObjectName` already blocks named targets and any
+  object with a graph is already unbatchable. The `1.0f` drag step for angle
+  params is a small thing that matters - the generic `0.1f` makes reaching 90
+  a mouse marathon.
+
+  **Verified end to end in PCSX2** (`~/tyra-projects/spintst`, a gold cylinder
+  with On Start → Spin Object 120 deg/s Y, Every 3 s → Rotate Object By 45° X,
+  On Update → Set Int add 1), read numerically out of the time-machine capture
+  by a ~40-line Python probe rather than eyeballed: `spinRate = [0, 120, 0]`;
+  Y advanced **244.80° over 102 frames** = 120 × 2.04 s exactly, so the
+  integration is frame-rate true; X stepped 45° per timer fire and wrapped
+  through 360 → 90 correctly; and the `frames` variable's delta equalled the
+  frame delta **exactly** (354 == 354, then 204 == 204) - On Update fires every
+  single frame, no more and no less. 50 FPS, no asserts in `bin/log.txt`,
+  `VRAMSTAT up=3 (+0)` (no re-uploads). Screenshots a frame apart show the
+  facet shading rotating with the disc, which is what proves the local-space
+  promotion did not corrupt the geometry. Codegen for the shapes the e2e graph
+  did not use (an object-LINK target via Self, `stop` on pin 1) was read out of
+  `flow_graph.gen.cpp` and compiled in Docker.
+
 ## Backlog (rough order)
 
 - **Session internet exposure** — today sessions are LAN (or any mesh VPN:

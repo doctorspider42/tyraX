@@ -32,8 +32,9 @@ Everything the running game mutates that the channel can reach through
 
 - **Every runtime object** (authored ones and live-spawned clones): position,
   rotation, scale, colour; the physics state (velocities, spin, the
-  settle-flatten targets, the sleep counter); visibility and layer residency;
-  and the animation state (clip, playing/looping, speed, crossfade).
+  settle-flatten targets, the sleep counter); the scripted spin rate (the *Spin
+  Object* node); visibility and layer residency; and the animation state (clip,
+  playing/looping, speed, crossfade).
 - **The walker** — where the player stands, which way they face, their fall
   speed and the camera boom.
 - **Every flow variable** — the Set/Get Int, Bool and Position nodes' storage.

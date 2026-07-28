@@ -38,6 +38,7 @@ enum BlockKind : uint8_t {
     BK_NearObject,       // obj = target, p[0] = radius; edge-triggered
     BK_OnCondition,      // cond program; rising edge
     BK_Delay,            // armed by OP_Delay; p[0] = seconds
+    BK_OnUpdate,         // every frame, no condition
     BK_Count
 };
 
@@ -67,6 +68,9 @@ enum OpCode : uint8_t {
     OP_SetBloom,
     OP_SetGrain,
     OP_SetParticles,
+    OP_RotateObjectBy,    // degrees, additive
+    OP_SetRotation,       // degrees, absolute
+    OP_SpinObject,        // pin 0 start (num[0..2] deg/s) / 1 stop
     OP_Count
 };
 
