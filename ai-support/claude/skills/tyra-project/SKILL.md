@@ -9,7 +9,8 @@ description: How a TyraX-generated PS2 game project is structured - the project 
 
 ## What this project is
 
-A PlayStation 2 game authored in the TyraX editor (a Windows GUI app). The
+A PlayStation 2 game authored in the TyraX editor (a cross-platform GUI app -
+Windows and Linux). The
 editor edits a **data model** and generates the complete game from it on every
 build. Two kinds of files coexist here:
 
@@ -26,7 +27,7 @@ build. Two kinds of files coexist here:
 | `objects/<id>.json` | One scene object per file (transform, type, properties, its flow graph) | Prefer the CLI (`--apply-graph`, `--resave` validates) |
 | `terrain-<scene>.heights` | Terrain heightmap | No (binary-ish; sculpted in the editor) |
 | `<name>.history` | Editor undo stack (gitignored) | No |
-| `res/models`, `res/materials`, `res/textures` | .obj/.glb models, .mtl materials, PNGs | Yes (import via editor keeps references sane) |
+| `res/models`, `res/materials`, `res/textures` | .obj/.glb models, .mtl materials, PNGs. Sub-folders are fine | Yes (import via the editor keeps references sane; move/rename in the editor's Asset Browser, which retargets every reference - a hand-moved file leaves objects pointing at the old path, and a `map_Kd` must stay a bare name next to its .mtl) |
 | `res/models/*.tmdl`, `*.tskl` | Build output: the binary models the game loads (compiled from the .obj/.glb next to them on every build) | No - regenerated, edit the source model instead |
 | `res/audio`, `res/sfx` | Music WAVs (16-bit 22kHz stereo), sound-effect WAVs | Yes |
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
@@ -34,10 +35,14 @@ build. Two kinds of files coexist here:
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
 | `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
-| `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources | Only after deleting the ownership marker line |
+| `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources. `controls.hpp`'s `BTN_*`/`KEY_*` are generated from the project's **Input Map** (named actions + binding presets) - rebind buttons there, not here | Only after deleting the ownership marker line |
 | `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `Dockerfile`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
+| `src/gen/livelogic.built` | Live Logic record of the graphs this build compiled natively (the editor patches only what differs) | No - regenerated |
+| `src/gen/livedbg.sym` | Live Debugger symbol map (node keys -> object ids), written by codegen for the editor | No - regenerated |
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
-| `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 | Rarely |
+| `bin/livelogic.bin` | Live Logic patch: flow graphs the editor compiled and streamed into the running game (no rebuild) | No - runtime file |
+| `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
+| `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
 `Do not edit - regenerated on every build` means never touch it; `Delete this
@@ -53,8 +58,8 @@ The editor executable doubles as a headless tool. On this machine it is:
 {TYRAX_EXE}
 ```
 
-(Quote the path - it may contain spaces. If it moved, ask the user where
-tyrax-editor.exe lives.)
+(Quote the path - it may contain spaces. If it moved, ask the user where the
+tyrax-editor binary lives.)
 
 | Command | What it does |
 |---|---|
@@ -64,8 +69,9 @@ tyrax-editor.exe lives.)
 | `--apply-graph <projectDir> <object> <graph.json> [scene] [--append]` | Validate a graph JSON and write it into the object |
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
+| `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
-| `--new <name> <parentDir> [w] [d] [empty\|fpp]` | Create a fresh project |
+| `--new <name> <parentDir> [w] [d] [empty\|fpp] [unitsPerMeter]` | Create a fresh project (defaults: 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
@@ -77,12 +83,28 @@ to see exactly what the game will compile.
 
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
-  emitters, sound emitters, the player, decals, mirrors, cameras...).
+  emitters, sound emitters, the player, decals, mirrors, cameras, areas...).
+- An **area** is an invisible box (no geometry in the game). Other things
+  reference one by name instead of carrying a distance: a streaming layer's
+  auto zone, a mirror/portal/camera-feed target list (`catchArea`), and the
+  **In Area** flow trigger. A catch area resolves at build unless
+  `catchAreaLive` is set, in which case objects that can move join and leave
+  the list as they cross the boundary at runtime.
 - Every object can carry a **flow graph** (visual logic - tyra-flowgraph skill)
   and **attached scripts** (your C++ classes - tyra-scripting skill).
 - Object references (in graphs, sequences, menus) are **by name**; keep names
   unique and stable. Object *ids* (`objects/<id>.json` filenames) are internal
   merge keys - never reference or reuse them.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
-  HUD images/texts, color gradings, ambience presets, loading screens and
-  cutscene sequences. `--dump` lists all of their names.
+  HUD images/texts, color gradings, ambience presets, loading screens,
+  cutscene sequences and the **input map** (named input actions + binding
+  presets). `--dump` lists all of their names.
+- **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
+  `{{action:jump}}` draws whatever that action is currently bound to. Works in
+  HUD texts, menu titles/labels, option labels, loading screens and Display Text
+  nodes; the pad set is seeded per project (Tools > UI Editor > Button icons).
+- **Buttons go through named input actions**, not raw pad buttons: the project's
+  Input Map binds each action ("jump", "sprint", "use", ...) to a pad button
+  and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"
+  row lets the player override one at runtime (the override persists in a save
+  value). In graphs use the **On Action** trigger so logic follows the binding.

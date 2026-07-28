@@ -39,6 +39,13 @@ Every scene object owns a flow graph (in its `objects/<id>.json`), compiled to
 have only an exec input (wire each action from the trigger; Delay's "after"
 output sequences over time). Object params resolve link → `str` name → self;
 logic gates are pure and bridge back to exec via On Condition (rising edge).
+Any text may contain `{{cross}}` (a pad-button glyph) or `{{action:jump}}` (the
+glyph of whatever that action is bound to) - see docs/text-icons.md.
+For buttons prefer the **On Action** trigger (`str` = an input-action name from
+the project's Input Map, e.g. `jump` / `sprint`): it follows the current
+binding, including a preset switch and the player's own in-game rebind.
+`On Button` (raw pad button) and `On Key` (raw USB keyboard key) bypass that on
+purpose - use them only for a fixed debug key.
 
 ## The TyraX editor CLI (use it - it validates)
 
@@ -54,6 +61,9 @@ The editor executable on this machine: `{TYRAX_EXE}`
   (fast codegen check; dangling references appear as `unknown ...` comments in
   `flow_graph.gen.cpp`)
 - `--build <projectDir> [--run]` - full Docker build (+ PCSX2 launch)
+- `--bake-gi <projectDir>` - bake global illumination + light probes
+  (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
+  a scene falls its lighting back to classic shading until you re-bake)
 - `--resave <projectDir>` - load + save with validation/migrations
 
 ## Building and debugging

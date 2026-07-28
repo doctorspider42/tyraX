@@ -1,0 +1,1 @@
+{ "id": "lgc1cratephys001", "name": "crate-1", "type": "box", "position": [-3, 3.5, 9], "rotation": [0, 25, 0], "scale": [1, 1, 1], "color": [0.6, 0.45, 0.3], "physics": true, "physMass": 1, "physBounce": 0.35, "physFriction": 0.5, "physTumble": true, "physSleep": 3 }

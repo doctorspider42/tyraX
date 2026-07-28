@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -11,18 +12,27 @@
 #include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
+#include "phonecam.hpp"
+#include "gibake.hpp"
 #include "matbake.hpp"
 #include "isoexport.hpp"
+#include "elfsym.hpp"
+#include "vucap.hpp"
+#include "livedbg.hpp"
+#include "livetime.hpp"
+#include "livelogic.hpp"
+#include "placement.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 #include "session.hpp"
+#include "treegen.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
 
 // Viewport navigation preferences. These are a machine/muscle-memory property,
 // not project data, so they live in the global editor config (editor.ini in
-// %LOCALAPPDATA%), never in the per-project .tyra. See NavConfig persistence in
+// the editor config dir), never in the per-project .tyra. See NavConfig persistence in
 // app.cpp.
 enum class NavScheme {
     Default = 0,  // tyra: LMB/RMB orbit, MMB pan
@@ -53,9 +63,19 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
-    // Icon toolbar drawn inline in the main menu bar (Save / Run in PCSX2 /
-    // Run on PS2 / Stop). Custom vector-drawn - the editor loads no icon font.
+    // Icon toolbar drawn inline in the main menu bar (Save / Build / Run / Stop
+    // + the live chips). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
+    // Which machine the toolbar's Run/Stop pair drives: false = the emulator
+    // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
+    // `runOnPs2`) - which console is on this desk is not project data. The Play
+    // glyph is green for the emulator and blue for the PS2, so the target is
+    // readable without opening the dropdown. F5/Ctrl+F5 and F6/Ctrl+F6 stay
+    // target-explicit and ignore this.
+    bool runOnPs2_ = false;
+    // Build && run (or run only) on the selected target - what the toolbar's
+    // Play button and its dropdown entries call, so the two can never disagree.
+    void runSelectedTarget(bool build);
     // UI (DPI) scaling. uiScaleUser_ == 0 means "auto" (follow the monitor's
     // content scale); a value > 0 is an explicit multiplier (1.0 == 100%).
     // applyUiScale() recomputes the effective scale and re-applies it to the
@@ -70,6 +90,60 @@ private:
     // clips at high scale (a 180 px combo can't hold 2.5x-tall glyphs).
     float scaled(float px) const { return px * uiScaleApplied_; }
     void drawViewportWindow();
+    // Switch the viewport camera projection (View menu, the viewport's "Proj:"
+    // button, the axis gizmo, the numpad shortcuts). Editor state: it rides
+    // into the .tyra on the next save like the gizmo mode, not a project edit.
+    void setViewProjection(Viewport::Projection p);
+    // Axis-view gizmo in the viewport's top-right corner (the Blender/Maya
+    // navigation widget): the three world axes as labelled balls that rotate
+    // with the camera; clicking one snaps to that orthographic axis view, and
+    // clicking the hub toggles perspective. Drawn with ImDrawList over the
+    // rendered image. Returns true while the cursor is over the widget, so the
+    // caller can keep that click from also picking/deselecting objects.
+    bool drawAxisGizmo(ImVec2 imgPos, ImVec2 avail);
+    // Machine-global (editor.ini): the gizmo sits where HUD authoring wants
+    // the corner, so it can be turned off (View > Projection > Axis gizmo).
+    bool showAxisGizmo_ = true;
+
+    // --- TV safe-area overlay (docs/safe-areas.md) --------------------------
+    // Guides for framing something a real television will not crop: the picture
+    // rectangle the console outputs, plus the classic action- and title-safe
+    // insets. Machine-global (editor.ini) like the axis gizmo - a viewing aid,
+    // not project data. All of it hides behind the viewport's gear so it cannot
+    // clutter the image by default.
+    struct SafeAreaCfg {
+        bool frame = true;       // the 4:3 / 16:9 picture rectangle
+        bool action = true;      // 90% - nothing important outside this
+        bool title = true;       // 80% - text belongs inside this
+        bool centre = false;     // centre cross + thirds
+        bool bothRegions = false;  // NTSC's shorter picture inside PAL's
+        // 0 = follow the project (its widescreen setting), 1 = force 4:3,
+        // 2 = force 16:9. Forcing is for checking the other case without
+        // touching the project.
+        int aspect = 0;
+        float opacity = 0.55f;
+    };
+    SafeAreaCfg safeArea_;
+    bool showSafeArea_ = false;  // the master switch (the gear's first item)
+    // PS2 output mode (docs/ps2-viewport.md), machine-global like the safe
+    // areas. `ps2ViewportOutput` resolves the project's display settings into
+    // the GS geometry the viewport renders at - the host twin of the engine's
+    // RendererSettings::updateGeometry, so a new display mode is one entry in
+    // both places.
+    bool viewportPs2_ = false;
+    Viewport::Ps2Output ps2ViewportOutput() const;
+    // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
+    void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);
+    // The gear button + its popup, drawn at the left end of the viewport's
+    // bottom button row. Returns true when the cursor is over it, so a click
+    // there does not fall through to the scene the way the axis gizmo's veto
+    // works.
+    bool drawViewportGear(const ImVec2& pos, const ImVec2& size);
+    // Horizontal space the gear occupies, inset included: where the rest of the
+    // bottom-left row starts. ONE definition because the gear and the row are
+    // drawn by different code - they used to pick their corner independently
+    // and the gear landed on top of "Center view".
+    float viewportGearSpan() const;
     void drawProjectWindow();
     void drawPropertiesWindow();
     // Properties panel body when more than one object is selected: only the
@@ -126,6 +200,11 @@ private:
     void drawPreferencesModal();          // project-wide defaults (Project menu)
     void drawEditorPreferencesModal();    // machine-global settings (Edit menu)
     void saveGlobalConfig();              // write editor.ini from the App members
+    // devsession.hpp: "this editor has that project open, and here is what the
+    // game is doing" - so nobody has to search the disk for the live project.
+    void publishDevSession();
+    double devSessionNext_ = 0.0;      // throttle
+    long long devSessionStarted_ = 0;  // epoch seconds, first publish
     void drawNavigationModal();  // global viewport-navigation settings
     void drawScenePreferencesModal();
     void openScenePreferences();  // stage the active scene into scenePref* + open
@@ -140,11 +219,35 @@ private:
     void addDecal();
     void addMirror();
     void addPortal();
+    void addArea();
     void drawAddObjectMenu();
+    // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
+    // a layer zone: a combo of this scene's Area objects plus <none>. Returns
+    // true when the selection changed (the caller commits).
+    bool areaCombo(const char* label, std::string& ref);
+    // The catch-area block shared by the Mirror / Portal / feed Camera panels:
+    // picker + "Update every frame" + the resolved counts. `verb` is how the
+    // panel words what happens to a caught object ("re-drawn", "shown", ...).
+    bool catchAreaControls(SceneObject& o, const char* verb);
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
     // of the model, or "" when cancelled/failed. Does NOT create an object.
     std::string importModelAsset();
+    // "Real-world size" of a model asset (docs/world-scale.md): what one unit
+    // of the file measures in meters, which combined with the project's world
+    // scale is the scale objects made from it are inserted at. Opened right
+    // after an import and from the Assets list; nothing about the file itself
+    // is touched, only Project::modelUnitMeters.
+    void beginModelSizing(const std::string& relPath);
+    void drawModelSizeModal();
+    bool modelSizeOpen_ = false;       // a sizing dialog is requested this frame
+    std::string modelSizePath_;        // asset being sized ("" = none staged)
+    float modelSizeSrc_[3] = {0.0f, 0.0f, 0.0f};  // authored size, file units
+    bool modelSizeMeasured_ = false;   // the bounds above could be read
+    int modelSizeUnit_ = 0;            // preset: 0 m, 1 cm, 2 inch, 3 custom
+    float modelSizeMeters_ = 1.0f;     // meters per file unit (what is stored)
+    bool modelSizeApplyExisting_ = false;  // also rescale objects already placed
+    bool modelSizeFresh_ = false;      // opened straight after an import
     // Copies a picked PNG into res/textures (terrain tiling); "" on cancel.
     std::string importTextureAsset();
     // Copies a picked .mtl (with its map_Kd textures, references rewritten to
@@ -166,11 +269,182 @@ private:
     // model only takes the mesh-LOD distance. Returns true when a value
     // changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
-    // Creates a scene object for a model already in res/models (no copying)
-    void addModelObject(const std::string& relPath);
+    // Creates a scene object for a model already in res/models (no copying).
+    // `at` (optional) is where the object lands before the placement snap - the
+    // Asset Browser's drag & drop into the viewport passes the cursor's hit.
+    void addModelObject(const std::string& relPath, const float* at = nullptr);
     // Project-panel section listing res/models + res/textures with the
     // Import... buttons (the object pickers only offer what is listed here)
     void drawAssetsSection();
+
+    // --- Asset Browser (Tools > Asset Browser, docs/asset-browser.md) -------
+    // A file manager over the project's res/ tree: folder tree, thumbnail grid,
+    // type filters, search, and file operations that carry the project's
+    // references with them. Everything below is implemented in assetbrowser.cpp.
+    enum class AssetKind {
+        Model,      // .obj - static geometry
+        AnimModel,  // .glb/.fbx - skeletal model
+        Material,   // .mtl material library
+        Texture,    // PNG/JPG/TGA/BMP image
+        Music,      // res/audio WAV (streamed)
+        Sound,      // res/sfx WAV (ADPCM one-shot)
+        Font,       // TTF/OTF source
+        Other,
+    };
+    static AssetKind assetKindOf(const std::string& rel);
+    static const char* assetKindName(AssetKind k);
+    struct AssetItem {
+        std::string rel;   // project-relative ("res/models/props/tree.obj")
+        std::string name;  // file name
+        AssetKind kind = AssetKind::Other;
+        unsigned long long bytes = 0;
+        long long mtime = 0;
+        // Written by the build (baked menu panels, text sprites, glyph
+        // atlases, .tmdl meshes, paint-layer sidecars): shown only with "Show
+        // generated", and never moved, renamed or deleted from here.
+        bool generated = false;
+    };
+    struct AssetDir {
+        std::string rel;     // "res/models/props" ("res" = the root)
+        std::string name;    // "props" ("res" for the root)
+        std::string parent;  // "res/models" ("" for the root)
+        std::vector<std::string> children;  // sub-folder rel paths, sorted
+        int files = 0;                      // files directly inside
+        int filesDeep = 0;                  // files inside, sub-folders included
+    };
+    // Project-side reference census of one asset. Built for EVERY asset in one
+    // pass over the model (rebuildAssetUsage) so the grid can badge unused
+    // files for free; the Wavefront side (a .mtl naming a texture) is disk IO
+    // and stays on demand in assetWavefrontUsers().
+    struct AssetUsage {
+        int objects = 0;  // scene objects
+        int nodes = 0;    // flow-graph nodes
+        int other = 0;    // HUD/menus/fonts/terrain/LOD chains/lists/clip edits
+        std::vector<std::string> lines;               // readable "where" lines
+        std::vector<std::pair<int, int>> objectRefs;  // (scene, object index)
+        int total() const { return objects + nodes + other; }
+    };
+    void drawAssetBrowserWindow();
+    // Details + per-type actions of the selected asset (the bottom strip).
+    void drawAssetInspector(const std::string& rel);
+    // Per-asset texture-quality override of Preferences > Textures, and the
+    // artist-authored mesh LOD chain of a model. Shared by the browser's
+    // inspector and the Project panel's asset summary.
+    void drawAssetQualityCombo(const std::string& assetRel);
+    void drawAssetLodButton(const std::string& assetRel);
+    // "Size..." - the model's recorded real-world size (docs/world-scale.md),
+    // which decides the scale objects made from it are inserted at.
+    void drawAssetSizeButton(const std::string& assetRel);
+    // Rebuild assetItems_/assetDirs_ from disk. Cheap enough for a res/ tree
+    // (a few hundred files); throttled by assetScanTime_ while the window is
+    // open and forced by assetsChanged() after any file operation.
+    void scanAssetTree();
+    // Files moved/appeared/vanished on disk: rescan, drop the derived caches
+    // (model/material summaries, thumbnails, WAV checks) and re-census.
+    void assetsChanged();
+    void rebuildAssetUsage();
+    const AssetUsage* assetUsageFor(const std::string& rel);
+    // Files under res/ that a .mtl/.obj names and must keep as siblings: an
+    // .obj's material libraries plus the textures those libraries reference.
+    std::vector<std::string> assetWavefrontDeps(const std::string& rel);
+    // The reverse: .obj/.mtl files under res/ that name `rel` (including the
+    // implicit "<stem>.mtl" sibling an .obj loads without a mtllib line).
+    std::vector<std::string> assetWavefrontUsers(const std::string& rel);
+    // Editor-side sidecars of an asset that must travel with it (paint layers,
+    // replacement UVs). The baked "<stem>.tmdl" is NOT one: it is deleted
+    // instead, since the next build re-bakes it in the new location.
+    std::vector<std::string> assetSidecars(const std::string& rel);
+    // Moves files (and the folder-internal dependencies they need) into
+    // `destFolder`. Returns "" on success, or the reason it refused - a move
+    // that would leave a .mtl looking for a texture in the wrong folder is
+    // rejected rather than half-applied, because Wavefront references have to
+    // stay bare sibling names for the PS2 to resolve them.
+    std::string moveAssets(const std::vector<std::string>& rels,
+                           const std::string& destFolder);
+    // Moves a whole folder (with everything in it) into `destFolder`.
+    std::string moveAssetFolder(const std::string& folderRel,
+                                const std::string& destFolder);
+    // Renames one file in place, rewriting the sibling Wavefront references
+    // that name it (safe: they stay bare names in the same folder) and, for a
+    // model, its exclusively-owned "<stem>.mtl" along with it.
+    std::string renameAsset(const std::string& rel, const std::string& newName);
+    std::string renameAssetFolder(const std::string& folderRel,
+                                  const std::string& newName);
+    std::string createAssetFolder(const std::string& parentRel,
+                                  const std::string& name);
+    // Copies a file next to itself under a free "<stem>-copy<n>" name.
+    std::string duplicateAsset(const std::string& rel);
+    // Every project reference to `from` becomes `to`. Covers object
+    // model/material/sound paths, terrain materials and layers, HUD/menu/
+    // splash/loading images, fonts, the music+sound lists and their build
+    // options, per-asset texture quality, LOD chains, animation clip edits and
+    // audio flow nodes. Returns how many references moved. A new field that
+    // stores an asset path belongs in here, or renaming its file breaks it.
+    int retargetAssetPath(const std::string& from, const std::string& to);
+    // Rewrites the mtllib / map_Kd / refl statements of one Wavefront file that
+    // name `oldName` to `newName` (bare file names, same folder). True when the
+    // file changed.
+    static bool rewriteWavefrontRef(const std::string& fileAbs,
+                                    const std::string& oldName,
+                                    const std::string& newName);
+    // Stages the browser selection for deletion (one confirm dialog for the
+    // whole set, reusing the per-asset reference warnings).
+    void requestAssetSelectionDelete();
+    void drawAssetBrowserModals();
+    // Deletes one asset file, its sidecars and the stale baked .tmdl, and
+    // clears what the project stored about it. Kinds the older per-asset dialog
+    // already handles are routed through performAssetDelete so the two cleanup
+    // paths cannot drift apart.
+    void deleteAssetFile(const std::string& rel);
+    // A model dragged from the browser onto the viewport: the object lands where
+    // the cursor points (u, v are normalized image coords).
+    void dropAssetIntoScene(const std::string& rel, float u, float v);
+    // Adds the asset to the scene the way its type wants: a model becomes a
+    // Model object, a material opens the Material Editor, an image opens the
+    // texture pickers' owner. Returns false when the type has no action.
+    bool activateAsset(const std::string& rel);
+    // Absolute path of a project-relative asset.
+    std::string assetAbs(const std::string& rel) const;
+
+    bool showAssetBrowser_ = false;
+    std::vector<AssetItem> assetItems_;         // every file under res/
+    std::map<std::string, AssetDir> assetDirs_;  // by rel path, "res" included
+    std::string assetFolder_ = "res";            // folder being listed
+    std::vector<std::string> assetSelection_;    // selected files (rel paths)
+    std::string assetAnchor_;                    // last click (shift-range end)
+    std::string assetSearch_;                    // name filter (substring)
+    int assetFilter_ = 0;                        // type chip, 0 = All
+    bool assetRecursive_ = false;                // list sub-folders too
+    bool assetShowGenerated_ = false;
+    int assetSort_ = 0;         // 0 name, 1 type, 2 size, 3 newest first
+    bool assetGridView_ = true;  // thumbnails (false = detail rows)
+    float assetTileSize_ = 84.0f;
+    double assetScanTime_ = -1.0;   // ImGui time of the last disk scan
+    int assetThumbBudget_ = 0;      // thumbnails still allowed this frame
+    uint64_t assetUsageSerial_ = ~0ull;  // edit serial the census was built at
+    std::map<std::string, AssetUsage> assetUsage_;
+    // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),
+    // parsed from disk on first use after a scan - the file operations need it,
+    // the grid does not, so it is not part of scanAssetTree's cost.
+    std::map<std::string, std::vector<std::string>> assetWfUsers_;
+    bool assetWfUsersReady_ = false;
+    std::set<std::string> assetTreeOpen_;  // expanded folder tree nodes
+    // Pending in-place rename ("" = none): the file/folder and its edit buffer.
+    std::string assetRenameRel_;
+    bool assetRenameIsFolder_ = false;
+    char assetRenameBuf_[128] = {};
+    bool assetRenameFocus_ = false;
+    std::string assetNewFolderParent_;  // "New folder" popup ("" = closed)
+    char assetNewFolderBuf_[128] = {};
+    // Result of the last operation: a refusal reason shown in the window and a
+    // status line. Refusals stay visible until the next operation.
+    std::string assetOpError_;
+    // Multi-file delete staged by the browser (the single-asset dialog handles
+    // one file at a time; this is the queue behind it).
+    std::vector<std::string> assetDeleteBatch_;
+    bool assetDeleteBatchActive_ = false;
+    // Folder removed after its files (empty = the batch is a plain selection).
+    std::string assetDeleteFolder_;
     // Files directly under res/<subdir> with the given extension (lowercase
     // compare), names only, sorted by the directory iteration order
     std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
@@ -181,6 +455,13 @@ private:
     struct ModelInfo {
         bool ok = false;
         int tris = 0;
+        // Two different vertex counts, and the difference is the point:
+        // `verts` is what actually goes to VU1 (three per triangle, corners
+        // split wherever a normal/UV/material does), `positions` is the obj
+        // `v` count the modelling tool shows. A model whose verts are far
+        // above 3x positions is paying for split corners.
+        int verts = 0;
+        int positions = 0;
         struct MaterialLine {
             std::string text;      // "name (texture.png)" / "name (color)"
             bool missing = false;  // the referenced texture file is absent
@@ -241,6 +522,29 @@ private:
     // fontPath changed. Only the Font Manager resolves real files.
     bool fontSourceCombo(std::string& fontPath);
     void drawFontManagerWindow();
+    // Tools > UI Editor > Button icons: the {{name}} placeholders any text can
+    // splice an image into (docs/text-icons.md). A modal, not a panel section:
+    // it wants room for a preview grid.
+    void drawTextIconsModal();
+    // Tools > Input Map (docs/input-bindings.md): the named actions every
+    // gameplay button goes through, plus the per-project binding presets.
+    void drawInputMapWindow();
+    // One action's pad / key / mouse pickers inside `preset`. Returns true when
+    // something changed (the caller commits).
+    bool inputBindingRow(InputPreset& preset, const InputAction& action);
+    // Tools > Tree Generator: procedural low-poly tree authoring with a live
+    // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
+    // into res/models/trees and drops a Model object in - see treegen.hpp.
+    void drawTreeGeneratorWindow();
+    // Tools > Bake Global Illumination: per-scene staleness + the bake itself
+    // on gibake::Baker's worker thread (docs/global-illumination.md).
+    void drawGiBakeWindow();
+    // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
+    // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
+    void rebuildTreePreview();
+    // "Add to scene": bakes the current tree's assets into res/models/trees
+    // and inserts a Model object pointing at them.
+    void addTreeToScene();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -269,6 +573,10 @@ private:
     // Renames a font and follows the reference into every text, menu and
     // Display Text node, the way HUD text renames do.
     void renameFont(int index, const std::string& newName);
+    // Same for input actions / binding presets: the name is the reference key
+    // (preset bindings, On Action nodes, menu rebind rows, Set Input Preset).
+    void renameInputAction(int index, const std::string& newName);
+    void renameInputPreset(int index, const std::string& newName);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -380,6 +688,28 @@ private:
     void performPendingAction();
     void drawDiscardModal();
 
+    // --- Recent projects ----------------------------------------------------
+    // The list the welcome screen offers before any project is open, so the
+    // usual next step ("carry on with what I had") is one click instead of a
+    // file dialog. Machine-global state: the folders live in editor.ini, the
+    // name/validity next to each is probed from disk (once per entry, at
+    // startup and when the list changes - not per frame).
+    struct RecentProject {
+        std::string dir;     // project folder, what gets opened
+        std::string name;    // display name (manifest stem, else the folder's)
+        bool valid = false;  // the folder still holds a <name>.tyra manifest
+    };
+    std::vector<RecentProject> recentProjects_;
+    void probeRecentProject(RecentProject& r);  // fill name + valid from disk
+    void rememberRecentProject(const std::string& dir);  // to the front + save
+    void forgetRecentProject(int index);                 // drop it + save
+    // Load and attach the project in `dir` (a project folder, not the .tyra).
+    // Returns the load error; empty means it is open. The single funnel for
+    // every local open path: the CLI argument, the Open dialog and the
+    // welcome screen's list all go through it, so all three record a recent.
+    std::string openProjectAt(const std::string& dir);
+    void drawWelcomeScreen();  // the Viewport's content while nothing is open
+
     // --- Collaboration session (docs/collaboration.md) ----------------------
     // Live LAN sessions: this editor hosts its open project or joins another
     // editor's. Session (session.hpp) runs the network side on a worker
@@ -398,6 +728,86 @@ private:
     void drawSessionWindow();
     void copyObject();
     void pasteObject();
+
+    // --- Phone camera link (docs/phone-camera.md) ---------------------------
+    // The phone as a viewfinder: it shows a live JPEG stream of what the
+    // editor camera sees and its ARKit pose drives that camera; the Cutscene
+    // Director records the move into camera keyframes. phonecam::Link owns the
+    // network side on a worker thread, phoneCamTick() drains it once per frame
+    // and is the ONLY place link data meets project_/ImGui - the same contract
+    // sessionTick() follows.
+    void phoneCamTick();
+    void startPhoneCam();
+    void stopPhoneCam();
+    void drawPhoneCamWindow();
+    // Streams the frame the viewport just rendered. Called from
+    // drawViewportWindow right after render(), so the phone sees exactly the
+    // editor's image (grading included) with no second scene pass.
+    void phoneCamPushPreview();
+    // Anchors the mapping on the CURRENT pose and aims the path along the
+    // editor view - the take importer's "From view", live. Nothing else may
+    // move the anchor: it is what keeps the phone's motion relative.
+    void phoneCamRecenter();
+    // The Camera entity the phone views from and records into (nullptr = free
+    // shots, started from the editor's own viewpoint). ONE selection for both:
+    // "the view from cam-1" and "the recording into cam-1" are one intent.
+    const SceneObject* phoneStartCamera() const;
+    void selectPhoneCamera(const std::string& name);
+    // Slides the mapping's start point along the current view basis (a delta in
+    // right/up/forward, scene units) - the phone's "fly the start point" mode.
+    void movePhoneStart(const float delta[3]);
+    // Recording into the selected sequence. Returns false (and says why in the
+    // Output panel) when there is nothing to record into.
+    bool startPhoneRecording();
+    void stopPhoneRecording();
+    // (Re)bakes the recorded buffer into the target sequence. Called live while
+    // recording (throttled) so the dopesheet fills up as you move, and once
+    // more on stop - which is also the only call that commits an undo step.
+    void bakePhoneRecording();
+    // Frames per second the built game will run at (60 NTSC / 50 PAL, from the
+    // project's video system + display mode) - the "sync with project" option
+    // for the keyframe density.
+    float projectFrameRate() const;
+
+    // --- Collision-aware placement (docs/object-placement.md) --------------
+    // Inserted and pasted objects rest ON the surface under them (terrain or
+    // another object's top) instead of sinking into it. placementSnap_ is a
+    // machine-global editor setting (editor.ini) like the navigation scheme -
+    // a workflow preference, not project data.
+    bool placementSnap_ = true;
+    // The two callbacks the placement math needs. Both read the viewport's
+    // caches: it owns the parsed models and the terrain heightfield, and it
+    // samples heights with the same bilinear filter the game does.
+    aobake::ModelAabbFn placementModelAabb();
+    placement::HeightFn placementHeight() const;
+    // Objects the placement math must ignore: everything on a hidden layer,
+    // plus any explicitly listed index (the object being placed itself).
+    std::vector<char> placementSkip(const std::vector<int>& extra = {}) const;
+    // Rests the just-appended object (project_.objects().back()) on the
+    // surface under it. No-op when the snap preference is off.
+    void snapInsertedObject();
+    // "Drop to floor" (End): rest every selected object on the first surface
+    // BELOW it, whatever the insert-snap preference says. One undo step.
+    void dropSelectionToFloor();
+
+    // --- Deferred paste (docs/object-placement.md) -------------------------
+    // Ctrl+V does not drop the copies where they lie: it stages them here and
+    // they follow the cursor across the viewport (snapped onto whatever is
+    // under it) until a left click - or a second Ctrl+V - commits them. Esc
+    // cancels. pastePending_ is what makes the staged objects render.
+    bool pastePending_ = false;
+    std::vector<SceneObject> pasteStaged_;  // the copies being positioned
+    bool pasteMoved_ = false;               // the cursor has positioned them
+    // Scene objects + the staged copies, the list the viewport renders while
+    // a paste is pending (member so it isn't reallocated every frame).
+    std::vector<SceneObject> pasteRenderScratch_;
+    // Fill pasteStaged_ from the clipboard and start following the cursor.
+    void beginPastePlacement();
+    // Move the staged copies so their anchor sits at `point`, snapping the
+    // group onto the surface under it when the preference is on.
+    void movePasteStaged(const float point[3]);
+    void commitPastePlacement();  // insert them into the scene
+    void cancelPastePlacement();
 
     // Selection set helpers. selectedObject_ stays the "primary" (anchor) of
     // the set - always selection_.back() (or -1) - so the many single-select
@@ -439,7 +849,7 @@ private:
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
     // Collaboration (editor.ini): the name other session participants see
-    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    // (empty = the OS user name) and the remote-project cache root (empty = default).
     std::string globalDisplayName_;
     std::string globalSessionCacheDir_;
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
@@ -539,6 +949,21 @@ private:
     float gizmoDragScale0_[3] = {1.0f, 1.0f, 1.0f};
     bool gizmoWasUsing_ = false;
 
+    // Measuring tape (docs/world-scale.md): click two points on the scene and
+    // read the distance between them, in world units and in meters. A pure
+    // viewport overlay - it never touches the project.
+    bool measureMode_ = false;
+    int measurePoints_ = 0;  // 0 = nothing placed, 1 = start placed, 2 = frozen
+    float measureA_[3] = {0.0f, 0.0f, 0.0f};
+    float measureB_[3] = {0.0f, 0.0f, 0.0f};
+    bool measureLive_ = false;  // the end point is following the cursor
+    // Draws the tape over the viewport image (line, endpoints, readout).
+    void drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail);
+    // World-space size of an object as drawn: the unit primitive or the
+    // model's own bounds, times its scale. False for types with no extent
+    // worth quoting (markers, lights). Used by the Properties readout.
+    bool objectWorldSize(const SceneObject& o, float out[3]);
+
     // Terrain sculpting brush
     bool sculptMode_ = false;
     float brushRadius_ = 5.0f;
@@ -574,6 +999,9 @@ private:
     // and since when - shown after a short delay, reset on hover change.
     int flowDescNode_ = -1;
     double flowDescSince_ = 0.0;
+    // Node the per-node context menu was opened on (Live Debugger actions:
+    // breakpoint, force-fire).
+    int flowCtxNode_ = -1;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)
@@ -592,6 +1020,41 @@ private:
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
+    bool showInputMap_ = false;
+    int inputActionSel_ = 0;  // row selected in the Input Map action list
+    int inputPresetSel_ = 0;  // preset tab being edited
+
+    // Live Debugger panel (Tools > Debugger, the DBG toolbar chip, or the
+    // built-in "Debugger" window layout).
+    bool showDebugger_ = false;
+
+    // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
+    // rebuilt into these on any param change; treePreviewVersion_ tells the
+    // viewport when to re-upload. treeName_ is the asset base name.
+    // Tools > Bake Global Illumination (docs/global-illumination.md). The bake
+    // is EXPLICIT - never part of a build - so this window is where a project
+    // learns that its lighting is stale, and the one place that fixes it.
+    bool showGiBake_ = false;
+    gibake::Baker giBaker_;
+    // The probe grid currently uploaded to the viewport: reloaded when the
+    // scene changes, the model is edited (which can stale the bake) or a bake
+    // finishes.
+    int giViewScene_ = -1;
+    uint64_t giViewSerial_ = ~0ull;
+    uint64_t giViewVersion_ = ~0ull;
+    uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
+
+    bool showTreeGenerator_ = false;
+    treegen::Params treeParams_;
+    int treePreset_ = 0;
+    treegen::Mesh treeMesh_;
+    treegen::Image treeBarkTex_, treeLeafTex_;
+    uint64_t treePreviewVersion_ = 0;
+    bool treePreviewDirty_ = true;
+    char treeName_[64] = "tree";
+    float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
+    bool treeGenSpin_ = true;
+    int treeGenDisplayMode_ = 0;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
@@ -710,11 +1173,61 @@ private:
     // in place without re-importing. Valid while it matches the open sequence.
     bool seqTakeActive_ = false;      // a re-bakeable last import exists
     int seqTakeSeqIdx_ = -1;          // sequence it was imported into
-    // Applies the loaded take (seqTake_/seqTakeMap_/seqTakeTarget_) to sequence
-    // s: free shots -> camera lane (replace or append); a Camera entity target
-    // -> its transform track + FOV + a bound camera key. Returns the first key
-    // time (for the playhead), or -1 on no-op.
+    // Applies a take to sequence s: free shots -> camera lane (replace or
+    // append); a Camera entity target -> its transform track + FOV + a bound
+    // camera key. Returns the first key time (for the playhead), or -1 on
+    // no-op. The one-argument form uses the take-import members; the live
+    // phone recording passes its own buffer through the same code, so a
+    // recorded move and an imported file land identically.
+    float applyCamTake(Sequence& s, bool replace, const CamTake& take,
+                       const CamTakeMapping& map, const std::string& target,
+                       CamTakeBakeStats& stats);
     float applyCamTake(Sequence& s, bool replace);
+
+    // --- Phone camera link state (see the method block above) ---------------
+    phonecam::Link phoneCam_;
+    bool showPhoneCamWindow_ = false;
+    // Machine-global settings (editor.ini).
+    phonecam::PreviewPrefs phoneCamPrefs_;
+    int phoneCamPort_ = (int)phonecam::kDefaultPort;
+    std::string phoneCamCode_;
+    bool phoneCamRequireCode_ = true;
+    // The newest pose and where it maps to. phoneMap_ is a full CamTakeMapping
+    // so the live view and the baked keys run through identical math
+    // (mapCamSample); its `anchor` is pinned by phoneCamRecenter().
+    CamTakeMapping phoneMap_;
+    CamTakeSample phonePose_;
+    bool phoneHasPose_ = false;
+    double phonePoseAt_ = 0.0;  // ImGui time of the newest pose (staleness)
+    bool phoneDrive_ = true;    // the pose drives the viewport camera
+    float phoneEye_[3] = {0.0f, 0.0f, 0.0f};
+    float phoneTarget_[3] = {0.0f, 0.0f, -1.0f};
+    float phoneFov_ = 60.0f;
+    float phoneRoll_ = 0.0f;  // live Dutch angle, degrees (see phoneMap_)
+    bool phoneCamPushed_ = false;  // camera override handed to the viewport?
+    double phonePreviewAt_ = 0.0;  // ImGui time of the last streamed frame
+    // Recording. The buffer is a plain CamTake, so everything downstream is the
+    // file importer's code.
+    bool phoneRec_ = false;
+    CamTake phoneTake_;
+    int phoneRecSeq_ = -1;           // sequence index being recorded into
+    std::string phoneRecTarget_;     // Camera entity ("" = free camera shots)
+    double phoneRecBakedAt_ = 0.0;   // ImGui time of the last live re-bake
+    CamTakeBakeStats phoneRecStats_;
+    // The sequence's camera lane and duration as they were when recording
+    // started. Every live re-bake restores these first and appends on top, so
+    // growing the buffer never compounds keys or ratchets the duration - and
+    // shots authored before the recording survive it.
+    std::vector<SeqCameraKey> phoneRecBaseCam_;
+    float phoneRecBaseDuration_ = 5.0f;
+    float phoneRecPlayhead_ = 0.0f;  // time the first recorded key sits at
+    // Keyframe density. 0 = the project's frame rate (every game frame gets a
+    // key - exact, but the biggest table), 1 = a custom rate, 2 = no fixed
+    // rate at all: decimate by the take importer's error tolerance instead.
+    int phoneDensityMode_ = 1;
+    float phoneDensity_ = 10.0f;   // keys per second (mode 1)
+    float phoneTolerance_ = 0.05f; // world-unit error bound (mode 2)
+    bool phoneRecAtPlayhead_ = false;  // keys start at the playhead, not at 0
     // "From view" for the take import: set the mapping origin to the preview
     // camera's position AND the mapping yaw so the take's first sample looks
     // where the editor camera looks (aim the recorded path along the view).
@@ -1028,12 +1541,30 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // The generated drawing of a built-in text icon as a GL texture. Lets the
+    // Button icons manager preview an icon whose PNG the project has not baked
+    // yet, and show what "restore default" gives back. Null for a name that is
+    // not one of the built-ins.
+    const HudTexture* builtinIconTexture(const std::string& iconName);
+    // Puts one icon back to its built-in state: default path + scale, and the
+    // generated PNG deleted so the next build (and the preview) redraws it.
+    void restoreDefaultTextIcon(TextIcon& icon);
+    // A "{{ }}" button next to a text field: opens the list of placeholders this
+    // project understands (actions first - they follow the binding - then the
+    // icons), each with its glyph, and appends the chosen one. This is the
+    // legend for the placeholder syntax as much as it is an insert helper.
+    // Returns true when it changed `text`.
+    bool textTokenPicker(const char* id, std::string& text);
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);
     // The embedded built-in USE prompt sprite (viewport overlay preview).
     const HudTexture* builtinUseTexture();
     HudTexture builtinUseTex_;
+    // Built-in text-icon drawings as GL textures, so the Button icons manager
+    // previews an icon before its PNG exists (they are generated at the first
+    // build). Keyed by icon name; cleared with the decoded-icon cache.
+    std::map<std::string, HudTexture> builtinIconTex_;
     // Viewport overlay textures of the HUD texts, re-baked on content change.
     struct TextTexture {
         unsigned tex = 0;
@@ -1069,9 +1600,16 @@ private:
     bool openNewProjectPopup_ = false;
     char newName_[128] = "my-game";
     char newLocation_[512] = "";
-    int newWidth_ = 64;
-    int newDepth_ = 64;
+    int newWidth_ = 100;
+    int newDepth_ = 100;
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // World scale (docs/world-scale.md), picked while the project is created -
+    // afterwards it is a setting that deliberately rescales nothing, so the
+    // honest moment to ask is before there is any content. Index into the
+    // preset list in drawNewProjectModal; the last entry is Custom, which is
+    // when newUnitsPerMeter_ is edited directly.
+    int newUnitsPreset_ = 0;  // 0 = 1 unit = 1 m
+    float newUnitsPerMeter_ = 1.0f;
     // "Add AI support": install the assistant skill files (aisupport.hpp)
     // into the fresh project. Also available later in Project Preferences.
     bool newAiClaude_ = false;
@@ -1244,6 +1782,162 @@ private:
     double liveLinkSigNextRead_ = 0.0; // ImGui::GetTime() gate for sig re-read
     double liveLinkNextTick_ = 0.0;    // ImGui::GetTime() gate for the ticker
     void liveLinkTick();
+
+    // Live Debugger (docs/live-debugger.md): Live Link's opposite direction.
+    // A debug build with the "Live Debugger" preference reports what its flow
+    // graphs are doing - every trigger and action it runs, the flow variables,
+    // the save values - into bin/livedbg.bin, and reads breakpoints, halt/step
+    // and force-fire requests back from bin/livedbg.cmd. Both files ride the
+    // same host: channel as Live Link, so PCSX2 and a real console over
+    // ps2link work identically. livedbgTick() (each frame from drawUI,
+    // self-throttled to ~20 Hz) reads the snapshot, folds it into the timeline
+    // and writes the command file whenever the desired state changed (or the
+    // Runner deleted it for a fresh run). The Debugger window and the Flow
+    // Graph overlay draw from dbgSnap_/dbgSyms_/dbgTimeline_ only.
+    enum class DbgState {
+        Off,       // release build, preference off, or no project
+        NoBuild,   // no symbol table yet - refresh/build once
+        Waiting,   // symbols known, no game reporting
+        Stale,     // the running ELF was built from different graphs
+        Running,   // the game is reporting and moving
+        Halted     // stopped at a breakpoint / by Pause
+    };
+    DbgState dbgState_ = DbgState::Off;
+    livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
+    livedbg::Snapshot dbgSnap_;     // newest snapshot the game wrote
+    livedbg::Timeline dbgTimeline_;  // per-frame fire history (the scrub)
+    livedbg::Command dbgCmd_;       // last command written (state + seq)
+    bool dbgCmdWritten_ = false;    // has the current dbgCmd_ reached the game?
+    std::vector<uint32_t> dbgPrevHits_;  // previous snapshot's counters
+    std::vector<double> dbgHeat_;   // per key: ImGui::GetTime() of its last fire
+    std::vector<uint16_t> dbgFireQueue_;  // keys the user asked to force-fire
+    double dbgNextTick_ = 0.0;      // ImGui::GetTime() gate for the ticker
+    double dbgSymNextRead_ = 0.0;   // gate for re-reading the symbol table
+    double dbgSnapTime_ = 0.0;      // when the newest snapshot arrived
+    double dbgSnapPrevTime_ = 0.0;  // and the one before it (for the FPS)
+    uint32_t dbgSnapPrevFrame_ = 0;
+    float dbgFps_ = 0.0f;           // measured against the editor's wall clock
+    int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
+    void livedbgTick();
+    void drawDebuggerWindow();
+
+    // The time machine (docs/time-machine.md): the third direction of the same
+    // host: channel. The game captures everything it mutates into
+    // bin/livetime.bin every few frames; livetimeTick() (each frame from
+    // drawUI, self-throttled) folds those captures into a RAM history and
+    // timeMachineRewind() writes one back to bin/livetime.rst, which puts the
+    // running game where it was. The history is deliberately not persisted -
+    // see the budget note on livetime::History.
+    int timeBudgetMb_ = 128;        // EditorConfig::timeMachineBudgetMb
+    livetime::History timeHistory_;
+    livetime::Snapshot timeLast_;   // newest capture seen
+    bool timeHaveLast_ = false;
+    double timeNextTick_ = 0.0;     // ImGui::GetTime() gate for the reader
+    double timeLastSeen_ = 0.0;     // when a capture last arrived (staleness)
+    int timeScrub_ = -1;            // history index being inspected (-1 = live)
+    uint32_t timeRestoreSeq_ = 0;   // sequence of the last restore we pushed
+    std::string timeStatus_;        // last action, shown in the panel
+    void livetimeTick();
+    /** Pushes history entry `index` back into the running game. */
+    void timeMachineRewind(int index);
+    void drawTimeMachinePanel();
+
+    // Crash reporting (docs/devkit.md). A real EE exception is not a
+    // TYRA_ASSERT: with the engine's crash handler installed the game writes
+    // bin/crash.txt (decoded cause, registers, backtrace candidates) and halts;
+    // this is that report, parsed, plus the names the PS2 toolchain resolves for
+    // its addresses on demand.
+    struct DbgCrash {
+        bool present = false;
+        std::string raw;      // the whole report, for Copy
+        std::string cause;    // decoded name
+        uint32_t epc = 0, badvaddr = 0, frame = 0;
+        int scene = -1;
+        std::vector<uint32_t> trace;
+        std::vector<elfsym::Location> names;  // resolved on demand
+        std::string namesError;
+        bool resolving = false;
+    };
+    DbgCrash dbgCrash_;
+    size_t dbgCrashSize_ = 0;   // last seen size of crash.txt (change = new)
+    double dbgCrashNextRead_ = 0.0;
+    // VU1 packet capture (docs/devkit.md): "show me what the EE actually fed
+    // VU1 for one draw". Armed from the Debugger's VU tab; the game answers with
+    // bin/vucap.bin, decoded by src/vucap.hpp.
+    vucap::Capture dbgVuCap_;
+    size_t dbgVuCapSize_ = 0;
+    long long dbgVuCapStamp_ = 0;  // last_write_time of the file we decoded
+    int dbgVuCapTorn_ = 0;         // consecutive incomplete reads of that file
+    bool dbgVuCapWaiting_ = false;  // a capture was asked for, none arrived yet
+    float dbgVuYaw_ = 0.6f, dbgVuPitch_ = 0.35f, dbgVuZoom_ = 1.0f;
+    int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
+    bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
+    int dbgVuFlushWanted_ = 0;    // ...which one
+    void dbgReadVuCapture();
+    void dbgReadCrashReport();
+    void dbgResolveCrashNames();
+    // "The game stopped reporting": the devkit heartbeat died without a crash
+    // report or an assert - a hang, or an exception nobody caught.
+    bool dbgLostGame_ = false;
+    uint32_t dbgLostAtFrame_ = 0;
+
+    // Live Logic (docs/live-logic.md): flow-graph HOT PATCHING. The editor
+    // compiles every graph that differs from what the running ELF was built
+    // with (src/gen/livelogic.built, emitted by codegen) into the pre-resolved
+    // instruction list in livelogic.hpp and writes bin/livelogic.bin; the
+    // game's interpreter runs those graphs instead of their compiled C++.
+    // liveLogicTick() (each frame from drawUI, self-throttled) recompiles when
+    // the project changed and rewrites the patch only when its bytes change.
+    // Graphs the IR cannot express (audio, AI, animation, spawning, text...)
+    // are listed per graph in liveLogicBlocked_ and still need a rebuild.
+    enum class LogicState {
+        Off,        // release build, preference off, or no project
+        NoBuild,    // no built-graph list yet (build once)
+        InSync,     // nothing differs from the build - nothing to patch
+        Patched,    // N graphs are running from the editor's patch
+        Blocked     // an edited graph cannot be hot-patched (rebuild needed)
+    };
+    LogicState liveLogicState_ = LogicState::Off;
+    livelogic::BuiltList liveLogicBuilt_;
+    std::vector<unsigned char> liveLogicLastPayload_;
+    uint32_t liveLogicSeq_ = 0;
+    int liveLogicPatchCount_ = 0;
+    // Per unpatchable graph: "object name" -> why (node titles, deduped).
+    std::vector<std::pair<std::string, std::string>> liveLogicBlocked_;
+    double liveLogicNextTick_ = 0.0;
+    double liveLogicBuiltNextRead_ = 0.0;
+    void liveLogicTick();
+    // Breakpoints are stored as "<objectId>:<nodeId>" in the project (editor
+    // state), and resolved to the game's integer keys through dbgSyms_.
+    std::string dbgBreakpointKey(const std::string& objectId, int nodeId) const;
+    bool dbgHasBreakpoint(const std::string& objectId, int nodeId) const;
+    void dbgToggleBreakpoint(const std::string& objectId, int nodeId);
+    int dbgKeyFor(int scene, const std::string& objectId, int nodeId) const;
+    // Seconds since a node last fired (FLT_MAX = not since the game started).
+    float dbgNodeHeat(int key) const;
+    // Fires the whole branch under a trigger in the running game, once.
+    // `andRun` resumes the game afterwards instead of running a single frame -
+    // needed whenever the branch only ARMS something (a Delay, a glide), which
+    // then needs frames to finish.
+    void dbgFireNode(int key, bool andRun = false);
+    // Frames left on an armed countdown for this node key (-1 = not armed).
+    int dbgTimerFrames(int key) const;
+
+    // Object watch (docs/devkit.md): the editor names up to
+    // livedbg::kMaxWatchObjects runtime objects and the game samples them every
+    // frame; the samples accumulate here into a per-object history the panel
+    // plots and the viewport draws as a trail. Session state (indices belong to
+    // the running build), not saved with the project.
+    struct DbgObjTrack {
+        int index = -1;               // runtime object index
+        std::string name;             // for display when the object is renamed
+        std::vector<livedbg::ObjSample> samples;  // oldest first, capped
+    };
+    std::vector<DbgObjTrack> dbgObjWatch_;
+    bool dbgShowTrails_ = true;       // draw watched paths in the viewport
+    void dbgToggleObjectWatch(int objectIndex);
+    bool dbgIsWatched(int objectIndex) const;
+    static constexpr size_t kDbgTrackSamples = 1500;  // ~30 s at 50 Hz
 
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.

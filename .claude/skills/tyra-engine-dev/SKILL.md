@@ -28,7 +28,7 @@ Rules:
 - **LF line endings only** under `vendor/tyra/**` — enforced by
   `.gitattributes`; the `vclpp` VU1 preprocessor chokes on CRLF. Don't fight it.
 - The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, and tyra's
-  non-engine parts) is git-ignored and cloned by `setup.ps1` — never edit those.
+  non-engine parts) is git-ignored and cloned by `setup.ps1` / `setup.sh` — never edit those.
 
 ## How an engine change reaches the game
 
@@ -64,7 +64,13 @@ selectable as "Precise clipping on EE (legacy)" and remains the load-time
 default for pre-M4 `.tyra` files without a `clipping` key — design + status
 in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — bloom
+`RendererCorePostFx` (bloom + film grain + depth of field + god rays via GS
+blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
+`setGodRaysSun` screen position/visibility fed by the game) bright-pass the
+frame on the quarter-res buffers (subtract flat threshold 150, double back
+up - 96 washed the whole frame white, the sky IS bright) and iteratively
+zoom it toward the sun (2 ping-pong passes, s=0.72) before compositing
+additively at half the requested strength; bloom
 takes an optional **bright-pass threshold** (`setBloomThreshold`), one extra
 quarter-res sprite subtracting a flat grey from the downsampled frame through
 `(0 - Cs)*128/128 + Cd`; the GS clamps at zero, so sub-threshold pixels drop
@@ -125,6 +131,14 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
+`VU1_ENV_BASIS_ADDR`), `RendererCoreShadowMap` (projected silhouette
+shadows: 4 lazy-allocated 64×64 VRAM slots + one shared cleared z, the env
+map's raster-redirect bracket per caster - begin(slot) per caster, ONE end();
+the game re-submits the caster's existing bags under a `pushEnvView` "light
+camera" and draws a terrain patch sampling the slot's VRAM-resident texture
+by light-space UVs; `allocate()` is called by generated games only when a
+project has "Cast shadow" objects, and init() re-places the buffers after a
+display-mode VRAM reset), `RendererCoreEnvMap` (128×128 VRAM render target for
 `VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
 (`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
 one qword of 2×2 basis weights per particle, colors one per particle; VU1
@@ -153,6 +167,21 @@ with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
 popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
+`docs/reflective-materials.md`), `Sprite::additive` (2D sprites can opt into the additive blend equation
+Cs*As + Cd - lens-flare ghosts, glows; Renderer2D pins alpha-over per sprite
+otherwise), the **scene dynamic lights** registry
+(`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
+`pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
+`StaPipCore::render` picks the strongest contributor - flashlight or point
+light - per bag on its world bounding sphere and routes it through
+`StaPipQBufferRenderer::setBagLight`; a *point* light is expressed through
+the SAME spot-cone constants - zero direction, `cosCut2 = -1`, saturated
+`invSoft` - so no VU1 program changed and no micro memory was spent;
+`PipelineInfoBag::dynLightPick = false` opts a bag out of the pick - the
+generated games set it on TERRAIN CHUNKS (neighboring chunks picking
+different lights truncate a pool in a hard rectangle at the chunk border;
+the lights' ground pools draw as smooth additive patches instead) and on
+the sky dome (camera-centered - a nearby light would tint the whole sky)),
 `docs/reflective-materials.md`), the TyraX portal through-view machinery
 (`RendererCore3D::pushPortalView` — view-matrix-only swap, main projection
 kept, exact frustum planes at the virtual camera — plus
@@ -252,6 +281,67 @@ follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
 missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
 — fine, generated games don't use them.
 
+## The VU1 packet tap (`src/renderer/3d/pipeline/static/core/stapip_vu_tap.*`)
+
+TyraX addition: the editor can ask for one VU1 DMA chain and decode it
+(docs/devkit.md, PROGRESS 195). The engine side is deliberately tiny — a **null
+function pointer** (`Tyra::g_vuPacketHook`) and the branch that tests it in
+`StaPipQBufferRenderer::sendPacket()`, i.e. once per bag flush, never per vertex.
+The capture itself lives in the generated game's devkit TU, so a release build
+links none of it.
+
+**The second hook** (`g_vuMemHook`) is called after the send, once VIF1 and the
+microprogram are idle, with all of VU1 data memory — that is how the editor reads
+what the program PRODUCED (the GIF packets it staged for XGKICK). It costs a
+pipeline stall, so the devkit installs it for one frame and uninstalls itself from
+inside the callback. Two things to know before using it for verification: VU1
+memory holds only the **last** MVP uploaded, and **one flush carries several
+meshes in one chain** — so pairing an input block with an output packet needs a
+single-bag flush plus the object-data chain, which is not done yet (PROGRESS 196).
+
+**The rule that bites**: the pipeline sends vertex arrays **by reference** — a
+`ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at *another* address,
+with the tag itself being ONE quadword. So (1) any chain walker advances by 1 for
+those tags and `1 + qwc` only for inline `cnt`/`next`, or it decodes data as tags;
+and (2) anything that wants the geometry must dereference **on the EE**, while
+those addresses are live — the hook copies each referenced block along.
+
+## The EE crash handler (`src/debug/crash_handler.cpp`) — and its vector traps
+
+TyraX addition (docs/devkit.md in the editor repo): turns a real CPU exception
+into a report instead of a silent freeze. Built on ps2sdk's **libeedebug**
+(`ee_dbg_install` + `ee_dbg_set_level1/2_handler`), which hands a C handler the
+whole `EE_RegFrame` — so there is no hand-written exception stub to maintain.
+Three properties to preserve if you touch it:
+
+- **It lives in its own TU and is only linked when someone calls
+  `CrashHandler::install()`.** `libtyra.a` is an archive, so a game that never
+  installs it (any release build — the editor's devkit layer is what installs)
+  carries zero bytes. Do not add a global constructor or a reference from other
+  engine code, or that property dies quietly.
+- **The handler does the minimum and gets OUT of exception context**: copy the
+  frame, scan the stack for plausible return addresses, then set `frame->epc` to
+  a trampoline and return. The report is written from the trampoline, where stdio
+  and the IOP-served host: filesystem work again. File I/O inside the exception
+  context is the classic way to turn a crash into a hang.
+- **Which causes may be hooked is not a matter of taste** (both measured):
+  hooking **cause 0 (Interrupt)** hijacks vblank/timer/DMA dispatch, so no
+  thread ever runs again — the game freezes with the last frame up and nothing in
+  the log; **cause 8 (Syscall)** and TLB refill / TLB modified (1, 2, 3) are how
+  ordinary memory traffic and every kernel service are *serviced*, not faults to
+  report. Hook genuine faults only: 4, 5, 6, 7, 9, 10, 11, 12, 13, 15.
+
+**Still unproven on hardware**: under PCSX2 the game dies the moment
+`ee_dbg_install()` runs (even with the narrow cause set), so the feature is
+behind an off-by-default project preference. PCSX2 also refuses to *produce* the
+exception — writing to address 0 does not fault on the PS2 (main RAM starts
+there) and a misaligned load went through — so the emulator cannot validate this
+path at all. A console pass is what unlocks making it the default.
+
+Related: the engine's error blocks now print `==============  TYRAX  =============`
+(`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
+banner both, so a previously built ELF still reports.
+
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
@@ -298,11 +388,47 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   them in registers for the whole program (`lq` is cheap), and lane-pack
   related scalar fold state into one register's x/y/z fields (assemble
   candidates with `add.x/y/z reg, vf00, src[x]`, fold once as a vector).
+- **The spot-light cone term's magnitude scales with distance²** — only its
+  SIGN is the (exact, distance-independent) angular cutoff. Size `invSoft`
+  in `buildSpotForBag` off a FRACTION of the range, never the full range:
+  the original `softness / (objRange2 * (1 - cosCut2))` made the flashlight
+  ramp up over its whole reach — black on anything close, full brightness
+  only near the far end, i.e. "it doesn't light what I'm aiming at".
+- **Clamp vertex colors BEFORE the VU1 clipper interpolates them.** The cull
+  programs run `FixColor` (mini 255 / max 0) per vertex right after the spot
+  light; the clip programs feed Sutherland-Hodgman and only clamp in the
+  emitter — after the lerp. An unclamped saturated color (a bright dynamic
+  light easily pushes past 255) then interpolates from its raw value, so a
+  lit surface visibly BRIGHTENS the moment it touches a screen edge and
+  starts being clipped. `stapip_clip_{c,tc}_vu1.vclpp` now clamp before
+  storing into the scratch polygon (float clamp only — `ftoi0` belongs in
+  the emitter). **Budget note:** the ceiling alone (`loi 255` + `mini.xyz`
+  per vertex, 6 instructions) is all that fits — adding the matching
+  `max.xyz … vf00[x]` floor too (9 per program) tripped the real
+  `VU1 pipeline programs overflow into the draw-finish program` assert
+  (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
+  headroom; measure with
+  `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
+  after ANY edit there.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
   `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
   clean log. Count the qwords after every PACK_GIFTAG edit.
+- **ps2sdk's `ATEST_KEEP_*` constants name what is PRESERVED, not what is
+  written** (`ps2sdk/ee/include/draw_tests.h`): `ATEST_KEEP_ZBUFFER` = 1 =
+  GS FB_ONLY (colour written, z untouched), `ATEST_KEEP_FRAMEBUFFER` = 2 =
+  ZB_ONLY (z written, colour untouched), `ATEST_KEEP_ALL` = 0 = write
+  nothing. Reading them the other way round is easy and expensive: upstream's
+  alpha test passed `ATEST_KEEP_FRAMEBUFFER` on the standard path, so every
+  fully transparent texel of a cutout texture stamped the z buffer while
+  drawing no colour — foliage, grates and decals silently occluded whatever
+  was drawn behind them later, which looks like a sorting or texture bug
+  rather than an AFAIL one. Cutout wants `ATEST_KEEP_ALL` (both pipelines
+  now use it; `PipelineZTest_TestOnly` deliberately keeps FB_ONLY for its
+  depth-tested-no-z-write trick). Symptom to recognise: transparency itself
+  works, but geometry behind a transparent area is missing, cut along the
+  straight edges of the quad in front of it.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.
@@ -358,11 +484,44 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   (three 512-line buffers), leaving ~1 MB for textures.
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
   (TyraX fork) switches the scan mode / widescreen between frames.
-  A mode change resets the whole VRAM bump allocator (`vram.reset()`),
+  A mode change resets the whole VRAM allocator (`vram.reset()`),
   rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
   texture allocation (they lazily re-upload) — never call it mid-frame.
+  It is also the ONLY caller allowed to `allocateBuffer()` after init.
   The projection aspect lives in `RendererSettings::updateGeometry`
   (fixed 4:3-baseline look; widescreen scales it anamorphically).
+  **That table has a host twin**: `App::ps2ViewportOutput` (app.cpp) resolves
+  the same per-mode framebuffer size + aspect for the editor's PS2 output
+  viewport, and the flicker-filter choice in `presentFrameBuffer` with it
+  (docs/ps2-viewport.md). Adding or resizing a `DisplayMode` means editing
+  both, or the editor draws a picture the console does not.
+- **GS VRAM is two regions, and `free()` is order-independent** (TyraX fork —
+  full write-up in [docs/gs-vram.md](../../../docs/gs-vram.md)).
+  `allocateBuffer()` (page-aligned) fills a **permanent** bump region at the
+  bottom — both frame buffers, z, post-fx scratch, noise, the env-map and
+  camera-feed targets — that is never released; `allocate()` (block-aligned)
+  serves textures from a **coalescing best-fit free list** above it. `free()`
+  ignores addresses the heap never handed out, which is what protects the
+  permanent region — do not "fix" that into an assert. Upstream's `free()` was
+  `pointer = address` (a stack pop), so freeing anything but the newest
+  allocation handed out the memory of still-live textures: streaming-layer
+  unloads reproduced it as surviving objects rendering another object's
+  texture. Budget after the init buffers is **~1.08 MB** (~1 MB in
+  `Pal576i`), and every allocation costs ~8 KB of padding on top of its
+  pixels — a 256×256 32bpp texture is 24% of the heap, a 512×512 is 93%.
+  When a texture does not fit, `RendererCoreTexture::makeRoomFor()` evicts
+  coldest-first (`pickVictim`: stale entries by LRU; when the whole resident
+  set is in this frame's working set, the MOST recently bound one — plain LRU
+  makes a per-frame texture scan cycle its entire set). Textures that must
+  never be evicted are not "pinned" — they are not in the list at all: give
+  them their own `texbuffer_t` through `Texture::vramResident`, the way
+  `RendererCoreEnvMap` does. To see what a scene actually does, build with the
+  **debug** profile and grep the game's `bin/log.txt` for `VRAMSTAT`
+  (binds/hits/uploads/**re-uploads**/evictions/resident/free MB/largest free
+  block, per frame); `reup` per frame is the number that matters, each one is
+  a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
+  0.87 MB free and never evicts anything — if you are chasing a VRAM problem
+  in a palettized project, measure before assuming there is one.
 - **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
   (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
   presents a frame each iteration is paced to 50/60 Hz, but a loop that draws

@@ -1,12 +1,15 @@
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "aobake.hpp"
+#include "gibake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
 #include "project.hpp"
@@ -23,6 +26,30 @@ public:
 
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
+
+    // Camera projection (docs/orthographic-views.md). Perspective is the
+    // classic free orbit camera; the ortho modes render with a parallel
+    // projection (no foreshortening, so equal sizes read equal anywhere on
+    // screen) and the six axis modes additionally lock the camera onto that
+    // world axis - the Top/Front/Side views of a CAD or level editor.
+    // Orbiting out of an axis view keeps the parallel projection and falls
+    // back to Ortho (free), so a drag never feels dead.
+    enum class Projection {
+        Perspective = 0,
+        Ortho = 1,        // parallel, free orbit direction
+        OrthoTop = 2,     // looks down -Y (+X right, +Z down)
+        OrthoBottom = 3,  // looks up +Y
+        OrthoFront = 4,   // looks along -Z (+X right, +Y up)
+        OrthoBack = 5,    // looks along +Z
+        OrthoRight = 6,   // looks along -X (from +X)
+        OrthoLeft = 7,    // looks along +X (from -X)
+    };
+    static constexpr int kProjectionCount = 8;
+    void setProjection(Projection p) { projection_ = p; }
+    Projection projection() const { return projection_; }
+    bool orthographic() const { return projection_ != Projection::Perspective; }
+    // Display name of a projection mode ("Perspective", "Top", ...).
+    static const char* projectionName(Projection p);
 
     bool init();  // requires a current GL context
     void shutdown();
@@ -43,6 +70,29 @@ public:
     // Returns false when the ray misses; used by the sculpting brush.
     bool terrainRaycast(float u, float v, float& outX, float& outZ) const;
 
+    // Casts a ray through normalized image coords at the whole scene (object
+    // boxes + the terrain heightfield) and returns the closest hit point in
+    // world space. `skip` (optional, parallel to objects) excludes indices
+    // from the test - the objects being placed must not catch their own ray.
+    // Objects on hidden layers are excluded like they are for picking.
+    // Returns false when the ray leaves the scene without hitting anything.
+    bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
+                          const std::vector<char>& skip, float outPoint[3]) const;
+
+    // Inverse of camRay: a world point -> normalized image coords (u, v in
+    // [0,1], origin top-left) of the LAST rendered frame. False when the point
+    // is behind a perspective camera. App-side ImDrawList overlays that have
+    // to sit on world geometry (the measuring tape) place themselves with
+    // this, so they agree with the image under every projection instead of
+    // rebuilding a camera of their own.
+    bool projectToImage(const float world[3], float& outU, float& outV) const;
+
+    // Local-space AABB of what an object DRAWS as a model: static .obj bounds
+    // (GL-free, cached) or an animated model's baked pose bounds. False for
+    // non-model objects and unreadable files. The aobake::ModelAabbFn the app
+    // hands to the placement snapping and the occluder collection.
+    bool modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]);
+
     float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
 
     // horizon + zenith colors; gradient=false renders a flat horizon color
@@ -52,6 +102,23 @@ public:
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
+
+    // Baked global illumination preview (docs/global-illumination.md). The
+    // editor must show the same light the console will, or authoring a bake is
+    // guesswork - so the scene's probe grid is uploaded as a 3D texture and the
+    // fragment shader evaluates it per pixel, REPLACING the ambient +
+    // directional shade exactly the way the generated game replaces it per
+    // vertex. An empty grid (no bake, or a stale one) restores the classic
+    // preview with one call.
+    //
+    // Where this preview is honest and where it is not: the game gives static
+    // untextured geometry a per-TEXEL lightmap, whose contact shadows are
+    // sharper than a 3-unit probe grid can be. Everything else - models,
+    // textured surfaces, physics bodies, characters - is probe-lit in the game
+    // too, and there this is exact.
+    void setGiProbes(const gibake::ProbeGrid& g);
+    void clearGiProbes() { setGiProbes(gibake::ProbeGrid()); }
+    bool giProbesLoaded() const { return giDim_[0] > 0; }
 
     // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
     // self-occlusion is multiplied into the terrain vertex colors (the same
@@ -139,6 +206,18 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     const std::vector<int>& selection, int primary);
 
+    // Phone camera link (docs/phone-camera.md): reads the image the LAST
+    // render() produced back into packed RGB for JPEG streaming to the
+    // companion app - so the phone sees exactly the frame the editor viewport
+    // shows, grading included, without a second scene pass. The image is
+    // downscaled on the GPU (a blit into a small dedicated target, which is
+    // also all that gets read back, so a 1600x900 viewport does not stall the
+    // frame) and row-flipped into top-down order on the way out.
+    // maxW/maxH cap the long edges; the source aspect is preserved. False when
+    // nothing has been rendered yet.
+    bool grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
+                        int& outW, int& outH);
+
     // Collaboration presence: other participants' selections in the ACTIVE
     // scene, outlined in each peer's color under the local selection (local
     // amber always reads on top). The app resolves object ids to indices per
@@ -193,6 +272,29 @@ public:
     };
     uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
 
+    // Tree Generator live preview (Tools > Tree Generator): generated
+    // geometry + in-memory textures straight from treegen - nothing touches
+    // disk or the shared asset caches, so slider drags stay instant. Renders
+    // into its OWN framebuffer (only the gradient/checker backdrop meshes are
+    // shared); meshes and textures re-upload only when `version` changes.
+    struct TreePreviewDesc {
+        uint64_t version = 0;
+        const std::vector<float>* bark = nullptr;    // pos3+normal3+uv2 tris
+        const std::vector<float>* leaves = nullptr;  // same layout, drawn
+                                                     // with alpha cutout
+        const unsigned char* barkRgba = nullptr;     // RGBA texture pixels
+        int barkW = 0, barkH = 0;
+        const unsigned char* leafRgba = nullptr;
+        int leafW = 0, leafH = 0;
+        float center[3] = {0, 0, 0};  // mesh AABB center (camera pivot)
+        float minY = 0.0f;            // AABB bottom (floor placement)
+        float radius = 1.0f;          // AABB half-diagonal (framing)
+        float angleDeg = 40.0f;       // turntable yaw
+        float pitchDeg = 18.0f;       // camera elevation
+        float zoom = 1.0f;
+        int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
+    };
+    uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals
@@ -221,6 +323,18 @@ public:
         PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
+
+    // Asset Browser thumbnails (docs/asset-browser.md): one square preview of
+    // an asset file, rendered ONCE into a dedicated framebuffer and copied into
+    // its own small GL texture - a grid of hundreds then costs nothing to draw.
+    // Handles static .obj, animated .glb/.fbx (first pose) and .mtl libraries
+    // (a sphere wearing the first material); an image file needs no render and
+    // returns the shared texture. `render` false only reports what is already
+    // baked (0 = nothing yet), which is how the browser budgets the number of
+    // new thumbnails a single frame may pay for. Failed assets are remembered
+    // as 0 so an unreadable file is not retried every frame.
+    uint32_t assetThumb(const std::string& relPath, bool render);
+    static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
 
     // Source clip names of an animated model, in file order. Empty when the
     // file is missing or unusable. (The Animation Editor's clip list.)
@@ -281,10 +395,16 @@ public:
     // Cutscene Director camera-track preview: override the orbit camera with an
     // explicit eye + look-at target + vertical FOV (degrees) for the next
     // render() calls; clearCameraOverride() restores the orbit camera.
-    void setCameraOverride(const float eye[3], const float target[3], float fovDeg) {
+    // `rollDeg` rotates the view about its own axis (the Dutch angle) - the
+    // basis comes from seqCameraUp, the same function the generated PS2 player
+    // and the camera-take bake use, so the preview cannot tilt differently from
+    // the console.
+    void setCameraOverride(const float eye[3], const float target[3], float fovDeg,
+                           float rollDeg = 0.0f) {
         camOverride_ = true;
         for (int i = 0; i < 3; ++i) camEye_[i] = eye[i], camTarget_[i] = target[i];
         camFov_ = fovDeg;
+        camRoll_ = rollDeg;
     }
     void clearCameraOverride() { camOverride_ = false; }
 
@@ -311,9 +431,32 @@ public:
     void resetView();
 
     // View/projection of the last render() call (column-major, OpenGL style) -
-    // used by the transform gizmo.
+    // used by the transform gizmo. The projection is in PANEL space: in the
+    // PS2 output mode it carries the letterbox scale, so the gizmo lands on
+    // the picture and not on the bars beside it.
     const float* viewMatrix() const { return viewM_; }
     const float* projMatrix() const { return projM_; }
+
+    // PS2 output emulation (docs/ps2-viewport.md): render the scene at the GS
+    // framebuffer size of the project's display mode and present it - nearest,
+    // letterboxed into the TV's display window - instead of drawing the scene
+    // at whatever shape the viewport happens to be docked to. Geometry comes
+    // from the app (the twin of Tyra's RendererSettings::updateGeometry); the
+    // viewport only consumes it, so a new engine display mode is one table
+    // entry there and nothing here.
+    struct Ps2Output {
+        bool on = false;
+        int bufW = 512;   // physical GS framebuffer, in GS pixels
+        int bufH = 448;   // half the logical height when field rendering
+        float projAspect = 512.0f / 448.0f;  // RendererSettings::aspectRatio
+        float tvAspect = 4.0f / 3.0f;        // shape of the display window
+        // The GS flicker filter (two read circuits, the second offset by one
+        // line): on for the Interlaced and Pal576i scan-outs, off for the DTV
+        // modes and field rendering - RendererCoreGS::presentFrameBuffer.
+        bool flicker = true;
+    };
+    void setPs2Output(const Ps2Output& o) { ps2_ = o; }
+    const Ps2Output& ps2Output() const { return ps2_; }
 
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
@@ -367,11 +510,43 @@ private:
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
+    Projection projection_ = Projection::Perspective;
+    // The camera a render() draws with: eye + orthonormal basis plus the
+    // projection extents. ONE source for render(), pick(), the terrain
+    // raycast and the placement raycast - those used to rebuild the same
+    // hardcoded 50-degree perspective ray by hand, so they disagreed with the
+    // image as soon as the projection was ortho or a Camera entity's FOV.
+    struct CamView {
+        float eye[3] = {0.0f, 0.0f, 0.0f};
+        float fwd[3] = {0.0f, 0.0f, -1.0f};
+        float right[3] = {1.0f, 0.0f, 0.0f};
+        float up[3] = {0.0f, 1.0f, 0.0f};
+        bool ortho = false;
+        float tanHalf = 0.4663f;  // perspective: tan(vertical fov / 2)
+        float halfH = 1.0f;       // ortho: half the visible height (world units)
+        float aspect = 1.0f;
+        // Letterbox: the fraction of the panel the picture covers, per axis
+        // (1,1 outside the PS2 output mode). Image coords passed to camRay and
+        // returned by projectToImage are PANEL coords, so both go through it -
+        // that is what keeps picking, the placement raycast and the measuring
+        // tape on the picture when it no longer fills the viewport.
+        float boxSx = 1.0f, boxSy = 1.0f;
+    };
+    CamView camView(int width, int height) const;
+    // Ray through normalized image coords (u, v in [0,1], origin top-left).
+    // The ortho ray starts a full scene depth behind the eye plane so nothing
+    // visible can sit behind the ray origin (a parallel projection draws what
+    // is behind the camera too - see the symmetric depth range).
+    void camRay(const CamView& c, float u, float v, float o[3], float d[3]) const;
+    // Half the depth range the projection spans - far plane / ortho z extent.
+    float sceneDepth() const;
+
     // Cutscene camera-track preview override (see setCameraOverride)
     bool camOverride_ = false;
     float camEye_[3] = {0.0f, 0.0f, 0.0f};
     float camTarget_[3] = {0.0f, 0.0f, 0.0f};
     float camFov_ = 50.0f;
+    float camRoll_ = 0.0f;  // Dutch angle of the override camera, degrees
     // Camera entities not to draw (previewing through them) - see setHiddenCameras
     std::vector<std::string> hiddenCams_;
     bool camHidden(const std::string& name) const {
@@ -418,6 +593,17 @@ private:
     int uAoSelfObj_ = -1, uAoGround_ = -1, uAoReceive_ = -1;
     int uAoPos_ = -1, uAoAx_ = -1, uAoAy_ = -1, uAoAz_ = -1, uAoObj_ = -1;
     int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
+    // Baked GI probe grid (see setGiProbes)
+    int uGiOn_ = -1, uGiProbes_ = -1, uGiOrigin_ = -1, uGiStep_ = -1,
+        uGiDim_ = -1, uGiScale_ = -1;
+    uint32_t giTex_ = 0;
+    float giOrigin_[3] = {0, 0, 0};
+    float giStep_[3] = {1, 1, 1};
+    int giDim_[3] = {0, 0, 0};
+    float giScale_ = 1.0f;
+    std::vector<uint8_t> giPixels_;  // staged until the GL context exists
+    bool giUploadPending_ = false;
+    void uploadGiProbes();
     bool aoOn_ = false;
     float aoStrength_ = 0.55f;
     float aoRadius_ = 2.5f;
@@ -462,6 +648,11 @@ private:
     struct ModelPart {
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
+        // map_Kd carries transparency: draw this part cutout + blended, the
+        // way the console's static pipeline alpha-tests every texture. Leaf
+        // cards are the everyday case (Tree Generator); without it their
+        // transparent margin renders as the PNG's black RGB.
+        bool alpha = false;
         float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke emission floor (0 = matte)
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
@@ -479,6 +670,12 @@ private:
     const ModelDraw* modelDraw(const std::string& relPath,
                                const std::string& materialRel);
     void clearModelCache();
+    // GL-free model AABB lookup (objparser only), cached; the AO occluder
+    // collection uses this so reading bounds never triggers a GL upload.
+    // Value: (loaded?, {minXYZ, maxXYZ}).
+    std::map<std::string, std::pair<bool, std::array<float, 6>>> modelBoundsCache_;
+    bool modelBounds(const std::string& relPath, const std::string& materialRel,
+                     float mn[3], float mx[3]);
 
     // Animated .glb models: the baked clips stay CPU-side and each part owns
     // a dynamic VBO that is re-lerped per frame for the playback preview
@@ -530,7 +727,12 @@ private:
     aobake::GlowCache emisGlowCache_;
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
+    // Which of those images actually carry transparency (any texel below
+    // fully opaque), filled as they load - the cutout/blend decision, so a
+    // draw site never has to re-read the file.
+    std::map<std::string, bool> texAlpha_;
     uint32_t glTexture(const std::string& relPath);
+    bool texHasAlpha(const std::string& relPath) const;
     void clearTexCache();
 
     // Live particle-emitter preview. The simulation mirrors the generated
@@ -569,11 +771,44 @@ private:
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};
 
+    // The RENDER target: the panel size normally, the GS framebuffer size in
+    // the PS2 output mode. Everything inside render() sizes itself from
+    // fbWidth_/fbHeight_, so the whole scene pass moves to GS resolution
+    // without knowing about it.
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
+    // Which framebuffer holds the image the last render() returned (fbo_,
+    // gradeFbo_ when the grading pass ran, or outFbo_ in the PS2 output mode)
+    // and its size - the source grabPreviewRgb blits from, so the phone sees
+    // the graded picture too. 0 = nothing rendered yet.
+    uint32_t lastImageFbo_ = 0;
+    int lastImageW_ = 0, lastImageH_ = 0;
+
+    // PS2 output mode: the panel-sized presentation target the GS image is
+    // scaled into (nearest, letterboxed into the display window), and the
+    // panel size itself - camView() needs it to work out the letterbox even
+    // though every render/pick call now passes the GS size around.
+    Ps2Output ps2_;
+    void ensureOutputFramebuffer(int width, int height);
+    uint32_t outFbo_ = 0, outTex_ = 0;
+    int outW_ = 0, outH_ = 0;
+    // How much of the panel the picture covers, per axis (1 = edge to edge).
+    // The letterbox is centred by construction, so it is a pure scale: the
+    // projection handed to the gizmo is multiplied by it, camRay divides by
+    // it, projectToImage multiplies again.
+    void ps2LetterBox(float& sx, float& sy) const;
+    uint32_t ps2Program_ = 0;
+    int uPs2Src_ = -1, uPs2Box_ = -1, uPs2Texel_ = -1, uPs2Flicker_ = -1;
+
+    // Phone-camera readback target: a small RGBA8 framebuffer the viewport
+    // image is blitted (and thus downscaled) into before glReadPixels.
+    void ensureGrabFramebuffer(int width, int height);
+    uint32_t grabFbo_ = 0, grabTex_ = 0;
+    int grabW_ = 0, grabH_ = 0;
 
     // Material Editor preview target + fixed backdrop meshes
     void ensurePreviewFramebuffer(int width, int height);
+    void ensurePreviewBackdrop();  // lazily builds prevBg_ / prevFloor_
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
     // Animation Editor preview target. Its own FBO on purpose: both tool
@@ -584,8 +819,32 @@ private:
     uint32_t animFbo_ = 0, animTex_ = 0, animDepth_ = 0;
     int animFbW_ = 0, animFbH_ = 0;
     Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
-    void ensurePreviewBackdrop();  // builds prevBg_/prevFloor_ once
     uint32_t uvCheckerTex_ = 0;  // generated UV-checker (displayMode 2)
+
+    // Tree Generator preview target. Its OWN framebuffer, not the Material
+    // Editor's: both tools can be open at once, they size their previews
+    // independently, and both draw within a single UI frame - sharing one
+    // target would thrash its size and make each show the other's image.
+    void ensureTreeFramebuffer(int width, int height);
+    uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
+    int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for
+    // the same reason the tree preview has one - the browser bakes thumbnails
+    // in the middle of a frame in which the Material Editor may be drawing its
+    // own preview. Baked images live in thumbCache_ (one texture per asset, an
+    // entry with value 0 = tried and unusable), dropped by invalidateAssets.
+    void ensureThumbFramebuffer();
+    uint32_t thumbFbo_ = 0, thumbColor_ = 0, thumbDepth_ = 0;
+    std::map<std::string, uint32_t> thumbCache_;
+    void clearThumbCache();
+
+    // Tree Generator preview geometry + textures (see renderTreePreview);
+    // rebuilt only when the desc version changes.
+    Mesh treePrevBark_, treePrevLeaves_;
+    uint32_t treePrevBarkTex_ = 0, treePrevLeafTex_ = 0;
+    uint64_t treePrevVersion_ = 0;
+    bool treePrevHasVersion_ = false;
 
     // Model shown in the material preview. Unlike modelCache_ the part Kd is
     // NOT baked into the vertex colors (it rides the tint uniform instead) so

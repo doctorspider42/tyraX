@@ -75,7 +75,7 @@ class TyraDebug {
   static void trap(const char* file, int line, Args... args) {
     std::stringstream ss1;
     ss1 << "\n";
-    ss1 << "==============  TYRA  ==============\n";
+    ss1 << "==============  TYRAX  =============\n";
     ss1 << "| Assertion failed!\n";
     ss1 << "|\n";
 
@@ -122,7 +122,7 @@ class TyraDebug {
   static void softError(const char* file, int line, Args... args) {
     std::stringstream ss1;
     ss1 << "\n";
-    ss1 << "==============  TYRA  ==============\n";
+    ss1 << "==============  TYRAX  =============\n";
     ss1 << "| Non-fatal error (game keeps running)!\n";
     ss1 << "|\n";
 

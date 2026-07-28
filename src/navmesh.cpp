@@ -54,6 +54,7 @@ bool blocksNavigation(const SceneObject& o) {
         case PrimitiveType::Empty:
         case PrimitiveType::Decal:
         case PrimitiveType::Camera:
+        case PrimitiveType::Area:
             return false;  // markers / visual-only, collidePlayer's skip list
         default:
             break;
@@ -100,7 +101,7 @@ NavGrid bake(const Project& p, const SceneData& s) {
             if (it == modelAabbs.end()) {
                 std::array<float, 6> box = {-0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f};
                 objparser::Model m;
-                if (objparser::load(p.dir + "\\" + o.modelPath, m))
+                if (objparser::load(p.filePath(o.modelPath), m))
                     box = {m.min[0], m.min[1], m.min[2], m.max[0], m.max[1], m.max[2]};
                 it = modelAabbs.emplace(o.modelPath, box).first;
             }

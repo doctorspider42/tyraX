@@ -51,21 +51,47 @@ add_custom_command(
     DEPENDS ${AI_SUPPORT_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
     COMMENT "Embedding ai-support/ skills")
 
+# --- Embedded app icon (resources/icon.png -> generated header) ---
+# Windows gets its icon from the GLFW_ICON resource in resources/app.rc above.
+# Every other platform needs the same image at RUNTIME - GLFW wants decoded
+# pixels for the window icon and the freedesktop desktop entry wants a PNG on
+# disk - so the file is baked in rather than shipped loose next to the binary.
+set(APP_ICON_GEN ${CMAKE_BINARY_DIR}/generated/icon_gen.hpp)
+add_custom_command(
+    OUTPUT ${APP_ICON_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/icon.png
+            -DOUT_FILE=${APP_ICON_GEN}
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/icon.png
+            ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+    COMMENT "Embedding resources/icon.png")
+
 # --- Editor ---
 add_executable(tyrax-editor
     ${AI_SUPPORT_GEN}
+    ${APP_ICON_GEN}
     src/main.cpp
     src/aigen.cpp
     src/aisupport.cpp
     src/animedit.cpp
     src/aobake.cpp
     src/app.cpp
+    src/assetbrowser.cpp
     src/camtake.cpp
+    src/devsession.cpp
     src/flownode.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
+    src/elfsym.cpp
+    src/livedbg.cpp
+    src/livelogic.cpp
+    src/livetime.cpp
+    src/vucap.cpp
+    src/bvh.cpp
+    src/gibake.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp
@@ -73,6 +99,9 @@ add_executable(tyrax-editor
     src/menubake.cpp
     src/meshlod.cpp
     src/pcsx2_config.cpp
+    src/phonecam.cpp
+    src/placement.cpp
+    src/platform.cpp
     src/pngquant.cpp
     src/primmesh.cpp
     src/decalproj.cpp
@@ -84,6 +113,7 @@ add_executable(tyrax-editor
     src/texatlas.cpp
     src/texbake.cpp
     src/tmdl.cpp
+    src/treegen.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp
@@ -99,8 +129,20 @@ add_executable(tyrax-editor
 )
 target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
-# ws2_32: the collaboration transport (src/wire.cpp) uses Winsock2 sockets.
-target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid ws2_32)
+
+find_package(OpenGL REQUIRED)
+target_link_libraries(tyrax-editor PRIVATE imgui glfw OpenGL::GL)
+
+if(WIN32)
+    # shell32/ole32/uuid: the native file pickers and "Reveal in Explorer"
+    # (src/platform.cpp). ws2_32: the socket transport (src/wire.cpp).
+    target_link_libraries(tyrax-editor PRIVATE shell32 ole32 uuid ws2_32)
+else()
+    # Threads: std::thread needs an explicit -pthread with libstdc++, and
+    # ${CMAKE_DL_LIBS} is what GLFW's runtime GL/Vulkan loading wants.
+    find_package(Threads REQUIRED)
+    target_link_libraries(tyrax-editor PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 if(MINGW)
     # Self-contained exe: don't depend on libstdc++/libgcc/libwinpthread DLLs

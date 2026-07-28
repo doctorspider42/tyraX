@@ -10,10 +10,23 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-# Dependencies in vendor/
-if (-not (Test-Path 'vendor/imgui') -or -not (Test-Path 'vendor/glfw') -or -not (Test-Path 'vendor/imguizmo') -or -not (Test-Path 'vendor/imnodes')) {
-    Write-Host '== Cloning dependencies (setup.ps1) ==' -ForegroundColor Cyan
+# Dependencies in vendor/. The list comes from deps.ps1 so this guard can never
+# drift behind setup.ps1 again: every dependency CMake compiles is probed by a
+# real source file, and a missing one is fixed here instead of surfacing later
+# as "Cannot find source file: vendor/..." from cmake. This fires on a fresh
+# clone, and just as often in an older worktree after merging a branch that
+# added a dependency.
+. ./deps.ps1
+$missingDeps = @($VendorDeps | Where-Object { $_.Build -and -not (Test-Path $_.Probe) })
+if ($missingDeps.Count -gt 0) {
+    $names = ($missingDeps | ForEach-Object { $_.Dir }) -join ', '
+    Write-Host "== Missing dependencies ($names) - running setup.ps1 ==" -ForegroundColor Cyan
     ./setup.ps1
+    $missingDeps = @($VendorDeps | Where-Object { $_.Build -and -not (Test-Path $_.Probe) })
+    if ($missingDeps.Count -gt 0) {
+        $probes = ($missingDeps | ForEach-Object { $_.Probe }) -join ', '
+        throw "Still missing after setup.ps1: $probes. Delete those vendor directories and run ./setup.ps1 again."
+    }
 }
 
 # g++ from scoop's mingw is often not on PATH in fresh shells

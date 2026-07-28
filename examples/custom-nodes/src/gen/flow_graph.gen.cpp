@@ -3,6 +3,7 @@
 #include "scripts/script.hpp"
 #include "scripts/sequences.gen.hpp"  // Play/Stop Sequence nodes
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
+#include "input_map.gen.hpp"  // On Action / Set Input Preset
 
 #include <math.h>
 #include <stdio.h>
