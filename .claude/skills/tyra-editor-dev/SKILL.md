@@ -605,6 +605,19 @@ CHECKED: `elfsym::auditRelease` scans the built ELF for the `TXDEVKIT-` markers
 and channel file names, `--audit-release` exits non-zero, and every release build
 runs it. **A new devkit layer must plant its own marker** or the audit cannot see
 it; a new instrumentation call must go through a generated header that no-ops.
+Two more steps that are easy to miss and both silently break the promise: the
+layer's file name goes in `kStringNeedles` (elfsym.cpp) next to the other
+channels, and its generated `.cpp`/`.hpp` must join `refreshGenerated`'s
+overwrite list (see rule 2) - the Remote Pad's runtime reached a RELEASE ELF
+because it was generated once at project creation and never refreshed. So run the
+audit in BOTH directions before believing it: `--audit-release` against the DEBUG
+ELF must FAIL and name your layer, and against a release build must come back
+clean. A layer the audit cannot see is indistinguishable from a layer that is
+not there. And a new channel file must be **deleted before launch** in BOTH of
+the Runner's clean-up blocks (`runner.cpp` has one for the PCSX2 path and one
+for the ps2link deploy): a leftover from the last session is applied on the first
+poll of the fresh boot, which for the Remote Pad meant a game that starts walking
+before anyone touches anything.
 
 **Live Debugger** (`App::livedbgTick` each frame from `drawUI`; docs in
 `docs/live-debugger.md`) - Live Link's reverse channel, on the same host: files.

@@ -5,11 +5,13 @@ description: >
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
   game builds, checking code
   generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
-  reliable screenshots and synthetic keyboard/mouse via the bundled scripts —
-  GDI on Windows, mutter's D-Bus APIs on Wayland), and audio verification.
+  reliable screenshots, and DRIVING the game's controller unattended with
+  `--pad` — no window focus needed — plus synthetic keyboard/mouse via the
+  bundled scripts, GDI on Windows, mutter's D-Bus APIs on Wayland), and audio
+  verification.
   Use this skill EVERY time you need to test a change, run the editor, build a
-  game, boot PCSX2, take a screenshot, drive the editor or the emulator without
-  a human, create a scratch project, or decide
+  game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
+  the emulator or the editor without a human, create a scratch project, or decide
   "how do I know this works?" — including before writing a PROGRESS.md entry or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
@@ -325,6 +327,13 @@ Notes:
   only), a 1.5 s right-stick turn changes ~197k px, a 2.5 s forward walk ~1.4M -
   and 4 s after the script the frame is idle again, which is what proves the
   release actually happened.
+  When a script runs clean and the game ignores it, check in this order: is
+  `src/gen/live_pad.gen.cpp` the real runtime or the "nothing to compile here"
+  stub (that answers "was this ELF built with the channel" in one line), was the
+  game rebuilt since the preference changed (the poller is compiled in - a save
+  is not enough), and is `bin/livepad.bin` being written where the RUNNING ELF
+  lives (`Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'"` prints the
+  `-elf` path; a second fixture directory is the classic mix-up).
 - **Synthetic input into PCSX2** (the older, focus-dependent path - still the
   only way to reach PCSX2's OWN keys, e.g. F8 or the pause hotkey). **On Linux
   this is the easy side**: `wayland-control.py` (see Screenshots below) injects
@@ -735,6 +744,47 @@ Notes:
   `livepad::write` the CLI does, but a synthetic click into the editor is its own
   problem) - say so in PROGRESS.md, that's the established convention.
 
+### The unattended input test, end to end
+
+The whole recipe, on Windows, with nothing focused and no human. Every step is
+described above; this is the order that works, and the shape a PROGRESS entry
+about a pad-driven feature should be able to quote.
+
+```powershell
+$P = "$env:TEMP\tyra-editor-test\padtest"      # short path - PCSX2 needs it
+$S = "<scratchpad>"
+build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
+build\tyrax-editor.exe --build $P --run        # boot it
+Start-Sleep 22                                 # Tyra logo + splash + scene load
+$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
+Start-Sleep 3
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL
+build\tyrax-editor.exe --pad $P "stick r 110 0; wait 1.5; neutral"
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\turned.png"
+build\tyrax-editor.exe --pad $P "stick l 0 -127; wait 2.5; neutral"
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\walked.png"
+Start-Sleep 4
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle3.png"   # RELEASED
+```
+
+Then count changed pixels between the pairs with a few lines of PIL
+(`ImageChops.difference(...).get_flattened_data()`). Four things make this a real
+test rather than a screenshot:
+
+- **the idle pair is the control.** Without it "the picture changed" proves
+  nothing. Measured on this fixture: 3 s of idle changes ~600 px and every one of
+  them is inside PCSX2's own status bar (the FPS/EE numbers) - so anything in the
+  hundreds of thousands is unambiguously the game.
+- **turn before you walk.** A straight walk over the flat checkerboard maps the
+  repeating pattern onto itself and can change almost nothing; the yaw turn is
+  the loud signal (~197k px here, vs ~1.4M for a 2.5 s walk after it).
+- **the trailing idle shot proves the RELEASE.** Back to status-bar-only
+  (~1.6k px) is what shows the pad was let go rather than the input having simply
+  stopped arriving - the one failure mode a "did it move?" test cannot see.
+- **crop the status bar out** if you want a cleaner number: it is the only thing
+  moving in an idle frame, so its rows are pure noise for every comparison.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
@@ -744,4 +794,5 @@ Notes:
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
+| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
