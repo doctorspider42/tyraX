@@ -101,7 +101,7 @@ struct JoinConfig {
     std::string joinCode;
     std::string displayName;
     // Remote projects materialize under <cacheRoot>/<projectId>/project.
-    // "" = %LOCALAPPDATA%\tyra-editor\remote-cache.
+    // "" = <editor config dir>/remote-cache (platform::configDir).
     std::string cacheRoot;
 };
 
@@ -207,7 +207,7 @@ class Session {
     friend struct WorkerCtx;
 };
 
-// The default client-side cache root: %LOCALAPPDATA%\tyra-editor\remote-cache.
+// The default client-side cache root: <editor config dir>/remote-cache.
 std::string defaultCacheRoot();
 
 // A fresh 6-digit join code.

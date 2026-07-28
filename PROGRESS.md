@@ -5,12 +5,730 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
+- Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
+  god rays, dynamic light on animated models, visible beams, blob shadows.
+
+## Done in the lighting batch
+
+- (138) **The "shadow corners": a projected shadow sampled its own silhouette
+  twice.** Owner, after (136) and (137), with a magnified crop: thin dark
+  streaks still sitting on the ground beside the real shadow - and the original
+  "the shadow tiles" report, which is the same thing seen bigger.
+
+  The receiver patch is sized in WORLD units while its texture coordinates come
+  out of the light's projection, so its outer ring lands outside 0..1 by design
+  - measured `u = -0.38 .. 1.39`. The code assumed the GS wrap mode would take
+  care of that ("CLAMP smears edge texels outward - the border guarantees the
+  edges stay empty"), and **nothing ever set it**: `Texture::setWrapSettings`
+  reaches the GS only through `path3` and the post-fx blits, and no 3D pipeline
+  in this engine emits `GS_REG_CLAMP` at all. So the patch sampled with
+  whatever global state the last 2D draw happened to leave - in practice
+  REPEAT, which fetched a second copy of the silhouette at the patch edge.
+
+  Writing `GS_SET_CLAMP` from the shadow pass was tried first and **measured to
+  change nothing** (two engine builds, byte-identical frames), so that was
+  reverted rather than shipped on a theory. The STs are clamped on the EE
+  instead, which is better anyway: it depends on no global GS state, and it is
+  free - the light frustum is sized to leave the silhouette a ~22% transparent
+  border, so the edge those vertices now sample is empty by construction and
+  only the outer ring of a 4x4 patch moves at all.
+
+  **Verified** on the owner's scene: exactly **28 pixels** changed, all in a
+  thin band on the ground where the streaks were, and the real shadow came out
+  byte-identical at every sample point.
+
+  The general rule went into the engine skill's pitfalls, because it is not
+  about shadows: **if a 3D mesh's texture coordinates can leave 0..1, clamp
+  them where you build them - a wrap mode set on the texture is silently
+  ignored in 3D.**
+
+- (137) **A thrown object's shadow landed half way down** - what (136) left
+  open, and the other half of what the owner saw as "several shadows".
+
+  `tg`, the distance the light ray travels before the patch is placed, was
+  capped at `r * 4`. That cap exists for a real reason: a nearly LEVEL ray (a
+  light beside the caster) has no far edge at all, and a patch centred out at
+  the horizon covers nothing anyone is looking at. But it was applied to the
+  RAY LENGTH, which conflates that case with its opposite - a caster high in
+  the air, whose ray is steep and whose long distance is a DROP, exactly where
+  the shadow belongs. A sphere seven units up therefore got its patch about
+  half way down, with the silhouette mostly outside it, and the sliver that
+  survived read as a second stray shadow beside the real one.
+
+  The cap is now on the SIDEWAYS run (`tg * horizRun <= r * 4`), which is the
+  thing that actually runs away. A level ray is capped exactly as before
+  (`horizRun` is ~1 there); a vertical drop is not capped at all.
+
+  **Verified** on the owner's scene: 1426 pixels changed, all of them inside
+  the ground band - the stray slivers went and nothing above the horizon moved.
+
+- (136) **A projected shadow could stand up in the air.** Owner, with a
+  screenshot of four spheres hanging in a line: black curtains climbing out of
+  the ground into the sky, "the higher, the more of it".
+
+  The receiver patch is a 4x4 heightfield and it asked `projSurfaceAt` for a
+  height at EVERY vertex. That function answers "the top of any receiver whose
+  footprint contains this point", which is the right question for *placing* a
+  patch and the wrong one for *shaping* one: a receiver is any visible solid,
+  so a prop standing inside the patch punched a cliff into it - one vertex on
+  the ground, its neighbour on the prop's roof - and the quad between them
+  rasterized as a wall. Casters in the AIR made it spectacular, because the
+  receiver cut-off is the caster's own underside: the higher the caster, the
+  more objects qualify as "floor", so a stack of spheres each drew a curtain up
+  through the ones below it.
+
+  The patch now decides what it lies on ONCE, at its centre: on the terrain it
+  samples the terrain per vertex as before (smooth by nature, and following the
+  relief is the whole point), on geometry it stays flat at the height the
+  centre found - which is what a floor is. The cost, said out loud: a patch
+  that overhangs the edge of a small platform instead of folding down beside
+  it. A shadow that floats a little beats one that stands up in the air.
+
+  **Verified** on the owner's own scene (`shadow-problem`, copied out of
+  ~/TyraProjects so their working copy was left alone), in PCSX2 on the
+  software renderer: 3937 pixels of sky stopped being covered, and the
+  difference is confined to the curtain's bounding box - nothing else in the
+  frame moved.
+
+  **Not fixed, and now the visible remainder**: the shadow of a caster high
+  above the ground lands SHORT. `tg` is clamped to `r * 4`, so a sphere 7 units
+  up throws its patch about half way to where the shadow really belongs, and
+  the silhouette is then mostly outside its own patch - what is left reads as a
+  thin dark sliver on the ground. That clamp is deliberate (an unclamped patch
+  runs to the horizon and the camera ends up inside it) but it was tuned for
+  casters standing on the floor, and a thrown object is exactly the case it
+  handles worst. Backlog.
+
+- (135) **The GI bake moved into the Ambience Editor** (owner's ask). It was
+  its own *Tools* window; it is now the **Global illumination** tab of *Tools >
+  Ambience Editor*, beside the presets. That window is already where a scene's
+  light is authored - the sky, the sun, the AO strength and radius - and the
+  bake is the last step of the same job, so having it somewhere else was the
+  odd part.
+
+  It is a TAB rather than a section inside the preset editor on purpose: the GI
+  settings are project-wide plus a per-scene cache, not part of a mood bundle,
+  and folding them into an `AmbiencePreset` would have implied they travel with
+  one. `drawAmbienceWindow` now owns the tab bar and calls
+  `drawAmbiencePresets` / `drawGiBakeSection`.
+
+  Two details worth keeping straight if this moves again. The bake's
+  finished-version poll (`App::giBakerPoll`) had been living at the top of the
+  old window function and now runs from `drawUI` directly - a bake that
+  finishes must reach the viewport whether or not anything is open, and hanging
+  that off a window body is exactly the bug that would look like "the preview
+  is stale". And `showGiBake_` survives as "show me the GI tab" rather than a
+  window flag, so the *Tools > Bake Global Illumination...* menu item still
+  works (it opens the Ambience Editor on that tab) and a saved window layout
+  that had the old window open still lands somewhere sensible.
+
+  **Verified** by driving the running editor with main's `wayland-control.py`:
+  clicked the menu item, screenshotted the Ambience Editor opening straight on
+  the GI tab with the whole bake UI on it (quality sliders, probe grid, the
+  scenes table showing `main / baked / lightmap 128, ground 256, probes
+  15x4x15`, both Bake buttons), then clicked back to *Presets* and
+  screenshotted that intact. The editor staying alive through both is the
+  Begin/End balance check - ImGui asserts on a mismatch, and this refactor
+  moved four of them.
+
+- (134) **The editor's ground went one flat colour after a GI bake** (owner
+  report; the game was fine). The viewport lit the TERRAIN from the probe grid
+  like everything else, and that is wrong twice over. One probe sample every
+  ~3 units over a broadly flat ground is nearly constant, so the whole terrain
+  came out one tone - and because the fragment shader replaces `shade` with the
+  probe answer outright, while the terrain carries its own tint IN the vertex
+  colour (objects carry theirs in a uniform), the ground also lost its green
+  and took the sky's colour. Measured over the same 3175 ground pixels, the
+  mean went from `(122,171,228)` - a pale sky blue - to `(48,105,60)`.
+
+  The console never did this: `buildTerrainChunk` gives an UNTEXTURED terrain
+  the per-texel lightmap (`terrainGi`: the vertex shade goes black and the
+  additive pass puts the light back, modulated by the ground's own tint) and
+  only falls back to probes when the terrain is TEXTURED, where a flat additive
+  term would blow out the dark texels. The viewport now makes the same split:
+  `Viewport::setGiTerrain` takes the baked map out of the same `.res-baked/gi/`
+  cache the game reads, `buildTerrainChunkMesh`'s `shadeAt` samples it right
+  where the game's `shadeAt` does, and a new `uGiSkipProbe` keeps the fragment
+  shader off the probes for those draws (and off the point lights and emissive
+  pools, which are inside the baked answer already).
+
+  Where the two still differ, and deliberately: the game reads that image per
+  PIXEL through an additive pass, the preview samples it per terrain VERTEX.
+  That is a resolution difference, not a different answer - and the render grid
+  is one sample per cell, which is what the game's own vertex path uses.
+
+  **Verified** with an offscreen viewport harness (the PROGRESS 208 pattern) so
+  the image is measurable rather than eyeballed: a hidden GLFW window, a real
+  `Viewport`, `grabPreviewRgb` to a PNG, and a `noterr` switch that skips the
+  new setter so one binary produces both sides of the A/B. The editor's own
+  window cannot be captured any other way here - it is a native Wayland
+  surface, so X11 tools see nothing (main's `wayland-control.py` can, and is
+  the right tool for the surrounding UI; the harness is better for the
+  viewport image itself because it isolates it).
+
+- (133) **A dyn-lit object's one light slot now points where the probe says the
+  light IS.** VU1 gives these meshes a single directional slot, and
+  `updateDynLitObjects` used to reconstruct the probe's L1 term along the SUN,
+  then let VU1 multiply it by `N.L(sun)`. That is only right when the sun is
+  the light: in a room lit by a bounce off a coloured wall the field points at
+  the wall, so the shading leaned the wrong way and a surface facing the actual
+  light got nothing. The direction is now L1's own dominant direction (the
+  luminance-weighted mean of the per-channel L1 vectors), which makes the slot
+  EXACT at that direction - the term there is the probe's own answer - and
+  degrades smoothly off it. A probe with no directionality at all keeps the
+  sun; L0 carries the whole answer there anyway.
+
+  That needed per-OBJECT directions, so `GeoPart` grew `litDirs[3]` and the bag
+  no longer points at the shared `animLightDirs`. **Verified** in PCSX2 on a
+  fixture with a big red wall beside the cylinders: the computed direction came
+  out `(0.524, 0.789, 0.323)` against a sun of `(0.369, 0.819, 0.439)` - a real
+  swing, and in the physically right direction, which is *away* from the wall,
+  because a 14x8 wall removes more sky from that side than its red bounce puts
+  back. The rendered lobe follows: the lit gradient now spans about twice as
+  much of the cylinder's width before it clamps to ambient.
+
+  **The animated-model path still reconstructs along the sun** and still shares
+  one global direction array (`updateAndRenderAnimObjects`). The same argument
+  applies to it word for word and the fix is the same shape - it was left out
+  of this commit only because it touches every animated model in every project
+  and deserves its own before/after. Backlog.
+
+- (132) **Opt-in dynamic lighting: three real bugs, and the banding that was
+  never there.** Picking up the backlog entry left by the WIP commit, which
+  listed three suspects in order. All three were settled, two of them were
+  bugs, and the headline symptom - "the cylinder still bands" - turned out to
+  be a **misread of the screen**.
+  - **Suspect (1), normal/vertex alignment: not a bug for primitives, but a
+    real one for models.** A primitive cannot drift, because the normal is
+    pushed *inside* `pushVert` - one normal per vertex, by construction, for
+    every builder. But `g_litNormals` pointed at `parts[0]` for the whole
+    object, so a multi-part model piled every part's normals into part 0: the
+    `litNormals.size() == vertices.size()` gate then failed for *every* part,
+    no part got a lit bag, and the model rendered at the flat white albedo
+    `pushVert` had already written - worse than not opting in. The capture is
+    now staged per part. **Verified** on a two-material `.obj` in PCSX2: two
+    parts, `verts == norms` on both, a lit bag on both.
+  - **Suspect (2), the color space: a bug, and exactly half a stop.**
+    `pushVert` builds an UNTEXTURED surface in 0..255 and a textured one in
+    128 = 1.0 modulation; `updateDynLitObjects` built its light colors at 128
+    for everything, copied from the animated-model precedent - which is always
+    textured. Every untextured dyn-lit object was therefore exactly half as
+    bright as the same object baked. Now `GeoPart::litScale` per part, and the
+    per-object terms are kept as 0..1 fractions until they meet it (one object
+    can hold both kinds). **Verified** by measurement, not by eye: with the
+    visible side of the test cylinder facing away from the sun, `N.L` clamps to
+    0 and the surface must land on the ambient term exactly - the log said
+    `amb=(72.8, 119.3, 147.2)` and the framebuffer said `(71, 121, 151)`.
+  - **Suspect (3), the pointer `setLightsManually` keeps: not a bug.** Read
+    back through the bag on the console: `bagptr == &part.litColors[0]` and the
+    value written that frame comes straight back out. `g.parts` is sized once at
+    the top of `rebuildObjectGeometry` and the bags are wired at the bottom, so
+    the (130) rule is already satisfied here.
+  - **A fourth one nobody had listed: static batching silently ate the whole
+    feature.** `staticBatchEligible` did not exclude `dynamicLighting`, so a
+    plain authored box or cylinder with the flag on - no physics, no script, no
+    layer - was merged into a combined batch bag, rebuilt by
+    `rebuildStaticBatch` with `g_litNormals == nullptr`, and quietly rendered
+    with ordinary baked shading while its lit bag never drew. **Verified** by
+    A/B on the generated table: the `batchStatic` column flips 1 -> 0 with the
+    exclusion in.
+  - **A fifth: the object rendered black for a frame on every rebuild.**
+    `renderObjects` rebuilds a dirty object from *inside* the draw loop, i.e.
+    after this frame's `updateDynLitObjects` has already run, so a freshly
+    wired bag drew once with the zero-initialized `litColors`. Not just at
+    load - that is every Live Link edit. The per-object fill is now
+    `fillDynLitColors(index)` and `rebuildObjectGeometry` calls it the moment
+    it wires a lit bag.
+
+  **And the banding: there wasn't any.** The screen's X axis runs opposite to
+  world X, and the striped cylinder in the test scene was the *reference* one -
+  a `bakedLighting: false` primitive on the per-vertex probe path, whose hard
+  diagonal wedges are the known two-triangle seam the lightmap exists to avoid
+  (`TyraShadingFlat` on every static bag makes each triangle one color). The
+  dyn-lit cylinder standing beside it shades smoothly, max adjacent step 1-2
+  units across its whole width. The proof took forcing the ambient slot to a
+  loud red: the wedged cylinder did not change color, the *other* one turned
+  red. Worth writing down as a method - a per-object A/B in ONE frame is only
+  as good as knowing which object is which, and "left" is not a fact.
+
+  **A dead end, recorded so nobody re-derives it.** Before that, the flat
+  wedges looked exactly like a shading-mode bug, and the engine has a real
+  structural hazard that would explain one: `addBuffersDataToPacket` stamps the
+  GS PRIM giftag for a **whole half-ring of 16 buffers** from the renderer-wide
+  `prim_t`, long after `setInfo` wrote it for one bag - so a mesh can inherit a
+  later mesh's shading/blending/AA. Deriving those fields per buffer from
+  `buffers[i]->bag->info` compiles and is arguably more correct, but an A/B of
+  the two engine builds came out **byte-identical (0 differing pixels)**, so it
+  fixes nothing observable and was reverted rather than shipped unproven. If
+  someone hits a mesh drawing with a neighbour's PRIM attributes, that loop is
+  where to look.
+
+  **Verified** in PCSX2 (software renderer, 50 FPS) on a scratch fixture: three
+  cylinders side by side - dyn-lit, lightmapped, probe-baked - plus a
+  two-material static model with the flag on. Screen capture on this Wayland
+  box needed a workaround worth knowing: the compositor refuses non-interactive
+  capture (`gnome-screenshot` hangs on the portal), so PCSX2 was run under
+  XWayland (`QT_QPA_PLATFORM=xcb`) and grabbed with a ~50-line `XGetImage`
+  tool - which also makes the result *measurable* (pixel rows, plateau widths)
+  instead of eyeballed. The feature still needs the owner's own scene before it
+  is called done; the backlog entry carries what is left.
+
+- (131) **Flat casters could never pick a light.** Owner, after (130): "the
+  sphere is perfect, the wall still nothing". Two separate over-conservative
+  guards, both from approximating a caster with a sphere:
+  (a) the "is the light inside the caster?" test used the bounding SPHERE.
+  For a 8.6 x 6.2 x 1 wall that sphere has radius 5.6 and swallows the whole
+  room around it, so every light close enough to matter was discarded and the
+  wall silently cast nothing. Now tested against the caster's BOX, reusing
+  `areaDistSq(areaBasis(...))` from scene_data.hpp - the same oriented-box
+  math areas use, exact and already generated.
+  (b) the elevation bar was 15 degrees, and a light level with a wall's middle
+  sits just under it. Lowered to ~5 degrees, made safe by clamping the ground
+  walk to `r * 4`: a nearly level ray's hit runs to the horizon, and a patch
+  centred out there covers nothing near the caster - which is the part anyone
+  looks at. The shadow now fades out at the patch edge instead of not
+  existing.
+  **The limit that stays** (documented in the README rather than papered
+  over): the shadow is a patch on the TERRAIN. A light BELOW the caster's top
+  throws a shadow with no far edge, and one whose shadow leaves the map draws
+  on nothing. The owner's wall hit both - it sat 3.4 units from the map edge
+  with the torch at mid-wall height. **Verified** in PCSX2 (SW, 50 FPS) with
+  the wall moved inboard and the torch above it: a broad silhouette fans
+  across the ground away from the light, sphere still casting alongside it.
+- (130) **The real reason nothing ever showed: the bags pointed into a
+  `std::vector` that kept reallocating.** (128) and (129) were both real bugs
+  and both invisible, because the receiver patch was never rasterized at all.
+  Found by reproduction, not by reading: a frozen-camera fixture in PCSX2
+  (walkSpeed/lookSpeed 0, flashlight off, player parked 5 units in front of the
+  sphere) plus a `TYRA_LOG` inside `renderProjShadows` proved the pass was
+  doing everything right - `used=2`, patch at `gx=0.28 gz=-21.7 half=2.4`,
+  `stapip.core.render` called - and a debug patch drawn as a solid red quad
+  with a known texture, additive, i.e. byte-for-byte a working light pool,
+  STILL painted nothing.
+  `setupProjShadows` builds `std::vector<ProjShadow>` with `emplace_back`, and
+  each element wires `info->model = &b.mat` and `colorBag->single = &b.color` -
+  **addresses inside the element**. Every reallocation moves the elements out
+  from under every earlier bag, so the pipeline got a freed model matrix and
+  transformed the patch to nowhere. It spares only the LAST element, and
+  `used` counts up from 0, so the one valid slot was never the one in use:
+  the feature could not work once, ever.
+  `setupLightBeams` (only the last light had a beam) and `setupBlobShadows`
+  (no blob shadows at all) had exactly the same bug. `setupLightPools` escaped
+  it purely because someone wrote a matching `reserve()` - which is why the
+  ground pools always looked fine and everything drawn beside them did not.
+  Fixed with a rebind pass at the end of each setup, after the vector has
+  stopped growing; unlike a `reserve()` it cannot be defeated by someone adding
+  an element later. **The rule for anything that follows this pattern: a bag
+  may not hold a pointer into a vector element until the vector is done
+  growing.**
+  **Verified** in PCSX2 (SW renderer, 50 FPS): the sphere throws a real
+  silhouette away from the torch, stretching and diverging with distance -
+  the first time a projected shadow has ever been on screen. That screenshot
+  retro-verifies (128)'s UV mapping (the shadow has a SHAPE, not a uniform
+  square) and (129)'s light pick (it points away from the torch, not along the
+  scene sun).
+- (129) **The shadow now follows the LIGHT, not the sun.** Owner's ask
+  straight after (128): in a night scene the only thing lighting a prop is a
+  torch, so a shadow thrown along an invisible sun vector is meaningless
+  wherever it lands. Each caster now picks its own source: every point light
+  in the scene (dynamic AND baked - a baked light's illumination is static
+  but the CASTER moves, so its shadow can never be baked with it) is scored
+  by how much it actually lights that caster, `bright * live level * linear
+  falloff`, and the scene sun competes on the same list with
+  `SCENE_DIFFUSE * max(sun color)`. A black sun scores 0 and every lit torch
+  beats it; a daylight scene still throws the sun shadow it always did, so
+  no existing project changes behavior. Lights inside the caster's bounding
+  sphere or below it are skipped individually (they cannot throw a ground
+  shadow) rather than disqualifying the caster.
+  The projection got the same upgrade: for a point light the shadow camera's
+  eye sits **at the light**, so the silhouette - and the receiver mapping,
+  which runs through that same view-proj - **diverges**. A prop walking up to
+  a flame grows its shadow; the umbra at ground range is
+  `r * (eDist + tGround) / eDist` across, under the (128)-era cap of 3.5x the
+  caster radius so the camera can never end up standing inside the patch. The
+  FOV is capped at 100 deg for a light almost touching the caster. The sun
+  keeps its parallel stand-in (an eye a fixed distance up the sun vector),
+  which is why both paths share one code path with `bestSun` as the only
+  branch. The ground hit is re-sampled once on the terrain the ray actually
+  reaches - a long shadow walks a fair way up or down a slope. Live level
+  feeds the fade, so a flickering torch's shadow breathes and a *Set Light*
+  off stops it; the shadow also dissolves over the outer quarter of the
+  light's radius instead of popping when you walk out of it.
+  Also here, because a per-caster light makes it matter: the caster's
+  bounding sphere is now the REAL half-diagonal of the scaled box instead of
+  `0.87 * the largest axis`. Identical for a uniform scale (0.5*sqrt(3) =
+  0.866), a third smaller on a wall-like caster - which used to be handed a
+  light frustum sized for a cube it is not, wasting most of the 64x64 slot on
+  empty margin, and which now also stops falsely reading as "the light is
+  inside me".
+  Not included: the **flashlight** does not cast. It is welded to the camera,
+  so its shadow falls exactly behind the object from the player's eye - it
+  would burn a slot to render something you cannot see.
+  **Verified**: PCSX2 screenshot in (130) - the shadow points away from the
+  torch, so the pick really is the point light and not the (black) scene sun.
+- (128) **Projected shadows never had a SHAPE, and under a dynamic light
+  they came out bright.** Owner repro: a sphere and a wall, both with
+  *Projected shadow (live)*, a live point light next to them - no shadow at
+  all, plus "a weird streak" on the ground. Three separate bugs, all in the
+  receiver patch:
+  (a) **The UV mapping assumed OpenGL-style NDC.** Tyra's projection does
+  not normalize to ±1: the visible frustum ends at `|x|,|y| = w * size/4096`
+  because VU1 scales the divided vertex by a fixed 2048 (the convention the
+  portal window carve at `renderPortals` already spells out, and the only
+  place in the generated game that knew it). `u = x/w * 0.5 + 0.5` therefore
+  squeezed the ENTIRE patch into the middle 1.5% of the 64×64 slot - every
+  vertex sampled the silhouette's centre texel, so the "shadow" was a
+  uniform dark quad with no silhouette in it. That is what (122) verified as
+  working: a solid patch reads as a shadow at a distance. Now
+  `u = 0.5 + x/w * 2048/size`, same for v - and NOT flipped, the projection
+  already carries the Y flip (`m11 = -h`), so the slot's rows run the way
+  the screen's do.
+  (b) **`dynLightPick` was left on**, so the black patch was handed to
+  `RendererCore::pickDynLight` like any other bag and got LIT by the very
+  light it was supposed to be shadowing - a bright quad where the shadow
+  belongs. The light pools have set it false since (121) for the mirror
+  reason ("it IS the light"); a shadow needs it for the opposite one. Blob
+  shadows had the same bug and the same one-line fix.
+  (c) **A statically batched caster cast nothing.** A batched object owns no
+  solo bag (`objectBatchOf[i] >= 0` skips `rebuildObjectGeometry`), so the
+  silhouette pass found `objectGeometry[i].parts` empty and `continue`d -
+  silently, and exactly for the ordinary non-moving props most likely to be
+  marked as casters (the repro's wall). Fixed with the pattern
+  `renderViewObject` already uses for the portal through-view: solo-bake on
+  first use, leave a dirty member to the demotion path.
+  **Verified**: PCSX2 screenshot in (130) - the patch carries a real
+  silhouette instead of the uniform square the collapsed UVs produced. Note
+  none of this was observable until (130) landed.
+- (127) **The flashlight's pool sprite is swappable (Player > Flashlight >
+  Pool texture).** Owner's ask right after (126): since the ground pool is
+  what you actually see the beam AS, its sprite is the knob for the beam's
+  SHAPE - a gobo, a cross, a cracked lens. New
+  `SceneObject::flashlightTexture` (res-relative PNG, empty = the built-in
+  procedural corona), imported through the same copy-into-res/hud picker
+  the HUD images use, with a Reset button; serialized inside the existing
+  `flashlight` JSON block (omitted when empty), hashed into the Live Link
+  recipe, baked per scene as `FLASHLIGHT_TEXS` (the "res/" prefix is
+  stripped - the game loads cwd-relative) and picked up in
+  `setupLightPools`, cached by path so a scene switch cannot re-add the
+  same texture. It draws ADDITIVELY, so the shape must live in the RGB
+  channels (alpha is ignored) - the tooltip says so. Point-light beams
+  keep the built-in corona for now.
+- (126) **You could not light your own feet: the flashlight got a ground
+  pool.** Follow-up to (125) - with the beam brightness fixed, aiming
+  straight down still lit nothing. Root cause is structural, not a
+  constant: the spot light is evaluated **per vertex**, so it cannot draw
+  a spot smaller than the mesh tessellation, and the cone footprint at
+  1.8 units (eye height, 17 deg half-angle) is ~0.55 units across - well
+  under one terrain cell, so no vertex ever falls inside it. Fix: the
+  flashlight now also gets an additive ground pool, the same trick the
+  dynamic point lights use since (121) - the view ray is marched to the
+  terrain (0.3-unit steps + 6 bisections, capped at the beam's range) and
+  a corona patch is placed at the hit, radius = hit * tan(angle) * 1.7
+  floored at 0.7 so a straight-down look still gets a visible puddle,
+  fading out over the reach. It is the last entry of `lightPools`
+  (objIndex -1), so it shares the patch builder, the sprite and the
+  bake/load gate (`projectUsesBeams` now also counts a flashlight-enabled
+  Player or a Set Flashlight node). Known approximation: the patch is
+  round, so a grazing beam does not stretch into an ellipse - the
+  per-vertex cone still does that part on bigger geometry.
+  **Verified**: Docker build exit 0, PCSX2 SW renderer at 50 FPS with a
+  bright pool tracking the view on the terrain, `bin/log.txt` free of
+  TYRA banners. Aiming at your feet specifically is the owner's pad
+  check.
+- (125) **The flashlight lit the far end of its range, not what you were
+  looking at.** Owner's diagnosis while pad-walking ("the flashlight is
+  broken, it doesn't shine centrally where you look - and IT was what lit
+  that crate"). The cone term is `clamp01((t^2 - cosCut2*dist2) *
+  invSoft)`: its SIGN is the exact angular cutoff and is
+  distance-independent, but its MAGNITUDE scales with `dist2` - and
+  `buildSpotForBag` sized `invSoft` off the FULL range
+  (`softness / (objRange2 * (1 - cosCut2))`), so the beam ramped up across
+  the entire 26-unit reach: nearly black on everything close to the lamp,
+  full brightness only near the far end. On a camera flashlight that reads
+  exactly as "it doesn't light what I'm aiming at", and it also explains
+  why the batch's point lights looked right - their `invSoft` (1e4 /
+  objRange2) saturates immediately. Fix: saturate at a fraction of the
+  range instead (`kFullBrightAt = 0.18`, i.e. full brightness ~4.7 units
+  out on a 26-unit beam), which leaves the cutoff ANGLE untouched and only
+  crisps the edge. One EE-side constant in `buildSpotForBag`, so the VU1
+  programs and the EE clipper (which shares `StaPipClipperSpot`) stay in
+  sync and no micro memory is spent. **Verified**: PCSX2 SW renderer, same
+  camera as the previous boot - the terrain ahead now carries a bright
+  beam centred on the view instead of a dim near field, 50 FPS.
+- (124) **Lit objects brightened at screen edges: the VU1 clip family
+  clamped colors AFTER interpolating.** Owner spotted it pad-walking the
+  example ("the red crate glows brighter in the screen corner"). The cull
+  programs clamp every vertex color with `FixColor` (mini 255 / max 0)
+  right after `CalculateTyraSpotLight`; the clip programs stored the RAW
+  lit color into the Sutherland-Hodgman scratch polygon and clamped only
+  in the emitter - i.e. after the lerp. A vertex the dynamic light pushed
+  to ~400 therefore dragged a cut edge's midpoint to 250 where the cull
+  path (clamping per vertex first) produces 177, so the same surface
+  visibly brightened the moment it touched a screen edge and started
+  being clipped. Fix: clamp the three colors to 0..255 in
+  `stapip_clip_c_vu1.vclpp` / `stapip_clip_tc_vu1.vclpp` before they go
+  into the polygon (float clamp only - the `ftoi0` stays in the emitter).
+  Pre-existing in the clip family; the batch's bright dynamic lights are
+  just what made it visible. **The first attempt did not fit**: a full
+  clamp pair (mini 255 + max 0) per vertex = 9 instructions per program,
+  and the game asserted `VU1 pipeline programs overflow into the
+  draw-finish program` (path1.cpp:145) on the boot logo - the clip family
+  already lives at the micro-memory ceiling (it is why `clip` replaces
+  `as_is` there in the first place). Shipped version is the CEILING only
+  (3x `loi 255` + `mini.xyz` = 6 instructions per program): the spot light
+  strictly ADDS to non-negative vertex colors, so the emitter's existing
+  max-with-0 remains a sufficient floor. clip_c 258, clip_tc 270 VU
+  instructions. **Verified**: engine + example rebuild, `bin/log.txt`
+  free of TYRA banners (the overflow assert is gone), PCSX2 SW renderer
+  at 50 FPS. The edge-brightening itself is subtle in a still - the
+  owner's pad walk is the real confirmation.
+- (123) **Merged main (AO / portals / split-view / physics / fbx): the
+  `castShadow` name collision.** Main landed baked **ambient occlusion**
+  with a per-object `SceneObject::castShadow` (default TRUE, "this object
+  darkens nearby terrain") while this branch had added `castShadow` for
+  the runtime **projected silhouette** shadow (default false). Same name,
+  opposite defaults, different subsystems - auto-merge kept one field and
+  would have silently turned every object into a shadow caster. This
+  branch's field is now **`projShadow`** end to end (JSON key, Properties
+  checkbox "Projected shadow (live)", multi-select row, Live Link recipe
+  bit 128, `SceneObjectData::projShadow`, `PROJ_SHADOWS_USED`) and the
+  example's three hero objects were re-keyed; main's `castShadow` keeps
+  its AO meaning. Also from the merge: the post-fx packet grew 512 -> 768
+  qwords (main's spread-capable bloom is ~390 worst case, god rays add
+  ~100 - an undersized packet corrupts the GIF stream), the god-rays sun
+  now maps through the LOGICAL height (field rendering halves the buffer),
+  the shadow-map bracket restores the raster at `getRenderHeightF()`, and
+  the scene draw order is mirrors -> portals -> pools -> projected shadows
+  -> blob shadows -> beams.
+- (122) **Pad-walk feedback #2: shadows/pools vanishing with a step
+  sideways - the missing fullClipChecks.** Owner repro: the monolith's
+  projected shadow visible from one spot, gone one step left. Root cause
+  found with a debug boot (patch drawn untextured solid red): the red
+  quad CUT OFF at a hard vertical line mid-screen - the classic
+  fast-culling artifact. Every other runtime bag in the game sets
+  `fullClipChecks = true`; the five NEW bag types from this batch (proj-
+  shadow receiver patches, light pools, blob shadows, beam coronas and
+  cones) left it at the default false, so their PARTIALLY_IN_FRUSTUM
+  packages went through per-triangle ADC culling - and these are BIG
+  near-camera triangles (2-3 world units per cell), so a triangle
+  crossing a screen edge dropped WHOLE, punching giant holes that came
+  and went with the camera (far away the bag is fully in frustum, hence
+  every earlier distant screenshot looked fine). Fix: fullClipChecks on
+  on all five; crossing triangles now clip. **Verified** (Layer 3):
+  reproducing close-spawn boot (-2,0,4) - before: the red debug patch
+  cut at a vertical line + shadows absent; after: the monolith's shadow
+  renders continuously to the screen edge, pools/blob/beams intact,
+  50 FPS on the SW renderer.
+- (121) **Pad-walk feedback fixes: rectangular light-pool seams + the
+  example's plaza past the map edge.** The owner walked examples/lighting
+  and found (a) a torch pool cut into a hard rectangle and (b) "a hole in
+  the floor". (a) is structural: terrain draws in CHUNKS, and the
+  per-bag dynamic-light pick chooses ONE light per chunk - neighboring
+  chunks picking different lights truncate a pool exactly at the chunk
+  border. Fix: `PipelineInfoBag::dynLightPick` (TyraX engine field,
+  default true) - terrain chunks and the sky dome (a nearby light would
+  tint the whole camera-centered dome) opt out and keep the global
+  flashlight state, while each DYNAMIC light now paints its ground pool
+  as a smooth additive terrain-conforming patch (`LightPool`, 4x4 cells,
+  corona sprite tinted by the light color, breathing with
+  `DynLightRt::lastLevel` through additiveBlendFix, TestOnly z, drawn
+  before the shadows). `projectUsesBeams` now also counts dynamic lights
+  (the pools share the corona sprite bake/load). Object bags keep the
+  real per-mesh VU1 pick - a whole object is one bag, no seams. (b) the
+  example's hero shapes stood at z 15..16 on a 28x28 terrain (edge at
+  +/-14) - the "hole" was honestly the end of the world; terrain is now
+  36x36. **Verified** (Layer 3): PCSX2 SW renderer - smooth round pools
+  under both torches and the crystal with no chunk seams, terrain
+  continuing past the plaza, silhouettes landing on real ground, 50 FPS.
+- (120) **examples/lighting - the whole batch in one dusk plaza.** A
+  committed first-person example presenting every lighting-batch feature
+  at once: two flickering dynamic torches with corona + cone beams, a
+  flow-graph-pulsed crystal light (Every 6 s -> Set Light x1.8 -> Delay 3
+  -> Set Light x0.7 - the only logic in the scene), a baked blue lamp for
+  contrast, three "Cast shadow" hero shapes (rotated monolith slab, orb,
+  obelisk) throwing long projected silhouettes under a warm low sun,
+  physics crates with blob shadows, the sun's lens flare (occlusion demo:
+  a tall pillar to hide it behind) + god rays, and the Circle-toggled
+  flashlight competing in the per-mesh light pick. Authored headlessly
+  (scaffold + hand-written manifest/objects, validated by --resave /
+  --dump), generated files regenerated with a Docker build in the same
+  commit (the example-drift rule), root README examples list + example
+  README added. **Verified** (Layer 3): builds exit 0; PCSX2 **software
+  renderer** boots at 50 FPS - dusk sky, sun glow + flare ghosts, blue
+  crystal corona, long dark silhouette shadows stretching from the hero
+  shapes, landed crates; composition tuned across three boots (sun off
+  the monolith's axis, crystal radius/brightness halved, spawn pulled
+  back). Walking the scene with a pad stays the human pass.
+- (119) **Projected silhouette shadows - the real thing, per-object
+  opt-in.** New `SceneObject::castShadow` ("Cast shadow (projected)" in
+  Properties, `castShadow` in JSON, recipe-hashed): the caster's EXISTING
+  render bags re-render each frame into a small VRAM target from a "light
+  camera" looking along the sun (`pushEnvView` with an FOV sized for a
+  ~25% transparent border - CLAMP smears edge texels), and a 5x5
+  terrain-conforming receiver patch under the caster samples the
+  silhouette by light-space UVs (clip = capturedVP * vertex) with a black
+  modulate + alpha-over draw, TestOnly z. Engine: `RendererCoreShadowMap`
+  (sibling of the env map bracket): FOUR 64x64 slots + one shared cleared
+  z-buffer, `begin(slot)` per caster / one `end()` (N+1 PATH1 drains
+  total), VRAM **allocated lazily** via `allocate()` - only projects with
+  casters pay the 80 KB (PROJ_SHADOWS_USED gates the game-side call;
+  init() re-places the buffers after a display-mode VRAM reset).
+  Runtime: the `slots` casters nearest the camera are active (sorted per
+  frame), shadows fade 35..50 units so slot handoffs never pop, the sun
+  ray through the caster center places the patch (slant stretch grows it),
+  skipped entirely when the sun is < ~15 deg above the horizon (degenerate
+  projection). Works for static objects AND animated models (anim bags
+  resubmit after the anim pass, so the silhouette follows the pose).
+  **Verified** (Layer 3): editor builds clean; Docker build (engine +
+  game) exit 0; PCSX2 **software renderer** boots with "Shadow map slots
+  initialized" in bin/log.txt, no TYRA banners, 50 FPS with one active
+  caster (silhouette bracket + patch every frame), and the screenshot
+  shows a darker square footprint under the caster box on the lit
+  terrain, displaced toward the camera as the sun direction dictates.
+  The caster sat in the torch's saturated pool - an eyes-on pass in a
+  neutral scene (and an animated caster) still wants a human look, as
+  does real hardware.
+- (118) **Blob shadows under moving objects.** Project-wide preference
+  (`ProjectSettings::blobShadows`, Preferences > Shadows): every moving
+  caster (third-person avatar, animated models, physics objects; markers/
+  lights excluded, spawn-pool clones don't cast) gets a soft dark quad on
+  the terrain - 4 height samples conform it to slopes, opacity fades to 0
+  as the caster rises 3 units, the flare's soft-glow sprite is the alpha
+  mask (baked even with the flare off), alpha-over blend, z-tested with no
+  z writes (TestOnly) at the end of renderScene. Per-caster vertex arrays
+  on purpose - a shared buffer could still be in DMA flight from the
+  previous caster's submit. BLOB_SHADOWS in scene_data gates setup +
+  texture load.
+- (117) **Visible light beams (Point Light > Beam).** Per-light option
+  (`SceneObject::lightBeam`: none / glow corona / corona + cone shaft,
+  `light.beam` in JSON, combo in Properties): the game draws the light
+  SOURCE, not just its pool - an additive camera-billboarded corona quad
+  (new procedural res/hud/flare-corona.png, shape in RGB because additive
+  bags blend Cs*FIX + Cd and ignore texture alpha; `projectUsesBeams` <->
+  BEAMS_USED gates bake + load) and, for kind 2, an 8-segment cone fan
+  whose vertex colors fade to black at the bottom rim (street-lamp look).
+  Brightness rides `additiveBlendFix` per bag and follows the light's
+  runtime state - `DynLightRt::lastLevel` (intensity x flicker, 0 when
+  hidden/off) is written by updateDynLights and reused, so the corona
+  breathes with the pool of light; baked lights glow steadily. Drawn at
+  the end of renderScene with Precise frustum culling + TestOnly z (walls
+  occlude, no z writes). **Verified** (117, Layer 3): Docker build exit 0,
+  PCSX2 (D3D11) shows the corona + the cone shaft reaching the terrain on
+  a dynamic torch, breathing with the flicker, 50 FPS; corona size retuned
+  0.22 -> 0.14 x radius after the first shot. 118 ran in the same boot
+  with no asserts and a faint darkening at the physics box's base, but the
+  box sat at the frame edge - an eyes-on check in a real scene (avatar
+  walking, object jumping) is still wanted.
+- (116) **Dynamic lights reach animated models (cheap pickup).** The known
+  gap from the flashlight feature (DynPip/anim meshes saw no dynamic light)
+  closed the PS2-era way: `dynLightAt` samples every dynamic light's
+  contribution (scene point lights + the flashlight, falloff mirroring the
+  VU1 shape, rough cone test for the beam) ONCE per animated model per
+  frame at its center, and the result is folded into each part's ambient
+  term (`litColors[3]` = albedo * (sceneAmbient + 128*sample), refreshed in
+  the anim render pass). A character walking into a torch's pool of light
+  brightens with it, at a few EE multiplies per model - no per-vertex work,
+  no VU1 change. Verified: editor + Docker builds clean (the pass compiles
+  and runs in the flare/god-rays boots); a hands-on visual check with a
+  .glb avatar next to a dynamic torch still wants a human eye.
+- (115) **God rays (sun light shafts) - a new GS post-fx pass.** Engine:
+  `PassGodRays` in `RendererCorePostFx` (PassAll now 31, packet 352 -> 512
+  qwords): downsample to the 1/8-res bloom buffers, bright-pass (subtract a
+  flat 150 threshold via the new `sizedQuad`, then double the result back
+  up - threshold 96 washed the whole frame white, the sky IS bright), two
+  ping-pong zoom-toward-the-sun iterations (dst = zoom_s(src) + src/2,
+  s = 0.72 - each zoom samples a window shrunk around the sun, stretching
+  bright pixels into radial streaks), additive composite at HALF the
+  requested strength. The game feeds `setGodRaysSun(px, py, visibility)`
+  every frame (sun projected via getViewProj; visibility eases over a
+  220px off-screen band, 0 behind the camera); strength = authored
+  `ProjectSettings::godRays` (UI Editor pinned "[ God rays ]" entry,
+  per-scene override in Post effects) or the **Set God Rays** flow node.
+  Applied with PassDof right after the scene in both loops, before the
+  flare sprites.
+- (114) **Sun lens flare with raycast occlusion.** The sun sits infinitely
+  far along the lighting direction; `updateSunFx` projects it through the
+  frame's view-proj, and ONE ray toward it per frame (object bounding
+  spheres + a 2-unit terrain march to 80 units - no GS readbacks, pure
+  PS2-era EE) eases the flare in/out (`flareVis`, 6/s). Four additive
+  ghost sprites ride the sun -> screen-center axis (big glow at the sun, a
+  small glow, two rings incl. one mirrored past center), tinted by the
+  scene light color, procedurally baked at build (`menubake::bakeFlarePNG`
+  -> res/hud/flare-{glow,ring}.png, written only when
+  `templates::projectUsesFlare` - authored amount > 0 or a Set Flare node -
+  which also gates the game's texture load via FLARE_USED; the paths load
+  as `hud/...` - `res/...` produced magenta placeholders, the game cwd
+  already maps into res). Engine: `Sprite::additive` (2D additive blend
+  Cs*As + Cd, per sprite, in RendererCore2D). The MAIN glow draws BEFORE
+  the post-fx pass so the god rays streak the sun itself - but only while
+  DoF is off (sprites stamp z across their rect and would punch a blur
+  rectangle into the z-tested DoF composite); with DoF on it joins the
+  other ghosts after the pass. Authored in the UI Editor ("[ Lens flare ]"
+  pinned entry) / Scene > Post effects; **Set Lens Flare** flow node at
+  runtime. **Verified** (114+115 together, Layer 3): Docker build exit 0;
+  PCSX2 boots; screenshots show the tuned pass - first attempt washed the
+  frame white (threshold 96), retuned to 150 + half strength: blue sky
+  intact, soft glow + rings at the sun, the sun's light bleeding below the
+  horizon through the rays, 50 FPS. PCSX2's Vulkan swap chain wedged
+  mid-session (parallel Claude sessions fighting over the emulator);
+  verified on the D3D11 renderer - a SW-renderer pixel pass on the final
+  batch still pending. Note: dyn-light e2e (113) WAS SW-verified.
+- (113) **Dynamic point lights — flickering torches with zero new VU1 code.**
+  Point Light objects gain a **Dynamic (live)** flag (+ **Flicker** 0..1):
+  instead of being baked into vertex colors at build, the light registers
+  with the engine every frame and lights nearby meshes through the SAME VU1
+  spot-light slot the camera flashlight uses. Two tricks make it ~free:
+  (1) a point light is expressed through the existing spot-cone constants
+  (zero direction + `cosCut2 = -1` + `invSoft = 1e4/objRange2` saturates the
+  cone term within ~1% of the range - the radial falloff alone shapes it),
+  so the VU1 programs are byte-identical, no micro-memory pressure; (2) the
+  color programs have ONE light slot per mesh, so `StaPipCore::render` now
+  **picks the strongest contributor per bag** (`RendererCore::pickDynLight`
+  on the bag's world bounding sphere from the frustum-bbox cache; flashlight
+  competes, spot candidates are down-ranked 20x when the sphere sits outside
+  their cone) and `sendObjectData`/the EE clipper consume the pick via
+  `setBagLight`. Engine: `RendererCoreSpotLight::point`, a per-frame
+  `dynLights[8]` registry (`clearDynLights`/`addDynPointLight`), the pick;
+  editor: the flag + flicker in Properties/JSON (`light.dynamic/flicker`),
+  `SceneObjectData.lightDynamic/lightFlicker`, bake skips dynamic lights,
+  `updateDynLights` in both game loops (two-sine wobble, frozen under pause;
+  hidden/streamed-out lights go dark; positions read from the live runtime
+  object so Move Object moves the pool of light), **Set Light flow node**
+  (On + Intensity via `ScriptContext::lightRequest/lightIntensity` request
+  slots), Live Link recipe hash covers the new fields. Also fixed in
+  passing: the empty-scene `SCENE_*_OBJECTS` placeholder row was one value
+  short since the `reflected` field landed (a `""` fell on the int
+  `animModel` - empty scenes did not compile). **Verified** (Layer 3):
+  editor builds clean; scratch fpp project (dynamic torch flicker 0.6 +
+  baked lamp + box + On Start -> Set Light(on, x2)) round-trips, codegen
+  shows the flag/flicker in the table + the request writes in
+  `flow_graph.gen.cpp`; Docker build (engine relink) exit 0; PCSX2
+  **software renderer** at 50 FPS shows the warm pool of light on the
+  terrain + the lit box face, and two screenshots ~0.7 s apart show clearly
+  different brightness (the flicker + x2 intensity working live). Docs:
+  README lighting bullet, tyra-engine-dev + tyra-editor-dev untouched
+  rules-wise (registry pattern documented in the engine skill).
+
+## Also done after the marathon
+
+<!-- NOTE: a past merge committed its conflict markers here; both sides were
+     real, parallel feature batches (reflections vs live-link/mirrors), which
+     is why 104-107 appear twice below (and 113-116 more than once - the
+     lighting, interlacing, font/display-text and navmesh batches numbered
+     in parallel). All kept.
+     Same again for 210-221: the Drone Generator batch and the baked-GI /
+     shadows / ps2link / presets batch were written against the same base and
+     numbered in parallel (main's own set repeats 216, 217 and 219 for the same
+     reason). The drone set is the one directly below; main's set follows it,
+     running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
+     at the head of that second section, and 225 (procedural generation, merged
+     in from its own branch) sits above them. Continue from 226. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
-- (173) **Procedural content generation: a scatter-graph tool whose output is
+- (225) **Procedural content generation: a scatter-graph tool whose output is
   ordinary static geometry** (owner brief: a backlog for node-based procedural
   scenes, "adapt it to our system, aim for the best solution"). The backlog
   asked for a graph, typed edges, a cached evaluator, deterministic RNG,
@@ -30,7 +748,7 @@ Each finished feature lands as its own commit.
   next to their source asset - the same `mtllib` line resolves unchanged.
   D2 from the backlog ("bake or runtime-from-seed?") is therefore answered
   "always bake", and D1 ("global graph or per object?") is answered per object:
-  a new `Scatter` scene-object type (17) carries the graph in
+  a new `Scatter` scene-object type (18) carries the graph in
   `SceneObject::procGraph` and its transform IS the region, so the ordinary
   gizmo moves/resizes it and copy/paste/undo/collaboration come for free.
   *The modules* follow the decalproj/aobake/navmesh pattern - host-only, no GL,
@@ -93,6 +811,3228 @@ Each finished feature lands as its own commit.
   border edges and can only be made cheaper by authoring fewer, bigger cards.
   That is in the docs as the honest answer to "why is my forest still 30k
   triangles".
+- (224) **Directional third-person locomotion: face-camera (strafe) mode +
+  back/strafe-left/strafe-right clips.** Until now the avatar always turned
+  into its movement direction, so one walk clip covered every step. New Player
+  fields (`playerFaceCamera` + `playerBackClip`/`playerStrafeLeftClip`/
+  `playerStrafeRightClip`, all optional): with **Face camera (strafe)** on the
+  avatar keeps facing the camera yaw (same shortest-arc turn-rate lerp) while
+  the stick moves it in any direction, and `drivePlayerAnim` now takes the
+  movement direction in the avatar's frame (`moveLocal`, wrapped ±π) and picks
+  the clip by sector — within 60° of ahead = walk/run (speed split unchanged),
+  within 60° of straight back = back clip, side quadrants = strafe clips
+  (negative `moveLocal` = the avatar's right, matching the existing
+  shoulder/strafe convention). Unmapped directions fall back to walk, so a
+  model with only idle/walk behaves exactly as before; the playback-speed
+  scaling that stops foot-sliding now covers all moving clips. Directional
+  clip names are blanked at codegen when face-camera is off — with turn-to-face
+  they'd flicker in during the turn transient. Full property chain: fields +
+  `operator==`, thirdPerson JSON save/load (defaulted reads, backward
+  compatible), `liveLinkRecipeHash`, Properties UI (checkbox + three combos,
+  shown only in face-camera mode), per-scene codegen arrays
+  (`PLAYER_BACK_CLIPS`/`PLAYER_STRAFE_L/R_CLIPS`/`PLAYER_FACE_CAMERAS`) +
+  scene-load `resolveClipIndex` wiring. Merged onto the two-player rig
+  (219/221): the clip indices live in `PlayerCtl` and the tables are emitted
+  per player slot (`PLAYER_*` + `PLAYER2_*`, read through the `PP_*` macros),
+  so P2 gets its own strafe set for free. Verified: editor builds clean;
+  scratch project patched to third-person + all clips round-trips through
+  `--resave` (fields persist), `--refresh-gen` emits the arrays and the new
+  runtime code, and the Docker game build compiles (=== Build OK ===). The
+  visual pass (does a sidestep actually play StrafeL on a real rigged model)
+  needs a hands-on pad test with a model that has such clips.
+
+- (223) **The material-preset writer truncated long layer names, and the corrupt
+  file reported success.** GCC 15 at -O3 on Linux named it exactly:
+  `'", "mortar": ' directive output may be truncated writing 12 bytes into a
+  region of size between 10 and 92` in `App::matEdSavePreset`, with the note
+  `output 179 or more bytes (assuming 271) into a destination of size 256`. Not
+  a pedantic warning - the layer name goes through `%s` unbounded and thirteen
+  numeric fields follow it, so a long-ish name cuts the line mid-JSON, the
+  written `.matpreset` is silently unreadable by `matEdApplyPreset`, and the
+  user is told *Saved material preset X* (`matEdPresetError_` stays clear). The
+  line is now streamed straight to the `ofstream`, with only the floats
+  formatted individually through `"%.4g"` into a 64-byte local, so nothing has a
+  length cap any more; the stream state is checked after the write, so a
+  write failure now becomes the same "Cannot write the preset file." the open
+  failure already produced.
+
+  **Byte-identity was the constraint** - existing presets have to keep
+  round-tripping - so it was measured rather than assumed: 200 000 random layers
+  over the ranges the UI actually produces, old writer vs new, **zero
+  differences** across the 199 972 that fit, and the only 28 that differed were
+  exactly the ones where the old `char buf[256]` truncated. Worth noting for its
+  own sake: those 28 had **ordinary 16-character names**. The wide `%.4g` values
+  are enough on their own, so this was never only a pathological-name bug.
+
+  **Verified through the real functions, not a copy.** A scratch harness links
+  every `build/` object but `main.cpp.o` and calls `App::matEdSavePreset` then
+  `App::matEdApplyPreset` on a live `App`. The trick that makes it cheap is
+  `matEdPaintW_ = 0`: that turns regen/composite/save-target into no-ops, so the
+  preset path runs with **no GL context at all**. Three smart-mask layers, one
+  named with 60 characters, saved to a 716-byte file and read back with **all 14
+  fields identical**; the same layer through the OLD writer fails `json::parse`
+  outright, its last line ending `..."breakupScale": 12, "mor`. `./build.sh
+  --clean` is warning-free and links, and the editor was launched on a `--new`
+  fixture with the Material Editor pre-opened through the layout's `open` list
+  to confirm the panel still draws. **Not covered**: the click-through in the
+  panel itself - a smart-mask layer needs a model plus a finished bake before
+  *Save preset* is even reachable - so the buttons stay a hands-on test; what
+  the harness drove is the code behind them.
+
+  Two more `-Wformat-truncation` sites in the same build, both pre-existing and
+  both fixed here, because "the Linux build is clean" is only useful as an
+  absolute: `devkit_ui.cpp`'s flush-map row label (`"%zu"` into `char[16]`,
+  widened to 24 - a 64-bit `size_t` wants 21), and `iso9660.cpp`'s PVD
+  timestamp, where the fix is **not** a bigger buffer. A `struct tm` field is a
+  plain `int` as far as the compiler knows, so `%04d` is an 11-byte directive
+  and no buffer short of 68 bytes silences it; reducing each field to its digit
+  count first (`% 10000u` / `% 100u`, printed `%04u`/`%02u`) is what makes the
+  16-byte stamp provably 16 bytes. Checked by writing an image and reading
+  offsets 813/830 back out: `2026072821201800` - sixteen digits, today's date,
+  trailing `00`, creation and modification equal.
+
+  All three sites predate the app.cpp split (PR #168), which relocated them
+  rather than introducing them: compiling the pre-split `app.cpp` against its
+  own tree at the same `-O3` emits the same warnings.
+
+- (217) **"Octave, Semi and Unison don't want to turn."** Reported against the
+  Drone Generator, and the report was exactly right - those three dials were
+  dead, while *Root* and *Tuning* right next to them were fine, which is the
+  clue. `knobInt` handed the dial a **scratch float re-seeded from the int every
+  frame**, so a drag only ever accumulated within one frame: to move at all it
+  had to clear half a step in a single mouse move. At 200 px of travel for the
+  whole range that is 100/span pixels in one frame - 17 px for Octave (7 steps),
+  20 px for Unison (6), 4 px for Semi - while Root, with 61 steps, needed 1.7 px
+  and always worked. Fixed by keeping the drag's **un-stepped position in the
+  widget** for the life of the drag (one `KnobDrag` entry keyed by item ID -
+  ImGui only ever has one active item) and giving `knob` a `step` argument that
+  quantizes it: the dial now moves a step every ~30 px however few steps it has,
+  and the drawn pointer, the readout and the stored int finally agree. The same
+  change makes every knob report an edit only when the value **actually moved**,
+  where before any mouse motion at all counted - a stepped dial spends most of
+  its travel inside one step, and each false edit re-generated the piece.
+  Second half of the same report - *"the third Level syncs with the Level at the
+  bottom"* - is the tool working as designed and reads as a bug only because
+  nothing said so: the **Mix** strip is the layer's own *Level*, one parameter
+  shown twice so four stacks can be balanced without four tab clicks. It now
+  says that in its tooltip and in `docs/drone-generator.md`, and while there the
+  strip was bound **straight to the field** instead of to a copy - a scratch
+  address means nothing to the automation write hook, so the mixer's dials had
+  been silently recording no keyframes at all.
+  *Verified* to the build layer (`build.ps1`, clean) plus a read-through of the
+  arithmetic above; **the hands-on turn is the owner's** - driving the mouse on
+  this machine is off the table while they are at it.
+
+- (216) **"Rewind doesn't work, and neither does picking a fragment - once I
+  generate one I want to hear how it starts and how it ends."** Three faults
+  behind one report, two of them trivially mine and the third the interesting
+  one.
+  **The trivial two**: `|<` was drawn only in Record mode, and `dronePlay`
+  seeked to the playhead only in Record mode - so in Generate (the DEFAULT mode)
+  the position bar was decoration: it moved a marker nothing played from. Both
+  fixed by the same realisation - **"let me hear how it ends" is a transport
+  need, not a mode**. Play now starts at the playhead in both modes and `|<`
+  exists in both; what the mode still decides is what happens at the END (Record
+  stops there, Generate plays on) and whether knobs are recorded.
+  **The interesting one**: even where the seek DID run, it only moved the clock,
+  and that is not the same as being at that moment. The envelopes, the glide, the
+  LFO phase and the reverb/delay tails at 0:50 are the product of the history
+  from 0:00 to 0:50 - so jumping there dropped you into the piece's opening
+  fade-in (attacks up to 12 s, reverb up to 40 s), which is exactly what "the
+  fragment doesn't work" sounds like. `Synth::setTime` now **settles**: notes
+  snap to the chord AND to the level an attack running since that chord began
+  would have reached, the periodic LFOs jump to their analytic phase (the random
+  shapes carry on - they have no correct value at a time, only a plausible one),
+  the bell scheduler restarts there, and a **pre-roll of 1-3 s** (scaled by the
+  reverb RT60, since that is the thing being filled) is rendered and discarded to
+  charge the delay and reverb lines. Dragging the playhead passes `settle=false`
+  so scrubbing stays cheap; the release settles once. The pre-roll runs under the
+  synth lock, so the audio thread emits a short clean silence at the jump instead
+  of a glitch - `LiveSynth::render` already outputs silence when it cannot take
+  the lock.
+  **Measured** against the rendered file's own RMS a second either side of the
+  target, across three presets x three positions: a bare clock jump lands at
+  66-113% of the file's level, a settled seek at 80-108%, better on 8 of the 9
+  probes. The residue is tail that 3 s of pre-roll cannot accumulate - a seek is
+  exact for the notes and approximate for the room, which is worth knowing before
+  trusting it as a rendering preview.
+  **Verified in the editor** by script: a stopped seek to 30 s parks the playhead
+  there; Play in GENERATE mode starts at 30.00 (it used to start at 0); rewind
+  while playing drops the live clock to 0.00 and it counts up from there; Record
+  mode from 38 s of a 40 s piece stops itself with the playhead at 40.00.
+
+- (215) **Save and Render stopped working, and the transport became Generate /
+  Record.** Two things in one pass, the first of them my own regression from
+  (213).
+  **The bug.** Owner: "neither saving nor rendering works now". Cause: the
+  cosmetic title fix at the end of (213). `OpenPopup("droneoverwrite")` hashes
+  `"droneoverwrite"`, but `BeginPopupModal("Replace this track?##droneoverwrite")`
+  hashes the WHOLE string - `ImHashStr` only resets the hash on **###**, not `##`
+  (checked in vendor/imgui/imgui.cpp rather than from memory). So the popup was
+  opened under an ID nothing ever drew, and **an open-but-undrawn modal blocks
+  input to its whole window**: every button in the Drone Generator went dead
+  after the first render onto an existing name, and `droneAskWav_` could never be
+  cleared because `IsPopupOpen` kept saying yes. Fixed by giving each popup ONE
+  string constant used by all three calls, with `###` so the title is still
+  readable. **The process lesson is the sharper one**: the scripted check in
+  (213) DID cover this modal and passed - and then I changed the titles and only
+  smoke-ran the result. A cosmetic change to an identifier is not cosmetic; re-run
+  the check that covers it. The new check counts executions of the modal BODY, not
+  just `IsPopupOpen` - the two disagreeing is exactly the failure mode (155 body
+  frames now, 0 before).
+  **The transport.** Owner: "instead of Audition, could there be a normal Record
+  and Play, stopping when the playhead reaches the end instead of playing until
+  you are sick of it - and maybe two modes, generate and record". Both now exist
+  as an explicit mode switch, because they want opposite things from the same
+  synth: **Generate** is free-running sound design (plays until stopped, ignores
+  the piece length, writes nothing, *Restart* re-seeds the random streams), while
+  **Record** is timeline-bound - *Play* starts at the playhead and **stops itself
+  at the end of the piece**, *Rec* does the same with keyframe writing armed, `|<`
+  rewinds, and stopping parks the playhead where playback actually got to so Play
+  resumes instead of restarting (Play from a playhead already at the end rewinds
+  first, like every DAW). The end-of-piece stop is polled on the UI thread: a
+  device must never be torn down from inside its own callback.
+  **Verified** in the editor by script: the modal opens AND draws (IsPopupOpen=1,
+  155 body frames) and Save writes again; Record-mode Play from 4.0 s of a 6 s
+  piece leaves `auditioning=0, head=6.00` a few seconds later - it stopped itself
+  at the end and parked the playhead there; Generate-mode Play is still running at
+  t=9.5 s of the same 6 s piece, i.e. it ignores the length by design.
+
+- (214) **The Windows build had a fourth copy of the dependency list, and it was
+  the one that ran.** Symptom: `fatal error: miniaudio.h: No such file or
+  directory` building (210)'s `src/audiopreview.cpp` on Windows, on a tree that
+  compiled cleanly on Linux - which reads like a cross-platform code bug and is
+  not one. `vendor/miniaudio` was simply never cloned. The guard that exists
+  precisely to prevent that (df9c99c9: `build.ps1` probes every `Build = $true`
+  entry of `deps.ps1` and runs `setup.ps1` itself) worked - it was just in a file
+  nobody executes. **`build` in PowerShell resolves to `build.CMD` before
+  `build.PS1`**, because PATHEXT lists `.CMD` first, and `build.cmd`/`setup.cmd`
+  were full cmd translations of their PowerShell twins carrying their own
+  hardcoded dependency list. That list froze at four entries (imgui, glfw,
+  imguizmo, imnodes) while `deps.ps1` grew to seven, so on the common
+  invocation stb's back-filled headers, ufbx and miniaudio were never fetched
+  and the guard never fired. The one-list-per-platform design was right; there
+  were four lists.
+
+  **Fix: `build.cmd` and `setup.cmd` are now thin wrappers** that shell out to
+  `build.ps1` / `setup.ps1` (`powershell -NoProfile -ExecutionPolicy Bypass
+  -File`, mapping `run`/`clean` to `-Run`/`-Clean` and propagating the exit
+  code). A wrapper cannot drift; the comment in each says so and points at the
+  rule. Windows now has exactly one build script, matching Linux's one.
+
+  **The rule this cost us is now written down**, since "someone edits the
+  Windows script and not the Linux one" is a class of bug, not an incident: a
+  new **"Platform parity"** section in `tyra-editor-dev` inventories every file
+  that exists twice (`deps.ps1`/`deps.sh`, `setup.*`, `build.*`, the
+  `if(WIN32)`/`else()` halves of CMakeLists, the `#ifdef _WIN32`/`#else` halves
+  of `platform.cpp`) with the rule that a pair is edited in one commit or not at
+  all, plus both traps by name; `tyra-testing` gained the PATHEXT trap where the
+  build instructions are and extended its "half-checked until the other side
+  builds" note to the build scripts; `tyra-docs` gained "the platform twin" as a
+  checklist item; `CLAUDE.md` gained the one-line always-on version.
+
+  **Verified.** `./setup.ps1` fetched `vendor/miniaudio`; `./build.ps1` compiled
+  and linked `tyrax-editor.exe` clean, miniaudio included - MinGW needs no extra
+  link library for it (WASAPI is dlopen'd, `ole32` was already there for the
+  file pickers). `cmd.exe /c build.cmd` through the new wrapper reaches the same
+  build (`ninja: no work to do`, exit 0). The Windows audio path itself was
+  probed rather than assumed: a host harness linking `audiopreview.cpp` opened a
+  device, pulled SILENCE for 500 ms and stopped - `ma_device_init` picked the
+  default playback device by name at 44100 Hz, 16 callbacks / 28224 frames
+  arrived on the audio thread, `stop()` joined cleanly. Not re-verified on
+  Linux: the change is Windows-only (two `.cmd` files) and touches nothing
+  `build.sh` reads.
+
+- (213) **A drone patch is a project asset, and rendering asks before it
+  overwrites.** Owner request after (212): "let this audio be an asset too - an
+  audio project you can twiddle and save - and make the WAV export check whether
+  the file exists first".
+  **The document half.** The generator's bottom bar became a document bar: *New*
+  / *Open...* / *Save*, the open patch's project-relative path, and a `*` while it
+  has edits the file does not (`dronePatchRel_` + `droneDirty_`, cleared by save,
+  load and render, set by the same per-frame `dirty` flag that already pushed
+  parameters to the audition). *Open...* lists every `.drone` in `res/` so a patch
+  is picked by name instead of hunted for in a file dialog - the dialog stays,
+  under *Browse for a file...*, for patches from outside the project, and one
+  opened from there deliberately does NOT become the open document until it is
+  saved somewhere inside it. A render writes the WAV *and* the patch beside it and
+  the pair becomes the document, so "render" and "save" stopped being two
+  different ideas of what the current work is.
+  **The asset half**: `.drone` is now its own `AssetKind` ("audio project") rather
+  than falling through to Other. It counts under the *Audio* filter chip, has its
+  own tile colour (appended, because `kindColor`'s cases are numeric and inserting
+  one would have shifted every existing colour), and its inspector READS the patch
+  - length, rate, layers on, automation lanes, whether it has been rendered - with
+  an *Open in Drone Generator* button. Double-clicking the patch or its rendered
+  track opens it, and a track with a patch beside it grows an *Edit* button in
+  *Project > Music*. Still editor-only: texbake keeps it off the disc.
+  **The guard.** *Render WAV* stages its target and raises a modal instead of
+  writing when the file exists ("Rendering replaces the track and the patch saved
+  beside it" / Replace / Cancel); `droneSavePatch` does the same when the target is
+  a *different* patch than the open one - saving over your own is what save means.
+  The reason it matters: a render writes TWO files under a name typed into a text
+  box, and the patch is the only copy of the work (a WAV can always be re-rendered
+  from a patch, never the other way round).
+  **Verified** with a scripted pass inside the editor: render #1 to a free name
+  prompts nothing and adopts `res/audio/selftest.drone` with dirty cleared; render
+  #2 onto that name stages the prompt and the modal is open instead of a render
+  starting; Save to a free name succeeds, adopts the path and clears dirty; Save
+  onto another patch returns false and stages the confirmation with the right
+  path; the picker finds both patches; New clears the path and resets the value;
+  reopening returns the saved value (999 Hz cutoff, dirty 0) - and the files on
+  disk carry the right values independently of the UI.
+  **A methodology note worth keeping**: the first version of that check read state
+  inside `printf` argument lists, and C++ does not sequence a call against the
+  other arguments - three "failures" were the test reading values from before the
+  call. If a scripted check disagrees with a file on disk, suspect the check.
+
+- (212) **The seamless loop ticked, and it was the fold that did it.** Owner
+  report on (210): with *Seamless loop* on there is a clear tick - "not at the end
+  of the file, but where the tail starts". Exactly right, and the description
+  located the bug: the seam itself is continuous by construction (the wrapped tail
+  at index 0 IS the piece's own continuation past `nMain`, so it lines up with the
+  last sample of the file), but the fold added `loopTail` seconds of tail and then
+  simply STOPPED. The reverb is nowhere near finished at that point - 6 seconds of
+  tail under a 9-to-22-second RT60 is still around -10 dB - so the sum drops to
+  the bare head in one sample: a step discontinuity a whole `loopTail` INTO the
+  file, which is precisely where it was heard.
+  **Measured before fixing anything**, as a neighbour-sample jump at the splice
+  index against the p99 jump over the surrounding second: 0.333 vs 0.055 on *Init
+  Drone*, 0.369 on *Ritual Bells*, 0.275 on *Machine Room* - and on every preset
+  the worst jump sat at offset -1, i.e. exactly on the boundary, which is what
+  distinguishes a splice artifact from ordinary program material.
+  **The fix** is to window the folded tail so it reaches zero AT the splice:
+  unity for the first half of the window, then a raised cosine to zero - zero
+  value *and* zero slope, so neither the sample nor its slope jumps. Unity-then-
+  fade rather than a full-window Hann on purpose: a Hann attenuates the loudest
+  part of the wrapped tail by 6 dB, which is audible as the wrap losing its room.
+  After the fix every preset's worst jump around the splice is BELOW its own p99
+  neighbour jump (0.026 vs 0.042 on Init Drone, 13x smaller than before) and the
+  worst position is scattered instead of pinned to the boundary - what is left is
+  program material, not a splice. Checked at the extremes too: a 0.5 s tail (the
+  knob minimum) and an 18 s tail both come out at 0.5x/0.4x of p99, the
+  non-seamless path is untouched, and both paths stay deterministic.
+  **The related rough edge, now visible instead of mysterious.** The window kills
+  the click at any length, but a tail much shorter than the decay still fades out
+  while the room is ringing - smooth, yet the wrap reads as losing its space. The
+  Master tab now says so when *Loop tail* is under 60% of the reverb decay and
+  offers **Match decay** (tail = the decay, capped by 30 s and 90% of the piece).
+  Worth keeping in mind for any future "fold a tail back" trick: the join needs a
+  window, and the window needs to be shorter than the thing it is windowing is
+  loud.
+
+- (211) **The Drone Generator grew a timeline: keyframes that write themselves
+  when you turn a knob.** Follow-up request on (210) - "could a track change over
+  time, with the keyframe inserting itself when something is turned, plus a
+  position bar like foobar". Both halves fell out of machinery (191) already had.
+  **Any parameter is automatable because the lane list is not a list.**
+  `paramTable()` is built by walking the SAME field visitor the `.drone` writer
+  uses (`visitParams`), recording each scalar's byte offset inside `Params` - so a
+  parameter is automatable the moment it is saveable, 137 of them today, with no
+  third list to keep in step. A lane is `{param index, keyframes}`;
+  `applyAutomation` writes the fields by offset.
+  **And a knob needs no wiring at all.** Every knob binds straight to a field of
+  the window's `droneParams_`, so the pointer it was handed IS that parameter's
+  address: `AutoWriteHook` turns "a knob changed" into "write a keyframe on the
+  lane at that byte offset", and arming *Write keyframes* automates all ~137
+  parameters without one of the ~100 knob call sites mentioning automation. The
+  same hook answers "is this field automated?", which draws the amber dot on the
+  dial and the AUTOMATED line in its tooltip - otherwise a knob springing back in
+  Read mode is inexplicable. Read/Write behaves like a DAW: with Write off an
+  automated knob DISPLAYS what the timeline is playing (the host applies
+  automation to `droneParams_` each frame at the playhead) and moving it does not
+  stick.
+  **Design constraints that shaped it.** `Params` is copied into the audio thread
+  on every edit, so it may own no heap memory: lanes are fixed-capacity (12 lanes
+  x 24 points, ~2.4 KB). A knob dragged for seconds would otherwise leave a
+  keyframe smear, so `autoWrite` MOVES a point within 0.35 s instead of adding
+  one, and once a lane is full the nearest point always wins - a long take cannot
+  overflow the budget. Automation is applied inside the synth's OWN copy of the
+  patch at control rate, before the eff block, so the LFOs/arc/mod matrix still
+  layer on top instead of being replaced. Tempo, format (rate/length/stereo), the
+  mastering block and the enums are excluded (`autoExcluded`): `barSeconds` is
+  read once per `render()` call, so a tempo lane would look like it worked and
+  quietly do nothing - better to not offer it.
+  **The transport bar** is the foobar-ish part: ticks (bars while they are
+  readable, else round seconds), elapsed fill, a triangle for every keyframe in
+  the piece, the playhead and `0:27.0 / 1:00`. Clicking it **seeks the live
+  audition** (`Synth::setTime` -> `LiveSynth::seek`), which keeps the delay and
+  reverb tails (a seek is a jump in the piece, not a reset) but re-latches held
+  notes at the chord you landed on instead of gliding in from the one you left.
+  `droneHeadSec_` is the single playhead truth - the bar, the waveform marker, the
+  lane editors and the values the knobs display all read it. Serialization is one
+  line per lane (`auto.filter.cutoff = 0:300, 27:5200, 60:900`), keyed by NAME so
+  a lane survives the field list growing; an unknown key is dropped like any
+  other.
+  **Verified.** Harness over `dronegen.cpp` alone: the table resolves the probed
+  keys and correctly EXCLUDES seed/bpm/master.*; offset lookup finds
+  `filter.cutoff`; evaluation interpolates and holds (400 / 3200 / 6000 / 6000);
+  40 rapid writes inside 0.8 s collapse to **3** points (the merge rule);
+  `applyAutomation` writes the field; a `.drone` round trip keeps the lane, its
+  point count and its values; an automated render is **bit-identical** on a
+  re-run; all ten presets still render healthy and deterministic with the
+  automation branch in the block loop. The audible check needed a control before
+  it meant anything - my first probe (a 2 kHz/150 Hz ratio) read BACKWARDS
+  because the patch has no energy at 150 Hz, so static renders at cutoff 250 vs
+  9000 were rendered as the reference: they separate 0.00008 -> 0.00111 at 1 kHz,
+  and the swept render moves 0.00025 -> 0.00094 across the same sweep, i.e. the
+  lane really opens the filter. In the editor (throwaway demo hook, removed):
+  the Timeline tab draws three lanes with their curves, points, per-lane value at
+  the playhead and the playhead line; the position bar shows the keyframe
+  triangles and the time readout; and the Space tab's Cutoff knob reads the
+  automated **5200 Hz** with the amber dot while its neighbours have neither -
+  screenshots via the `TYRAX_SHOT` self-capture from (210).
+  **Still needs a human**: whether writing automation by ear feels right, and
+  whether 0.35 s is the merge window a hand actually wants.
+
+- (210) **Ambient / drone music generator: *Tools > Drone Generator*.** User
+  request - "a few tools so a background track can actually be crafted, knobs to
+  turn like in the priciest VST plugins". A game needs a background bed and the
+  editor had no way to make one: music could only be imported. This is a real
+  synthesizer, host-side, whose output is an ordinary asset - `res/audio/x.wav`
+  in the 16-bit 22050 Hz stereo format `Tyra::AudioSong` already streams, plus a
+  re-editable `x.drone` patch next to it. **Nothing about the PS2 side changed**:
+  no object type, no serialization field, no codegen, no engine work - the
+  treegen precedent, and the reason the whole thing is reviewable.
+  **What it is** (`src/dronegen.cpp`, host-only, no GL, no `Project`): four
+  oscillator layers (sine/triangle/saw/square/pulse/FM/organ; saw/square/pulse
+  PolyBLEP band-limited, organ drops partials past Nyquist rather than folding
+  them - a drone is exactly the signal that gives you all day to hear aliasing),
+  each up to six chord voices x five detuned unison copies with stereo fan and a
+  slow per-voice random **drift** (what keeps a 30-second chord from sounding
+  frozen), a per-layer chord-degree mask so one layer is a sub and another a pad;
+  an eight-step **chord progression** that **glides** between chords; a filtered
+  **air bed**; sparse **bells** (FM / Karplus-Strong pluck / glass, quantized to
+  beat or bar, drawn from the chord or the scale, with their own delay/reverb
+  sends - they bypass the master filter on purpose, a low-passed bell is a thud);
+  a Cytomic TPT **SVF**; **three LFOs plus a five-point arc envelope over the
+  whole piece, through a six-row modulation matrix** onto 15 destinations - the
+  part that turns a patch into a piece; then drive, three-tap ensemble chorus,
+  tape wow/flutter/hiss, ping-pong delay on musical divisions, an **8-line FDN
+  reverb** (normalized Hadamard feedback, per-line damping, in-loop low cut,
+  modulated lengths, input diffuser, predelay; RT60 to 40 s - an FDN and not a
+  comb bank because comb filters ring metallic long before a 30-second tail),
+  **shimmer** (a two-window granular pitch shifter inside the reverb's feedback,
+  the one place its window seams are inaudible), tilt EQ, M/S width with the bass
+  summed to mono (a wide low end collapses through a TV), limiter and 16-bit
+  TPDF dither.
+  **The two design decisions worth remembering.** (1) *Seamless loops add, they
+  do not crossfade*: background music plays with `song.inLoop = true`, so the
+  render runs past the end and **adds** that tail over the beginning - which is
+  literally what a looping player hears at the wrap. Measured on *Deep Space
+  Hum*: RMS in the last second before the wrap 0.1545 vs 0.1530 at the start of
+  the file; with the option off the same measurement is 0.1688 vs 0.0351, i.e.
+  the thud you have heard in a hundred games. (2) *The audition IS the renderer*:
+  `Synth` renders blocks, the editor's audio device pulls from it through
+  `LiveSynth`, and the offline `render()` runs the identical block loop and only
+  then applies the mastering - so a knob cannot sound different in the file than
+  it did in the preview. The UI/audio hand-off is a `try_lock` in the AUDIO
+  thread (a UI stalled in a file dialog must never starve the device; it keeps
+  the previous parameters for another block), while meters/scope go the other way
+  through plain atomics - a visualizer may race, a device may not.
+  **New dependency**: `vendor/miniaudio` (single header, in deps.sh + deps.ps1),
+  wrapped by `src/audiopreview.cpp` - the only TU that includes it and the
+  editor's only audio *output* path. It dlopen's its backends (WASAPI /
+  ALSA/Pulse/JACK), so **no new system package** and no link-time dependency; a
+  machine with no sound card is an expected state (the button says so and the
+  tool stays an offline renderer).
+  **UI** (`src/droneui.cpp`, its own TU - the assetbrowser.cpp precedent): a
+  VST-style rotary for every parameter (vertical drag, Shift = fine, double-click
+  resets, log-ish curve for frequency/time knobs, symmetric ranges drawn bipolar
+  from the centre), the arc curve editor, the chord table showing the note names
+  it spells, the mod matrix, a live scope + 32-band analyzer + peak meters, a
+  rendered-waveform overview with a playhead, and ten presets. Everything is
+  **deterministic in `Params`** (every random stream derives from the seed
+  through a mixer), so a re-render is byte-identical and *Roll* re-seeds instead
+  of re-rolling the patch. The `.drone` sidecar joins `App::assetSidecars`, so the
+  Asset Browser carries it on rename/move/delete - and **double-clicking a track
+  reopens the piece that made it**. `toText`/`fromText` walk ONE field list
+  (`visitParams`), the project's section-writer trick: a field added there is
+  saved and loaded, with no second list to forget.
+  **Verified.** (a) Host harness over `dronegen.cpp` alone (the treegen pattern):
+  all ten presets rendered - no NaN/Inf, DC offset < 6e-5, peak 0.890 = the
+  normalization target, 1-second RMS windows inside 0.10..0.30 (no holes, no
+  spikes), a second render **bit-identical**, and audio rendered from a patch's
+  saved `.drone` text identical to the original; 1/6-octave spectra confirm what
+  each patch claims (Init Drone: 53 Hz fundamental + 107/428/605 harmonics with a
+  smooth falloff; Machine Room rolls off to -77 dB near Nyquist, i.e. PolyBLEP
+  works; Glacial Shimmer shows the octave stack 1976 / 3952 / 7904 Hz the
+  shimmer builds). Live path checked to produce the same first block as the
+  offline synth, and the scope/meters to fill. (b) Real audio device opened on
+  this Linux box (ALSA via miniaudio), played 3 s, took a live parameter push,
+  and the transport advanced in real time. (c) Inside the running editor, with a
+  throwaway self-drive hook: all six tabs drawn (no ImGui assert), *Audition*
+  opened the device, and *Render* wrote `res/audio/selftest.wav` (2 ch / 22050 Hz
+  / 16-bit / 12.0 s, verified by reading the file back) plus `selftest.drone`,
+  added the track to the project's Music list and saved the project.
+  (d) Owner-reported bug, fixed in the same entry: the *Mix*, *Damp*, *Level* and
+  *Low cut* knobs raised Dear ImGui's "2 visible items with conflicting ID"
+  error - a delay *Mix* and a reverb *Mix* in one panel hash to the same ID,
+  which breaks hover/drag state, not just the warning. `knob()` now honours the
+  **`##` convention** (display name is the label up to `##`, the whole string is
+  the ID) and the four colliding pairs are spelled `Mix##delay` / `Mix##reverb`
+  etc. **Both members** of a pair carry a suffix so neither reads as "the real
+  one". Verified twice: a script that extracts every `knob`/`knobInt` label per
+  tab and reports duplicates (Air & Bells `Level`x2; Space `Mix`x2, `Damp`x2,
+  `Low cut`x2 - `Low cut` had not been noticed by eye yet), and a runtime check
+  inside `knob()` printing any repeat of the ID **ImGui actually assigned**
+  (`GetItemID`) within one frame, with all six tabs cycled: 0 duplicates, and
+  240 hits when one collision was reintroduced on purpose as a control.
+  *Dead end worth recording*: ImGui's own conflict detector cannot be driven
+  headlessly - it fires only via `HoveredIdPreviousFrameItemCount`, and a
+  synthetic cursor (`AddMousePosEvent` before `NewFrame`, dwelling on a grid of
+  10 000+ positions) never produced a single hovered ITEM even though the
+  hovered WINDOW resolved correctly. Comparing IDs at draw time is the check
+  that works; do not spend an hour on the fake-cursor route again.
+  (e) Screenshots: this machine runs GNOME on Wayland, which **denies external
+  capture** (`org.gnome.Shell.Screenshot` -> AccessDenied) and gives GLFW no X11
+  window to grab, so the editor grew a small **framebuffer self-capture**
+  (`TYRAX_SHOT=<dir>`, interval via `TYRAX_SHOT_EVERY`, off unless set): it reads
+  back its own window with `glReadPixels` and writes PNGs. That is what produced
+  the shots used to check the knob rendering, the layout of all six tabs and the
+  meters - and it is now the documented answer for verifying editor UI on Linux
+  (see tyra-testing). **Still needs a human**: whether the presets sound *good*,
+  and the feel of dragging the knobs.
+- (219) **Three starting presets, and the choice is now permanent** (user:
+  "Zaktualizuj presety. Niech do wyboru jest tylko fpp, third person i empty.
+  Jak juz sie go wybierze, to niech sie juz nie da tego zmieniac w
+  preferencjach projektu").
+
+  *New Project* offers **FPP (first person)**, **Third person** and **Empty
+  (orbit camera)**. Third person is the new one: the same player-entity
+  template as FPP with the seeded Player object in mode 2, so the camera sits
+  on a boom behind it and its avatar is that object's own animated model -
+  assigned later in Properties, the rig and the movement work without one.
+  `Project::gameTemplate` grew a third value (`"thirdperson"`); the two player
+  presets generate the SAME sources, which is why the fork in
+  `templates::generate` is now `Project::hasPlayerTemplate()` rather than a
+  string compare against `"fpp"`. Unknown template strings still clamp to
+  `"orbit"` on load, so nothing old moves.
+
+  **The lock is the point of the change.** *Project > Preferences* used to
+  carry a Template combo that rewrote `gameTemplate` on OK - which quietly
+  regenerates `src/terrain_game.cpp` / `inc/terrain_game.hpp` from a different
+  template, and those are **user-ownable** files: the switch either overwrites
+  work or, on a file whose ownership marker was deleted, leaves an owned source
+  that no longer matches what the project builds. The row is now disabled and
+  says so, `prefTemplate_` is gone (a staged field that can never be edited is
+  a trap waiting for the next contributor), and the OK path no longer writes
+  `gameTemplate` at all. What stays editable is the thing that should be: the
+  Player object's own Mode / camera style / boom - a per-object property, not a
+  source fork. The preset labels/strings live in ONE table (`kNewPresets` in
+  app.cpp) read by the dialog and by the read-only Preferences row.
+
+  **Empty now really is empty** (owner, on the PR: "Empty should be without
+  that orbiting camera. Let's just create an empty scene. User can then program
+  their own code, or add a player"). The template's automatic turntable is what
+  a scene with NO Player object falls back to, so the fix is a create-only
+  default rather than a source change: `project::create` sets
+  `settings.orbitSpeed = 0` for the empty preset, which parks the camera at a
+  fixed vantage looking at the origin. The struct initializer keeps 1.0, so
+  every project saved before this keeps its turntable, and the Preferences
+  slider still turns it back on - it just is not what a new project does before
+  the user has built anything. Labels followed: "Empty (no objects)", and the
+  Preferences section is "Camera" with a `(?)` saying what 0 means and that a
+  scene with a Player ignores it entirely.
+
+  **Verified** (layers 0-2 + a driven GUI check): editor builds clean on Linux;
+  `--new` with `fpp` / `thirdperson` / `empty` writes `"template": "fpp"` /
+  `"thirdperson"` / `"orbit"`, seeds the Player at `"mode": "walk"` /
+  `"thirdperson"` / no object, and emits `PLAYER_MODES = {0}` / `{2}` into
+  `scene_data.hpp`; the FPP and third-person `src/terrain_game.cpp` are
+  byte-identical apart from the project namespace, while the empty one forks as
+  before. `--resave` round-trips `"thirdperson"`, an unknown preset argument and
+  a hand-edited unknown `"template"` both clamp to `"orbit"`. The GUI was driven
+  with `wayland-control.py`: the New Project combo lists exactly the three
+  presets, and in Preferences the Game row shows "Third person" greyed - a click
+  on it opens no dropdown. A third-person project also **builds in Docker (exit
+  0) and boots** in PCSX2 at 50 FPS.
+
+  The static camera was measured, not eyeballed, because "the picture did not
+  change" and "the game froze" look identical: two full-screen captures 6 s
+  apart, cropped to the render rect, differ in **0 of 512120 pixels** with the
+  empty preset - and in **205312** after flipping that same project's
+  `orbitSpeed` back to 1 and rebuilding. The A/B is the point: without the
+  second run the zero proves nothing.
+
+- (215) **Baked global illumination + light probes**
+  ([docs/global-illumination.md](docs/global-illumination.md),
+  [examples/global-illumination](examples/global-illumination)). Static geometry
+  gets a baked multi-bounce lightmap; everything that moves gets its light from
+  a probe grid. Behind `ProjectSettings::giEnabled`, off by default, and every
+  reader defaults to the struct initializer - a project saved before GI existed
+  bakes and renders exactly as it did.
+
+  **Why it was tractable:** almost none of it is new machinery. Getting a
+  per-texel image onto PS2 geometry through two blend passes - with the region
+  layout, the bake cache, the texbake plumbing and the codegen tables - is what
+  the AO and emissive work cost, and a better integrator reuses all of it byte
+  for byte. Three things were genuinely missing.
+
+  1. **A scene-level BVH over real triangles.** Visibility used to reduce every
+     object to an analytic box or sphere and slab-test it, so a cylinder cast a
+     rectangular shadow and a model cast its AABB. `gibake::build` tessellates
+     the scene for real - primitives through primmesh (the same source the
+     viewport draws from), static .obj through objparser, the terrain as a
+     heightfield resampled onto a grid the bake can afford - and traces it.
+     matbake's BVH moved out of its anonymous namespace into `src/bvh.cpp`
+     unchanged rather than being copied; two subtly different answers to one
+     question is exactly the bug that would have followed.
+  2. **One integrator instead of "direct light from analytic emitters".** Sky,
+     sun, emissive materials and baked point lights are now one hemisphere
+     gather. The sky's authored dome colour IS its radiance (remapped by the
+     same zenith exponent the generated dome build uses), the sun is shadowed
+     through one ray, and the `kEmisShadowSamples` silhouette-disk penumbra
+     hack is gone - it was what an area source needed when the only primitive
+     was a slab test, and the geometry answers it directly now. Point lights
+     keep their exact pool shape and gain a shadow ray. Calibrated on purpose:
+     at the defaults an open horizontal surface receives ~0.53 against the flat
+     `ambient` 0.55 it replaces, so turning GI on re-lights a scene without
+     re-exposing it.
+  3. **Bounces**, as iterated radiosity over the triangle set feeding each pass
+     back into the next, then one final gather per lightmap texel. This is the
+     milestone the whole thing is for and the one people will point at: a red
+     wall tints the floor beside it.
+
+  **The VRAM constraint shaped everything.** The atlas is 256^2 RGBA32 = 256 KB,
+  already ~19% of the GS's ~1.33 MB with no LRU (docs/gs-vram.md), so it cannot
+  grow. GI therefore does not add a channel or a pass - it REPLACES what the RGB
+  channel means, from "baked emissive light" to "incoming light, all sources,
+  all bounces". Emissive materials became one source among several instead of a
+  special case. Occlusion stays in A and is not redundant: it still darkens the
+  dynamic light the bake can never contain, and it is finer than the probe grid.
+
+  **Which route a surface's light takes is the correctness story**, and the
+  reason the old "a surface must declare its route or the term lands twice" rule
+  needed two new flags. A lightmapped object's vertex shade goes BLACK
+  (`SCENE_AO_ATLAS_GI` + `g_giLightmap`) and the additive pass puts every photon
+  back per pixel; everything else - imported models, textured receivers, batched
+  props, physics bodies, spawn-pool clones, textured terrain - reads the probe
+  grid once per vertex at scene load in `pushVert`, the same cost class as the
+  AO term beside it. In every GI case the ambient + directional term, the point
+  lights and the emissive pools are skipped, because the baked answer already
+  holds them. Textured surfaces deliberately keep the vertex path: a flat
+  additive term over a texture blows out its dark texels, which is the
+  pre-existing rule for this atlas - probes are what make obeying it free.
+
+  **Probes** are L1 spherical harmonics, 12 bytes + 1 liveness byte each,
+  emitted as `inc/probe_data.gen.hpp`. Reconstruction is
+  `shade(n) = L0 + (2/3)*dot(L1, n)` - the exact clamped-cosine convolution, so
+  a uniform environment of radiance L returns L for every normal - and the
+  lookup is a WEIGHTED trilinear where a probe buried in a solid weighs zero,
+  so a wall's black interior never bleeds into the room beside it. Animated
+  meshes have one VU1 light slot, so their per-frame sample is split: L0 into
+  the ambient term (the slot PROGRESS 116 already built for dynamic lights) and
+  L1 reconstructed along the sun direction into the light slot - a character
+  walking into a doorway darkens AND keeps directional shading instead of going
+  flat.
+
+  **The bake is explicit and cached**, because a build that silently re-bakes
+  lighting is a build nobody runs. `.res-baked/gi/scene<N>.gi` is written by
+  *Tools > Bake Global Illumination* (worker thread, progress, cancel) or
+  `--bake-gi`; codegen, texbake and the viewport only READ it, and a stale or
+  missing cache falls the whole scene back to the pre-GI bake together, with the
+  Bake window saying so per scene. The signature hashes CONTENT, not mtimes -
+  a bake takes minutes and a touch/checkout/copy must not throw it away, and the
+  example ships its cache, which a fresh clone would otherwise invalidate the
+  instant it landed on disk.
+
+  **Two things bitten during development, written down because they cost time.**
+  The `gi` flags were not serialized into the cache at first: the pixels said
+  "all the light is here" while the flag said otherwise, and the first PS2 boot
+  came out correct-but-flat rather than obviously broken. And under GI a region
+  must be KEPT even when its answer is black - a dark corner is a result, not an
+  absence, and dropping it sends the corner back to the vertex path where it
+  renders brighter than the lit wall beside it.
+
+  **Verified** at the full e2e layer, PCSX2 software renderer, on the purpose-
+  built `examples/global-illumination` (13 objects, 32x32 terrain, ~10 s bake):
+  the back wall is pink on the red half and cyan-green on the green half though
+  it is painted white, the floor and both pillars take the colour of the wall
+  they stand near, contact shadows land under the block, and the frame holds
+  **50.16 FPS** - against **49.90** for the same scene with GI switched off,
+  which renders flat grey. The A/B screenshots are the evidence; the console
+  does no extra work at all, the lighting is a texture and a table. The generated
+  game also compiles clean on the PS2 toolchain, and the shipped cache is
+  accepted from the repo copy (different path, different mtimes), which is what
+  the content-hashed signature is for. Editor viewport twin verified by
+  screenshot. **Not covered:** a real-PS2 pass, and the GUI Bake window's
+  progress/cancel path was exercised through its headless twin rather than by
+  hand.
+
+- (219) **One ps2link, and it is ours**
+  ([docs/ps2link-setup.md](docs/ps2link-setup.md)). The question was "mamy
+  instrukcję, jak zbudować ps2link i jak go skonfigurować, żeby móc debugować
+  z edytorem?", and the honest answer was: in three places, with a hole. The
+  README explained F6 and the IP preference; `tools/ps2link-usbhid/` explained
+  building a *custom* ps2link, but framed as an opt-in extra for keyboard and
+  mouse; and the **console-side one-time setup** - copying `PS2LINK.ELF` onto a
+  memory card next to an `IPCONFIG.DAT` - lived exclusively in a code comment in
+  `deps.sh`/`deps.ps1`, which is the last place a person looks. Followed by the
+  decision that resolves it: "przejdźmy na taką ścieżkę, że zawsze zakładamy, że
+  budujemy naszego ps2linka... to jest jedyna ścieżka".
+
+  So the TyraX ps2link is now the *only* supported console side, and the tree
+  says so. `tools/ps2link-usbhid` → **`tools/ps2link`**, `usbhid.patch` →
+  **`tyrax.patch`**: the directory was named after the one feature we happened
+  to patch in, and more patches are expected (ps2link's own `dumpmem`/`scrdump`
+  are vestigial - anything wanted from the console is a patch, see the
+  tyra-testing skill). The name was free because `deps` **stopped downloading a
+  stock ps2link release**; nothing fetches a ps2link for you now, you build it.
+  And `build.ps1` gained the **`build.sh`** it never had - the only script in
+  the repo without a POSIX twin, which on a Linux machine with no `pwsh` meant
+  "we have instructions" was false in practice.
+
+  [docs/ps2link-setup.md](docs/ps2link-setup.md) is the missing document, end to
+  end: hardware, the one build command, flashing, and the `IPCONFIG.DAT` details
+  that are only obvious from ps2link's source - it is opened by a **relative**
+  path (so it belongs next to `PS2LINK.ELF`), it is `ip netmask gateway` on one
+  line, there is no DHCP, and when it cannot be read ps2link silently uses a
+  compiled-in **192.168.1.10**, which is the tell for "your file was never
+  found". Then the editor's IP preference, what F6 actually does in order (the
+  `bin/ps2link.run` marker the game probes over `host:` because `execee` cannot
+  be trusted to deliver argv, `reset`, then the `execee` whose `ps2client` *is*
+  the session's file server), the ports a firewall has to pass (console listens
+  on TCP 18193 and UDP 18194; the `[ps2]` log lines come back as UDP 18194),
+  what differs from PCSX2 when debugging, a table of every failure message, and
+  the loop for changing the patch - regenerate it **before** rebuilding, because
+  both build scripts start with `git checkout -- .`.
+
+  One behaviour change fell out of the decision: *Preferences > Build >
+  Keyboard & mouse > Also over ps2link* is **on by default** (`keyboardMousePs2Link`,
+  reader default flipped too, so a project predating the key gets it) and its
+  label lost the "needs the TyraX ps2link" qualifier - that ps2link is now the
+  premise, not a condition. A stock one still degrades safely: the keyboard
+  device does not open, the mouse is skipped rather than hanging.
+
+  **Verified**: `tools/ps2link/build.sh` from a clean tree on Linux - pulled
+  `ps2dev/ps2dev`, cloned ps2link at the pinned `0c6138c`, applied
+  `tyrax.patch`, `make ee` - produced `ps2link.elf`, 283 828 bytes, and the
+  patched `loadModules()`/banner are in the built tree. Editor rebuilt clean
+  with the preference and comment changes. **Not covered**: there is no PS2 on
+  this machine, so every console-side step is documented from ps2link's own
+  sources (the `IPCONFIG.DAT` open, the fallback constants, `PKO_PORT` /
+  `PKO_CMD_PORT`) and from `runner.cpp`, not from a flash-and-boot; and
+  `build.ps1` - whose only change is the patch's new name - is unrun, there
+  being no PowerShell here.
+
+- (221) **The Input Map was the one window a layout could not carry.**
+  `App::showFlagForKey` mapped 17 keys to their show-flags, but
+  `kLayoutWindowKeys` - the array both `applyOpenWindows` and
+  `captureOpenWindows` walk - listed only 16 and omitted `"input"`. So the
+  Input Map fell out of the layout system in both directions: opening it and
+  saving lost it (capture never looked at the flag), and switching to a layout
+  that does not want it never closed it, which is exactly the leak the comment
+  in `applyOpenWindows` says the reset exists to prevent. Not a design
+  decision - `git log -S` dates the `showFlagForKey` line to the Input Map
+  commit (21783972, 2026-07-25) and the array to the layouts commit
+  (6e61b3bf, 2026-07-14): the newer feature edited the resolver two lines above
+  the list and missed the list. One key appended, plus a comment saying the two
+  must agree and which half is the dangerous one to forget.
+  **Appended, not inserted**, though nothing forced it: `project.cpp` writes
+  `openWindows` as a JSON string array and reads it back by name (`"open": [...]`
+  per layout), so the order is cosmetic - appending just keeps saved `.tyra`
+  diffs stable. The keys live in `app.cpp` and nowhere else (grepped
+  `phonecam`/`gibake` across src, docs, skills), so there is no second list to
+  follow.
+  *Verified* by a matched GUI A/B on one fixture (`--new layoutfix ... empty`
+  with `"open": ["input"]` seeded into the active Default layout), driving the
+  editor with synthetic clicks + a screenshot per step, then reading the
+  rewritten `.tyra`: **pre-fix** the window did not open at startup and Ctrl+S
+  rewrote `"open": ["input"]` to `[]` (the silent loss), and with the Input Map
+  opened by hand from *Tools* a switch to Director left it floating over the
+  new arrangement (the leak). **Post-fix**, same fixture and same clicks: it
+  opens from the layout, survives the save, and the Director switch closes it -
+  and the switch's capture wrote Default `["input"]` / Director `["cutscene"]`,
+  i.e. the flag was set on the way out and cleared on the way in. The baseline
+  binary for the A/B was this branch with the one-line change stashed, not an
+  older build. One trap worth recording: after `git stash pop` the exe on disk
+  is still the baseline one, and a run against it reads exactly like the fix
+  not working - the first "post-fix" run here was that, until the rebuild.
+  Docs: this entry plus a `kLayoutWindowKeys` note in tyra-editor-dev. README's
+  window-layouts bullets stay true (they describe what a layout stores, never
+  the key set), and no doc enumerated the optional windows, so there was
+  nothing else to correct.
+
+- (218) **The projected shadow stopped blinking, and one flag for "do not bake
+  my light"** (user, after 217: "cien pod graczem tak sobie lubi mrugac znikac
+  czasami, troszke tak, jakby sie klocil o priorytet z powierzchnia, na ktora
+  pada" - and separately, on tipping a lightmapped cylinder over: "w najgorszym
+  wypadku dobrze by miec mozliwosc wylaczenia tego per obiekt").
+
+  **The blink was z-fighting**, exactly as described. The patch is depth-TESTED
+  (`PipelineZTest_TestOnly` - it never writes z) and sits 5 cm above the surface
+  it falls on, which is not a margin the GS can always resolve: a receiver is
+  often ONE enormous triangle (a 100-unit floor slab is twelve of them), its z
+  is interpolated in fixed point, and the two land on the same value - so the
+  shadow loses the test on some pixels on some frames and blinks as the camera
+  moves. Raising the lift fixes the z and breaks the picture: the shadow
+  visibly detaches from the feet.
+  The bias now runs along the **view ray** instead of upward - each patch
+  vertex is pulled a fixed FRACTION (0.4%) of its eye distance closer. That wins
+  the test at every range and costs nothing visually, because the displacement
+  is along the ray and the vertex projects to exactly the same pixel; the STs
+  are still computed from the TRUE surface point, so the silhouette does not
+  slide. It also cannot poke the patch through a wall in front of it - a wall
+  would have to be within 0.4% of the floor's depth, i.e. touching it.
+
+  **`SceneObject::bakedLighting`** (*Properties > Baked lighting*, default on)
+  is the per-object opt-out. A per-texel lightmap is the best-looking route and
+  also GLUES the light to the surface - tip the object over and it carries a
+  contact shadow that matches nothing. Off = it stays on the probe path, where
+  the light is re-read from the grid every time the geometry is rebuilt, so it
+  relights as it moves. The bake now also excludes everything it can PROVE
+  moves, through `project::objectRuntimeMovable` - the same predicate static
+  batching and the live catch areas already use (physics, pickable, usable,
+  save-state, streamed, owning a graph, or named by one), replacing the old
+  hand-rolled `physics || pickable || saveState`. So the cylinder case is
+  correct by DEFAULT the moment a graph can move it; the flag is for the
+  channels no build-time scan can see (Live Link, a Raycast latch, a custom
+  node's object output).
+
+  Also in `examples/gi-showcase`: every side wall now **ends inside** the back
+  wall it meets instead of flush with its far face (user: "tu dwie sciany sa na
+  sobie", with a screenshot of the dithered zip). Two solids may overlap all
+  they like; what no depth buffer resolves is two COPLANAR faces covering the
+  same area. Burying the end face removes the pair rather than trying to
+  out-bias it - and the same goes for the roofs, which were coplanar with the
+  wall tops.
+
+  **Verified** in PCSX2: the corner between the red and the white wall is a
+  clean edge (the red still bleeds onto the white - that is the GI, not the
+  bug), the shadow stays attached under the cat, 50.05 FPS. **Not covered:** the
+  blink itself was reported while WALKING and this machine does not drive
+  synthetic input, so the fix targets its measured mechanism rather than a
+  reproduced frame - a hands-on walk is the confirming check.
+
+- (217) **Projected shadows land on GEOMETRY, not only the terrain** (user, on
+  the GI showcase: "a mozemy zrobic, zeby byl normalnie projektowany na modelu?
+  Bo tak sobie mysle, ze czesto moze byc w praktyce sytuacja, ze chodzimy w grze
+  po szpitalu, jak w Silent Hill i tam terenu nie bedzie"). Exactly right, and
+  the feature had the hole: `renderProjShadows` built its receiver patch from
+  `terrainHeightAt()`, which is fine outdoors and useless indoors. A level made
+  of geometry - a corridor, a hospital floor, a platform - has its real floor
+  metres above the heightfield, so the patch was laid down UNDER it and the
+  shadow simply never appeared. Not a subtle failure, and not one anyone would
+  trace back to the terrain: the object casts, the slot renders, nothing shows.
+
+  `projCollectReceivers` / `projSurfaceAt` answer the question that actually
+  matters - the highest solid surface at (x, z) at or below the caster's
+  underside, terrain included. Extents are the same box the WALKER stands on
+  (collidePlayer's box mode: a model's real mesh AABB, a primitive's unit scale
+  box, rotation ignored), so the shadow lands exactly where the feet do instead
+  of on a second, disagreeing idea of the floor. Candidates are collected ONCE
+  per shadow and never per patch vertex - the point-light dcache lesson; a patch
+  is 25 unique points and scanning the object table at each of them is how a big
+  scene loses a millisecond per shadow. The list is re-collected per SLOT in the
+  patch loop, which runs after every caster has been through and would otherwise
+  inherit the last caster's receivers.
+
+  The GI showcase gained the player's own live shadow (*Projected shadow
+  (live)* on the third-person cat) and a low platform in the open to step onto -
+  the one thing in that level that is not baked, next to five stations that are.
+
+  **Verified** in PCSX2: the cat's silhouette lands on the white floor BOX (top
+  0.05 above a terrain the patch used to be pinned to) and on the raised
+  platform (top 0.6 - where the old code would have buried the patch 0.55 deep
+  inside it), at **49.96 FPS**, i.e. the shadow costs nothing measurable on top
+  of the baked lighting. **Not covered:** walking on/off the platform is a
+  hands-on check; every shot is a spawn.
+
+- (216) **A guided walk for the GI feature - and the three bugs authoring it
+  found** (user: "dodaj jeszcze przykladowy level z prezentacja efektu").
+  `examples/gi-showcase` is five stations along one straight walk, one per thing
+  baked global illumination changes: colour bleeding, the sky as a light with
+  real occlusion, an interior that goes dark away from its doorway (and warm
+  where the light bounced off the one sunlit strip of its floor), an emissive
+  plate throwing a soft-edged shadow, and a corridor lit by nothing but bounce.
+  Third person on purpose, so the probe grid visibly lights the avatar too.
+
+  Building it is what surfaced the bugs, which is the argument for building
+  examples at all:
+
+  - **Probes never received direct sun.** A ray that escapes comes back with
+    the sky DOME's colour, which carries no sun disc, and a finite ray set
+    cannot find a delta light anyway - so probes were delivering only the
+    BOUNCE of the sunlight around them. Characters read ~30% darker than the
+    lightmapped ground they stood on, which looks like a washed-out model, not
+    a missing light. Fixed by projecting the sun and the baked point lights
+    onto L1 analytically behind one shadow ray: the least-squares fit of a
+    clamped cosine is `max(0, n.s) ~= 1/4 + 1/2 (n.s)`, so a light of strength
+    E from direction s adds `0.25*E` to L0 and `0.75*E*s` to L1.
+  - **"Cast shadow" off removed an EMISSIVE surface from the bake.** That
+    switch means "light passes through me" and is honoured for everything
+    else, but an emitter IS the light. The symptom was one you would never
+    connect to that checkbox: a plate that still glowed (the Ke floor is a
+    vertex-colour term, independent of the bake) lighting absolutely nothing.
+  - **The bake signature hashed objects that cannot change it.** Nudging a
+    spawn point threw away the bake and silently dropped the scene back to
+    classic lighting. Markers, cameras, areas, decals, mirrors and portals are
+    skipped now - the exact complement of what `build()` puts in the BVH.
+
+  One authoring trap worth the line it costs: **a station outside the terrain
+  is not a subtle mistake.** The walker CLAMPS the player to the terrain
+  bounds, so every spawn past the edge lands in the same place and every
+  screenshot comes out identical - which reads as a broken camera, not as
+  walking off the map. Cost three rebuilds before the penny dropped; the whole
+  walk is now authored from z = 0 down and shifted onto the map by one
+  constant.
+
+  **Verified** per station in PCSX2 (software renderer), each with the player
+  spawned at that station: bleeding on the back wall and both pillars; the deep
+  slot darker than the shallow one in the same paint; the room black at the back
+  with a warm gradient off the orange strip; the alcove warm with the post's
+  shadow across it; the corridor dim with its blue end tinting what arrives.
+  **50 FPS throughout.** `examples/global-illumination` was re-baked (the cache
+  format went to v4 with these fixes) and both examples ship their cache.
+  **Not covered:** still no real-PS2 pass, and walking between the stations is a
+  hands-on check - every shot here is a spawn, not a walk.
+
+- (214) **One run group in the menu bar, with a target dropdown** (user:
+  "zamiast dwóch guzików do włączania i zatrzymywania niech jest dropdown z
+  wyborem Emulator/Playstation 2"). The toolbar carried two full run/stop pairs
+  side by side - green Play + Stop for PCSX2, blue Play + Stop for the console -
+  which is four buttons and two carets for a choice you make once a week. They
+  collapsed into ONE Play/Stop pair whose caret picks the target
+  (*Emulator (PCSX2)* / *PlayStation 2 (ps2link)*, the latter disabled with the
+  usual "set the ps2link IP" tooltip until one exists) and then offers the run
+  variants for it: **Run**, **Run without build**, **Debug**. The colors did the
+  identifying work before and still do - the Play triangle is green for the
+  emulator and blue for the console - so the target is readable without opening
+  the dropdown, and Stop follows the same selection (cancel a build, else close
+  PCSX2 / kill the file server + reset ps2link).
+  Two small rules came out of it. The target is **machine-global**
+  (`EditorConfig::runOnPs2`, editor.ini) - which console is on this desk is not
+  a property of the game, exactly like `ps2LinkIp` and `emulatorPath` next to
+  it - and F5/Ctrl+F5, F6/Ctrl+F6 deliberately stay **target-explicit**: a
+  keyboard shortcut that silently changes meaning is worse than two shortcuts.
+  `App::runSelectedTarget(build)` is the one place that maps the selection onto
+  the Runner, so the button and its menu cannot drift apart. **Debug** is Run
+  plus opening the Debugger panel, and it is disabled outside the debug build
+  profile with a tooltip naming where to switch it - Live Link, the Live
+  Debugger and Live Logic only exist there, which is the whole reason the entry
+  is separate from Run. On the user's follow-up ("niech debug zawsze jest
+  widoczne (obok play)") it also got its own **button next to Play** rather than
+  living only in the dropdown: it is the second thing you press all day, and
+  paying a dropdown for it every time is the cost the old four-button bar was
+  supposed to buy back. It is drawn as the Play triangle in the target color
+  with a **breakpoint dot on its lower-left vertex** - the dot sits ON the
+  vertex so the two read as one mark - because a literal bug is mush at the
+  ~10 px this glyph rect gives you, while a triangle and a disc are the two
+  shapes that survive it. Always visible, greyed with the explaining tooltip
+  when the profile is release; the dropdown keeps its Debug row (same code
+  path) since that list is where the three run variants are discoverable.
+  The Save and Build glyphs were redrawn to match. The old pair had a
+  1.6-px-outlined floppy next to a hammer built from 2- and 3-px lines, so they
+  read as two different drawings; now both are outlines at one `stroke`
+  (`max(1.5, h*0.075)`) inside the shared glyph rect - a floppy with the classic
+  clipped corner, and an isometric box for the build's output - which leaves the
+  FILLED shapes (Play, Stop) meaning "this does something to the running game"
+  and the outlined ones meaning "this touches the project". Neutral text color
+  for both, the amber-when-dirty save being the one deliberate exception.
+  *Verified*: editor builds clean and runs; the config round-trip checked by
+  hand-editing `runOnPs2=1` into editor.ini, opening a project (which rewrites
+  the file through `saveGlobalConfig`) and finding the 1 still there, so both
+  the read and the write path are live. The glyph geometry was checked by
+  replaying the same coordinates in a throwaway PIL script at h=21/32/52 rather
+  than guessing whether a 10-px cube reads as a cube - it does. The same script
+  picked the Debug glyph out of four candidates at h=21: a detached dot beside a
+  shrunken triangle reads as "play, bullet", the dot ON the vertex reads as one
+  symbol, and a hollow ring (the nicer breakpoint) fills in solid at that size.
+  **The toolbar in
+  situ is unverified**: this box is a Wayland session with no capture tooling
+  (the editor is a native Wayland client, so the XWayland XGetImage fallback
+  finds no window either), so the hover/click feel and the layout at the real
+  DPI want a human look.
+
+- (213) **Fix: examples/physics-playground was not an orphan, it was lost in a
+  merge - restored** (user asked for the second leftover directory to be dealt
+  with in its own commit). It looked like the same class of droppings as (212),
+  and deleting it was the obvious move. It was not: **the README documents it**
+  in detail (the 28-body rigid-body stress bench the VU1 fast path was measured
+  on, 14-16 -> 156 FPS) and links to its own README - so the repo was
+  advertising an example a clone could not open.
+  `git log -m --diff-filter=D` on the `.tyra` named the culprit: it was deleted
+  by the merge of PR #132 (material-editor-uv-unwrap), which had no business
+  touching an example. A merge resolution ate it and left only the scaffold
+  files that happened to be ignored elsewhere. Restored whole from `57d7539a`,
+  its last good tree (72 files: the `.tyra`, `objects/`, `src/`, heights,
+  README, run scripts).
+  Restoring is not copying an old tree back, though - it had been sitting out
+  eight months of codegen. `--resave` migrated the project format and
+  `--refresh-gen` rebuilt the generated half, which moved it onto the modern
+  `src/gen/` layout (it still had the retired `src/scripts/*.gen.cpp` shape) and
+  gave it every runtime that has appeared since, this session's
+  `live_time.gen.cpp` included.
+  One thing that surfaced doing it, worth knowing: **the project `.gitignore` is
+  written by `project::create` only, never by `refreshGenerated`** - so an
+  existing project never picks up a new devkit entry, and deleting it to force a
+  rewrite just leaves the project without one. The restored example got the
+  current template copied in by hand. That create-only behaviour is exactly why
+  (212)'s repo-level net was the right shape of fix: per-project ignore files
+  cannot be relied on to be current.
+  *Verified*: a full Docker build of the restored example returns exit 0 under
+  today's codegen, and the build leaves `git status` clean - the only thing
+  tracked under its `bin/` is the keep-file.
+
+- (212) **Fix: devkit channel files were still reaching git** (user: "widzę, że
+  livedbg.bin i livetime.bin dalej próbują lecieć do gita"). Two causes, one
+  symptom.
+  The generated project `.gitignore` listed the devkit files as they existed
+  when it was written and had drifted since: `livetime.bin`/`livetime.rst` (new
+  in 210), plus `livetex.bin`, `vucap.bin` and `ps2link.run`, which nobody had
+  added either. It now lists every file `FileUtils::fromCwd` writes next to the
+  ELF, and `bin/*.tmp` for the sibling temp an atomic write lands as. **A new
+  channel file has to join that list**, even though `bin/.gitignore` already
+  ignores the whole directory - that list is the readable record and the
+  fallback for a project that took `bin/` under its own control.
+  The real leak was in THIS repo, though: `examples/endless-scroller` was not a
+  project at all - no `.tyra`, no `src/`, no `res/`, no Makefile, just committed
+  build leftovers, exactly as (164) found when it could not be resaved and left
+  it flagged. Without a project it never got the `bin/.gitignore` every other
+  example has, so every run of anything in `examples/` dropped fresh
+  `livedbg.bin` / `livetime.bin` / `log.txt` into `git status` there. Removed
+  (32 files: a stale ELF, baked HUD sprites, `.res-baked/`, `.vscode/`,
+  `docker-compose.yml`, an undo history - all build output, all recoverable from
+  history if anyone ever wants them).
+  The systemic half is a repo-level net so this class cannot come back:
+  `examples/*/bin|obj|.res-baked|*.history` are ignored at the root as well.
+  Example projects ARE ordinary generated projects and running one writes the
+  channel files; relying on each project having committed its own ignore file
+  first is what failed here.
+  *Verified*: fresh `--new` emits the completed list; dropping a `livetime.bin`
+  and a `livedbg.bin` into a built example leaves `git status` clean, with
+  `git check-ignore` naming the new root rule as the reason; editor builds
+  clean.
+  *Flagged, not touched*: `examples/physics-playground` looked like a second
+  orphan with no `.tyra` (only `.vscode/`, `docker-compose.yml` and seeded
+  `res/hud` images). It leaks nothing - no `bin/` - so it was left for its owner
+  to decide on rather than removed in a fix about something else. See (213):
+  that turned out to be the right call for the wrong reason.
+- (211) **Debugger: the explanations moved behind the (?)** (user: "dużo mamy
+  w zakładce debug litanii ... takie rzeczy, które są jakimś objaśnieniem ukryj
+  pod tooltipami"). Seven walls of prose in the Debugger's tabs became a short
+  line plus the repo's existing hover marker (`prefHelp` - the same idiom
+  entries (69) and (92) established, reused rather than copied a third time, so
+  the dimmed `(?)` means one thing everywhere).
+  The split is always the same: **what the panel currently IS stays visible,
+  why it is that way goes on hover.** So "Largest single stream: 92 vertices"
+  keeps the number and loses the sentence explaining that it IS the VU1
+  buffer's capacity; the VU host-reference keeps its measured deltas and hides
+  the caveat about multi-mesh flushes; the Watch tab says "Nothing watched yet."
+  and explains what watching does behind the marker; Stats, Live Logic's
+  no-build case and the EE-crash-handler tip got the same treatment. The Rewind
+  tab this session added was guilty of exactly the same thing (a four-line list
+  of what a rewind does and does not put back) and got it too.
+  One thing worth writing down, because it bit mid-change: three of these were
+  `TextWrapped`, and swapping them for `TextDisabled` + a marker quietly drops
+  the wrapping - fine on a wide window, clipped in a narrow dock. The visible
+  half of each was shortened to a few words so it survives on its own; a
+  `SameLine` marker after a line that might wrap is the thing to avoid.
+  *Verified*: clean build, and a Debug editor (IM_ASSERT live) opened on the
+  Debugger layout for 22 s with no assertion - the marker adds a `SameLine` +
+  `TextDisabled` per site, which is exactly the sort of thing an unbalanced
+  layout call would trip. The look still wants a human: this box's compositor
+  refuses non-interactive screen capture (see tyra-testing).
+- (210) **The time machine: putting the running PlayStation 2 back where it
+  was** (user, after the last merge: "zróbmy to A i B z oryginalnego pomysłu z
+  tym time machine", then "niech mi to dysku nie zapierdoli"). **Phase A of that
+  idea turned out to be already built** - it arrived with main in the previous
+  merge as Live Logic, which is exactly the "graph VM + hot patch over the
+  existing channel" pitch, done well. The Debugger's "rewindable timeline" is a
+  LOG of what executed, not a rewind of the world. So what was actually missing
+  was phase B, and this is it: a fourth live channel that streams the WORLD.
+  The game captures everything it mutates into `bin/livetime.bin` every 6 frames
+  (25 under ps2link), the editor keeps those captures in a RAM history, and
+  pushing one back through `bin/livetime.rst` snaps the console into it and lets
+  it run on. With Live Logic that closes the loop nobody has on this hardware:
+  rewind a few seconds, fix the graph on the running game, watch the fix play
+  out on the situation that just broke.
+  Three decisions carry it. **The editor does not understand the payload**: what
+  is in a capture is a codegen detail, so `src/livetime.hpp` stores bytes and
+  hands the right ones back, and a `layout` hash mixing the object/variable/save
+  counts is what refuses a capture that belongs to a differently built world (or
+  another scene). That kept the host side at ~180 lines and made the whole
+  format harness-testable. **The runtime is an ordinary global `Script`**, like
+  the Live Logic pump - not a game-loop hook - because everything the walk
+  touches is reachable through `ScriptContext`, *including moving the player*:
+  a restore raises `ctx.teleport`, the same request the Spawn Player At node
+  makes. That is what keeps it out of the two duplicated game templates
+  entirely, and it means a restored player still goes through the game's own
+  bounds and collision rather than around them (the e2e below caught exactly
+  that: asking for x=25 on a 40-unit terrain lands at 19, the playable clamp,
+  and that is the game being right). **The history is RAM, not disk** - the
+  user's constraint, and the better design anyway: the only files are two
+  fixed-size ones next to the ELF, so the footprint is bounded by construction
+  rather than by remembering to clean up. Budget in Edit > Preferences (128 MB
+  ~ seven minutes), oldest out first, Clear in the panel, Runner deletes both
+  files at build start.
+  A capture holds every runtime object (transform, colour, physics velocities /
+  spin / settle targets / sleep counter, visibility, layer residency, animation
+  state), where the player stands and faces, every flow variable and every save
+  value. What it does NOT hold is named in the panel and the doc rather than
+  discovered later: the walker's fall speed and camera boom (they live in the
+  game class this deliberately does not reach into), each graph class's own
+  timers and edge latches, sequences mid-play, menus, audio and particles. The
+  frame counter deliberately keeps counting FORWARD across a rewind - it is the
+  history's ordering key, which is also how the editor detects a restarted game
+  (frame went backwards -> drop a history that is no longer a continuation).
+  *Verified* in four layers, and the last one is the real one. **Host harness**
+  (the 104/105/208 pattern): encode/parse round trip, four flavours of torn or
+  malformed write rejected - including the tell-tale one, a new header over an
+  old body, where the footer still echoes the previous seq - ring eviction at
+  the budget, budget lowered evicting immediately, repeats ignored,
+  restart-clears-history, and a capture larger than the whole budget still
+  keeping the newest one. **Codegen**: `--refresh-gen` emits `live_time.gen.cpp`
+  and the flow-variable accessors next to the Live Debugger's. **PS2
+  toolchain**: a full Docker build compiles the generated runtime clean under
+  `-Wall` and links it into the ELF. **On the console (PCSX2)**: the game
+  streamed captures at ~8.5/s (seq 204 -> 221 -> 237, frames 1219 -> 1417, 33
+  objects, 3328 B of state, layout hash stable) and the editor's parser decoded
+  what the game wrote, byte for byte - the two twins agree. Then the whole
+  feature, proven with DATA on the console rather than pixels (what tyra-testing
+  says to do): keep a capture, move the world on, push the kept capture back,
+  and read what the game says about ITSELF - `player 0.00 1.80 0.00` ->
+  `19.00 1.80 -13.00` -> **`0.00 1.80 0.00`, back where it was**, with the game
+  logging `Time machine: restored capture N`. A `PARSE FAILED` in the middle of
+  one run was the footer guard catching a torn read in the wild, which is the
+  guard doing its job. Disk over a 45 s session: both channel files still 3380
+  bytes, same file count, no `.tmp` leftovers.
+  *Not done here*, and said plainly rather than left to be found: the graph
+  classes' own state needs each generated `FlowGraphScript_*` to grow a
+  capture/restore over exactly the members codegen emitted for it (the 11
+  emission sites want a shared `addMember` helper first), and the editor's
+  Rewind tab has not been looked at by a human - this box's compositor refuses
+  non-interactive screen capture (see tyra-testing), so the panel is verified as
+  code and as behaviour, not as a picture.
+  *Follow-up, same session (user: "dopieść to koncertowo"):* both gaps named
+  above are closed, so a rewind now puts the LOGIC back and not just the world
+  it acts on.
+  **The graphs' own state.** Each generated `FlowGraphScript_*` carries a
+  `timeCapture`/`timeRestore` pair over exactly the fields codegen declared for
+  it, plus `kTimeBytes`; three free functions in the same TU lay the classes end
+  to end. The enabling change is small and is the whole point: the eleven sites
+  that used to stream a member declaration into `members` now go through one
+  `addMember(type, name, init, kind, count)`, which writes the declaration AND
+  records how the snapshot walks it - so a field added to a graph joins the
+  capture by construction instead of by anyone remembering. `frame` and
+  `started` join the walk; **`generation` deliberately does not** - it is the
+  scene-reload guard, and restoring a stale one would make the graph believe the
+  scene reloaded and wipe itself. Reaching the instances needed no virtual on
+  `Script` (a user-ownable header that must stay the user's): each class records
+  `this` in its constructor. A first attempt walked `getScripts()` from a
+  static-init lambda instead - wrong, because TYRA_SCRIPT's registrations are
+  emitted at the END of the file, so the lambda would run before the instance
+  existed (and it dragged RTTI in).
+  **The walker's motion.** `ScriptContext` gained `playerVelY`/`playerBoom`,
+  published every frame by both duplicated game loops, and a `teleportMotion`
+  flag the restore raises: a rewind puts the fall you were in back, while an
+  ordinary Spawn Player At keeps landing you standing still. That is the one
+  place this feature had to touch the two game templates, and it is three lines
+  in each.
+  The capture's player block grew 22 -> 30 bytes and the graph block rides
+  behind its own length, so the **layout version was bumped** - old captures are
+  refused rather than misread, which is exactly what that hash is for.
+  *Verified* on PCSX2 with a graph built for it (`--apply-graph`: an *Every N
+  Seconds* driving a `ticks` variable plus an armed `Delay`). The generated walk
+  came out 13 bytes - `frame`, `started`, `delay3`, `every1` - and on the
+  console: `ticks` climbed 10 -> 15 over nine seconds, a rewind to the frame
+  where it was 10 brought it back, and two seconds later it read **11** - i.e.
+  the graph resumed counting from the restored point instead of carrying on at
+  15. That is the difference between rewinding the world and rewinding the
+  logic, and it is the number that proves it. The `-Wall` PS2 build stayed clean
+  (the one warning in the log is pre-existing, in live_debug.gen.cpp).
+  Still not verified by a human: the Rewind tab as a picture, and a falling
+  player's restored velocity (it needs a pad; the field round-trips through the
+  capture and the branch that applies it is exercised by every rewind).
+- (209) **New projects boot the full-height PAL frame** (user: make the full PAL
+  mode the default, "nie tego przygranego"). `ProjectSettings::palFullHeight`
+  now defaults ON for **new** projects: on a PAL console the region-following
+  `interlaced` mode boots the true 512-line 576i frame instead of the
+  letterboxed NTSC-size 448-line picture - 14% more picture, which is most of
+  what a 50 Hz signal is for. It follows the skill's rule about defaults to the
+  letter: the STRUCT initializer stays `false` (that is what a project saved
+  before the key loads as, and flipping it would retroactively change what
+  every existing project outputs) and `project::create` assigns the new answer,
+  next to the debug profile / Live Link / keyboard-mouse block that is there
+  for the same reason. NTSC consoles are untouched - the generated `main.cpp`
+  gates the promotion on `graph_get_region()`, so one build still serves both
+  regions.
+  Also flipped, because the two would otherwise disagree in the viewport: the
+  PS2 output mode (191) resolved `videoSystem: auto` as NTSC ("what every
+  console renders at least"), which would have shown a fresh project the 448
+  picture its own settings say it will not boot in Europe. It now shows the PAL
+  one whenever `palFullHeight` is on and the video system is not explicitly
+  `ntsc` - the flag is ONLY meaningful on a PAL console, so a project that sets
+  it is authored for PAL, and the taller frame is the one whose extra 64 lines
+  need composing for. That also puts it in step with the safe-area overlay,
+  whose *NTSC picture inside PAL* guide draws the shorter picture INSIDE the
+  taller one and enables in exactly this configuration - it had been drawing an
+  inner box for a region difference the viewport was not showing.
+  *Verified* end to end rather than by reading the diff: `--new` writes
+  `"palFullHeight": true` and the generated `src/main.cpp` carries the promotion
+  (`if (true && ... Interlaced && (PAL || (Auto && graph_get_region() == PAL)))
+  -> Pal576i`), while a **`--resave` of examples/script-demo** (which predates
+  the key) comes back out with no `palFullHeight` line at all - the old
+  behavior, untouched, which is the regression this rule exists to prevent. The
+  191 harness gained the two new resolutions (`auto` + palFullHeight -> 512x512,
+  explicit `ntsc` -> 512x448) and a check that the struct default is still
+  letterbox; all 11 display-mode cases and the rest of the suite pass.
+- (208) **PS2 output in the viewport: looking at the scene the way the console
+  draws it** (user: "zróbmy ten viewport, ale niech jest opcja wyboru między
+  tym, co mamy teraz i tym nowym"). The viewport lied in three ways that cost
+  time later - it rasterized at monitor resolution, framed to whatever shape
+  the panel was docked to, and drew square pixels. *Viewport output* (the
+  viewport gear, *View > Viewport output*, machine-global `viewportPs2` in
+  editor.ini - a way of looking, like the safe areas, so it never dirties the
+  .tyra) switches between the editor's own image and the console's: the scene
+  rasterized at the **GS framebuffer size** of the project's display mode, then
+  point-scaled into the 4:3 / 16:9 rectangle a television shows, everything
+  outside it black. Written up in docs/ps2-viewport.md.
+  Three things carry it. **The render size is decoupled from the panel size**
+  by `render()` reassigning its own `width`/`height` params to the GS size
+  (they are by value): the entire ~900-line scene pass moves to 512x448 with no
+  site knowing, and one new presentation pass (`PS2_FS`, sharing GRADE_VS and
+  `gradeVao_`) scales `fbo_`/`gradeFbo_` into the panel-sized `outFbo_`. The
+  grading pass therefore runs at GS resolution *before* the scale-up - the
+  order the console grades in. **The letterbox lives in the camera**
+  (`CamView::boxSx/boxSy`): the picture no longer fills the viewport, so image
+  coords are PANEL coords that camRay divides by the box and projectToImage
+  multiplies back - which is what keeps picking, both raycasts and the
+  measuring tape on the picture, for free, because the skill's "one camera, one
+  place" rule already routed all of them through those two. It is a pure scale,
+  not a scale+offset, because a letterbox is centred by construction. The one
+  consumer that does NOT go through camRay is the transform gizmo (ImGuizmo
+  gets `projMatrix()` and draws over the whole panel rect), so `projMatrix()`
+  is the box-scaled twin of the matrix `render()` draws with.
+  **The geometry is not computed in the viewport**: `App::ps2ViewportOutput` is
+  the host twin of the engine's `RendererSettings::updateGeometry` plus the
+  scan-out choice in `RendererCoreGS::presentFrameBuffer`, so a new engine
+  display mode is one entry in each and nothing in viewport.cpp (written into
+  both skills). It also resolves the one thing the editor cannot know: with
+  `videoSystem: auto`, whether `palFullHeight` promotes to the 512-line frame
+  depends on the console that boots the disc, so the editor assumes NTSC - the
+  shorter picture, i.e. what every console renders at least.
+  What it does NOT fake, on purpose: 16-bit dithering (this engine's
+  framebuffer is `GS_PSM_32` - there is nothing to dither), CLUT textures (the
+  Material Editor answers that per material; scene-wide is a separate job), and
+  the temporal flicker between fields (the editor does not run at the field
+  rate, so a simulated strobe would be a different artifact wearing the same
+  name - field rendering's real cost, half the vertical resolution, IS shown).
+  Texture filtering needed nothing: the engine draws bilinear with mipmapping
+  off (`max_level = 0`), which is what the viewport already did, and the
+  distance shimmer appears on its own once the raster is 512x448.
+  **The finding worth keeping**: Tyra keeps the stock `aspectRatio = 512/448`
+  as its 4:3 baseline, so a sphere is a CIRCLE in the GS buffer and the TV
+  widens it - the console's picture is horizontally stretched by
+  (4/3)/(512/448) = **1.167**, and the editor had simply never shown it.
+  Reproducing the engine's projection rather than an idealized one is the whole
+  point of the mode, so it stays.
+  *Verified* with two throwaway harnesses (the 104/105 pattern - `#define
+  private public`, link against `build/`'s objects minus main.cpp). The
+  **host** one pins the parts that would fail silently: the display-mode table
+  against values read off the engine headers (11 cases incl. both
+  `palFullHeight` resolutions and 1080i's pillarboxed widescreen window), the
+  letterbox fit, and a project/unproject round trip through it in five
+  panel/aspect combinations (worst miss 1.3e-5 world units, and 0 with the mode
+  off). It also pins the viewport's letterbox against `drawSafeAreaOverlay`'s
+  own fit - they draw the same rectangle and drifting apart would put the
+  guides off the picture. The **GL** one is the visual pass this machine could
+  not otherwise get (the compositor refuses non-interactive screen capture):
+  a hidden GLFW window, the real `Viewport`, real `render()` calls at a
+  1200x675 panel, `glReadPixels` to PNG - which is better than a screenshot
+  anyway, since it isolates the viewport image from the UI. It confirmed the
+  programs link, the fb sizes (512x448 / 512x224 / panel), the bars (900 of
+  1200 px at 4:3, none at 16:9), that the gizmo projection and
+  `projectToImage` agree on every test point, and - by measuring a centred
+  sphere - the stretch: **0.99 w/h in editor mode, 1.18 in PS2 output** against
+  1.167 predicted (one GS pixel is 1.76 panel px here, so that is inside the
+  quantization). What is NOT verified: how it looks inside the real editor
+  window with the UI around it, and the gizmo dragged by hand - the numbers say
+  they are right, a human should still look once.
+  *Follow-up, same session:* the user's first screenshot showed the gear sitting
+  ON TOP of "Center view". The gear predates this change and had picked the
+  bottom-left corner for itself (`scaled(8)` inset, a fixed `scaled(22)` box)
+  while the button row picks the same corner with its own numbers (a bare `8.0f`
+  inset, `GetFrameHeight()` slot) - so they overlapped at 1x and drifted further
+  apart at every other DPI scale, since only one of the two insets scaled. Now
+  there is one definition of where the row starts (`App::viewportGearSpan`),
+  the gear is the row's first item at its height and inset, and it is centred
+  on the SmallButtons (which are only a font tall, so a square button left at
+  the same top edge hangs below the row). The gear glyph took the same
+  treatment - it derived its centre from the corner instead of from the button,
+  which is exactly how it would have been left behind again. Not
+  screenshot-verified (see above), but the two rects cannot overlap by
+  construction now: the row starts at the gear's right edge plus one
+  `ItemSpacing.x`.
+- (207) **Measured: ps2link's extra commands are not the free lunch they look
+  like.** Before building anything on them, the question was whether the tools
+  `ps2client --help` advertises - `dumpmem`, `scrdump`, `startvu`/`stopvu`,
+  `dumpreg` - already give hardware memory dumps and framebuffer grabs for free
+  (they are implemented on the PS2 side, by ps2link). Tested against the
+  owner's console; they do not.
+  - `dumpmem <addr> <size> host:<file>` **creates the destination and writes
+    nothing**, with the PS2 answering `EE: pkoDumpMem() write failed` - vestigial
+    pko-era plumbing whose host-write path this ps2client/ps2link pair does not
+    complete. Without a `host:` prefix it targets `mc0:/PS2LINK/` instead.
+  - `scrdump` exits 0 and produces no file anywhere.
+  Two things worth more than the commands themselves came out of it. **A console
+  with a game loaded cannot be commanded**: any client that connects is
+  immediately conscripted as the game's file server, so `reset` and `dumpmem`
+  both returned -1 while the game's `host:` opens scrolled past - and when a
+  `listen` server was attached first so a command COULD get through, that
+  command **froze the game**. And **`reset` is reliable only with nothing else
+  attached** (exit 0 then; -1 every time otherwise), which is exactly the
+  runner's sequence and why a scripted redeploy earlier in the session could not
+  take.
+  So a hardware framebuffer grab or live memory dump means **patching ps2link** -
+  the workflow exists (`tools/ps2link-usbhid/` already clones a pinned ps2link,
+  applies a patch and builds it in Docker for the USB HID stack) - and it stays
+  hardware-only, since PCSX2 runs no ps2link at all. That asymmetry is the
+  standing argument for the devkit riding the host filesystem: one
+  implementation, both targets. Written into the tyra-testing skill so the next
+  session does not re-run the experiment.
+
+- (206) **A static model's vertex count, next to its triangle count.** Owner's
+  ask, and the properties panel was inconsistent about it: an animated `.glb`
+  reported "%d verts", a static `.obj` reported triangles only. Now it shows
+  both, plus the **unique position count**, because those are three different
+  measurements and the gap between them is worth seeing: vertices are what
+  reaches VU1 (three per triangle, corners split wherever a normal, UV or
+  material differs), positions are the `v` count the modelling tool showed. A
+  hovered tooltip says so, and ties it to the chunk size *Debugger > Stats*
+  reports. `Model::positionCount` was already parsed and simply never surfaced.
+  *Verified* with a harness over `objparser.cpp.obj` on the owner's own model:
+  `Cottage_FREE.obj` is **4281 triangles, 12843 vertices, 3351 unique
+  positions** - a 1.28x split factor. Which closes the loop on 204/205: 12843
+  vertices at 108 per VU1 chunk is ~119 chunks, exactly the scatter the flush
+  map showed, and 80% of that frame's 16101 vertices.
+
+- (205) **The frame's vital signs, and a map of its draws.** Owner's ask after
+  204 ("okienko ze statami... ile miejsca w VU, co się da"), and the answer to
+  the 37-flush problem it left behind. **Not one number here is newly measured**
+  - the engine counts frames and VRAM residency, the VU1 tap sees every draw,
+  the scene knows its objects; they were counted on the console and never
+  carried across. The snapshot (v4) now carries them, and the Debugger grew a
+  **Stats** tab: FPS, flushes/quadwords/vertices to VU1, GS VRAM free with a
+  bar, its low-water mark, resident/peak textures, binds/hits/uploads/evictions
+  (with a warning line when anything is being evicted), free EE RAM, and the
+  object counts.
+  The **flush map** is the part that changes how the VU panel is used: one row
+  per bag flush of the last frame (vertices, quadwords, unpacks, microprogram),
+  fattest highlighted, and **clicking a row captures that draw**. Finding a
+  model in a 37-flush frame becomes reading a table.
+  Three judgement calls worth recording:
+  **EE RAM is measured on request only.** `Info::getAvailableRAM` finds it by
+  allocating every free block until malloc fails and then freeing the chain -
+  accurate, and a heap storm nobody wants on a timer. The panel has a button and
+  reports which frame the value came from.
+  **The largest position stream is reported as a statistic**, because it is not
+  a curiosity: the pipeline cuts a mesh at exactly the VU1 buffer's capacity for
+  its vertex layout, so that number IS the capacity (108 on the owner's scene,
+  24 on the test fixture) - the answer to "how much room is there in VU1?" that
+  204 could only reach by hand.
+  **Positions are counted on the EE as "the UNPACK to VU1 address 2"**, checked
+  against three different microprograms on hardware first; the tap walks tags
+  only, never vertex data.
+  *Verified* in PCSX2 against the fixture: 50 fps, 9 flushes, 819 quadwords,
+  2484 vertices, and VRAM figures that match the game's own `VRAMSTAT` log line
+  to the digit (1.01 MB free, low 0.95, largest 1032 KB, 1 resident). The flush
+  map's EE-side vertex counts agree with the editor's independent decode of the
+  same capture (282 either way) - two implementations, one answer. The RAM
+  button came back with 27.25 MB free at frame 571. **v3 snapshots still
+  parse**, proven twice: a hand-built v3 file through a harness, and the owner's
+  console - which is running yesterday's build - read live as "frame 175326".
+  **And then on the real PS2**, minutes later, once the owner redeployed (a
+  scripted `ps2client reset` will not take while the previous game still holds
+  the link - F6 from the editor does): 50 fps, **37 bag flushes, 3401
+  quadwords, 16101 vertices in one frame**, largest stream **108** - the VU1
+  capacity figure 204 had to derive by reading engine source. VRAM 0.73 MB free
+  with 3 textures resident, 5502 binds against 5498 hits and **zero evictions**
+  (that scene is not thrashing; it is simply large). The object counts match
+  the project exactly - 3 active of 35 pool slots, 2 visible, the third being
+  the invisible FPP player marker. The flush map named the model's draws on
+  sight: flush 23 at 1380 vertices, then 30, 25, 26, 33 - all 108-vertex chunks
+  of the same cottage. The panel itself is unscreenshotted as ever (blank
+  editor window, see 191).
+
+- (204) **Reading a frame off the owner's real PS2, and what "my model shows 2
+  meshes" actually was.** The tooling from 201-203 got its first real use, on
+  hardware, against a scene the owner built: a 3351-vertex `Cottage_FREE.obj`
+  that the VU panel kept showing as a couple of tiny meshes.
+  **Two answers, neither of them a bug.** The capture was **bag flush 0 of 37**,
+  and flush 0 is terrain - 12 chunks of 21 vertices, all under microprogram 176.
+  And the cottage never appears as one mesh anyway: the static pipeline cuts a
+  bag into chunks of `getMaxVertCountByBag()`, which asks the VU1 program how
+  many vertices its buffer holds - **108** for this layout - so a triangulated
+  cottage is ~120 chunks scattered over flushes 17-36, at most 16 buffers to a
+  flush, interleaved with terrain. The frame submits ~16k vertices in 37 flushes
+  and uses three microprograms (176 for the terrain-ish bags, 1164/1346 for
+  others).
+  **How it was read** is the reusable part. The game runs over ps2link, so
+  there is no emulator process, and the editor cannot be open (it would fight
+  the probe over `livedbg.cmd`) - but closing it kills the `ps2client` that
+  serves `host:`. The way out is `ps2client listen`: a game orphaned for twenty
+  minutes was blocked on its next file operation and **resumed within seconds**
+  when a server answered - no redeploy, no rebuild. With the server hosted by
+  the probe instead of the editor, a script pinned all 37 flushes in turn and
+  dumped each one; the per-flush table is what made the answer obvious. Written
+  up in the tyra-testing skill.
+  **The next feature this argues for** is a flush map: the game already counts
+  every flush, so a one-line-per-flush summary (index, quadwords, meshes,
+  vertices) would put that table in the panel instead of a 37-step script.
+
+- (203) **Session pointers: a running editor says what it has open.** 202 could
+  only guess from `editor.ini`, and the owner's own machine broke it twice over
+  in one sitting: their project lives in `F:\Tyra-Projects` (not the default
+  folder the scan knows), and it never reached the recent list at all despite
+  being open - unreproduced afterwards, since a fresh open registers correctly.
+  So the editor now publishes the answer instead: `devsession.hpp`, one file per
+  process under `%LOCALAPPDATA%\tyra-editor\sessions\<pid>.ini`
+  (`$XDG_STATE_HOME/tyra-editor/sessions/` off Windows - the XDG state dir, this
+  being state rather than config or cache), refreshed every ~4 s and deleted on
+  exit. It carries the open project, scene, build profile, the live-layer
+  switches, what the editor believes the GAME is doing (live / halted / frame),
+  and the **transport**.
+  Three design points, each a deliberate rejection of the obvious thing:
+  **a file per pid, not one shared file** - several editors run at once here
+  (parallel worktrees, a second instance for a collaboration session), and per
+  pid means no locking, no merge, no last-writer-wins; **the heartbeat, not a
+  pid probe**, decides liveness - asking the OS whether a pid is alive differs
+  per platform and lies after pid reuse, while "touched 4 seconds ago" means the
+  same everywhere; **stale sessions are listed, not hidden** - a crashed
+  editor's last known project is information. `--debug-state` reads sessions
+  first, then the recent list, then the folder scan.
+  **Why the transport is in there**: on ps2link the host file server is a
+  `ps2client` the RUNNER spawns, so closing the editor freezes every devkit file
+  mid-session - the console keeps running and answering pings while
+  `livedbg.bin` stops advancing and commands are never read. That is exactly how
+  this session's attempt to walk 37 bag flushes on the owner's real PS2 died,
+  and it looked like a hang until the transport explained it.
+  *Verified* two ways: a harness linking `devsession.cpp.obj` covers three
+  instances coexisting, field round-trips, a 5-minute-old heartbeat reading as
+  stale but still listed, a day-old one being reaped, and `retire` removing
+  every pointer; then the real thing - the editor launched on the owner's
+  project reported `pid 18148 LIVE F:\Tyra-Projects\debugger, heartbeat 3s ago,
+  profile debug, over ps2link`, with the transport picked up from the
+  `bin/ps2link.run` marker. Linux paths are written but **untested**: the editor
+  is a Windows build today, so that half is compile-shaped, not proven.
+
+- (202) **`--debug-state`: which project is this machine actually debugging?**
+  Owner's question, and it was a fair one: asked about "the last VU capture" of
+  the scene they had open, the honest answer was that finding it meant guessing
+  at paths - a search of the obvious folders in this session turned up nothing,
+  because projects live wherever the user put them. The editor already knows:
+  `editor.ini`'s recent list is rewritten the moment a project is OPENED, so
+  entry 0 is the last one. The new CLI reads it (plus a scan of the default
+  projects folder, which catches projects made by `--new` and never opened in
+  the GUI - that gap is real, the fixtures in this branch are all like that) and
+  prints each project's devkit artifacts with **how old** they are, decoding the
+  headers inline: `vucap.bin` as "frame 661, flush 2/9, 16 mesh(es), 94 tris in,
+  512x448", `livedbg.bin` as "frame 1111, scene 0, HALTED". The last line names
+  the freshest artifact on the machine, which is the answer nine times in ten.
+  `--debug-state <dir>` reports one project when the path is known.
+  **Ages, not timestamps** - no timezone, no format, and "71m ago" answers the
+  real question ("is this from this session?") in a way "2026-07-26 20:44" does
+  not. The two bits of editor.ini this needs are exposed through a 20-line
+  `src/editorcfg.hpp`, defined in app.cpp, so the config parser stays the only
+  thing that knows the file's shape and the CLI pulls in no GUI.
+  *Verified* by running it: it lists the project opened last, the two in
+  `~/TyraProjects` that were never opened here, and a `--debug-state <dir>` on
+  this branch's PCSX2 fixture decodes its capture header. Written up in the
+  tyra-testing skill (with the rule that a running game's process command line
+  beats every file, and that neither the editor nor PCSX2 may be killed by name
+  - the owner may be sitting in front of one). **Found the hard way while
+  building it**: the owner had the editor open, so the link step failed with
+  "cannot open output file tyrax-editor.exe: Permission denied" - the check
+  binary was linked under another name instead of killing their session.
+
+- (201) **Making the VU capture actually answer questions** (owner, after 196:
+  "the meshes in there do not tell me much"). They did not: the panel showed one
+  model-space wireframe out of a dozen, always from the same draw, and left every
+  interpretation to the reader. Four changes, and the theme is that each one is
+  either measured or withheld.
+  1. **Pick your draw.** A frame sends one chain per bag flush, always in the
+     same order, so "the next packet" meant the same picture forever. The capture
+     now carries its flush index and the button WALKS them - click, click, click
+     and you step through the frame's draws - with a *pin flush* toggle to hold
+     one instead. The index is exact rather than "the first flush after arming"
+     (arming lands mid-frame, so a `>=` test drifts forward and skips draws);
+     waiting for the real number costs at most a frame, and an index past what
+     the frame sends wraps to 0. The request rides in spare bits of the command
+     flags word (bit 4 = "index in bits 8-23"), so no format version moved and a
+     game built before it keeps grabbing the first flush.
+  2. **The mesh list says something.** Vertices, triangles, model-space size,
+     degenerate-triangle count and the microprogram each mesh runs under - the
+     last one recovered from the chain's MSCAL/MSCNT order, since the UNPACK does
+     not carry it (a chain that only says MSCNT re-runs what an earlier chain
+     loaded, and now reads `program carried over` instead of `-1`).
+  3. **A findings block**, in amber, above the hex: a staged packet that misses
+     the drawing window, triangles spanning nearly the whole 4096-unit plane,
+     degenerate input triangles, fully transparent vertices in a packet that does
+     not blend, vertices behind the camera. The drawing window is real geometry,
+     not a guess - the capture now carries the game's LIVE render resolution
+     (decided at runtime from display mode + region, so the editor cannot know it
+     from project settings) and the engine's `XYOFFSET = 2048 - size/2` gives the
+     bounds.
+  4. **v4 capture format** for the above: a 32-byte header (flush index, flushes
+     per frame, render width/height). v1-v3 still decode.
+  **Two findings were deleted after they lied**, and that is the part worth
+  keeping: "60 of 60 staged vertices are off screen" came from scanning all 1024
+  quadwords of VU1 memory, which is never cleared and full of earlier runs'
+  packets (scoped to the biggest geometry packet now); and a per-vertex
+  off-window warning fires on ordinary terrain, since a triangle crossing the
+  screen edge legitimately has vertices outside the window and the GS scissors it
+  (the finding tests whether the whole packet misses the window instead). The
+  `w <= 0` check is likewise withheld on multi-mesh flushes, where VU1 memory's
+  single MVP cannot be paired with the vertices being transformed. The
+  "spans the whole plane" threshold is 3500 of 4096 units for the same reason -
+  near-camera terrain covers several screens legitimately.
+  *Verified* in PCSX2 with the scratch fixture from 200: a clean boot walks
+  flushes 0,1,2,3 with visibly different chains (67 qw/22 blocks vs 97 qw/32),
+  `--pin 4` returns flush 4 three times running, and the header reports
+  `512x448`, which is what that build renders. The **first walk run looked
+  off-by-one and was not**: a leftover `livedbg.cmd` from the previous run is
+  applied at boot and eats capture 0 (now in the tyra-testing skill). The
+  editor's half of the command encoding was checked by a four-case harness
+  linking `livedbg.cpp.obj` (auto = bit 3 only, pin 7 = `0x718`, idle leaks
+  nothing, a changed index counts as a changed state). The crash course this grew
+  out of is now the bulk of the VU section in docs/devkit.md. **Still not
+  screenshot-verified** - the panel needs clicks and this machine renders the
+  editor window blank (see 191).
+
+- (200) **The VU panel showed the same capture forever** (reported by the owner:
+  "every VU frame dump shows me the same result with this geometry"). Two causes,
+  both real, and the screenshot named the first one: the header said *frame 2551*
+  while the game was running at frame 4876.
+  1. **The editor re-read `bin/vucap.bin` only when its SIZE changed.** A second
+     capture of the same draw is the same length down to the byte - the chain is
+     built from the same bag and the VU1 memory tail is a fixed 16 KiB - so every
+     capture after the first was a no-op while the game kept overwriting the file.
+     It keys on `last_write_time` now. A half-written file (the game writes it
+     from inside a frame, in several `fwrite`s) is detected by its missing 16 KiB
+     VU1-memory tail and retried rather than committed, and the button says
+     "waiting for the game..." until the answer to *your* click lands, because two
+     captures legitimately look alike.
+  2. **The wireframe drew one mesh out of a dozen.** One flush is a whole bag: the
+     chain carries a position stream per mesh, and the preview showed the largest
+     one - which, being model space, is byte-identical from frame to frame no
+     matter where the camera is. The decoder now lists every position stream
+     (`vertexUnpacks`) and the panel gets a mesh slider; they cannot be drawn
+     together, each mesh being in its own model space. Positions are told apart
+     from the same-sized ST/Q array beside them by their w component (the pipeline
+     packs `(x, y, z, 1.0)`), with the old largest-V4_32 rule kept as a fallback so
+     an unrecognised chain still previews something.
+  *Verified* end to end in PCSX2 rather than by reading the code: a scratch FPP
+  project (a two-node graph attached to the player, since a project with no
+  runnable node generates no devkit layer at all and therefore no capture), then
+  a ~90-line Python probe writing `livedbg.cmd` with the capture bit three times
+  in a row. Result: `size=24576` all three times, frames 661 / 805 / 955, three
+  distinct mtimes - the size-keyed cache proven dead, the timestamp key proven
+  live. `--dump-vucap` on those captures lists **12 position streams** in one
+  flush (11 of 21 verts, 2 of 3) where the panel used to show exactly one, and a
+  deliberately truncated copy decodes without `hasVuMem` and without crashing,
+  which is the torn-read guard's trigger. The GUI panel itself is *not*
+  screenshot-verified: driving it needs clicks, and this machine still renders
+  the editor window blank (see 191).
+
+- (199) **A textured terrain drew PURE BLACK on real hardware while PCSX2 was
+  fine** - reported with a photo of a physical console: sky, the house, and
+  black where the ground should be ("should be the project's default colour").
+  Three separate defects on one path, all of them emulator-invisible.
+  **(1) The path the game is told to open could contain `..`.** A terrain
+  material's `map_Kd` is relative to the .mtl's own folder, so a texture one
+  directory over resolved to `materials/../textures/x.png` - and **the PS2
+  cannot walk `..`** (the same invariant the Asset Browser enforces for
+  Wavefront siblings). PCSX2's `host:` fs resolves it through the OS and shows
+  nothing wrong; a disc has no such entry at all. `resolveTerrainMaterial` now
+  emits a `lexically_normal()` path, which is also where texbake had already
+  copied the file - the two used to disagree.
+  **(2) A missing texture drew the ground black.** `buildTerrainChunk` decided
+  `textured` from the BUILD-time `TERRAIN_TEXTURE >= 0` and scaled the vertex
+  colours for a GS modulate (128 = 1.0), but the bind further down also required
+  the texture to be *loaded* - so a failed load left colours scaled for a
+  modulate that never happened. **Measured A/B** in PCSX2 with the baked PNG
+  deleted from `bin/`: before, the ground sampled **(0, 0, 0)** over the whole
+  lower frame; after, **(234, 234, 234)**, i.e. the material's Kd at full scale
+  - the "default colour" the owner expected. `textured` now means "actually
+  loaded", so the colour scale, the additive-light rescale (`emisK`) and the bind
+  can no longer disagree.
+  **(3) Nothing re-armed a chunk when its texture landed later.** Scene textures
+  come through the one-job-per-frame stream queue; `loadScene` drains that queue
+  before building any chunk, so boot was safe, but a chunk built during play (the
+  streamed ring, layer residency) got no texture bag and would only ever be
+  fixed by leaving the view rect and coming back. A completed terrain-texture job
+  now frees the built chunks so the ordinary budgeted pass rebuilds them (buffers
+  keep their capacity - a rebuild, not an allocation).
+  **Verified**: a scratch project given a red/blue checker terrain texture still
+  renders it at full brightness in PCSX2 after the change (sampled (231,36,37) /
+  (36,36,232) - no halving), the normalized path appears in
+  `texture_data.gen.hpp` as `textures/ground.png`, and the game builds on the PS2
+  toolchain. **Not verified**: the owner's actual console (no hardware here), so
+  which of the three was *their* trigger is unconfirmed - (1) is the likely one
+  if the project deploys from a disc.
+
+- (198) **ImGui ID conflict in the Debugger's object watch** (reported by the
+  owner with the "3 visible items with conflicting ID" popup on screen). The
+  per-axis position plots were three `PlotLines` calls sharing the label
+  `"##plot"` inside one `PushID` scope - three widgets claiming one ID, which is
+  also why hovering them was ambiguous. Now `##plotX/Y/Z`. The count in the
+  popup (3) pinpointed it exactly; the rest of the window was audited at the
+  same time (the other loops do push an id, and the watch table's rows are
+  text-only, so they claim no id). Fixed structurally and compiles; **not
+  visually confirmed** - this machine still renders the editor window blank
+  (see 191).
+
+- (197) **The number plane: a flow graph can now COMPUTE a value instead of
+  only typing one in.** Reported by the owner: "you cannot pass a value into a
+  node through an input at all", wanting the simplest possible thing - a button
+  that increases a variable by 1. Both halves landed.
+  **A fifth link kind** (`FlowLinkNum`, pink circle pins): a number output wired
+  into a number input REPLACES that node's `num[0]` param, exactly the way a
+  position link overrides X/Y/Z - one convention, so every consumer behaves the
+  same and the Properties panel says *"Value: from link"* instead of showing a
+  param the game ignores. Sources: **Number** (a literal), **Get Int**,
+  **Get Save Value** (which already existed as a text source and now doubles as
+  a numeric one). Combining: **Add / Subtract / Multiply / Divide** fold over
+  ALL their wired inputs (the logic-gate precedent), with the `B` param as the
+  second operand when only one input is wired - so `Get Int -> Add (B 1) ->
+  Set Int` is read-modify-write. **Number At Least** bridges back to the bool
+  plane, **Number To Text** into the text plane (so a computed value reaches
+  Display Text). Consumers with a number input: Set Int, Set Bool, Set/Add Save
+  Value, Value At Least, Int At Least - a threshold can now itself be computed.
+  **And the short path**, because the ask deserved two nodes and not four:
+  Set Int grew an `add` exec pin (`set` / `add`, the Set-Object-Visible merge
+  pattern) and Set Bool a `toggle` pin. On Button -> Set Int/add with Value 1 IS
+  the counter.
+  Pin ids widened from 16 to 32 slots per node (never persisted - the stride is
+  now `kFlowPinSlots` in one place, with `flowPinNode`/`flowPinKind` replacing
+  the `% 16` arithmetic app.cpp had inlined).
+  **Two traps handled.** (1) Live Logic's IR carries `num[4]` as compile-time
+  CONSTANTS, so a wired value would silently run as the node's typed-in param -
+  `capability()` now rejects a graph containing a number link by name, and the
+  interpreter's Set Int / Set Bool bodies honor `in.pin` so the add/toggle pins
+  stay exact twins of the generated C++. (2) An int variable named ONLY by a
+  Get Int must still take its slot in `collectFlowVars`, or every index after it
+  shifts and a patched graph writes the wrong variable - both copies of that
+  list (templates.cpp and livelogic.cpp) updated together.
+  **Also fixed while here**, both pre-existing and both now load-bearing for the
+  add pin: the AI path dropped `toPin` in BOTH directions (`graphJson` never
+  wrote it, `parseGraph` never read it), so asking the model to edit a graph
+  silently rewrote every hide/toggle branch link to pin 0 - it now round-trips,
+  the catalog names each merged node's pins, and a pin the target does not have
+  is dropped like any other invalid link. And PCSX2 refuses a boot ELF whose
+  path mixes separators ("does not exist" for a file that plainly does), which a
+  project opened through a forward-slash path produces - the Runner hands it a
+  native path now.
+  **Verified end to end on the running game** (PCSX2, debug profile, the Live
+  Debugger's own watch channel reading the real variables): 12 x Cross ->
+  `score` = 12 with the trigger and the add node each reporting 12 hits;
+  1 x Circle -> `score` = 24 (Get Int -> Multiply B=2 -> Set Int, through two
+  number links) and `flag` 0 -> 1 (the toggle pin); the Number At Least(10) ->
+  On Condition edge fired exactly ONCE on the way up; `minus` = -5 from a
+  Subtract chain and `third` = 0 through the divide-by-zero-safe `flowNumDiv`.
+  The screenshot shows **"Score: 24"** on the PS2 picture - Get Int -> Number To
+  Text -> Display Text, live. Codegen inspected for all 22 nodes / 22 links, the
+  game compiles on the PS2 toolchain, and the graph round-trips through
+  `objects/*.json` (11 number links, 2 pins) and `--dump-graph`.
+  **Not verified**: the graph editor's own visuals (this machine still renders
+  the editor window blank - see 191) and real hardware.
+
+- (196) **Reading back what VU1 produced: the staged GIF packets, decoded**
+  (docs/devkit.md). Follow-up to 195 - having the INPUT was half the answer; this
+  is the other half. Arming a capture now also snapshots **all 1024 quadwords of
+  VU1 data memory** right after that chain ran: the engine waits for VIF1 and for
+  the microprogram (`VIF1_STAT` VPS/VEW, bounded spin), hands the memory over
+  through a second null-by-default hook, and the devkit uninstalls it
+  immediately - so the stall happens for the one frame you asked about.
+  **What the editor gets out of it**: the MVP the mesh was given (quadword 0,
+  printed as uploaded), the vertex arrays as VU1 read them, and - the point of
+  the exercise - the **GIF packets the program staged for XGKICK**, decoded to GS
+  vertices: screen-space X/Y in 12.4 fixed point, 24-bit Z, RGBAQ, ST, with PRIM
+  and the REGS list spelled out. Verified on the console: `gif 1 @VU1 23:
+  TRIANGLE +ABE nloop=21 nreg=2 [RGBAQ, XYZF2] EOP` with 21 plausible
+  screen-space vertices, alongside the small `A+D` tag packets the pipeline
+  emits in-band. That is the number the GS was about to rasterize, per vertex.
+  **The host reference stayed a hint, on purpose.** The editor also runs the same
+  transform (`clip = MVP * v`, `ndc = clip / w`, `screen = scale * (ndc + 1)`,
+  ftoi4 - read straight out of `ScaleVertexToGSFormat` in vcl_sml.i) and diffs
+  it. First read looked like a win (X agreeing to the LSB, Y off by ~400 px) and
+  the tempting conclusion was "VU1 has a Y bug". It is not: printing the pairs
+  showed those vertices share almost the same X, so the agreement was weak
+  evidence - and more importantly **one flush carries SEVERAL meshes in one
+  chain** while VU1 memory holds only the LAST MVP uploaded, so input block and
+  output packet are not reliably paired. The tool now says exactly that, in the
+  CLI and in the panel, and prints the out/ref pairs for a human to judge.
+  Turning it into a verdict is one small step, written down in the docs: capture
+  the object-data chain (the MVP upload) together with the qbuffer chain, and
+  capture a single-bag flush. Not guessed at in this entry.
+  Also fixed from 195: only packets carrying XYZF2/XYZ2 count as geometry (the
+  `A+D` tag packets were inflating the clip accounting), and the reference
+  computes both screen-Y conventions and reports which one fits rather than
+  assuming the GS axis direction.
+  **Verified**: `--dump-vucap` end to end against a live capture (24576 bytes =
+  chain + 24 referenced blocks + 16 KiB of VU1 memory); MVP, scales, 14 GIF
+  packets and their vertices all decode; the game keeps running normally
+  afterwards (the stall is one frame). **Not verified**: the panel view (the
+  machine's blank-editor state from 191), the mesh-to-packet pairing (above), and
+  real hardware.
+
+- (195) **The VU1 packet inspector: see what the EE actually fed VU1, decoded,
+  with the geometry** (docs/devkit.md). User request - "debugowanie VU to zawsze
+  była jebaczka, jakby był podgląd tego co VU wygenerowało...". You cannot print
+  from a microprogram and its output goes straight to the GS, but its INPUT is
+  ours: every vertex the static pipeline draws leaves the EE as one DMA chain
+  from `StaPipQBufferRenderer::sendPacket()`. So that is where the tap went.
+  **The seam** (`vendor/tyra/.../stapip_vu_tap.hpp`): the engine carries a NULL
+  function pointer plus the branch that tests it, once per bag flush - the
+  capture code lives in the generated devkit TU, so a release build links none of
+  it (the zero-cost rule from 186 holds, and the audit watches it).
+  **The editor side** (`src/vucap.{hpp,cpp}`, no GL/ImGui) decodes the chain: DMA
+  tags, VIF codes (STCYCL / FLUSH / MSCAL / UNPACK with format + VU1 destination
+  address), every UNPACKed block read back as floats, and the vertex stream drawn
+  as an orbitable **wireframe** in the new Debugger "VU" tab. `--dump-vucap`
+  prints the same decode headlessly, which is how the parser was tested.
+  **The two things that made it real work**, both found by looking at a live
+  capture instead of guessing: the pipeline sends vertex arrays **by reference**
+  (a `ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at ANOTHER address,
+  the tag itself being one quadword), so (a) a chain walker must advance by 1 for
+  those and `1 + qwc` only for inline `cnt`/`next` - my first version advanced
+  past 21 phantom quadwords and started decoding data as tags, producing tags
+  like `refe qwc=32789` and float garbage; and (b) the capture has to FOLLOW
+  those references on the EE while the addresses are live, or the editor gets the
+  structure with none of the geometry. The tap now copies each referenced block
+  along and the file carries an index of them (format v2).
+  **Verified in PCSX2** end to end: armed a capture on the running fixture, the
+  game logged `VU capture: 73 qw chain + 24 referenced block(s)`, and the decode
+  reads exactly like the pipeline it came from - `UNPACK V4_32 num=2 -> VU1 addr
+  0` (scales + GIF tag, inline), two referenced `V4_32 num=21` blocks at VU1 addr
+  2 and 23 (double-buffered vertex data), `FLUSH`, `MSCAL 176` (the microprogram
+  entry point), and a vertex stream of 21 real model-space positions in triangle
+  triples (`95.827 -5.757 0.000 1.000`, sharing vertices pairwise as a split quad
+  does). **Not verified**: the wireframe view itself (the machine's blank-editor
+  state from 184) and real hardware.
+
+- (194) **Crashes stop being invisible: TYRAX banners, an EE crash handler with
+  a symbolized backtrace, and a post-mortem from the devkit's own history**
+  (docs/devkit.md). User question, and the honest answer was "nothing nice
+  happens": a `TYRA_ASSERT` was reported well, but a REAL EE exception (bad
+  pointer, address error, reserved instruction) printed nothing, halted nothing
+  and left the game frozen in silence - the worst class of bug was the least
+  visible one. Also renamed the engine's error block banner from TYRA to
+  **TYRAX** (the blocks are a TyraX modification; the editor accepts the old
+  banner too, so an ELF built before the rename still reports).
+  **What ships working:**
+  (a) **The heartbeat post-mortem.** The devkit already knows whether the game
+  is alive (a snapshot every few frames). When that stops with no crash report
+  and no assertion, the Debugger says "the game stopped reporting at frame N"
+  and shows what it still holds from the seconds before: the last flow-graph
+  nodes that ran, the watched objects' positions, the armed timers. Works on
+  hardware and in PCSX2, needs nothing from the game.
+  (b) **Symbolization.** `Makefile.base` now keeps an UNSTRIPPED copy of the ELF
+  (`bin/<name>.elf.sym`) when the generated Makefile sets `KEEPSYM=1` - the
+  debug profile also compiles with `-g` and links `-leedebug`, release neither -
+  and `elfsym::symbolize` runs the PS2 toolchain's `addr2line` in the build
+  container to turn an address into a function + source line. Also exposed as
+  `--symbolize <dir> <addr>...`. **Verified**: `0x00120000` ->
+  `Dbgdemo::TerrainGame::renderOnePortalView(int)` at
+  `/src/src/terrain_game.cpp:7913`. Note the shipped ELF is stripped
+  (`strip --strip-all`), which is exactly why the copy exists.
+  (c) **The crash report path**: `bin/crash.txt` (decoded cause, EPC, BadVAddr,
+  all 32 GPRs, backtrace candidates) parsed by the editor into a red section at
+  the top of the Debugger, with Resolve names / Copy report / Dismiss and the
+  post-mortem context underneath. Verified against a synthetic report in the
+  exact format the game writes, symbolized end to end.
+  (d) **The TYRAX banner, verified live**: a test `.flownode` raising
+  `TYRA_SOFT_ERROR` produced the block in the running game's log with the new
+  banner and `File : src/gen/flow_graph.gen.cpp:45`.
+  **The engine part** (`vendor/tyra/engine/{inc,src}/debug/crash_handler.*`) is
+  written on ps2sdk's **libeedebug** - `ee_dbg_install` + level-1/2 handlers hand
+  a C function the whole `EE_RegFrame`, so no hand-written exception stub is
+  needed. The handler captures the frame, harvests plausible return addresses off
+  the stack (no frame pointers at -O3, so it is a scan the editor then names),
+  and **redirects the frame's EPC at a trampoline** so the report is written from
+  ORDINARY context - doing file I/O inside the exception context is the classic
+  way to turn a crash into a hang. It lives in its own TU, so a project that
+  never installs it links none of it (archive semantics) - the release audit
+  stays clean.
+  **But it is OFF by default** (`ProjectSettings::eeCrashHandler`, Preferences >
+  Build, marked experimental), because of what the measurements said. Two traps
+  were found the hard way, both now permanent comments: hooking **cause 0
+  (Interrupt)** hijacks vblank/timer/DMA dispatch so no thread ever runs again
+  (the game froze with the last frame up and NOTHING in the log - which is
+  precisely how the bug presented), and **cause 8 (Syscall)** plus TLB refill /
+  TLB modified must be left to the kernel because they are how ordinary memory
+  traffic and every kernel service are serviced, not faults. After narrowing to
+  genuine faults only (4, 5, 6, 7, 9, 10..13, 15) the game STILL dies the moment
+  `ee_dbg_install()` runs under PCSX2 - so it is the install itself, in the
+  emulator. Also learned: writing to address 0 does NOT fault on the PS2 (main
+  RAM starts there) and a misaligned load did not fault under PCSX2 either, so
+  the emulator cannot even produce the exception this is meant to catch. Hence:
+  the code stays, the switch stays off, and the hardware pass is the user's -
+  the alternative would have been shipping a feature that hangs a debug build on
+  boot.
+  Also: `bin/livedbg.bin`/`livedbg.cmd`/`livelink.*`/`livelogic.bin`/`crash.txt`
+  and `src/gen/livedbg.sym` / `livelogic.built` are now named explicitly in the
+  generated project's `.gitignore` (user request - the nested `bin/.gitignore`
+  covered them, but only in projects created after it), and the ISO export skips
+  them plus any `*.sym`.
+
+- (193) **The devkit gets a receipt: a release build provably carries none of
+  it - plus armed-timer reporting, Fire-and-continue, per-frame object watches
+  and a visible breakpoint marker** (docs/devkit.md). The user's condition for
+  going further with debugging tools was blunt and correct: "make sure we don't
+  pay for it later - in release nothing of the debug code loads, no memory, none
+  of it". So this entry is half feature, half proof.
+  **The proof.** `src/elfsym.{hpp,cpp}` is a small ELF32 reader (sections,
+  symbols, section bytes). On top of it, `elfsym::auditRelease` scans a built ELF
+  for anything the three live layers would leave behind and reports the cost in
+  numbers. Two signals, because the PS2 toolchain STRIPS the symbol table (so
+  symbol matching alone would silently always pass): each generated devkit
+  runtime now plants a deliberate `TXDEVKIT-<layer>` marker string
+  (`__attribute__((used))` so -O3 keeps it), and the channel file names
+  (`livedbg.bin`, `livelogic.bin`, ...) are the independent second signal - the
+  polling code cannot exist without them. `--audit-release <dir>` exits 0/1 so a
+  script can gate a release, and **every release build audits itself** in the
+  Runner and prints the verdict into the build log.
+  **Measured** (same project, same assets, only the profile changed): debug =
+  text 1848 KiB / bss 284 KiB and four devkit findings; release = text 1830 KiB /
+  bss 139 KiB and *clean*. So the devkit costs ~18 KiB of code and ~145 KiB of
+  RAM while working, and nothing in what ships. The audit was also negative-
+  tested: run against the debug ELF it correctly FAILS and names the four
+  strings, which is the only way to know the check can fail at all.
+  **The bug the user reported**, and it was not the breakpoint: with `On Button
+  -> Delay 1s -> Set Int`, force-firing the trigger never hit a breakpoint on the
+  Set Int, while the same graph without the Delay did. A `Delay` does not wait -
+  it arms a countdown that advances one frame at a time, and a force-fire on a
+  HALTED game deliberately runs exactly one frame (a halted game runs no scripts,
+  so nobody would ever check `forced()`). One frame arms the timer; then
+  everything freezes again and the branch behind it never comes. Fixed on both
+  sides of the confusion: (a) every armed countdown is now REPORTED - the graphs
+  call `livedbg::timer(key, framesLeft)` each frame (native and interpreted
+  alike), the snapshot carries them, and the panel says "1 armed timer, next in
+  1.2 s" with the frames left shown on the node itself; (b) **Fire and continue**
+  (node context menu, or Shift+click on Fire) fires the branch AND resumes, so
+  the countdown reaches zero. Ordering trap found on the console: the timer list
+  must be cleared AFTER the flush, not at the top of the tick - the graphs report
+  while they run, i.e. after the pump, so clearing first flushed an empty list
+  every time (it did, until measured).
+  **Object watch.** The editor can name up to 8 runtime objects; the game samples
+  them EVERY FRAME (position/rotation/scale/color + visible/active/dirty) into a
+  per-object ring it flushes whole, so what arrives is a true 50 Hz curve instead
+  of one point per flush. New Debugger tab "Objects": live values, a plot per
+  axis over ~30 s, and the path drawn **in the viewport** as a trail (projected
+  app-side from `Viewport::viewMatrix/projMatrix` - no renderer change) with a
+  head dot for "here it is now".
+  **The breakpoint marker was invisible for a real reason** (user: "it shows up
+  under the node and is hard to see"): imnodes runs its editor in a CHILD window,
+  and a child renders on top of its parent's content - so everything drawn into
+  the Flow Graph window's draw list after `EndNodeEditor` sat UNDERNEATH the
+  nodes. The badges now go into their own borderless, input-less overlay child
+  laid over the canvas (a later sibling child draws on top), and the marker moved
+  out of the title bar into an IDE-style gutter left of the node: a ringed dot
+  plus a bar down the node's left edge, yellow with a pulsing halo when the game
+  is stopped on it.
+  **Verified** in PCSX2 on the entry-191/192 fixture: armed timer reported as
+  `(key 4, 51 frames)` matching the 1 s Delay; object watch delivering 6
+  consecutive per-frame samples per flush (50 Hz under a 6-frame cadence) with
+  the frame numbers strictly +1; and then both new features against a STRUCTURAL
+  hot patch - a `Move Object By` node that does not exist in the built ELF was
+  compiled by the editor, patched in, and the watch showed the object's X climb
+  0.5 units/s frame by frame (6.0 -> 7.5 over 3 s). Release audit clean, debug
+  audit correctly dirty. **Not verified here**: the editor's own panels and the
+  new overlay/trail drawing (the machine is still in the blank-editor-window
+  state of entry 191 - the data paths behind them are the ones measured above),
+  and ps2link on real hardware.
+
+- (192) **Live Logic: editing a flow graph changes the RUNNING game - the last
+  thing in the pipeline that always needed a rebuild** (docs/live-logic.md).
+  Graphs compile to C++, so editing one meant Docker + make + reboot. Now the
+  EDITOR compiles the graph instead - into a pre-resolved instruction list
+  (`src/livelogic.hpp`: object references are runtime indices, variables /
+  save values / HUD texts / scenes are table indices, positions are
+  literal/variable/object operands, bool conditions are a small RPN program,
+  exec chains are linearized into blocks with a `Delay` owning the block it
+  arms) - writes it to `bin/livelogic.bin` on the same host: channel Live Link
+  and the Live Debugger use, and a generated interpreter
+  (`src/gen/live_logic.gen.cpp`) runs it while the natively compiled script for
+  that object stands down (`if (livelogic::patched(scene, idx)) return;` - so
+  exactly one of the two runs, never both). Delete the patch and native logic
+  resumes. Toolbar chip **LOGIC (n)**; the Debugger gains a **Logic** tab.
+  **The design call that makes this shippable:** an interpreter case is a
+  SECOND implementation of a node's semantics, i.e. a twin that can drift from
+  `flowGraphScript`. So the supported set is explicit and small (triggers On
+  Start / Every N / On Button / Near Object / On Condition; object, scene, HUD,
+  variable and save actions; Delay, Log; the logic gates and their bool
+  sources), everything else is REPORTED per graph ("Play Sound", "the graph did
+  not exist at build time") with the chip going amber, and the opcode
+  numbering, block kinds and cond ops all live in ONE header - the generated
+  interpreter's enums and dispatch switch are emitted from it, and a missing
+  case becomes a `#error` in the generated file rather than a silently dead
+  opcode. A patched graph writes the same `flowInt/flowBool/flowPos` arrays
+  (accessors emitted next to them), the same save values and the same
+  RuntimeObject state as compiled code, and carries the same Live-Debugger node
+  keys - so breakpoints, hit counters and the timeline keep working on
+  hot-patched logic.
+  **Verified in PCSX2** with the entry-191 fixture (On Start -> Set Var Int;
+  Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int), measured through the
+  Live Debugger's own telemetry - the debugger is the instrument that proves
+  the patch landed: native baseline 1.00 fires/s; after a patch of *the same
+  running ELF* (Every N 1 s -> 0.2 s, On Start value 1 -> 42, Delay 2 s ->
+  0.5 s) the trigger chain ran at exactly **5.00 fires/s** with every node in
+  the chain in lockstep, the flow variable read **42**, and On Start fired
+  exactly once. A second patch (Delay 0.3 s) made a branch that was
+  **unreachable in the built ELF** run at 1.00/s and set its variable to 5 -
+  new behavior in a game nobody rebuilt. Deleting the patch returned the game
+  to 1.00 fires/s natively; the game log shows `LiveLogic: patched 1 graph(s),
+  4 instruction(s)` and `patch withdrawn - native scripts resume`.
+  Compilation itself was verified headlessly first (a host harness linking
+  `livelogic.cpp` + the editor's other non-GUI objects, printing blocks/instrs
+  and writing the patch - this machine cannot render the editor GUI, see 180).
+  **The bug worth remembering:** the first e2e run showed the rate change but
+  garbage debug keys and a dead delay - the generated parser's instruction
+  stride was 44 while the encoder wrote 50 bytes, so every instruction after
+  the first was misaligned. Two things hid it: block data parses fine (the
+  visible effect still worked) and the ELF had been built by an editor binary
+  from *before* the stride fix. Both ends now derive the layout from one
+  documented field list, and the sizes are asserted by the round-trip harness.
+  **Not verified here**: the editor-side panel/chip (same blank-window state as
+  191 - the patch path itself was driven by the harness, which calls exactly
+  what `App::liveLogicTick` calls), and ps2link on real hardware.
+
+- (191) **Live Debugger: breakpoints, pause/step and a rewindable execution
+  timeline for a game running on the PlayStation 2** (docs/live-debugger.md).
+  Live Link streams edits INTO the running game; this is the return channel.
+  A debug build reports every flow-graph node it runs, so the Flow Graph
+  window becomes a live instrument - node titles glow as they fire and fade
+  over 0.6 s, the exec links behind them thicken and light up, cumulative hit
+  counters sit in the node corners, breakpoints show as red dots (yellow on
+  the one that stopped the game). Right-click a node for *Set breakpoint* /
+  *Fire now in the running game*. The new **Debugger** panel (Tools > Debugger,
+  F9, plus a built-in "Debugger" window layout: graph centre, panel right)
+  carries the transport (Pause/Continue F10, Step frame F11, **Step node** =
+  run until anything fires), a **watch table** of every flow variable and save
+  value, the breakpoint list, and the **timeline**: one column per frame that
+  had a fire, ~900 frames deep, clickable - and while rewound the graph
+  overlay replays THAT frame instead of the live one, through the same drawing
+  code. Toolbar **DBG chip** = fps / halted@frame / rebuild-needed.
+  **How it rides**: no new transport - the same host: filesystem Live Link
+  uses. The game writes `bin/livedbg.bin` every 6 frames (25 under ps2link:
+  hit table + a 192-entry ring of recent fires carrying their AGE in frames +
+  watch values + halted flag), and reads `bin/livedbg.cmd` (full breakpoint
+  list, halt/step, force-fire keys). Torn writes die on an exact-size +
+  footer-echo check on both ends; a command applies only when its seq changes;
+  the Runner deletes both files at build start so a stale halt can't freeze a
+  fresh boot. Host side in `src/livedbg.cpp` (no GL/ImGui - formats + the
+  timeline model), game side generated into `src/gen/live_debug.gen.cpp`.
+  **Keys, not names**: codegen (`debugSymbols`) numbers the instrumented nodes
+  (scene -> object -> node) and writes `src/gen/livedbg.sym` mapping each key
+  to a scene + STABLE object id + node id (so breakpoints survive renames and
+  reorders), with the table's hash baked into the ELF - a mismatch shows as
+  amber "DBG (rebuild)" instead of highlighting the wrong nodes. Breakpoints
+  live in the `.tyra` as editor state, deliberately not a collaboration
+  section. **The halt reuses the pause that already existed**: `livedbg::halted()`
+  is OR'd into the generated loop's `menuActive`/`menuOwnsPad`, so scripts,
+  walker, particles and animation freeze exactly like a pausing menu while the
+  GS keeps presenting - you can look at what you stopped. Two design notes
+  worth keeping: a breakpoint reports AFTER its node's action ran (a node
+  cannot report itself before it runs), so the halt takes effect from the next
+  frame - frame granularity, stated in the docs rather than faked; and a
+  force-fire that arrives while the game is stopped silently becomes a
+  one-frame step, because a halted game runs no scripts and nobody would ever
+  ask `forced()`. The frame counter is the game's LOGIC clock: it stops while
+  halted, so "halted at frame N" stays N. Cost when off (release, preference
+  off, or no runnable node in any graph): the generated TU is empty, every
+  entry point an inline no-op, `halted()` a compile-time false - the loop's
+  `|| livedbg::halted()` folds away.
+  **Verified** (PCSX2, D3D11, a fixture project with a 6-node graph: On Start
+  -> Set Var Int, Every 1 s -> Set Var Bool + Delay 2 s -> Set Var Int):
+  codegen inspected headlessly (`--refresh-gen`: hits emitted per trigger and
+  action, the forced-fire duplicate branch, the halted early-out, the watch
+  accessor, and the sym file's 6 nodes + 2 vars); then the whole channel
+  against the running console. Telemetry: `On Start` 1 hit, the 1-second
+  trigger chain 40+ and climbing in step, `score`/`ticked` shown live, sym
+  hash matching the ELF's. Transport, each step measured from the snapshots:
+  a breakpoint on the `Every 1 s` node halted the game (`brk=2`) and froze
+  every counter for 2 s, Continue resumed it; Pause froze the frame counter
+  too; **Step frame advanced exactly 1 frame**; a force-fire of `On Start`
+  while halted ran its whole branch once (both nodes 1 -> 2 hits) and advanced
+  exactly one frame; Step node stopped on the next fire one frame later; a
+  breakpoint on an unreachable node never fired. PCSX2 kept reporting FPS 50 /
+  Speed 100% while halted (screenshot) - the freeze is logic-only, as designed.
+  The fixture also caught a real graph bug by itself: the 2 s Delay never
+  fired because the 1 s trigger re-arms it - visible as a node with 0 hits
+  next to neighbours at 45, which is exactly what this feature is for.
+  **Not verified here**: the editor-side panel and graph overlay could not be
+  screenshot-checked - this machine is in the known white-window state (the
+  editor draws its title bar and nothing else; entry 101's notes and the
+  earlier sessions blame an AMD GL present quirk). Confirmed not a regression
+  by capturing a main-branch build side by side: same blank window. The panel/overlay code compiles clean and its data comes from
+  the same snapshots verified above, but a human should still eyeball the
+  glow/timeline once. ps2link (real hardware) uses identical code paths on a
+  25-frame cadence; untested.
+
+- (190) **Fix: Build & Run was broken on Windows - PCSX2 refused to boot the
+  ELF because the path had MIXED separators.** Diagnosed as a detour in (189)
+  and deferred there; this is the fix. Regression from the Linux port
+  (see (187), fix (2)): replacing the old `dir + "\\bin\\" + elfName()` with
+  `filePath("bin/" + elfName())` traded a Linux bug for a Windows one, because
+  `std::filesystem::path(dir) / "bin/name.elf"` does not normalize - it
+  concatenates, leaving `C:\...\proj\bin/proj.elf`. **Every check the editor
+  itself does passes on that string** (the CRT and `std::filesystem` accept
+  either separator, so the Runner's own `fs::exists()` pre-flight was happy and
+  it reported a successful launch), but PCSX2 v2.6.3 does not: it answers
+  `Startup Error: Requested boot ELF '...' does not exist.` for exactly the
+  file it boots fine when the same path is spelled with backslashes -
+  reproduced by hand, both spellings, one existing ELF. The user-visible
+  symptom was the worst kind: a PCSX2 window that just never starts the game,
+  with the only diagnostic in PCSX2's own `emulog.txt` (and Documents may be
+  OneDrive-redirected) - nothing in the Output panel, because as far as the
+  Runner knew it had launched.
+  `Project::filePath()` now ends in `make_preferred()`, so the fix is one line
+  and covers every caller instead of just the ELF: the rule is that anything
+  leaving the process needs native separators, and the only way to keep that
+  true is to normalize at the single place project-relative paths are joined.
+  Audited the rest of that boundary: `elfPath()` was the only `filePath()`
+  result handed to an external program (the others all go straight to
+  `objparser`/`stbi`/`fs`, which don't care), but `App::assetAbs` was a second
+  hand-rolled copy of the same join feeding the Asset Browser's **Reveal**
+  button, and `explorer.exe /select,"<mixed path>"` silently opens the default
+  folder instead of selecting the file - `assetAbs` now delegates to
+  `filePath()`, and `revealInFileManager` normalizes on its own too (it is the
+  OS boundary, and a future caller may hand it anything). The PS2-side `host:`
+  paths are untouched: they are built from `elfName()`/`relativePath`, never
+  from `filePath()`. Verified on Windows end-to-end: `build.ps1`, `--new pm6`
+  into `%TEMP%\tyra-editor-test`, `--build --run` exit 0, emulog now reads
+  `ELF host:C:\...\pm6\bin\pm6.elf ... is executing`, `bin/log.txt` fills with
+  `LOG:` lines through 480 frames and the scene renders at 50 FPS (screenshot).
+  Linux side: `make_preferred()` is a no-op where `/` is already preferred, so
+  the behavior there cannot change - confirmed by compiling and running a small
+  g++ 11 harness over `project.hpp` in WSL (`elfPath` = `.../pm6/bin/pm6.elf`)
+  plus a `-Wall -Wextra` syntax check of `platform.cpp`; no full Linux editor
+  build this time (the only change reaching it is the header, and the
+  platform.cpp edit is inside `#ifdef _WIN32`).
+
+- (189) **New-project defaults: authoring-ready build settings, a 100x100
+  terrain, and the world scale chosen before there is any content.** Four
+  changes to what `File > New Project` (and `--new`) hands you. The build ones
+  are the easy half: a fresh project now starts in the **debug** profile with
+  **Live Link** on and **USB keyboard & mouse off** - you author with the live
+  loop and the overlays available, switch to release for the disc, and a pad
+  game stops loading three IRX drivers it never polls. The load-bearing detail
+  is *where* those defaults live: every `read*Section` guards on
+  `find("key")`, so a member initializer in `ProjectSettings` is not the
+  new-project default at all - it is what a project saved *before that key
+  existed* loads as. Flipping `keyboardMouse` there would have silently
+  disabled the keyboard in every pre-feature project. So the struct keeps the
+  legacy answer (`"release"`, `true`) and `project::create` assigns the new one,
+  the same split `AmbiencePreset::aoEnabled` already used. `TerrainConfig` is
+  the exception - nothing reads it for a loaded project - so its 64 became 100
+  in the struct, with the legacy inline-`"terrain"` reader pinned to `{64, 64}`
+  so a malformed old file still reads as it did.
+  **World scale** is now asked in the dialog (a preset combo - metric / 10 cm /
+  1 cm / 10 m per unit / Custom, with the terrain size restating itself in
+  metres underneath) and as a trailing `--new` argument, plumbed through a new
+  `project::create(..., unitsPerMeter)` parameter. Not because it cannot be
+  changed later - *Preferences > World* is still there - but because changing it
+  later deliberately rescales *nothing* (177), so the only honest moment to ask
+  is before any content exists. Picking it also scales the
+  metric-by-definition defaults, since those are metres and seconds by
+  construction: eye height, walk speed, gravity, jump on `ProjectSettings`, plus
+  the FPP preset Player's own three and its third-person boom/height. At 10
+  units/m the preset player is 18 units tall running 50 units/s - still 1.8 m at
+  5 m/s. Units-by-nature values (tiling, nav cells, AO radius, flashlight
+  range) are left alone, and no existing project is ever touched.
+  Also, at the owner's request, the dialog's **explanatory paragraphs became
+  `(?)` tooltips** (the Preferences `prefHelp` idiom). The AI-support and
+  world-scale litanies plus the new build-defaults note were ~15 lines of
+  `TextDisabled` between the fields and the Create button; the modal is now
+  compact and the prose is one hover away.
+  *Verified* headlessly first - `--new defproj` gave `terrain 100x100,
+  1.000 units/m` with `"buildProfile": "debug"`, `"liveLink": true`,
+  `"keyboardMouse": false` in the `.tyra`, `loadUsbKbdMouse = false` in the
+  generated `src/main.cpp`, a non-empty `src/gen/live_link.gen.cpp` (211 lines =
+  the poller compiled in) and `TERRAIN_WIDTHS = {100.0F}` in `scene_data.hpp`;
+  `--new metric5 ... fpp 5` gave eye 9 / walk 0.5 / gravity 49 / jump 22.5 and a
+  player object at `eyeHeight 9, walkSpeed 0.5, camDist 30`. Then the GUI, which
+  **worked on this machine this time** (the white-window state of 101/187 was
+  absent): screenshots of the modal, the scale dropdown, the Custom branch's
+  `Units per meter` drag, the `= 10.0 x 10.0 m` hint and both new tooltips
+  rendered, and a full click-through Create at 10 units/m produced
+  `unitsPerMeter: 10`, eye 18, walk 1, gravity 98, terrain 100x100 and opened
+  with the amber `LIVE (build)` chip in the toolbar - the chip only exists with
+  the debug profile plus the Live Link preference, so it double-checks both.
+  One self-inflicted mess worth recording: driving the modal with `SendKeys`
+  after an ALT-tap **minimized the window mid-sequence**, the following clicks
+  landed at `-32000` coordinates, and something in that noise hit Create - which
+  created a stray `my-game` in the owner's real `TyraProjects` folder (found by
+  timestamp, verified as freshly-generated default content, removed). The fix
+  for the retry was to stop typing into the dialog at all: back up
+  `editor.ini`, point `defaultProjectsDir` at the scratchpad so the proposed
+  location is already safe, click only, then restore the ini. Prefer that over
+  synthetic text entry for any modal that writes to disk.
+  After merging main, re-ran the headless checks (same numbers) plus a **Docker
+  game build** (exit 0, `live_link.gen.o` in the link line and `livelink.sig`
+  stamped - the debug default reaches the PS2 toolchain) and a **PCSX2 boot** of
+  the 5-units/m FPP project: 2040 frames, no assert, `Static batching: 0 objects
+  in 0 batches` and the example script's hello in `bin/log.txt`, with the
+  debug-only `VRAMSTAT` lines confirming the profile in the *running* game.
+  That boot needed a detour: **`Project::elfPath()` returns a mixed-separator
+  path on Windows since the Linux port** (`filePath("bin/" + elfName())` gives
+  `...\proj\bin/proj.elf`), `fs::exists` accepts it and **PCSX2 v2.6.3 refuses
+  it** - `Requested boot ELF ... does not exist` in its emulog and nothing in
+  the editor's Output, because the Runner believes it launched. Isolated to the
+  separator by booting the same file both spellings by hand; a regression from
+  c01b09e5 (PR #154), unrelated to this change, so it is filed separately rather
+  than bundled here. The boot above used `pcsx2-qt` directly with a
+  backslash path. (The other silent limit bit first, for the record: the initial
+  scratch project sat 168 characters deep, past PCSX2's ~145-char `host:` cap -
+  same black window, also nothing in the game log.)
+
+- (188) **The editor had no icon on Linux.** On Windows the icon is a resource
+  inside the .exe (`resources/app.rc`, named `GLFW_ICON` so GLFW's Win32
+  backend picks it up for the window too), and there is no equivalent anywhere
+  else - the Linux port simply inherited a blank window and a generic launcher
+  tile. The fix has three parts because **X11 and Wayland get their icon from
+  completely different places**, and only one of them involves the application
+  at all:
+  - `resources/icon.png` is baked into the binary by a new
+    `cmake/embed_icon.cmake` (`icon_gen.hpp`, the `ai-support` embed pattern) -
+    the image is needed at runtime, and shipping a loose PNG next to the binary
+    would break the moment someone moves it.
+  - **X11**: decode it with stb_image and `glfwSetWindowIcon` (`applyWindowIcon`
+    in app.cpp).
+  - **Wayland**: there is no icon protocol at all. The compositor matches the
+    surface's **app id** against the installed `.desktop` files and takes the
+    icon from there, so no amount of application-side code can do it -
+    `glfwSetWindowIcon` returns `GLFW_FEATURE_UNAVAILABLE`, which is why the
+    call is skipped on `GLFW_PLATFORM_WAYLAND` rather than left to spam the
+    error callback. So the editor now registers itself:
+    `platform::installDesktopEntry` writes
+    `~/.local/share/applications/tyrax-editor.desktop` plus the icon into
+    `hicolor/256x256/apps/`, and `GLFW_WAYLAND_APP_ID` /
+    `GLFW_X11_CLASS_NAME` / `GLFW_X11_INSTANCE_NAME` are hinted to the same
+    `kAppId` string. All four names have to agree or the desktop cannot connect
+    the running window to its icon, which is why the id is one constant. The
+    entry is written before `glfwInit` (a compositor resolves the icon once, at
+    map time), rewritten only when its bytes change, and `Exec=` is re-stamped
+    from `exePath()` so moving the binary fixes itself. No-op on Windows.
+  - `Exec=` is quoted by the **desktop-entry** rules (double quotes, backslash
+    before `"` `\` `$` `` ` ``), not `shQuote`'s shell single quotes - a
+    single-quoted path is taken literally there.
+  Verified on Ubuntu/GNOME, both backends. Wayland: `WAYLAND_DEBUG=1` shows
+  `xdg_toplevel.set_app_id("tyrax-editor")`, and the other half of the chain
+  checked through GTK itself - `Gio.DesktopAppInfo.new('tyrax-editor.desktop')`
+  resolves to *TyraX* with the right `Exec`, and an icon-theme lookup of
+  `tyrax-editor` at 256 px returns the installed
+  `~/.local/share/icons/hicolor/256x256/apps/tyrax-editor.png`. X11 (forced
+  with `XDG_SESSION_TYPE=x11`): the window's `WM_CLASS` is
+  `"tyrax-editor", "tyrax-editor"` and `_NET_WM_ICON` starts `256, 256`, i.e.
+  the real image (note `xprop` prints a big CARDINAL array as *empty* - a GTK
+  app looks identical, so read the first two fields with a format spec instead
+  of concluding the property is unset). GNOME blocks
+  `org.gnome.Shell.Screenshot`/`Introspect` for unsandboxed callers, so the
+  "icon is visibly in the dash" half stays a human check.
+
+- (186) **Input follow-ups from review: the un-bindable Triangle, a USE prompt
+  that says which button, and a leaner controls scaffold.**
+  (a) **Fix: Triangle could never be rebound.** Capture mode checked the `back`
+  action first as its cancel, and back IS Triangle by default - so pressing
+  Triangle cancelled instead of being captured, and it was the one button no
+  player could bind. Cancel is now the RAW Start button: not the `menu` action
+  either, so it still works when a project moves that action. The cost is
+  documented (Start itself is uncapturable, which is why it is not a rebindable
+  action) and the row's hint stays `PRESS...`.
+  (b) **The USE prompt can be TEXT**, and a fresh project starts at `{{use}} Use`
+  - the prompt now says which button to press and follows a rebind, instead of a
+  generic "USE" sprite. `Project::usePromptText` is a HudText; non-empty text
+  wins over the image, is baked to `res/hud/use-text.png` and drawn at the baked
+  canvas size, so the GAME is unchanged - it still draws one sprite, just a
+  different file. Deliberately seeded only in `create()`: flipping existing
+  projects from their image to text would restyle every HUD behind the user's
+  back (the UI Editor offers the default in one click, and the viewport overlay
+  previews whichever mode is active).
+  (c) **`{{use}}` shorthand.** A token that is not an icon name gets one more
+  chance as an ACTION name, so `{{use}}` means `{{action:use}}` - which is what
+  people actually type. Icon names still win, so `{{cross}}` can never become an
+  action lookup. Both renderers learned it (the shared `textIconForAction` on the
+  host, `resolveIconToken` in the generated game).
+  (d) **The scaffolded OPTIONS tree no longer adds rebind rows.** Rebinding costs
+  a save value per action and most projects ship a fixed scheme, so its CONTROLS
+  page carries the stick settings only; the rows stay an explicit
+  *+ Option block > Key bindings*.
+  Verified on the console, and the harness earned two notes worth keeping: arrow
+  keys need `KEYEVENTF_EXTENDEDKEY` or the emulated keyboard reads them as the
+  numpad twins (the menu cursor never moved), and **PCSX2's default pad map binds
+  Return to Start** - so the synthetic "confirm" was pressing Start and closing
+  the pause menu, which looked exactly like a capture bug. Driving PCSX2's own
+  pad keys instead (K = Cross, I = Triangle): capture arms (`PRESS...`), Triangle
+  is captured, and the row redraws as the green triangle glyph. The USE prompt
+  bakes to "□ Use" with the pink Square glyph (the `use` action's binding).
+  Second round on the same review: the prompts became a pair with an EXPLICIT
+  text/image mode (radio buttons, not "text wins when non-empty" - flipping to
+  the image to compare must not throw away the text), **PICK UP** got its own
+  text (`{{use}} PICK UP`) plus its own image override and its own baked size
+  (`PICK_PROMPT_W/H` - it used to borrow the USE prompt's box), and the default
+  text is the classic word with the glyph rather than `HudText`'s "New text",
+  which is what was showing up in the field. That placeholder also revealed a
+  migration bug of my own making: an interim build wrote a default-constructed
+  prompt text AND its mode flag into every project it saved, so older projects
+  flipped to a prompt reading "New text". The reader now drops that exact string
+  (nobody types it into a prompt) *after* applying the flags - doing it before
+  left the bogus flag in charge - and the committed examples were put back on
+  their built-in sprites. The Button icons manager also gained a preview that
+  falls back to the built-in DRAWING when the PNG has not been baked yet (a fresh
+  project showed an empty column), a hover blow-up, and a per-icon **Default**
+  button that resets the scale and deletes the generated PNG so the next build
+  redraws it. The scaffolded OPTIONS root now opens at game start unless another
+  menu already claims the title screen.
+  Third round, and it turned up a **data-loss bug that predates this branch**:
+  `commitChange()` marked the project dirty only when `History::push` accepted a
+  new snapshot, and that snapshot carries **only the scenes** - so editing any
+  project-wide collection (menus, the Input Map, gradings, sequences, save
+  values...) left the save icon dark and, worse, no "unsaved changes" prompt on
+  exit. Those edits were quietly losable. commitChange now dirties
+  unconditionally (push still decides whether it becomes an undo step), and the
+  UI Editor + icon manager stopped writing to disk behind the user's back on
+  every keystroke - they mark dirty like everything else. Verified in the GUI:
+  "+ Add action" in the Input Map turns the toolbar save icon amber (it stayed
+  grey before) and a close request now raises "Unsaved Changes".
+  Also from that round: the shoulder/Start/Select icons dropped their border and
+  draw the LABEL ONLY - at text size the border left the letters unreadable on a
+  TV, and "L1+R1 Aim" / "R2" now read cleanly in-game; a **`{{ }}` picker** next
+  to every placeholder-capable field lists the project's tokens with their
+  glyphs (the legend the syntax was missing, and it inserts them); and the Menu
+  Editor's text sizes became two labelled sliders that say icons scale with them
+  (they always did - the control was just a cramped unlabelled DragInt2).
+  Also merged origin/main (#138-#151: asset browser, world scale, lightmaps,
+  trees, emissive, ortho views, VRAM manager) - `kSectionCount` needed 15 after
+  main's ModelUnits met this branch's Input, the same one-short trap as the last
+  merge, so the constant now carries a comment saying why it drifts.
+  Fourth round, two bugs from playing the thing. **(1) An action bound to L3 (or
+  R3/Start/Select) never fired if it was a HELD action** - sprint on L3 did
+  nothing while sprint on any other button worked. The engine, not this branch:
+  `Pad::update` built its `pressed` struct button by button and the four with no
+  pressure channel were **absent from that list entirely**, so `pressed.L3` was
+  permanently 0 while `getClicked()` (which reads the raw word) had all sixteen -
+  hence "the rebind takes, the action doesn't". Four lines in
+  `vendor/tyra/engine/src/pad/pad.cpp`. Proved on the console with a graph of
+  *On Action "sprint"* -> *On Condition* -> red sky and sprint bound to L3: the
+  sky turns red the moment L3 goes down (it stayed blue before the fix), so the
+  held path sees it.
+  **(2) The USE prompt lied after an in-game rebind** - `{{use}} USE` baked to
+  "□ USE" at build time and kept showing □ after the player moved `use` to
+  Triangle. The prompt is now **two sprites**: the bake writes the letters with
+  the first `{{action}}` glyph LEFT OUT and reports the hole
+  (`USE_PROMPT_ICON_ACTION/X/Y/SIZE`, and the `PICK_` twins), and the game blits
+  the current binding's icon into it from the shared icon sheet each frame -
+  `menubake::promptLayout`/`bakePromptRGBA`/`bakePromptPNG` on the host,
+  `liveIconForAction` + `drawIconAt` in the generated game. One extra quad per
+  frame, no extra texture (the sheet was already loaded for runtime text, and the
+  sprite is shared with it now), and a prompt with no action token still bakes
+  whole (`ICON_ACTION` = -1). Verified end to end in PCSX2: the prompt reads
+  "□ USE", the pause-menu row rebinds `use` to Triangle, and the prompt reads
+  "△ USE" with no rebuild.
+  *And then the user asked the right question* - "does that also work for `Press
+  {{use}} to use`?" It did, by luck: the slot walk summed the preceding runs'
+  text, which is correct as long as nothing but letters precedes the token. Two
+  tokens, or a plain `{{cross}}` before one, and it fell apart - the bake skipped
+  **all** icons (so `{{cross}}` vanished) while only the FIRST action got a live
+  glyph (so a second one vanished too), and an icon in the prefix was measured as
+  zero width, sliding the live glyph left by its advance. Now there is a slot per
+  action token: `promptLayout` walks the runs with drawText's own pen (so any
+  line, any position), the bake skips only the runs that came from an ACTION and
+  composites every other icon as before, and `hud_data.gen.hpp` carries
+  `USE_PROMPT_ICONS[]` + `_COUNT` which the game loops over. `Press {{use}} to
+  use {{cross}} or {{jump}}` renders on the console as "Press □ to use ✕ or ✕"
+  with all three aligned, and after rebinding `use` to Triangle only the first
+  becomes △: the `{{jump}}` glyph still follows jump, and the baked `{{cross}}`
+  is untouched.
+
+- (185) **Text icons: `{{cross}}` in any text draws the button glyph.** Written
+  as a companion to the Input Map (165): a controls menu that says "Cross" reads
+  like a manual, one that shows ✕ reads like a PlayStation game. `Project::textIcons`
+  (`TextIcon`: name + PNG + scale) is the registry, edited in *UI Editor > Button
+  icons*, and the placeholder comes in two forms - `{{cross}}` for a named icon
+  and **`{{action:jump}}` for whatever that action is currently bound to**, which
+  is what keeps a prompt correct after a preset switch or a player's rebind (live
+  in runtime text; resolved from the default preset at bake time in baked text,
+  documented as the snapshot it is). A token naming nothing stays LITERAL on
+  screen - a typo should be visible, not vanish.
+  The trick that made this cheap: **both text renderers already funnel through
+  one function each**, so teaching `textWidth`/`drawText` (menubake.cpp) about
+  icon runs gave menu titles, entry labels, Toggle/Choice option strips, HUD
+  texts and loading screens the feature simultaneously, and the parser itself
+  (`parseTextIcons` -> `TextRun`s) is header-only in project.hpp so the editor,
+  the baker and codegen share it. Baked text **composites the icon into the
+  sprite** (zero runtime cost - still one quad); runtime text (Display Text
+  nodes, a rebind row's value) blits from one sheet `res/hud/icons.png` with
+  rects in `inc/icon_data.gen.hpp`, handed to the texture repository only the
+  first time something actually draws an icon, so an unused feature costs no
+  VRAM. The advance formulas are explicit twins (`iconAdvance` /
+  `iconAdvanceFor`) - they must stay equal or a baked and a runtime copy of the
+  same string come out different widths.
+  The built-in set is **drawn, not shipped as blobs**: 16 pad-button glyphs from
+  signed-distance fields (4x4 supersampled) in the DualShock colors - blue ✕,
+  red ○, pink □, green △, grey plates for L1-R3/Start/Select, grey arrows for
+  the d-pad - written to `res/hud/icon-<name>.png` on the first build and never
+  overwritten after, so "override an icon" is just "replace the PNG" (with
+  *Regenerate built-in PNGs* as the way back). Unlike font glyphs they keep
+  their own colors and are skipped in shadow passes; a colored icon tinted with
+  the text color, or shadowed, looks wrong.
+  Two rounds of visual review paid for themselves. The first drew all four
+  d-pad icons as "a plus with one arm marked", which at 16px on a TV is the same
+  icon four times - replaced with solid direction arrows. The second (asked for
+  during the review) put the face buttons in PlayStation colors and revealed
+  that the ✕ and □ **touched the ring**: a diagonal shape reaches sqrt(2) further
+  than its radius suggests, so those two now have their own smaller extents and
+  every inner glyph is checked against the ring's inner edge.
+  Verified: editor builds clean; a scratch project's 16 icons rendered and
+  reviewed at 4x; a hand-authored menu proves the baked path end to end
+  (`{{triangle}} HINTS` title, `{{cross}} Jump`, `{{action:use}}` -> □,
+  `{{l1}}+{{r1}}`, `{{dpadleft}} Low` in a value strip, `{{nope}}` staying
+  literal) and a HUD text proves `{{action:jump}}`; **full Docker build returns
+  `Build OK` and PCSX2 shows all of it on screen in color**, including the
+  runtime path (the Jump rebind row drawing a blue ✕ and Sprint a grey R2 from
+  the sheet). Examples regenerated; docs/text-icons.md + README, docs index,
+  editor skill and both ai-support guides.
+
+- (184) **Configurable buttons & keys: the Input Map, in-game rebinding and a
+  sprint action.** Every gameplay button in a generated game was a `#define` in
+  `inc/controls.hpp` — jump was Cross, full stop, and a player had no say. Now
+  the game reads inputs through **named actions** and three layers resolve them:
+  project **presets** → the **player's** in-game override → a *user-owned*
+  `controls.hpp`. New model in `src/input.hpp` (`InputAction` with a `Role`,
+  `InputBinding` = pad **and/or** USB HID key **and/or** mouse button,
+  `InputPreset`, `InputMap` on `Project::input` + `Section::Input`) plus the
+  shared **`inputCodes()`** table — the dense rebind code space whose numbers
+  land in players' memory-card saves, hence append-only, with `INPUT_CODES` in
+  the generated game as its twin. `project::ensureInputActions` seeds/backfills
+  the 18 built-in actions with *exactly* the bindings that were hardcoded, so an
+  existing project plays identically (verified by generating a project and
+  diffing the emitted `controls.hpp` against the old constants); the one
+  behavior addition is **sprint** (pad R2 / Left Shift, `sprintMultiplier`
+  ×1.8, 1.0 = off), applied in all three walker modes — and deliberately NOT
+  folded into the animation `step`, so a third-person avatar crosses its run
+  threshold while sprinting and plays the run clip for free.
+  Codegen: `inc/input_map.gen.hpp` (action indices, `IA_ROLE_*` slots — `-1`
+  when the project has no action for a role — preset tables, `SPRINT_MULT`) +
+  `src/gen/input_map.gen.cpp` (`inputPressed`/`inputClicked`, preset+override
+  resolution, table-driven keyboard/mouse folding, rebind capture, binding
+  labels). Every read site moved off `pad.getClicked().<Button>`: both walkers,
+  the noclip fly keys, use/throw/carry, the save menu and the whole pause-menu
+  navigation (which means a project can now *move* menu buttons too).
+  `controls.hpp` stays ownable and stays authoritative when owned — the
+  generated copy is derived from the default preset, so the runtime only lets
+  the macros win when they **disagree** with it (otherwise a preset switch or a
+  rebind would be overwritten every `inputRebuild()`); its
+  `applyKeyboardMouseInput` is now a one-liner into the generated fold, so keys
+  rebind as well.
+  In-game rebinding is a new Menu Editor row (`MenuEntry::RebindKey`, action
+  10) and is deliberately **pad-only**: `inputCapture` ignores keyboard/mouse
+  and `inputBindLabel` omits them, because that support is still experimental
+  (docs/keyboard-mouse.md - the hardware path is unconfirmed) and is meant to
+  get its own dedicated menu later. Consequence worth spelling out: an override
+  therefore replaces the action's `pad` slot **alone**, so the key and mouse
+  button the preset authored keep working - replacing the whole binding would
+  silently kill a keyboard key that no in-game row can put back. A saved code
+  that is not a pad button (written by the interim build that did capture keys)
+  is ignored rather than allowed to unbind the pad.
+  `bindAction` names the action, `param` the save value holding the
+  override, so it persists on the memory card and re-applies after a load
+  (`applyInputBindings`, next to `applyMenuBindings`). Selecting it arms capture
+  mode (`menuRebindRow`, cleared on every menu transition) — the next button or
+  key pressed becomes the binding, *back* cancels, *menu left* clears to the
+  preset. Its value is the one menu value that **cannot** be baked into the
+  option strip (the binding name is only known at runtime), so it draws as
+  runtime text from the menu font's glyph atlas — `atlasFontIndices()` now bakes
+  an atlas for any menu with such a row and `MenuData` carries that FONTS slot.
+  Also: menu bind 8 = *Input preset*, a *+ Option block > Key bindings* item and
+  rebind rows in the scaffolded CONTROLS page, flow nodes **On Action** (follows
+  the binding, bool output = held) / **On Key** (raw key, for debug/cheat keys)
+  / **Set Input Preset**, `--dump` lists input actions + presets and the AI
+  generator's context/catalog carry them. Docs:
+  new [docs/input-bindings.md](docs/input-bindings.md), keyboard-mouse.md,
+  README, both ai-support guides and the editor skill.
+  Verified, all the way to the console: editor builds clean; headless `--new`
+  reproduces the old bindings in `controls.hpp` and a full 18-action/1-preset
+  table; `--apply-graph` + `--refresh-gen` show On Action compiling to
+  `inputClicked(ctx.engine->pad, 5)  // sprint`, On Key to `isKeyClicked(62) //
+  F5`, Set Input Preset to `inputSetPreset(0)` and an unknown action name to a
+  `// node N (OnAction): unknown input action` comment; a hand-authored controls
+  menu round-trips through `--resave` and emits
+  `{10, 0, 0.0F, 0, -1, 0, 4, nullptr}` rows plus `FONT_COUNT = 1` (the atlas
+  the rebind row needs). **Full Docker build of the generated game returns
+  `Build OK`** (`obj/gen/input_map.gen.o` compiles, the ELF links), it **boots
+  in PCSX2** with both USB drivers ready and no assert, and pressing **Left
+  Shift on the host keyboard fires the `On Action "sprint"` trigger exactly
+  once** (a rising edge, as designed) — proving the fold reads the LIVE
+  bindings, not a baked table. A screenshot of the in-game CONTROLS menu shows
+  the rebind rows drawing their bindings as runtime atlas text
+  (`Jump  Cross+Space`, `Sprint  R2+Left Shift`) next to a baked `Preset
+  Default` strip. That screenshot is what settled the pad-only scope: the first
+  attempt read `Cross+Space+Mouse Right` and ran straight over the row's baked
+  label (the value column of a 256px panel is ~100px). Shrinking the text to fit
+  (kept, 50% floor) made it legible but not *right* — advertising experimental
+  keyboard/mouse keys in a shipped controls menu was premature, so the row now
+  shows and captures the pad alone and reads `Jump  Cross` / `Sprint  R2`
+  (screenshot). Re-verified afterwards that the keyboard still WORKS while no
+  longer being displayed: Left Shift fires the sprint trigger, and Backspace
+  (the `back` action) closes the pause menu.
+  Still unverified visually: the capture-mode `PRESS...` state and the actual
+  rebind — driving it needs synthetic keystrokes and
+  `SetForegroundWindow` cannot reliably raise PCSX2 from a background process,
+  so the keys land in whatever window has focus (they went into another app's
+  window once here, which is exactly why the keyboard checks above now assert
+  `GetForegroundWindow()` first). Worth a human pass with a real pad: open the
+  pause menu, pick a row, press a button.
+- (187) **The editor is cross-platform: it builds and runs on Linux from the
+  same source tree.** The whole thing was Windows-only, and not incidentally -
+  `CreateProcess` + Job Objects drove the Runner and the AI generator,
+  comdlg32/`IFileOpenDialog` were the file pickers, `ShellExecute` was "Reveal
+  in Explorer", `%LOCALAPPDATA%` held editor.ini / the session remote-cache /
+  the exported PS2SDK headers, `\Windows\Fonts` resolved every baked font, and
+  `GetModuleFileName` was how anything found the bundled engine or `tools/`.
+  Rather than `#ifdef` ~40 call sites, all of it moved behind one new module,
+  **`src/platform.hpp/.cpp`**, and the call sites became platform-blind. What
+  it covers: `exePath`/`configDir`/`homeDir`/`userName`/`exeSuffix`/`processId`,
+  `sleepMs`/`logTimeStamp`, the shell-fragment helpers (`quiet`, `killByName`,
+  `envPrefix`, `commandExists`), a `Process` class, the pickers
+  (`pickFile`/`pickFolder`/`errorBox`), `revealInFileManager`, `openInVSCode`,
+  and the font lookup (`systemFontPath`/`systemFonts`/`fallbackFontFiles`).
+  **The load-bearing piece is `platform::Process`**: one shell command line
+  (`cmd.exe /S /C` vs `/bin/sh -c`), optional stdout capture, optional stderr
+  to a file, and a `kill()` that takes down the whole TREE - a Job Object on
+  Windows, a `setsid()` process group on POSIX. That last part is not a detail:
+  the shell wrapper is never the process doing the work (docker, make, node,
+  curl, ps2client), so killing only the wrapper is how Cancel used to leave a
+  token-burning backend or a port-holding file server behind. Two subsystems
+  deliberately did NOT move into it, each saying so in a comment: the socket
+  shims in `wire.cpp` (Winsock2 *is* BSD sockets with other spellings - routing
+  them through platform.hpp would mean re-inventing a socket API, so the
+  Winsock names are mapped onto POSIX in place and the transport is written
+  once), and PCSX2 discovery in `runner.cpp` / `pcsx2_config.cpp` (two Program
+  Files roots vs PATH + flatpak + an AppImage in `~/Applications`; the .ini is
+  a Documents known folder vs XDG dirs plus the flatpak sandbox - genuinely
+  different SHAPES, and platform.cpp has no business knowing what PCSX2 is).
+  Everything else is a one-line swap. Beyond the mechanical port, four things
+  had to be decided rather than translated: **file dialogs** have no portable
+  native answer on Linux, so they shell out to zenity (kdialog as fallback) and
+  the filter lists moved from wide double-NUL comdlg strings to a plain
+  `FileFilter` struct both back-ends build from - the Executable filter now
+  asks `platform::exeSuffix()` so it is not `*.exe` on a machine where
+  executables have no extension; **fonts** keep storing a bare file name, but
+  resolution goes through a lazily-built filename→path index over the
+  freedesktop font roots, and a project authored on the other OS falls back
+  through the platform chain instead of failing the bake (this is what makes
+  `.tyra` files portable in practice); **`localIPv4`** switched to `getifaddrs`
+  on POSIX, because the gethostname route the Windows build uses answers
+  `127.0.1.1` and nothing else on the many distros that put the host name in
+  `/etc/hosts` - which would have left the collaboration and phone-camera
+  panels with no address to show; and **SIGPIPE is ignored process-wide** from
+  a static in platform.cpp, since both a dying child's pipe and a vanished
+  session peer would otherwise kill the editor outright (`send` also passes
+  `MSG_NOSIGNAL` where it exists). Build side: CMake links `OpenGL::GL` +
+  Threads + `${CMAKE_DL_LIBS}` off Windows and keeps shell32/ole32/uuid/ws2_32
+  on it, and `deps.sh`/`setup.sh`/`build.sh` mirror the PowerShell trio
+  one-for-one - same single-source dependency list, same "missing dep runs
+  setup" guard, plus an up-front toolchain/pkg-config check that names the
+  exact install command instead of failing later inside cmake. The POSIX side
+  has one thing the PowerShell trio does not need: **`./setup.sh --deps`**
+  installs the system toolchain and the X11/Wayland/GL headers, because on
+  Windows they come from scoop (per-user) while here they are distro packages.
+  deps.sh carries one list per family (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/
+  `_zypper`) plus the two helpers both scripts share - `tyrax_system_packages`
+  picks the manager, `tyrax_root_prefix` picks sudo or, when there is no tty to
+  authenticate in, **pkexec** (which asks in the desktop's own dialog; that is
+  how this whole port got bootstrapped on a box where `sudo` could not prompt).
+  It is opt-in rather than part of plain `setup.sh` because it is the only step
+  that needs root. `zenity` is in the lists because the file dialogs shell out
+  to it - build.sh warns about a missing one but never blocks, since the editor
+  builds and runs fine without it, it just cannot open anything.
+  **Six real bugs fell out of actually running it, every one invisible on
+  Windows.** (1) `templates::File::relativePath` is `'\'`-separated (hundreds
+  of literals compare against it that way) and was handed straight to
+  `std::filesystem` - on POSIX a backslash is an ordinary FILENAME character,
+  so a fresh project came out as ~30 files literally called
+  `src\gen\flow_graph.gen.cpp` instead of a directory tree. Fixed at the four
+  places a relativePath meets the file system, via a new
+  `templates::nativePath()`; the string comparisons are untouched. (2) The same
+  trap one level up: `p.dir + "\" + relPath` was how EVERY project-relative
+  asset was opened (models in decalproj/navmesh/templates, menu images, the
+  `.mtl` and LOD tiers) plus `Project::elfPath()`. On Linux each of those named
+  a file that does not exist, so nothing would have loaded and PCSX2 was told
+  to boot `.../linuxtest\bin\linuxtest.elf`. There is now one
+  `Project::filePath(rel)` and no hand-joins left. (3) The build's in-container
+  shell scripts are nested inside the command line, and cmd.exe expands
+  nothing - `/bin/sh` expands `$(...)`/`${...}` inside double quotes on the
+  HOST, which emptied every variable in the sfx loop ("dirname: missing
+  operand", so `adpenc` never ran) and evaluated `$(nproc)` against the wrong
+  machine. New `platform::shellArg()` quotes anything the outer shell must not
+  touch, and every nested script and path argument goes through it. (4) The
+  container runs as root, so on a plain Linux Docker everything the copy-back
+  rsync wrote into the bind-mounted project came out root-owned - the user
+  could not delete their own `bin/` without sudo (`rm -rf bin` failed on every
+  file while proving this). The copy-back now passes
+  `--chown=$(platform::containerFileOwner())`, empty on Windows where Docker
+  Desktop maps ownership itself. (5) A non-blocking `connect()` reports
+  WSAEWOULDBLOCK on Winsock and **EINPROGRESS** on POSIX, so every
+  collaboration client and phone-camera connection was rejected the instant it
+  was made; the socket harness below caught it. (6) Projects shipped `run.ps1`
+  + `windows-pcsx2.ps1` and nothing for anyone else, so a generated project got
+  a `run.sh` twin (PATH / flatpak / AppImage probing, same kill-then-launch
+  shape) - and `writeFile` now adds the execute bits to any generated `.sh`,
+  since a file mode is not something a template can express. Both scripts are
+  emitted regardless of authoring OS: a project is portable, so the helper for
+  the *other* machine has to be in it.
+  One pre-existing limit also surfaced, because Linux runs into it far sooner
+  than Windows: **PCSX2's host: loader silently refuses a long ELF path** - it
+  logs `ELF Loading: ...` and the EE never reaches `is executing`, leaving a
+  black window and no clue. Bisected on this box: 145 characters boot, 147 do
+  not (the `host:` prefix puts that at a 150-byte buffer). A home directory
+  plus a deep project tree passes 145 much sooner than
+  `C:\Users\<name>\TyraProjects\<project>` does, so `launchPCSX2` now says
+  so in the Output panel instead of letting the user stare at it.
+  *Verified* on Ubuntu 26.04 (GNOME/Wayland, a box with no toolchain, no
+  Docker and no compiler to start with), all the way to a running game:
+  - `./setup.sh --deps` installed the toolchain and the X11/Wayland/GL headers
+    through apt (pkexec, since sudo-rs had no tty to ask in), and `./build.sh`
+    from a bare tree fetched every `vendor/` dependency and produced
+    `build/tyrax-editor` (101 targets, clean, `--clean` rebuild too). The
+    diagnostic path was exercised too, by running build.sh with a stripped
+    PATH: it names the missing tools and prints `./setup.sh --deps` plus the
+    literal apt command for this distro.
+  - Headless CLI end to end: `--new` created an FPP project whose tree is now
+    real directories (`src/gen/…`, `inc/scripts/…`, `objects/<id>.json`) with
+    an executable `run.sh` that passes `bash -n`, then `--refresh-gen`,
+    `--resave`, `--dump` (correct JSON: one `player-1`, terrain 64x64) and
+    `--list-nodes` (112 lines).
+  - A **socket harness** (`wire.cpp` + `platform.cpp` linked against a 90-line
+    `main()`, the pattern the collaboration tests already use) ran a listening
+    and a connecting transport in one process over 127.0.0.1: connect, a frame
+    each way byte-identical including a 1 KiB binary trailer, the disconnect
+    event, the WebSocket server's "a plain browser GET never becomes a peer"
+    contract, and `localIPv4()` returning a real LAN address. This is what
+    caught the EINPROGRESS bug - it failed 6 of 13 checks first.
+  - The GUI runs natively on Wayland: EGL/mesa mapped, `/dev/dri/renderD128`
+    open, 9 threads, steady CPU at vsync. (No screenshot - GNOME 45+ denies
+    every non-Shell screenshot path; see tyra-testing for what stands in.)
+  - **Full e2e**: `--build --run` pulled the `h4570/tyra` image, compiled
+    libtyra and the game with the PS2DEV toolchain, converted a test WAV with
+    `adpenc` into `bin/sfx/steps/blip.adpcm`, copied `bin/` back host-owned,
+    enabled `HostFs` + the USB keyboard/mouse ports in the distro PCSX2's ini,
+    and launched it. The game **boots and runs**: emulog says `ELF ... is
+    executing`, and `bin/log.txt` over host: shows the engine coming up
+    (audsrv, renderer, pad, save system), `Hello from TyraX!` from the example
+    script, and `VRAMSTAT f=240` - 240 rendered frames, no TYRA assert.
+  **Not verified**: the Windows build after the refactor (needs a Windows box -
+  every `#ifdef _WIN32` branch here is written but uncompiled), and the real-PS2
+  network deploy (no console on this LAN).
+
+- (186) **Two things the owner hit while playing with areas: the unload band was
+  eight units of "why is this still loaded", and you cannot debug an invisible
+  volume.** (1) A streaming layer on an area zone loaded the instant you entered
+  but unloaded only after walking well past the edge. Cause: the area branch
+  reused the CIRCLE's hysteresis - a flat `ZONE_HYSTERESIS = 8.0` added to the
+  half extent on every axis, i.e. eight units into the next room before the
+  layer went. That constant makes sense for a radius (a guess about where the
+  room is) and no sense for a box the author drew, so the box now grows by the
+  same 15% the circle applies to `r` plus half a unit per side - enough that
+  pacing ON the edge cannot thrash the loader, small enough that the boundary
+  means what it looks like. (2) New debug preference **Show areas**
+  (`Settings::showAreas` -> `DEBUG_SHOW_AREAS`, debug profile only, next to Show
+  FPS / memory / profiler): area objects render in the GAME as wireframe boxes.
+  Implemented as twelve thin beams through the ordinary `addBox` - an edge IS a
+  box (length on one axis, thickness on the other two, parked at one of four
+  parallel corners), which keeps the transform, lighting and vertex format
+  identical to every other primitive and needed no new mesh code. A wireframe
+  and not a translucent solid on purpose: a filled volume hides the objects you
+  opened it to look at. `rebuildObjectGeometry`'s `case 17` emits nothing at all
+  when the constexpr is false, so a release build is byte-identical.
+  Verified in PCSX2. The band: a fixture with a 10x6x10 zone parked on the
+  player and a flow graph gliding it away at 3 u/s (no pad input needed - the
+  area moves, the player stands still) logged the live centre offset every 15
+  frames: `in=1` up to centerDZ 4.48, `in=0 resident=1` at 5.80, unloaded by
+  7.23 - the band edge is 6.25 (half of 10*1.15+1), so the overshoot past the
+  authored wall went from 8 units to ~1.25. The wireframe: screenshot of a
+  10x6x10 area yawed 20 degrees, drawn green around the red box it contains,
+  50 FPS. Flag off -> `DEBUG_SHOW_AREAS = false` and no geometry.
+
+- (185) **Catch areas can update every frame: walk into a mirror's area and you
+  start reflecting.** (184) resolved catch areas at build on purpose - the
+  Mirror philosophy - and the owner immediately hit the other half of it: a
+  crate that rolls in front of the glass, or the player stepping up to it,
+  never joined the reflection. New per-object switch `catchAreaLive` (a
+  checkbox under the picker on Mirror / Portal / feed Camera) re-tests the
+  volume every frame instead. The whole design is about paying for it only
+  where it is real:
+  **only objects that can MOVE are re-tested.** `project::areaLiveCandidates`
+  over `project::objectRuntimeMovable` (physics / pickable / usable /
+  save-state / layer member / own graph or script / named by a flow node,
+  cutscene track or target list) is the candidate set; it bakes into a shared
+  `CATCH_CANDIDATES` table sliced per owner (`liveArea`/`firstCand`/`candCount`
+  on MirrorData, PortalData, CamFeedData) and whatever the volume holds that
+  CANNOT move stays resolved at build in the fixed list. A static room adds
+  nothing to the per-frame work. The pleasant surprise while scoping this: that
+  movable predicate is the exact complement of the immovability
+  `staticBatchEligible` relies on, so **static batching needed no change at
+  all** - a live candidate always already has the solo bag a second submission
+  needs (`batchBlockedNames` now blocks the candidate names too, explicitly,
+  so the two cannot drift). Movable objects are dropped FROM the baked list, or
+  an object sitting inside at build would be submitted twice.
+  `pointInArea` was split into `areaBasis` (center + rotated axes + half
+  extents, computed ONCE per pass, and short-circuiting the six trig calls when
+  the area is unrotated - the usual case) and `areaDistSq`, so a candidate
+  costs three dot products; `TerrainGame::collectLiveCaught` walks a slice into
+  a reused member vector and also scans the **spawn pool**, which no build-time
+  table can name. Portals run the same test in `portalCanCross` /
+  `portalShowsObject`, so the owner's rule (a portal that shows it lets it
+  through) survives. Raytraced mirrors ignore the flag - their VU0 proxies are
+  meshes baked per mirror; `portalViewAll` ignores it too. The player follows
+  *Reflect player* AND the volume. No cap on the caught count: the panel prints
+  `N fixed + K of M movable inside now` and the author watches it (explicitly
+  the owner's call - "trzeba uważać, co się robi").
+  Verified e2e in PCSX2 (Docker build clean under `-Wall`, 50 FPS): a fixture
+  mirror with a live area over three crates - one immovable, one physics body
+  inside, one physics body dropped from y=12 - logged the live set every 30
+  frames as `n=1 [4,-1]` while the third fell (dropY 11.99 -> 10.05 -> 4.58,
+  still outside: the box top is y=4 and the catch sphere is 0.5) and flipped to
+  `n=2 [4,5]` at dropY=1.57, holding there after it landed. Screenshot shows
+  all three reflected behind the glass. Codegen inspected both ways from one
+  fixture: live on -> `MIRRORS {..., liveArea 1, firstCand 0, candCount 2}`,
+  `MIRROR_TARGETS = {3}` (only the immovable crate), `CATCH_CANDIDATES = {4,5}`
+  (including the crate far outside - a candidate is about *can it move*, not
+  *is it inside*); flag off -> `liveArea -1`, `candCount 0`,
+  `MIRROR_TARGETS = {3,4}`, i.e. byte-for-byte the old behavior. All 18
+  committed example projects regenerated (they had also drifted behind (184) -
+  the generated headers gained the Area code that commit never re-emitted).
+  Editor-side visuals (the new checkbox and the count line) still want a human
+  look, same AMD-GL white-window caveat as (184).
+
+- (184) **Areas: an invisible volume you place instead of typing a distance.**
+  New object type `PrimitiveType::Area = 17` (docs/areas.md) - an oriented box
+  with NO geometry in the game: a wireframe in the editor (its own pass, so it
+  never fills the volume and hides what it encloses), nothing on the console,
+  type 17 added to every marker skip list (`collidePlayer`, the USE scan, the
+  carry/throw sweep, `physObstacle`, the geometry switch, `flowRaycast`,
+  `blocksNavigation`). Four features stopped guessing at numbers: a
+  **streaming layer's auto zone** can be an area instead of the center+radius
+  circle (`SceneLayer::streamArea` -> `SCENE_LAYER_STREAM_AREAS`, the object
+  INDEX so the zone is read live), and **Mirror / Portal / feed Camera** take a
+  **catch area** (one field, `SceneObject::catchArea` - an object is only ever
+  one of the three) whose contents join their re-draw list. Plus the **In Area**
+  flow trigger: rising edge on entry, `Who` = either/P1/P2, and a live
+  "inside now" bool output (NOT + On Condition = an exit trigger).
+  The two design calls worth recording. (1) Catch areas resolve **at build**,
+  not per frame: the Mirror philosophy is that a second submission's cost must
+  stay visible, so the Properties panel prints the resolved count and
+  `batchBlockedNames` excludes the caught objects (a batched member has no solo
+  bag and would silently vanish from the reflection - verified: with AO off the
+  caught crate drops to `batchStatic 0` while an identical crate outside the
+  area keeps `1`). (2) The point test has exactly TWO implementations and the
+  runtime one lives in the generated **data** header (`pointInArea` in
+  scene_data.hpp), not in a game-cpp template - that way both generated TUs
+  (terrain_game.cpp's layer zones, flow_graph.gen.cpp's trigger) share one
+  definition instead of the usual host/game twin pair; `areaCaughtObjects` is
+  likewise the single expansion behind the panel preview, the viewport mirror
+  preview and codegen. Host vs generated formulations (rotate-three-axes vs
+  columns of Rz*Ry*Rx) were cross-checked over **200k random oriented boxes,
+  zero mismatches**. Sound-emitter range and point-light radius deliberately
+  keep their radius - those describe a falloff, not a boundary.
+  Live Link: an area's transform is in its recipe hash (catch areas bake), so
+  moving one live flips the chip to LIVE (rebuild) instead of showing half the
+  edit; `liveLinkCanSpawnLive` excludes areas.
+  Verified e2e in PCSX2 (Docker build clean, `-Wall`, 50 FPS): a fixture with
+  the FPP player spawning inside a trigger area logged `AREA-TRIGGER-OK`
+  **exactly once** (rising edge, no re-fire over 1000 frames); an auto-streamed
+  layer pointed at a far-away area logged `FAR-LAYER-LOADED= false` despite
+  `startLoaded: true` (the zone decides), and when a Move Object To slid that
+  area onto the player mid-run it flipped to `true` - the live per-frame branch
+  and "the area moves its zone" in one run. Codegen inspected:
+  `SCENE_LAYER_STREAM_AREAS = {{2}}`, `MIRROR_TARGETS = {3}` (the crate inside
+  the area; the one outside absent). The editor-side visuals (wireframe box,
+  the Area properties block, the pickers) still need a human look - this
+  machine is in the known AMD-GL white-window state, so GUI captures are
+  unusable (see the editor-gui-screenshot notes).
+
+- (183) **Merging world scale (177) into the phone camera - the integration git
+  could not see.** Bringing main in gave eight textual conflicts, all of them
+  adjacent additions to the same lists (a config struct, its reader and writer,
+  the layout window registry) plus two independent overlay functions inserted at
+  the same line. Those were mechanical. The change that mattered had **no
+  conflict at all**: (177) made `CamTakeMapping::scale` mean *units per meter*
+  seeded from the project, and the take-import modal was updated to do that - but
+  the live phone link builds its own mapping, so it kept defaulting to 1.0. In a
+  project where a metre is ten units, importing a recording and *filming the same
+  move live* would have disagreed by 10x, silently, with both code paths reading
+  correct in isolation. Seeded on **connect** rather than on Recentre: the take
+  path re-seeds when a file is opened, and the live equivalent of opening is a
+  phone arriving - re-seeding on every recentre would overwrite a scale tuned
+  while watching the shot. The recording tolerance is a distance, so it follows
+  the same factor, and the modal's **World scale** snap-back button is now next
+  to the phone's Scale field too.
+  *Also merged by hand:* my two PROGRESS entries were renumbered 177/178 ->
+  181/182 because main had taken those numbers and its own entries cross-
+  reference them; the SKILL.md `viewport` row kept my text plus main's
+  `projectToImage()` note (one row, both facts). The measuring tape from (178)
+  gates its clicks on the axis-gizmo veto, and my viewport gear ORs into that
+  same flag - so clicking the gear while measuring correctly does not drop a
+  measurement point, which is the merge working by construction rather than by
+  patching.
+  *Verified:* editor builds clean; a scaffolded project regenerates with the roll
+  plumbing intact (`upFor`/`rollOf` in `sequences.gen.cpp`, 7 three-argument
+  `CameraInfo3D` sites) and **compiles for the PS2 in Docker** with `-Wall`
+  silent - the one check that proves the auto-merged `templates.cpp` is still
+  valid MIPS C++. Not verified: the merged UI clicked through by hand.
+
+- (182) **Camera roll: Dutch angles from the phone's own tilt, all the way to the
+  console.** Asked for as a "tiny fix" alongside locking the phone app to
+  landscape; landscape was tiny, this was not - it runs model -> serialization ->
+  codegen -> PS2 runtime -> **engine** -> viewport -> UI.
+  **The engine turned out to be the easy part.** `CameraInfo3D` already carried an
+  `up` field and `Renderer3DFrustumPlanes` already culled against it - only the
+  view matrix dropped it, hardcoding world +Y inside a VU0 block whose cross
+  products are dead code (it computes `$vf8`/`$vf9` and then stores `$vf6`). So:
+  a `M4x4::lookAt` overload taking an up vector (plain C++ - once per frame, not
+  per vertex) and `RendererCore3D::update` passing `cameraInfo.up`. It defaults to
+  `(0,1,0)`, so every existing caller is bit-identical. Reading `setCamera`'s
+  assembly closed the last unknown: it derives `right = cross(up, vz)` then
+  `up' = cross(vz, right)`, which for a perpendicular up returns it verbatim (the
+  sign of `vz` cancels) - it never hardcodes world up, so a rolled up genuinely
+  rolls the camera.
+  **The design correction that mattered.** I first assumed a Camera entity's
+  `rotation.z` WAS a lens-axis roll and wrote that in a comment. It is not: the
+  Euler is applied `Rz*Ry*Rx`, so Z rotates about the WORLD axis last. Measured:
+  on a camera pitched 40 deg, `rotation.z = 90` swings where it points by **54
+  deg**; they coincide only for an unpitched camera. So free shots get an explicit
+  `SeqCameraKey::roll` and a BOUND shot takes its whole basis from the entity's
+  orientation (`seqCameraUpFromEuler`) with no separate channel - and a phone
+  recording into an entity folds its roll into the entity's Euler through
+  `seqEulerFromBasis`. A harness assertion now pins that distinction; the first
+  version asserted the equivalence I had wrongly expected, and failed, which is
+  how the mistake surfaced.
+  **`seqCameraUp` is a three-way twin** (host bake, viewport `camView`, the
+  generated player's `upFor`), like the other analytic-bake twins. Roll 0
+  reproduces the old hardcoded `(0,1,0)` exactly, so an unrolled cutscene renders
+  as before. Roll interpolates as a plain scalar channel and takes the short way
+  round at +-180 in both the preview and the player; the camera-take bake unwraps
+  it per sample for the same reason the Euler bake does.
+  **Phone side:** the app is landscape-only now (you hold it like a camera), the
+  measured tilt is zeroed against `anchorRoll` at **Recentre** - so whichever way
+  you hold it counts as level - and damped by a **Tilt** slider from "as held" to
+  "horizon pinned level", which also throws hand tremble away.
+  **Verified** in four layers. The sequence-math harness: up always unit and
+  perpendicular, roll 0 gravity-aligned with no lean on a pitched view and exactly
+  `(0,1,0)` on a level one, `seqRollFromUp` inverting `seqCameraUp` to 0.0000 deg
+  over a spread including straight-up/down, the Euler matrix's lens column
+  agreeing with `seqCameraForward`, and basis -> Euler -> basis round-tripping to
+  8e-7 including gimbal lock. A GL harness reading the **real view matrix** the
+  viewport renders with: 20 combinations of view direction x roll (incl. near
+  straight down and rolls past +-90) match `seqCameraUp` to **1.19e-07** - that is
+  the twin invariant proved against what actually draws, not against pixels. A
+  **Docker PS2 build**: `libtyra.a` rebuilt (m4x4.o, renderer_core_3d.o),
+  `sequences.gen.cpp` compiled with the new `CamKey`, ELF linked - the only way to
+  compile engine code at all. Plus rendered stills showing the horizon tilting the
+  right way and by the right amount.
+  *A probe lesson worth keeping:* my first visual check measured the sky/terrain
+  boundary angle and disagreed with the requested roll at 40 deg. The feature was
+  fine - the probe was measuring the finite ground plane's **edge** across only
+  two fixed columns, one of which the boundary had left. Reading the camera basis
+  out of the view matrix is the right measurement; fitting pixels was measuring
+  the scenery.
+  **Not verified: a PCSX2 pixel shot of a rolled horizon** - that needs a flow
+  graph to trigger the cutscene, which this scratch project has none of. The data
+  and the render path are verified as far as they can be without booting.
+
+- (181) **Phone camera: the phone as a live viewfinder that records cutscene
+  camera moves.** The other half of the camera-takes story (152): instead of
+  importing a finished ARKit recording, the editor **hosts a link on the LAN**,
+  a companion iOS app connects, and from then on the phone screen shows a live
+  JPEG stream of the editor viewport while the phone's 6DoF pose drives that
+  camera. In the Cutscene Director, *Record* writes the move into camera keys as
+  it happens, at a configurable keyframe density. Docs: `docs/phone-camera.md`.
+  **The app lives in its own public repo**, `doctorspider42/tyrax-cam` - it has a
+  completely different toolchain (Expo/React Native + a Swift ARKit module) and
+  its own release cycle (a sideloaded `.ipa`, never built by `build.ps1`), so
+  keeping it under `tools/` here bought nothing and hid it from anyone who just
+  wants the app. That repo carries a `PROTOCOL.md` stating the wire format from
+  the client side, which makes it self-contained (this repo is private, so it
+  could not link back into these docs anyway) - and makes the protocol a
+  **two-repo contract**: change it in both, and bump `phonecam::kProtoVersion` so
+  a stale app is denied at the handshake instead of misbehaving. Its CI builds an
+  **unsigned .ipa** on a macOS runner that Sideloadly/AltStore can sign with a
+  free Apple ID, plus a fast Linux job that Metro-bundles the JS and asserts the
+  local ARKit module is autolinked - that last check exists because autolinking
+  dropping the module is otherwise INVISIBLE: the app still builds and still
+  runs, it just quietly cannot move the camera.
+  **Transport.** `wire::makeWebSocketTransport()` - an RFC 6455 server (SHA-1 +
+  base64 upgrade, unmasking, ping/pong, fragmentation) behind the existing
+  `wire::Transport` interface, which is exactly the seam the collaboration work
+  (113-118) predicted would be reused. WebSocket rather than the raw TCP
+  framing because it is what React Native and every browser have built in, so
+  the phone needs no native socket module; one binary message carries one
+  `encodeFrame` image, so the codec above it is unchanged. It is a per-connection
+  `WsCodec` slotted between the socket and the same `FrameDecoder` rather than a
+  second Transport class - the accept/poll/send loop stays single. Two contract
+  wrinkles that took thinking: a WS peer is announced on **upgrade**, not on
+  accept (so an ordinary browser GET, which gets served an HTML page instead,
+  never becomes a peer and never emits an unmatched `Disconnected`), and a dying
+  codec sets `closeAfterFlush` instead of dropping, or the served page is
+  truncated by the close.
+  **The image.** `Viewport::grabPreviewRgb` reads back the frame `render()` just
+  produced - so the phone sees the editor's own picture, colour grading included,
+  not a second slightly different render. It blits into its own small
+  framebuffer and reads back *that*: a straight `glReadPixels` of a 1600x900
+  viewport is 5.7 MB and stalls the frame. `lastImageFbo_` tracks which target
+  holds the final image, so a graded frame streams graded. JPEG encoding happens
+  on the link's worker thread (stb_image_write), a pending frame is replaced
+  rather than queued, and `previewWanted()` gates on the send backlog - a weak
+  link must cost frame rate, never latency.
+  **The camera.** The live view and the baked keys had to be the same math or
+  the feature is a lie, so `mapCamSample()` came out of `bakeCamTake` and both
+  call it. Two `CamTakeMapping` fields are new and both exist for the streaming
+  case: `hasAnchor`/`anchor`, because a stream has no meaningful "first sample"
+  to pivot on (without an explicit anchor the whole path jumps the moment a
+  recording starts mid-stream), and `keyRate`, the fixed-rate resampler behind
+  the density control. Density and the RDP tolerance are deliberately exclusive:
+  a density that is then decimated away is not a density.
+  **Recording.** The buffer is a plain `CamTake`, so the target logic (a Camera
+  entity's transform track, or free shots on the camera lane) is the file
+  importer's code, parameterized. Re-baked at 15 Hz so the dopesheet visibly
+  fills up while you move, which meant making the re-bake **idempotent**: the
+  pre-recording camera lane and duration are snapshotted at *Record* and
+  restored before each bake, otherwise keys compound and shots authored earlier
+  are eaten. Undo sees one step for the whole recording - the live re-bakes
+  leave the history alone and only *Stop* commits. The phone can press
+  Record/Stop/Recentre itself, which matters more than it sounds: you cannot
+  reach the keyboard while holding the camera.
+  **Verified** in three layers: three host harnesses, and then the whole thing
+  in the real editor, driven from the browser test client the link serves on its
+  own port (`http://<editor-ip>:7798` - synthetic poses, drag to look, WASD to
+  walk).
+  *Harnesses* (all no-GUI, the treegen/placement pattern). The camtake one
+  (40 lines + `camtake.cpp`) proved properties rather than eyeballing them:
+  `mapCamSample` is **bit-identical** to what the bake writes, re-anchoring is a
+  rigid translation (the path's shape survives it), a fixed rate at or above the
+  stream rate reproduces the samples, every rate lands evenly spaced and exactly
+  on the take's last sample, and the 2048-key cap holds on a 10-minute take. It
+  caught a real bug the GUI would have hidden: `t += step` accumulates float
+  error, so the final clamp to the take's end emitted **two keys at the same
+  time** - a zero-length segment for the PS2 player. Key times come from the
+  step index now. The link harness (`phonecam` + `wire` + `json`) ran 100 s of
+  continuous streaming: **1279 JPEG frames, 3018 poses**, no drops, a clean
+  close-handshake disconnect, and all three refusal paths correct (wrong pairing
+  code, protocol mismatch, second device). The grab harness renders on a HIDDEN
+  GLFW window (an FBO readback needs a context, not a composited window - which
+  is why this one works even in the AMD white-window state of (101)) and checks
+  `grabPreviewRgb` at three caps: aspect preserved and never cropped, inside the
+  cap, real content, **row 0 is the sky** (the check that catches a silently
+  upside-down phone), sane JPEG sizes, and 200 repeated grabs byte-identical.
+  *Real editor*, scratch FPP project, browser as the phone: the link hosts and
+  lists all three LAN addresses + the pairing code (and raises exactly the
+  Windows Firewall prompt the docs warn about); the browser pairs; the stream
+  runs at **13 fps of 960x590** of the actual viewport image; the pose drives
+  the camera in both channels (pose -1.63/0.36/-1.75 m moved the scene camera
+  51.8 -> 49.4 and visibly rotated the axis gizmo); Recentre puts it back and
+  re-derives the yaw; **Record and Stop pressed on the phone** captured a 4.16 s
+  handheld move as **43 keys** - and the saved `.tyra` says exactly what it
+  should: 43 keys, strictly increasing times, **zero duplicate timestamps**,
+  spacing 0.1 s dead on the requested 10 keys/s with a short tail key landing on
+  the take's real last sample, `ease: 0` throughout, free shots, `cameraEnabled`
+  auto-set, 3.89 units of eye travel and 4.43 of look-at pan. The dopesheet
+  filled live while the move was happening.
+  **The iOS app now compiles** - its CI archives it on a macOS runner, Swift
+  ARKit module included, and uploads a 3.7 MB unsigned `.ipa` (scheme `TyraXCam`,
+  559 JS modules bundled into the app target). That was the biggest unknown, and
+  it took four fixes found by actually running things rather than assuming:
+  `expo export` needs `expo-asset` as a direct dependency (not hoisted);
+  `expo-modules-autolinking search -p ios` silently skips **apple-only** modules
+  because the SDK 52 platform key is `apple`, so my own module looked unlinked;
+  its `--json` output flattens the config, so the first version of the
+  "is the module linked" assertion passed vacuously; and CI caught the real one -
+  archiving `.workspace.schemes[0]` builds **boost**, not the app (CocoaPods adds
+  a scheme per pod and it sorts first), which xcodebuild reports as success while
+  leaving an archive with no `.app` in it.
+  **Still not verified: the app RUNNING on a device.** Nobody has installed it
+  yet, so real ARKit tracking quality - how it behaves when you actually walk
+  around a room, and whether the 1 u/m default scale feels right - is the one
+  thing neither the browser client nor a compiler can stand in for. The app's
+  README says so plainly and lists the three sideload routes (the CI `.ipa` +
+  Sideloadly/AltStore with a free Apple ID; Xcode with a free Apple ID, 7-day
+  expiry; an ad-hoc `.ipa` via EAS).
+  *Judgement worth recording:* the phone deliberately wins the camera over both
+  the cutscene preview and the look-through camera while it drives. A playhead
+  flying the same lane would fight the person holding the device, and there is
+  no reading of that fight where the software should win.
+- (180) **Recent projects on the startup screen.** User request: with no project
+  open the editor should offer the recently used ones on the main screen, pickable
+  in one click, plus a way to drop an entry from the list. Until now the empty
+  Viewport said "File > New Project (Ctrl+N) to create one" and the daily
+  "carry on with yesterday's project" meant Ctrl+O and walking a file dialog to
+  the same folder every single time.
+  The Viewport's no-project branch is now `drawWelcomeScreen()`: New / Open
+  buttons and up to ten entries, most recent first, each a two-line row (project
+  name over its path) that opens on click, with an **x** that forgets it. The
+  paths live in `editor.ini` as repeated `recentProject=` lines - machine-global
+  like the emulator path and the UI scale, because which projects this PC has
+  seen is a property of the PC, not of any project (this is the pattern the
+  `tyra-editor-dev` skill describes for a new global setting; nothing else in the
+  chain needed to move, the list never reaches the game).
+  Three things that shaped the implementation:
+  *One funnel.* Recording a recent has to happen wherever a project opens, so
+  the three local open paths (the CLI/startup argument, the Open dialog, the
+  welcome list) collapsed into `openProjectAt(dir)` and record there; the New
+  Project modal records after its own attach. `openRemoteProject` deliberately
+  does NOT - a joined session's project is a materialized cache copy under
+  `remote-cache/<projectId>`, and offering that as "recent" would hand the user
+  a stale snapshot of someone else's project.
+  *Name and validity come from one directory scan*, done when the list loads or
+  changes - never per frame. The display name is the `<name>.tyra` stem (found
+  the way `project::load` finds it), so an entry that is no longer a project is
+  the same lookup, not a second check: those rows show the folder name greyed
+  with *(missing)* and stay listed. Sweeping them automatically would quietly
+  eat the list of everyone whose projects live on a drive that is currently
+  unplugged; the x is right there when the entry really is dead. Clicking a
+  missing row still tries (the drive may be back) and re-probes on failure.
+  *Dedupe on a normalized key* (`lexically_normal` + lowercase + no trailing
+  slash): the Open dialog and the New Project modal disagree on slash flavour
+  and Windows does not care about case, so `D:/proj` and `D:\Proj` are one entry.
+  Two ImGui details worth remembering: the name/path are drawn straight into the
+  window draw list (as items they would register their full text width and give
+  the panel a horizontal scrollbar), and a long path ellipsizes from the LEFT -
+  the tail identifies the project, `C:\Users\...` does not.
+  Verified by driving the built editor: opening two scratch projects by CLI
+  argument produced both `recentProject=` lines in the right order; re-opening
+  one of them spelled `SCRIPT-demo` with forward slashes left **two** entries,
+  not three, with it moved to the front (which also proves the load path parsed
+  the stored list); then synthetic clicks on the welcome screen - hover shows the
+  full path in a tooltip, the x dropped `layer-streaming`, and a click on the
+  `script-demo` row opened it (title bar, scene tree, terrain in the viewport).
+  Screenshots came out fine this time, i.e. the machine was not in its
+  white-window state (see the harness notes).
+
+- (179) **Walk speed: sane default, and a field you can actually type into.**
+  Third in the (177)/(178) run, same user: "przy domyslnej predkosci chodu
+  postac zapierdala jak dyliżans z gorki i z zaglem, trzeba dawac ostry
+  ulamek, zeby mialo to sens". Both halves of that are real and they are
+  different bugs.
+  The **unit** is the one that bites daily: walk speed is stored as movement
+  per 1/50 s (the generated game's step - `PP_WALK_SPEED(pi) * g_frameScale`),
+  so the whole useful range lived in the bottom few percent of a 0.05..10
+  field and every value was a fraction. Both editors (Preferences and a Player
+  object's own row) now show and edit **units per second** through one helper
+  (`walkSpeedDrag`), with the metric equivalent beside the field and the
+  stored number in the tooltip. Storage is untouched on purpose - reinterpreting
+  the saved field would have made every existing project 50x slower.
+  The **default** came down 0.4 -> 0.1, i.e. 20 -> 5 units/s. 20 units/s next
+  to a 1.8-unit eye height is 72 km/h, and (177) already established that this
+  mismatch is what quietly pushes projects into being built several times
+  larger than metric. Defaults changed together or the halves would disagree:
+  `ProjectSettings::walkSpeed`, `SceneObject::playerWalkSpeed`, both
+  `numberOr` fallbacks in project.cpp and the no-Player-object fallback in
+  `playerFloat("WALK_SPEEDS", ...)`.
+  In (177) I deliberately did NOT touch this default; the user asked for it
+  directly here, and it is safe because the value is in the project file:
+  verified that a `--new` project writes 0.1 and generates
+  `WALK_SPEED = 0.1F`, while an existing project carrying 0.4 still round-trips
+  as 0.4 through `--resave`. One trap while wiring the UI: the helper draws the
+  metric label AFTER the drag, so `IsItemDeactivatedAfterEdit()` at the call
+  site would have queried the LABEL and the Properties edit would never have
+  committed - the helper reports it through an out-param instead.
+  Examples keep their own hand-tuned speeds (0.4/0.55/0.8) - they are stored
+  values, not defaults, and codegen did not change, so nothing there drifts.
+
+- (178) **Measuring tape + an object size readout - "how big is a box,
+  really?"** Follow-up to (177), same user, immediately after: "mamy jakas
+  mozliwosc zmierzenia czegos w edytorze? Taka wstawiona kostka prymityw jaki
+  ma real life rozmiar?" The answer to the literal question is that every
+  primitive is a UNIT shape (primmesh: a 1x1x1 box about the origin), so a
+  stock box at scale 1 is one unit on a side - one metre in a metric project,
+  20 cm at 5 units/metre. Nothing in the editor said so anywhere, which is
+  the actual gap.
+  Two readouts now do: a **Size** line under the Scale row in Properties
+  (`App::objectWorldSize` - unit shape times scale, or a model's own bounds
+  times scale; flat types report their zero axis, and which axis that is
+  differs - Plane lies in XZ, decal/mirror/portal quads stand in XY), and a
+  **measuring tape** in the viewport tool row (*Measure (7)*): click two
+  points, read distance in units and metres plus the `dx dy dz` split, end
+  following the cursor until the second click.
+  The tape needed the one thing the viewport did not have: **the inverse of
+  `camRay`**. `Viewport::projectToImage` (world point -> image coords of the
+  last frame, ortho and perspective, mirroring camView's conventions exactly)
+  is what lets an app-side ImDrawList overlay sit on world geometry under any
+  projection - the same trick `materialPreviewProject` already plays for the
+  UV panel. Both tape ends land through `placementRaycast`, so the tape
+  measures the scene (object boxes + heightfield) rather than a plane through
+  the origin.
+  Two interaction traps, both hit while writing it: a tool that consumes
+  clicks has to be added to EVERY branch that also consumes them (pick,
+  rubber-band start, gizmo enable - the `!sculptMode_ && !paintMode_` chain),
+  and a pending paste already owns both the click and the same screen corner,
+  so the tape stands down while one is in flight.
+  Verified: builds, editor starts clean. The overlay itself is user-verified -
+  no input injection on this machine, so I cannot click a tape into existence;
+  the projection math is an exact algebraic inverse of camRay and shows up
+  instantly as a label sliding off the line if it is not.
+
+- (177) **World scale: imports from reality land at the size the project
+  actually uses.** User report, two symptoms that turned out to be one cause:
+  a Mixamo character imports "kurduplata" (comically small), and a phone
+  camera take needs five real metres walked to cover what looks like one metre
+  in the editor. Neither importer was wrong on its own - both assume **1 unit
+  = 1 metre** (ufbx normalizes FBX to metres, `.glb` is metres by spec,
+  `CamTakeMapping::scale` defaults to 1) - the project simply was not metric.
+  Worth writing down *why* projects drift off metric here: the stock FPP
+  settings disagree with each other. `eyeHeight` 1.8, `gravity` 9.8 and
+  `jumpSpeed` 4.5 are metric as written, but `walkSpeed` is units per 1/50 s,
+  so the default 0.4 is **20 units/s** - 72 km/h for a 1.8-unit person. Tune a
+  world until walking feels right and you land several times larger than
+  metric, which is exactly where this user was (~5 u/m). Deliberately did NOT
+  change that default: it would silently re-tune every existing project. The
+  metric readout under the new setting exposes it instead.
+  **What landed:** `ProjectSettings::unitsPerMeter` (default 1.0, so every
+  existing project and every metric project is bit-identical in behavior) as
+  the single conversion, host-side only - verified it reaches no generated
+  file. Model imports now ask for the asset's real-world size (Meters /
+  Centimeters / Inches / Custom, or "it is 1.8 m tall"), stored per asset as
+  metres-per-file-unit in a new `"modelUnits"` manifest section
+  (`Project::modelUnitMeters`, `Section::ModelUnits`, kSectionCount 13 -> 14);
+  `addModelObject` inserts at `metersPerUnit * unitsPerMeter`
+  (`Project::modelInsertScale`). Camera takes seed their scale AND their
+  decimation tolerance (a world-unit distance) from the same number, and the
+  modal prints the recording both ways ("4.80 m walked -> 24.0 units").
+  Three deliberate non-choices: the asset file is never rewritten (the size
+  lives in the manifest, so it can be corrected later and survives a
+  re-export); an asset with no recorded size inserts at scale 1, which is why
+  Tree Generator output - already authored in world units - is untouched; and
+  objects already placed keep their scale unless you tick the dialog's
+  "also rescale N object(s)" (the user explicitly did not want a scene-wide
+  rescale tool).
+  Verified: editor builds; `--new` writes the key; a hand-edited `.tyra` with
+  `unitsPerMeter: 5` plus a `modelUnits` map round-trips through `--resave`
+  with the deliberately invalid `0` entry dropped; `--refresh-gen` produces
+  generated sources that mention neither key; GUI starts clean on the scratch
+  project. The dialogs themselves have NOT been clicked through by me - no
+  input injection on this machine - so the import flow is user-verified.
+  Examples were left alone on purpose: the new keys are optional and codegen
+  is unaffected, so their committed generated files cannot drift.
+
+- (176) **The baked light was being clipped by the GS ALPHA TEST - it was never
+  a resolution problem.** The user kept saying the lights looked square and
+  "like the texture is just cut off", and proposed reworking the whole thing
+  onto per-object textures. Measured before rewriting anything, and the
+  measurement said the architecture was fine and something else was broken.
+  **The forensics** (worth keeping - each step killed a hypothesis):
+  the atlas region for the lit alley wall has **every one of its 10920 texels
+  lit** and no hard edge anywhere in RGB or in alpha, so the "the lightmap cuts
+  off" reading could not be about the data. A **1-texel checkerboard written
+  over the entire atlas** then showed the wall correctly checkered *except* the
+  same black V-shaped notch and isolated square - a hole that survives whatever
+  is in the texture is a hole in the RASTERISATION, not the bake. It also
+  measured the two things I would otherwise have guessed at: the atlas IS
+  bilinearly filtered (the checker renders as a smooth dot pattern, not hard
+  squares) and one texel is ~6 GS pixels wide at that distance. Dumping the
+  region's **alpha == 0 mask** produced exactly the notch, pixel for pixel.
+  **The bug:** StaPip sets the GS alpha test to `ATEST_METHOD_NOTEQUAL` against
+  0 - the cutout rule that makes foliage and decals work. The scene lightmap
+  carries occlusion in `A` and light in `RGB` and is read by two passes over
+  the same texture, so **any texel with zero occlusion failed the alpha test
+  and discarded the additive LIGHT pass with it**. Baked light was silently
+  clipped to wherever the ambient occlusion happened to be non-zero. It has
+  been that way since the atlas landed; it reads as blockiness because the
+  clip follows the texel grid, which is why nobody chased it to the alpha
+  channel.
+  **The fix is one line:** floor every lightmap texel's alpha at 2
+  (`aobake::kMinLightmapAlpha`). Not 1 - the engine's PNG loader scales alpha
+  0..255 to 0..128 by integer division, so 1 lands back on 0. Two costs 1/128
+  of darkening, under one framebuffer level. No engine change, no format
+  change, no VRAM, no extra pass.
+  **Result** (PCSX2, software renderer, frozen camera, bloom held fixed so the
+  pulser cannot confound it): the notch, the isolated square and the whole
+  blocky lit/unlit boundary are gone, and the wall is one continuous gradient.
+  **26.4% of the frame gained light** (up to +30 levels) and nothing lost more
+  than 4. 50 FPS unchanged.
+  Also landed here: per-texel bakes now average over the texel's **footprint**
+  (a 4×4 sub-sample grid, `kSuper`) instead of point-sampling its centre. A
+  fixture 0.3 units off a wall throws a penumbra far under one texel, and a
+  point sample of that aliases into the staircase bilinear then reconstructs.
+  Worth 17% off the worst-direction step on the softest edges
+  (`s3-pillar-lit-3` r3: 2.18 → 1.82) for host bake time only.
+  **The rework was not needed, and the numbers say it would not have helped:**
+  a per-object 128² texture is 16384 texels for a whole object, and that wall
+  already gets 14080 from the shared atlas. The only real lever on texel count
+  would be bits per texel (the atlas is RGBA32 because the *occlusion* needs a
+  smooth alpha), and that is a much bigger change to reach for once the actual
+  bug is fixed.
+
+- (175) **Texel density per AXIS, and a measured dead end.** Half of this
+  entry's original subject - baked light landing per texel on the TERRAIN - was
+  implemented independently on `main` as (172) while this branch was in flight,
+  and the merge kept that implementation; it is the better one (shadow casters
+  pruned once per emitter rather than once per texel). What survives here is
+  the atlas side.
+  The alley wall in `examples/glow` was still visibly coarse along its length.
+  The obvious fix - raise the flat 128-texel per-region cap that was binding on
+  that axis - was tried first and **measured worse**: 42528 -> 32722 texels in
+  use, and the worst-direction step on the lit face grew, because huge regions
+  pack badly and the extra resolution went onto the axis with no gradient on
+  it. The cap was not the problem; **isotropic density** was. The pre-pass grid
+  went 4x4 -> 6x6 and now also measures how fast the signal moves along each of
+  the region's two axes, splitting the area the peak earned between them (area
+  still proportional to peak, only the aspect moves, clamped to 2x).
+  **Numbers** (`examples/glow`, host harness, same 256 square atlas).
+  Blockiness is the mean step between neighbouring texels in the region's
+  *worse* direction: `s4-wall-left` r0 went **5.70 -> 2.53 -> 2.26** (original
+  -> (174) -> now) at **6.0x6.0 -> 13.8x7.1 -> 15.6x7.8** texels per world
+  unit; `s3-shadow-wall` r1 **7.80 -> 3.20 -> 2.99**. The last step uses FEWER
+  texels than (174) did (39068 vs 42528) - the win is the axis, not the budget.
+  *Testing lesson, and it cost me a bogus A/B:* freezing the camera with
+  `walkSpeed`/`lookSpeed` 0 is **not enough** when the project has
+  *Keyboard & mouse controls* on - PCSX2 binds the host pointer to an emulated
+  USB mouse and any cursor movement turns the view. The first comparison
+  reported "53% of pixels brighter"; with `keyboardMouse` off in the fixture the
+  same pair is 6.3% brighter / 10.1% darker, mean **-1.35** - a redistribution,
+  not a brightening. Turn the preference off in any screenshot fixture.
+
+- (174) **Scene lightmap: soft shadows from area emitters, and a texel budget
+  that follows the light.** Two independent improvements to the existing bake
+  (`aobake.cpp` + its two twins), both measured rather than eyeballed.
+  **(a) Soft shadows.** The shadow test cast ONE ray, to the emitter's nearest
+  surface point, and the contribution was all-or-nothing - but an emitter is an
+  AREA source (a lava plate, a neon strip), so that can only ever produce a hard
+  rectangular edge where a real one has a penumbra. It now casts eight: ray 0 to
+  the nearest surface point (so `samples = 1` reproduces the old behaviour bit
+  for bit) plus seven spread over the emitter's silhouette as seen from the lit
+  point - its extent projected onto the plane perpendicular to ray 0, sampled on
+  a fixed Vogel disk (`kEmisShadowDisk`). **No RNG anywhere**: a bake has to be
+  reproducible, and a spiral beats a grid here because a straight shadow edge
+  resolves into as many levels as there are distinct offsets (8, not the 3 a 3×3
+  grid gives). One subtlety worth keeping: rays aimed *below* the receiver's
+  horizon are dropped from the vote rather than counted as blocked - counting
+  them would darken a floor standing next to a big plate with no occluder
+  anywhere, and leaving them out keeps the "nothing blocks ⇒ identical to
+  before" invariant exact.
+  **(b) Texel density where the light is.** Region sizing was pure world area,
+  so on `examples/glow` the atlas spent 36% of a 256² image uniformly - pedestal
+  undersides and wall backs at the same density as the lit walls. A 4×4 probe
+  grid per region now estimates the peak signal it can carry (light received +
+  occlusion cast on it), the density scales with `sqrt(peak)` so the AREA a
+  region gets is proportional to what it receives, and a 20-step bisection then
+  raises the density globally until the pack actually fills the image (the old
+  halving ladder left whatever the power-of-two round-up wasted). The atlas
+  DIMENSION is still derived from the *unweighted* area on purpose: weighting
+  must not move a project's VRAM in either direction.
+  **Numbers** (`examples/glow`, same 256² atlas both sides, both from a full
+  `--build` - `--refresh-gen` does not run texbake, so an A/B across it compares
+  a stale PNG with itself and silently proves nothing):
+  texels in use 23572 → 42528 (36.0% → 64.9% of the image); texels on regions
+  that receive light 20571 → 38944 (+89%) against 3001 → 3584 (+19%) for those
+  that receive none; the lit face of `s4-wall-left` went 30×108 → 69×128, i.e.
+  **6.0 → 13.8 texels per world unit** with the mean step between neighbouring
+  texels along the gradient dropping 7.76 → 3.24 - that step size *is* the
+  blockiness. Decoding the shipped `.res-baked/aoatlas/scene0.png` on both sides
+  agrees: 22939 → 41328 lit texels, 20256 → 40384 occluded.
+  For (a) in isolation (layout held fixed, so the comparison is per texel):
+  185 texels darkened, 298 brightened, 65053 unchanged, total light +0.36%. Note
+  the tempting invariant "a shadowing change must never brighten a texel" is
+  **false** for this change and has to be - a penumbra darkens the lit side of
+  the old hard edge and brightens the shadowed side; what does hold, and what
+  was asserted, is that nothing outside the penumbra band moves at all.
+  `s3-pillar-OUT-OF-REACH` stays at 0 lit texels, while `s3-pillar-lit-3` -
+  which the wall put in full umbra - goes from 0 lit texels to 319.
+  **The one deliberate divergence.** The generated game's per-vertex path
+  (terrain, models, spawned clones, physics bodies, textured receivers) keeps
+  the single hard ray, so the three implementations are no longer exact twins.
+  Measured before deciding, per the brief: an EE timer around `loadScene(0)` in
+  PCSX2 with the blocker loop repeated 8× cost **+200 ms of scene load**
+  (1160 → 1360 ms) on this scene, and the same multiplier would land mid-frame
+  on every runtime spawn and static-batch rebuild - to resolve a penumbra on a
+  grid whose own resolution is 2 world units (33×33 heightmap over 64×64) or a
+  box face's four corners. Written down in docs/emissive-materials.md, in the
+  `emissiveLightAt` header comment, in the editor skill and in the glow README,
+  because an undocumented twin divergence is a trap for the next person.
+  **Verified**: PCSX2, software renderer, PAL - **50 FPS held** on both builds;
+  before/after screenshots from a frozen camera (walkSpeed/lookSpeed 0 in the
+  fixture - the FPP camera drifts, and two boots otherwise never line up), and
+  the difference is confined to the shadowed faces (0.43% of pixels brighter,
+  0.17% darker, everything else untouched). Editor viewport: shader compiles and
+  renders the scene with the same softening - it could not be pixel-A/B'd,
+  because moving its camera needs synthetic input this machine must not receive.
+  Host side, the whole bake is exercised by a scratch harness that links
+  `aobake.cpp` + `project.cpp` and dumps the atlas plus per-region statistics -
+  the same trick treegen and matbake use, and far faster than clicking the GUI.
+- (173) **Authoring ergonomics: orthographic/axis views, collision-aware
+  placement, and a paste that follows the cursor.** Three requested editor
+  features, one commit each in spirit but one branch in practice - they share
+  the viewport's camera/ray plumbing.
+  **(a) Orthographic projection on a chosen axis.** `Viewport::Projection` is
+  now perspective / free ortho / the six locked axis views (Top, Bottom,
+  Front, Back, Right, Left), persisted per project as `editor.viewProjection`.
+  The front door is a **Blender-style axis gizmo** in the viewport's top-right
+  corner (`App::drawAxisGizmo`): the three world axes as coloured balls that
+  turn with the camera (positive ends stemmed and lettered, negative ends
+  hollow), click one to snap to that ortho view, click the hub to toggle
+  perspective. Drawn straight into the window's `ImDrawList` from the view
+  matrix's columns - no GL, no extra pass - and painter-sorted by view-space
+  z so the axis facing the camera is on top and wins the hover. It handles its
+  own hit test (nearest ball, front-most first) instead of an `InvisibleButton`
+  and returns "cursor is over me", which the pick / rubber-band / paste-commit
+  branches consult - otherwise every click on the widget would also clear the
+  selection, the way the pre-existing corner buttons quietly do. Backed by
+  three other entry points on the same setting: the `Proj:` button, *View >
+  Projection* and the numpad (`5` toggles, `1`/`3`/`7` + `Ctrl` pick a side -
+  the number ROW stays on the transform tools). The enabling refactor was
+  collapsing four hand-rolled cameras into one: `camView()` + `camRay()` now
+  resolve eye/basis/extents once (including the Cutscene/look-through
+  override), and `render()`, `pick()`, `terrainRaycast()` and the new
+  `placementRaycast()` all consume them. Before this, three of those four
+  rebuilt a **hardcoded 50-degree perspective ray**, so they already disagreed
+  with the image while looking through a Camera entity with a different FOV -
+  a latent bug the ortho work would have multiplied by six. Two deliberate
+  choices: the ortho depth range **straddles the eye** (a parallel view is a
+  slab through the scene - a Top view must not hide the roof it looks
+  through), and orbiting a locked axis view **seeds yaw/pitch from that axis
+  and drops to free ortho** instead of ignoring the drag or teleporting to a
+  stale angle. `pan`/`fly` read the same basis, so flying in a Top view walks
+  up the image (no view direction left to flatten onto the ground).
+  **(b) Surface snapping.** New host-only `placement.cpp` (the
+  decalproj/navmesh pattern): world AABB per object (rotation and real model
+  bounds included), `isSupport()` for what counts as a surface, and
+  `restOffsetY` - the offset that rests an object on the highest support under
+  its *footprint* (terrain sampled corners+center, plus overlapping objects'
+  tops). One `ceilingY` argument carries the whole behavioral difference
+  between "insert on top of whatever is there" (`FLT_MAX` - three boxes added
+  in one spot stack) and the `End` drop-to-floor ("nothing may lift it").
+  Wired into every add path, the paste, and *Scene > Drop to floor*; toggled by
+  *Surface snap* in the tool row / *View > Placement* (machine setting in
+  `editor.ini`, on by default). Explicitly NOT a collision solver - no sweep,
+  no penetration resolve; gizmo dragging stays free.
+  **(c) Deferred paste.** `Ctrl+V` stages the copies instead of inserting
+  them: they follow the cursor (outlined, surface-snapped, rendered from a
+  scratch list so the scene model is untouched), and a left click *or* a
+  second `Ctrl+V` commits them; `Esc` discards with no undo step. A group
+  moves as one rigid arrangement, lifted by the largest offset any member
+  needs. Pasting without ever passing over the viewport falls back to the old
+  one-unit diagonal offset. The staged set is dropped on a scene switch and on
+  project attach.
+  **Verified.** Layer 0 (clean build) plus: a scratchpad host harness over
+  `placement.cpp` covering all 11 placement rules (flat ground, sloped ground,
+  insert-inside-a-table → on top, beside/flush footprints, drop-to-floor
+  ceiling, skip list, lights and `collisionMode == 2` not being surfaces, a
+  45-degree box resting on its corner at half a diagonal, group offset, model
+  bounds with feet at the origin) - all pass; `--resave` round-trip of the new
+  `editor.viewProjection` key; and window screenshots of the editor rendering
+  `examples/showcase` in the **Top** view (terrain a perfect square, gizmo and
+  overlays correct) and `examples/script-demo` in the **Front** view (terrain
+  edge-on as a line, the box sitting on it), against a perspective capture of
+  the same project as the baseline. The axis gizmo was screenshotted zoomed in
+  (stems, letters, hollow negative ends, the hub) and the capture happened to
+  catch a live hover - white ring plus the "Top view - orthographic along the
+  +Y axis" tooltip - so the hit test and tooltip path are covered too. **Still needs a hands-on pass**: the
+  interactive paste flow and the insert snap are mouse-driven, and synthetic
+  input is off-limits on this machine - the math and the wiring are covered,
+  the *feel* (does the copy land where you expect, is the numpad muscle memory
+  right) is a human check.
 - (172) **The GROUND goes per pixel too: baked emissive light + its shadows
   move onto the terrain lightmap.** (169) fixed the props and left the biggest
   surface in the frame behind. `examples/glow` measures it: *Terrain detail* 32
@@ -8610,7 +12550,220 @@ Each finished feature lands as its own commit.
   hands-on click test; keyboard covers every mapped action meanwhile.
   Editor GUI checkbox is compile-verified only (stock ImGui pattern).
 
+- (220) **The editor builds in parallel now** — asked as "czy my obecnie
+  budujemy edytor w 64 bitach? Dałoby się jakoś go buildować bardziej
+  równolegle, żeby przyspieszyć?". 64-bit: yes, and never was anything else
+  (`x86_64-w64-mingw32`, PE machine `0x8664`, no 32-bit path in the tree).
+  Parallel: ninja was already running `-j18` on 16 cores, so the interesting
+  answer came from `build/.ninja_log` — a clean build was **97.5 s wall for
+  803 s of CPU, i.e. 8.2x on a 16-core box**, with the machine idle at 1-5 jobs
+  for the first 19 s and the last 40 s. Two causes, both fixed:
+
+  **A 17 s stall in front of the whole editor.** The two generated headers
+  (`ai_support_gen.hpp`, `icon_gen.hpp` — 0.1 s of work) were listed straight in
+  `tyrax-editor`'s source list, so CMake attached their `add_custom_command` to
+  that target and gave them order-only deps on everything it **links**. They
+  waited for `libimgui.a`, and since every editor `.obj` order-depends on them,
+  so did the entire editor: nothing editor-side started until `imgui.cpp` (16.9 s)
+  finished. They now live in their own `tyrax-generated` custom target, which has
+  no link dependencies — `app.cpp` starts at t=2.8 s instead of t=19.6 s.
+
+  **app.cpp WAS the build.** 26 427 lines, 269 top-level functions, ~48 s to
+  compile on its own — everything else finished by ~70 s and then one core
+  ground through it. Optimization is where that time goes (measured on the old
+  file: 21 s at -O0, 37 s at -O1, 60 s at -O2, 66 s at -O3) and it scales worse
+  than linearly with TU size, so the fix is fewer lines per TU, not fewer
+  passes. Split into the shell (11 686 lines) plus six subsystem TUs —
+  `props_ui` / `flowgraph_ui` / `hud_ui` / `cutscene_ui` / `mateditor_ui` /
+  `devkit_ui` — following the **assetbrowser.cpp precedent**: still `App::`
+  members declared in app.hpp, only the definitions moved. `app.hpp` is
+  untouched. The fixed cost of a new TU here is 3.4 s (measured: an empty TU
+  carrying app.cpp's include prologue), which is why it is six files and not
+  twenty, and why they skip `icon_gen.hpp` and the STB `*_IMPLEMENTATION`
+  defines. Nine file-scope statics turned out to be used by more than one of
+  the six; they moved into a new **`app_internal.hpp`** rather than being
+  duplicated — that header exists for exactly that reason and nothing else.
+
+  Also added, since the answer to "faster" is not only parallelism: a **`Dev`
+  build type** (`-O1`, `-Dev`/`--dev`/`build.cmd dev`) in its own `build-dev/`
+  so alternating with Release costs nothing, and **automatic ccache/sccache
+  pickup** — this repo lives in several git worktrees at once, each recompiling
+  the same TUs from scratch. The Dev flags needed `FORCE`-if-empty: compiler
+  detection inside `project()` already creates an empty
+  `CMAKE_CXX_FLAGS_DEV` cache entry for the requested build type, so a plain
+  `set(... CACHE ...)` is silently a no-op and Dev compiled with no `-O` at all.
+  Caught by grepping the generated `build.ninja` for the actual `FLAGS` line
+  rather than trusting the configure output.
+
+  **Verified.** Correctness first: the same project generated by the old and the
+  new exe is **91 files, byte-identical** once the per-run random object/project
+  ids are normalized (`--new rgtest 64 64 fpp` then `--refresh-gen`, whole-tree
+  sha256 compare) — create/save/`refreshGenerated`/`templates::generate` plus the
+  baked `res/hud` PNGs, every `.gen.*`, the Makefile and the compose file. One
+  trap if you repeat this: **both binaries have to sit in the same directory.**
+  `vendor/tyra` is resolved relative to `platform::exePath()`, so a baseline exe
+  left in a scratch folder silently falls back to `.` and two files
+  (`docker-compose.yml`'s engine volume + its derived hash, and the VS Code
+  include path) differ for that reason alone — which reads exactly like a real
+  regression. The UI is what
+  actually moved, so all six windows were forced open through the layout's
+  `open` list in the `.tyra` and screenshotted: Properties renders the full
+  Player section including `walkSpeedDrag` (the helper that moved into
+  app_internal.hpp) at "5.00 units/s", plus Phone Camera, the Debugger's tab
+  strip and a docked Material Editor. All seven TUs compiled clean on the first
+  attempt and the link had no duplicate or missing symbols.
+
+  Timings, and the trap in measuring them: back-to-back clean builds on this
+  laptop drift ~20% from thermals, and a single before/after pair had me
+  believing anything between 72 s and 88 s. Three **alternating** rounds
+  (A=HEAD, B=working tree, A, B, A, B): A 111/103/102 s, B 82/81/84 s — every B
+  round beat its neighbouring A by 19-29 s, median **103 s → 82 s**. Parallelism
+  8.2x → 13.6x, and occupancy is now pegged at 18/18 for the first 45 s, i.e.
+  the build became throughput-bound instead of critical-path-bound. Longest
+  single TU (uncontended): app.cpp 48 s → 27 s. The number that matters daily:
+  **editing one panel is 9 s end to end** (8 s in Dev), where before *any* edit
+  anywhere in the UI paid the full app.cpp compile. Dev vs Release measured
+  back-to-back through the scripts: 60 s vs 79 s clean.
+
+  **Linux, tested afterwards on an 8-core box** (the entry above shipped with
+  it untested — `build.sh`/`build.cmd` had only had the `--dev` flag added by
+  inspection). Everything holds: clean Release 7 m 16 s, clean Dev 3 m 45 s,
+  and editing one panel 46 s Release / 29 s Dev against 2 m 28 s for the
+  `app.cpp` shell — the same shape as the Windows numbers, scaled to half the
+  cores. The ordering fix is visible in the generated `build.ninja`:
+  `tyrax-generated` carries no order-only dep on `libimgui.a`, so the editor
+  objects no longer queue behind it. `CMAKE_CXX_FLAGS_DEV` lands as `-O1 -g0`
+  in `build-dev/`'s cache and in the actual compile line. The compiler-cache
+  hook was exercised with a stub launcher on `TYRAX_COMPILER_CACHE=<path>`: it
+  reaches both the editor target and the vendored glfw subdirectory, and `OFF`
+  removes it. No ccache on that box, i.e. the `AUTO`-finds-nothing path is the
+  one the timings above ran through.
+
+  **The split introduces no new warnings on GCC 15.** Worth stating because a
+  smaller TU gives GCC a bigger inlining budget and can surface analysis the
+  26 k-line file never reached: compiling the pre-split `app.cpp` against its
+  own `src/` at the same `-O3` emits exactly the two `-Wformat-truncation`
+  sites that `mateditor_ui.cpp` and `devkit_ui.cpp` emit now. Pre-existing and
+  merely relocated — but the `matEdSavePreset` one is a real 256-byte buffer
+  that a long layer name overruns, and is filed separately. All six windows
+  were re-opened through the Tools menu on Wayland (Properties with
+  `walkSpeedDrag` at "5.00 units/s", Flow Graph, Debug, Cutscene Director,
+  Material Editor, UI Editor) and the editor exited with an empty log.
+  `--new`/`--refresh-gen`/`--dump` all clean. Fixed in passing: `ccache` was
+  added to the Windows quickstart only, so on Linux the pickup this entry adds
+  had nothing to pick up — it is now in `deps.sh`'s four package lists and the
+  Linux quickstart.
+
+  **Not covered / left on the table.** `templates.cpp` (27 141 lines, ~32 s) is now the tail of a clean
+  build and wants the same treatment, but it is codegen held in raw string
+  literals and was out of scope. A PCH was measured and **rejected for now**:
+  ~3 s saved per TU but a 200 MB `.gch` costing 7.5 s to build, which mattered
+  when the critical path dominated and is only worth revisiting now that the
+  build is throughput-bound. Unity builds are the wrong direction here — they
+  would recreate exactly the huge-TU problem just fixed. Noted in passing and
+  filed separately rather than fixed here: `"input"` is in
+  `App::showFlagForKey` but missing from `kLayoutWindowKeys`, so the Input Map
+  is the one optional window a named layout can neither restore nor close.
+
+- (222) **Rotation nodes, and an honest answer to "how do I make something spin
+  forever?"** (user: "Dodaj node do rotate obiektu. Pytanie tez takie, jest
+  jakis trigger onupdate we flowgraph? Czy powinien w ogole byc? Jakbym chcial
+  zrobic taka logike, ze cos sie caly czas obraca, jak to najlepiej i
+  najwydajniej zrobic?")
+
+  The position family had three shapes (delta / absolute / glide) and rotation
+  had **none** - turning a prop meant the `spin.flownode` custom node from
+  examples/custom-nodes. Rotation now has the same three: **Rotate Object By**
+  (delta in degrees), **Set Object Rotation** (absolute) and **Spin Object**
+  (continuous, degrees per SECOND, start/stop exec pins).
+
+  On the trigger question: an every-frame trigger already existed by accident -
+  `everyFrames(0)` clamps to 1, so *Every N Seconds* with Seconds 0 fires every
+  frame - and nothing said so anywhere. It is now spelled **On Update**, which
+  costs one registry entry and a codegen branch that emits no condition at all
+  (`update()` is already per-frame). Worth having for discoverability; NOT the
+  answer to continuous motion, and its `desc` says so.
+
+  **The performance answer is the interesting half, and it is why Spin Object
+  is not just sugar over Rotate Object By.** Writing a transform from a graph
+  sets `RuntimeObject::dirty`, and `renderScene` then re-bakes that object's
+  whole **world-space** vertex array on the EE. Per frame, per spinner. So the
+  rate lives on `RuntimeObject::spinRate` (deg/s, next to the physics `spin`
+  but independent of it - physics owns that one and zeroes it on sleep), and a
+  new `TerrainGame::updateSpinners()` integrates it right after the physics
+  pass. Crucially it also **promotes each spinner onto the matrix fast path
+  once** (`rebuildObjectGeometry(i, true)` when `physFastPathEligible`): local-
+  space vertices baked a single time, `objMat` refreshed per frame, VU1 applies
+  the motion - the exact mechanism the thrown-crate work (entry 116) built for
+  physics bodies, which is where the 14 → 156 FPS in that bench came from.
+  A permanently rotating coin therefore costs one matrix rebuild per frame and
+  nothing else; ineligible objects (usable, reflective, animated models) fall
+  back to `dirty` and pay the re-bake, honestly and only then. The trade-off is
+  inherited too: baked shading freezes at the promotion pose - which is right
+  for something whose orientation never stops changing anyway.
+
+  Chain covered: registry (`.desc` on all four, so the add-menu tooltips, node
+  hover and the AI generator's catalog documented themselves), codegen +
+  `flowWrapDeg` (fmodf, not the physics pass's single ±720 fold - a typed-in
+  delta is not a small per-frame step), the `updateSpinners` call in **both**
+  duplicated game loops, the Live Logic interpreter (3 opcodes + `BK_OnUpdate`,
+  so these nodes hot-patch like the rest), and the **time machine capture walk**
+  (`spinRate` joins it, stride 100 → 112, layout version 2 → 3 - a rewind that
+  did not put the spin back would silently strand a stopped fan). Batching
+  needed nothing: `strKind == ObjectName` already blocks named targets and any
+  object with a graph is already unbatchable. The `1.0f` drag step for angle
+  params is a small thing that matters - the generic `0.1f` makes reaching 90
+  a mouse marathon.
+
+  **Verified end to end in PCSX2** (`~/tyra-projects/spintst`, a gold cylinder
+  with On Start → Spin Object 120 deg/s Y, Every 3 s → Rotate Object By 45° X,
+  On Update → Set Int add 1), read numerically out of the time-machine capture
+  by a ~40-line Python probe rather than eyeballed: `spinRate = [0, 120, 0]`;
+  Y advanced **244.80° over 102 frames** = 120 × 2.04 s exactly, so the
+  integration is frame-rate true; X stepped 45° per timer fire and wrapped
+  through 360 → 90 correctly; and the `frames` variable's delta equalled the
+  frame delta **exactly** (354 == 354, then 204 == 204) - On Update fires every
+  single frame, no more and no less. 50 FPS, no asserts in `bin/log.txt`,
+  `VRAMSTAT up=3 (+0)` (no re-uploads). Screenshots a frame apart show the
+  facet shading rotating with the disc, which is what proves the local-space
+  promotion did not corrupt the geometry. Codegen for the shapes the e2e graph
+  did not use (an object-LINK target via Self, `stop` on pin 1) was read out of
+  `flow_graph.gen.cpp` and compiled in Docker.
+
 ## Backlog (rough order)
+
+- **Finish opt-in dynamic lighting per object** (branch
+  `claude/gi-dynamic-lighting-wip`; docs/global-illumination.md is the
+  surrounding design). An object may opt into being lit by the LIT VU1 program
+  with its four light colours re-read from the probe grid every frame - the
+  deal animated models already take - so it relights with zero latency,
+  including while it spins. Entry (132) settled the three suspects the WIP
+  commit left, plus two more nobody had listed, and established that the
+  reported banding was a misread of the screen: the dyn-lit cylinder shades
+  smoothly. What is left before this can merge:
+  - **The owner has not seen it in their own scene.** Everything so far is a
+    scratch fixture of primitives plus a two-material model.
+  - **One probe sample per OBJECT, taken at its origin.** That is the whole
+    point (it moves, so it cannot be baked), but it means a large object is lit
+    as if it stood at its own centre, and an object whose origin sits inside
+    geometry reads that occlusion over its whole surface. Decide whether that
+    is the documented deal or whether big objects want a second sample.
+  - **The ANIMATED-model path still reconstructs along the sun** (entry 133 did
+    the dyn-lit one). `updateAndRenderAnimObjects` evaluates L1 along
+    `SCENE_LIGHT_*` and every model shares one `animLightDirs`, so a character
+    in a bounce-lit interior leans the same wrong way this just fixed. Same
+    shape of fix: per-model directions plus the dominant-L1 direction. Kept
+    separate because it touches every animated model in every project.
+  - **A textured dyn-lit part is untested.** `litScale` handles the 128 vs 255
+    split by construction, but no fixture has exercised it.
+  - Then: a README bullet, a docs/global-illumination.md section, and an
+    example (or a dyn-lit prop dropped into `examples/gi-showcase`).
+
+  **The two engine-level facts this work established** are worth keeping
+  whatever happens to the feature - both are now in
+  docs/global-illumination.md's trap list: the untextured/textured colour-space
+  split for a lit bag, and `StaPipVU1Cull_D` never reading the colour bag at
+  all (the albedo must be folded into the light colours).
 
 - **Session internet exposure** — today sessions are LAN (or any mesh VPN:
   Tailscale/ZeroTier make remote peers look local, zero code). The researched
@@ -9632,3 +13785,231 @@ Each finished feature lands as its own commit.
   worth keeping: a size control must not change what it is sizing, and an
   absolute epsilon inside a parametric generator is a shape parameter in
   disguise.
+- (105) **Asset Browser: res/ as a browsable, reference-aware asset library**
+  (user: the Project panel's asset list was "a mega crude list", the ask was
+  folders, moving, deleting and filtering by type). New window
+  (*Tools > Asset Browser*, `src/assetbrowser.cpp` - App:: methods in their own
+  TU, the save_assets.cpp precedent): folder tree, thumbnail grid or detail
+  list, type chips carrying the count in the current scope, name search, a
+  recursive scope toggle, and an inspector with each type's own controls (the
+  texture-quality combo, the LOD popup and - after merging main's world-scale
+  work - the *Size...* dialog moved out of the old flat list into
+  `drawAssetQualityCombo`/`drawAssetLodButton`/`drawAssetSizeButton`). The
+  Project panel's Assets section is now a summary plus the import buttons.
+  Two things carry the feature, and neither is UI. **The reference census**
+  (`rebuildAssetUsage`): one flat pass over the model recording everything that
+  *uses* an asset - object model/material/sound, terrain material and painted
+  layers, HUD/menu/splash/loading images, fonts, custom LOD tiers, audio flow
+  nodes - which is what lets the inspector list *who uses this file* (with a
+  Select button that jumps to the object, switching scenes), badge the ones
+  nothing references, and warn per file before a delete. It is keyed off
+  `modelEditSerial_`, so it costs one pass per edit, not per frame. Per-asset
+  **settings** are deliberately NOT uses (texture quality, the recorded
+  real-world size, music build options, clip edits, membership of the
+  disk-scanned audio lists): they are metadata on the file, and counting them
+  would mean no imported asset ever reads as unused - which is the one question
+  the census exists to answer. They still travel with the file and are cleaned
+  up on delete, which is a different list (`retargetAssetPath`).
+  **The sibling invariant** is the part that took the thinking: a Wavefront
+  reference (`mtllib`, `map_Kd`, `refl`) is a bare file name resolved next to
+  the file that named it, and the PS2 loads from a flat ISO9660/host path with
+  no `..` - so "move this texture into res/textures" is not a file operation,
+  it is a broken material. The move therefore takes a transitively closed
+  dependency group along (`assetWavefrontDeps`), **copies** a dependency that
+  files left behind still need (both folders keep resolving; the status line
+  says how many), and **refuses with the reason** instead of half-applying a
+  move that would still break something. A rename inside one folder has no such
+  problem, so there the siblings that name the file are rewritten instead
+  (`rewriteWavefrontRef` - last token only, so `-s 2 2` / `-mm 0 0.5` survive),
+  and the `.mtl` a model exclusively owns is renamed with it (`tree.obj` +
+  `tree.mtl` -> `oak.obj` + `oak.mtl`, how every import writes them); a shared
+  library keeps its name and the model gets an explicit `mtllib` line, because
+  the implicit `<stem>.mtl` sibling rule would otherwise leave it materialless.
+  Everything else follows from those: sidecars (`.uvs`, `<tex>.layers/`) travel
+  with their asset, the baked `.tmdl` is deleted for the next build to redo, a
+  WAV moved between `res/audio` and `res/sfx` changes role and swaps lists, and
+  build-written files (menu panels, text sprites, glyph atlases, `.tmdl`) are
+  hidden behind a *Generated* toggle and read-only here.
+  Also: drag a model onto the **viewport** and it lands where the cursor points
+  (the placement raycast, so it rests on what is under it), and `Viewport::assetThumb`
+  renders a 128² preview per asset once into a dedicated framebuffer and copies
+  it into its own texture (`glCopyTexImage2D`, a few new thumbnails per frame) -
+  a material rides a sphere, an image is its own thumbnail, everything else gets
+  a colored plate with its extension.
+  **A new field that stores an asset path now has two obligations**:
+  `retargetAssetPath` (or move/rename silently breaks it) and
+  `rebuildAssetUsage` when it is a real reference rather than a per-asset
+  setting (or the asset reads as unused). Written into the tyra-editor-dev skill
+  next to the other chain rules - and immediately exercised by merging main's
+  world-scale work, whose `modelUnitMeters` map is keyed by asset path: it joined
+  the retarget list (a moved model keeps its recorded real-world size) and stayed
+  out of the census (a size is a setting, not a use). That merge also moved
+  main's *Size...* button into the browser's inspector, since the flat list it
+  lived on is gone. `retargetAssetPath` additionally repoints the editor's own
+  staged paths - the Material Editor's open `.mtl` and paint target, the pending
+  size dialog, the Animation Editor's model - because a save through a stale one
+  would recreate the file at its old location.
+  *Verified* with a throwaway host harness (the pattern from 104, and the reason
+  the logic is host-only): standard headers, then `#define private public`, then
+  link the harness against `build/`'s object files minus `main.cpp` - no window,
+  no GL context, `ImGui::CreateContext()` alone is enough for the one
+  `GetTime()` call. On a copy of `examples/material-lab` seeded with a
+  `models/props` subfolder, a stray texture and both WAV roles it showed: the
+  scan (30 files, 8 folders, kinds right, `.layers` sidecars not listed as
+  assets); the census (`pillar.mtl` project=4 from four objects, `canvas.png`
+  wavefront=1 from its .mtl, `ground.png` unreferenced); dependency resolution
+  in both directions; and then the operations - the texture move refused with
+  *"altar.png is referenced by altar.mtl, which would stop finding it"*, the
+  model move landing `.obj` + `.mtl` + `.png` in the new folder with `mtllib
+  altar.mtl` / `map_Kd altar.png` still bare and the object's `modelPath`
+  retargeted, the rename producing `statue.obj` + `statue.mtl` + a rewritten
+  mtllib line, a folder rename retargeting everything inside, the paint-layer
+  sidecar riding along through both, the WAV leaving `music` and joining
+  `sounds`, and a referenced material's delete clearing the objects' paths with
+  no dangling reference left. The ImGui half was checked by running a **Debug
+  build (IM_ASSERT active)** with the window open for 15 s - no assertion, so
+  the Begin/End, child, table, popup, ID and drag-drop pairs are balanced - and
+  the window's presence proven from the layout dump the editor saved
+  (`[Window][Asset Browser] Size=2880,1800` = the 960x600 default at this
+  machine's 3x DPI scale, so `scaled()` is applied). **The look is unverified**:
+  this machine is still in the white-window state from 101/PROGRESS notes (the
+  AMD GL present quirk reproduces on baseline builds), so screenshots capture
+  nothing - the visual pass needs a human.
+
+- (216) **Build: the .cmd scripts were a third dependency list, and it had
+  drifted** (user report on a fresh clone: `setup.cmd` complained that
+  `vendor\tyra` is not empty - "it isn't and never will be" - and `build.cmd`
+  then failed on a missing ufbx). Entry 102 collapsed setup and build onto the
+  one list in `deps.ps1`, but `setup.cmd`/`build.cmd` were never part of that:
+  they carried their own hand-copied six-repo list and their own four-directory
+  guard. Both were stale in exactly the way 102 predicted - no `vendor/ufbx`
+  anywhere, so cmake reached `Cannot find source file: vendor/ufbx/ufbx.c`; no
+  PS2 tools; `.git` as the "is it there" probe instead of a file the build
+  compiles; and a plain `git clone` into `vendor\tyra`, whose engine sources are
+  versioned in this repo, so every run printed `fatal: destination path already
+  exists and is not an empty directory` as if something were broken.
+  The fix is to delete the duplicate rather than repair it: both .cmd files are
+  now wrappers that locate `pwsh.exe` (else `powershell.exe`) and forward to
+  `setup.ps1`/`build.ps1` with `-NoProfile -ExecutionPolicy Bypass`, `build.cmd`
+  mapping its `run`/`clean` words onto `-Run`/`-Clean` and propagating the exit
+  code. `-ExecutionPolicy Bypass` is the only reason to keep a .cmd at all -
+  that, and double-clicking. There is now one list (`deps.ps1`) and one
+  implementation per platform; a `.cmd` that grows logic again is the bug.
+  Rode along in the same pass, from a second user report - a wall of MSVC
+  errors (C2026 *string too big* across `templates.cpp`, plus C2589/C2660 in
+  `wire.cpp`) from someone who opened the folder in Visual Studio and built the
+  default `x64-Debug` preset. That is not fixable: `templates.cpp` is ~1.3 MB of
+  raw string literals in 48 chunks averaging ~27 KB, and MSVC's cap is a hard
+  16380 bytes **per literal** - splitting every PS2 template into 16 KB pieces
+  to please a compiler this project does not target is not a trade worth making
+  (the `windows.h` `min` macro eating `std::min` in `wire.cpp` is the same
+  build, and merely the first symptom that scrolls past). So the Windows
+  toolchain being MinGW-w64 GCC *only* is now stated where people look: the
+  README Quickstart, the Requirements list, and the tyra-testing skill, with the
+  error text spelled out so the next report is recognised as a wrong CMake kit
+  rather than a code bug.
+  *Verified* on Linux, which shares the implementation the wrappers now call:
+  `./setup.sh` on this worktree (vendor/ held only the in-tree `tyra`) cloned
+  imgui/glfw/imguizmo/imnodes/stb/**ufbx** plus both PS2 tools and printed
+  `OK: vendor/tyra already present` - the exact complaint the .cmd path used to
+  produce, gone - and `./build.sh` went through to `OK: build/tyrax-editor`.
+  The .cmd wrappers themselves are **unchecked by execution**: no cmd.exe on
+  this machine. They need one run on Windows.
+
+- (217) **Screenshots and synthetic input on Linux/Wayland - the "there may be
+  no screen capture at all" note in tyra-testing was wrong**, and the way
+  around it turned out to be one D-Bus layer below where everyone gives up.
+  The dead ends the old note recorded are real and stay documented:
+  `gnome-screenshot -f` exits 0 and writes nothing, and both
+  `org.gnome.Shell.Screenshot` and `org.gnome.Shell.Introspect` answer
+  `AccessDenied` to a plain session client (gnome-shell allowlists the two
+  desktop portals and nothing else). But **mutter's own APIs are not gated**:
+  `org.gnome.Mutter.ScreenCast.CreateSession` and
+  `org.gnome.Mutter.RemoteDesktop.CreateSession` both hand a session to any
+  process on the bus, no prompt, no portal dialog - pixels come out over
+  PipeWire, and the remote-desktop session injects keyboard and pointer events
+  straight into the compositor. That is the whole story, and it matters here
+  because the editor's GLFW window and PCSX2's Qt window are **native Wayland
+  surfaces**: `xwininfo -root -tree` lists neither, so every X11 tool is blind
+  to exactly the two windows this project needs to see.
+  New `.claude/skills/tyra-testing/scripts/wayland-control.py` (the Linux twin
+  of `screenshot-window.ps1`, ~300 lines of python3-gi + gstreamer) wraps it:
+  `shot` (whole monitor or `--area` crop), `move`/`movrel`/`click`/`drag`/
+  `button`/`scroll`, `key ctrl+n`, `type`, and `script` - which runs a whole
+  interaction in ONE mutter session, the mode that matters, because a session
+  dies with the process and a chain of one-shot calls re-negotiates PipeWire
+  every time (~0.6 s) and loses pointer state in between.
+  *Verified end to end on this box* (Ubuntu GNOME 1920x984, Wayland): the
+  editor's File menu clicked open; `ctrl+n` opened New Project; `ctrl+a` +
+  `type WlTest_42` landed verbatim in the name field, so keysym injection
+  handles shift levels on its own; right-drag and the wheel orbited and zoomed
+  the viewport (both absolute drag and `movrel`, the latter being the only
+  motion a pointer-locked client sees); and against `pcsx2-qt -bios`, `k`
+  arrived as **pad 1 Cross inside the emulated PS2** - the BIOS advanced past
+  its language-select screen. So the emulator is drivable without a human on
+  Linux, which on Windows it never fully was (mouse buttons were never seen
+  from synthetic events there at all).
+  Two limits, both measured. **No per-window capture**: mutter's `RecordWindow`
+  wants a window id that only the denied `Shell.Introspect` publishes, and the
+  ids are random-based rather than sequential (a probe of 0..79 matched
+  nothing), so the recipe is capture-monitor + `--area` crop, and an occluded
+  window captures as whatever sits on top of it.
+  Then the same tooling was pointed at **a real Tyra game, full Layer 3**, which
+  is the check that matters: `h4570/tyra` is **0.32 GB compressed / 1.15 GB on
+  disk** (small enough that skipping the boot over disk worry was the wrong
+  call), first `--build` of a fresh `--new ... fpp` fixture took ~4 minutes
+  including libtyra, and the game booted in PCSX2 at 50 FPS. Driving it:
+  `keydown h` / `keyup h` (right stick right) swung the camera - 151k pixels
+  changed - and `keydown w` walked the player forward. Two things learned in
+  the process. The generated FPP game reads **only the analog sticks**
+  (`getLeftJoyPad`/`getRightJoyPad` in `updatePlayer`), so the D-pad moves
+  nothing at all - a held `Up` produced a byte-identical frame, which looks
+  exactly like broken input injection and is not; the pad keys that do work are
+  W/A/S/D (left stick), T/G/F/H (right stick) and K = Cross, per `[Pad1]` in
+  PCSX2.ini. And an **axis-aligned walk over the flat checkerboard terrain is
+  nearly invisible to a pixel diff**: the first forward test changed only an
+  11-pixel band at the terrain's far edge, because a translation along the grid
+  maps the repeating pattern onto itself. Turn first, then walk - after a yaw
+  change the same `w` hold moved 146k pixels.
+  Unrelated to entry 215's white-window note, which is a Windows/AMD present
+  quirk: this Linux box renders and captures both the editor viewport and the
+  emulated game correctly.
+
+- (222) **Fix: the Material and Animation Editor previews shared one render
+  target** - `renderAnimPreview` (added with the Animation Editor) called
+  `ensurePreviewFramebuffer` and returned `prevTex_`, i.e. the Material
+  Editor's target. Both are optional tool windows
+  that can be open at once (both are `kLayoutWindowKeys` entries, so a project
+  layout opens them together at startup), both size their preview from their own
+  content region, and both render inside one UI frame - so whichever ran second
+  re-allocated the shared texture at its own size (`glTexImage2D` thrash every
+  frame) and both `ImGui::Image` calls sampled it, leaving each window showing
+  the other's subject, stretched. Gave the animation preview its own
+  `animFbo_/animTex_/animDepth_` (+ `shutdown()` cleanup), and factored the
+  duplicated backdrop build out into `ensurePreviewBackdrop()` - the meshes are
+  fixed studio geometry and are the only thing worth sharing. Verified with a
+  pre/post screenshot pair of one project whose layout opens both windows: on
+  the baseline the Material Editor pane says "Sphere / 352 tris" while drawing a
+  squashed wobbler; after the fix it draws its own sphere with `ground.mtl` and
+  the Animation Editor its wobbler, both at a stable aspect.
+
+- (223) **Material / Animation Editor previews can override the ambience they
+  bake with** - a scene authored dark (a cavern preset, low brightness) made its
+  own previews unreadable, since a preview deliberately shades with the scene's
+  light: what you preview is what ships. Asked for right after entry 106, by
+  someone who could not see anything in either preview on a dark scene. A
+  **Light** combo in both panels picks *Scene ambience* (default, what ships),
+  *Neutral studio* (the engine's default directional light) or any of the
+  project's ambience presets; the selection persists per machine in editor.ini
+  (`matEdLight`/`animEdLight`), and a preset name that no longer exists falls
+  back to the scene. The implementation matters because **shading is baked into
+  vertex colors**, not a uniform: `setLighting` is the scene-wide setter and
+  rebuilds every mesh (terrain AO grid included), so instead a `ScopedShade`
+  guard swaps the `g*` light globals only while the preview bakes - free for the
+  animation preview (its pose upload re-bakes the vertex shade every frame
+  anyway), and for the material preview a private set of unit shapes plus the
+  light folded into the `matPrevModel_` cache key. Verified in the running
+  editor on a project switched to its dark `cavern` preset: both previews are
+  dark on *Scene ambience*, light up independently when each is switched to
+  *Neutral studio*, a named preset (`Default`, warm light) reads differently
+  from neutral, and both selections survive a restart.

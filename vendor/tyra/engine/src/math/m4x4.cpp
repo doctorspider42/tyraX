@@ -237,6 +237,28 @@ M4x4 M4x4::lookAt(const Vec4& position, const Vec4& target) {
   return res;
 }
 
+// Modified by TyraX: roll-aware view matrix. The two-argument form below hard
+// codes the up reference to world +Y inside its VU0 block, so a rolled camera
+// cannot be expressed; this variant just hands setCamera the caller's up.
+// Plain C++ on purpose - it runs once per frame, not per vertex, and the VU0
+// version's cross products are dead code anyway (it computes $vf8/$vf9 and then
+// stores $vf6, the untouched world up).
+void M4x4::lookAt(M4x4* res, const Vec4& position, const Vec4& target,
+                  const Vec4& up) {
+  float eye[4] alignas(sizeof(float) * 4) = {position.x, position.y, position.z,
+                                             1.0F};
+
+  float viewVec[4] alignas(sizeof(float) * 4) = {
+      position.x - target.x, position.y - target.y, position.z - target.z, 1.0F};
+
+  float upVec[4] alignas(sizeof(float) * 4) = {up.x, up.y, up.z, 1.0F};
+
+  M4x4 temp = setCamera(eye, viewVec, upVec);
+  res->identity();
+
+  cross(res->data, res->data, temp.data);
+}
+
 void M4x4::lookAt(M4x4* res, const Vec4& position, const Vec4& target) {
   float eye[4] alignas(sizeof(float) * 4) = {position.x, position.y, position.z,
                                              1.0F};

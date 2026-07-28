@@ -91,10 +91,18 @@ Practical guidance:
    dialog also accepts `.obj` for static models). The file is copied to
    `res/models/`; a validation bake runs immediately and the status bar
    reports clips, vertex count, baked frames and any warnings.
-2. The Assets list shows the model as `animated: N clip(s), M verts`;
+2. A **Model size** dialog asks how big the thing is in the real world. Both
+   importers normalize to meters, so a Mixamo character arrives ~1.7 units
+   tall and the default answer is already right - unless the project works at
+   a different **world scale**, in which case this is what makes the character
+   match the world instead of standing knee-high in it. See
+   docs/world-scale.md; the **Size...** button in the Assets list changes it
+   later.
+3. The Assets list shows the model as `animated: N clip(s), M verts`;
    hover for the clip names and warnings.
-3. **Add object > Model >** *your file* `(animated)`, or pick the file in
-   an existing model object's **Model** combo.
+4. **Add object > Model >** *your file* `(animated)`, or pick the file in
+   an existing model object's **Model** combo. The object is created at the
+   scale the recorded size implies.
 
 The viewport plays the object's start clip immediately. The preview samples
 clips at 12 fps and lerps between the samples (the console interpolates the
@@ -173,6 +181,23 @@ Because the edits are baked at build time, a running game cannot receive them
 over [Live Link](live-link.md) - the LIVE chip turns amber (rebuild) when you
 retime a clip.
 
+### Preview lighting
+
+The preview shades the model with the **scene's** ambience, on purpose: what
+you scrub is what ships. On a deliberately dark scene - a cavern preset, a low
+brightness - that also makes the preview unreadable, so the combo next to
+**Wireframe** picks what the preview bakes with instead:
+
+- **Scene ambience** (default) - the light the object will really get in game.
+- **Neutral studio** - the engine's default directional light, bright and
+  neutral. Reach for this to judge geometry, a pose or a texture.
+- **any ambience preset** of the project - preview the model under the mood it
+  will be placed in without switching the scene over to it.
+
+It only affects the preview: the scene, the project file and the build are
+untouched. The choice is a machine setting (`editor.ini`), shared with the
+Material Editor's identical combo - see [material painting](material-painting.md).
+
 ### Project-wide animation fps
 
 glTF and FBX store keyframe times in **seconds** and no frame rate at all. So a
@@ -230,11 +255,13 @@ in *Properties*:
 | **Run clip** | Optional (`<none>` = walk covers all speeds). |
 | **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
 | **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
+| **Face camera (strafe)** | The avatar keeps facing the camera instead of turning into the movement direction — sideways/backward movement then plays the directional clips below. |
+| **Back / Strafe left / Strafe right clip** | Optional directional locomotion (`<none>` = the walk clip covers that direction). Only shown — and only active — with *Face camera* on. |
 | **Style** | The camera rig: **Orbit (behind)** = free look (right stick orbits), **Top-down** / **Isometric** / **Fixed angle** = the camera is pinned to a set angle for camera-locked games. Top-down and Isometric are presets of Fixed angle — picking them seeds the angles below, which stay editable. |
 | **Angle / Direction** | Fixed styles only: elevation above the horizon (85 = nearly straight down, ~35 = the classic isometric slant) and the world heading the camera looks along (which way is "up" on screen). |
 | **Right stick rotates** | Fixed styles only: let the player orbit the pinned view with the right stick (the elevation stays locked). |
 | **Distance / Height / Shoulder** | The camera rig offset in the camera's own frame: back, up, sideways. `Shoulder` 0 = centered behind, ~0.6 = over-the-shoulder, negative = the left shoulder. |
-| **Turn rate** | How fast the avatar turns to face its movement direction. |
+| **Turn rate** | How fast the avatar turns to face its movement direction (or the camera, with *Face camera* on). |
 
 **Camera styles:** the fixed styles pin `entPitch` every frame (and the yaw
 unless *Right stick rotates* is on), so the camera holds its authored angle
@@ -267,7 +294,17 @@ needs no triangle precision, and the cost has to fit a per-frame EE budget.
 
 The runtime auto-selects idle/walk/run/jump from the player's **actual planar
 speed** each frame, cross-fades on change (0.18 s) and matches playback speed to
-the movement so the feet do not slide - **no state machine, no scripting**. The
+the movement so the feet do not slide - **no state machine, no scripting**.
+
+**Directional locomotion:** by default the avatar turns to face where it walks,
+so every step is a forward step and one walk clip covers everything. Turn on
+**Face camera (strafe)** and the avatar keeps facing the camera while the stick
+moves it in any direction - the runtime then splits the movement direction into
+four 90°-ish sectors relative to the facing (within 60° of straight ahead =
+walk/run, within 60° of straight back = **Back clip**, the side quadrants =
+**Strafe left/right clip**) and cross-fades between them as the direction
+changes. Any unmapped direction falls back to the walk clip, so you can adopt
+this incrementally - map only a back clip and sidesteps still walk. The
 override still works: a script or flow-graph **Play Animation** on the Player
 fires any one-shot (wave, attack) that plays to the end before locomotion
 resumes, and scripts attached to the Player see the avatar as `self`. A Cutscene

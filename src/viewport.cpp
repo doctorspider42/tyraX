@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <utility>
 
 #include <filesystem>
@@ -53,6 +54,19 @@ Mat4 perspective(float fovyRad, float aspect, float zNear, float zFar) {
     r.m[10] = (zFar + zNear) / (zNear - zFar);
     r.m[11] = -1.0f;
     r.m[14] = (2.0f * zFar * zNear) / (zNear - zFar);
+    return r;
+}
+
+// Parallel projection over a symmetric slab. zNear is passed NEGATIVE by the
+// caller (the depth range straddles the eye) so an axis view keeps drawing
+// what is behind the camera plane - a Top view must not hide the ceiling it
+// is looking through.
+Mat4 orthoProj(float halfW, float halfH, float zNear, float zFar) {
+    Mat4 r = identity();
+    r.m[0] = 1.0f / halfW;
+    r.m[5] = 1.0f / halfH;
+    r.m[10] = -2.0f / (zFar - zNear);
+    r.m[14] = -(zFar + zNear) / (zFar - zNear);
     return r;
 }
 
@@ -241,7 +255,61 @@ uniform int uAoObj[32];          // scene-object index per occluder
 uniform sampler2D uAoHeight;     // terrain heightmap (R32F), texture unit 2
 uniform vec4 uAoHmRect;          // uv = wp.xz * zw + xy (texel centers)
 uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
+// Baked global illumination (docs/global-illumination.md): the scene's L1
+// spherical-harmonic probe grid, uploaded as an RGBA8 3D texture with the four
+// coefficients tiled along x (probe x index * 4 + coefficient), RGB = the
+// coefficient in -1..1 of uGiScale and A = the probe's liveness. GL_NEAREST +
+// a hand-rolled trilinear, because filtering across a coefficient boundary
+// would blend L0 into L1. Twin of giProbeAt in the generated game and
+// gibake::sampleProbes on the host - change one, change all three.
+uniform int uGiOn;
+// 1 while the TERRAIN draws with a baked GI lightmap: its light is already in
+// the vertex colour (buildTerrainChunkMesh), so the probe grid must not
+// replace it a second time - and, like every other GI surface, the point
+// lights and emissive pools are inside the baked answer already.
+uniform int uGiSkipProbe;
+uniform sampler3D uGiProbes;     // texture unit 3
+uniform vec3 uGiOrigin;
+uniform vec3 uGiStep;
+uniform ivec3 uGiDim;
+uniform float uGiScale;
 out vec4 FragColor;
+
+// shade(n) = L0 + (2/3) * dot(L1, n), weighted-trilinear over the 8 probes
+// around wp. Returns false when every one of them is buried in geometry.
+bool giProbe(vec3 wp, vec3 n, out vec3 res) {
+    res = vec3(0.0);
+    if (uGiOn == 0 || uGiDim.x <= 0) return false;
+    vec3 t = clamp((wp - uGiOrigin) / max(uGiStep, vec3(0.0001)),
+                   vec3(0.0), vec3(uGiDim - 1));
+    ivec3 i0 = clamp(ivec3(floor(t)), ivec3(0), max(uGiDim - 2, ivec3(0)));
+    vec3 f = t - vec3(i0);
+    vec3 acc[4];
+    for (int k = 0; k < 4; ++k) acc[k] = vec3(0.0);
+    float wsum = 0.0;
+    for (int c = 0; c < 8; ++c) {
+        ivec3 d = ivec3(c & 1, (c >> 1) & 1, (c >> 2) & 1);
+        ivec3 pi = min(i0 + d, uGiDim - 1);
+        float w = (d.x > 0 ? f.x : 1.0 - f.x) * (d.y > 0 ? f.y : 1.0 - f.y) *
+                  (d.z > 0 ? f.z : 1.0 - f.z);
+        if (w <= 0.0) continue;
+        if (texelFetch(uGiProbes, ivec3(pi.x * 4, pi.y, pi.z), 0).a < 0.5)
+            continue;  // dead probe: inside a solid, weighs nothing
+        wsum += w;
+        // The bytes are the baked int8 coefficients biased by 128, so undo
+        // exactly that - an RGBA8 texelFetch hands back byte/255.
+        for (int k = 0; k < 4; ++k)
+            acc[k] += w * (texelFetch(uGiProbes,
+                                      ivec3(pi.x * 4 + k, pi.y, pi.z), 0).rgb *
+                               255.0 - 128.0);
+    }
+    if (wsum <= 0.00001) return false;
+    float s = uGiScale / (127.0 * wsum);
+    res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
+                                            acc[3] * s * n.z),
+                vec3(0.0), vec3(1.0));
+    return true;
+}
 
 // Distance from wp to an analytic shape's SURFACE + the unit direction toward
 // it. The single query behind both the AO response and the emissive lights -
@@ -266,11 +334,6 @@ float shapeAt(vec3 wp, vec3 c, float isSphere, vec3 ax, vec3 ay, vec3 az,
     return dist;
 }
 
-// Light the emissive materials around this point add. Quadratic falloff from
-// the emitter SHAPE (so a long strip lights evenly along its length) times a
-// half-Lambert SQUARED facing weight: these are area sources, so a plain
-// max(0, N.L) seams on every box corner and a linear wrap still cuts to zero
-// at a finite angle. Smooth everywhere, zero only at N.L = -1.
 // Does the segment from `o` along unit `d` for `maxT` units enter occluder i?
 // Slab test for a box, quadratic for a sphere - the twin of
 // aobake::shapeBlocksRay and the generated game's shapeBlocksRay.
@@ -307,6 +370,71 @@ bool shadowHit(int i, vec3 o, vec3 d, float maxT) {
     return true;
 }
 
+// Deterministic Vogel-disk offsets for the soft-shadow rays, in units of the
+// emitter's projected half-extent. Twin of aobake::kEmisShadowDisk - the same
+// seven numbers bake the scene lightmap, so the preview and the shipped atlas
+// draw the same penumbra.
+const vec2 kEmisShadowDisk[7] = vec2[7](
+    vec2( 0.267261,  0.000000), vec2(-0.341335,  0.312691),
+    vec2( 0.052247, -0.595326), vec2( 0.430231,  0.561160),
+    vec2(-0.789527, -0.139656), vec2( 0.747909, -0.475759),
+    vec2(-0.250161,  0.930586));
+
+// Fraction of the emitter that is visible from wp. Ray 0 goes to its nearest
+// surface point (what a hard shadow test uses); the rest spread over the
+// shape's silhouette, so the shadow edge becomes a penumbra that widens with
+// distance from the caster. Rays aimed below the surface's horizon are left out
+// of the vote - the facing term already accounts for those. Twin of
+// aobake::emitterVisibility.
+float emisVisibility(int i, vec3 wp, vec3 n, vec3 dir, float dist, int selfObj) {
+    vec3 o = wp + dir * 0.02;
+    int hits = 0, votes = 1;
+    bool blocked = false;
+    for (int k = 0; k < uAoCount; ++k) {
+        if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
+        if (shadowHit(k, o, dir, dist - 0.04)) { blocked = true; break; }
+    }
+    if (!blocked) ++hits;
+    // basis around ray 0, seeded from the world axis least aligned with it
+    vec3 a = abs(dir);
+    vec3 up = (a.x <= a.y && a.x <= a.z) ? vec3(1.0, 0.0, 0.0)
+            : (a.y <= a.z)              ? vec3(0.0, 1.0, 0.0)
+                                        : vec3(0.0, 0.0, 1.0);
+    vec3 t = normalize(cross(dir, up));
+    vec3 b = cross(dir, t);
+    // half-extents of the silhouette along t and b (box support function)
+    vec3 h = vec3(uEmisAx[i].w, uEmisAy[i].w, uEmisAz[i].w);
+    float rt = h.x, rb = h.x;
+    if (uEmisPos[i].w <= 0.5) {
+        rt = dot(h, abs(vec3(dot(uEmisAx[i].xyz, t), dot(uEmisAy[i].xyz, t),
+                             dot(uEmisAz[i].xyz, t))));
+        rb = dot(h, abs(vec3(dot(uEmisAx[i].xyz, b), dot(uEmisAy[i].xyz, b),
+                             dot(uEmisAz[i].xyz, b))));
+    }
+    for (int s = 0; s < 7; ++s) {
+        vec3 sp = uEmisPos[i].xyz + t * (kEmisShadowDisk[s].x * rt) +
+                  b * (kEmisShadowDisk[s].y * rb);
+        vec3 d = sp - o;
+        float len = length(d);
+        if (len <= 0.04) continue;
+        d /= len;
+        if (dot(n, d) <= 0.0) continue;
+        ++votes;
+        blocked = false;
+        for (int k = 0; k < uAoCount; ++k) {
+            if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
+            if (shadowHit(k, o, d, len - 0.02)) { blocked = true; break; }
+        }
+        if (!blocked) ++hits;
+    }
+    return float(hits) / float(votes);
+}
+
+// Light the emissive materials around this point add. Quadratic falloff from
+// the emitter SHAPE (so a long strip lights evenly along its length) times a
+// half-Lambert SQUARED facing weight: these are area sources, so a plain
+// max(0, N.L) seams on every box corner and a linear wrap still cuts to zero
+// at a finite angle. Smooth everywhere, zero only at N.L = -1.
 vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
     vec3 add = vec3(0.0);
     for (int i = 0; i < uEmisCount; ++i) {
@@ -320,21 +448,16 @@ vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
         fade *= fade;
         float w = 0.5 + 0.5 * dot(n, dir);
         if (w <= 0.0) continue;
-        // Solids between here and the emitter block it (hard shadow). The bias
-        // keeps a solid resting ON this surface from shadowing it. Occluders
-        // come from the AO uniforms; uAoCount is filled whether or not the
-        // project bakes occlusion, so lamps cast shadows either way.
-        if (dist > 0.02) {
-            vec3 o = wp + dir * 0.02;
-            float len = dist - 0.04;
-            bool blocked = false;
-            for (int k = 0; k < uAoCount; ++k) {
-                if (uAoObj[k] == selfObj || uAoObj[k] == uEmisObj[i]) continue;
-                if (shadowHit(k, o, dir, len)) { blocked = true; break; }
-            }
-            if (blocked) continue;
+        // Solids between here and the emitter block it. The origin bias keeps a
+        // solid resting ON this surface from shadowing it. Occluders come from
+        // the AO uniforms; uAoCount is filled whether or not the project bakes
+        // occlusion, so lamps cast shadows either way.
+        float vis = 1.0;
+        if (dist > 0.02 && uAoCount > 0) {
+            vis = emisVisibility(i, wp, n, dir, dist, selfObj);
+            if (vis <= 0.0) continue;
         }
-        add += uEmisCol[i].rgb * (uEmisCol[i].w * fade * w * w);
+        add += uEmisCol[i].rgb * (uEmisCol[i].w * fade * w * w * vis);
     }
     return add;
 }
@@ -396,13 +519,31 @@ void main() {
     float a = uAlpha != 0 ? texel.a : 1.0;
     if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = vColor;
+    // Global illumination REPLACES the ambient + directional shade wherever
+    // the probe grid reaches, exactly as the generated game replaces it: the
+    // baked answer already contains the sun, the sky, the bounces, the point
+    // lights and the emissive pools, so every one of those must be skipped
+    // below or the scene is lit twice.
+    bool giHere = false;
+    if (uLit != 0 && uGiSkipProbe != 0) {
+        giHere = true;
+    } else if (uLit != 0) {
+        vec3 nGi = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        vec3 gi;
+        if (giProbe(vWorld, nGi, gi)) {
+            shade = gi;
+            giHere = true;
+        }
+    }
     // AO multiplies the baked directional shade BEFORE the point lights add
-    // on top - mirrors the pushVert/shadeAt order in the generated game.
+    // on top - mirrors the pushVert/shadeAt order in the generated game. It
+    // survives GI: the probe grid cannot resolve a contact shadow, which is
+    // exactly what this term is.
     if (uLit != 0 && uAoOn != 0 && uAoReceive != 0) {
         vec3 nAo = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         shade *= 1.0 - uAoStrength * aoOcclusion(vWorld, nAo);
     }
-    if (uLit != 0 && uLightCount > 0) {
+    if (uLit != 0 && !giHere && uLightCount > 0) {
         vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         vec3 add = vec3(0.0);
         for (int i = 0; i < uLightCount; ++i) {
@@ -419,7 +560,7 @@ void main() {
     }
     // Emissive materials nearby: the same additive slot as the point lights,
     // mirroring the generated pushVert / terrain shadeAt order.
-    if (uLit != 0 && uEmisCount > 0) {
+    if (uLit != 0 && !giHere && uEmisCount > 0) {
         vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         shade = min(shade + emissiveLight(vWorld, n, uAoSelfObj), vec3(1.0));
     }
@@ -504,6 +645,45 @@ void main() {
 }
 )";
 
+// PS2 output presentation pass (docs/ps2-viewport.md): the finished GS
+// framebuffer scaled into the panel the way a television shows it - point
+// sampled (the GS image is the image; anything smoother would be the
+// editor inventing detail the console never draws) and fitted into the
+// display window's 4:3 / 16:9 rectangle, which is what makes the GS pixels
+// come out non-square. Everything outside that rectangle is not part of the
+// signal at all, so it is drawn as the void it is.
+// Reuses GRADE_VS for the fullscreen triangle.
+const char* PS2_FS = R"(#version 330 core
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec2 uBox;      // fraction of the panel the picture covers
+uniform vec2 uTexel;    // 1 / GS framebuffer size
+uniform float uFlicker; // 1 = GS flicker filter (blend with the line above)
+out vec4 FragColor;
+void main() {
+    // Panel -> picture, both centred, so the letterbox is a pure scale.
+    vec2 uv = (vUV - 0.5) / uBox + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        FragColor = vec4(0.055, 0.055, 0.06, 1.0);
+        return;
+    }
+    // Snap to the GS pixel grid: one texel of the framebuffer covers a block
+    // of panel pixels, edges included.
+    vec2 texel = (floor(uv / uTexel) + 0.5) * uTexel;
+    vec3 c = texture(uSrc, texel).rgb;
+    if (uFlicker > 0.5) {
+        // Two read circuits one line apart, blended half and half: the
+        // console's own softening of interlace flicker, and the reason a
+        // one-pixel horizontal line on a PS2 looks grey rather than white.
+        // (Which of the two neighbours we average with is a half-line of
+        // vertical offset - it does not survive the scale-up.)
+        vec2 up = vec2(texel.x, texel.y + uTexel.y);
+        c = mix(c, texture(uSrc, clamp(up, vec2(0.0), vec2(1.0))).rgb, 0.5);
+    }
+    FragColor = vec4(c, 1.0);
+}
+)";
+
 // Particle-preview shader: unlit, per-vertex RGBA (alpha-blended quads),
 // optional texture modulation - matches how the PS2 draws emitter quads.
 const char* PART_VS = R"(#version 330 core
@@ -574,6 +754,39 @@ Vec3 shadeOf(Vec3 n) {
     if (s.z > 1.0f) s.z = 1.0f;
     return s;
 }
+
+// Swaps the baked-light globals for the lifetime of the guard, so a caller can
+// bake ITS meshes under different light without touching anyone else's.
+// setLighting() is the wrong tool for that: it is the scene-wide setter and
+// rebuilds every mesh (terrain AO grid included) on any change - here the
+// values only need to hold while the preview bakes. A guard built from an
+// override that is off does nothing, so every bake site can wrap itself
+// unconditionally.
+struct ScopedShade {
+    bool active;
+    float dir[3], amb, dif, col[3], bri;
+    explicit ScopedShade(const Viewport::PreviewLight& l) : active(l.on) {
+        if (!active) return;
+        for (int i = 0; i < 3; ++i) dir[i] = gLightDir[i], col[i] = gLightColor[i];
+        amb = gAmbient, dif = gDiffuse, bri = gBrightness;
+        float lx = l.dir[0], ly = l.dir[1], lz = l.dir[2];
+        const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
+        if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
+        else lx = 0.0f, ly = 1.0f, lz = 0.0f;
+        gLightDir[0] = lx, gLightDir[1] = ly, gLightDir[2] = lz;
+        gAmbient = l.ambient;
+        gDiffuse = l.diffuse;
+        for (int i = 0; i < 3; ++i) gLightColor[i] = l.color[i];
+        gBrightness = l.brightness;
+    }
+    ~ScopedShade() {
+        if (!active) return;
+        for (int i = 0; i < 3; ++i) gLightDir[i] = dir[i], gLightColor[i] = col[i];
+        gAmbient = amb, gDiffuse = dif, gBrightness = bri;
+    }
+    ScopedShade(const ScopedShade&) = delete;
+    ScopedShade& operator=(const ScopedShade&) = delete;
+};
 
 // Vertex layout: pos(3) + color(3) + uv(2)
 void pushShaded(std::vector<float>& v, Vec3 p, Vec3 n, float tu = 0, float tv = 0) {
@@ -954,9 +1167,17 @@ bool Viewport::init() {
     uAoHeight_ = glGetUniformLocation(program_, "uAoHeight");
     uAoHmRect_ = glGetUniformLocation(program_, "uAoHmRect");
     uAoHmOn_ = glGetUniformLocation(program_, "uAoHmOn");
+    uGiOn_ = glGetUniformLocation(program_, "uGiOn");
+    uGiSkipProbe_ = glGetUniformLocation(program_, "uGiSkipProbe");
+    uGiProbes_ = glGetUniformLocation(program_, "uGiProbes");
+    uGiOrigin_ = glGetUniformLocation(program_, "uGiOrigin");
+    uGiStep_ = glGetUniformLocation(program_, "uGiStep");
+    uGiDim_ = glGetUniformLocation(program_, "uGiDim");
+    uGiScale_ = glGetUniformLocation(program_, "uGiScale");
     glUseProgram(program_);
     glUniform1i(uRefl_, 1);      // sphere map lives on texture unit 1
     glUniform1i(uAoHeight_, 2);  // AO heightmap lives on texture unit 2
+    glUniform1i(uGiProbes_, 3);  // GI probe grid lives on texture unit 3
     glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
@@ -982,6 +1203,28 @@ bool Viewport::init() {
     uGradeMixCol_ = glGetUniformLocation(gradeProgram_, "uMixColor");
     uGradeMixAmt_ = glGetUniformLocation(gradeProgram_, "uMixAmt");
     glGenVertexArrays(1, &gradeVao_);  // empty VAO; vertices from gl_VertexID
+
+    // PS2 output presentation program (shares GRADE_VS and gradeVao_)
+    GLuint qvs = compile(GL_VERTEX_SHADER, GRADE_VS);
+    GLuint qfs = compile(GL_FRAGMENT_SHADER, PS2_FS);
+    if (!qvs || !qfs) return false;
+    ps2Program_ = glCreateProgram();
+    glAttachShader(ps2Program_, qvs);
+    glAttachShader(ps2Program_, qfs);
+    glLinkProgram(ps2Program_);
+    glDeleteShader(qvs);
+    glDeleteShader(qfs);
+    glGetProgramiv(ps2Program_, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(ps2Program_, sizeof(log), nullptr, log);
+        std::fprintf(stderr, "PS2 output program link error: %s\n", log);
+        return false;
+    }
+    uPs2Src_ = glGetUniformLocation(ps2Program_, "uSrc");
+    uPs2Box_ = glGetUniformLocation(ps2Program_, "uBox");
+    uPs2Texel_ = glGetUniformLocation(ps2Program_, "uTexel");
+    uPs2Flicker_ = glGetUniformLocation(ps2Program_, "uFlicker");
 
     // Particle-preview program + shared dynamic buffer (pos3 + rgba4 + uv2)
     GLuint pvs = compile(GL_VERTEX_SHADER, PART_VS);
@@ -1060,18 +1303,26 @@ void Viewport::shutdown() {
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
+    for (Mesh& m : prevLitShape_) destroyMesh(m);
     destroyMesh(treePrevBark_);
     destroyMesh(treePrevLeaves_);
     if (treePrevBarkTex_) glDeleteTextures(1, &treePrevBarkTex_);
     if (treePrevLeafTex_) glDeleteTextures(1, &treePrevLeafTex_);
     clearModelCache();
     clearTexCache();
+    clearThumbCache();
+    if (thumbFbo_) glDeleteFramebuffers(1, &thumbFbo_);
+    if (thumbColor_) glDeleteTextures(1, &thumbColor_);
+    if (thumbDepth_) glDeleteRenderbuffers(1, &thumbDepth_);
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
     if (prevFbo_) glDeleteFramebuffers(1, &prevFbo_);
     if (prevTex_) glDeleteTextures(1, &prevTex_);
     if (prevDepth_) glDeleteRenderbuffers(1, &prevDepth_);
+    if (animFbo_) glDeleteFramebuffers(1, &animFbo_);
+    if (animTex_) glDeleteTextures(1, &animTex_);
+    if (animDepth_) glDeleteRenderbuffers(1, &animDepth_);
     if (treeFbo_) glDeleteFramebuffers(1, &treeFbo_);
     if (treeTex_) glDeleteTextures(1, &treeTex_);
     if (treeDepth_) glDeleteRenderbuffers(1, &treeDepth_);
@@ -1079,6 +1330,11 @@ void Viewport::shutdown() {
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
+    if (ps2Program_) glDeleteProgram(ps2Program_);
+    if (outFbo_) glDeleteFramebuffers(1, &outFbo_);
+    if (outTex_) glDeleteTextures(1, &outTex_);
+    if (grabFbo_) glDeleteFramebuffers(1, &grabFbo_);
+    if (grabTex_) glDeleteTextures(1, &grabTex_);
 }
 
 void Viewport::setGrading(bool enabled, const CompiledGrading& g) {
@@ -1121,29 +1377,176 @@ float Viewport::terrainHeight(float x, float z) const {
     return top * (1 - fz) + bottom * fz;
 }
 
+const char* Viewport::projectionName(Projection p) {
+    switch (p) {
+        case Projection::Ortho: return "Ortho";
+        case Projection::OrthoTop: return "Top";
+        case Projection::OrthoBottom: return "Bottom";
+        case Projection::OrthoFront: return "Front";
+        case Projection::OrthoBack: return "Back";
+        case Projection::OrthoRight: return "Right";
+        case Projection::OrthoLeft: return "Left";
+        case Projection::Perspective:
+        default: return "Perspective";
+    }
+}
+
+float Viewport::sceneDepth() const {
+    const float diag =
+        (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
+    return diag * 10.0f + 100.0f;
+}
+
+// The display window fitted into the panel, as a fraction of the panel per
+// axis. The same fit the safe-area overlay uses (App::drawSafeAreaOverlay) -
+// they draw the same rectangle and must not drift apart.
+void Viewport::ps2LetterBox(float& sx, float& sy) const {
+    sx = sy = 1.0f;
+    if (!ps2_.on || outW_ < 1 || outH_ < 1 || ps2_.tvAspect <= 0.0f) return;
+    const float panel = (float)outW_ / (float)outH_;
+    if (panel > ps2_.tvAspect)
+        sx = ps2_.tvAspect / panel;  // pillarbox: bars left and right
+    else
+        sy = panel / ps2_.tvAspect;  // letterbox: bars above and below
+}
+
+Viewport::CamView Viewport::camView(int width, int height) const {
+    CamView c;
+    c.aspect = (float)(width > 0 ? width : 1) / (float)(height > 0 ? height : 1);
+    // PS2 output mode: the console's frustum, not the panel's. The aspect is
+    // the engine's own (Tyra keeps the stock 512/448 as its 4:3 baseline, so
+    // the picture is horizontally stretched on the TV rather than rendered
+    // pre-widened) and the picture no longer fills the viewport, so image
+    // coords have to travel through the letterbox.
+    if (ps2_.on) {
+        c.aspect = ps2_.projAspect;
+        ps2LetterBox(c.boxSx, c.boxSy);
+    }
+
+    // Axis views look straight down a world axis; the up vector is chosen so
+    // the horizontal screen axis stays the natural one (+X right, except from
+    // behind / from -X where it flips, as a real back / left elevation does).
+    static const float kAxisFwd[6][3] = {{0, -1, 0}, {0, 1, 0},  {0, 0, -1},
+                                         {0, 0, 1},  {-1, 0, 0}, {1, 0, 0}};
+    static const float kAxisUp[6][3] = {{0, 0, -1}, {0, 0, 1}, {0, 1, 0},
+                                        {0, 1, 0},  {0, 1, 0}, {0, 1, 0}};
+
+    Vec3 tgt{target_[0], target_[1], target_[2]};
+    Vec3 fwd, upHint{0, 1, 0};
+    float fovDeg = 50.0f;
+    const int axis = (int)projection_ - (int)Projection::OrthoTop;
+    if (axis >= 0 && axis < 6 && !camOverride_) {
+        fwd = {kAxisFwd[axis][0], kAxisFwd[axis][1], kAxisFwd[axis][2]};
+        upHint = {kAxisUp[axis][0], kAxisUp[axis][1], kAxisUp[axis][2]};
+    } else if (camOverride_) {
+        // Cutscene / look-through camera: its own eye, aim and FOV.
+        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
+        const Vec3 e{camEye_[0], camEye_[1], camEye_[2]};
+        fwd = normalize(sub(tgt, e));
+        fovDeg = camFov_;
+        c.eye[0] = e.x, c.eye[1] = e.y, c.eye[2] = e.z;
+        // Roll: the up hint IS the rolled up. seqCameraUp returns a vector
+        // perpendicular to fwd, and the basis below re-derives up from it
+        // unchanged, so this lands exactly the tilt the console will render.
+        const float f3[3] = {fwd.x, fwd.y, fwd.z};
+        float rolled[3];
+        seqCameraUp(f3, camRoll_, rolled);
+        upHint = {rolled[0], rolled[1], rolled[2]};
+    } else {
+        const Vec3 e{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
+                     tgt.y + distance_ * std::sin(pitch_),
+                     tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+        fwd = normalize(sub(tgt, e));
+    }
+    if (!camOverride_) {
+        // eye = target pulled back along the view direction
+        c.eye[0] = tgt.x - fwd.x * distance_;
+        c.eye[1] = tgt.y - fwd.y * distance_;
+        c.eye[2] = tgt.z - fwd.z * distance_;
+    }
+    const Vec3 right = normalize(cross(fwd, upHint));
+    const Vec3 up = cross(right, fwd);
+    c.fwd[0] = fwd.x, c.fwd[1] = fwd.y, c.fwd[2] = fwd.z;
+    c.right[0] = right.x, c.right[1] = right.y, c.right[2] = right.z;
+    c.up[0] = up.x, c.up[1] = up.y, c.up[2] = up.z;
+    c.tanHalf = std::tan(fovDeg * kPi / 180.0f * 0.5f);
+    // A parallel projection has no FOV: frame the same amount at the pivot
+    // plane the perspective camera did, so switching modes keeps the framing
+    // and the wheel keeps zooming through distance_.
+    c.ortho = orthographic() && !camOverride_;
+    c.halfH = distance_ * c.tanHalf;
+    return c;
+}
+
+void Viewport::camRay(const CamView& c, float u, float v, float o[3],
+                      float d[3]) const {
+    // (u, v) are panel coords; the letterbox scale takes them onto the
+    // picture. Outside the picture the ray simply leaves the frustum, which is
+    // what a click on the bars should do.
+    const float ndcX = (u * 2.0f - 1.0f) / (c.boxSx > 1e-6f ? c.boxSx : 1.0f);
+    const float ndcY = (1.0f - v * 2.0f) / (c.boxSy > 1e-6f ? c.boxSy : 1.0f);
+    if (c.ortho) {
+        const float sx = ndcX * c.halfH * c.aspect, sy = ndcY * c.halfH;
+        const float back = sceneDepth();  // start behind everything on screen
+        for (int k = 0; k < 3; ++k) {
+            const float* e = c.eye;
+            o[k] = e[k] + c.right[k] * sx + c.up[k] * sy - c.fwd[k] * back;
+            d[k] = c.fwd[k];
+        }
+        return;
+    }
+    const float sx = ndcX * c.tanHalf * c.aspect, sy = ndcY * c.tanHalf;
+    Vec3 dir{c.fwd[0] + c.right[0] * sx + c.up[0] * sy,
+             c.fwd[1] + c.right[1] * sx + c.up[1] * sy,
+             c.fwd[2] + c.right[2] * sx + c.up[2] * sy};
+    dir = normalize(dir);
+    for (int k = 0; k < 3; ++k) o[k] = c.eye[k];
+    d[0] = dir.x, d[1] = dir.y, d[2] = dir.z;
+}
+
+bool Viewport::projectToImage(const float world[3], float& outU,
+                              float& outV) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+    const CamView c = camView(fbWidth_, fbHeight_);
+    const float d[3] = {world[0] - c.eye[0], world[1] - c.eye[1],
+                        world[2] - c.eye[2]};
+    const float x = d[0] * c.right[0] + d[1] * c.right[1] + d[2] * c.right[2];
+    const float y = d[0] * c.up[0] + d[1] * c.up[1] + d[2] * c.up[2];
+    const float z = d[0] * c.fwd[0] + d[1] * c.fwd[1] + d[2] * c.fwd[2];
+    float ndcX, ndcY;
+    if (c.ortho) {
+        // A parallel view draws what is behind the camera too (the depth range
+        // straddles the eye), so depth does not gate the projection here.
+        if (c.halfH < 1e-6f) return false;
+        ndcX = x / (c.halfH * c.aspect);
+        ndcY = y / c.halfH;
+    } else {
+        if (z <= 1e-4f) return false;  // behind the eye / on the plane
+        ndcX = x / (z * c.tanHalf * c.aspect);
+        ndcY = y / (z * c.tanHalf);
+    }
+    // Back out to PANEL coords - the inverse of camRay's letterbox division,
+    // so an overlay drawn at these coords sits on the picture.
+    outU = (ndcX * c.boxSx + 1.0f) * 0.5f;
+    outV = (1.0f - ndcY * c.boxSy) * 0.5f;
+    return true;
+}
+
 bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
 
-    // Same camera ray construction as pick()
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
-    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   tgt.y + distance_ * std::sin(pitch_),
-                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub(tgt, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
-    const float aspect = (float)fbWidth_ / (float)fbHeight_;
-    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
-    const float ndcX = u * 2.0f - 1.0f;
-    const float ndcY = 1.0f - v * 2.0f;
-    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
-                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
-                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+    const CamView cam = camView(fbWidth_, fbHeight_);
+    float ro[3], rd[3];
+    camRay(cam, u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
 
     // Raymarch the heightfield: find the first step below the surface, then
     // refine by bisection.
-    const float maxDist = distance_ * 4.0f;
-    const int steps = 400;
+    const float maxDist = distance_ * 4.0f + (cam.ortho ? sceneDepth() : 0.0f);
+    // Half a world unit per step, so the ortho ray's much longer run (it
+    // starts a full scene depth behind the eye) can't tunnel through a ridge.
+    const int steps = (int)std::min(4000.0f, std::max(400.0f, maxDist * 2.0f));
     const float dt = maxDist / steps;
     float prevT = 0.0f;
     float prevDelta = eye.y - terrainHeight(eye.x, eye.z);
@@ -1379,10 +1782,37 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
         iz = iz < 0 ? 0 : iz > hmD_ - 1 ? hmD_ - 1 : iz;
         return heights_[(size_t)iz * hmW_ + ix];
     };
+    // Baked GI on the ground: the map replaces the ambient + directional term
+    // outright, exactly as the generated game's terrainGi does (its shadeAt is
+    // this one's twin). Sampled bilinearly at the vertex - the game reads the
+    // same image per PIXEL through an additive pass, so a preview on the
+    // render grid is the one place these two differ, and it is a resolution
+    // difference rather than a different answer.
+    const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
+    auto giGroundAt = [&](float wx, float wz) -> Vec3 {
+        const float u = (wx - x0) / w * (giTerrSize_ - 1);
+        const float v = (wz - z0) / d * (giTerrSize_ - 1);
+        const float cu = u < 0 ? 0 : (u > giTerrSize_ - 1 ? giTerrSize_ - 1 : u);
+        const float cv = v < 0 ? 0 : (v > giTerrSize_ - 1 ? giTerrSize_ - 1 : v);
+        const int u0 = (int)cu, v0 = (int)cv;
+        const int u1 = u0 + 1 < giTerrSize_ ? u0 + 1 : u0;
+        const int v1 = v0 + 1 < giTerrSize_ ? v0 + 1 : v0;
+        const float fu = cu - u0, fv = cv - v0;
+        auto texel = [&](int a, int b, int c) {
+            return giTerrLight_[((size_t)b * giTerrSize_ + a) * 3 + c] / 255.0f;
+        };
+        Vec3 out{};
+        float* o = &out.x;
+        for (int c = 0; c < 3; ++c)
+            o[c] = (texel(u0, v0, c) * (1 - fu) + texel(u1, v0, c) * fu) * (1 - fv) +
+                   (texel(u0, v1, c) * (1 - fu) + texel(u1, v1, c) * fu) * fv;
+        return out;
+    };
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
-        Vec3 s = shadeOf(normalize(n));
+        Vec3 s = giGround ? giGroundAt(x0 + ix * sx, z0 + iz * sz)
+                          : shadeOf(normalize(n));
         // Terrain self-AO: the same host-baked grid the game ships as
         // TERRAIN_AO_TABLES, multiplied before everything else (the occluder
         // contact term arrives per fragment in the shader).
@@ -1616,6 +2046,27 @@ void Viewport::ensureFramebuffer(int width, int height) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// PS2 output mode only: the panel-sized target the GS image is presented into
+// (no depth - it is one fullscreen triangle). Separate from fbo_, which is the
+// GS-sized RENDER target in that mode.
+void Viewport::ensureOutputFramebuffer(int width, int height) {
+    if (outFbo_ && width == outW_ && height == outH_) return;
+    outW_ = width;
+    outH_ = height;
+    if (!outFbo_) glGenFramebuffers(1, &outFbo_);
+    if (!outTex_) glGenTextures(1, &outTex_);
+    glBindTexture(GL_TEXTURE_2D, outTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, outFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, outTex_, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "PS2 output framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 // Material Editor preview target. Separate from fbo_ - render() resizes that
 // one to the viewport window every frame, and both draw within one UI frame.
 void Viewport::ensurePreviewFramebuffer(int width, int height) {
@@ -1642,6 +2093,39 @@ void Viewport::ensurePreviewFramebuffer(int width, int height) {
                               prevDepth_);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::fprintf(stderr, "material preview framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// Animation Editor preview target. Separate from prevFbo_ - the Material and
+// Animation Editors are both optional tool windows that can be open at the
+// same time, each sizing its preview from its own content region within one UI
+// frame. One shared target would be re-allocated twice per frame (size
+// thrashing) and both ImGui::Image calls would sample the same texture, so
+// each window would show the other's subject.
+void Viewport::ensureAnimFramebuffer(int width, int height) {
+    if (animFbo_ && width == animFbW_ && height == animFbH_) return;
+    animFbW_ = width;
+    animFbH_ = height;
+
+    if (!animFbo_) glGenFramebuffers(1, &animFbo_);
+    if (!animTex_) glGenTextures(1, &animTex_);
+    if (!animDepth_) glGenRenderbuffers(1, &animDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, animTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, animDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, animFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, animTex_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                              animDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "animation preview framebuffer incomplete\n");
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -1771,24 +2255,19 @@ void Viewport::cameraRay(float u, float v, float outOrigin[3],
 int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return -1;
 
-    // Camera ray through the pixel (same camera setup as render())
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
-    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   tgt.y + distance_ * std::sin(pitch_),
-                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub(tgt, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
-    const float aspect = (float)fbWidth_ / (float)fbHeight_;
-    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
-    const float ndcX = u * 2.0f - 1.0f;
-    const float ndcY = 1.0f - v * 2.0f;
-    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
-                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
-                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+    // Camera ray through the pixel (the same camera render() drew with)
+    float ro[3], rd[3];
+    camRay(camView(fbWidth_, fbHeight_), u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
 
-    int best = -1;
-    float bestT = 1e9f;
+    // Areas are picked only when the click hits nothing else: an area big
+    // enough to enclose a room has its front face closer to the camera than
+    // everything inside it, so ranking it with the rest would make the volume
+    // swallow every click in the room. Click empty space inside it (or the
+    // Scene tree) to select the area itself.
+    int best = -1, bestArea = -1;
+    float bestT = 1e9f, bestAreaT = 1e9f;
     for (size_t i = 0; i < objects.size(); ++i) {
         if (hiddenAt(i)) continue;  // hidden layers are unclickable
         const SceneObject& o = objects[i];
@@ -1806,12 +2285,154 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
         ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
 
         const float t = rayUnitBox(lo, ld);
-        if (t > 0.0f && t < bestT) {
+        if (t <= 0.0f) continue;
+        if (o.type == PrimitiveType::Area) {
+            if (t < bestAreaT) {
+                bestAreaT = t;
+                bestArea = (int)i;
+            }
+        } else if (t < bestT) {
             bestT = t;
             best = (int)i;
         }
     }
-    return best;
+    return best >= 0 ? best : bestArea;
+}
+
+bool Viewport::placementRaycast(float u, float v,
+                                const std::vector<SceneObject>& objects,
+                                const std::vector<char>& skip,
+                                float outPoint[3]) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+
+    const CamView cam = camView(fbWidth_, fbHeight_);
+    float ro[3], rd[3];
+    camRay(cam, u, v, ro, rd);
+    const Vec3 eye{ro[0], ro[1], ro[2]};
+    const Vec3 dir{rd[0], rd[1], rd[2]};
+
+    // Nearest object box along the ray (the same unit-box test picking uses,
+    // so what the cursor rests on is what a click would select).
+    float bestT = 1e9f;
+    bool hit = false;
+    for (size_t i = 0; i < objects.size(); ++i) {
+        if (hiddenAt(i)) continue;
+        if (i < skip.size() && skip[i]) continue;
+        const SceneObject& o = objects[i];
+        Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
+                                o.rotation);
+        Vec3 ld = rotateInverse(dir, o.rotation);
+        lo = {lo.x / o.scale[0], lo.y / o.scale[1], lo.z / o.scale[2]};
+        ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
+        const float t = rayUnitBox(lo, ld);
+        if (t > 0.0f && t < bestT) {
+            bestT = t;
+            hit = true;
+        }
+    }
+
+    // ...and the terrain, which wins when it is closer. terrainRaycast only
+    // reports x/z, so the height comes from the same bilinear sampler.
+    float tx = 0.0f, tz = 0.0f;
+    if (terrainRaycast(u, v, tx, tz)) {
+        const float ty = terrainHeight(tx, tz);
+        const float dx = tx - eye.x, dy = ty - eye.y, dz = tz - eye.z;
+        const float t = dx * dir.x + dy * dir.y + dz * dir.z;
+        if (t > 0.0f && (!hit || t < bestT)) {
+            outPoint[0] = tx, outPoint[1] = ty, outPoint[2] = tz;
+            return true;
+        }
+    }
+    if (hit) {
+        for (int k = 0; k < 3; ++k) outPoint[k] = ro[k] + rd[k] * bestT;
+        return true;
+    }
+
+    // Nothing under the cursor: fall back to the horizontal plane through the
+    // orbit pivot, so dragging into open sky still gives a sensible spot.
+    if (std::fabs(dir.y) > 1e-4f) {
+        const float t = (target_[1] - eye.y) / dir.y;
+        if (t > 0.0f) {
+            outPoint[0] = eye.x + dir.x * t;
+            outPoint[1] = target_[1];
+            outPoint[2] = eye.z + dir.z * t;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Stages the scene's baked probe grid for the fragment shader
+// (docs/global-illumination.md). The four L1 coefficients are tiled along x -
+// texel (probeX * 4 + k, y, z) - so the whole grid is ONE RGBA8 3D texture and
+// one texture unit. RGB carries the coefficient remapped from -scale..scale
+// into 0..1; A carries liveness, so a probe buried in a wall can be given zero
+// weight by the same fetch that reads it.
+//
+// GL_NEAREST is deliberate: hardware filtering would interpolate ACROSS the
+// coefficient tiles (L0 into L1x), so the shader does its own trilinear.
+void Viewport::setGiProbes(const gibake::ProbeGrid& g) {
+    const bool empty = g.empty();
+    if (empty) {
+        giDim_[0] = giDim_[1] = giDim_[2] = 0;
+        giPixels_.clear();
+        giUploadPending_ = true;
+        return;
+    }
+    for (int k = 0; k < 3; ++k) {
+        giOrigin_[k] = g.origin[k];
+        giStep_[k] = g.step[k] > 1e-6f ? g.step[k] : 1.0f;
+        giDim_[k] = g.dim[k];
+    }
+    giScale_ = g.scale;
+    giPixels_.assign((size_t)g.dim[0] * 4 * g.dim[1] * g.dim[2] * 4, 0);
+    for (int z = 0; z < g.dim[2]; ++z)
+        for (int y = 0; y < g.dim[1]; ++y)
+            for (int x = 0; x < g.dim[0]; ++x) {
+                const int probe = x + g.dim[0] * (y + g.dim[1] * z);
+                const uint8_t live = g.live[probe] ? 255 : 0;
+                for (int k = 0; k < 4; ++k) {
+                    const size_t texel =
+                        ((size_t)z * g.dim[1] + y) * (size_t)g.dim[0] * 4 +
+                        (size_t)x * 4 + k;
+                    for (int c = 0; c < 3; ++c) {
+                        // sh is already byte-encoded around 0; shift it into
+                        // the unsigned range the texture stores.
+                        const int v = (int)g.sh[(size_t)probe * 12 + k * 3 + c];
+                        giPixels_[texel * 4 + c] =
+                            (uint8_t)std::min(255, std::max(0, v + 128));
+                    }
+                    giPixels_[texel * 4 + 3] = live;
+                }
+            }
+    giUploadPending_ = true;
+}
+
+void Viewport::uploadGiProbes() {
+    if (!giUploadPending_) return;
+    giUploadPending_ = false;
+    if (giDim_[0] <= 0 || giPixels_.empty()) {
+        if (giTex_) glDeleteTextures(1, &giTex_);
+        giTex_ = 0;
+        return;
+    }
+    if (!giTex_) glGenTextures(1, &giTex_);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_3D, giTex_);
+    // Allocate empty then fill - the same two-step glUploadTexRgba uses, for
+    // the same reason (gl_loader.h: the one-call form faults inside the AMD
+    // driver with perfectly valid arguments).
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, giDim_[0] * 4, giDim_[1], giDim_[2],
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, giDim_[0] * 4, giDim_[1],
+                    giDim_[2], GL_RGBA, GL_UNSIGNED_BYTE, giPixels_.data());
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 void Viewport::setLighting(const float* dir, float ambient, float diffuse,
@@ -1878,6 +2499,7 @@ void Viewport::setProjectDir(const std::string& dir) {
     projectDir_ = dir;
     clearModelCache();
     clearTexCache();
+    clearThumbCache();  // another project's files, same relative paths
 }
 
 void Viewport::setProjectedDecals(
@@ -2047,6 +2669,22 @@ void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
     if (program_) buildTerrainMesh();
 }
 
+void Viewport::setGiTerrain(const aobake::AoImage& img) {
+    const bool on = img.size > 0 && img.hasLight && img.gi &&
+                    (int)img.light.size() == img.size * img.size * 3;
+    if (!on) {
+        if (giTerrSize_ == 0 && giTerrLight_.empty()) return;
+        giTerrSize_ = 0;
+        giTerrLight_.clear();
+        if (program_) buildTerrainMesh();
+        return;
+    }
+    if (giTerrSize_ == img.size && giTerrLight_ == img.light) return;
+    giTerrSize_ = img.size;
+    giTerrLight_ = img.light;
+    if (program_) buildTerrainMesh();  // the shade is baked into the vertices
+}
+
 void Viewport::setTerrainTint(float variation, float scaleWorld) {
     if (scaleWorld < 1.0f) scaleWorld = 1.0f;
     if (tintVariation_ == variation && tintScale_ == scaleWorld) return;
@@ -2093,6 +2731,7 @@ void Viewport::clearTexCache() {
 void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
+    clearThumbCache();  // browser thumbnails are baked from those caches
     emisGlowCache_.clear();  // .mtl emission re-read on the next frame
 }
 
@@ -2224,13 +2863,52 @@ void Viewport::buildMatPrevAnimated(const std::string& modelRel,
     if (matPrevModel_.radius < 0.01f) matPrevModel_.radius = 0.01f;
 }
 
+// Cache key of a preview light override. "-" when it is off, so the shared
+// scene-lit meshes keep their plain keys.
+std::string Viewport::previewLightKey(const PreviewLight& l) {
+    if (!l.on) return "-";
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f",
+                  l.dir[0], l.dir[1], l.dir[2], l.ambient, l.diffuse, l.color[0],
+                  l.color[1], l.color[2], l.brightness);
+    return buf;
+}
+
+// box_/sphere_/cylinder_/cone_ carry the scene's baked shade and belong to the
+// viewport; an overriding preview draws private copies re-baked under `l`.
+const Viewport::Mesh& Viewport::litShape(int shape, const PreviewLight& l) {
+    const Mesh* shared = shape == 0   ? &box_
+                         : shape == 2 ? &cylinder_
+                         : shape == 3 ? &cone_
+                                      : &sphere_;
+    if (!l.on) return *shared;
+    const int slot = (shape >= 0 && shape < 4) ? shape : 1;
+    const std::string key = previewLightKey(l);
+    if (key != prevLightKey_) {  // values changed - the whole set is stale
+        for (Mesh& m : prevLitShape_) destroyMesh(m);
+        prevLightKey_ = key;
+    }
+    if (!prevLitShape_[slot].vao) {
+        const ScopedShade shade(l);
+        prevLitShape_[slot] = uploadMesh(slot == 0   ? unitBox()
+                                        : slot == 2 ? unitCylinder()
+                                        : slot == 3 ? unitCone()
+                                                    : unitSphere());
+    }
+    return prevLitShape_[slot];
+}
+
 const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
-    const std::string& modelRel, const std::string& mtlRel) {
-    const std::string key = modelRel + "|" + mtlRel;
+    const std::string& modelRel, const std::string& mtlRel,
+    const PreviewLight& light) {
+    // The light is part of the key: it is baked into these vertex colors, so
+    // changing it has to re-bake the parts (same as swapping the model).
+    const std::string key = modelRel + "|" + mtlRel + "|" + previewLightKey(light);
     if (matPrevModel_.key == key) return &matPrevModel_;
 
     clearMatPrevModel();
     matPrevModel_.key = key;
+    const ScopedShade shade(light);
 
     if (isAnimatedModelPath(modelRel)) {
         buildMatPrevAnimated(modelRel, mtlRel);
@@ -2375,6 +3053,18 @@ bool Viewport::modelBounds(const std::string& relPath,
     }
     if (!it->second.first) return false;
     for (int k = 0; k < 3; ++k) mn[k] = it->second.second[k], mx[k] = it->second.second[k + 3];
+    return true;
+}
+
+bool Viewport::modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]) {
+    if (o.type != PrimitiveType::Model || o.modelPath.empty()) return false;
+    if (!isAnimatedModelPath(o.modelPath))
+        return modelBounds(o.modelPath, o.materialPath, mn, mx);
+    // Animated models carry their own baked AABB (frame 0, all parts); the
+    // bake is cached, so asking per frame costs a map lookup.
+    const AnimModelDraw* d = animModelDraw(o.modelPath, o.materialPath);
+    if (!d || !d->ok) return false;
+    for (int k = 0; k < 3; ++k) mn[k] = d->baked.min[k], mx[k] = d->baked.max[k];
     return true;
 }
 
@@ -2614,6 +3304,16 @@ void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradien
 }
 
 void Viewport::orbit(float dx, float dy) {
+    if (projection_ > Projection::Ortho) {
+        // Dragging out of a locked axis view: seed the orbit angles from the
+        // axis the camera was on so the image continues from where it is
+        // instead of snapping back to a stale yaw/pitch, and drop only the
+        // direction lock - the parallel projection stays.
+        const CamView c = camView(fbWidth_, fbHeight_);
+        pitch_ = std::asin(std::max(-1.0f, std::min(1.0f, -c.fwd[1])));
+        yaw_ = std::atan2(-c.fwd[2], -c.fwd[0]);
+        projection_ = Projection::Ortho;
+    }
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;
     if (pitch_ < 0.05f) pitch_ = 0.05f;
@@ -2650,23 +3350,27 @@ void Viewport::resetView() {
 void Viewport::pan(float dx, float dy) {
     // Slide the orbit target in the view plane; speed scales with distance
     // so a pixel of drag covers the same fraction of the screen at any zoom.
-    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_),
-                   distance_ * std::sin(pitch_),
-                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
-    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
-    const Vec3 up = cross(right, fwd);
+    // The basis comes from the shared CamView, so panning follows the image
+    // in the locked axis views too.
+    const CamView c = camView(fbWidth_, fbHeight_);
     const float s = distance_ * 0.0016f;
-    target_[0] += (-right.x * dx + up.x * dy) * s;
-    target_[1] += (-right.y * dx + up.y * dy) * s;
-    target_[2] += (-right.z * dx + up.z * dy) * s;
+    for (int k = 0; k < 3; ++k)
+        target_[k] += (-c.right[k] * dx + c.up[k] * dy) * s;
 }
 
 void Viewport::fly(float forward, float strafe, float dt) {
     // WASD: move the orbit target on the horizontal plane along the camera
     // heading. Speed scales with zoom so travel feels constant on screen.
     if (forward == 0.0f && strafe == 0.0f) return;
-    const Vec3 fwdH{-std::cos(yaw_), 0.0f, -std::sin(yaw_)};  // toward the scene
+    const CamView c = camView(fbWidth_, fbHeight_);
+    // Heading = the view direction flattened onto the ground. Looking straight
+    // down (Top / Bottom view) leaves nothing to flatten, so the screen-up
+    // vector takes over - "forward" then walks up the image, as it looks.
+    Vec3 fwdH{c.fwd[0], 0.0f, c.fwd[2]};
+    if (fwdH.x * fwdH.x + fwdH.z * fwdH.z < 1e-6f) fwdH = {c.up[0], 0.0f, c.up[2]};
+    const float len = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
+    if (len < 1e-6f) return;
+    fwdH = {fwdH.x / len, 0.0f, fwdH.z / len};
     const Vec3 rightH{-fwdH.z, 0.0f, fwdH.x};
     const float s = distance_ * 0.9f * dt;
     target_[0] += (fwdH.x * forward + rightH.x * strafe) * s;
@@ -2677,6 +3381,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                           const std::vector<int>& selection, int primary) {
     if (width < 1) width = 1;
     if (height < 1) height = 1;
+    // PS2 output mode: the scene is rasterized at the GS framebuffer size and
+    // scaled into the panel afterwards. `width`/`height` are the RENDER size
+    // from here on (they are by value on purpose) so every pixel-sized thing
+    // in this function follows without knowing about the mode; the panel size
+    // lives in outW_/outH_.
+    const bool ps2 = ps2_.on && ps2_.bufW > 0 && ps2_.bufH > 0;
+    if (ps2) {
+        ensureOutputFramebuffer(width, height);
+        width = ps2_.bufW;
+        height = ps2_.bufH;
+    }
     ensureFramebuffer(width, height);
 
     // Preview clock for animated models (wall time; the editor redraws
@@ -2724,27 +3439,37 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         skyQuad_ = uploadMesh(q);
     }
 
-    Vec3 tgt{target_[0], target_[1], target_[2]};
-    Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
-             tgt.y + distance_ * std::sin(pitch_),
-             tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    float fovDeg = 50.0f;
-    // Cutscene Director camera-track preview: fly the preview camera along the
-    // sequence's keyframed eye/look-at (the same values the PS2 runtime uses).
-    if (camOverride_) {
-        eye = {camEye_[0], camEye_[1], camEye_[2]};
-        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
-        fovDeg = camFov_;
-    }
-    Mat4 view = lookAt(eye, tgt, {0, 1, 0});
+    // Camera: the shared CamView (it also resolves the axis views and the
+    // Cutscene Director / look-through camera override) so the image, the
+    // gizmo, picking and the placement raycast all agree.
+    const CamView cam = camView(width, height);
+    const Vec3 eye{cam.eye[0], cam.eye[1], cam.eye[2]};
+    const Vec3 camFwd{cam.fwd[0], cam.fwd[1], cam.fwd[2]};
+    const Vec3 tgt{eye.x + camFwd.x, eye.y + camFwd.y, eye.z + camFwd.z};
+    Mat4 view = lookAt(eye, tgt, {cam.up[0], cam.up[1], cam.up[2]});
     float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
-    Mat4 proj = perspective(fovDeg * kPi / 180.0f, (float)width / (float)height, 0.1f,
-                            diag * 10.0f + 100.0f);
+    const float depth = sceneDepth();
+    // The ortho depth range straddles the eye (see orthoProj): a parallel
+    // axis view is a slab through the scene, not a half-space in front of a
+    // point, so geometry behind the camera plane keeps drawing.
+    Mat4 proj = cam.ortho
+                    ? orthoProj(cam.halfH * cam.aspect, cam.halfH, -depth, depth)
+                    : perspective(2.0f * std::atan(cam.tanHalf), cam.aspect, 0.1f,
+                                  depth);
     Mat4 viewProj = mul(proj, view);
     for (int i = 0; i < 16; ++i) {
         viewM_[i] = view.m[i];
         projM_[i] = proj.m[i];
     }
+    // The exposed projection is in PANEL space: the gizmo draws over the whole
+    // viewport rect, so it needs the letterbox `proj` itself must not have (it
+    // renders into the GS buffer, where the picture IS the image). Scaling
+    // clip x/y = scaling rows 0 and 1, which are strided by 4 here.
+    if (ps2 && (cam.boxSx < 1.0f || cam.boxSy < 1.0f))
+        for (int i = 0; i < 4; ++i) {
+            projM_[i * 4 + 0] *= cam.boxSx;
+            projM_[i * 4 + 1] *= cam.boxSy;
+        }
 
     glUseProgram(program_);
     // uOpacity persists across draws (the sky/outline sites below don't set
@@ -2770,9 +3495,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // GS hardware fog preview: same coefficient the VU1 computes in-game.
     {
-        Vec3 fwd{tgt.x - eye.x, tgt.y - eye.y, tgt.z - eye.z};
-        float len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
-        if (len > 1e-5f) fwd = {fwd.x / len, fwd.y / len, fwd.z / len};
+        const Vec3 fwd = camFwd;
         glUniform1i(uFogOn_, fogOn_ ? 1 : 0);
         glUniform3f(uFogColor_, fogColor_[0], fogColor_[1], fogColor_[2]);
         glUniform1f(uFogStart_, fogStart_);
@@ -2983,6 +3706,22 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             glUniform1i(uAoHmOn_, 0);
         }
     }
+    // Baked GI probe grid (texture unit 3). Uploaded lazily here rather than
+    // in setGiProbes: the bake finishes on a worker thread with no GL context.
+    uploadGiProbes();
+    if (giTex_ && giDim_[0] > 0) {
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_3D, giTex_);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(uGiOn_, 1);
+        glUniform3f(uGiOrigin_, giOrigin_[0], giOrigin_[1], giOrigin_[2]);
+        glUniform3f(uGiStep_, giStep_[0], giStep_[1], giStep_[2]);
+        glUniform3i(uGiDim_, giDim_[0], giDim_[1], giDim_[2]);
+        glUniform1f(uGiScale_, giScale_);
+    } else {
+        glUniform1i(uGiOn_, 0);
+    }
+    glUniform1i(uGiSkipProbe_, 0);
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
@@ -3078,9 +3817,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         aoSelfObj = -1;       // terrain belongs to no scene object
         aoGroundOn = false;   // the ground doesn't sit next to itself
         aoReceive = true;
+        const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
+        if (giGround) glUniform1i(uGiSkipProbe_, 1);
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
+        if (giGround) glUniform1i(uGiSkipProbe_, 0);
 
         // Painted terrain layers: alpha-blend each layer's pass over the base
         // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain
@@ -3157,6 +3899,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             if ((o.type == PrimitiveType::Mirror ||
                  o.type == PrimitiveType::Portal) && !asLines)
                 continue;
+            // Areas have no geometry in ANY view mode - their own pass below
+            // draws the box outline (drawing them here would fill the volume
+            // and hide whatever it encloses).
+            if (o.type == PrimitiveType::Area) continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -3369,11 +4115,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             refl.m[12] = 2.0f * d * n.x;
             refl.m[13] = 2.0f * d * n.y;
             refl.m[14] = 2.0f * d * n.z;
-            for (const std::string& tname : m.mirrorObjects) {
-                int ti = -1;
+            // Explicit list + the catch area's contents, exactly what codegen
+            // bakes into MIRROR_TARGETS (project::areaCaughtObjects is the one
+            // implementation both sides call).
+            std::vector<int> targets;
+            for (const std::string& tname : m.mirrorObjects)
                 for (size_t k = 0; k < objects.size(); ++k)
-                    if (objects[k].name == tname) { ti = (int)k; break; }
-                if (ti < 0 || hiddenAt((size_t)ti)) continue;
+                    if (objects[k].name == tname) {
+                        targets.push_back((int)k);
+                        break;
+                    }
+            for (int k : project::areaCaughtObjects(objects, m.catchArea, (int)mi)) {
+                bool listed = false;
+                for (int e : targets) listed |= (e == k);
+                if (!listed) targets.push_back(k);
+            }
+            for (int ti : targets) {
+                if (hiddenAt((size_t)ti)) continue;
                 aoSelfObj = ti;  // the copy keeps its source's self-exclusion
                 aoGroundOn = true;
                 drawReflected(objects[(size_t)ti],
@@ -3470,6 +4228,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
              active ? 0.95f : 0.7f, active ? 0.4f : 0.2f);
     }
 
+    // Areas (docs/areas.md): the invisible trigger/selection volume, drawn as
+    // the wireframe of its box in the object color - the object's whole
+    // appearance in the editor and nothing at all in the game.
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
+        draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), o.color[0],
+             o.color[1], o.color[2]);
+    }
+
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).
     for (size_t oi = 0; oi < objects.size(); ++oi) {
@@ -3560,15 +4328,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Particle emitters last - alpha blended over the scene (same order as
     // the generated game's renderScene()).
-    {
-        const Vec3 fwd = normalize(sub(tgt, eye));
-        drawEmitterPreviews(objects, viewProj.m, &eye.x, &fwd.x);
-    }
+    drawEmitterPreviews(objects, viewProj.m, &eye.x, &camFwd.x);
 
     glBindVertexArray(0);
 
     // Color grading preview: full-screen pass colorTex_ -> gradeTex_ with
-    // the PS2 GS math (see GRADE_FS). Skipped entirely when neutral.
+    // the PS2 GS math (see GRADE_FS). Skipped entirely when neutral. In the
+    // PS2 output mode this runs at GS resolution, before the presentation
+    // pass - the same order the console grades in (sprites over the finished
+    // framebuffer, then scan-out).
+    uint32_t sceneTex = colorTex_;
     if (gradingOn_ && gradeProgram_) {
         glBindFramebuffer(GL_FRAMEBUFFER, gradeFbo_);
         glViewport(0, 0, width, height);
@@ -3594,11 +4363,107 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        return gradeTex_;
+        lastImageFbo_ = gradeFbo_;
+        sceneTex = gradeTex_;
+    } else {
+        lastImageFbo_ = fbo_;
+    }
+    lastImageW_ = width;
+    lastImageH_ = height;
+
+    if (!ps2) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return sceneTex;
     }
 
+    // Scan-out: the GS framebuffer into the panel, point sampled and fitted
+    // into the display window (see PS2_FS). The result is panel-sized, so the
+    // app draws it 1:1 and every overlay above it keeps its coordinates.
+    glBindFramebuffer(GL_FRAMEBUFFER, outFbo_);
+    glViewport(0, 0, outW_, outH_);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(ps2Program_);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, sceneTex);
+    glUniform1i(uPs2Src_, 0);
+    float bsx = 1.0f, bsy = 1.0f;
+    ps2LetterBox(bsx, bsy);
+    glUniform2f(uPs2Box_, bsx, bsy);
+    glUniform2f(uPs2Texel_, 1.0f / (float)width, 1.0f / (float)height);
+    glUniform1f(uPs2Flicker_, ps2_.flicker ? 1.0f : 0.0f);
+    glBindVertexArray(gradeVao_);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glEnable(GL_DEPTH_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    return colorTex_;
+    // The phone viewfinder streams what the editor shows, bars and all.
+    lastImageFbo_ = outFbo_;
+    lastImageW_ = outW_;
+    lastImageH_ = outH_;
+    return outTex_;
+}
+
+// --- Phone camera readback -------------------------------------------------------
+
+void Viewport::ensureGrabFramebuffer(int width, int height) {
+    if (grabFbo_ && width == grabW_ && height == grabH_) return;
+    grabW_ = width;
+    grabH_ = height;
+    if (!grabFbo_) glGenFramebuffers(1, &grabFbo_);
+    if (!grabTex_) glGenTextures(1, &grabTex_);
+    glBindTexture(GL_TEXTURE_2D, grabTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, grabFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, grabTex_, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "phone-camera grab framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+bool Viewport::grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
+                              int& outW, int& outH) {
+    if (!lastImageFbo_ || lastImageW_ <= 0 || lastImageH_ <= 0) return false;
+    if (maxW < 16) maxW = 16;
+    if (maxH < 16) maxH = 16;
+    // Fit the aspect of the image that was RENDERED inside the cap so the
+    // phone sees the same framing (letterboxing, if any, is the app's business
+    // - never a crop). That image is the panel in the PS2 output mode and the
+    // GS buffer's shape everywhere else, which is why the size travels with
+    // lastImageFbo_ instead of being read off fbWidth_/fbHeight_.
+    const float scale = std::min((float)maxW / (float)lastImageW_,
+                                 (float)maxH / (float)lastImageH_);
+    int w = scale < 1.0f ? (int)(lastImageW_ * scale + 0.5f) : lastImageW_;
+    int h = scale < 1.0f ? (int)(lastImageH_ * scale + 0.5f) : lastImageH_;
+    w = std::max(w, 16);
+    h = std::max(h, 16);
+    ensureGrabFramebuffer(w, h);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, lastImageFbo_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, grabFbo_);
+    glBlitFramebuffer(0, 0, lastImageW_, lastImageH_, 0, 0, w, h,
+                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, grabFbo_);
+    // Tightly packed rows - the JPEG encoder wants w*3 stride, and the default
+    // 4-byte pack alignment would pad every odd width.
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    std::vector<unsigned char> rows((size_t)w * h * 3);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, rows.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+    // GL hands back bottom-up rows; everything downstream (JPEG, the phone)
+    // is top-down.
+    outRgb.resize(rows.size());
+    const size_t stride = (size_t)w * 3;
+    for (int y = 0; y < h; ++y)
+        std::memcpy(outRgb.data() + (size_t)y * stride,
+                    rows.data() + (size_t)(h - 1 - y) * stride, stride);
+    outW = w;
+    outH = h;
+    return true;
 }
 
 // Material Editor live preview: gradient backdrop, checker floor and one unit
@@ -3680,7 +4545,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     const MatPrevModel* model = nullptr;
     int shape = d.shape;
     if (shape == 4) {
-        model = matPrevModelDraw(d.modelRel, d.mtlRel);
+        model = matPrevModelDraw(d.modelRel, d.mtlRel, d.light);
         if (!model->ok) {
             model = nullptr;
             shape = 1;
@@ -3817,15 +4682,12 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     } else {
         // unit shapes sit at the origin - that's the rounded-normal centre
         static const float origin[3] = {0.0f, 0.0f, 0.0f};
-        const Mesh* mesh = shape == 0   ? &box_
-                           : shape == 2 ? &cylinder_
-                           : shape == 3 ? &cone_
-                                        : &sphere_;
+        const Mesh& mesh = litShape(shape, d.light);
         for (int a = 0; a < 3; ++a) emissive[a] = checker ? 0.0f : d.ke[a];
         if (checker)
-            draw(*mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
+            draw(mesh, viewProj, 1.0f, 1.0f, 1.0f, uvCheckerTex_);
         else
-            draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
+            draw(mesh, viewProj, d.kd[0], d.kd[1], d.kd[2],
                  glTexture(d.texRel), glTexture(d.reflRel), d.reflStrength,
                  d.reflSky, d.reflRounded, origin, texHasAlpha(d.texRel));
     }
@@ -3836,11 +4698,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             for (const MatPrevPart& part : matPrevModel_.parts)
                 draw(part.mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
         } else {
-            const Mesh* mesh = shape == 0   ? &box_
-                               : shape == 2 ? &cylinder_
-                               : shape == 3 ? &cone_
-                                            : &sphere_;
-            draw(*mesh, viewProj, 0.05f, 0.05f, 0.06f, 0);
+            draw(litShape(shape, d.light), viewProj, 0.05f, 0.05f, 0.06f, 0);
         }
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
@@ -4050,7 +4908,8 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     if (!program_) return 0;
     if (width < 1) width = 1;
     if (height < 1) height = 1;
-    ensurePreviewFramebuffer(width, height);
+    ensureAnimFramebuffer(width, height);
+    ensurePreviewBackdrop();
 
     AnimModelDraw* ad = animModelDraw(d.modelRel, d.materialRel);
     const glbparser::Baked* b = (ad && ad->ok) ? &ad->baked : nullptr;
@@ -4079,40 +4938,15 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
                 }
             }
         }
+        // The pose upload re-bakes the vertex shade anyway (once per frame),
+        // so an ambience override costs nothing extra here. The VBOs are
+        // shared with the scene, but the scene pass re-poses every visible
+        // instance from its own clock - and thus under the scene's light.
+        const ScopedShade shade(d.light);
         uploadAnimPose(*ad, first, count, d.time * (b->fps > 0.01f ? b->fps : 12.0f));
     }
 
-    if (!prevBg_.vao) {
-        std::vector<float> q;
-        const float bot[3] = {0.09f, 0.10f, 0.13f}, top[3] = {0.24f, 0.27f, 0.34f};
-        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
-        pushVertexColor(q, 1, -1, 0, bot[0], bot[1], bot[2]);
-        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
-        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
-        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
-        pushVertexColor(q, -1, 1, 0, top[0], top[1], top[2]);
-        prevBg_ = uploadMesh(q);
-    }
-    if (!prevFloor_.vao) {
-        std::vector<float> f;
-        const int n = 8;
-        const float ext = 2.0f, cell = 2.0f * ext / n;
-        for (int z = 0; z < n; ++z)
-            for (int x = 0; x < n; ++x) {
-                const float g = ((x + z) % 2 == 0) ? 0.30f : 0.235f;
-                const float ax = -ext + x * cell, az = -ext + z * cell;
-                const float bx = ax + cell, bz = az + cell;
-                pushVertexColor(f, ax, 0, az, g, g, g);
-                pushVertexColor(f, bx, 0, az, g, g, g);
-                pushVertexColor(f, ax, 0, bz, g, g, g);
-                pushVertexColor(f, bx, 0, az, g, g, g);
-                pushVertexColor(f, bx, 0, bz, g, g, g);
-                pushVertexColor(f, ax, 0, bz, g, g, g);
-            }
-        prevFloor_ = uploadMesh(f);
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, animFbo_);
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glEnable(GL_DEPTH_TEST);
@@ -4201,7 +5035,196 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     // The scene pass re-poses every visible instance from its own clock, so
     // hijacking the shared VBOs for this preview cannot desync anything.
-    return prevTex_;
+    return animTex_;
+}
+
+void Viewport::ensureThumbFramebuffer() {
+    const int s = kAssetThumbSize;
+    if (thumbFbo_) return;
+    glGenFramebuffers(1, &thumbFbo_);
+    glGenTextures(1, &thumbColor_);
+    glGenRenderbuffers(1, &thumbDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, thumbColor_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, s, s, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, thumbDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, s, s);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           thumbColor_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, thumbDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "asset thumbnail framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Viewport::clearThumbCache() {
+    for (auto& [path, tex] : thumbCache_)
+        if (tex) glDeleteTextures(1, &tex);
+    thumbCache_.clear();
+}
+
+uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
+    if (!program_ || relPath.empty()) return 0;
+
+    std::string ext = std::filesystem::path(relPath).extension().string();
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+
+    // Images are their own thumbnail: the shared texture cache already holds
+    // exactly the pixels the scene samples, so nothing is rendered or copied.
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
+        ext == ".bmp") {
+        auto it = texCache_.find(relPath);
+        if (it != texCache_.end()) return it->second;
+        return render ? glTexture(relPath) : 0;
+    }
+
+    const bool isObj = ext == ".obj";
+    const bool isAnim = ext == ".glb" || ext == ".fbx";
+    const bool isMtl = ext == ".mtl";
+    if (!isObj && !isAnim && !isMtl) return 0;
+
+    auto cached = thumbCache_.find(relPath);
+    if (cached != thumbCache_.end()) return cached->second;
+    if (!render) return 0;
+
+    // Collect what to draw first: an unreadable file caches a 0 and never
+    // touches the framebuffer.
+    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
+    if (isObj && (!model || model->parts.empty())) model = nullptr;
+    if (isAnim && anim && !anim->ok) anim = nullptr;
+    if (!model && !anim && !material) {
+        thumbCache_[relPath] = 0;
+        return 0;
+    }
+    if (anim) uploadAnimPose(*anim, 0, anim->baked.frameCount, 0.0f);
+
+    const int s = kAssetThumbSize;
+    ensureThumbFramebuffer();
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    glViewport(0, 0, s, s);
+    // Transparent background: the tile shows the browser's own panel color
+    // behind the asset, so a grid reads as one surface instead of 200 boxes.
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(program_);
+    glUniform1i(uLightCount_, 0);
+    glUniform1i(uAoOn_, 0);
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uFlashOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);
+    glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+    glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
+                    uint32_t texture, const float* ke, uint32_t reflTex,
+                    float reflStrength, bool reflSky, bool alpha) {
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uAoSelfObj_, -1);
+        glUniform1i(uAoGround_, 0);
+        glUniform1i(uAoReceive_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform3f(uEmissive_, ke ? ke[0] : 0.0f, ke ? ke[1] : 0.0f,
+                    ke ? ke[2] : 0.0f);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+
+    // Frame the asset's own bounds; a material rides the unit sphere.
+    Vec3 center{0.0f, 0.0f, 0.0f};
+    float radius = 0.72f;
+    if (model) {
+        center = {(model->mn[0] + model->mx[0]) * 0.5f,
+                  (model->mn[1] + model->mx[1]) * 0.5f,
+                  (model->mn[2] + model->mx[2]) * 0.5f};
+        const float ex = model->mx[0] - model->mn[0],
+                    ey = model->mx[1] - model->mn[1],
+                    ez = model->mx[2] - model->mn[2];
+        radius = 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez);
+    } else if (anim) {
+        const glbparser::Baked& b = anim->baked;
+        center = {(b.min[0] + b.max[0]) * 0.5f, (b.min[1] + b.max[1]) * 0.5f,
+                  (b.min[2] + b.max[2]) * 0.5f};
+        const float ex = b.max[0] - b.min[0], ey = b.max[1] - b.min[1],
+                    ez = b.max[2] - b.min[2];
+        radius = 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez);
+    }
+    if (radius < 0.05f) radius = 0.05f;
+
+    const float dist = radius * 2.35f;
+    const float pitch = 22.0f * kPi / 180.0f, yaw = 35.0f * kPi / 180.0f;
+    const Vec3 eye{center.x + dist * std::cos(pitch) * std::cos(yaw),
+                   center.y + dist * std::sin(pitch),
+                   center.z + dist * std::cos(pitch) * std::sin(yaw)};
+    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // The matcap path derives its camera basis from the fog uniforms.
+        const Vec3 f = normalize(sub(center, eye));
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, f.x, f.y, f.z);
+    }
+    const Mat4 proj = perspective(45.0f * kPi / 180.0f, 1.0f,
+                                  std::max(0.01f, dist * 0.01f),
+                                  dist + radius * 4.0f + 50.0f);
+    const Mat4 viewProj = mul(proj, view);
+
+    if (model) {
+        for (const ModelPart& part : model->parts)
+            draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, part.tex, part.ke,
+                 part.reflTex, part.reflStrength, part.reflSky, part.alpha);
+    } else if (anim) {
+        for (const AnimModelDraw::Part& part : anim->parts)
+            draw(part.mesh, viewProj, 1.0f, 1.0f, 1.0f, part.tex, nullptr, 0,
+                 0.0f, false, false);
+    } else {
+        draw(sphere_, viewProj, material->kd[0], material->kd[1],
+             material->kd[2], material->tex, material->ke, material->reflTex,
+             material->reflStrength, material->reflSky, false);
+    }
+
+    glBindVertexArray(0);
+
+    // Framebuffer -> the asset's own texture. The FBO is still bound for
+    // reading, so this is a pure GPU copy of the square just drawn.
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 0, 0, s, s, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    thumbCache_[relPath] = tex;
+    return tex;
 }
 
 // Ray/triangle sweep over the CPU copy of the last material-preview geometry.

@@ -9,6 +9,29 @@ distance LOD levels the format carries.
 (Animated `.glb`/`.fbx` models have had their own binary format, `.tskl`, all
 along - see [animated-models.md](animated-models.md).)
 
+## How big is this model, really?
+
+Selecting a static model shows three numbers in *Properties*:
+
+```
+4281 triangles, 12843 vertices (3351 unique positions)
+```
+
+They are not the same measurement, and the gap is the interesting part:
+
+- **unique positions** is the `v` count - what the modelling tool told you;
+- **vertices** is what actually reaches VU1: three per triangle, with a corner
+  split wherever its normal, UV or material differs. This is the number the
+  pipeline cuts into VU1-sized chunks (*Debugger > Stats* reports how big a
+  chunk is - it is the VU1 buffer's capacity for that vertex layout, e.g. 108),
+  and the number a frame's vertex budget is spent in.
+
+A model whose vertex count is far above `3 x positions` is paying for split
+corners - hard edges and material boundaries everywhere. The cottage above is
+1.28x, which is ordinary; a smooth-shaded sphere would be near 1.0x.
+
+Animated `.glb` models report their own vertex count in the same place.
+
 ## Why the game stopped reading .obj
 
 An `.obj` is text. Reading one on the PS2 meant parsing ASCII on a 300 MHz
@@ -41,9 +64,15 @@ open them, and the LOD levels below.
   RAM anyway. Memory use is unchanged; you trade disc space for load time.
 - **Nothing to configure.** There is no switch: a static model referenced by
   a scene object is compiled.
+- **An `.obj` carries no unit**, so the importer asks for one (the **Model
+  size** dialog, and the **Size...** button next to the model in the Assets
+  list afterwards). What it records is how many meters one unit of the file
+  measures; combined with the project's world scale that is the scale objects
+  made from the model are inserted at. The file itself is never rewritten -
+  see docs/world-scale.md.
 - A model that cannot be parsed is reported in the build log
   (`[model bake] ...`) and simply renders nothing, exactly like a missing
-  animated model. The editor's Assets list flags the same problem earlier.
+  animated model. The Asset Browser flags the same problem earlier.
 
 ## Mesh LOD: fewer triangles far away
 
@@ -85,7 +114,8 @@ silhouette borders, and it refuses to touch meshes too small to gain
 anything - which also means some models barely shrink. When you want control,
 model the levels yourself.
 
-In the **Project panel > Assets**, each model has a **LOD...** button:
+In the **Asset Browser** (*Tools > Asset Browser*), a selected model has a
+**LOD...** button in the inspector:
 
 - **Level 1** shows past the mesh LOD distance, **Level 2** past twice it.
 - Pick any other `.obj` in the project (the list shows each candidate's
@@ -133,7 +163,7 @@ material names kept intact.
 
 **A model disappeared after a build.** Check the build log for a
 `[model bake]` line: the `.obj` failed to parse, so no `.tmdl` was written.
-The Assets list shows the same models it can read.
+The Asset Browser shows the same models it can read.
 
 **A level never seems to show.** Distances are measured from the camera to
 the object's center, in world units - the same units as object positions. A

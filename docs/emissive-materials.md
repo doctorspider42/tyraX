@@ -184,13 +184,71 @@ per-texel image the ambient occlusion already used:
   pass selects the channels it can see: a **black**-vertex alpha-over pass
   (an exact per-pixel multiply) and a **white**-vertex additive pass;
 - the additive pass is `fogDisabled` — GS fog would add the fog color through
-  an additive equation and brighten fogged pixels.
+  an additive equation and brighten fogged pixels;
+- **every texel's alpha is floored at 2.** StaPip draws with the GS alpha test
+  set to *pass only when alpha ≠ 0* — the cutout rule that makes foliage and
+  decals work. Both passes read the same texture, so a texel whose *occlusion*
+  is zero used to fail that test and take the additive **light** pass down with
+  it. The baked light was being clipped to wherever the ambient occlusion
+  happened to be non-zero, punching hard, texel-aligned holes into lit
+  surfaces; the floor costs 1/128 of darkening, under one framebuffer level.
+  Any future pass that shares a texture with a cutout-style one inherits this
+  trap.
+
+Each texel is the **mean over its own footprint** (a 4×4 sub-sample grid), not
+a point sample at its centre. Shadow edges here are very nearly hard — a neon
+fixture 0.3 units off a wall throws a penumbra of centimetres, well under one
+texel — and point-sampling one writes a full-amplitude step between neighbouring
+texels that bilinear filtering then reconstructs as a staircase. The cost is
+host-side bake time only; the console draws exactly what it drew before.
+
+Regions are **not** all sized alike. A pre-pass probes each one on a 6×6 grid
+and asks two questions: how strong a signal it can carry (light received,
+occlusion cast on it), and **how fast that signal moves along each of its two
+axes**. The peak sets the *area* — density scales with its square root, so the
+area a region gets is proportional to what it actually receives, and a
+pedestal's underside or a wall's back collapses toward a floor size. The two
+gradients then split that area between the axes, because a region's axes rarely
+deserve the same density: an alley wall 18 units long and 5 high carries a steep
+ramp up its height and a lazy one along its length. The density finally rises
+globally (by bisection) until the image is genuinely full instead of leaving the
+~60% a power-of-two round-up used to waste.
+
+The atlas **dimension** is still computed from the unweighted area, so none of
+this changes a project's VRAM in either direction — it only redistributes texels
+inside the same image. On `examples/glow` the lit alley wall went from 6.0 × 6.0
+texels per world unit to **15.6 × 7.8**, and the mean step between neighbouring
+texels in its *worst* direction — which is what blockiness actually is — fell
+from **5.70 to 2.26** at the same 256².
 
 The atlas is built whenever *either* bake has content, so a scene can have
-glowing lamps and no ambient occlusion at all. Everything else keeps the
-per-vertex path, where the gradient is coarser but there is no atlas budget to
-spend: imported models, spawned clones, physics bodies, pickables — and
-**textured receivers**, deliberately. The additive pass adds a flat color, so
+glowing lamps and no ambient occlusion at all.
+
+### The ground, too
+
+The **terrain** has the same problem in a worse form: its vertices are the
+heightmap grid — one every terrain cell, *2 world units apart* in
+`examples/glow` — so a pool of light spread over them is a handful of huge
+Gouraud facets with the diagonal triangle split showing through. It now takes
+the light per texel as well, through the image the terrain AO map already was:
+**`A` = occlusion, `RGB` = light**, read twice by the same two passes the
+primitives use. That map is 256² over the whole terrain — **4 texels per world
+unit against 0.5 vertices per world unit, 8× finer** — and it costs no extra
+VRAM, because the texture was already resident; only one more blended pass per
+visible chunk.
+
+Two catches worth knowing:
+
+- the occlusion pass's vertex color had to become **black**. It used to be
+  white, which was harmless while the map's RGB was empty; with light in there,
+  a white vertex color would drag it into the multiply;
+- a **textured** ground keeps the per-vertex path, for the same reason textured
+  receivers do below. Terrain counts as textured if its base material or any
+  paint layer has a `map_Kd`.
+
+Everything else keeps the per-vertex path, where the gradient is coarser but
+there is no atlas budget to spend: imported models, spawned clones, physics
+bodies, pickables — and **textured receivers**, deliberately. The additive pass adds a flat color, so
 on a texture it would blow out the dark texels; the vertex path multiplies the
 texture instead, and texture detail hides the Gouraud seam far better than a
 flat surface does. `SCENE_AO_ATLAS_LIT` tells the game which objects took the
@@ -251,7 +309,9 @@ What is left is a hard budget, not a bug:
   256² map for the whole terrain** — bigger means RGBA32 VRAM the GS does not
   have (see the note on texture residency in the editor skill). On the terrain
   that cap is a texel size: 0.25 world units on a 64-unit map, 0.75 on a
-  192-unit one, so a big map trades resolution for coverage;
+  192-unit one, so a big map trades resolution for coverage. The importance
+  weighting above spends the atlas budget where the light is, but it cannot
+  enlarge it;
 - palettising is not an option — the engine's tRNS→CLUT path destroys these
   smooth gradients (verified in PCSX2: a quantized bake renders as nothing);
 - the framebuffer is **8-bit per channel** with no dithering on the blend.
@@ -266,19 +326,36 @@ reason: a few levels of noise make the eye integrate the plateaus away.
 
 The light is **blocked by solids**. Every object marked *Cast shadow*
 (Properties — the same flag the ambient occlusion uses) becomes an analytic
-box or sphere, and a light contribution is dropped outright when the segment
-from the lit point to the emitter's nearest surface enters one. So a wall stops
-the glow instead of letting it through.
+box or sphere, and the light is scaled by how much of the emitter the lit point
+can still see. So a wall stops the glow instead of letting it through.
 
-Two things follow from "analytic":
+These are **area** sources, so the edge is a **penumbra**, not a cut. Eight rays
+go out per emitter — one to its nearest surface point, seven spread across the
+emitter's silhouette as seen from the lit point (a fixed Vogel disk, no RNG: the
+same scene bakes to the same bytes every time) — and the fraction that gets
+through scales the contribution. Where nothing blocks, all eight arrive and the
+result is bit-identical to an unshadowed bake; the soft band appears only along
+the edge, and it **widens with distance from the caster**, the way a real one
+does.
 
-- shadows are **hard and blocky** — a wall throws a rectangle, not its
-  silhouette, and a detailed mesh shadows as its bounding box;
-- there is **no partial shadow**: a contribution is either blocked or not, so
-  a thin object can produce a sharper edge than its real geometry would.
+What stays hard is the *shape*, not the edge. The caster is still an analytic
+solid, so a wall throws a soft-edged rectangle rather than its silhouette, and a
+detailed mesh shadows as its bounding box. Untick *Cast shadow* on anything that
+should not stop light (a railing, a grate, foliage) — otherwise its bounding box
+will.
 
-Untick *Cast shadow* on anything that should not stop light (a railing, a
-grate, foliage) — otherwise its bounding box will.
+> **One path is deliberately still hard.** Eight rays instead of one are free
+> where the shadow is baked on the host — the scene lightmap atlas and the
+> terrain map below, and the editor viewport. The **per-vertex** path keeps the
+> single ray: imported models, spawned clones, physics bodies, textured
+> receivers and textured terrain. Two measured reasons: its own resolution is a
+> box face's four corners or a terrain grid cell — 2 world units in
+> `examples/glow` — far coarser than the penumbra it would resolve; and it runs
+> on the EE at scene load and again on every runtime spawn and static-batch
+> rebuild, where eight rays cost **+200 ms of scene load** on that example
+> (1160 → 1360 ms, measured in PCSX2) with the same multiplier landing mid-frame
+> on a spawn. The three implementations are otherwise exact twins; this is the
+> one place they diverge, and this paragraph is where it is written down.
 
 It is **static light**, exactly like the baked AO and the point lights:
 
@@ -320,8 +397,11 @@ other:
 | Shape query | `occShapeAt` in `src/templates.cpp` | `shapeAt` in the viewport FS — and `aobake::occShapeAt` on the host |
 | Emissive light | `emissiveLightAt` in `src/templates.cpp` | `emissiveLight` in the viewport FS — host reference `aobake::emitterLightAt` |
 | Emitter shapes | baked into `inc/ao_data.gen.hpp` | `aobake::collectEmitters` (single source for both) |
+| Soft shadows | *single hard ray — the documented divergence above* | `aobake::emitterVisibility` + `kEmisShadowDisk`; `emisVisibility` in the viewport FS |
 | Scene lightmap | the atlas passes in `rebuildObjectGeometry` | `aobake::bakeSceneLightAtlas` bakes it, texbake writes the PNG |
 | Terrain lightmap | the two chunk passes in `buildTerrainChunk` | `aobake::terrainAOMap` bakes it, texbake writes the PNG |
+| Texel budget | — | the importance pre-pass in `aobake::bakeSceneLightAtlas` (host only) |
+| Alpha floor | — | `aobake::kMinLightmapAlpha`, applied by both bakes |
 | Bright pass + spread | `RendererCorePostFx::apply` (`renderer_core_postfx.cpp`) | not previewed (GS-only, like every screen effect) |
 
 Authoring UI: `App::drawMaterialEditorWindow` + `loadMaterialFile` /

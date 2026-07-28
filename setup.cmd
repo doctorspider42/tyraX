@@ -1,37 +1,33 @@
 @echo off
-REM Clones third-party dependencies into vendor\ (cmd version of setup.ps1)
+REM cmd entry point for setup.ps1 - for shells where "./setup.ps1" is awkward
+REM (plain cmd.exe, a double-click, a restrictive execution policy). Clones the
+REM third-party dependencies into vendor\ and fetches the PS2 deploy tools.
+REM
+REM This is a WRAPPER ON PURPOSE. It used to carry its own copy of the
+REM dependency list - a column of :clone calls - and drifted behind deps.ps1:
+REM it never cloned vendor/ufbx (nor, earlier, stb's headers and miniaudio),
+REM and it tried to "git clone" into vendor\tyra, whose engine sources are
+REM tracked in this repo, so a fresh clone got "destination path already exists
+REM and is not an empty directory" followed by cmake failing on the missing
+REM ufbx sources. There is one list (deps.ps1) and one implementation
+REM (setup.ps1) - do not reintroduce a second one here.
+REM See "Platform parity" in .claude/skills/tyra-editor-dev/SKILL.md.
 setlocal
 cd /d "%~dp0"
 
-call :clone "https://github.com/ocornut/imgui.git"          docking vendor\imgui
-call :clone "https://github.com/glfw/glfw.git"              3.4     vendor\glfw
-call :clone "https://github.com/CedricGuillemet/ImGuizmo.git" master vendor\imguizmo
-call :clone "https://github.com/Nelarius/imnodes.git"       master  vendor\imnodes
-call :clone "https://github.com/nothings/stb.git"           master  vendor\stb
-call :clone "https://github.com/h4570/tyra.git"             master  vendor\tyra
+call :findps || exit /b 1
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1" %*
+exit /b %ERRORLEVEL%
 
-REM Ensure the stb single-headers we #include are present, even when vendor\stb
-REM is a stale/partial directory that predates the full clone above (no .git,
-REM so the clone step skips it). Back-fill any missing header directly.
-call :stbhdr stb_image.h
-call :stbhdr stb_truetype.h
-call :stbhdr stb_image_write.h
-
-endlocal
-exit /b 0
-
-:clone
-REM %1 = url  %2 = branch  %3 = dir
-if exist "%~3\.git" (
-    echo OK: %~3 already present
-    exit /b 0
+:findps
+REM PowerShell 7 if it is installed, else the Windows PowerShell every Windows
+REM box ships with. Both run setup.ps1 unchanged.
+set "PS="
+for %%P in (pwsh.exe) do if not defined PS if exist "%%~$PATH:P" set "PS=%%~$PATH:P"
+for %%P in (powershell.exe) do if not defined PS if exist "%%~$PATH:P" set "PS=%%~$PATH:P"
+if not defined PS (
+    echo Neither pwsh.exe nor powershell.exe was found on PATH.
+    echo setup.cmd only forwards to setup.ps1 - run that directly instead.
+    exit /b 1
 )
-git clone --depth 1 --branch %2 %1 "%~3"
-exit /b 0
-
-:stbhdr
-REM %1 = header filename
-if exist "vendor\stb\%~1" exit /b 0
-echo Fetching %~1
-curl -sSL -o "vendor\stb\%~1" "https://raw.githubusercontent.com/nothings/stb/master/%~1"
 exit /b 0

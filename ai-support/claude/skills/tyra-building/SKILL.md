@@ -52,6 +52,20 @@ copy-back, so prefer it.
   Preferences > Build > Profile) - if `bin/log.txt` stays empty, check the
   profile.
 
+- **Editing a flow graph does NOT always need a build**: with the *Live Logic*
+  preference on (debug profile), the editor compiles an edited graph itself and
+  the running game switches to it within a fraction of a second
+  (`bin/livelogic.bin`). Graphs using nodes the interpreter does not implement
+  (audio, AI, animation, spawning, runtime text, custom nodes) still need
+  `--build`; the editor's Debugger > Logic tab names them.
+- **Flow-graph logic**: a debug build with the *Live Debugger* preference on
+  reports every trigger and action it runs into `bin/livedbg.bin`, and the
+  editor can set breakpoints / stop / step / force-fire a trigger through
+  `bin/livedbg.cmd`. If a node's logic seems not to run, that is the direct
+  way to find out: the editor's Debugger panel (F9) shows per-node hit
+  counters, the flow variables and the save values live. The map from the
+  keys in those files to objects and nodes is `src/gen/livedbg.sym`.
+
 ## Verification etiquette
 
 After changing project data or scripts: `--refresh-gen` + diff first (cheap),
@@ -62,6 +76,8 @@ log for conversion warnings.
 
 ## Related
 
-- `run.ps1` / `windows-pcsx2.ps1` in the project launch the already-built ELF.
+- `run.sh` (Linux/macOS) and `run.ps1` + `windows-pcsx2.ps1` (Windows) in the
+  project launch the already-built ELF. Both sets are always present - a
+  project is portable, so the helper for the other machine ships with it.
 - ISO export and real-PS2 network deploy (`--build <dir> --run-ps2 <ip>`) exist
   but need editor-side setup; ask the user before reaching for them.

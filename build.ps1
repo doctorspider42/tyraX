@@ -2,9 +2,11 @@
 #   ./build.ps1          - configure (if needed) + build
 #   ./build.ps1 -Run     - build and launch the editor
 #   ./build.ps1 -Clean   - remove the build directory first
+#   ./build.ps1 -Dev     - fast iteration build (-O1) into build-dev/
 param(
     [switch]$Run,
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$Dev
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,23 +42,32 @@ if (-not (Get-Command g++ -ErrorAction SilentlyContinue)) {
     }
 }
 
-if ($Clean -and (Test-Path 'build')) {
-    Write-Host '== Cleaning build directory ==' -ForegroundColor Cyan
-    Remove-Item -Recurse -Force 'build'
+# Dev gets its OWN build directory on purpose. Flipping CMAKE_BUILD_TYPE in one
+# directory invalidates every object, so sharing it would mean a full rebuild on
+# every switch - which is the exact cost the mode exists to avoid.
+$buildDir = if ($Dev) { 'build-dev' } else { 'build' }
+$buildType = if ($Dev) { 'Dev' } else { 'Release' }
+
+if ($Clean -and (Test-Path $buildDir)) {
+    Write-Host "== Cleaning $buildDir ==" -ForegroundColor Cyan
+    Remove-Item -Recurse -Force $buildDir
 }
 
-if (-not (Test-Path 'build/build.ninja')) {
-    Write-Host '== Configuring (cmake) ==' -ForegroundColor Cyan
-    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+if (-not (Test-Path "$buildDir/build.ninja")) {
+    Write-Host "== Configuring (cmake, $buildType) ==" -ForegroundColor Cyan
+    cmake -S . -B $buildDir -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
     if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
 }
 
 Write-Host '== Building ==' -ForegroundColor Cyan
-cmake --build build
+cmake --build $buildDir
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
-Write-Host "OK: build\tyrax-editor.exe" -ForegroundColor Green
+Write-Host "OK: $buildDir\tyrax-editor.exe" -ForegroundColor Green
+if ($Dev) {
+    Write-Host 'NOTE: Dev build (-O1) - fast to compile, slow at the host bakes. Not for release or benchmarks.' -ForegroundColor Yellow
+}
 
 if ($Run) {
-    Start-Process -FilePath "$PSScriptRoot\build\tyrax-editor.exe"
+    Start-Process -FilePath "$PSScriptRoot\$buildDir\tyrax-editor.exe"
 }

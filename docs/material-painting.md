@@ -66,6 +66,16 @@ texel); hover a triangle in the panel and it is outlined on the mesh.
 Overlapping UVs show themselves naturally — one 3D face lights up every
 triangle sharing its region.
 
+A **Light** combo under that row picks what the preview bakes its shading
+with. The default, *Scene ambience*, is the light the material will really get
+in game — but a dark scene (a cavern preset, a low brightness) makes the
+preview just as dark, and you cannot judge a texture you cannot see. *Neutral
+studio* lights it with the engine's default directional light instead, and any
+**ambience preset** of the project previews the material under that mood
+without switching the scene over to it. Preview only: the scene, the `.mtl` and
+the build are untouched. Persists per machine (editor.ini); the Animation
+Editor has the same combo (see [animated models](animated-models.md)).
+
 ## The PS2 CLUT preview and the memory budget
 
 The **PS2 CLUT** display mode shows the texture as the console will

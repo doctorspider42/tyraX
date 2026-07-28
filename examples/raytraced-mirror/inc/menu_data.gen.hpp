@@ -7,8 +7,10 @@ namespace Raytraced_mirror {
 // 3 open menu (submenu), 4 set save value, 5 add to save value,
 // 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save
 // value holding the option index), 9 apply video mode (commits
-// the display-mode row's staged selection). param = resolved
-// index, -1 = unknown target.
+// the display-mode row's staged selection), 10 rebind an input
+// action (param = the save value holding the override code,
+// inputAction = which action; docs/input-bindings.md). param =
+// resolved index, -1 = unknown target.
 struct MenuEntryData {
   int action;
   int param;
@@ -17,7 +19,11 @@ struct MenuEntryData {
   int cell;         // first cell in the value strip (-1 = none)
   int bind;         // option-block binding (applyMenuBindings):
                     // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,
-                    // 4 stick curve, 5 display mode, 6 widescreen
+                    // 4 stick curve, 5 display mode, 6 widescreen,
+                    // 7 player count, 8 input preset
+  // action 10 only: the INPUT_ACTION index the row rebinds (-1 =
+  // unknown action - the row then does nothing).
+  int inputAction;
   // bind 5 only: the Tyra::DisplayMode each option drives
   // (optionCount ints; -1 = the project-default boot mode).
   // Null = the option index itself.
@@ -39,14 +45,18 @@ struct MenuData {
   // cell's left edge relative to the panel's left edge.
   const char* values;
   int valueCellW, valueCellH, valuePitch, valueX;
+  // FONTS index the panel was baked with. A rebind row draws its
+  // current binding as runtime text from this font's glyph atlas
+  // (Project::atlasFontIndices bakes one for such menus).
+  int font;
 };
 
 constexpr int MENU_COUNT = 0;
 
-constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0, nullptr}};
+constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0, -1, nullptr}};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0},
+    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},
 };
 
 constexpr int TITLE_MENU = -1;

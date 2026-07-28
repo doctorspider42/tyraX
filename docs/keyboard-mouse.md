@@ -3,8 +3,15 @@
 Generated games can be played with a USB keyboard and mouse — in PCSX2 out of
 the box, and on a real PS2 with USB devices plugged into the front ports.
 The feature is a project preference: *Project > Preferences > Build >
-Keyboard & mouse controls* (on by default, stored as `"keyboardMouse"` in the
-`.tyra`).
+Keyboard & mouse controls* (stored as `"keyboardMouse"` in the `.tyra`).
+
+**New projects start with it off.** A pad game gains nothing from loading three
+IRX drivers it never polls, and the console only speaks the USB HID *boot
+protocol* (see below), so this is a choice to make on purpose rather than a
+default to discover. Tick it for a keyboard/mouse game — nothing else changes,
+the pad keeps working either way. Projects created before that default keep
+whatever they saved, and projects older than the preference itself still load
+with it **on**, exactly as they did when the feature shipped for everyone.
 
 ## How it works
 
@@ -29,11 +36,19 @@ Keyboard & mouse controls* (on by default, stored as `"keyboardMouse"` in the
   same angle at any frame rate (no `g_frameScale`, no deadzone eating slow
   movements).
 
-## Default bindings (`inc/controls.hpp`)
+## Default bindings
 
-The bindings live in the generated `controls.hpp` — a **user-ownable** file
-(delete the marker line to take ownership and remap per project). Keys are
-USB HID usage codes (usb.org HID Usage Tables).
+The bindings are authored in **Tools > Input Map** and reach the game two ways:
+the generated `inc/input_map.gen.hpp`/`.cpp` tables (what the runtime reads, and
+what a player's in-game rebind changes) and the generated, still **user-ownable**
+`inc/controls.hpp` macros derived from the same default preset. Rebind buttons in
+the Input Map, not by hand — see
+[docs/input-bindings.md](input-bindings.md). Keys are USB HID usage codes
+(usb.org HID Usage Tables).
+
+The table below is the **default preset** every project starts with (and that
+`project::ensureInputActions` backfills into projects predating the Input Map),
+so out of the box nothing changed:
 
 | Input | Code | Maps to |
 | --- | --- | --- |
@@ -45,12 +60,25 @@ USB HID usage codes (usb.org HID Usage Tables).
 | `Esc` | 0x29 | Start (pause menu) |
 | `R` | 0x15 | Circle (save menu: load slot) |
 | Arrow keys | 0x4F–0x52 | d-pad |
+| `Left Shift` | 0xE1 | the **sprint** action (pad R2) |
 | Mouse motion | — | camera look (`MOUSE_SENSITIVITY`, radians per count = 0.003 × value) |
 | Left / right / middle button | — | `BTN_USE` / `BTN_JUMP` / Circle |
 
+Every one of these is one action's `key` slot in the Input Map's default preset,
+so they are all editable per project. They are **not** rebindable in-game: a
+menu *Rebind key* row covers the pad only, because this whole feature is still
+experimental (see the hardware status below) — keyboard/mouse rebinding is meant
+to get its own dedicated menu later. The fold itself lives in
+`src/gen/input_map.gen.cpp`
+(`inputApplyKeyboardMouse`) and walks the LIVE bindings, which is why a preset
+switch or a rebind moves the keys too;
+`controls.hpp`'s `applyKeyboardMouseInput()` is now a one-line call into it.
+
 An older user-owned `controls.hpp` (without the keyboard section) keeps
 compiling against a regenerated game: every call site in `terrain_game.cpp`
-is guarded by the `TYRAX_KBD_MOUSE` define the new file introduces.
+is guarded by the `TYRAX_KBD_MOUSE` define the new file introduces. Such a file
+also keeps its own hardcoded fold, so keyboard *rebinding* does nothing until you
+delete it and let the current version regenerate.
 
 ## PCSX2
 
@@ -79,33 +107,29 @@ enumerated the devices.
 ## Real hardware & ps2link
 
 On a real console the same build reads real USB HID devices — nothing to
-configure — **as long as the game boots from a disc, USB or the memory card,
-not from a ps2link network deploy**. Exception: **network deploys under
-ps2link skip the feature by default** (the engine refuses to load a second
-`usbd` — ps2link is commonly booted from a USB stick, and a second USB stack
-wedges the one already serving it). PCSX2 launches and exported ISOs are
-unaffected.
+configure — when the game boots from a disc, USB or the memory card. The F6
+network deploy works too, but only because of *how* it boots: the console runs
+the **TyraX ps2link**, which carries the USB stack for the game to reuse (below,
+and [ps2link-setup.md](ps2link-setup.md)).
 
-So the supported way to run keyboard/mouse on hardware is `Project > Export
-PS2 ISO` (burn it, or boot the ISO/ELF from USB via a loader) — *not* the F6
-"Run on PS2" network deploy.
-
-### Why it does nothing over F6 / "Run on PS2"
+### Why a game can't load the drivers itself over F6 / "Run on PS2"
 
 The generated `main.cpp` detects the ps2link deploy and sets
-`IrxLoader::keepIopResident = true`; the engine then computes
-`withKbdMouse = loadUsbKbdMouse && !keepIopResident`, which is false, so the
-drivers never load, `KbdMouse::init()` never runs and `applyKeyboardMouseInput`
-is a no-op. The pad loads separately, so **pad works but keyboard/mouse gives
-zero reaction** — that is the guard doing its job, not a bug.
+`IrxLoader::keepIopResident = true` — resetting the IOP would unload the
+ps2link serving the game. The engine then computes
+`withKbdMouse = loadUsbKbdMouse && (!keepIopResident || loadUsbKbdMouseUnderPs2Link)`:
+without the resident stack it loads nothing, `KbdMouse::init()` never runs and
+`applyKeyboardMouseInput` is a no-op. The pad loads separately, so a stock
+ps2link gives you **pad works, keyboard/mouse dead silent** — that is the guard
+doing its job, not a bug.
 
 ### Keyboard & mouse over ps2link: the TyraX ps2link
 
 Reading logs is the hard part on hardware: a burned ISO has no `host:`
 filesystem, so there is no `bin/log.txt`. A ps2link deploy is the opposite —
 it forwards the EE console over the network (the editor's *Output* panel /
-`ps2client` show `TYRA_LOG` live) — but it is exactly where the feature is off
-by default.
+`ps2client` show `TYRA_LOG` live) — and it is also where a game cannot bring up
+its own USB stack.
 
 Why it can't simply be switched on: `ps2kbd`/`ps2mouse` import `usbd`'s
 symbols, and a network-booted ps2link (its device list shows
@@ -117,23 +141,28 @@ never registered, freezing the boot on the Tyra logo.
 
 The fix is to bake `usbd` + `ps2kbd` + `ps2mouse` into **ps2link's own boot**
 (on its freshly-reset IOP, `usbd` first), so the drivers and their RPC servers
-are resident before any game runs and the game just **reuses** them. Build that
-ps2link from [`tools/ps2link-usbhid/`](../tools/ps2link-usbhid/README.md):
+are resident before any game runs and the game just **reuses** them. That is
+what the **TyraX ps2link** does, and it is the only ps2link the editor deploys
+to — you build it once and flash it (full setup:
+[ps2link-setup.md](ps2link-setup.md)):
 
 ```powershell
-tools/ps2link-usbhid/build.ps1
+tools/ps2link/build.ps1
 ```
 
-It clones a pinned ps2link, applies a three-file patch and builds in the
-`ps2dev/ps2dev` toolchain image, producing a `ps2link.elf` whose boot screen
-reads **“Welcome to TyraX ps2link (USB keyboard + mouse)”**. Flash it onto your
-PS2 in place of stock ps2link and plug in a **wired** USB keyboard + mouse.
+(`build.sh` on Linux.) It clones a pinned ps2link, applies
+[`tyrax.patch`](../tools/ps2link/tyrax.patch)
+and builds in the `ps2dev/ps2dev` toolchain image, producing a `ps2link.elf`
+whose boot screen reads **“Welcome to TyraX ps2link (USB keyboard + mouse)”**.
+Flash it onto the memory card as `PS2LINK.ELF` and plug in a **wired** USB
+keyboard + mouse.
 
-Then in *Project > Preferences > Build > Keyboard & mouse controls* tick
-**Also over ps2link — needs the TyraX ps2link** (stored as
-`"keyboardMousePs2Link"`), build and hit F6. The engine loads no USB modules of
-its own (a second `usbd` would wedge the resident one) and initialises the
-drivers ps2link already has. Watch *Output* / `ps2client`:
+In *Project > Preferences > Build > Keyboard & mouse controls*, **Also over
+ps2link** (stored as `"keyboardMousePs2Link"`) is **on by default** for exactly
+that reason — untick it only if you deliberately boot a stock ps2link. Build,
+hit F6: the engine loads no USB modules of its own (a second `usbd` would wedge
+the resident one) and initialises the drivers ps2link already has. Watch
+*Output* / `ps2client`:
 
 - `open name usbkbd:dev ... open fd = 3` + `KbdMouse: keyboard driver ready`
   **and** `KbdMouse: mouse driver ready` → both drivers are up; test WASD /

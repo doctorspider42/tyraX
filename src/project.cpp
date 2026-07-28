@@ -39,6 +39,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Camera: return "camera";
         case PrimitiveType::Mirror: return "mirror";
         case PrimitiveType::Portal: return "portal";
+        case PrimitiveType::Area: return "area";
         case PrimitiveType::Scatter: return "scatter";
     }
     return "box";
@@ -61,6 +62,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "camera") return PrimitiveType::Camera;
     if (s == "mirror") return PrimitiveType::Mirror;
     if (s == "portal") return PrimitiveType::Portal;
+    if (s == "area") return PrimitiveType::Area;
     if (s == "scatter") return PrimitiveType::Scatter;
     return PrimitiveType::Box;
 }
@@ -79,6 +81,15 @@ std::vector<int> Project::atlasFontIndices() const {
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes)
                 if (n.type == "DisplayText") want(n.str);
+    // A menu with a "Rebind key" row draws the current binding name as runtime
+    // text (the string is only known while the game runs - see
+    // docs/input-bindings.md), so that menu's font needs an atlas too.
+    for (const GameMenu& m : menus)
+        for (const MenuEntry& e : m.entries)
+            if (e.action == MenuEntry::RebindKey) {
+                want(m.font);
+                break;
+            }
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -91,6 +102,14 @@ static std::string writeFile(const fs::path& path, const std::string& content) {
     std::ofstream f(path, std::ios::binary);
     if (!f) return "Cannot write file: " + path.string();
     f << content;
+    f.close();
+    // A generated shell script has to be runnable, and the file mode is not
+    // something the templates can express. Harmless on Windows, where the
+    // execute bits are not part of the permission model.
+    if (path.extension() == ".sh")
+        fs::permissions(path,
+                        fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                        fs::perm_options::add, ec);
     return "";
 }
 
@@ -171,6 +190,7 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 (l.kind == FlowLinkPos ? ", \"pos\": true" : "") +
                 (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
                 (l.kind == FlowLinkText ? ", \"text\": true" : "") +
+                (l.kind == FlowLinkNum ? ", \"number\": true" : "") +
                 (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") + " }";
     }
     return json + "] }";
@@ -451,6 +471,12 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("text");
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkText;
+            // "number", not "num": a node's numeric PARAMS already serialize as
+            // a "num" array, and one key meaning two things in one file invites
+            // exactly the bug it looks like.
+            if (const auto* v = jl.find("number");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkNum;
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
             if (l.kind == FlowLinkExec && !l.toPin)
                 for (const Retarget& r : retargets)
@@ -497,6 +523,10 @@ std::string objectJson(const SceneObject& o) {
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
+        (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
+        (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
+        // projected (live) silhouette shadow; default (false) stays implicit
+        (o.projShadow ? std::string(", \"projShadow\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
@@ -517,7 +547,11 @@ std::string objectJson(const SceneObject& o) {
                 "\", \"walkClip\": \"" + jsonEscape(o.playerWalkClip) +
                 "\", \"runClip\": \"" + jsonEscape(o.playerRunClip) +
                 "\", \"jumpClip\": \"" + jsonEscape(o.playerJumpClip) +
-                "\", \"runThreshold\": " + fmtFloat(o.playerRunThreshold) +
+                "\", \"backClip\": \"" + jsonEscape(o.playerBackClip) +
+                "\", \"strafeLeftClip\": \"" + jsonEscape(o.playerStrafeLeftClip) +
+                "\", \"strafeRightClip\": \"" + jsonEscape(o.playerStrafeRightClip) +
+                "\", \"faceCamera\": " + (o.playerFaceCamera ? "true" : "false") +
+                ", \"runThreshold\": " + fmtFloat(o.playerRunThreshold) +
                 ", \"camDist\": " + fmtFloat(o.playerCamDist) +
                 ", \"camHeight\": " + fmtFloat(o.playerCamHeight) +
                 ", \"camShoulder\": " + fmtFloat(o.playerCamShoulder) +
@@ -539,7 +573,12 @@ std::string objectJson(const SceneObject& o) {
                 fmtVec3(o.flashlightColor) + ", \"range\": " +
                 fmtFloat(o.flashlightRange) + ", \"angle\": " +
                 fmtFloat(o.flashlightAngle) + ", \"toggle\": \"" +
-                jsonEscape(o.flashlightToggleButton) + "\" }" + " }";
+                jsonEscape(o.flashlightToggleButton) + "\"" +
+                (o.flashlightTexture.empty()
+                     ? ""
+                     : ", \"texture\": \"" + jsonEscape(o.flashlightTexture) +
+                           "\"") +
+                " }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
         static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain",
@@ -571,7 +610,10 @@ std::string objectJson(const SceneObject& o) {
     }
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
-                ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
+                ", \"radius\": " + fmtFloat(o.lightRadius) +
+                ", \"dynamic\": " + (o.lightDynamic ? "true" : "false") +
+                ", \"flicker\": " + fmtFloat(o.lightFlicker) +
+                ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
         json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) +
@@ -584,6 +626,11 @@ std::string objectJson(const SceneObject& o) {
     }
     if (!o.textureFeed.empty())
         json += ", \"textureFeed\": \"" + jsonEscape(o.textureFeed) + "\"";
+    // Catch area (Mirror / Portal / feed Camera); omitted when unset.
+    if (!o.catchArea.empty()) {
+        json += ", \"catchArea\": \"" + jsonEscape(o.catchArea) + "\"";
+        if (o.catchAreaLive) json += ", \"catchAreaLive\": true";
+    }
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
                 ", \"reflectPlayer\": " +
@@ -651,10 +698,14 @@ static void writeLayersArray(std::ostream& json, const std::vector<SceneLayer>& 
         json << (i ? ", " : "") << "{ \"name\": \"" << layers[i].name << "\""
              << (layers[i].startLoaded ? "" : ", \"startLoaded\": false")
              << (layers[i].editorVisible ? "" : ", \"editorVisible\": false");
-        if (layers[i].autoStream)  // off = keys omitted (older files stay valid)
+        if (layers[i].autoStream) {  // off = keys omitted (older files stay valid)
             json << ", \"autoStream\": true, \"streamX\": " << fmtFloat(layers[i].streamX)
                  << ", \"streamZ\": " << fmtFloat(layers[i].streamZ)
                  << ", \"streamRadius\": " << fmtFloat(layers[i].streamRadius);
+            // Area zone (docs/areas.md); absent = the circle above.
+            if (!layers[i].streamArea.empty())
+                json << ", \"streamArea\": \"" << jsonEscape(layers[i].streamArea) << "\"";
+        }
         json << " }";
     }
     json << "]";
@@ -675,6 +726,7 @@ static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& lay
             l.streamRadius = (float)v->numberOr(60.0);
             if (l.streamRadius < 1.0f) l.streamRadius = 1.0f;
         }
+        if (const auto* v = jl.find("streamArea")) l.streamArea = v->stringOr("");
         if (!l.name.empty()) layers.push_back(l);
     }
 }
@@ -730,7 +782,9 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"grain\": " << fmtFloat(s.grain)
       << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
       << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
-      << ", \"dofRange\": " << fmtFloat(s.dofRange) << " }, \"fog\": { \"enabled\": "
+      << ", \"dofRange\": " << fmtFloat(s.dofRange)
+      << ", \"flare\": " << fmtFloat(s.flare)
+      << ", \"godRays\": " << fmtFloat(s.godRays) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
       << " }, \"highlight\": { \"usable\": "
@@ -804,6 +858,10 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                     s.dofFocus = (float)v->numberOr(s.dofFocus);
                 if (const auto* v = pf->find("dofRange"))
                     s.dofRange = (float)v->numberOr(s.dofRange);
+                if (const auto* v = pf->find("flare"))
+                    s.flare = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("godRays"))
+                    s.godRays = clamp01((float)v->numberOr(0.0));
             }
             if (const auto* fg = st->find("fog")) {
                 if (const auto* v = fg->find("enabled")) s.fogEnabled = v->boolOr(false);
@@ -886,6 +944,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.dofAmount = o.dofAmount;
         r.dofFocus = o.dofFocus;
         r.dofRange = o.dofRange;
+        r.flare = o.flare;
+        r.godRays = o.godRays;
     }
     if (s.overrides.fog) {
         r.fogEnabled = o.fogEnabled;
@@ -963,9 +1023,17 @@ TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matR
     for (int i = 0; i < 3; ++i) out.kd[i] = m.kd[i];
     out.tile[0] = m.scale[0];
     out.tile[1] = m.scale[1];
-    // map_Kd is relative to the .mtl's own directory.
+    // map_Kd is relative to the .mtl's own directory - and the result must be
+    // NORMALIZED, because a material one folder over yields "materials/../
+    // textures/x.png" and **the PS2 cannot walk ".."**. PCSX2 hides this
+    // completely (its host: fs resolves the path through the OS) while a disc
+    // has no such entry at all, so the texture silently fails to load on real
+    // hardware only. texbake already copies the file to its normalized
+    // location, so this is also what makes the two agree.
     if (!m.texture.empty())
-        out.texture = (fs::path(matRel).parent_path() / m.texture).generic_string();
+        out.texture = (fs::path(matRel).parent_path() / m.texture)
+                          .lexically_normal()
+                          .generic_string();
     return out;
 }
 
@@ -993,8 +1061,18 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"showProfiler\": "
          << (p.settings.showProfiler ? "true" : "false") << ",\n"
+         << "    \"showAreas\": "
+         << (p.settings.showAreas ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
+         << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
+         << ",\n"
+         << "    \"eeCrashHandler\": "
+         << (p.settings.eeCrashHandler ? "true" : "false") << ",\n"
+         << "    \"liveLogic\": " << (p.settings.liveLogic ? "true" : "false")
+         << ",\n"
+         << "    \"timeMachine\": "
+         << (p.settings.timeMachine ? "true" : "false") << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -1017,6 +1095,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
          << ",\n"
+         << "    \"unitsPerMeter\": " << fmtFloat(p.settings.unitsPerMeter)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
@@ -1027,6 +1107,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
+         << "    \"sprintMultiplier\": " << fmtFloat(p.settings.sprintMultiplier)
+         << ",\n"
          << "    \"stickDeadzoneL\": " << fmtFloat(p.settings.stickDeadzoneL) << ",\n"
          << "    \"stickDeadzoneR\": " << fmtFloat(p.settings.stickDeadzoneR) << ",\n"
          << "    \"stickCurveL\": " << p.settings.stickCurveL << ",\n"
@@ -1047,6 +1129,21 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"aoStrength\": " << fmtFloat(p.settings.aoStrength) << ",\n"
          << "    \"aoRadius\": " << fmtFloat(p.settings.aoRadius) << ",\n"
+         << "    \"giEnabled\": " << (p.settings.giEnabled ? "true" : "false")
+         << ",\n"
+         << "    \"giRays\": " << p.settings.giRays << ",\n"
+         << "    \"giBounces\": " << p.settings.giBounces << ",\n"
+         << "    \"giSkyLight\": " << fmtFloat(p.settings.giSkyLight) << ",\n"
+         << "    \"giSunLight\": " << fmtFloat(p.settings.giSunLight) << ",\n"
+         << "    \"giAmbientFloor\": " << fmtFloat(p.settings.giAmbientFloor)
+         << ",\n"
+         << "    \"giProbes\": " << (p.settings.giProbes ? "true" : "false")
+         << ",\n"
+         << "    \"giProbeSpacing\": " << fmtFloat(p.settings.giProbeSpacing)
+         << ",\n"
+         << "    \"giProbeHeight\": " << fmtFloat(p.settings.giProbeHeight)
+         << ",\n"
+         << "    \"giProbeLevels\": " << p.settings.giProbeLevels << ",\n"
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -1056,6 +1153,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
          << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
          << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
+         << "    \"flare\": " << fmtFloat(p.settings.flare) << ",\n"
+         << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
+         << "    \"blobShadows\": " << (p.settings.blobShadows ? "true" : "false")
+         << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -1145,6 +1246,26 @@ static void writeHudSection(std::ostream& json, const Project& p) {
          << fmtFloat(p.usePrompt.size[0]) << ", " << fmtFloat(p.usePrompt.size[1])
          << "], \"texW\": " << p.usePrompt.texW << ", \"texH\": " << p.usePrompt.texH
          << ", \"texQuant\": \"" << p.usePrompt.texQuant << "\" }";
+    // The two prompts: an explicit text/image mode plus the text itself, so
+    // flipping to the image keeps whatever text was typed.
+    auto writePromptText = [&](const char* key, const HudText& t) {
+        json << ",\n  \"" << key << "\": { \"text\": \""
+             << jsonEscape(t.text) << "\", \"size\": " << t.size
+             << ", \"color\": " << fmtVec3(t.color)
+             << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
+             << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
+    };
+    json << ",\n  \"usePromptIsText\": "
+         << (p.usePromptIsText ? "true" : "false");
+    if (!p.usePromptText.text.empty())
+        writePromptText("usePromptText", p.usePromptText);
+    json << ",\n  \"pickPromptIsText\": "
+         << (p.pickPromptIsText ? "true" : "false");
+    if (!p.pickPromptText.text.empty())
+        writePromptText("pickPromptText", p.pickPromptText);
+    if (!p.pickPromptImage.empty())
+        json << ",\n  \"pickPromptImage\": \""
+             << jsonEscape(p.pickPromptImage) << "\"";
     json << ",\n  \"hudTexts\": [";
     for (size_t i = 0; i < p.hudTexts.size(); ++i) {
         const HudText& t = p.hudTexts[i];
@@ -1158,6 +1279,19 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << " }";
     }
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
+    // Inline text icons ({{name}} in any text). Emitted even at their seeded
+    // defaults: the set is what a project's texts reference by name, and a
+    // dropped key would silently change what {{cross}} resolves to.
+    json << ",\n  \"textIcons\": [";
+    for (size_t i = 0; i < p.textIcons.size(); ++i) {
+        const TextIcon& ic = p.textIcons[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(ic.name) << "\", \"path\": \"" << jsonEscape(ic.path)
+             << "\"";
+        if (ic.scale != 1.0f) json << ", \"scale\": " << fmtFloat(ic.scale);
+        json << " }";
+    }
+    json << (p.textIcons.empty() ? "]" : "\n  ]");
     json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
     json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
     if (!p.screenFx.empty()) {
@@ -1221,6 +1355,19 @@ static void writeModelLodsSection(std::ostream& json, const Project& p) {
         for (size_t i = 0; i < tiers.size(); ++i)
             json << (i ? ", " : "") << "\"" << jsonEscape(tiers[i]) << "\"";
         json << "]";
+        first = false;
+    }
+    json << " }";
+}
+
+// Conditional as well: nothing imported with a known real-world size = no key.
+static void writeModelUnitsSection(std::ostream& json, const Project& p) {
+    if (p.modelUnitMeters.empty()) return;
+    json << "\"modelUnits\": {";
+    bool first = true;
+    for (const auto& [asset, meters] : p.modelUnitMeters) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset)
+             << "\": " << fmtFloat(meters);
         first = false;
     }
     json << " }";
@@ -1393,6 +1540,7 @@ static void writeSequencesSection(std::ostream& json, const Project& p) {
                  << ", \"eye\": " << fmtVec3(k.eye) << ", \"target\": " << fmtVec3(k.target)
                  << ", \"fov\": " << fmtFloat(k.fov)
                  << (k.shake > 0.0f ? ", \"shake\": " + fmtFloat(k.shake) : "")
+                 << (k.roll != 0.0f ? ", \"roll\": " + fmtFloat(k.roll) : "")
                  << (k.camera.empty() ? "" : ", \"camera\": \"" + jsonEscape(k.camera) + "\"")
                  << ", \"ease\": " << k.easing << " }";
         }
@@ -1406,7 +1554,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
-                                         "apply-video"};
+                                         "apply-video", "rebind"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -1447,10 +1595,14 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         json << ",\n      \"entries\": [";
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
-            const int a = (en.action >= 0 && en.action <= 9) ? en.action : 0;
+            const int a = (en.action >= 0 && en.action <= 10) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
+                 << (en.bindAction.empty()
+                         ? ""
+                         : ", \"bindAction\": \"" + jsonEscape(en.bindAction) +
+                               "\"")
                  << (en.amount != 0.0f ? ", \"amount\": " + fmtFloat(en.amount) : "");
             if (!en.options.empty()) {
                 json << ", \"options\": [";
@@ -1466,15 +1618,117 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                 json << "]";
             }
             static const char* kMenuBinds[] = {
-                "",           "music-volume", "sfx-volume",  "deadzone",
-                "stick-curve", "display-mode", "widescreen", "player-count"};
-            if (en.settingBind >= 1 && en.settingBind <= 7)
+                "",            "music-volume", "sfx-volume",  "deadzone",
+                "stick-curve", "display-mode", "widescreen",  "player-count",
+                "input-preset"};
+            if (en.settingBind >= 1 && en.settingBind <= 8)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
     }
     json << (p.menus.empty() ? "]" : "\n  ]");
+}
+
+// Input actions + binding presets (Tools > Input Map). Always emitted: after
+// ensureInputActions every project has the built-in actions, and a project
+// whose .tyra lost the key would silently fall back to the seeded defaults
+// instead of the user's bindings.
+static void writeInputSection(std::ostream& json, const Project& p) {
+    // Role -> stable json name. Index = InputAction::Role.
+    static const char* kRoles[] = {
+        "",        "jump",      "use",       "throw",     "sprint",
+        "fly-up",  "fly-down",  "confirm",   "back",      "menu",
+        "alt",     "menu-up",   "menu-down", "menu-left", "menu-right",
+        "move-forward", "move-back", "move-left", "move-right"};
+    json << "\"input\": {\n    \"activePreset\": " << p.input.activePreset
+         << ",\n    \"allowRebind\": "
+         << (p.input.allowRebind ? "true" : "false") << ",\n    \"actions\": [";
+    for (size_t i = 0; i < p.input.actions.size(); ++i) {
+        const InputAction& a = p.input.actions[i];
+        const int r = (a.role > 0 && a.role < InputAction::RoleCount) ? a.role : 0;
+        json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+             << jsonEscape(a.name) << "\", \"label\": \"" << jsonEscape(a.label)
+             << "\"";
+        if (r != 0) json << ", \"role\": \"" << kRoles[r] << "\"";
+        if (!a.rebindable) json << ", \"rebindable\": false";
+        json << " }";
+    }
+    json << (p.input.actions.empty() ? "]" : "\n    ]") << ",\n    \"presets\": [";
+    for (size_t i = 0; i < p.input.presets.size(); ++i) {
+        const InputPreset& pr = p.input.presets[i];
+        json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+             << jsonEscape(pr.name) << "\", \"bindings\": [";
+        for (size_t b = 0; b < pr.bindings.size(); ++b) {
+            const InputBinding& bd = pr.bindings[b];
+            json << (b ? ",\n          " : "\n          ") << "{ \"action\": \""
+                 << jsonEscape(bd.action) << "\"";
+            if (!bd.pad.empty()) json << ", \"pad\": \"" << bd.pad << "\"";
+            if (bd.key != 0) json << ", \"key\": " << bd.key;
+            if (bd.mouse != 0) json << ", \"mouse\": " << bd.mouse;
+            json << " }";
+        }
+        json << (pr.bindings.empty() ? "]" : "\n        ]") << " }";
+    }
+    json << (p.input.presets.empty() ? "]" : "\n    ]") << "\n  }";
+}
+
+static void readInputSection(const json::Value& root, Project& out) {
+    out.input = InputMap{};
+    const auto* in = root.find("input");
+    if (!in || in->type != json::Value::Type::Object) return;
+    if (const auto* v = in->find("activePreset"))
+        out.input.activePreset = (int)v->numberOr(0.0);
+    if (const auto* v = in->find("allowRebind"))
+        out.input.allowRebind = v->boolOr(true);
+    if (const auto* arr = in->find("actions");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const auto& ja : arr->arr) {
+            InputAction a;
+            if (const auto* v = ja.find("name")) a.name = v->stringOr("");
+            if (const auto* v = ja.find("label")) a.label = v->stringOr("");
+            if (const auto* v = ja.find("role")) {
+                const std::string r = v->stringOr("");
+                for (int i = 1; i < InputAction::RoleCount; ++i)
+                    if (r == inputRoleName(i)) a.role = i;
+            }
+            if (const auto* v = ja.find("rebindable"))
+                a.rebindable = v->boolOr(true);
+            if (a.name.empty()) continue;  // an unnamed action addresses nothing
+            if (a.label.empty()) a.label = a.name;
+            out.input.actions.push_back(std::move(a));
+        }
+    }
+    if (const auto* arr = in->find("presets");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const auto& jp : arr->arr) {
+            InputPreset pr;
+            if (const auto* v = jp.find("name")) pr.name = v->stringOr("Preset");
+            if (const auto* bs = jp.find("bindings");
+                bs && bs->type == json::Value::Type::Array) {
+                for (const auto& jb : bs->arr) {
+                    InputBinding b;
+                    if (const auto* v = jb.find("action"))
+                        b.action = v->stringOr("");
+                    if (const auto* v = jb.find("pad")) b.pad = v->stringOr("");
+                    if (const auto* v = jb.find("key")) b.key = (int)v->numberOr(0.0);
+                    if (const auto* v = jb.find("mouse"))
+                        b.mouse = (int)v->numberOr(0.0);
+                    // Drop what the game could not use: an unknown pad name or
+                    // an out-of-range key/mouse would reach codegen as junk.
+                    if (b.action.empty()) continue;
+                    if (!b.pad.empty() && padButtonIndex(b.pad) < 0) b.pad.clear();
+                    if (b.key < 0 || b.key > 255) b.key = 0;
+                    if (b.mouse < 0 || b.mouse > 3) b.mouse = 0;
+                    pr.bindings.push_back(std::move(b));
+                }
+            }
+            if (!pr.name.empty()) out.input.presets.push_back(std::move(pr));
+        }
+    }
+    if (out.input.activePreset < 0 ||
+        out.input.activePreset >= (int)out.input.presets.size())
+        out.input.activePreset = 0;
 }
 
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
@@ -1519,6 +1773,8 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
+        case Section::Input: writeInputSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1538,6 +1794,8 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::ModelUnits: return "modelUnits";
+        case Section::Input: return "input";
     }
     return "unknown";
 }
@@ -1570,7 +1828,13 @@ static std::string manifestJson(const Project& p) {
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
-         << ", \"viewMode\": " << p.viewMode << " }";
+         << ", \"viewMode\": " << p.viewMode
+         << ", \"viewProjection\": " << p.viewProjection
+         << ", \"breakpoints\": [";
+    for (size_t i = 0; i < p.debugBreakpoints.size(); ++i)
+        json << (i ? ", " : "") << "\"" << jsonEscape(p.debugBreakpoints[i])
+             << "\"";
+    json << "] }";
     // emulatorPath / ps2LinkIp used to live here but are now machine-global
     // editor settings (editor.ini), no longer written per-project. The reader
     // still accepts them to migrate older projects into the global config.
@@ -1630,6 +1894,113 @@ void ensureProjectId(Project& p) {
     if (p.projectId.empty()) p.projectId = newObjectId();
 }
 
+const char* inputRoleName(int role) {
+    switch (role) {
+        case InputAction::RoleJump: return "jump";
+        case InputAction::RoleUse: return "use";
+        case InputAction::RoleThrow: return "throw";
+        case InputAction::RoleSprint: return "sprint";
+        case InputAction::RoleFlyUp: return "fly-up";
+        case InputAction::RoleFlyDown: return "fly-down";
+        case InputAction::RoleConfirm: return "confirm";
+        case InputAction::RoleBack: return "back";
+        case InputAction::RoleMenu: return "menu";
+        case InputAction::RoleAlt: return "alt";
+        case InputAction::RoleMenuUp: return "menu-up";
+        case InputAction::RoleMenuDown: return "menu-down";
+        case InputAction::RoleMenuLeft: return "menu-left";
+        case InputAction::RoleMenuRight: return "menu-right";
+        case InputAction::RoleMoveForward: return "move-forward";
+        case InputAction::RoleMoveBack: return "move-back";
+        case InputAction::RoleMoveLeft: return "move-left";
+        case InputAction::RoleMoveRight: return "move-right";
+        default: return "";
+    }
+}
+
+void ensureTextIcons(Project& p) {
+    // One entry per pad button, named after it (lowercased) - that convention
+    // is what makes {{cross}} and {{action:jump}} resolve. Their PNGs are
+    // generated into res/hud/ by saveAssets when missing, so an override is
+    // just replacing the file.
+    for (const std::string& name : menubake::builtinIconNames()) {
+        bool have = false;
+        for (const TextIcon& ic : p.textIcons) have |= (ic.name == name);
+        if (have) continue;
+        TextIcon ic;
+        ic.name = name;
+        ic.path = "res/hud/" + menubake::iconFileName(name);
+        p.textIcons.push_back(std::move(ic));
+    }
+}
+
+void ensureInputActions(Project& p) {
+    // The bindings TyraX hardcoded before the Input Map existed (the old
+    // controls.hpp defaults - see docs/keyboard-mouse.md), plus the new sprint
+    // action. Order is the order the Input Map window and a scaffolded controls
+    // menu list them in.
+    struct Seed {
+        int role;
+        const char* label;
+        const char* pad;
+        int key;
+        int mouse;
+        bool rebindable;
+    };
+    static const Seed kSeeds[] = {
+        {InputAction::RoleMoveForward, "Move forward", "", 0x1A, 0, true},
+        {InputAction::RoleMoveBack, "Move back", "", 0x16, 0, true},
+        {InputAction::RoleMoveLeft, "Move left", "", 0x04, 0, true},
+        {InputAction::RoleMoveRight, "Move right", "", 0x07, 0, true},
+        {InputAction::RoleJump, "Jump", "Cross", 0x2C, 2, true},
+        {InputAction::RoleSprint, "Sprint", "R2", 0xE1, 0, true},
+        {InputAction::RoleUse, "Use", "Square", 0x08, 1, true},
+        {InputAction::RoleThrow, "Throw", "Circle", 0, 3, true},
+        {InputAction::RoleFlyUp, "Fly up", "Cross", 0x2C, 0, true},
+        {InputAction::RoleFlyDown, "Fly down", "Square", 0x08, 0, true},
+        // The menu set is deliberately NOT rebindable by default: a player who
+        // rebinds "Confirm" to a button they cannot reach is locked out of the
+        // menu they would need to fix it.
+        {InputAction::RoleConfirm, "Confirm", "Cross", 0x28, 0, false},
+        {InputAction::RoleBack, "Back", "Triangle", 0x2A, 0, false},
+        {InputAction::RoleMenu, "Pause menu", "Start", 0x29, 0, false},
+        {InputAction::RoleAlt, "Alternate", "Circle", 0x15, 3, false},
+        {InputAction::RoleMenuUp, "Menu up", "DpadUp", 0x52, 0, false},
+        {InputAction::RoleMenuDown, "Menu down", "DpadDown", 0x51, 0, false},
+        {InputAction::RoleMenuLeft, "Menu left", "DpadLeft", 0x50, 0, false},
+        {InputAction::RoleMenuRight, "Menu right", "DpadRight", 0x4F, 0, false},
+    };
+
+    if (p.input.presets.empty()) p.input.presets.push_back(InputPreset{});
+    if (p.input.activePreset < 0 ||
+        p.input.activePreset >= (int)p.input.presets.size())
+        p.input.activePreset = 0;
+
+    for (const Seed& s : kSeeds) {
+        const char* name = inputRoleName(s.role);
+        // A role already covered (even under a user-chosen name) is left alone.
+        int idx = p.input.roleIndex(s.role);
+        if (idx < 0 && p.input.findAction(name)) continue;
+        if (idx < 0) {
+            InputAction a;
+            a.name = name;
+            a.label = s.label;
+            a.role = s.role;
+            a.rebindable = s.rebindable;
+            p.input.actions.push_back(std::move(a));
+            idx = (int)p.input.actions.size() - 1;
+            // A newly seeded action needs its default binding in EVERY preset,
+            // not just the active one - otherwise switching preset unbinds it.
+            for (InputPreset& pr : p.input.presets) {
+                InputBinding& b = pr.at(p.input.actions[idx].name);
+                b.pad = s.pad;
+                b.key = s.key;
+                b.mouse = s.mouse;
+            }
+        }
+    }
+}
+
 void ensureObjectIds(Project& p) {
     // Single pass: an object gets a fresh id when it has none (legacy / just
     // pasted) or when its id already appeared on an earlier object (accidental
@@ -1655,11 +2026,14 @@ void seedBuiltinLayouts(Project& p) {
         {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
     p.windowLayouts.push_back(
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
+    p.windowLayouts.push_back(
+        {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     p.activeLayout = 0;
 }
 
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& preset) {
+                   const TerrainConfig& terrain, const std::string& preset,
+                   float unitsPerMeter) {
     if (name.empty()) return "Project name is empty";
     for (char c : name) {
         if (!isalnum((unsigned char)c) && c != '-' && c != '_')
@@ -1679,6 +2053,38 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.dir = root.string();
     out.scenes[0].terrain = terrain;
 
+    // New-project defaults that deliberately differ from the struct defaults -
+    // those are what a project predating each key loads as, so they cannot
+    // carry the new answer without changing existing projects' behavior.
+    //
+    // A fresh project is born for authoring: the debug profile so Live Link and
+    // the on-screen overlays work from the first build (switch to release for
+    // the disc), and USB keyboard & mouse OFF - a pad game pays nothing for
+    // drivers it never uses, and the choice is one to make deliberately.
+    out.settings.buildProfile = "debug";
+    out.settings.liveLink = true;
+    out.settings.keyboardMouse = false;
+
+    // PAL picture ON: on a PAL console the region-following interlaced mode
+    // boots the full-height 576i frame (512 rendered lines) instead of the
+    // letterboxed NTSC-sized picture - the "full PAL" of European releases,
+    // and the whole point of a 50 Hz signal. It costs ~380 KB of GS VRAM and
+    // nothing at all on an NTSC console, which still gets its own 448 lines.
+    // Existing projects keep the letterboxed picture (the field reads as false)
+    // because turning it on retroactively would change what they output.
+    out.settings.palFullHeight = true;
+
+    // World scale, chosen when the project is created because the alternative
+    // is discovering it after the world is built. The metric-by-definition
+    // numbers scale with it, so the FPP preset is a 1.8 m player at any scale
+    // (docs/world-scale.md); everything else is in units by nature and stays.
+    if (!(unitsPerMeter > 0.0001f)) unitsPerMeter = 1.0f;
+    out.settings.unitsPerMeter = unitsPerMeter;
+    out.settings.eyeHeight *= unitsPerMeter;
+    out.settings.walkSpeed *= unitsPerMeter;
+    out.settings.gravity *= unitsPerMeter;
+    out.settings.jumpSpeed *= unitsPerMeter;
+
     // Start with one ambience preset (its defaults match the project's default
     // sky/lighting/fog) so the sky renders and the Ambience Editor isn't empty.
     // New projects get baked ambient occlusion out of the box; loaded pre-AO
@@ -1692,27 +2098,66 @@ std::string create(Project& out, const std::string& name, const std::string& par
     // Seed the built-in window layouts (Default/Director/Material Designer).
     seedBuiltinLayouts(out);
 
-    // Two presets: "fpp" (FPP game template with a single player entity) and
-    // "empty" (orbit camera, no objects). Anything else is treated as empty.
-    const bool fpp = preset == "fpp";
-    out.gameTemplate = fpp ? "fpp" : "orbit";
+    // Three presets: "fpp" and "thirdperson" (the player-entity game template,
+    // differing only in the seeded Player's mode) and "empty" (no objects).
+    // Anything else is treated as empty. The choice is permanent - see
+    // Project::gameTemplate.
+    const bool thirdPerson = preset == "thirdperson";
+    const bool player1st = preset == "fpp";
+    out.gameTemplate = thirdPerson ? "thirdperson" : player1st ? "fpp" : "orbit";
 
-    if (fpp) {
+    if (!thirdPerson && !player1st) {
+        // An empty project starts EMPTY: nothing in the scene and a camera that
+        // does not move on its own. The template's automatic orbit is what a
+        // scene with no Player object falls back to, and `orbitSpeed = 0` parks
+        // it at a fixed vantage point looking at the origin - so the first
+        // thing the project does is whatever the user adds (a Player, a script,
+        // a Camera object, a cutscene), not a demo turntable. Set here rather
+        // than in the struct initializer, which is what projects saved before
+        // this load as (they keep their turntable).
+        out.settings.orbitSpeed = 0.0f;
+    }
+
+    if (thirdPerson || player1st) {
         // The player entity: the camera becomes this player at game start.
         SceneObject player;
         player.name = "player-1";
         player.type = PrimitiveType::Player;
+        // Walk (FPP) vs third person - the only difference between the two
+        // player presets. A third-person avatar is the object's OWN animated
+        // model; it starts without one (the rig and the movement work anyway,
+        // the model is dropped in from Properties later).
+        player.playerMode = thirdPerson ? 2 : 0;
         player.position[0] = 0.0f, player.position[1] = 0.0f, player.position[2] = 0.0f;
         player.color[0] = 0.15f, player.color[1] = 0.9f, player.color[2] = 0.9f;
+        // Same reasoning as the settings above: these are metres by definition
+        // (a 1.8 m person running 5 m/s), so they follow the world scale.
+        player.playerEyeHeight *= unitsPerMeter;
+        player.playerWalkSpeed *= unitsPerMeter;
+        player.playerJumpSpeed *= unitsPerMeter;
+        player.playerCamDist *= unitsPerMeter;
+        player.playerCamHeight *= unitsPerMeter;
         out.scenes[0].objects.push_back(player);
     }
 
     ensureProjectId(out);
     ensureObjectIds(out);
+    ensureInputActions(out);
+    ensureTextIcons(out);
+    // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
+    // what to press rather than a generic "USE" - and follows a rebind. Only on
+    // create: flipping an existing project from its image to text would restyle
+    // it behind the user's back (the UI Editor offers the switch instead).
+    // Both prompts start as TEXT (the defaults carry the button glyph); the
+    // strings themselves come from the members' initializers.
+    out.usePromptIsText = true;
+    out.pickPromptIsText = true;
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
-        if (auto err = writeFile(root / f.relativePath, f.content); !err.empty()) return err;
+        if (auto err = writeFile(root / templates::nativePath(f.relativePath), f.content);
+            !err.empty())
+            return err;
     }
     if (auto err = save(out); !err.empty()) return err;
 
@@ -2174,6 +2619,155 @@ void loadSplat(Project& p) {
     ensureSplatmap(p);  // reconcile with the current layer count / resolution
 }
 
+// --- Areas (docs/areas.md) --------------------------------------------------
+
+namespace {
+
+struct AV3 {
+    float x, y, z;
+};
+
+// Rotation order X, then Y, then Z - the same convention as the viewport's
+// model matrix, aobake::rotated and the generated game's rotated(). Keep in
+// sync.
+AV3 areaRotated(const AV3& v, const float* rotDeg) {
+    AV3 r = v;
+    const float d2r = 3.14159265358979323846f / 180.0f;
+    const float rx = rotDeg[0] * d2r, ry = rotDeg[1] * d2r, rz = rotDeg[2] * d2r;
+    {
+        const float c = std::cos(rx), s = std::sin(rx);
+        const float y = r.y * c - r.z * s, z = r.y * s + r.z * c;
+        r.y = y, r.z = z;
+    }
+    {
+        const float c = std::cos(ry), s = std::sin(ry);
+        const float x = r.x * c + r.z * s, z = -r.x * s + r.z * c;
+        r.x = x, r.z = z;
+    }
+    {
+        const float c = std::cos(rz), s = std::sin(rz);
+        const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
+        r.x = x, r.y = y;
+    }
+    return r;
+}
+
+// Squared distance from a world point to the area's oriented box, 0 inside.
+// The rotated unit axes are orthonormal, so projecting the offset onto each and
+// clamping to the half extent gives the closest point without a matrix inverse.
+float areaDistSq(const SceneObject& area, float x, float y, float z) {
+    const AV3 d{x - area.position[0], y - area.position[1], z - area.position[2]};
+    const AV3 ax[3] = {areaRotated({1, 0, 0}, area.rotation),
+                       areaRotated({0, 1, 0}, area.rotation),
+                       areaRotated({0, 0, 1}, area.rotation)};
+    float out = 0.0f;
+    for (int k = 0; k < 3; ++k) {
+        const float half = 0.5f * std::fabs(area.scale[k]);
+        const float t = d.x * ax[k].x + d.y * ax[k].y + d.z * ax[k].z;
+        const float over = std::fabs(t) - half;
+        if (over > 0.0f) out += over * over;
+    }
+    return out;
+}
+
+}  // namespace
+
+const SceneObject* findArea(const std::vector<SceneObject>& objs,
+                            const std::string& name) {
+    if (name.empty()) return nullptr;
+    for (const SceneObject& o : objs)
+        if (o.type == PrimitiveType::Area && o.name == name) return &o;
+    return nullptr;
+}
+
+bool areaContainsPoint(const SceneObject& area, float x, float y, float z) {
+    return areaDistSq(area, x, y, z) <= 0.0f;
+}
+
+bool areaCatchable(PrimitiveType t) {
+    switch (t) {
+        case PrimitiveType::Box:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::Plane:
+        case PrimitiveType::SavePoint:
+        case PrimitiveType::Model:
+        case PrimitiveType::Decal:
+            return true;
+        default:
+            return false;  // markers, lights, cameras, mirrors, portals, areas
+    }
+}
+
+std::vector<int> areaCaughtObjects(const std::vector<SceneObject>& objs,
+                                   const std::string& areaName, int exclude) {
+    std::vector<int> out;
+    const SceneObject* area = findArea(objs, areaName);
+    if (!area) return out;
+    for (size_t i = 0; i < objs.size(); ++i) {
+        if ((int)i == exclude) continue;
+        const SceneObject& o = objs[i];
+        if (!areaCatchable(o.type)) continue;
+        // Bounding sphere = half the largest scale axis, so a prop only
+        // partly inside still counts (a strict center test would drop a wide
+        // crate the author clearly meant to include).
+        float r = std::fabs(o.scale[0]);
+        r = std::max(r, std::fabs(o.scale[1]));
+        r = std::max(r, std::fabs(o.scale[2]));
+        r *= 0.5f;
+        if (areaDistSq(*area, o.position[0], o.position[1], o.position[2]) <= r * r)
+            out.push_back((int)i);
+    }
+    return out;
+}
+
+std::set<std::string> runtimeRefNames(const Project& p,
+                                      const std::vector<SceneObject>& objs) {
+    std::set<std::string> refs;
+    for (const SceneObject& o : objs) {
+        for (const FlowNode& n : o.flowGraph.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (t && t->strKind == FlowParamKind::ObjectName && !n.str.empty())
+                refs.insert(n.str);
+        }
+        if (o.type == PrimitiveType::Mirror)
+            for (const std::string& m : o.mirrorObjects) refs.insert(m);
+        if (o.type == PrimitiveType::Portal)
+            for (const std::string& m : o.portalObjects) refs.insert(m);
+    }
+    for (const Sequence& s : p.sequences) {
+        for (const SeqTrack& tr : s.tracks) refs.insert(tr.target);
+        for (const SeqCameraKey& k : s.cameraKeys) refs.insert(k.camera);
+    }
+    return refs;
+}
+
+bool objectRuntimeMovable(const SceneObject& o,
+                          const std::set<std::string>& refs) {
+    if (o.physics) return true;    // gravity, bounces, gets pushed
+    if (o.pickable) return true;   // carried in front of the camera, thrown
+    if (o.usable) return true;     // the highlight defers and re-submits it
+    if (o.saveState) return true;  // a loaded save repositions it
+    if (!o.layer.empty()) return true;  // streams in and out of the world
+    // Per-object logic: the graph can move self, attached scripts get a
+    // per-frame hook on this object.
+    if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return true;
+    return refs.find(o.name) != refs.end();
+}
+
+std::vector<int> areaLiveCandidates(const std::vector<SceneObject>& objs,
+                                    int exclude,
+                                    const std::set<std::string>& refs) {
+    std::vector<int> out;
+    for (size_t i = 0; i < objs.size(); ++i) {
+        if ((int)i == exclude) continue;
+        if (!areaCatchable(objs[i].type)) continue;
+        if (objectRuntimeMovable(objs[i], refs)) out.push_back((int)i);
+    }
+    return out;
+}
+
 static void readVec3(const json::Value* v, float* out) {
     if (!v || v->type != json::Value::Type::Array || v->arr.size() < 3) return;
     for (int i = 0; i < 3; ++i) out[i] = (float)v->arr[i].numberOr(out[i]);
@@ -2233,6 +2827,11 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
         if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(true);
+        if (const auto* v = jo.find("bakedLighting"))
+            o.bakedLighting = v->boolOr(true);
+        if (const auto* v = jo.find("dynamicLighting"))
+            o.dynamicLighting = v->boolOr(false);
+        if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -2247,6 +2846,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 if (const auto* v = tp->find("walkClip")) o.playerWalkClip = v->stringOr("");
                 if (const auto* v = tp->find("runClip")) o.playerRunClip = v->stringOr("");
                 if (const auto* v = tp->find("jumpClip")) o.playerJumpClip = v->stringOr("");
+                if (const auto* v = tp->find("backClip")) o.playerBackClip = v->stringOr("");
+                if (const auto* v = tp->find("strafeLeftClip"))
+                    o.playerStrafeLeftClip = v->stringOr("");
+                if (const auto* v = tp->find("strafeRightClip"))
+                    o.playerStrafeRightClip = v->stringOr("");
+                if (const auto* v = tp->find("faceCamera"))
+                    o.playerFaceCamera = v->boolOr(false);
                 if (const auto* v = tp->find("runThreshold"))
                     o.playerRunThreshold = (float)v->numberOr(0.55);
                 if (const auto* v = tp->find("camDist"))
@@ -2272,7 +2878,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.playerCamYawRotate = v->boolOr(false);
             }
             if (const auto* v = pl->find("walkSpeed"))
-                o.playerWalkSpeed = (float)v->numberOr(0.4);
+                o.playerWalkSpeed = (float)v->numberOr(0.1);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
             if (const auto* v = pl->find("eyeHeight"))
@@ -2291,6 +2897,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.flashlightAngle = (float)v->numberOr(20.0);
                 if (const auto* v = fl->find("toggle"))
                     o.flashlightToggleButton = v->stringOr("");
+                if (const auto* v = fl->find("texture"))
+                    o.flashlightTexture = v->stringOr("");
                 if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
                 if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
                 if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
@@ -2347,6 +2955,15 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = lt->find("radius"))
                 o.lightRadius = (float)v->numberOr(8.0);
             if (o.lightRadius < 0.1f) o.lightRadius = 0.1f;
+            if (const auto* v = lt->find("dynamic"))
+                o.lightDynamic = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = lt->find("flicker"))
+                o.lightFlicker = (float)v->numberOr(0.0);
+            if (o.lightFlicker < 0.0f) o.lightFlicker = 0.0f;
+            if (o.lightFlicker > 1.0f) o.lightFlicker = 1.0f;
+            if (const auto* v = lt->find("beam"))
+                o.lightBeam = (int)v->numberOr(0.0);
+            if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
         }
         if (const auto* cm = jo.find("camera")) {
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
@@ -2363,6 +2980,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             }
         }
         if (const auto* v = jo.find("textureFeed")) o.textureFeed = v->stringOr("");
+        if (const auto* v = jo.find("catchArea")) o.catchArea = v->stringOr("");
+        if (const auto* v = jo.find("catchAreaLive"))
+            o.catchAreaLive = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* mr = jo.find("mirror")) {
             if (const auto* v = mr->find("opacity")) {
                 o.mirrorOpacity = (float)v->numberOr(0.35);
@@ -2519,13 +3139,22 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("showProfiler"))
             st.showProfiler = v->boolOr(false);
+        if (const auto* v = s->find("showAreas")) st.showAreas = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
+        if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
+        if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
+        if (const auto* v = s->find("timeMachine"))
+            st.timeMachine = v->boolOr(true);
+        if (const auto* v = s->find("eeCrashHandler"))
+            st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
-        // ps2link option now always means the custom TyraX ps2link)
+        // ps2link option now always means the TyraX ps2link, the only one the
+        // editor deploys to; a project that predates the key gets it ON, which
+        // is what that ps2link supports)
         if (const auto* v = s->find("keyboardMousePs2Link"))
-            st.keyboardMousePs2Link = v->boolOr(false);
+            st.keyboardMousePs2Link = v->boolOr(true);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
@@ -2573,6 +3202,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.navAgentRadius = (float)v->numberOr(0.4);
             if (st.navAgentRadius < 0.0f) st.navAgentRadius = 0.0f;
         }
+        // World scale. Absent (every project saved before it existed) = 1
+        // unit per meter, which is what the importers assumed all along.
+        if (const auto* v = s->find("unitsPerMeter")) {
+            st.unitsPerMeter = (float)v->numberOr(1.0);
+            if (!(st.unitsPerMeter > 0.0001f)) st.unitsPerMeter = 1.0f;
+        }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;
@@ -2587,8 +3222,15 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
-        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
+        if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
+        // Sprint: projects that predate it read 1.8 like a fresh one (the
+        // sprint action ensureInputActions seeds is what actually enables it).
+        if (const auto* v = s->find("sprintMultiplier")) {
+            st.sprintMultiplier = (float)v->numberOr(1.8);
+            if (st.sprintMultiplier < 1.0f) st.sprintMultiplier = 1.0f;
+            if (st.sprintMultiplier > 4.0f) st.sprintMultiplier = 4.0f;
+        }
         // Legacy single-value key seeds both sticks; per-stick keys override.
         if (const auto* v = s->find("stickDeadzone")) {
             st.stickDeadzoneL = (float)v->numberOr(0.2);
@@ -2631,6 +3273,34 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.aoRadius = (float)v->numberOr(2.5);
         if (st.aoRadius < 0.1f) st.aoRadius = 0.1f;
         if (st.aoRadius > 50.0f) st.aoRadius = 50.0f;
+        // Baked global illumination (docs/global-illumination.md). Every read
+        // defaults to the struct initializer, which is what a project saved
+        // before GI existed loads as - i.e. off, and identical to before.
+        if (const auto* v = s->find("giEnabled")) st.giEnabled = v->boolOr(false);
+        if (const auto* v = s->find("giRays")) st.giRays = (int)v->numberOr(128);
+        if (st.giRays < 8) st.giRays = 8;
+        if (st.giRays > 1024) st.giRays = 1024;
+        if (const auto* v = s->find("giBounces"))
+            st.giBounces = (int)v->numberOr(2);
+        if (st.giBounces < 0) st.giBounces = 0;
+        if (st.giBounces > 8) st.giBounces = 8;
+        if (const auto* v = s->find("giSkyLight"))
+            st.giSkyLight = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("giSunLight"))
+            st.giSunLight = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("giAmbientFloor"))
+            st.giAmbientFloor = clamp01((float)v->numberOr(0.03));
+        if (const auto* v = s->find("giProbes")) st.giProbes = v->boolOr(true);
+        if (const auto* v = s->find("giProbeSpacing"))
+            st.giProbeSpacing = (float)v->numberOr(3.0);
+        if (st.giProbeSpacing < 0.5f) st.giProbeSpacing = 0.5f;
+        if (const auto* v = s->find("giProbeHeight"))
+            st.giProbeHeight = (float)v->numberOr(2.0);
+        if (st.giProbeHeight < 0.25f) st.giProbeHeight = 0.25f;
+        if (const auto* v = s->find("giProbeLevels"))
+            st.giProbeLevels = (int)v->numberOr(4);
+        if (st.giProbeLevels < 1) st.giProbeLevels = 1;
+        if (st.giProbeLevels > 16) st.giProbeLevels = 16;
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
@@ -2646,6 +3316,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.dofFocus = (float)v->numberOr(st.dofFocus);
         if (const auto* v = s->find("dofRange"))
             st.dofRange = (float)v->numberOr(st.dofRange);
+        if (const auto* v = s->find("flare"))
+            st.flare = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("godRays"))
+            st.godRays = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("blobShadows"))
+            st.blobShadows = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -2776,6 +3452,74 @@ static void readHudSection(const json::Value& root, Project& out) {
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }
+    // The two interaction prompts. Their mode is explicit; a project written
+    // before the flag existed is migrated by the rule that was in force then
+    // ("non-empty text wins"), so it keeps the look it had.
+    // Returns true when the project actually carried this text - the pre-flag
+    // migration rule ("non-empty text wins") may only fire then, or every older
+    // project would flip to text mode showing the default.
+    auto readPromptText = [&](const char* key, HudText& t) {
+        const auto* jt = root.find(key);
+        if (!jt || jt->type != json::Value::Type::Object) return false;
+        if (const auto* v = jt->find("text")) t.text = v->stringOr("");
+        if (const auto* v = jt->find("size")) t.size = (int)v->numberOr(16);
+        if (t.size < 8) t.size = 8;
+        if (t.size > 48) t.size = 48;
+        readVec3(jt->find("color"), t.color);
+        if (const auto* v = jt->find("font")) t.font = v->stringOr("");
+        if (const auto* v = jt->find("shadow"))
+            t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
+        return true;
+    };
+    out.usePromptText = defaultPromptText("use-prompt", "{{use}} USE");
+    out.pickPromptText = defaultPromptText("pick-prompt", "{{use}} PICK UP");
+    bool hadUseText = readPromptText("usePromptText", out.usePromptText);
+    bool hadPickText = readPromptText("pickPromptText", out.pickPromptText);
+    // Mode: the stored flag when there is one, otherwise the pre-flag rule
+    // ("non-empty text wins") so an older project keeps the look it had.
+    out.usePromptIsText = hadUseText && !out.usePromptText.text.empty();
+    out.pickPromptIsText = hadPickText && !out.pickPromptText.text.empty();
+    if (const auto* v = root.find("usePromptIsText"))
+        out.usePromptIsText = v->boolOr(false);
+    if (const auto* v = root.find("pickPromptIsText"))
+        out.pickPromptIsText = v->boolOr(false);
+    // "New text" is HudText's own default and can only have got in here from an
+    // interim build that default-constructed a prompt text and then wrote it out
+    // (flag included). Nobody types that into a prompt, so restore the real
+    // default and fall back to the image - AFTER the flags, or the bogus flag
+    // would keep the placeholder on screen.
+    auto dropPlaceholder = [](HudText& t, bool& isText, const char* def) {
+        if (t.text != "New text") return;
+        t.text = def;
+        isText = false;
+    };
+    dropPlaceholder(out.usePromptText, out.usePromptIsText, "{{use}} USE");
+    dropPlaceholder(out.pickPromptText, out.pickPromptIsText,
+                    "{{use}} PICK UP");
+    out.pickPromptImage.clear();
+    if (const auto* v = root.find("pickPromptImage"))
+        out.pickPromptImage = v->stringOr("");
+
+    out.textIcons.clear();
+    if (const auto* icons = root.find("textIcons");
+        icons && icons->type == json::Value::Type::Array) {
+        for (const auto& ji : icons->arr) {
+            TextIcon ic;
+            if (const auto* v = ji.find("name")) ic.name = v->stringOr("");
+            if (const auto* v = ji.find("path")) ic.path = v->stringOr("");
+            if (const auto* v = ji.find("scale")) ic.scale = (float)v->numberOr(1.0);
+            if (ic.scale < 0.2f) ic.scale = 0.2f;
+            if (ic.scale > 4.0f) ic.scale = 4.0f;
+            // A nameless icon has no placeholder that could reach it.
+            if (ic.name.empty()) continue;
+            bool dup = false;
+            for (const TextIcon& e : out.textIcons) dup |= (e.name == ic.name);
+            if (!dup) out.textIcons.push_back(std::move(ic));
+        }
+    }
+    // Seed/backfill the pad-button set: a project from before text icons (or one
+    // whose key was trimmed) still resolves {{cross}}.
+    ensureTextIcons(out);
     // Effect layer positions; absent (older projects) or out of range = -1,
     // i.e. the effect applies over everything at end of frame - the old
     // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
@@ -3175,6 +3919,7 @@ static void readSequencesSection(const json::Value& root, Project& out) {
                     readVec3(jck.find("target"), k.target);
                     if (const auto* v = jck.find("fov")) k.fov = (float)v->numberOr(60.0);
                     if (const auto* v = jck.find("shake")) k.shake = (float)v->numberOr(0.0);
+                    if (const auto* v = jck.find("roll")) k.roll = (float)v->numberOr(0.0);
                     if (const auto* v = jck.find("camera")) k.camera = v->stringOr("");
                     if (const auto* v = jck.find("ease")) k.easing = (int)v->numberOr(1.0);
                     s.cameraKeys.push_back(k);
@@ -3271,9 +4016,12 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "toggle"    ? MenuEntry::Toggle
                                     : a == "choice"    ? MenuEntry::Choice
                                     : a == "apply-video" ? MenuEntry::ApplyVideo
+                                    : a == "rebind"    ? MenuEntry::RebindKey
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
+                    if (const auto* v = je.find("bindAction"))
+                        en.bindAction = v->stringOr("");
                     if (const auto* v = je.find("amount"))
                         en.amount = (float)v->numberOr(0.0);
                     if (const auto* v = je.find("options");
@@ -3303,6 +4051,7 @@ static void readMenusSection(const json::Value& root, Project& out) {
                             : b == "display-mode" ? MenuEntry::BindDisplayMode
                             : b == "widescreen"  ? MenuEntry::BindWidescreen
                             : b == "player-count" ? MenuEntry::BindPlayerCount
+                            : b == "input-preset" ? MenuEntry::BindInputPreset
                                                  : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));
@@ -3342,6 +4091,18 @@ static void readAnimEditsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readModelUnitsSection(const json::Value& root, Project& out) {
+    out.modelUnitMeters.clear();
+    const auto* obj = root.find("modelUnits");
+    if (!obj || obj->type != json::Value::Type::Object) return;
+    for (const auto& [asset, v] : obj->obj) {
+        const float meters = (float)v.numberOr(1.0);
+        // A non-positive size says nothing about the model and would collapse
+        // every object made from it - drop the entry instead.
+        if (meters > 0.0001f) out.modelUnitMeters[asset] = meters;
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -3360,6 +4121,13 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::ModelUnits: readModelUnitsSection(root, p); break;
+        // A section blob is total, so a peer that never had the Input Map
+        // would wipe it - re-seed the built-ins after applying (idempotent).
+        case Section::Input:
+            readInputSection(root, p);
+            ensureInputActions(p);
+            break;
     }
     return true;
 }
@@ -3399,8 +4167,10 @@ std::string load(Project& out, const std::string& projectDir) {
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";
 
-    if (const auto* v = root.find("template"))
-        out.gameTemplate = v->stringOr("orbit") == "fpp" ? "fpp" : "orbit";
+    if (const auto* v = root.find("template")) {
+        const std::string t = v->stringOr("orbit");
+        out.gameTemplate = t == "fpp" ? "fpp" : t == "thirdperson" ? "thirdperson" : "orbit";
+    }
 
     if (const auto* v = root.find("projectId")) out.projectId = v->stringOr("");
     ensureProjectId(out);  // backfill projects born before project ids
@@ -3451,7 +4221,7 @@ std::string load(Project& out, const std::string& projectDir) {
     // above) and reach scenes through inheritance (project::resolvedSettings),
     // so no per-scene copy is needed here.
     if (const auto* terrain = root.find("terrain")) {
-        TerrainConfig t;
+        TerrainConfig t{64, 64};  // legacy default, not the new-project one
         if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
         if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
         for (SceneData& sc : out.scenes) sc.terrain = t;
@@ -3473,6 +4243,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readTexQualitySection(root, out);
     readModelLodsSection(root, out);
+    readModelUnitsSection(root, out);
 
     readSaveDataSection(root, out);
 
@@ -3541,6 +4312,12 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readMenusSection(root, out);
 
+    readInputSection(root, out);
+    // Backfill the built-in actions/preset: a project from before the Input Map
+    // (or one whose "input" key was hand-trimmed) gets exactly the bindings
+    // that used to be hardcoded, so it plays the same.
+    ensureInputActions(out);
+
     loadHeights(out);
     ensureHeightmap(out);
     loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers
@@ -3564,6 +4341,13 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmoSpace"))
             out.gizmoSpace = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+        if (const auto* v = ed->find("viewProjection"))
+            out.viewProjection = (int)v->numberOr(0);
+        if (const auto* v = ed->find("breakpoints");
+            v && v->type == json::Value::Type::Array)
+            for (const auto& jb : v->arr)
+                if (jb.type == json::Value::Type::String && !jb.str.empty())
+                    out.debugBreakpoints.push_back(jb.str);
         // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
         // (editor.ini). Still read so the editor can migrate an older project's
         // values into the global config on first open (see App::attachProject);
@@ -3595,6 +4379,20 @@ std::string load(Project& out, const std::string& projectDir) {
             const std::string legacy = v->stringOr("");
             if (!legacy.empty()) out.windowLayouts[0].ini = legacy;  // keep old arrangement
         }
+    }
+    // Top up the built-in set: a project saved before a built-in layout existed
+    // keeps its own layouts, and would otherwise never see the new one. Only
+    // recipe-backed built-ins are added (a user layout with the same name is
+    // left alone), so this stays a one-time migration per project.
+    {
+        auto hasRecipe = [&](LayoutRecipe r) {
+            for (const WindowLayout& L : out.windowLayouts)
+                if (L.recipe == (int)r) return true;
+            return false;
+        };
+        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Debugger))
+            out.windowLayouts.push_back(
+                {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
@@ -3767,7 +4565,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (uint64_t)o.type);
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
-                  (o.decalProject ? 8 : 0));
+                  (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
@@ -3775,6 +4573,8 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // Cast shadow feeds the build-time AO bake (occluder tables + textures);
     // a live edit of it cannot show without a rebuild.
     fnvMix(h, o.castShadow ? 1 : 0);
+    fnvMix(h, o.bakedLighting ? 1 : 0);
+    fnvMix(h, o.dynamicLighting ? 1 : 0);
     // Physics material: baked into SCENE_OBJECTS, never live-patched (the
     // snapshot record carries only transform + color), and copied wholesale
     // by a spawned clone. Only meaningful while `physics` is on - the runtime
@@ -3795,6 +4595,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.playerCanJump ? 1 : 0);
     fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);
     fnvMixS(h, o.playerRunClip), fnvMixS(h, o.playerJumpClip);
+    fnvMixS(h, o.playerBackClip), fnvMixS(h, o.playerStrafeLeftClip);
+    fnvMixS(h, o.playerStrafeRightClip);
+    fnvMix(h, o.playerFaceCamera ? 1 : 0);
     fnvMixF(h, o.playerRunThreshold);
     fnvMixF(h, o.playerCamDist), fnvMixF(h, o.playerCamHeight);
     fnvMixF(h, o.playerCamShoulder), fnvMixF(h, o.playerTurnRate);
@@ -3805,6 +4608,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
     fnvMixS(h, o.flashlightToggleButton);
+    fnvMixS(h, o.flashlightTexture);
     fnvMix(h, (uint64_t)o.emitterKind);
     fnvMix(h, (uint64_t)o.emitterCount);
     fnvMixF(h, o.emitterSize);
@@ -3822,6 +4626,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
     for (const auto& n : o.camFeedObjects) fnvMixS(h, n);
     fnvMixS(h, o.textureFeed);
+    // A catch area is expanded into the baked side tables at build time; a
+    // live one additionally bakes its candidate list and an area index.
+    fnvMixS(h, o.catchArea);
+    fnvMix(h, o.catchAreaLive ? 1 : 0);
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
@@ -3847,6 +4655,18 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) {
         fnvMix3(h, o.position), fnvMix3(h, o.color);
         fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+        // Dynamic lights live in a baked side table (DYN_LIGHTS) - flipping
+        // the flag or the flicker needs a rebuild like any baked change.
+        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f), fnvMixF(h, o.lightFlicker);
+        fnvMixF(h, (float)o.lightBeam);
+    }
+    // An Area's box is what mirror/portal/camera-feed target lists were
+    // expanded against at build time, so moving one changes baked tables even
+    // though the runtime also reads it live (layer zones, the In Area trigger).
+    // Folding the transform in keeps the LIVE chip honest instead of showing
+    // half the edit.
+    if (o.type == PrimitiveType::Area) {
+        fnvMix3(h, o.position), fnvMix3(h, o.rotation), fnvMix3(h, o.scale);
     }
     return h;
 }
@@ -3863,6 +4683,10 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     if (o.type == PrimitiveType::Decal && o.decalProject) return false;
     if (o.type == PrimitiveType::Mirror) return false;
     if (o.type == PrimitiveType::Portal) return false;  // baked PORTALS side table
+    // Areas are referenced BY NAME from baked tables (layer zones, catch-area
+    // expansions) that only exist for authored objects - a spawned clone would
+    // be a volume nothing points at.
+    if (o.type == PrimitiveType::Area) return false;
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }
@@ -3880,6 +4704,7 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMix(h, (l.startLoaded ? 1 : 0) | (l.autoStream ? 2 : 0));
             fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
             fnvMixF(h, l.streamRadius);
+            fnvMixS(h, l.streamArea);  // baked as the zone's area object index
         }
     }
     // Animation clip edits are baked into the .tskl at build time, so a
@@ -3921,16 +4746,28 @@ std::string liveLinkSigFile(const Project& p) {
 
 std::string refreshGenerated(const Project& p) {
     for (const auto& f : templates::generate(p)) {
-        const fs::path path = fs::path(p.dir) / f.relativePath;
+        const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);
 
         bool write = false;
-        if (f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
+        // The Makefile is fully generated (no ownership marker, like the
+        // Dockerfile): it carries the build-profile flags now - -g and
+        // -leedebug for the crash reporter in debug, neither in release -
+        // so it MUST refresh with the project, not just at creation.
+        if (f.relativePath == "Makefile" ||
+            f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
             f.relativePath == "src\\main.cpp" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_logic.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_time.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\live_logic.gen.hpp" ||
+            f.relativePath == "src\\gen\\livelogic.built" ||
+            f.relativePath == "src\\gen\\live_debug.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\live_debug.gen.hpp" ||
+            f.relativePath == "src\\gen\\livedbg.sym" ||
             f.relativePath == "src\\gen\\live_tex.gen.cpp" ||
             f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||
@@ -3948,9 +4785,13 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
+            f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
-            f.relativePath == "inc\\menu_data.gen.hpp") {
+            f.relativePath == "inc\\menu_data.gen.hpp" ||
+            f.relativePath == "inc\\icon_data.gen.hpp" ||
+            f.relativePath == "inc\\input_map.gen.hpp" ||
+            f.relativePath == "src\\gen\\input_map.gen.cpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
@@ -4030,7 +4871,8 @@ std::string refreshGenerated(const Project& p) {
     {
         std::vector<std::string> warnings;
         for (const auto& f : templates::bakeAnimAssets(p, &warnings)) {
-            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+            if (auto err = writeFile(fs::path(p.dir) / templates::nativePath(f.relativePath),
+                                     f.content);
                 !err.empty())
                 return err;
         }
@@ -4044,7 +4886,8 @@ std::string refreshGenerated(const Project& p) {
     {
         std::vector<std::string> warnings;
         for (const auto& f : templates::bakeStaticModels(p, &warnings)) {
-            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+            if (auto err = writeFile(fs::path(p.dir) / templates::nativePath(f.relativePath),
+                                     f.content);
                 !err.empty())
                 return err;
         }
@@ -4108,6 +4951,59 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(png.parent_path(), ec);
         std::ofstream f(png, std::ios::binary);
         if (f) f.write(reinterpret_cast<const char*>(a.data), (std::streamsize)a.size);
+    }
+
+    // Lens flare sprites: procedural (no font), written whenever the project
+    // can show the flare - an authored per-scene amount OR a Set Flare node
+    // that could raise it at runtime. FLARE_USED in scene_data.hpp gates the
+    // game-side texture load, so it matches this exact predicate (see
+    // templates::projectUsesFlare).
+    if (templates::projectUsesFlare(p)) {
+        for (int kind = 0; kind < 2; ++kind) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeFlarePNG(kind, png))
+                return "Lens flare sprite bake failed";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(kind);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write flare sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // Blob shadows reuse the soft glow as their alpha mask - bake it even
+    // when the flare is off (kind 0 only; the flare block above already
+    // wrote it otherwise).
+    if (!templates::projectUsesFlare(p) && p.settings.blobShadows) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakeFlarePNG(0, png))
+            return "Blob shadow sprite bake failed";
+        const fs::path path =
+            fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(0);
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write blob shadow sprite: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()),
+                (std::streamsize)png.size());
+    }
+    // Light-beam corona (Point Light > Beam): its own RGB-shaped sprite.
+    if (templates::projectUsesBeams(p)) {
+        for (int kind = 2; kind < 3; ++kind) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeFlarePNG(kind, png))
+                return "Lens flare sprite bake failed";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(kind);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write flare sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
     }
 
     // Game menu panels: derived from project data (labels, colors), so
@@ -4174,6 +5070,78 @@ std::string refreshGenerated(const Project& p) {
                 for (const std::string& w : wantedAtlases) wanted |= (w == fn);
                 if (!wanted) fs::remove(e.path(), ec);
             }
+        }
+    }
+
+    // Text icons ({{name}} placeholders, docs/text-icons.md). The built-in
+    // pad-button images are GENERATED when their file is missing and never
+    // overwritten afterwards - that is what makes "override an icon" simply
+    // mean "replace the PNG". The icon sheet the runtime text path blits from
+    // is always rebaked, like the font atlases: its rects live in
+    // icon_data.gen.hpp and a stale sheet would misplace every icon.
+    for (const TextIcon& ic : p.textIcons) {
+        if (ic.path.empty()) continue;
+        const fs::path path = fs::path(p.dir) / ic.path;
+        std::error_code ec;
+        if (fs::exists(path, ec)) continue;
+        std::vector<unsigned char> png;
+        if (!menubake::bakeBuiltinIconPNG(ic.name, menubake::kIconBakeSize, png))
+            continue;  // a user icon with no file yet: not ours to invent
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write text icon: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
+    }
+    {
+        std::vector<unsigned char> png;
+        const fs::path path = fs::path(p.dir) / "res" / "hud" / "icons.png";
+        std::error_code ec;
+        if (menubake::bakeIconAtlasPNG(p, png)) {
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write icon sheet: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        } else {
+            fs::remove(path, ec);  // no icons left: don't ship a stale sheet
+        }
+    }
+
+    // The interaction prompts in text mode: baked like a HUD text into a fixed
+    // file the codegen points the sprite at. Removed when the prompt is not on
+    // text, so res/ never ships a sprite nothing draws.
+    {
+        struct PromptBake {
+            const char* file;
+            const HudText* text;
+            bool on;
+            const char* label;
+        };
+        const PromptBake bakes[] = {
+            {"use-text.png", &p.usePromptText,
+             p.usePromptIsText && !p.usePromptText.text.empty(), "USE"},
+            {"pick-text.png", &p.pickPromptText,
+             p.pickPromptIsText && !p.pickPromptText.text.empty(), "PICK UP"},
+        };
+        for (const PromptBake& b : bakes) {
+            const fs::path path = fs::path(p.dir) / "res" / "hud" / b.file;
+            std::error_code ec;
+            if (!b.on) {
+                fs::remove(path, ec);
+                continue;
+            }
+            std::vector<unsigned char> png;
+            // bakePromptPNG, not bakeTextPNG: the action glyphs are left out so
+            // the game can draw the LIVE bindings' over the holes.
+            std::vector<menubake::PromptIconSlot> slots;
+            if (!menubake::bakePromptPNG(*b.text, p, png, slots))
+                return std::string(b.label) +
+                       " prompt text bake failed (no usable TTF font found)";
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write prompt text: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
         }
     }
 

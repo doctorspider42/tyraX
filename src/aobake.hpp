@@ -91,19 +91,75 @@ std::vector<Emitter> collectEmitters(const std::string& projectDir,
                                      const ModelAabbFn& modelAabb,
                                      GlowCache* cache = nullptr);
 
+// Shadow rays per emitter (docs/emissive-materials.md, "Shadows"). These are
+// AREA sources, so one ray to the nearest surface point can only ever answer
+// "lit" or "black" and paints a hard rectangular edge. N rays spread across the
+// emitter's silhouette turn that into a penumbra: the unblocked FRACTION is a
+// visibility multiplier, and the band widens with distance from the caster
+// exactly as a real one does.
+//
+// Ray 0 is always the nearest-surface-point ray, so N = 1 reproduces the old
+// hard shadow bit for bit - which is what the generated game's per-vertex path
+// keeps (kEmisShadowSamplesVertex, see the divergence note in the docs).
+constexpr int kEmisShadowSamples = 8;
+constexpr int kEmisShadowSamplesVertex = 1;
+
+// Deterministic Vogel-disk offsets for rays 1..N-1, in units of the emitter's
+// projected half-extent perpendicular to the ray. No RNG - the same bake twice
+// is the same bytes twice. Every offset is distinct in BOTH axes, which is what
+// makes a straight shadow edge resolve into N levels instead of the 3 a square
+// grid would give.
+constexpr float kEmisShadowDisk[7][2] = {
+    {0.267261f, 0.000000f},   {-0.341335f, 0.312691f},
+    {0.052247f, -0.595326f},  {0.430231f, 0.561160f},
+    {-0.789527f, -0.139656f}, {0.747909f, -0.475759f},
+    {-0.250161f, 0.930586f},
+};
+
+// Sub-samples per texel per axis in the per-texel bakes. A texel is the mean
+// over its own footprint, not a point sample at its centre: shadow edges here
+// are very nearly hard (a fixture 0.3 units off a wall throws a penumbra of
+// centimetres, far under one texel), and point-sampling one writes a
+// full-amplitude step between neighbouring texels that bilinear filtering then
+// reconstructs as a visible staircase. Averaging band-limits the edge to what
+// the grid can carry. Host-side cost only - the bake is kSuper^2 times the
+// samples, the console draws exactly what it drew before.
+constexpr int kSuper = 4;
+
+// ...but the GI light channel samples on a 2x2 sub-grid instead. Every GI
+// sample is already the mean over `rays` hemisphere directions, so it costs
+// hundreds of rays where an analytic emitter costs one slab test - and the
+// remaining aliasing it would fix is a shadow edge that 4 hemisphere gathers
+// already resolve. 4x4 here turned a 20-second bake into a 80-second one for
+// no visible difference (measured).
+constexpr int kSuperGi = 2;
+
+// Alpha floor for every texel of a lightmap image. NOT cosmetic: StaPip draws
+// with the GS alpha test set to "pass only when alpha != 0" (the cutout rule
+// that makes foliage and decals work - stapip_qbuffer_renderer.cpp). Both
+// lightmap passes sample the SAME texture, so a texel whose OCCLUSION is zero
+// used to fail that test and throw the additive LIGHT pass away with it: the
+// baked light was silently clipped to wherever the ambient occlusion happened
+// to be non-zero, punching hard, texel-aligned holes into every lit surface.
+// The engine's PNG loader scales alpha 0..255 -> 0..128 by integer division,
+// so 1 would still land on 0; 2 is the smallest value that survives, and it
+// darkens by 1/128 - under one framebuffer level.
+constexpr uint8_t kMinLightmapAlpha = 2;
+
 // Host reference of the emissive-light response at a surface point: the
 // per-channel light this emitter adds. Twin of emissiveLightAt in the
 // generated game (templates.cpp) and emissiveLight in the viewport fragment
 // shader - change one, change all three.
-// blockers (optional): occluders that SHADOW this emitter - the light is
-// dropped entirely when the segment from wp to the emitter's nearest surface
-// point hits one. Pass the same shapes collectOccluders returns; the receiver's
-// own occluder must already be out of the list (the ray starts on it) and the
-// emitter's own is skipped here (it ends on it). Hard shadows from analytic
-// boxes/spheres - a wall throws a rectangle, not its silhouette.
+// blockers (optional): occluders that SHADOW this emitter - the light is scaled
+// by the fraction of `shadowSamples` rays that reach the emitter. Pass the same
+// shapes collectOccluders returns; the receiver's own occluder must already be
+// out of the list (the rays start on it) and the emitter's own is skipped here
+// (they end on it). The shapes are analytic, so a wall still throws a rectangle
+// rather than its silhouette - only the EDGE of that rectangle softens.
 void emitterLightAt(const Emitter& em, const float wp[3], const float n[3],
                     float outRgb[3],
-                    const std::vector<const Occluder*>* blockers = nullptr);
+                    const std::vector<const Occluder*>* blockers = nullptr,
+                    int shadowSamples = kEmisShadowSamples);
 
 // True when the segment from `origin` along unit `dir` for `maxT` units enters
 // the shape. Twin of emisShadowed in the generated game and shadowHit in the
@@ -118,6 +174,20 @@ bool shapeBlocksRay(const Occluder& oc, const float origin[3],
 // The textured AO mode rasterizes it into maps/atlases here on the host.
 float occluderOcclusionAt(const Occluder& oc, const float wp[3],
                           const float n[3], float range);
+
+// A light source that REPLACES the emissive-emitter gather in the two
+// per-texel bakes below. This is the seam baked global illumination plugs into
+// (gibake, docs/global-illumination.md): the lightmap's RGB channel stops
+// meaning "baked emissive light" and starts meaning "incoming light, all
+// sources, all bounces" - same image, same two passes, same VRAM.
+//   wp/n  = the surface point and its normal
+//   seed  = a stable per-sample identity (the texel's atlas coordinate, or the
+//           probe's index in the importance pre-pass) - the callee rotates its
+//           sample spiral by it, so a texel's rays are a property of that texel
+//           and the bake is bit-identical at any core count
+//   out   = light in the same units emitterLightAt writes (1.0 = full white)
+using LightFn = std::function<void(const float wp[3], const float n[3],
+                                   uint32_t seed, float outRgb[3])>;
 
 // --- the AO textures (how the bake ships) -----------------------------------
 
@@ -136,6 +206,11 @@ struct AoImage {
     std::vector<uint8_t> light;  // size*size*3
     bool hasAlpha = false;
     bool hasLight = false;
+    // The light channel came from the GI integrator rather than the emissive
+    // emitters, so it carries ALL the incoming light: the generated terrain
+    // must then drop its own ambient + directional + point-light shade, or
+    // the scene is lit twice.
+    bool gi = false;
 };
 
 // Terrain lightmap covering the full terrain extent: per-texel heightmap
@@ -149,7 +224,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn);
+                     float strength, bool aoOn, const LightFn* gi = nullptr);
 
 // One atlas region: normalized UV rect (inset by half a texel against
 // bilinear bleed). A primitive's base-texture UVs map into it 1:1.
@@ -187,9 +262,14 @@ struct SceneLightAtlas {
     // texture instead), so those keep the per-vertex light.
     std::vector<char> lit;
     std::vector<AtlasRect> rects;  // flat regions, builder order
+    // The light channel came from the GI integrator: every `lit` object must
+    // then drop its ambient + directional + point + emissive vertex shade,
+    // because the atlas now carries all of it (docs/global-illumination.md).
+    bool gi = false;
 };
 SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
-                                    const ModelAabbFn& modelAabb);
+                                    const ModelAabbFn& modelAabb,
+                                    const LightFn* gi = nullptr);
 
 // Terrain self-occlusion: an 8-direction horizon scan over the heightmap
 // (w x d vertex grid, row-major [z*w+x], cell size stepX/stepZ world units).
