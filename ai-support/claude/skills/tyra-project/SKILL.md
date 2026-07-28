@@ -30,6 +30,7 @@ build. Two kinds of files coexist here:
 | `res/models`, `res/materials`, `res/textures` | .obj/.glb models, .mtl materials, PNGs. Sub-folders are fine | Yes (import via the editor keeps references sane; move/rename in the editor's Asset Browser, which retargets every reference - a hand-moved file leaves objects pointing at the old path, and a `map_Kd` must stay a bare name next to its .mtl) |
 | `res/models/*.tmdl`, `*.tskl` | Build output: the binary models the game loads (compiled from the .obj/.glb next to them on every build) | No - regenerated, edit the source model instead |
 | `res/audio`, `res/sfx` | Music WAVs (16-bit 22kHz stereo), sound-effect WAVs | Yes |
+| `res/audio/*.drone` | Patch for a track the editor's Drone Generator made (`key = value` text; editor-only, never ships) | Yes - re-render it in the editor (Tools > Drone Generator) after editing |
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
 | `flow-nodes/*.flownode` | Project-defined custom flow-graph nodes | Yes - see the tyra-scripting skill |
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
@@ -71,7 +72,7 @@ tyrax-editor binary lives.)
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
-| `--new <name> <parentDir> [w] [d] [empty\|fpp] [unitsPerMeter]` | Create a fresh project (defaults: 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off) |
+| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter]` | Create a fresh project (defaults: 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 

@@ -120,6 +120,16 @@ public:
     void clearGiProbes() { setGiProbes(gibake::ProbeGrid()); }
     bool giProbesLoaded() const { return giDim_[0] > 0; }
 
+    // The TERRAIN takes GI from the baked terrain lightmap, not from the probe
+    // grid - the same split the generated game makes (buildTerrainChunk's
+    // `terrainGi`). One probe sample every ~3 units over a broadly flat ground
+    // is nearly constant, so the probe route paints the whole terrain one
+    // colour; the map is per texel and is what the console actually reads.
+    // A TEXTURED terrain has no lit map (a flat additive term would blow out
+    // its dark texels) and stays on the probe route in both.
+    void setGiTerrain(const aobake::AoImage& img);
+    void clearGiTerrain() { setGiTerrain(aobake::AoImage()); }
+
     // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
     // self-occlusion is multiplied into the terrain vertex colors (the same
     // aobake::terrainAO grid the build ships), model self-AO into the model
@@ -602,6 +612,15 @@ private:
     int giDim_[3] = {0, 0, 0};
     float giScale_ = 1.0f;
     std::vector<uint8_t> giPixels_;  // staged until the GL context exists
+    // Baked terrain lightmap (see setGiTerrain). Sampled on the CPU while the
+    // terrain chunks are built, exactly where the generated game samples it -
+    // its shadeAt is this one's twin - so the ground's own tint survives (the
+    // terrain carries it in the vertex colour, which the probe route replaced
+    // wholesale). uGiSkipProbe_ then keeps the fragment shader off the probes
+    // for those draws.
+    int uGiSkipProbe_ = -1;
+    std::vector<uint8_t> giTerrLight_;  // size*size*3, empty = no lit map
+    int giTerrSize_ = 0;
     bool giUploadPending_ = false;
     void uploadGiProbes();
     bool aoOn_ = false;

@@ -263,6 +263,11 @@ uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 // would blend L0 into L1. Twin of giProbeAt in the generated game and
 // gibake::sampleProbes on the host - change one, change all three.
 uniform int uGiOn;
+// 1 while the TERRAIN draws with a baked GI lightmap: its light is already in
+// the vertex colour (buildTerrainChunkMesh), so the probe grid must not
+// replace it a second time - and, like every other GI surface, the point
+// lights and emissive pools are inside the baked answer already.
+uniform int uGiSkipProbe;
 uniform sampler3D uGiProbes;     // texture unit 3
 uniform vec3 uGiOrigin;
 uniform vec3 uGiStep;
@@ -520,7 +525,9 @@ void main() {
     // lights and the emissive pools, so every one of those must be skipped
     // below or the scene is lit twice.
     bool giHere = false;
-    if (uLit != 0) {
+    if (uLit != 0 && uGiSkipProbe != 0) {
+        giHere = true;
+    } else if (uLit != 0) {
         vec3 nGi = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         vec3 gi;
         if (giProbe(vWorld, nGi, gi)) {
@@ -1161,6 +1168,7 @@ bool Viewport::init() {
     uAoHmRect_ = glGetUniformLocation(program_, "uAoHmRect");
     uAoHmOn_ = glGetUniformLocation(program_, "uAoHmOn");
     uGiOn_ = glGetUniformLocation(program_, "uGiOn");
+    uGiSkipProbe_ = glGetUniformLocation(program_, "uGiSkipProbe");
     uGiProbes_ = glGetUniformLocation(program_, "uGiProbes");
     uGiOrigin_ = glGetUniformLocation(program_, "uGiOrigin");
     uGiStep_ = glGetUniformLocation(program_, "uGiStep");
@@ -1767,10 +1775,37 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
         iz = iz < 0 ? 0 : iz > hmD_ - 1 ? hmD_ - 1 : iz;
         return heights_[(size_t)iz * hmW_ + ix];
     };
+    // Baked GI on the ground: the map replaces the ambient + directional term
+    // outright, exactly as the generated game's terrainGi does (its shadeAt is
+    // this one's twin). Sampled bilinearly at the vertex - the game reads the
+    // same image per PIXEL through an additive pass, so a preview on the
+    // render grid is the one place these two differ, and it is a resolution
+    // difference rather than a different answer.
+    const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
+    auto giGroundAt = [&](float wx, float wz) -> Vec3 {
+        const float u = (wx - x0) / w * (giTerrSize_ - 1);
+        const float v = (wz - z0) / d * (giTerrSize_ - 1);
+        const float cu = u < 0 ? 0 : (u > giTerrSize_ - 1 ? giTerrSize_ - 1 : u);
+        const float cv = v < 0 ? 0 : (v > giTerrSize_ - 1 ? giTerrSize_ - 1 : v);
+        const int u0 = (int)cu, v0 = (int)cv;
+        const int u1 = u0 + 1 < giTerrSize_ ? u0 + 1 : u0;
+        const int v1 = v0 + 1 < giTerrSize_ ? v0 + 1 : v0;
+        const float fu = cu - u0, fv = cv - v0;
+        auto texel = [&](int a, int b, int c) {
+            return giTerrLight_[((size_t)b * giTerrSize_ + a) * 3 + c] / 255.0f;
+        };
+        Vec3 out{};
+        float* o = &out.x;
+        for (int c = 0; c < 3; ++c)
+            o[c] = (texel(u0, v0, c) * (1 - fu) + texel(u1, v0, c) * fu) * (1 - fv) +
+                   (texel(u0, v1, c) * (1 - fu) + texel(u1, v1, c) * fu) * fv;
+        return out;
+    };
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
-        Vec3 s = shadeOf(normalize(n));
+        Vec3 s = giGround ? giGroundAt(x0 + ix * sx, z0 + iz * sz)
+                          : shadeOf(normalize(n));
         // Terrain self-AO: the same host-baked grid the game ships as
         // TERRAIN_AO_TABLES, multiplied before everything else (the occluder
         // contact term arrives per fragment in the shader).
@@ -2507,6 +2542,22 @@ void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
     terrainLayers_ = layers;
     splat_ = weights;
     if (program_) buildTerrainMesh();
+}
+
+void Viewport::setGiTerrain(const aobake::AoImage& img) {
+    const bool on = img.size > 0 && img.hasLight && img.gi &&
+                    (int)img.light.size() == img.size * img.size * 3;
+    if (!on) {
+        if (giTerrSize_ == 0 && giTerrLight_.empty()) return;
+        giTerrSize_ = 0;
+        giTerrLight_.clear();
+        if (program_) buildTerrainMesh();
+        return;
+    }
+    if (giTerrSize_ == img.size && giTerrLight_ == img.light) return;
+    giTerrSize_ = img.size;
+    giTerrLight_ = img.light;
+    if (program_) buildTerrainMesh();  // the shade is baked into the vertices
 }
 
 void Viewport::setTerrainTint(float variation, float scaleWorld) {
@@ -3545,6 +3596,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     } else {
         glUniform1i(uGiOn_, 0);
     }
+    glUniform1i(uGiSkipProbe_, 0);
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
@@ -3640,9 +3692,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         aoSelfObj = -1;       // terrain belongs to no scene object
         aoGroundOn = false;   // the ground doesn't sit next to itself
         aoReceive = true;
+        const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
+        if (giGround) glUniform1i(uGiSkipProbe_, 1);
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
+        if (giGround) glUniform1i(uGiSkipProbe_, 0);
 
         // Painted terrain layers: alpha-blend each layer's pass over the base
         // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain

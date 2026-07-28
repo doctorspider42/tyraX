@@ -244,6 +244,25 @@ struct SceneObject {
     // a Raycast latch, a custom node's object output), or one you simply want
     // to keep relightable.
     bool bakedLighting = true;
+    // Dynamic lighting (docs/global-illumination.md). Opt-in, and a different
+    // deal from bakedLighting above rather than a stronger version of it: the
+    // object moves to the LIT VU1 program - one base colour plus a light bag
+    // whose colours are re-read from the probe grid every frame - which is
+    // exactly how animated models are lit. So it relights with zero latency,
+    // including while it spins.
+    //
+    // What it costs, and it is not nothing:
+    //  - the engine refuses per-vertex colours on a lit bag ("Multicolor is
+    //    not supported with lighting"), so the object gives up everything the
+    //    bake put in them - contact AO, per-face variation - and gets VU1's
+    //    N.L instead;
+    //  - a lit bag takes no dynamic-light slot, so the flashlight and the live
+    //    point lights have to be folded into its ambient term by hand (the
+    //    animated models already do this - dynLightAt);
+    //  - it needs a per-vertex normal array it does not otherwise keep.
+    // For things that TUMBLE it is worth all of that; for things that merely
+    // slide, leaving bakedLighting off is cheaper and looks better.
+    bool dynamicLighting = false;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -520,6 +539,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
+           a.dynamicLighting == b.dynamicLighting &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -698,14 +718,15 @@ struct ProjectSettings {
     // a choice to make deliberately (docs/keyboard-mouse.md).
     bool keyboardMouse = true;
 
-    // Experimental (debug): keep keyboard/mouse working on a "Run on PS2"
-    // (ps2link) deploy, where they are normally skipped. REQUIRES the custom
-    // TyraX ps2link (tools/ps2link-usbhid) - it bakes usbd + ps2kbd + ps2mouse
-    // into its own boot, so the engine reuses that resident stack and loads
-    // none of its own (a second usbd would wedge it). On a stock ps2link there
-    // is no USB stack to reuse: the drivers just report "not ready". See
-    // docs/keyboard-mouse.md. Off by default.
-    bool keyboardMousePs2Link = false;
+    // Keep keyboard/mouse working on a "Run on PS2" (ps2link) deploy. The
+    // console side is always the TyraX ps2link (tools/ps2link, built by its
+    // build.sh/.ps1 - see docs/ps2link-setup.md): it bakes usbd + ps2kbd +
+    // ps2mouse into its own boot, so the engine reuses that resident stack and
+    // loads none of its own (a second usbd would wedge it). On by default for
+    // that reason; untick it only for a deliberately stock ps2link, which has
+    // no USB stack to reuse - the drivers then report "not ready" and the
+    // mouse is skipped rather than hanging. See docs/keyboard-mouse.md.
+    bool keyboardMousePs2Link = true;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -1733,7 +1754,19 @@ struct Project {
     // collaboration cache keys downloaded projects on it. Generated at create,
     // backfilled on load for older projects (see project::ensureProjectId).
     std::string projectId;
-    std::string gameTemplate = "orbit";  // "orbit" | "fpp"
+    // The starting preset, chosen ONCE in the New Project dialog and fixed for
+    // the project's life (Project > Preferences shows it read-only): it decides
+    // which game-template sources are generated, and those sources are
+    // user-ownable - flipping it later would either overwrite work or, on an
+    // owned file, silently stop matching what the project actually builds.
+    // "orbit" = Empty (no player entity); "fpp" and "thirdperson" both generate
+    // the player-entity template and differ in the seeded Player's mode.
+    std::string gameTemplate = "orbit";  // "orbit" | "fpp" | "thirdperson"
+
+    // Does this project's template carry a player entity (i.e. is it anything
+    // but the Empty/orbit preset)? The one place the two player presets are
+    // treated as one thing.
+    bool hasPlayerTemplate() const { return gameTemplate != "orbit"; }
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
     int activeScene = 0;  // scene edited in the editor (not persisted in json)
@@ -1987,9 +2020,13 @@ struct Project {
 namespace project {
 
 // Creates the project directory, generates all Tyra game sources / build files
-// and the <name>.tyra project file. `preset` picks the starting content:
-//   "empty" - orbit camera, no objects.
-//   "fpp"   - FPP game template with a single Player entity in the center.
+// and the <name>.tyra project file. `preset` picks the starting content, and it
+// is the project's permanent game template (Project::gameTemplate):
+//   "empty"       - orbit camera, no objects.
+//   "fpp"         - player template, one Player entity in walk (FPP) mode.
+//   "thirdperson" - player template, one Player entity in third-person mode
+//                   (the avatar is that object's own animated model, assigned
+//                   later - the camera rig works without one).
 // `unitsPerMeter` is the project's world scale (ProjectSettings::unitsPerMeter,
 // docs/world-scale.md); the metric-by-definition FPP/physics defaults (eye
 // height, walk speed, gravity, jump) are multiplied by it so the preset player

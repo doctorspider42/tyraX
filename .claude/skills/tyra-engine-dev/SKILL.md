@@ -228,12 +228,13 @@ keys onto the pad; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
 symbols and drivers added to an already-running ps2link's un-reset IOP never
 come up cleanly (PS2MouseInit then spins forever on an RPC server that never
 registered — a boot freeze on the Tyra logo). The
-`loadUsbKbdMouseUnderPs2Link` option instead targets the **custom TyraX
-ps2link** (`tools/ps2link-usbhid` — bakes usbd+ps2kbd+ps2mouse into ps2link's
-OWN boot): the engine then loads NO USB modules and reuses that resident
-stack. `KbdMouse::init(underPs2Link)` guards PS2MouseInit on the keyboard
-device having opened, so mis-ticking it on stock ps2link logs instead of
-hanging. Two real-hardware traps found the hard way: PS2MouseData must be
+`loadUsbKbdMouseUnderPs2Link` option instead targets the **TyraX ps2link**
+(`tools/ps2link` — bakes usbd+ps2kbd+ps2mouse into ps2link's OWN boot; it is
+the ONLY ps2link the editor deploys to, so the option is on by default —
+docs/ps2link-setup.md): the engine then loads NO USB modules and reuses that
+resident stack. `KbdMouse::init(underPs2Link)` guards PS2MouseInit on the
+keyboard device having opened, so running it against a stock ps2link logs
+instead of hanging. Two real-hardware traps found the hard way: PS2MouseData must be
 zero-initialised (a real mouse sends no packet on a still frame, so garbage
 read as a constant delta spins the camera — PCSX2 never shows it) and the
 read mode is set to DIFF explicitly; the IrxLoader gives HID a fixed settle
@@ -345,6 +346,17 @@ banner both, so a previously built ELF still reports.
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
+- **A texture's wrap mode does nothing in 3D.** `Texture::setWrapSettings`
+  reaches the GS only through `path3` (2D sprites) and the post-fx blits;
+  NOTHING in the static or dynamic 3D pipeline ever emits `GS_REG_CLAMP`, so a
+  3D mesh samples with whatever the last 2D draw or post-fx pass left in that
+  register - which is global state you do not control. If a 3D mesh's texture
+  coordinates can leave 0..1, clamp them where you BUILD them, on the EE, and
+  do not reason about wrap modes at all. (Found via the projected shadows: the
+  receiver patch's STs come out of a light projection and ran -0.38..1.39, so
+  the silhouette was sampled a second time and left thin dark streaks at the
+  patch edges. Writing `GS_SET_CLAMP` from the shadow pass changed nothing
+  measurable; clamping the STs fixed it exactly.)
 - **Never submit bags with `frustumCulling = None`.** Off-screen geometry wraps
   the GS 4096-px raster window → "objects render twice / giant smeared
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
