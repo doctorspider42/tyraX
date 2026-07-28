@@ -17,6 +17,21 @@ scoop install mingw cmake ninja       # editor toolchain
 ./build.ps1 -Run
 ```
 
+From a plain `cmd.exe` (or a double-click) use `build.cmd` / `build.cmd run` /
+`build.cmd clean` and `setup.cmd` instead — they are thin wrappers that forward
+to the PowerShell scripts with the execution policy bypassed, so there is only
+ever one implementation and one dependency list to keep current.
+
+**The Windows toolchain is MinGW-w64 GCC — MSVC is not supported.** Opening the
+folder in Visual Studio and building the default `x64-Debug` CMake preset does
+not work and cannot be made to work by tweaking flags: `src/templates.cpp` holds
+the PS2 project templates as raw string literals well past MSVC's hard
+16380-byte cap per literal, so it fails with dozens of *C2026 string too big*.
+(The `min` macro from `windows.h` colliding with `std::min` in `src/wire.cpp` —
+C2589/C2660 — is the same build, and only the first symptom you happen to see.)
+Build with `build.ps1`/`build.cmd`, or point Visual Studio's CMake settings at
+the scoop MinGW kit rather than the MSVC one.
+
 **Linux**
 
 ```bash
@@ -148,7 +163,7 @@ Then in the editor:
 - [Docker](https://www.docker.com/products/docker-desktop/) running (Docker Desktop on Windows, `docker` + the compose plugin on Linux) — the generated game is compiled inside the `h4570/tyra` container.
 - [PCSX2](https://pcsx2.net/) with a BIOS configured. Auto-detected in `Program Files\PCSX2` on Windows, and on PATH / as a flatpak / as an AppImage under `~/Applications` or `~/Downloads` on Linux. Any other location can be pointed at under `Edit > Preferences`.
 - To build the editor:
-  - Windows: CMake, Ninja, GCC/MinGW (e.g. `scoop install mingw cmake ninja`).
+  - Windows: CMake, Ninja, GCC/MinGW (e.g. `scoop install mingw cmake ninja`). **MinGW only** — MSVC cannot compile `src/templates.cpp` (see the Quickstart note).
   - Linux: CMake, Ninja, GCC and the X11/Wayland/GL development headers — `./setup.sh --deps` installs them for apt / dnf / pacman / zypper. `zenity` (or `kdialog`) provides the native file dialogs; without one the editor still builds and runs, but the Open/Import buttons have nothing to open (`build.sh` warns).
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF path longer than about 145 characters — it loads the ELF and the game never starts, with a black window and nothing in the log. The editor warns in the *Output* panel when a project is past the limit; move it somewhere shorter. (Easy to hit on Linux: a home directory plus a deep tree adds up fast.)
 
