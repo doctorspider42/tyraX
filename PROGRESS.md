@@ -12885,6 +12885,64 @@ Each finished feature lands as its own commit.
   the sender writes `flowEvtNext[0]`/`[1]` and the receiver reads `flowEvtCur[]`,
   and the two events' four capture slots follow the one variable's.
 
+- (228) **Text formatting, live screen effects, and the architectural change
+  that turned out not to be needed** (stage 6, the last of the flow-graph
+  expansion).
+
+  The 223 plan listed "multiple typed OUTPUTS" as this stage's big item - a node
+  publishing more than one number/position - so that Break Position and Get
+  Object Transform could exist. **They already do, and without it.** Get X / Get
+  Y / Get Z (224) are three unary nodes rather than one three-output node, and
+  Get Object Scale / Rotation / Velocity (225) ride the position plane as
+  3-vectors. Both read better in a graph than a fan of pins would, so the
+  machinery was not built. Recording that here because "we planned it and then
+  didn't need it" is worth more than a silent omission.
+
+  What did land: **Number To Text (formatted)** (fixed decimals + a zero-padded
+  minimum width, so a score reads 00420 - the width counts the WHOLE digits
+  only, since padding the decimals too would be a second meaning for one
+  number), **Seconds To Clock** (a Timer straight into "1:23.4"; negative clamps
+  to 0:00, because a countdown that overshoots must not print "-0:01"), **Join
+  Text**, **Text Equals**, **Value At Most**, **Restart Scene** and **Set Screen
+  Effect**.
+
+  **Join Text is the first node with a text INPUT and a text OUTPUT**, which
+  means the text plane could suddenly contain a cycle - it never could before, so
+  it had no guard at all. It has one now (`textPath`), and `textExpr` and the
+  text-input walker are mutually recursive through a forward-declared
+  `std::function` for the third time in this batch (the exec plane and the
+  number/position planes needed the same trick).
+
+  **Set Screen Effect fixes a real dead end.** A `.screenfx` effect's four
+  parameters were emitted as a function-local `const float param[4] = {...}` -
+  frozen at whatever the editor authored, with a whole authoring system behind
+  them and no way to touch them at runtime. They are now a writable global per
+  PLACEMENT (`g_screenFxParam_N`), initialized from the authored values so a
+  project without the node behaves exactly as before, plus `g_screenFxOn_N`
+  which the dispatch honours. Both are exported from `screen_fx.gen.hpp`, and the
+  node resolves its effect key to the placement index through the SAME
+  `enabledScreenFx()` order `screenFxSource` emits the bodies in - so the symbol
+  suffix cannot drift. The node's params are labelled and bounded in the editor
+  from the effect's own `.screenfx` manifest rather than a generic P1..P4, which
+  is the whole point of that manifest existing.
+
+  Verified by codegen on a project seeded with a two-parameter `tint.screenfx`
+  and a placement of it: the Tween drives `g_screenFxParam_0[0]`, the on/off pins
+  write `g_screenFxOn_0`, `screen_fx.gen.cpp` reads the global through
+  `const float* param`, the header exports both, and `terrain_game.cpp` guards
+  the dispatch on the flag. The formatters and Join Text came out as one
+  expression (`flowClockText(timerT10, true) + std::string("   ") +
+  flowNumTextFmt(ctx.saveValues[1], 0, 5)`) feeding a Display Text.
+
+  **Deliberately left for later** (each is a bigger change than it looks, and
+  none blocks anything above): per-HUD-image visibility and a bar/meter widget
+  (needs a per-image request array and a new drawn primitive); a silent Save To
+  Slot / Load From Slot (the save path is menu-driven end to end); a global time
+  scale (`g_frameDt` is read in dozens of places and a scaled one would need
+  every consumer audited); Stop Sound (no per-channel handle survives a Play
+  Sound); positional 3D one-shots; and editor-side comment boxes / reroute nodes,
+  which are graph presentation rather than nodes.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch

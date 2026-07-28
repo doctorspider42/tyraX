@@ -716,6 +716,29 @@ void App::drawFlowGraphWindow() {
             std::snprintf(pbuf, sizeof(pbuf), "%s", n.str2.c_str());
             if (ImGui::InputText("Prefix", pbuf, sizeof(pbuf))) n.str2 = pbuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+        } else if (t->strKind == FlowParamKind::ScreenFxName) {
+            // Only PLACED effects can be driven - the generated symbol exists
+            // per placement, not per .screenfx file.
+            std::string cur = n.str.empty() ? "<none>" : n.str;
+            if (const CustomScreenFx* e = customScreenFx(n.str)) cur = e->title;
+            if (ImGui::BeginCombo("Effect", cur.c_str())) {
+                int placed = 0;
+                for (const ScreenFxPlacement& pl : project_.screenFx) {
+                    const CustomScreenFx* e = customScreenFx(pl.key);
+                    if (!e) continue;
+                    ++placed;
+                    const std::string lbl =
+                        e->title + (pl.enabled ? "" : "  (disabled)");
+                    if (ImGui::Selectable(lbl.c_str(), pl.key == n.str)) {
+                        n.str = pl.key;
+                        changed = true;
+                    }
+                }
+                if (placed == 0)
+                    ImGui::TextDisabled(
+                        "Place a custom effect in\nTools > UI Editor first.");
+                ImGui::EndCombo();
+            }
         } else if (t->strKind == FlowParamKind::VarName ||
                    t->strKind == FlowParamKind::EventName) {
             // Both are free text that EXISTS by being named, so both get the
@@ -873,6 +896,30 @@ void App::drawFlowGraphWindow() {
                 changed = true;
             }
             ImGui::TextDisabled("Wire the number output into\nwhatever should animate.");
+        } else if (n.type == "SetScreenFx") {
+            // The params belong to the EFFECT, so label and bound them from its
+            // own .screenfx manifest rather than the registry's generic P1..P4.
+            const CustomScreenFx* e = customScreenFx(n.str);
+            if (!e) {
+                ImGui::TextDisabled("Pick an effect to see\nits parameters.");
+            } else if (e->paramCount == 0) {
+                ImGui::TextDisabled("%s takes no parameters -\nuse the on/off pins.",
+                                    e->title.c_str());
+            } else {
+                bool p0Linked = false;
+                for (const FlowLink& l : fg.links)
+                    p0Linked |= (l.kind == FlowLinkNum && l.toNode == n.id);
+                for (int a = 0; a < e->paramCount && a < 4; ++a) {
+                    if (a == 0 && p0Linked) {
+                        ImGui::TextDisabled("%s: from link",
+                                            e->paramLabel[0].c_str());
+                        continue;
+                    }
+                    ImGui::SliderFloat(e->paramLabel[a].c_str(), &n.num[a],
+                                       e->paramMin[a], e->paramMax[a], "%.3f");
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+            }
         } else if (n.type == "SetBars") {
             const char* styles[] = {"None", "Cinema 2.39:1", "Wide 16:9",
                                     "Pillarbox", "Frame"};

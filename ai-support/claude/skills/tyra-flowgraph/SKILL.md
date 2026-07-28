@@ -160,6 +160,17 @@ over guessing from this file.
   Update. Events exist by being named - use the SAME string on both nodes.
   The one-frame latency is the price of the uniform ordering; for something that
   must happen inside the same frame, wire the action directly.
+- **Text has real formatting, so do not build strings by hand.** **Number To
+  Text (formatted)** takes decimals and a zero-padded minimum width (a score
+  reads 00420); **Seconds To Clock** turns a Timer into "M:SS" or "M:SS.t";
+  **Join Text** concatenates every wired text with `str` between them; **Text
+  Equals** compares the wired text against `str` for the bool plane.
+- **Set Screen Effect** drives a custom `.screenfx` placement at runtime - the
+  `set` pin writes its four parameters (the effect's own, by name), `on`/`off`
+  switch it, and a wired number overrides the first parameter so a Tween can
+  ramp it. Only effects PLACED in the screen stack can be driven.
+  **Value At Most** completes Value At Least, and **Restart Scene** reloads the
+  current scene (flow variables and save values survive; they are game-global).
 - Object-parameter nodes resolve their target: incoming **object link** →
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge

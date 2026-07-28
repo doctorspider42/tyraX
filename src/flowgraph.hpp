@@ -129,6 +129,7 @@ enum class FlowParamKind {
     InputActionName,  // name of a Project::input action (Tools > Input Map)
     KeyName,   // a keyboard key label from inputKeyNames() ("Space", "F1")
     EventName,  // name of a graph event (free text; exists by being named)
+    ScreenFxName,  // key of a Project::screenFx placement (custom .screenfx)
 };
 
 struct FlowNodeType {
@@ -936,6 +937,14 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Pure bool: save value named str >= num[0], evaluated fresh "
                  "every frame. A linked number overrides num[0], so the "
                  "threshold can itself be computed."},
+        {.key = "ValueAtMost", .title = "Value At Most", .category = "Save",
+         .strKind = FlowParamKind::SaveValue, .numCount = 1,
+         .numLabels = {"Threshold"}, .pure = true, .boolOut = true,
+         .numIn = true,
+         .desc = "Pure bool: save value named str <= num[0], evaluated fresh "
+                 "every frame. The other half of Value At Least - together they "
+                 "bound a range, and on their own they are \"out of lives\" and "
+                 "\"full health\"."},
         {.key = "GetSaveValue", .title = "Get Save Value", .category = "Save",
          .strKind = FlowParamKind::SaveValue, .pure = true, .textOut = true,
          .numOut = true,
@@ -1267,6 +1276,22 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "after. Spawn scattering, wander targets, random patrol - the "
                  "volume is read live, so a moving area moves the scatter with "
                  "it."},
+        {.key = "SetScreenFx", .title = "Set Screen Effect",
+         .category = "Scene", .strKind = FlowParamKind::ScreenFxName,
+         .numCount = 4, .numLabels = {"P1", "P2", "P3", "P4"}, .numIn = true,
+         .execInCount = 3, .execInLabels = {"set", "on", "off"},
+         .desc = "Drives one of the project's custom screen effects (Tools > UI "
+                 "Editor > screen stack, authored as a .screenfx file). The "
+                 "'set' pin writes its four parameters - whatever that effect "
+                 "declared, shown by name on the node - and 'on'/'off' switch "
+                 "the effect itself. A linked number overrides P1, so a Tween "
+                 "can ramp the first parameter. Until this existed a .screenfx "
+                 "effect was frozen at whatever the editor authored."},
+        {.key = "RestartScene", .title = "Restart Scene", .category = "Scene",
+         .desc = "Reloads the CURRENT scene from scratch: objects back to their "
+                 "authored transforms, graph state reset, spawned clones freed. "
+                 "Flow variables and save values survive (they are game-global) "
+                 "- the death-and-retry of a scene without naming it."},
         {.key = "PosToText", .title = "Position To Text", .category = "Convert",
          .posIn = true, .pure = true, .textOut = true,
          .desc = "Pure converter: linked position -> text."},
@@ -1278,6 +1303,34 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Pure converter: linked number -> text. Wire it into Display "
                  "Text to put a computed value on screen. Whole numbers print "
                  "without a decimal point."},
+        {.key = "NumToTextFmt", .title = "Number To Text (formatted)",
+         .category = "Convert", .numCount = 2,
+         .numLabels = {"Decimals", "Min digits"}, .pure = true, .textOut = true,
+         .numIn = true, .numInExtra = true,
+         .desc = "Pure converter with control over the shape: num[0] Decimals "
+                 "(0 = a whole number) and num[1] Min digits, zero-padded - so a "
+                 "score reads 00420 and a lap time 1.25. The wired number is the "
+                 "VALUE; both params stay editable."},
+        {.key = "SecondsToText", .title = "Seconds To Clock",
+         .category = "Convert", .numCount = 1, .numLabels = {"Show tenths"},
+         .pure = true, .textOut = true, .numIn = true, .numInExtra = true,
+         .desc = "Pure converter: a number of seconds -> \"M:SS\" (or "
+                 "\"M:SS.t\" with num[0] Show tenths). Wire a Timer straight "
+                 "into it for a countdown or a lap clock on screen; negative "
+                 "input clamps to 0:00."},
+        {.key = "TextJoin", .title = "Join Text", .category = "Convert",
+         .strKind = FlowParamKind::Text, .pure = true, .textIn = true,
+         .textOut = true,
+         .desc = "Pure text: every wired text input joined in link order, with "
+                 "str between them as a separator (empty = straight "
+                 "concatenation, \" - \" or \", \" for a list). The way to build "
+                 "one Display Text out of several values."},
+        {.key = "TextEquals", .title = "Text Equals", .category = "Convert",
+         .strKind = FlowParamKind::Text, .pure = true, .boolOut = true,
+         .textIn = true,
+         .desc = "Pure bool: the first wired text input equals str exactly (case "
+                 "sensitive). Compares a save text against a known value - a "
+                 "chosen name, a stored difficulty, a quest state."},
         // ------------------------------------------------------------------
         // The event bus: the ONE way one object's graph talks to another's.
         // Before it existed the only channel was a global variable polled from

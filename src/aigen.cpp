@@ -103,6 +103,9 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::EventName:
             return "event name (free text - an event exists by being named; use "
                    "the SAME string on the Send Event and the On Event)";
+        case FlowParamKind::ScreenFxName:
+            return "custom screen-effect key, \"custom:<file-stem>\" (only "
+                   "effects PLACED in the screen stack can be driven)";
         default: return "";
     }
 }

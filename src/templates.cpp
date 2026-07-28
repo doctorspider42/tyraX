@@ -18830,14 +18830,16 @@ static std::string screenFxDispatch(const Project& p, bool inLoop) {
         const CustomScreenFx* e = customScreenFx(fx[n]->key);
         if (inLoop) {
             if (top) continue;
-            out << "      if (i == " << layer
+            out << "      if (i == " << layer << " && g_screenFxOn_" << n
                 << ")  // " << e->title << "\n"
                 << "        engine->renderer.core.applyCustomPostFx(&screenFx_"
                 << n << ", nullptr);\n";
         } else {
             if (!top) continue;
-            out << "    engine->renderer.core.applyCustomPostFx(&screenFx_" << n
-                << ", nullptr);  // " << e->title << "\n";
+            out << "    if (g_screenFxOn_" << n
+                << ")  // " << e->title << "\n"
+                << "      engine->renderer.core.applyCustomPostFx(&screenFx_"
+                << n << ", nullptr);\n";
         }
     }
     return out.str();
@@ -18862,7 +18864,13 @@ static std::string screenFxHeader(const Project& p) {
         out << "qword_t* screenFx_" << n
             << "(Tyra::RendererCorePostFx& fx, qword_t* q, void* user);"
                "  // "
-            << e->title << "\n";
+            << e->title << "\n"
+            // Exported so the flow graph's Set Screen Effect node can reach
+            // them; the effect body reads the same array.
+            << "extern bool g_screenFxOn_" << n
+            << ";      // Set Screen Effect: on/off\n"
+            << "extern float g_screenFxParam_" << n
+            << "[4];  // Set Screen Effect: live params\n";
     }
     if (fx.empty()) out << "// (no custom screen effects placed)\n";
     out << "\n}  // namespace " << ns << "\n";
@@ -18892,13 +18900,21 @@ static std::string screenFxSource(const Project& p) {
         for (int i = 0; i < 4; ++i)
             body = replaceAll(body, "{p" + std::to_string(i) + "}",
                               "param[" + std::to_string(i) + "]");
+        // The params live in a WRITABLE global rather than a function-local
+        // const, so the Set Screen Effect flow node can drive them at runtime;
+        // the authored values are its initializer, so a project with no such
+        // node behaves exactly as it did. Same for the enable flag the dispatch
+        // reads below.
         out << "\n// " << e->title << " (" << pl->key << ")\n"
+            << "bool g_screenFxOn_" << n << " = true;\n"
+            << "float g_screenFxParam_" << n << "[4] = {"
+            << floatLit(pl->params[0]) << ", " << floatLit(pl->params[1]) << ", "
+            << floatLit(pl->params[2]) << ", " << floatLit(pl->params[3])
+            << "};\n"
             << "qword_t* screenFx_" << n
             << "(Tyra::RendererCorePostFx& fx, qword_t* q, void* user) {\n"
             << "  (void)user; (void)fx; (void)q;\n"
-            << "  const float param[4] = {" << floatLit(pl->params[0]) << ", "
-            << floatLit(pl->params[1]) << ", " << floatLit(pl->params[2]) << ", "
-            << floatLit(pl->params[3]) << "};\n"
+            << "  const float* param = g_screenFxParam_" << n << ";\n"
             << "  (void)param;\n"
             << body;
         if (!body.empty() && body.back() != '\n') out << "\n";
@@ -19877,6 +19893,24 @@ std::string flowGraphScript(const Project& p) {
             if (p.hudTexts[i].name == name) return (int)i;
         return -1;
     };
+    // Set Screen Effect names a custom effect KEY; the generated symbol suffix
+    // is its index in enabledScreenFx() - the SAME order screenFxSource emits
+    // the bodies in, so the two cannot disagree. A key placed twice resolves to
+    // the first enabled placement (the node's description says so).
+    const auto screenFxList = enabledScreenFx(p);
+    auto screenFxSlot = [&](const std::string& key) {
+        for (size_t i = 0; i < screenFxList.size(); ++i)
+            if (screenFxList[i]->key == key) return (int)i;
+        return -1;
+    };
+    const bool anyScreenFxNode = [&] {
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                for (const FlowNode& n : o.flowGraph.nodes)
+                    if (n.type == "SetScreenFx") return true;
+        return false;
+    }();
+
     // Same list as menu_data.gen.hpp MENU_EVENTS - indices must agree.
     const std::vector<std::string> menuEvents = collectMenuEvents(p);
     auto menuEventIndex = [&](const std::string& name) {
@@ -20001,6 +20035,9 @@ std::string flowGraphScript(const Project& p) {
     if (anyRaycast || anyTerrainQuery)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
                "Terrain\n";
+    if (anyScreenFxNode)
+        out << "#include \"scripts/screen_fx.gen.hpp\"  // Set Screen Effect "
+               "(live params)\n";
     if (anyNav)
         out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
                "(Patrol/Chase/Flee/On Player Seen)\n";
@@ -20380,6 +20417,46 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "(double)z);\n"
                "  return std::string(b);\n"
                "}\n";
+        if (uses("NumToTextFmt"))
+            out << "// Number To Text (formatted): fixed decimals and a "
+                   "zero-padded\n"
+                   "// minimum width, so a score reads 00420. The width counts "
+                   "the\n"
+                   "// WHOLE digits only - padding the decimals too would be a "
+                   "second\n"
+                   "// meaning for one number.\n"
+                   "static std::string flowNumTextFmt(float v, int dec, int wid) {\n"
+                   "  char b[40];\n"
+                   "  const bool neg = v < 0.0F;\n"
+                   "  if (neg) v = -v;\n"
+                   "  snprintf(b, sizeof(b), \"%.*f\", dec, (double)v);\n"
+                   "  std::string s(b);\n"
+                   "  int whole = (int)s.size();\n"
+                   "  const size_t dot = s.find('.');\n"
+                   "  if (dot != std::string::npos) whole = (int)dot;\n"
+                   "  std::string pad;\n"
+                   "  for (int i = whole; i < wid; ++i) pad += '0';\n"
+                   "  return (neg ? std::string(\"-\") : std::string()) + pad + s;\n"
+                   "}\n";
+        if (uses("SecondsToText"))
+            out << "// Seconds To Clock: M:SS(.t). Negative clamps to 0:00 - a\n"
+                   "// countdown that overshoots must not print \"-0:01\".\n"
+                   "static std::string flowClockText(float sec, bool tenths) {\n"
+                   "  if (sec < 0.0F) sec = 0.0F;\n"
+                   "  const int total = (int)sec;\n"
+                   "  const int m = total / 60;\n"
+                   "  const int s2 = total % 60;\n"
+                   "  char b[32];\n"
+                   "  if (tenths) {\n"
+                   "    int t = (int)((sec - (float)total) * 10.0F);\n"
+                   "    if (t < 0) t = 0;\n"
+                   "    if (t > 9) t = 9;\n"
+                   "    snprintf(b, sizeof(b), \"%d:%02d.%d\", m, s2, t);\n"
+                   "  } else {\n"
+                   "    snprintf(b, sizeof(b), \"%d:%02d\", m, s2);\n"
+                   "  }\n"
+                   "  return std::string(b);\n"
+                   "}\n";
     }
 
     if (anyDynText) {
@@ -21046,6 +21123,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return e.empty() ? floatLit(n.num[0]) : e;
         };
 
+        // The text plane, forward-declared. Join Text and Text Equals READ text
+        // inputs, and the text-input walker is built on textExpr further down -
+        // so the two are mutually recursive. `textPath` is that recursion's cycle
+        // guard: before Join Text existed no text node had a text INPUT, so a
+        // cycle was impossible and the plane needed none.
+        std::function<std::vector<std::string>(const FlowNode&)> textInputsFwd;
+        std::vector<int> textPath;
+
         // Boolean-value plane: each trigger exposes a per-frame condition,
         // logic gates fold those conditions, and "On Condition" turns a bool
         // back into an exec pulse. Every bool is a self-contained C++
@@ -21086,6 +21171,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (idx < 0) return "false";
                 return "navPlayerSeen(ctx, " + std::to_string(idx) + args;
             }
+            if (n.type == "TextEquals") {
+                const auto es = textInputsFwd(n);
+                if (es.empty()) return "false";  // nothing to compare
+                return "(" + es[0] + " == std::string(\"" +
+                       escapeCString(n.str) + "\"))";
+            }
             if (n.type == "OnSequenceEnd") return "sequences::playing()";
             if (n.type == "OnEvent") {
                 const int ei = eventIndex(n.str);
@@ -21098,11 +21189,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 return "(ctx.layerState && ctx.layerState[" + std::to_string(li) +
                        "] == 2)";
             }
-            if (n.type == "ValueAtLeast") {
+            if (n.type == "ValueAtLeast" || n.type == "ValueAtMost") {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "false";
                 return "(ctx.saveValues[" + std::to_string(vi) +
-                       "] >= " + numOperand(n) + ")";
+                       (n.type == "ValueAtMost" ? "] <= " : "] >= ") +
+                       numOperand(n) + ")";
             }
             if (n.type == "NumAtLeast" || n.type == "NumAtMost" ||
                 n.type == "NumEquals" || n.type == "NumInRange") {
@@ -21268,6 +21360,36 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string e = numInput(n);
                 return "flowNumText(" + (e.empty() ? "0.0F" : e) + ")";
             }
+            if (n.type == "NumToTextFmt") {
+                const std::string e = numInput(n);
+                int dec = (int)std::lround(n.num[0]);
+                if (dec < 0) dec = 0;
+                if (dec > 6) dec = 6;
+                int wid = (int)std::lround(n.num[1]);
+                if (wid < 0) wid = 0;
+                if (wid > 12) wid = 12;
+                return "flowNumTextFmt(" + (e.empty() ? "0.0F" : e) + ", " +
+                       std::to_string(dec) + ", " + std::to_string(wid) + ")";
+            }
+            if (n.type == "SecondsToText") {
+                const std::string e = numInput(n);
+                return "flowClockText(" + (e.empty() ? "0.0F" : e) + ", " +
+                       (n.num[0] != 0.0f ? "true" : "false") + ")";
+            }
+            if (n.type == "TextJoin") {
+                for (int id : textPath)
+                    if (id == n.id) return "std::string()";  // cycle
+                textPath.push_back(n.id);
+                const auto es = textInputsFwd(n);
+                textPath.pop_back();
+                if (es.empty()) return "std::string()";
+                const std::string sep =
+                    "std::string(\"" + escapeCString(n.str) + "\")";
+                std::string out2 = es[0];
+                for (size_t i = 1; i < es.size(); ++i)
+                    out2 = "(" + out2 + " + " + sep + " + " + es[i] + ")";
+                return out2;
+            }
             return "std::string()";
         };
 
@@ -21284,6 +21406,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             }
             return es;
         };
+        textInputsFwd = textInputs;
 
         // Display Text's string: the node's own prefix (str2) followed by every
         // wired text input, concatenated. Same shape as Log Message, minus the
@@ -22103,6 +22226,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     c << pad << r << " = false;  // Tween stopped where it is\n";
                 } else {
                     c << pad << t0 << " = 0.0F;\n" << pad << r << " = true;\n";
+                }
+            } else if (n.type == "RestartScene") {
+                c << pad << "ctx.requestScene = ctx.scene;  // reload this "
+                     "scene\n";
+            } else if (n.type == "SetScreenFx") {
+                // The placement index IS the generated symbol suffix, so it is
+                // resolved here against the same enabledScreenFx() order
+                // screenFxSource emits.
+                const int fi = screenFxSlot(n.str);
+                if (fi < 0) {
+                    c << pad << "// node " << n.id
+                      << " (SetScreenFx): no enabled placement of '" << n.str
+                      << "' in the screen stack\n";
+                } else if (pin == 1 || pin == 2) {
+                    c << pad << "g_screenFxOn_" << fi << " = "
+                      << (pin == 1 ? "true" : "false") << ";\n";
+                } else {
+                    c << pad << "g_screenFxParam_" << fi << "[0] = "
+                      << numOperand(n) << ";\n";
+                    for (int a = 1; a < 4; ++a)
+                        c << pad << "g_screenFxParam_" << fi << "[" << a
+                          << "] = " << floatLit(n.num[a]) << ";\n";
                 }
             } else if (n.type == "SendEvent") {
                 const int ei = eventIndex(n.str);
