@@ -6278,6 +6278,28 @@ void TerrainGame::renderProjShadows() {
   // flipped either: the projection already carries the Y flip (m11 = -h),
   // so the slot's rows run the same way the screen's do.
   const float kUv = 2048.0F / (float)Tyra::RendererCoreShadowMap::size;
+  // Depth bias, along the VIEW RAY rather than upward.
+  //
+  // The patch is depth-TESTED (PipelineZTest_TestOnly - it never writes z) and
+  // lies 5 cm above the surface it falls on. That is not a margin the GS can
+  // always resolve: a receiver is often ONE enormous triangle (a 100-unit
+  // floor slab is twelve of them), its z is interpolated in fixed point, and
+  // the two surfaces land on the same value - so the shadow loses the test on
+  // some pixels, on some frames, and blinks in and out as the caster moves.
+  // A taller lift would fix the z and break the picture: the shadow would
+  // visibly detach from the feet.
+  //
+  // Pulling each vertex a fixed FRACTION of its eye distance CLOSER wins the
+  // test at every range and costs nothing visually - the displacement is along
+  // the view ray, so the vertex projects to exactly the same pixel. It also
+  // cannot poke the patch through a wall in front of it: a wall would have to
+  // be within 0.4% of the floor's depth, i.e. touching it.
+  auto zBias = [&](const Vec4& p) {
+    constexpr float k = 0.996F;
+    return Vec4(cameraPosition.x + (p.x - cameraPosition.x) * k,
+                cameraPosition.y + (p.y - cameraPosition.y) * k,
+                cameraPosition.z + (p.z - cameraPosition.z) * k, 1.0F);
+  };
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
     const float gx = sgx[s], gz = sgz[s], half = shalf[s];
@@ -6294,17 +6316,18 @@ void TerrainGame::renderProjShadows() {
         const Vec4 p10(x1, projSurfaceAt(x1, z0) + 0.05F, z0, 1.0F);
         const Vec4 p11(x1, projSurfaceAt(x1, z1) + 0.05F, z1, 1.0F);
         const Vec4 p01(x0, projSurfaceAt(x0, z1) + 0.05F, z1, 1.0F);
-        b.verts[v + 0] = p00, b.verts[v + 1] = p10, b.verts[v + 2] = p11;
-        b.verts[v + 3] = p00, b.verts[v + 4] = p11, b.verts[v + 5] = p01;
+        const Vec4 tp[6] = {p00, p10, p11, p00, p11, p01};
         for (int k = 0; k < 6; ++k) {
-          const Vec4& w = b.verts[v + k];
-          const Vec4 clip = lightVP[s] * w;
+          // STs come from the TRUE surface point: the depth bias below must
+          // move the patch in z only, never slide the silhouette across it.
+          const Vec4 clip = lightVP[s] * tp[k];
           float u = 0.0F, vv = 0.0F;
           if (clip.w > 0.0001F) {
             u = 0.5F + clip.x / clip.w * kUv;
             vv = 0.5F + clip.y / clip.w * kUv;
           }
           b.sts[v + k] = Vec4(u, vv, 1.0F, 0.0F);
+          b.verts[v + k] = zBias(tp[k]);
         }
         v += 6;
       }

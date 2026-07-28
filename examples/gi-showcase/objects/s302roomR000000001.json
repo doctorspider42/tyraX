@@ -1,1 +1,1 @@
-{ "id": "s302roomR000000001", "name": "s3-room-right", "type": "box", "position": [-1, 2.5, -16], "rotation": [0, 0, 0], "scale": [0.6, 5, 14], "color": [0.88, 0.87, 0.84], "physics": false }
+{ "id": "s302roomR000000001", "name": "s3-room-right", "type": "box", "position": [-1, 2.5, -15.85], "rotation": [0, 0, 0], "scale": [0.6, 5, 13.7], "color": [0.88, 0.87, 0.84], "physics": false }

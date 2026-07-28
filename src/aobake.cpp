@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 
 #include "objparser.hpp"
 
@@ -1043,13 +1044,23 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     };
     std::vector<Region> regions;
     GlowCache glowCache;
+    // Collected once: the set of object names any flow graph can move.
+    const std::set<std::string> movableRefs = project::runtimeRefNames(p, sc.objects);
     for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
         const SceneObject& o = sc.objects[oi];
         const int rc = regionCountFor(o.type);
         if (rc == 0) continue;
         // Runtime movers keep the vertex bake (which re-bakes on rebuild);
-        // an atlas region would glue the baked shadow to the moved surface.
-        if (o.physics || o.pickable || o.saveState) continue;
+        // an atlas region would GLUE the baked light to the moved surface -
+        // tip a lightmapped cylinder over and it carries a contact shadow that
+        // matches nothing. project::objectRuntimeMovable is the same predicate
+        // static batching and the live catch areas already use: physics,
+        // pickable, usable, save-state, streamed, owning a graph, or named by
+        // one. `bakedLighting` is the manual override on top, for the channels
+        // no build-time scan can see (Live Link, a Raycast latch, a custom
+        // node's object output).
+        if (!o.bakedLighting || project::objectRuntimeMovable(o, movableRefs))
+            continue;
         // An emissive surface takes neither bake: the atlas passes multiply and
         // add per pixel AFTER the emissive floor is already in the vertex
         // colors, so occlusion would darken a surface that is supposed to be

@@ -81,6 +81,17 @@ emissive pools are **skipped**, because the baked answer already contains them.
 texture blows out its dark texels — the pre-existing rule for this atlas. Probes
 are what makes obeying it cost nothing.
 
+**Neither does anything that can move.** A lightmap glues the light to the
+surface: tip a lightmapped cylinder over at runtime and it carries a contact
+shadow that matches nothing. The bake excludes everything it can *prove* moves
+through `project::objectRuntimeMovable` — the same predicate static batching and
+the live catch areas use (physics, pickable, usable, save-state, streamed,
+owning a flow graph, or named by one) — and those objects take the probe path,
+where the light is re-read from the grid every time the geometry is rebuilt, so
+they relight as they move. *Properties > Baked lighting* is the manual override
+for the channels no build-time scan can see: Live Link, a Raycast latch, a
+custom node's object output.
+
 ---
 
 ## The probe grid
