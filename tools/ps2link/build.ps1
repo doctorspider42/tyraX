@@ -1,13 +1,12 @@
-# Builds a custom ps2link.elf with the USB HID stack (usbd + ps2kbd + ps2mouse)
-# baked into its own boot, so a game deployed over the network (F6 "Run on PS2")
-# can reuse the resident drivers and get a keyboard AND mouse - see
-# docs/keyboard-mouse.md and tools/ps2link-usbhid/README.md.
+# Builds the TyraX ps2link - the ONLY ps2link the editor deploys to. The
+# Windows twin of build.sh; keep the two in step (same repo, same commit, same
+# patch). See tools/ps2link/README.md and docs/ps2link-setup.md.
 #
-# Reproducible: clones a pinned ps2link, applies usbhid.patch, builds inside the
+# Reproducible: clones a pinned ps2link, applies tyrax.patch, builds inside the
 # official ps2dev/ps2dev toolchain image (Docker), and drops ps2link.elf next to
 # this script. Needs Docker Desktop running.
 #
-#   ./build.ps1              # build -> tools/ps2link-usbhid/ps2link.elf
+#   ./build.ps1              # build -> tools/ps2link/ps2link.elf
 #   ./build.ps1 -Clean       # nuke the work tree first
 
 param([switch]$Clean)
@@ -16,7 +15,7 @@ param([switch]$Clean)
 # stderr, which Stop would treat as fatal. We check $LASTEXITCODE instead.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $work = Join-Path $here 'build'
-$patch = Join-Path $here 'usbhid.patch'
+$patch = Join-Path $here 'tyrax.patch'
 
 # Pinned so the patch always applies cleanly; bump both when refreshing.
 $repo = 'https://github.com/ps2dev/ps2link.git'
@@ -49,7 +48,7 @@ if (-not (Test-Path (Join-Path $work '.git'))) {
     Invoke-Checked 'git checkout'
 }
 
-Write-Host "== Applying usbhid.patch =="
+Write-Host "== Applying tyrax.patch =="
 git -C $work apply --verbose $patch 2>&1 | Write-Host
 Invoke-Checked 'git apply'
 
@@ -71,4 +70,4 @@ if (-not (Test-Path $elf)) { throw "expected $elf, not produced" }
 $out = Join-Path $here 'ps2link.elf'
 Copy-Item -Force $elf $out
 Write-Host "== OK: $out ($((Get-Item $out).Length) bytes) =="
-Write-Host "Flash this onto your PS2 (memory card / boot medium) in place of stock ps2link."
+Write-Host "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."

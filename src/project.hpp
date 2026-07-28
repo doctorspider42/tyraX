@@ -698,14 +698,15 @@ struct ProjectSettings {
     // a choice to make deliberately (docs/keyboard-mouse.md).
     bool keyboardMouse = true;
 
-    // Experimental (debug): keep keyboard/mouse working on a "Run on PS2"
-    // (ps2link) deploy, where they are normally skipped. REQUIRES the custom
-    // TyraX ps2link (tools/ps2link-usbhid) - it bakes usbd + ps2kbd + ps2mouse
-    // into its own boot, so the engine reuses that resident stack and loads
-    // none of its own (a second usbd would wedge it). On a stock ps2link there
-    // is no USB stack to reuse: the drivers just report "not ready". See
-    // docs/keyboard-mouse.md. Off by default.
-    bool keyboardMousePs2Link = false;
+    // Keep keyboard/mouse working on a "Run on PS2" (ps2link) deploy. The
+    // console side is always the TyraX ps2link (tools/ps2link, built by its
+    // build.sh/.ps1 - see docs/ps2link-setup.md): it bakes usbd + ps2kbd +
+    // ps2mouse into its own boot, so the engine reuses that resident stack and
+    // loads none of its own (a second usbd would wedge it). On by default for
+    // that reason; untick it only for a deliberately stock ps2link, which has
+    // no USB stack to reuse - the drivers then report "not ready" and the
+    // mouse is skipped rather than hanging. See docs/keyboard-mouse.md.
+    bool keyboardMousePs2Link = true;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost

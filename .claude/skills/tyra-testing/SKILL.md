@@ -494,9 +494,11 @@ Notes:
   help text suggests: on the pinned build `dumpmem` answers `EE: pkoDumpMem()
   write failed` (the destination file is created, zero bytes) and `scrdump`
   exits 0 having written nothing — vestigial pko-era plumbing, not working
-  tools. Anything wanted from them is a **ps2link patch** (the workflow exists:
-  `tools/ps2link-usbhid/` clones a pinned ps2link, applies a patch and builds
-  it in Docker), and hardware-only — PCSX2 runs no ps2link. (Verified: a session
+  tools. Anything wanted from them is a **ps2link patch**, which is the normal
+  workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
+  pinned upstream, applies `tyrax.patch` and builds it in Docker via
+  `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
+  PCSX2 runs no ps2link. (Verified: a session
   orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
   the game is actually gone do you need the runner's two commands —
   `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`

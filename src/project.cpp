@@ -2940,9 +2940,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
-        // ps2link option now always means the custom TyraX ps2link)
+        // ps2link option now always means the TyraX ps2link, the only one the
+        // editor deploys to; a project that predates the key gets it ON, which
+        // is what that ps2link supports)
         if (const auto* v = s->find("keyboardMousePs2Link"))
-            st.keyboardMousePs2Link = v->boolOr(false);
+            st.keyboardMousePs2Link = v->boolOr(true);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {

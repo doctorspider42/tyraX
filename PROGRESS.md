@@ -604,6 +604,62 @@ Each finished feature lands as its own commit.
   progress/cancel path was exercised through its headless twin rather than by
   hand.
 
+- (219) **One ps2link, and it is ours**
+  ([docs/ps2link-setup.md](docs/ps2link-setup.md)). The question was "mamy
+  instrukcję, jak zbudować ps2link i jak go skonfigurować, żeby móc debugować
+  z edytorem?", and the honest answer was: in three places, with a hole. The
+  README explained F6 and the IP preference; `tools/ps2link-usbhid/` explained
+  building a *custom* ps2link, but framed as an opt-in extra for keyboard and
+  mouse; and the **console-side one-time setup** - copying `PS2LINK.ELF` onto a
+  memory card next to an `IPCONFIG.DAT` - lived exclusively in a code comment in
+  `deps.sh`/`deps.ps1`, which is the last place a person looks. Followed by the
+  decision that resolves it: "przejdźmy na taką ścieżkę, że zawsze zakładamy, że
+  budujemy naszego ps2linka... to jest jedyna ścieżka".
+
+  So the TyraX ps2link is now the *only* supported console side, and the tree
+  says so. `tools/ps2link-usbhid` → **`tools/ps2link`**, `usbhid.patch` →
+  **`tyrax.patch`**: the directory was named after the one feature we happened
+  to patch in, and more patches are expected (ps2link's own `dumpmem`/`scrdump`
+  are vestigial - anything wanted from the console is a patch, see the
+  tyra-testing skill). The name was free because `deps` **stopped downloading a
+  stock ps2link release**; nothing fetches a ps2link for you now, you build it.
+  And `build.ps1` gained the **`build.sh`** it never had - the only script in
+  the repo without a POSIX twin, which on a Linux machine with no `pwsh` meant
+  "we have instructions" was false in practice.
+
+  [docs/ps2link-setup.md](docs/ps2link-setup.md) is the missing document, end to
+  end: hardware, the one build command, flashing, and the `IPCONFIG.DAT` details
+  that are only obvious from ps2link's source - it is opened by a **relative**
+  path (so it belongs next to `PS2LINK.ELF`), it is `ip netmask gateway` on one
+  line, there is no DHCP, and when it cannot be read ps2link silently uses a
+  compiled-in **192.168.1.10**, which is the tell for "your file was never
+  found". Then the editor's IP preference, what F6 actually does in order (the
+  `bin/ps2link.run` marker the game probes over `host:` because `execee` cannot
+  be trusted to deliver argv, `reset`, then the `execee` whose `ps2client` *is*
+  the session's file server), the ports a firewall has to pass (console listens
+  on TCP 18193 and UDP 18194; the `[ps2]` log lines come back as UDP 18194),
+  what differs from PCSX2 when debugging, a table of every failure message, and
+  the loop for changing the patch - regenerate it **before** rebuilding, because
+  both build scripts start with `git checkout -- .`.
+
+  One behaviour change fell out of the decision: *Preferences > Build >
+  Keyboard & mouse > Also over ps2link* is **on by default** (`keyboardMousePs2Link`,
+  reader default flipped too, so a project predating the key gets it) and its
+  label lost the "needs the TyraX ps2link" qualifier - that ps2link is now the
+  premise, not a condition. A stock one still degrades safely: the keyboard
+  device does not open, the mouse is skipped rather than hanging.
+
+  **Verified**: `tools/ps2link/build.sh` from a clean tree on Linux - pulled
+  `ps2dev/ps2dev`, cloned ps2link at the pinned `0c6138c`, applied
+  `tyrax.patch`, `make ee` - produced `ps2link.elf`, 283 828 bytes, and the
+  patched `loadModules()`/banner are in the built tree. Editor rebuilt clean
+  with the preference and comment changes. **Not covered**: there is no PS2 on
+  this machine, so every console-side step is documented from ps2link's own
+  sources (the `IPCONFIG.DAT` open, the fallback constants, `PKO_PORT` /
+  `PKO_CMD_PORT`) and from `runner.cpp`, not from a flash-and-boot; and
+  `build.ps1` - whose only change is the patch's new name - is unrun, there
+  being no PowerShell here.
+
 - (218) **The projected shadow stopped blinking, and one flag for "do not bake
   my light"** (user, after 217: "cien pod graczem tak sobie lubi mrugac znikac
   czasami, troszke tak, jakby sie klocil o priorytet z powierzchnia, na ktora
