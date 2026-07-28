@@ -1,26 +1,52 @@
 @echo off
-REM Builds the editor from cmd.exe. Usage:
+REM cmd entry point for build.ps1. Usage:
 REM   build.cmd          - configure (if needed) + build
 REM   build.cmd run      - build and launch the editor
 REM   build.cmd clean    - remove the build directory first
 REM
-REM A THIN WRAPPER on build.ps1, on purpose. This used to be a full cmd
-REM translation carrying its own hardcoded list of vendor/ dependencies, which
-REM froze at four entries while deps.ps1 grew to seven. That matters more than
-REM it looks: a bare `build` in PowerShell resolves to build.CMD before
-REM build.PS1 (PATHEXT order), so the stale twin is what actually ran, never
-REM fetched vendor/miniaudio, and cmake failed with "miniaudio.h: No such file
-REM or directory" on a tree that built fine on Linux. There is now exactly one
-REM Windows build script - do not reintroduce build logic here.
+REM This is a WRAPPER ON PURPOSE. It used to carry its own copy of the
+REM vendor-dependency guard, checking four hardcoded directories, and drifted
+REM behind deps.ps1 - so a fresh clone walked straight into cmake with
+REM vendor/ufbx missing and failed with "Cannot find source file:
+REM vendor/ufbx/ufbx.c", and on another tree with "miniaudio.h: No such file or
+REM directory". Neither was a Windows-only accident waiting to be noticed: a
+REM bare `build` in PowerShell resolves to build.CMD before build.PS1 (PATHEXT
+REM order), so the stale twin is what actually ran. build.ps1 probes the ONE
+REM list in deps.ps1; keep the guard there, not here.
 REM See "Platform parity" in .claude/skills/tyra-editor-dev/SKILL.md.
 setlocal
 cd /d "%~dp0"
 
-set "PS_ARGS="
-for %%A in (%*) do (
-    if /i "%%~A"=="run"   set "PS_ARGS=%PS_ARGS% -Run"
-    if /i "%%~A"=="clean" set "PS_ARGS=%PS_ARGS% -Clean"
-)
+set "DO_RUN="
+set "DO_CLEAN="
+for %%A in (%*) do call :arg "%%~A" || exit /b 2
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build.ps1"%PS_ARGS%
-endlocal & exit /b %errorlevel%
+set "ARGS="
+if defined DO_CLEAN set "ARGS=%ARGS% -Clean"
+if defined DO_RUN   set "ARGS=%ARGS% -Run"
+
+call :findps || exit /b 1
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0build.ps1"%ARGS%
+exit /b %ERRORLEVEL%
+
+:arg
+REM %1 = one command-line word, mapped onto the build.ps1 switch it names.
+if /i "%~1"=="run"    ( set "DO_RUN=1"   & exit /b 0 )
+if /i "%~1"=="-run"   ( set "DO_RUN=1"   & exit /b 0 )
+if /i "%~1"=="clean"  ( set "DO_CLEAN=1" & exit /b 0 )
+if /i "%~1"=="-clean" ( set "DO_CLEAN=1" & exit /b 0 )
+echo Unknown option: %~1 ^(expected "run" and/or "clean"^)
+exit /b 2
+
+:findps
+REM PowerShell 7 if it is installed, else the Windows PowerShell every Windows
+REM box ships with. Both run build.ps1 unchanged.
+set "PS="
+for %%P in (pwsh.exe) do if not defined PS if exist "%%~$PATH:P" set "PS=%%~$PATH:P"
+for %%P in (powershell.exe) do if not defined PS if exist "%%~$PATH:P" set "PS=%%~$PATH:P"
+if not defined PS (
+    echo Neither pwsh.exe nor powershell.exe was found on PATH.
+    echo build.cmd only forwards to build.ps1 - run that directly instead.
+    exit /b 1
+)
+exit /b 0

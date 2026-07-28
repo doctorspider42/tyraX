@@ -126,6 +126,14 @@ constexpr float kEmisShadowDisk[7][2] = {
 // samples, the console draws exactly what it drew before.
 constexpr int kSuper = 4;
 
+// ...but the GI light channel samples on a 2x2 sub-grid instead. Every GI
+// sample is already the mean over `rays` hemisphere directions, so it costs
+// hundreds of rays where an analytic emitter costs one slab test - and the
+// remaining aliasing it would fix is a shadow edge that 4 hemisphere gathers
+// already resolve. 4x4 here turned a 20-second bake into a 80-second one for
+// no visible difference (measured).
+constexpr int kSuperGi = 2;
+
 // Alpha floor for every texel of a lightmap image. NOT cosmetic: StaPip draws
 // with the GS alpha test set to "pass only when alpha != 0" (the cutout rule
 // that makes foliage and decals work - stapip_qbuffer_renderer.cpp). Both
@@ -167,6 +175,20 @@ bool shapeBlocksRay(const Occluder& oc, const float origin[3],
 float occluderOcclusionAt(const Occluder& oc, const float wp[3],
                           const float n[3], float range);
 
+// A light source that REPLACES the emissive-emitter gather in the two
+// per-texel bakes below. This is the seam baked global illumination plugs into
+// (gibake, docs/global-illumination.md): the lightmap's RGB channel stops
+// meaning "baked emissive light" and starts meaning "incoming light, all
+// sources, all bounces" - same image, same two passes, same VRAM.
+//   wp/n  = the surface point and its normal
+//   seed  = a stable per-sample identity (the texel's atlas coordinate, or the
+//           probe's index in the importance pre-pass) - the callee rotates its
+//           sample spiral by it, so a texel's rays are a property of that texel
+//           and the bake is bit-identical at any core count
+//   out   = light in the same units emitterLightAt writes (1.0 = full white)
+using LightFn = std::function<void(const float wp[3], const float n[3],
+                                   uint32_t seed, float outRgb[3])>;
+
 // --- the AO textures (how the bake ships) -----------------------------------
 
 // A square, power-of-two terrain lightmap. Exactly the two channels the
@@ -184,6 +206,11 @@ struct AoImage {
     std::vector<uint8_t> light;  // size*size*3
     bool hasAlpha = false;
     bool hasLight = false;
+    // The light channel came from the GI integrator rather than the emissive
+    // emitters, so it carries ALL the incoming light: the generated terrain
+    // must then drop its own ambient + directional + point-light shade, or
+    // the scene is lit twice.
+    bool gi = false;
 };
 
 // Terrain lightmap covering the full terrain extent: per-texel heightmap
@@ -197,7 +224,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn);
+                     float strength, bool aoOn, const LightFn* gi = nullptr);
 
 // One atlas region: normalized UV rect (inset by half a texel against
 // bilinear bleed). A primitive's base-texture UVs map into it 1:1.
@@ -235,9 +262,14 @@ struct SceneLightAtlas {
     // texture instead), so those keep the per-vertex light.
     std::vector<char> lit;
     std::vector<AtlasRect> rects;  // flat regions, builder order
+    // The light channel came from the GI integrator: every `lit` object must
+    // then drop its ambient + directional + point + emissive vertex shade,
+    // because the atlas now carries all of it (docs/global-illumination.md).
+    bool gi = false;
 };
 SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
-                                    const ModelAabbFn& modelAabb);
+                                    const ModelAabbFn& modelAabb,
+                                    const LightFn* gi = nullptr);
 
 // Terrain self-occlusion: an 8-direction horizon scan over the heightmap
 // (w x d vertex grid, row-major [z*w+x], cell size stepX/stepZ world units).

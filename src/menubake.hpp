@@ -123,6 +123,15 @@ bool bakeTextPNG(const HudText& text, const Project& p,
 // Text name -> res/hud file name ("text-<sanitized>.png").
 std::string textFileName(const std::string& textName);
 
+// --- Lens flare sprites ------------------------------------------------------
+// Procedural 64x64 RGBA sprites for the sun lens flare and the light-beam
+// coronas (no font involved): kind 0 = soft radial glow (shape in alpha, for
+// 2D additive sprites), kind 1 = thin ring (ditto), kind 2 = corona (shape
+// in RGB - additive 3D bags blend Cs*FIX + Cd and ignore texture alpha).
+// Written to res/hud/flare-{glow,ring,corona}.png by refreshGenerated when
+// the project uses the flare / beams.
+bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
+std::string flareFileName(int kind);
 // --- Interaction prompts -----------------------------------------------------
 // The USE / PICK UP prompts are baked like a HUD text, with one difference: the
 // action tokens in them are NOT composited in. A prompt has to keep telling the

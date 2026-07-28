@@ -255,7 +255,56 @@ uniform int uAoObj[32];          // scene-object index per occluder
 uniform sampler2D uAoHeight;     // terrain heightmap (R32F), texture unit 2
 uniform vec4 uAoHmRect;          // uv = wp.xz * zw + xy (texel centers)
 uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
+// Baked global illumination (docs/global-illumination.md): the scene's L1
+// spherical-harmonic probe grid, uploaded as an RGBA8 3D texture with the four
+// coefficients tiled along x (probe x index * 4 + coefficient), RGB = the
+// coefficient in -1..1 of uGiScale and A = the probe's liveness. GL_NEAREST +
+// a hand-rolled trilinear, because filtering across a coefficient boundary
+// would blend L0 into L1. Twin of giProbeAt in the generated game and
+// gibake::sampleProbes on the host - change one, change all three.
+uniform int uGiOn;
+uniform sampler3D uGiProbes;     // texture unit 3
+uniform vec3 uGiOrigin;
+uniform vec3 uGiStep;
+uniform ivec3 uGiDim;
+uniform float uGiScale;
 out vec4 FragColor;
+
+// shade(n) = L0 + (2/3) * dot(L1, n), weighted-trilinear over the 8 probes
+// around wp. Returns false when every one of them is buried in geometry.
+bool giProbe(vec3 wp, vec3 n, out vec3 res) {
+    res = vec3(0.0);
+    if (uGiOn == 0 || uGiDim.x <= 0) return false;
+    vec3 t = clamp((wp - uGiOrigin) / max(uGiStep, vec3(0.0001)),
+                   vec3(0.0), vec3(uGiDim - 1));
+    ivec3 i0 = clamp(ivec3(floor(t)), ivec3(0), max(uGiDim - 2, ivec3(0)));
+    vec3 f = t - vec3(i0);
+    vec3 acc[4];
+    for (int k = 0; k < 4; ++k) acc[k] = vec3(0.0);
+    float wsum = 0.0;
+    for (int c = 0; c < 8; ++c) {
+        ivec3 d = ivec3(c & 1, (c >> 1) & 1, (c >> 2) & 1);
+        ivec3 pi = min(i0 + d, uGiDim - 1);
+        float w = (d.x > 0 ? f.x : 1.0 - f.x) * (d.y > 0 ? f.y : 1.0 - f.y) *
+                  (d.z > 0 ? f.z : 1.0 - f.z);
+        if (w <= 0.0) continue;
+        if (texelFetch(uGiProbes, ivec3(pi.x * 4, pi.y, pi.z), 0).a < 0.5)
+            continue;  // dead probe: inside a solid, weighs nothing
+        wsum += w;
+        // The bytes are the baked int8 coefficients biased by 128, so undo
+        // exactly that - an RGBA8 texelFetch hands back byte/255.
+        for (int k = 0; k < 4; ++k)
+            acc[k] += w * (texelFetch(uGiProbes,
+                                      ivec3(pi.x * 4 + k, pi.y, pi.z), 0).rgb *
+                               255.0 - 128.0);
+    }
+    if (wsum <= 0.00001) return false;
+    float s = uGiScale / (127.0 * wsum);
+    res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
+                                            acc[3] * s * n.z),
+                vec3(0.0), vec3(1.0));
+    return true;
+}
 
 // Distance from wp to an analytic shape's SURFACE + the unit direction toward
 // it. The single query behind both the AO response and the emissive lights -
@@ -465,13 +514,29 @@ void main() {
     float a = uAlpha != 0 ? texel.a : 1.0;
     if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = vColor;
+    // Global illumination REPLACES the ambient + directional shade wherever
+    // the probe grid reaches, exactly as the generated game replaces it: the
+    // baked answer already contains the sun, the sky, the bounces, the point
+    // lights and the emissive pools, so every one of those must be skipped
+    // below or the scene is lit twice.
+    bool giHere = false;
+    if (uLit != 0) {
+        vec3 nGi = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        vec3 gi;
+        if (giProbe(vWorld, nGi, gi)) {
+            shade = gi;
+            giHere = true;
+        }
+    }
     // AO multiplies the baked directional shade BEFORE the point lights add
-    // on top - mirrors the pushVert/shadeAt order in the generated game.
+    // on top - mirrors the pushVert/shadeAt order in the generated game. It
+    // survives GI: the probe grid cannot resolve a contact shadow, which is
+    // exactly what this term is.
     if (uLit != 0 && uAoOn != 0 && uAoReceive != 0) {
         vec3 nAo = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         shade *= 1.0 - uAoStrength * aoOcclusion(vWorld, nAo);
     }
-    if (uLit != 0 && uLightCount > 0) {
+    if (uLit != 0 && !giHere && uLightCount > 0) {
         vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         vec3 add = vec3(0.0);
         for (int i = 0; i < uLightCount; ++i) {
@@ -488,7 +553,7 @@ void main() {
     }
     // Emissive materials nearby: the same additive slot as the point lights,
     // mirroring the generated pushVert / terrain shadeAt order.
-    if (uLit != 0 && uEmisCount > 0) {
+    if (uLit != 0 && !giHere && uEmisCount > 0) {
         vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         shade = min(shade + emissiveLight(vWorld, n, uAoSelfObj), vec3(1.0));
     }
@@ -1062,9 +1127,16 @@ bool Viewport::init() {
     uAoHeight_ = glGetUniformLocation(program_, "uAoHeight");
     uAoHmRect_ = glGetUniformLocation(program_, "uAoHmRect");
     uAoHmOn_ = glGetUniformLocation(program_, "uAoHmOn");
+    uGiOn_ = glGetUniformLocation(program_, "uGiOn");
+    uGiProbes_ = glGetUniformLocation(program_, "uGiProbes");
+    uGiOrigin_ = glGetUniformLocation(program_, "uGiOrigin");
+    uGiStep_ = glGetUniformLocation(program_, "uGiStep");
+    uGiDim_ = glGetUniformLocation(program_, "uGiDim");
+    uGiScale_ = glGetUniformLocation(program_, "uGiScale");
     glUseProgram(program_);
     glUniform1i(uRefl_, 1);      // sphere map lives on texture unit 1
     glUniform1i(uAoHeight_, 2);  // AO heightmap lives on texture unit 2
+    glUniform1i(uGiProbes_, 3);  // GI probe grid lives on texture unit 3
     glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
@@ -2145,6 +2217,79 @@ bool Viewport::placementRaycast(float u, float v,
         }
     }
     return false;
+}
+
+// Stages the scene's baked probe grid for the fragment shader
+// (docs/global-illumination.md). The four L1 coefficients are tiled along x -
+// texel (probeX * 4 + k, y, z) - so the whole grid is ONE RGBA8 3D texture and
+// one texture unit. RGB carries the coefficient remapped from -scale..scale
+// into 0..1; A carries liveness, so a probe buried in a wall can be given zero
+// weight by the same fetch that reads it.
+//
+// GL_NEAREST is deliberate: hardware filtering would interpolate ACROSS the
+// coefficient tiles (L0 into L1x), so the shader does its own trilinear.
+void Viewport::setGiProbes(const gibake::ProbeGrid& g) {
+    const bool empty = g.empty();
+    if (empty) {
+        giDim_[0] = giDim_[1] = giDim_[2] = 0;
+        giPixels_.clear();
+        giUploadPending_ = true;
+        return;
+    }
+    for (int k = 0; k < 3; ++k) {
+        giOrigin_[k] = g.origin[k];
+        giStep_[k] = g.step[k] > 1e-6f ? g.step[k] : 1.0f;
+        giDim_[k] = g.dim[k];
+    }
+    giScale_ = g.scale;
+    giPixels_.assign((size_t)g.dim[0] * 4 * g.dim[1] * g.dim[2] * 4, 0);
+    for (int z = 0; z < g.dim[2]; ++z)
+        for (int y = 0; y < g.dim[1]; ++y)
+            for (int x = 0; x < g.dim[0]; ++x) {
+                const int probe = x + g.dim[0] * (y + g.dim[1] * z);
+                const uint8_t live = g.live[probe] ? 255 : 0;
+                for (int k = 0; k < 4; ++k) {
+                    const size_t texel =
+                        ((size_t)z * g.dim[1] + y) * (size_t)g.dim[0] * 4 +
+                        (size_t)x * 4 + k;
+                    for (int c = 0; c < 3; ++c) {
+                        // sh is already byte-encoded around 0; shift it into
+                        // the unsigned range the texture stores.
+                        const int v = (int)g.sh[(size_t)probe * 12 + k * 3 + c];
+                        giPixels_[texel * 4 + c] =
+                            (uint8_t)std::min(255, std::max(0, v + 128));
+                    }
+                    giPixels_[texel * 4 + 3] = live;
+                }
+            }
+    giUploadPending_ = true;
+}
+
+void Viewport::uploadGiProbes() {
+    if (!giUploadPending_) return;
+    giUploadPending_ = false;
+    if (giDim_[0] <= 0 || giPixels_.empty()) {
+        if (giTex_) glDeleteTextures(1, &giTex_);
+        giTex_ = 0;
+        return;
+    }
+    if (!giTex_) glGenTextures(1, &giTex_);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_3D, giTex_);
+    // Allocate empty then fill - the same two-step glUploadTexRgba uses, for
+    // the same reason (gl_loader.h: the one-call form faults inside the AMD
+    // driver with perfectly valid arguments).
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, giDim_[0] * 4, giDim_[1], giDim_[2],
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, giDim_[0] * 4, giDim_[1],
+                    giDim_[2], GL_RGBA, GL_UNSIGNED_BYTE, giPixels_.data());
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 void Viewport::setLighting(const float* dir, float ambient, float diffuse,
@@ -3275,6 +3420,21 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         } else {
             glUniform1i(uAoHmOn_, 0);
         }
+    }
+    // Baked GI probe grid (texture unit 3). Uploaded lazily here rather than
+    // in setGiProbes: the bake finishes on a worker thread with no GL context.
+    uploadGiProbes();
+    if (giTex_ && giDim_[0] > 0) {
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_3D, giTex_);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(uGiOn_, 1);
+        glUniform3f(uGiOrigin_, giOrigin_[0], giOrigin_[1], giOrigin_[2]);
+        glUniform3f(uGiStep_, giStep_[0], giStep_[1], giStep_[2]);
+        glUniform3i(uGiDim_, giDim_[0], giDim_[1], giDim_[2]);
+        glUniform1f(uGiScale_, giScale_);
+    } else {
+        glUniform1i(uGiOn_, 0);
     }
     const Mat4 identityM = identity();
 

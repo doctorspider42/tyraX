@@ -18,11 +18,13 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
+#include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
 #include "livelogic.hpp"  // Live Logic IR - the interpreter is generated from it
+#include "livetime.hpp"  // time-machine wire format - shared with the editor
 #include "menubake.hpp"
 #include "meshlod.hpp"
 #include "navmesh.hpp"
@@ -407,11 +409,10 @@ int main(int argc, char** argv) {
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
   // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
   options.loadUsbKbdMouse = {{KBD_MOUSE}};
-  // Experimental (Preferences > Build > Keyboard & mouse > Also over ps2link):
-  // normally the drivers are skipped under ps2link. With this on the engine
-  // reuses the USB stack of the custom TyraX ps2link (tools/ps2link-usbhid),
-  // which bakes usbd+ps2kbd+ps2mouse into its own boot - it loads none of its
-  // own. See docs/keyboard-mouse.md (Debugging on real hardware).
+  // Preferences > Build > Keyboard & mouse > Also over ps2link (on by
+  // default): the engine reuses the USB stack of the TyraX ps2link
+  // (tools/ps2link), which bakes usbd+ps2kbd+ps2mouse into its own boot - it
+  // loads none of its own. See docs/ps2link-setup.md and docs/keyboard-mouse.md.
   options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
@@ -1311,6 +1312,107 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Dynamic point lights (Set Light flow node), per scene-object index.
+  std::vector<signed char> lightReq;     // ScriptContext::lightRequest
+  std::vector<float> lightIntens;        // ScriptContext::lightIntensity
+  // Sun screen effects (POSTFX_FLARE / POSTFX_GODRAYS, Set Flare / Set God
+  // Rays): updateSunFx projects the sun + feeds the god-rays pass + eases
+  // the flare's occlusion fade; renderFlare draws the additive ghosts.
+  Tyra::Sprite flareSprites[4];
+  bool flareTexturesLoaded = false;
+  float flareVis = 0.0F;  // eased visibility 0..1
+  float flareSunX = 0.0F, flareSunY = 0.0F;  // sun screen position, px
+  float flareAmt = 0.0F;  // this frame's flare amount 0..1
+  bool flarePreDrawn = false;  // main glow drew before the post-fx pass
+  void updateSunFx();
+  void renderFlare();
+  // Visible light beams (Point Light > Beam): additive corona billboards +
+  // optional cone shafts at the light source, following the light's runtime
+  // state (flicker / Set Light / visibility). Drawn at the end of
+  // renderScene so DoF and god rays treat them as scene light.
+  struct LightBeam {
+    int objIndex = -1;
+    int kind = 0;  // 1 glow, 2 glow + cone
+    std::vector<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    std::vector<Tyra::Color> coneColors;
+    Tyra::Color coronaColor;
+    Tyra::M4x4 mat;  // identity - geometry is world space
+    std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
+    std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+  };
+  std::vector<LightBeam> lightBeams;
+  Tyra::Texture* beamCoronaTex = nullptr;
+  void setupLightBeams();            // per scene load
+  void updateAndRenderLightBeams();  // per frame, end of renderScene
+  // Ground pools of the DYNAMIC point lights: the terrain opts out of the
+  // per-chunk light pick (hard seams at chunk borders), so each dynamic
+  // light paints its pool as a smooth additive terrain-conforming patch
+  // instead - same corona sprite, same flicker breathing.
+  struct LightPool {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<LightPool> lightPools;
+  // Optional custom sprite for the flashlight's pool (Player > Flashlight >
+  // Pool texture). Cached by path - a scene switch must not re-add the same
+  // texture to the repository.
+  Tyra::Texture* flashPoolTex = nullptr;
+  std::string flashPoolTexPath;
+  // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
+  // lighting cannot draw a spot smaller than the mesh tessellation, so
+  // looking down at your own feet lit nothing (the cone footprint is
+  // smaller than a terrain cell). That patch follows the view ray's
+  // terrain hit instead.
+  void setupLightPools();            // per scene load
+  void updateAndRenderLightPools();  // per frame, before the shadows
+  void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
+  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
+  // each moving object (third-person avatar, animated models, physics
+  // objects), fading out as the object rises. Per-caster arrays - the DMA
+  // may still be reading a submitted quad, so casters never share buffers.
+  struct BlobShadow {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<BlobShadow> blobShadows;
+  Tyra::Texture* blobShadowTex = nullptr;
+  void setupBlobShadows();            // per scene load
+  void updateAndRenderBlobShadows();  // per frame, end of renderScene
+  // Projected silhouette shadows (per-object "Cast shadow"): the caster's
+  // existing bags re-render into a small VRAM target from a light camera,
+  // then a terrain patch under it samples the silhouette (renderProjShadows).
+  struct ProjShadow {
+    std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<ProjShadow> projShadows;  // one per engine slot in use
+  std::vector<int> projCasters;         // authored caster object indices
+  void setupProjShadows();   // per scene load
+  void renderProjShadows();  // per frame, end of renderScene
+  // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
+  // floor is boxes metres above the heightfield, and a patch built on the
+  // heightfield alone ends up underneath it (see projCollectReceivers).
+  void projCollectReceivers(float cx, float cz, float reach, float yMax);
+  float projSurfaceAt(float x, float z);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
@@ -2122,6 +2224,107 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Dynamic point lights (Set Light flow node), per scene-object index.
+  std::vector<signed char> lightReq;     // ScriptContext::lightRequest
+  std::vector<float> lightIntens;        // ScriptContext::lightIntensity
+  // Sun screen effects (POSTFX_FLARE / POSTFX_GODRAYS, Set Flare / Set God
+  // Rays): updateSunFx projects the sun + feeds the god-rays pass + eases
+  // the flare's occlusion fade; renderFlare draws the additive ghosts.
+  Tyra::Sprite flareSprites[4];
+  bool flareTexturesLoaded = false;
+  float flareVis = 0.0F;  // eased visibility 0..1
+  float flareSunX = 0.0F, flareSunY = 0.0F;  // sun screen position, px
+  float flareAmt = 0.0F;  // this frame's flare amount 0..1
+  bool flarePreDrawn = false;  // main glow drew before the post-fx pass
+  void updateSunFx();
+  void renderFlare();
+  // Visible light beams (Point Light > Beam): additive corona billboards +
+  // optional cone shafts at the light source, following the light's runtime
+  // state (flicker / Set Light / visibility). Drawn at the end of
+  // renderScene so DoF and god rays treat them as scene light.
+  struct LightBeam {
+    int objIndex = -1;
+    int kind = 0;  // 1 glow, 2 glow + cone
+    std::vector<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    std::vector<Tyra::Color> coneColors;
+    Tyra::Color coronaColor;
+    Tyra::M4x4 mat;  // identity - geometry is world space
+    std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
+    std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+  };
+  std::vector<LightBeam> lightBeams;
+  Tyra::Texture* beamCoronaTex = nullptr;
+  void setupLightBeams();            // per scene load
+  void updateAndRenderLightBeams();  // per frame, end of renderScene
+  // Ground pools of the DYNAMIC point lights: the terrain opts out of the
+  // per-chunk light pick (hard seams at chunk borders), so each dynamic
+  // light paints its pool as a smooth additive terrain-conforming patch
+  // instead - same corona sprite, same flicker breathing.
+  struct LightPool {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<LightPool> lightPools;
+  // Optional custom sprite for the flashlight's pool (Player > Flashlight >
+  // Pool texture). Cached by path - a scene switch must not re-add the same
+  // texture to the repository.
+  Tyra::Texture* flashPoolTex = nullptr;
+  std::string flashPoolTexPath;
+  // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
+  // lighting cannot draw a spot smaller than the mesh tessellation, so
+  // looking down at your own feet lit nothing (the cone footprint is
+  // smaller than a terrain cell). That patch follows the view ray's
+  // terrain hit instead.
+  void setupLightPools();            // per scene load
+  void updateAndRenderLightPools();  // per frame, before the shadows
+  void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
+  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
+  // each moving object (third-person avatar, animated models, physics
+  // objects), fading out as the object rises. Per-caster arrays - the DMA
+  // may still be reading a submitted quad, so casters never share buffers.
+  struct BlobShadow {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<BlobShadow> blobShadows;
+  Tyra::Texture* blobShadowTex = nullptr;
+  void setupBlobShadows();            // per scene load
+  void updateAndRenderBlobShadows();  // per frame, end of renderScene
+  // Projected silhouette shadows (per-object "Cast shadow"): the caster's
+  // existing bags re-render into a small VRAM target from a light camera,
+  // then a terrain patch under it samples the silhouette (renderProjShadows).
+  struct ProjShadow {
+    std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<ProjShadow> projShadows;  // one per engine slot in use
+  std::vector<int> projCasters;         // authored caster object indices
+  void setupProjShadows();   // per scene load
+  void renderProjShadows();  // per frame, end of renderScene
+  // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
+  // floor is boxes metres above the heightfield, and a patch built on the
+  // heightfield alone ends up underneath it (see projCollectReceivers).
+  void projCollectReceivers(float cx, float cz, float reach, float yMax);
+  float projSurfaceAt(float x, float z);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
@@ -2179,6 +2382,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
 #include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
@@ -2219,6 +2423,9 @@ bool g_flashOn = true;
 // Global emitter draw switch (Set Particles flow node). false = updateParticles
 // skips all simulation + drawing, so every emitter's fill cost disappears.
 bool g_particlesOn = true;
+// Sun lens flare amount, 0..128 (Set Flare flow node; seeded per scene from
+// POSTFX_FLARE). Consumed by updateAndRenderFlare.
+int g_flareAmount = 0;
 
 // Runtime analog stick deadzone (Preferences > Input; a menu "Deadzone" option
 // block changes it live via applyMenuBindings). Seeded from the baked
@@ -2409,6 +2616,93 @@ V3 shadeOf(const V3& n) {
   return s;
 }
 
+/** Baked light probes (docs/global-illumination.md). The scene lightmap
+ * covers static untextured geometry; this covers everything else - imported
+ * models, textured receivers, physics bodies, spawn-pool clones and (once per
+ * frame rather than once at load) animated models.
+ *
+ * One sample is L1 spherical harmonics: L0, the average radiance, plus L1,
+ * its direction. giShade below is the clamped-cosine convolution
+ *   shade(n) = L0 + (2/3) * dot(L1, n)
+ * which returns exactly L for a uniform environment of radiance L, and goes
+ * to zero looking away from a bright hemisphere. The host reference is
+ * gibake::sampleProbes and the viewport fragment shader's giProbe() is the
+ * third copy - change one, change all three. */
+struct GiSample {
+  float l0[3];
+  float l1[3][3];  // [axis][channel]
+};
+
+/** True when the active scene has a probe grid AND the point is inside it
+ * with at least one live neighbour. Weighted trilinear over the 8 surrounding
+ * probes; a probe buried in solid geometry weighs nothing, so a wall's black
+ * interior never bleeds into the room next to it. */
+bool giProbeAt(float wx, float wy, float wz, GiSample& out) {
+  const GiProbeGridData* g = SCENE_PROBES;
+  if (!g || g->dim[0] <= 0) return false;
+  const float p[3] = {wx, wy, wz};
+  int i0[3];
+  float f[3];
+  for (int k = 0; k < 3; ++k) {
+    const float step = g->step[k] > 0.000001F ? g->step[k] : 1.0F;
+    float t = (p[k] - g->origin[k]) / step;
+    if (t < 0.0F) t = 0.0F;
+    if (t > (float)(g->dim[k] - 1)) t = (float)(g->dim[k] - 1);
+    i0[k] = (int)t;
+    if (i0[k] > g->dim[k] - 2) i0[k] = g->dim[k] - 2 < 0 ? 0 : g->dim[k] - 2;
+    f[k] = g->dim[k] > 1 ? t - (float)i0[k] : 0.0F;
+  }
+  float acc[12] = {0};
+  float wsum = 0.0F;
+  for (int c = 0; c < 8; ++c) {
+    const int dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;
+    int ix = i0[0] + dx, iy = i0[1] + dy, iz = i0[2] + dz;
+    if (ix > g->dim[0] - 1) ix = g->dim[0] - 1;
+    if (iy > g->dim[1] - 1) iy = g->dim[1] - 1;
+    if (iz > g->dim[2] - 1) iz = g->dim[2] - 1;
+    const int idx = ix + g->dim[0] * (iy + g->dim[1] * iz);
+    if (!g->live[idx]) continue;
+    const float w = (dx ? f[0] : 1.0F - f[0]) * (dy ? f[1] : 1.0F - f[1]) *
+                    (dz ? f[2] : 1.0F - f[2]);
+    if (w <= 0.0F) continue;
+    wsum += w;
+    const signed char* sh = g->sh + idx * 12;
+    for (int k = 0; k < 12; ++k) acc[k] += w * (float)sh[k];
+  }
+  if (wsum <= 0.00001F) return false;
+  const float dec = g->scale / (127.0F * wsum);
+  for (int k = 0; k < 3; ++k) {
+    out.l0[k] = acc[k] * dec;
+    out.l1[0][k] = acc[3 + k] * dec;
+    out.l1[1][k] = acc[6 + k] * dec;
+    out.l1[2][k] = acc[9 + k] * dec;
+  }
+  return true;
+}
+
+V3 giShade(const GiSample& s, const V3& n) {
+  float c[3];
+  for (int k = 0; k < 3; ++k) {
+    float t = s.l0[k] + (2.0F / 3.0F) * (s.l1[0][k] * n.x + s.l1[1][k] * n.y +
+                                         s.l1[2][k] * n.z);
+    if (t < 0.0F) t = 0.0F;
+    if (t > 1.0F) t = 1.0F;
+    c[k] = t;
+  }
+  return V3{c[0], c[1], c[2]};
+}
+
+/** Staged by the geometry builders: this surface's light comes from the probe
+ * grid, so the ambient + directional term, the baked point lights and the
+ * emissive pools must ALL stay out of its vertex colors - the probe already
+ * contains every one of them. */
+bool g_giProbeShade = false;
+
+/** ...and this one: the surface's light comes from the scene LIGHTMAP, per
+ * pixel through the additive atlas pass. Its vertex shade is black; the pass
+ * puts the whole thing back. */
+bool g_giLightmap = false;
+
 /** Point lights (SceneObject type 9) of the active scene, collected once per
  * scene load. pointLightAt runs PER VERTEX while baking terrain chunks and
  * object meshes; scanning the whole SCENE_OBJECTS table there thrashes the
@@ -2421,11 +2715,38 @@ struct BakedPointLight {
   float radius, bright;
 };
 std::vector<BakedPointLight> g_scenePointLights;
+
+/** Dynamic point lights (type 9 + lightDynamic): NOT baked - registered with
+ * the engine every frame (updateDynLights), so they can flicker, move with
+ * their runtime object and be switched by the Set Light flow node. The
+ * engine lights each mesh with its strongest dynamic light (one VU1 light
+ * slot per mesh; the camera flashlight competes in the same pick). */
+struct DynLightRt {
+  int objIndex;            // index into SCENE_OBJECTS / ctx.objects
+  bool on = true;          // Set Light switch (persists until changed)
+  float intensity = 1.0F;  // Set Light multiplier on the authored brightness
+  // This frame's effective multiplier (intensity * flicker; 0 = off/hidden),
+  // written by updateDynLights - the visible light beams reuse it so the
+  // corona breathes with the pool of light.
+  float lastLevel = 1.0F;
+};
+std::vector<DynLightRt> g_dynLights;
+float g_dynLightTime = 0.0F;
+
 void collectScenePointLights() {
   g_scenePointLights.clear();
+  g_dynLights.clear();
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& L = SCENE_OBJECTS[i];
     if (L.type != 9) continue;
+    if (L.lightDynamic) {
+      if ((int)g_dynLights.size() < (int)Tyra::RendererCore::DYN_LIGHTS_MAX) {
+        DynLightRt d;
+        d.objIndex = i;
+        g_dynLights.push_back(d);
+      }
+      continue;  // never baked - the engine lights it live
+    }
     BakedPointLight b;
     b.pos = {L.position[0], L.position[1], L.position[2]};
     b.color[0] = L.color[0];
@@ -2434,6 +2755,90 @@ void collectScenePointLights() {
     b.radius = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
     b.bright = L.lightBright;
     g_scenePointLights.push_back(b);
+  }
+}
+
+/** Applies Set Light requests and registers this frame's dynamic point
+ * lights with the engine (additive VU1 lighting, 128 = +1.0 - roughly the
+ * baked lights' scale). Runs every frame before beginFrame in both loops.
+ * Hidden / streamed-out light objects go dark; flicker is a two-sine wobble
+ * phase-offset per light, frozen while a pausing menu owns the frame. */
+void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
+  auto& core = engine->renderer.core;
+  core.clearDynLights();
+  if (g_dynLights.empty()) return;
+  if (!g_gameplayPaused) g_dynLightTime += g_frameDt;
+  for (DynLightRt& L : g_dynLights) {
+    if (ctx.lightRequest && ctx.lightRequest[L.objIndex] >= 0) {
+      L.on = ctx.lightRequest[L.objIndex] != 0;
+      ctx.lightRequest[L.objIndex] = -1;
+    }
+    if (ctx.lightIntensity && ctx.lightIntensity[L.objIndex] >= 0.0F) {
+      L.intensity = ctx.lightIntensity[L.objIndex];
+      ctx.lightIntensity[L.objIndex] = -1.0F;
+    }
+    L.lastLevel = 0.0F;
+    if (!L.on || !ctx.objects || L.objIndex >= ctx.objectCount) continue;
+    const RuntimeObject& ro = ctx.objects[L.objIndex];
+    if (!ro.visible || !ro.active) continue;
+    const SceneObjectData& d = ro.data;  // live copy - Move Object works
+    float mult = L.intensity;
+    if (d.lightFlicker > 0.0F) {
+      const float p = (float)(L.objIndex % 7) * 1.9F;
+      float w = 0.5F + 0.35F * sinf(g_dynLightTime * 11.7F + p) +
+                0.15F * sinf(g_dynLightTime * 23.3F + p * 2.1F);
+      if (w < 0.0F) w = 0.0F;
+      if (w > 1.0F) w = 1.0F;
+      mult *= 1.0F - d.lightFlicker * (1.0F - w);
+    }
+    L.lastLevel = mult;
+    const float k = d.lightBright * mult;
+    if (k <= 0.0F) continue;
+    auto ch = [&](float c) {
+      float v = c * 128.0F * k;
+      return v > 255.0F ? 255.0F : v;
+    };
+    core.addDynPointLight(
+        Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+        Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+        d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+  }
+}
+
+/** Samples the dynamic lights (scene point lights + flashlight) at a world
+ * point, 0..1 per channel - the animated models' cheap pickup: one sample
+ * per model per frame added to its ambient term, instead of per-vertex VU1
+ * work (the lit anim programs have no spot slot). The flashlight's cone is
+ * a rough cos test at model scale; the falloff mirrors the VU1 shape. */
+void dynLightAt(Tyra::Engine* engine, float wx, float wy, float wz,
+                float out[3]) {
+  out[0] = out[1] = out[2] = 0.0F;
+  auto& core = engine->renderer.core;
+  const Tyra::RendererCoreSpotLight* ls[Tyra::RendererCore::DYN_LIGHTS_MAX + 1];
+  u32 n = 0;
+  if (core.spot.enabled) ls[n++] = &core.spot;
+  for (u32 i = 0; i < core.dynLightCount; i++) ls[n++] = &core.dynLights[i];
+  for (u32 i = 0; i < n; i++) {
+    const auto* l = ls[i];
+    const float dx = wx - l->position.x;
+    const float dy = wy - l->position.y;
+    const float dz = wz - l->position.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    const float r2 = l->range * l->range;
+    if (d2 >= r2) continue;
+    float att = 1.0F - d2 / r2;
+    if (!l->point) {
+      const float d = sqrtf(d2);
+      if (d > 1e-4F) {
+        const float ca = (dx * l->direction.x + dy * l->direction.y +
+                          dz * l->direction.z) /
+                         d;
+        if (ca < l->cosCutoff) att *= 0.15F;  // soft outside the beam
+      }
+    }
+    out[0] += l->color.r * (1.0F / 128.0F) * att;
+    out[1] += l->color.g * (1.0F / 128.0F) * att;
+    out[2] += l->color.b * (1.0F / 128.0F) * att;
   }
 }
 
@@ -2807,7 +3212,24 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
-  V3 shade = shadeOf(n);
+  // Global illumination takes the whole shade over when it owns the surface
+  // (docs/global-illumination.md): black here for a lightmapped one - the
+  // additive atlas pass puts every photon back per pixel - and the probe
+  // irradiance for one on the vertex path. Either way the ambient +
+  // directional term is already inside the baked answer, so it must not be
+  // added a second time here.
+  V3 shade;
+  GiSample giSample;
+  bool giHere = false;
+  if (g_giLightmap) {
+    shade = {0.0F, 0.0F, 0.0F};
+    giHere = true;
+  } else if (g_giProbeShade && giProbeAt(wp.x, wp.y, wp.z, giSample)) {
+    shade = giShade(giSample, n);
+    giHere = true;
+  } else {
+    shade = shadeOf(n);
+  }
   // Ambient occlusion multiplies the directional shade BEFORE the point
   // lights add on top (light pools stay bright inside dark corners). selfAo
   // is the model's baked raycast self-occlusion (255 = open). With the
@@ -2828,13 +3250,16 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
       aoM *= 1.0F - SCENE_AO_STRENGTH * (1.0F - selfAo * (1.0F / 255.0F));
     shade.x *= aoM, shade.y *= aoM, shade.z *= aoM;
   }
-  const V3 pl = pointLightAt(wp, n);
-  shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
-  // Emissive materials nearby light this surface too - same additive slot as
-  // the point lights (both sit on top of the AO-multiplied directional term).
-  if (!g_emisAtlas) {
-    const V3 el = emissiveLightAt(wp, n);
-    shade.x += el.x, shade.y += el.y, shade.z += el.z;
+  // Baked point lights and emissive pools sit on top of the AO-multiplied
+  // directional term - unless GI already answered for this surface, in which
+  // case both are inside that answer.
+  if (!giHere) {
+    const V3 pl = pointLightAt(wp, n);
+    shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
+    if (!g_emisAtlas) {
+      const V3 el = emissiveLightAt(wp, n);
+      shade.x += el.x, shade.y += el.y, shade.z += el.z;
+    }
   }
   if (shade.x > 1.0F) shade.x = 1.0F;
   if (shade.y > 1.0F) shade.y = 1.0F;
@@ -3659,6 +4084,8 @@ void TerrainGame::init() {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
+  g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -3820,6 +4247,8 @@ void TerrainGame::loop() {
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.playerVelY = players[0].velY;
+  scriptCtx.playerBoom = players[0].boom;
   scriptCtx.player2Active =
       MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
   scriptCtx.player2Position =
@@ -3880,7 +4309,11 @@ void TerrainGame::loop() {
       players[0].x = scriptCtx.teleportPos.x;
       players[0].y = scriptCtx.teleportPos.y;
       players[0].z = scriptCtx.teleportPos.z;
-      players[0].velY = 0.0F;
+      // A rewind restores the motion it captured; every other teleport (the
+      // Spawn Player At node, a memory-card load) lands standing still.
+      players[0].velY = scriptCtx.teleportMotion ? scriptCtx.playerVelY : 0.0F;
+      if (scriptCtx.teleportMotion) players[0].boom = scriptCtx.playerBoom;
+      scriptCtx.teleportMotion = false;
       players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
       if (playerTwoActive && players[1].objIndex >= 0) {
         players[1].x = players[0].x + 1.2F;
@@ -3933,6 +4366,14 @@ void TerrainGame::loop() {
   if (scriptCtx.grain >= 0) {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
+  }
+  if (scriptCtx.flare >= 0) {
+    g_flareAmount = scriptCtx.flare;
+    scriptCtx.flare = -1;
+  }
+  if (scriptCtx.godRays >= 0) {
+    engine->renderer.core.postFx.setGodRays(scriptCtx.godRays);
+    scriptCtx.godRays = -1;
   }
   if (scriptCtx.dof == -2) {
     // Set Depth Of Field, "Scene setting" mode: back to the authored values
@@ -4018,6 +4459,9 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
+  // Dynamic point lights: apply Set Light requests + register this frame's
+  // lights (the engine picks the strongest per mesh, flashlight included).
+  updateDynLights(engine, scriptCtx);
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -4056,7 +4500,12 @@ void TerrainGame::loop() {
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
     // DoF pass (a crosshair HUD showed through the blur as a box).
-    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
+    // Sun state first (god-rays zoom center + flare fade), then the depth
+    // of field + god-rays composite, then the flare sprites on top of both.
+    updateSunFx();
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof |
+                                      Tyra::RendererCorePostFx::PassGodRays);
+    renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -4134,6 +4583,12 @@ void TerrainGame::buildScene() {
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
   infoBag->shadingType = TyraShadingFlat;
+  // Terrain draws in CHUNKS sharing this info bag: a per-chunk dynamic-light
+  // pick shows a hard rectangular seam wherever neighboring chunks pick
+  // different lights, so the terrain opts out (the flashlight still lights
+  // it globally) and the scene lights paint their ground pools as smooth
+  // additive patches instead (updateAndRenderLightPools).
+  infoBag->dynLightPick = false;
   // Always classify per package against the frustum: packages fully outside
   // are skipped, packages touching a plane get per-triangle clipping
   // (CLIP_PRECISE, Project > Preferences) or per-triangle culling (fast -
@@ -4303,6 +4758,31 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+    // Sun lens flare ghost sprites. FLARE_USED gates the load - the PNGs are
+    // baked into res/hud only for flare-using projects (see refreshGenerated).
+    if (FLARE_USED) {
+      auto* glowTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-glow.png"));
+      auto* ringTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-ring.png"));
+      for (int i = 0; i < 4; ++i) {
+        flareSprites[i].mode = SpriteMode::MODE_STRETCH;
+        flareSprites[i].additive = true;
+        (i == 0 || i == 1 ? glowTex : ringTex)->addLink(flareSprites[i].id);
+      }
+      flareTexturesLoaded = true;
+    }
+    // Light-beam corona texture (Point Light > Beam; shape in RGB).
+    if (BEAMS_USED)
+      beamCoronaTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-corona.png"));
+    // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
+    if (BLOB_SHADOWS)
+      blobShadowTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-glow.png"));
+    // Projected shadows: allocate the engine's shadow-map VRAM before any
+    // texture upload can claim that region (lazy - only shadow projects pay).
+    if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
 
     // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
     // here: a font atlas reaches the repository (and VRAM) on the first frame
@@ -5041,8 +5521,11 @@ void TerrainGame::setupAnimObject(int index) {
 // In-view instances draw nearest-first: the front-to-back order lets the GS
 // z-reject overdraw and makes each pose group's mesh owner its closest
 // on-screen member (the LOD refresh rate follows the closest copy).
-// One directional light matches the baked static lighting (point lights are
-// baked into static vertex colors and cannot follow animated meshes).
+// One directional light matches the baked static lighting; baked point
+// lights cannot follow animated meshes, but DYNAMIC lights (+ the
+// flashlight) are sampled once per model per frame into the ambient term
+// (see the dynLightAt pickup below) - a character walking into a torch's
+// pool of light brightens with it.
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
@@ -5223,6 +5706,58 @@ void TerrainGame::updateAndRenderAnimObjects() {
         meshOwner == i && (allowSkin || inst->currentLod() != meshLod)
             ? inst->ensurePose(meshLod)
             : false;
+    // Dynamic light pickup: one sample at the model's center added to each
+    // part's ambient term - a torch or the flashlight visibly lights the
+    // character, without per-vertex VU1 cost (litColors[3] mirrors
+    // setupAnimObject's albedo fold; alpha stays 128).
+    {
+      float dl[3];
+      dynLightAt(engine, o.data.position[0],
+                 o.data.position[1] + o.data.scale[1] * 0.5F,
+                 o.data.position[2], dl);
+      // Baked global illumination for everything that moves
+      // (docs/global-illumination.md): one probe sample at the model's centre
+      // per frame. amb[] takes the probe's L0 - the average radiance around
+      // the model - instead of the scene's flat ambient, and dif[] takes the
+      // probe's L1 evaluated along the SUN direction, which is what keeps a
+      // character shaded rather than flat: the shared animLightDirs[0] still
+      // points at the sun, so reconstructing the field along it turns the
+      // grid's directionality back into the one VU1 light slot these meshes
+      // have. A character walking from sunlight into a doorway darkens and
+      // picks up the interior's colour, all for a lookup and ~10 flops.
+      float amb[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT};
+      float dif[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      GiSample gs;
+      if (giProbeAt(o.data.position[0],
+                    o.data.position[1] + o.data.scale[1] * 0.5F,
+                    o.data.position[2], gs)) {
+        const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+        for (int k = 0; k < 3; ++k) {
+          float a = gs.l0[k];
+          if (a < 0.0F) a = 0.0F;
+          amb[k] = 128.0F * a;
+          float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
+                                     gs.l1[2][k] * sun.z);
+          if (d < 0.0F) d = 0.0F;
+          dif[k] = 128.0F * d;
+        }
+      }
+      const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+      for (size_t p = 0; p < g.animParts.size(); ++p) {
+        if (!g.animParts[p].bag) continue;
+        const float* base = gam.src->parts[p].color;
+        g.animParts[p].litColors[0].set(dif[0] * base[0], dif[1] * base[1],
+                                        dif[2] * base[2], 1.0F);
+        g.animParts[p].litColors[3].set(
+            (amb[0] + 128.0F * dl[0]) * base[0],
+            (amb[1] + 128.0F * dl[1]) * base[1],
+            (amb[2] + 128.0F * dl[2]) * base[2], 128.0F);
+      }
+    }
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
       if (!ap.bag) continue;
@@ -5503,6 +6038,13 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
+  // Visible light beams + ground pools follow the scene's Point Lights.
+  setupLightBeams();
+  setupLightPools();
+  // Blob shadows follow the scene's moving objects.
+  setupBlobShadows();
+  // Projected silhouette shadows follow the scene's "Cast shadow" objects.
+  setupProjShadows();
 
   // Scene lightmaps: swap the per-scene textures (the terrain occlusion map
   // and the object atlas carrying occlusion + baked emissive light). Must
@@ -5645,6 +6187,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
+  g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -5703,6 +6247,11 @@ void TerrainGame::loadScene(int sceneIndex) {
 
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
+  // Dynamic point lights: request slots per object index (Set Light node).
+  lightReq.assign(runtimeObjects.empty() ? 1 : runtimeObjects.size(), -1);
+  lightIntens.assign(runtimeObjects.empty() ? 1 : runtimeObjects.size(), -1.0F);
+  scriptCtx.lightRequest = lightReq.data();
+  scriptCtx.lightIntensity = lightIntens.data();
   scriptCtx.scene = currentScene;
   scriptCtx.sceneGeneration = sceneGeneration;
   scriptCtx.layerState = layerState.data();
@@ -7170,6 +7719,1026 @@ void TerrainGame::updateAndRenderHudTexts() {
   }
 }
 
+// Sun screen effects, part 1 (before the post-fx pass): projects the sun -
+// it sits infinitely far along the lighting direction, so only the DIRECTION
+// matters - feeds the god-rays pass its screen position + visibility factor,
+// and eases the lens flare's occlusion fade (one ray toward the sun: object
+// bounding spheres + a terrain march). Part 2 (renderFlare) draws the flare
+// sprites AFTER the post-fx pass so they sit on top of DoF and the rays.
+void TerrainGame::updateSunFx() {
+  auto& postFx = engine->renderer.core.postFx;
+  const float amount =
+      flareTexturesLoaded ? g_flareAmount * (1.0F / 128.0F) : 0.0F;
+  flareAmt = amount;
+  const bool wantRays = postFx.getGodRays() > 0;
+  if (amount <= 0.0F && !wantRays) {
+    flareVis = 0.0F;
+    return;
+  }
+
+  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
+  if (sl < 0.0001F) {
+    postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+    flareVis = 0.0F;
+    return;
+  }
+  sxd /= sl, syd /= sl, szd /= sl;
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth(), H = scr.getHeight();
+
+  float target = 0.0F, px = 0.0F, py = 0.0F, raysVis = 0.0F;
+  float edge = 0.0F;
+  const Vec4 sunWorld(cameraPosition.x + sxd * 500.0F,
+                      cameraPosition.y + syd * 500.0F,
+                      cameraPosition.z + szd * 500.0F, 1.0F);
+  const Vec4 clip = engine->renderer.core.renderer3D.getViewProj() * sunWorld;
+  if (clip.w > 0.0F) {
+    px = (clip.x / clip.w * 0.5F + 0.5F) * W;
+    py = (0.5F - clip.y / clip.w * 0.5F) * H;
+    const float mx = px < 0.0F ? -px : (px > W ? px - W : 0.0F);
+    const float my = py < 0.0F ? -py : (py > H ? py - H : 0.0F);
+    const float m = mx > my ? mx : my;
+    // Flare fades over an 80px band past the edge; the rays keep working
+    // with the sun well off screen (streaks reach in from the border).
+    edge = 1.0F - m * (1.0F / 80.0F);
+    raysVis = 1.0F - m * (1.0F / 220.0F);
+  }
+  flareSunX = px, flareSunY = py;
+  postFx.setGodRaysSun(px, py, raysVis);
+
+  if (amount > 0.0F && edge > 0.0F) {
+    // Flare occlusion: one ray from the camera toward the sun. Objects as
+    // bounding spheres (marker types skipped), then a terrain march -
+    // cheap enough to run every frame.
+    bool clear = true;
+    for (int i = 0; i < (int)runtimeObjects.size() && clear; ++i) {
+      const RuntimeObject& o = runtimeObjects[i];
+      if (!o.active || !o.visible || i == PLAYER_INDEX) continue;
+      const int ty = o.data.type;
+      if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
+          ty == 13 || ty == 14)
+        continue;
+      float half = o.data.scale[0];
+      if (o.data.scale[1] > half) half = o.data.scale[1];
+      if (o.data.scale[2] > half) half = o.data.scale[2];
+      const float cx = o.data.position[0] - cameraPosition.x;
+      const float cy = o.data.position[1] - cameraPosition.y;
+      const float cz = o.data.position[2] - cameraPosition.z;
+      const float tca = cx * sxd + cy * syd + cz * szd;
+      if (tca < 0.0F) continue;
+      const float d2 = cx * cx + cy * cy + cz * cz - tca * tca;
+      if (d2 < half * half) clear = false;
+    }
+    for (float t = 2.0F; t <= 80.0F && clear; t += 2.0F) {
+      if (cameraPosition.y + syd * t <=
+          terrainHeightAt(cameraPosition.x + sxd * t,
+                          cameraPosition.z + szd * t))
+        clear = false;
+    }
+    if (clear) target = edge > 1.0F ? 1.0F : edge;
+  }
+
+  // Ease toward the target so occlusion changes never pop.
+  const float k = g_frameDt * 6.0F;
+  flareVis += (target - flareVis) * (k > 1.0F ? 1.0F : k);
+
+  // Position + tint the ghost sprites now, then draw the MAIN sun glow
+  // (sprite 0) before the post-fx pass: the god rays bright-pass picks it
+  // up, so the shafts visibly emanate from the sun itself. The remaining
+  // ghosts draw after the pass (renderFlare) so they stay crisp.
+  if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
+  const float axc = W * 0.5F - px, ayc = H * 0.5F - py;
+  // t = position on the sun -> screen-center axis (1 = at the sun,
+  // 0 = center, negative = mirrored past center).
+  struct Ghost { float t, size, alpha; };
+  static const Ghost ghosts[4] = {{1.0F, 160.0F, 1.0F},
+                                  {0.55F, 44.0F, 0.35F},
+                                  {0.25F, 90.0F, 0.45F},
+                                  {-0.35F, 56.0F, 0.30F}};
+  const float lr = SCENE_LIGHT_COL_R, lg = SCENE_LIGHT_COL_G,
+              lb = SCENE_LIGHT_COL_B;
+  for (int i = 0; i < 4; ++i) {
+    const Ghost& g = ghosts[i];
+    Sprite& s = flareSprites[i];
+    const float gx = px + axc * (1.0F - g.t), gy = py + ayc * (1.0F - g.t);
+    const float size = g.size * (0.6F + 0.4F * flareAmt);
+    s.size = Vec2(size, size);
+    s.position = Vec2(gx - size * 0.5F, gy - size * 0.5F);
+    const float a = 128.0F * flareAmt * flareVis * g.alpha;
+    // Tint by the scene light color (128 = unmodulated texel).
+    s.color = Tyra::Color(128.0F * lr, 128.0F * lg, 128.0F * lb, a);
+  }
+  // Sprites stamp z across their whole rect, and the DoF composite is
+  // z-tested - a pre-pass sprite would punch a blur rectangle into it. So
+  // the glow feeds the rays only while DoF is off; with DoF active it draws
+  // after the pass with the other ghosts (rays then streak scene light only).
+  flarePreDrawn = engine->renderer.core.postFx.getDepthOfField() == 0;
+  if (flarePreDrawn) engine->renderer.renderer2D.render(flareSprites[0]);
+}
+
+// Sun lens flare, part 2: the remaining ghost sprites (the main glow drew in
+// updateSunFx, pre-post-fx). Drawn right after the post-fx pass (DoF + god
+// rays), under the whole HUD stack.
+void TerrainGame::renderFlare() {
+  if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
+  for (int i = flarePreDrawn ? 1 : 0; i < 4; ++i)
+    engine->renderer.renderer2D.render(flareSprites[i]);
+}
+
+// Visible light beams (Point Light > Beam): per-scene setup. One additive
+// corona billboard (textured, flare-corona.png - shape in RGB, additive
+// bags ignore texture alpha) and, for kind 2, an untextured cone shaft
+// whose vertex colors fade to black at the bottom rim.
+void TerrainGame::setupLightBeams() {
+  lightBeams.clear();
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (d.type != 9 || d.lightBeam == 0) continue;
+    lightBeams.emplace_back();
+    LightBeam& b = lightBeams.back();
+    b.objIndex = i;
+    b.kind = d.lightBeam;
+    b.mat.identity();
+
+    b.coronaVerts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.coronaSts.clear();
+    b.coronaSts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.coronaColor = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    b.coronaInfo = std::make_unique<StaPipInfoBag>();
+    b.coronaInfo->model = &b.mat;
+    b.coronaInfo->shadingType = TyraShadingFlat;
+    b.coronaInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.coronaInfo->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    b.coronaInfo->fullClipChecks = true;  // near-camera quad: clip, not drop
+    b.coronaColorBag = std::make_unique<StaPipColorBag>();
+    b.coronaColorBag->single = &b.coronaColor;
+    b.coronaTexBag = std::make_unique<StaPipTextureBag>();
+    b.coronaTexBag->texture = beamCoronaTex;
+    b.coronaTexBag->coordinates = b.coronaSts.data();
+    b.coronaBag = std::make_unique<StaPipBag>();
+    b.coronaBag->info = b.coronaInfo.get();
+    b.coronaBag->color = b.coronaColorBag.get();
+    b.coronaBag->texture = b.coronaTexBag.get();
+    b.coronaBag->vertices = b.coronaVerts.data();
+    b.coronaBag->count = 6;
+
+    if (b.kind == 2) {
+      // 8-segment cone fan: apex at the light, ring below. 24 verts.
+      b.coneVerts.assign(24, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+      b.coneColors.assign(24, Color(0.0F, 0.0F, 0.0F, 128.0F));
+      b.coneInfo = std::make_unique<StaPipInfoBag>();
+      b.coneInfo->model = &b.mat;
+      b.coneInfo->shadingType = TyraShadingGouraud;
+      b.coneInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      b.coneInfo->zTestType = PipelineZTest_TestOnly;
+      b.coneInfo->fullClipChecks = true;  // walk-through shafts: clip, not drop
+      b.coneColorBag = std::make_unique<StaPipColorBag>();
+      b.coneColorBag->many = b.coneColors.data();
+      b.coneBag = std::make_unique<StaPipBag>();
+      b.coneBag->info = b.coneInfo.get();
+      b.coneBag->color = b.coneColorBag.get();
+      b.coneBag->vertices = b.coneVerts.data();
+      b.coneBag->count = 24;
+    }
+  }
+  // REBIND AFTER THE VECTOR STOPPED GROWING. The bags hold pointers INTO the
+  // element (the model matrix, the single color), and every emplace_back that
+  // reallocates moves the elements out from under every earlier bag - which
+  // then feeds the pipeline a freed model matrix and draws nothing at all.
+  // Silent, and it always spares the LAST element, so it reads as "only one of
+  // my lights has a beam". setupLightPools happens to reserve() exactly and so
+  // escaped it; this pass cannot be defeated by adding an element later.
+  for (LightBeam& b : lightBeams) {
+    b.coronaInfo->model = &b.mat;
+    b.coronaColorBag->single = &b.coronaColor;
+    if (b.coneInfo) b.coneInfo->model = &b.mat;
+  }
+}
+
+// Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
+// terrain patch per dynamic light, textured with the corona sprite (shape
+// in RGB - additive bags ignore texture alpha), tinted by the light color.
+void TerrainGame::setupLightPools() {
+  lightPools.clear();
+  if (!beamCoronaTex) return;
+  constexpr int kCells = 4;
+  // One pool per dynamic point light, plus a last one (objIndex -1) that
+  // follows the camera flashlight's terrain hit.
+  int poolCount = 1;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
+      ++poolCount;
+  lightPools.reserve(poolCount);
+  for (int i = 0; i <= SCENE_OBJECT_COUNT; ++i) {
+    if (i < SCENE_OBJECT_COUNT) {
+      const SceneObjectData& d = SCENE_OBJECTS[i];
+      if (d.type != 9 || !d.lightDynamic) continue;
+    }
+    lightPools.emplace_back();
+    LightPool& b = lightPools.back();
+    b.objIndex = i < SCENE_OBJECT_COUNT ? i : -1;  // -1 = the flashlight
+    b.mat.identity();
+    b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    int v = 0;
+    for (int iz = 0; iz < kCells; ++iz) {
+      for (int ix = 0; ix < kCells; ++ix) {
+        const float u0 = (float)ix / kCells, u1 = (float)(ix + 1) / kCells;
+        const float t0 = (float)iz / kCells, t1 = (float)(iz + 1) / kCells;
+        b.sts[v + 0] = Vec4(u0, t0, 1.0F, 0.0F);
+        b.sts[v + 1] = Vec4(u1, t0, 1.0F, 0.0F);
+        b.sts[v + 2] = Vec4(u1, t1, 1.0F, 0.0F);
+        b.sts[v + 3] = Vec4(u0, t0, 1.0F, 0.0F);
+        b.sts[v + 4] = Vec4(u1, t1, 1.0F, 0.0F);
+        b.sts[v + 5] = Vec4(u0, t1, 1.0F, 0.0F);
+        v += 6;
+      }
+    }
+    b.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->dynLightPick = false;  // it IS the light - never re-lit
+    b.info->fullClipChecks = true;  // big near-camera quads: clip, not drop
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = beamCoronaTex;
+    // The flashlight's pool can carry an authored sprite instead - that
+    // texture IS the beam's shape (gobo, cross, cracked lens). Additive,
+    // so the shape lives in RGB; alpha is ignored.
+    if (b.objIndex < 0 && FLASHLIGHT_TEX[0] != '\0') {
+      const std::string want(FLASHLIGHT_TEX);
+      if (!flashPoolTex || flashPoolTexPath != want) {
+        flashPoolTex =
+            engine->renderer.getTextureRepository().add(FileUtils::fromCwd(want));
+        flashPoolTexPath = want;
+      }
+      if (flashPoolTex) b.texBag->texture = flashPoolTex;
+    }
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = (u32)b.verts.size();
+  }
+}
+
+// Per frame: drop each dynamic light's pool onto the terrain under it
+// (terrain-conforming corners), tint by the light color and breathe with
+// its level (flicker / Set Light / hidden) through the additive FIX.
+void TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
+                                 float lift) {
+  constexpr int kCells = 4;
+  int v = 0;
+  for (int iz = 0; iz < kCells; ++iz) {
+    for (int ix = 0; ix < kCells; ++ix) {
+      const float x0 = cx + ((float)ix / kCells - 0.5F) * 2.0F * r;
+      const float x1 = cx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * r;
+      const float z0 = cz + ((float)iz / kCells - 0.5F) * 2.0F * r;
+      const float z1 = cz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * r;
+      b.verts[v + 0] = Vec4(x0, terrainHeightAt(x0, z0) + lift, z0, 1.0F);
+      b.verts[v + 1] = Vec4(x1, terrainHeightAt(x1, z0) + lift, z0, 1.0F);
+      b.verts[v + 2] = Vec4(x1, terrainHeightAt(x1, z1) + lift, z1, 1.0F);
+      b.verts[v + 3] = b.verts[v + 0];
+      b.verts[v + 4] = b.verts[v + 2];
+      b.verts[v + 5] = Vec4(x0, terrainHeightAt(x0, z1) + lift, z1, 1.0F);
+      v += 6;
+    }
+  }
+}
+
+void TerrainGame::updateAndRenderLightPools() {
+  if (lightPools.empty()) return;
+  for (LightPool& b : lightPools) {
+    if (b.objIndex < 0) {
+      // The camera flashlight. Per-vertex lighting cannot draw a spot
+      // smaller than the mesh tessellation, so aiming at your own feet
+      // (a footprint well under one terrain cell) lit nothing at all.
+      // Follow the view ray to the terrain and put a pool there instead.
+      if (!g_flashEnabled || !g_flashOn) continue;
+      float dx = cameraLookAt.x - cameraPosition.x;
+      float dy = cameraLookAt.y - cameraPosition.y;
+      float dz = cameraLookAt.z - cameraPosition.z;
+      const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (dl < 0.0001F) continue;
+      dx /= dl, dy /= dl, dz /= dl;
+      // Fixed-step march + a short bisection, like the flare's occlusion
+      // ray; no hit inside the beam's reach = nothing to light.
+      float hit = -1.0F, prev = 0.0F;
+      for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
+        if (cameraPosition.y + dy * t <=
+            terrainHeightAt(cameraPosition.x + dx * t,
+                            cameraPosition.z + dz * t)) {
+          float lo = prev, hi2 = t;
+          for (int k2 = 0; k2 < 6; ++k2) {
+            const float mid = (lo + hi2) * 0.5F;
+            if (cameraPosition.y + dy * mid <=
+                terrainHeightAt(cameraPosition.x + dx * mid,
+                                cameraPosition.z + dz * mid))
+              hi2 = mid;
+            else
+              lo = mid;
+          }
+          hit = hi2;
+          break;
+        }
+        prev = t;
+      }
+      if (hit < 0.0F) continue;
+      const float gx = cameraPosition.x + dx * hit;
+      const float gz = cameraPosition.z + dz * hit;
+      // Cone footprint at that distance, widened a little for the soft
+      // edge and floored so a straight-down look still gets a visible
+      // puddle. Grazing angles stretch the real footprint - the round
+      // patch is the PS2-era approximation, not a projection.
+      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      float r = hit * tanA * 1.7F;
+      if (r < 0.7F) r = 0.7F;
+      if (r > 8.0F) r = 8.0F;
+      buildPoolPatch(b, gx, gz, r, 0.045F);
+      b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
+      // Fade out over the last third of the reach so the pool dies with
+      // the per-vertex beam instead of ending on a hard circle.
+      float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
+      fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
+      const float fix = 110.0F * fade;
+      if (fix < 1.0F) continue;
+      b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
+      b.bag->bboxVersion = ++g_bboxStamp;
+      stapip.core.render(b.bag.get());
+      continue;
+    }
+    if (b.objIndex >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& ro = runtimeObjects[b.objIndex];
+    if (!ro.active || !ro.visible) continue;
+    const SceneObjectData& d = ro.data;
+    float level = 0.0F;
+    for (const DynLightRt& L : g_dynLights)
+      if (L.objIndex == b.objIndex) {
+        level = L.lastLevel;
+        break;
+      }
+    const float k = d.lightBright * level;
+    if (k <= 0.01F) continue;
+    buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
+                   0.04F);  // under the shadows' 0.05/0.06
+    b.color.set(128.0F * d.color[0], 128.0F * d.color[1], 128.0F * d.color[2],
+                128.0F);
+    float fix = 96.0F * (k > 1.4F ? 1.4F : k);
+    b.info->additiveBlendFix =
+        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  }
+}
+
+// Blob shadows: per-scene setup. A caster is anything that visibly moves -
+// the third-person avatar, animated models, physics objects. (Runtime
+// spawn-pool clones cast none - authored objects only.)
+void TerrainGame::setupBlobShadows() {
+  blobShadows.clear();
+  if (!BLOB_SHADOWS) return;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    const bool avatar = i == PLAYER_INDEX && PLAYER_MODE == 2;
+    if (!avatar && d.animModel < 0 && !d.physics) continue;
+    if (d.type == 9 || d.type == 4 || d.type == 8 || d.type == 11 ||
+        d.type == 13 || d.type == 14)
+      continue;  // lights/markers never cast
+    blobShadows.emplace_back();
+    BlobShadow& b = blobShadows.back();
+    b.objIndex = i;
+    b.mat.identity();
+    b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.clear();
+    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.color = Color(0.0F, 0.0F, 0.0F, 60.0F);
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->dynLightPick = false;  // as for the projected patches: a dark
+                                   // blob under a dynamic light was picked up
+                                   // by that light and drawn BRIGHT
+    b.info->fullClipChecks = true;  // near-camera quad: clip, not drop
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = blobShadowTex;
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = 6;
+  }
+  // See setupLightBeams: the bags point INTO the vector elements, so they are
+  // rebound once the vector has stopped reallocating under them.
+  for (BlobShadow& b : blobShadows) {
+    b.info->model = &b.mat;
+    b.colorBag->single = &b.color;
+  }
+}
+
+// Per frame: drop each caster's quad onto the terrain under it (4 height
+// samples conform it to slopes), fade with the caster's height above the
+// ground, alpha-blend (the glow texture's alpha is the soft edge).
+void TerrainGame::updateAndRenderBlobShadows() {
+  if (blobShadows.empty() || !blobShadowTex) return;
+  for (BlobShadow& b : blobShadows) {
+    if (b.objIndex >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& ro = runtimeObjects[b.objIndex];
+    if (!ro.active || !ro.visible) continue;
+    const SceneObjectData& d = ro.data;
+    const float cx = d.position[0], cz = d.position[2];
+    // Object base: the player entity sits at its feet, everything else is
+    // centered (base = center - halfY).
+    const float halfY =
+        b.objIndex == PLAYER_INDEX ? 0.0F : d.scale[1] * 0.5F;
+    const float ground = terrainHeightAt(cx, cz);
+    const float h = (d.position[1] - halfY) - ground;
+    float fade = 1.0F - h * (1.0F / 3.0F);
+    if (fade <= 0.02F) continue;
+    if (fade > 1.0F) fade = 1.0F;
+    float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
+    r = r * 0.75F + 0.2F;
+    const float lift = 0.06F;
+    b.verts[0] = Vec4(cx - r, terrainHeightAt(cx - r, cz + r) + lift, cz + r, 1.0F);
+    b.verts[1] = Vec4(cx + r, terrainHeightAt(cx + r, cz + r) + lift, cz + r, 1.0F);
+    b.verts[2] = Vec4(cx + r, terrainHeightAt(cx + r, cz - r) + lift, cz - r, 1.0F);
+    b.verts[3] = b.verts[0];
+    b.verts[4] = b.verts[2];
+    b.verts[5] = Vec4(cx - r, terrainHeightAt(cx - r, cz - r) + lift, cz - r, 1.0F);
+    b.color.a = 60.0F * fade;
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  }
+}
+
+// Projected silhouette shadows: per-scene setup. The engine's shadow-map
+// slots were allocated at boot (PROJ_SHADOWS_USED); each in-use slot gets a
+// terrain-conforming receiver patch bound to that slot's VRAM-resident
+// silhouette texture. Casters are authored objects with "Cast shadow" - the
+// nearest `slots` of them render each frame.
+void TerrainGame::setupProjShadows() {
+  projShadows.clear();
+  projCasters.clear();
+  if (!PROJ_SHADOWS_USED) return;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].projShadow) projCasters.push_back(i);
+  if (projCasters.empty()) return;
+
+  const int slots = (int)projCasters.size() < Tyra::RendererCoreShadowMap::slots
+                        ? (int)projCasters.size()
+                        : Tyra::RendererCoreShadowMap::slots;
+  // 5x5 cells of 2 triangles = 150 vertices per receiver patch.
+  constexpr int kCells = 4;
+  for (int s = 0; s < slots; ++s) {
+    projShadows.emplace_back();
+    ProjShadow& b = projShadows.back();
+    b.mat.identity();
+    b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.color = Color(0.0F, 0.0F, 0.0F, 55.0F);
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->dynLightPick = false;  // a SHADOW must never be re-lit: the patch
+                                   // sits inside a light's pool by
+                                   // construction, and the per-bag pick lifted
+                                   // its black straight back to the light's
+                                   // color - a bright quad where the shadow
+                                   // should be (same rule as the pools)
+    b.info->fullClipChecks = true;  // big near-camera triangles: crossing
+                                    // ones must CLIP, not drop whole (a
+                                    // dropped 3-unit ground quad is a hole)
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = engine->renderer.core.shadowMap.getTexture(s);
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = (u32)b.verts.size();
+  }
+  // See setupLightBeams: the bags point INTO the vector elements, so they are
+  // rebound once the vector has stopped reallocating under them. This is what
+  // made projected shadows draw NOTHING - `used` counts up from 0, so the only
+  // slot whose model matrix survived (the last one) was never the one in use.
+  for (ProjShadow& b : projShadows) {
+    b.info->model = &b.mat;
+    b.colorBag->single = &b.color;
+  }
+}
+
+// Per frame, end of renderScene: for the nearest casters, render the
+// object's EXISTING bags into a shadow-map slot from a "light camera"
+// looking along the sun direction (one raster-redirect bracket per caster,
+// one end() drain total), then drop each slot's receiver patch onto the
+// terrain with per-vertex UVs computed through the captured light
+// view-proj. Real silhouette shape - follows animation and movement.
+/** Receiver surfaces for the projected shadows.
+ *
+ * The patch used to be built on the TERRAIN alone. That is fine outdoors and
+ * useless indoors: a level made of geometry - a corridor, a hospital floor, a
+ * platform, anything Silent Hill shaped - has its real floor metres above the
+ * heightfield, so the patch was laid down UNDER it and the shadow simply never
+ * appeared. This answers the question that actually matters: what is the
+ * highest solid surface at (x, z) at or below yMax, terrain included.
+ *
+ * Extents are the same box the WALKER stands on (collidePlayer's box mode:
+ * a model's real mesh AABB, a primitive's unit scale box, rotation ignored),
+ * so the shadow lands exactly where the feet do rather than on a second,
+ * disagreeing idea of the floor.
+ *
+ * Candidates are collected ONCE per shadow and never per patch vertex - the
+ * point-light dcache lesson. A patch is 25 unique points; scanning the object
+ * table at each of them is how a big scene loses a millisecond per shadow. */
+struct ProjRecv {
+  float minX, maxX, minZ, maxZ, top;
+};
+std::vector<ProjRecv> g_projRecv;
+
+void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
+                                       float yMax) {
+  g_projRecv.clear();
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.active || !o.visible) continue;
+    if (o.data.collision == 2) continue;  // no collision = nothing to stand on
+    const int t = o.data.type;
+    // The marker/volume skip list, same membership collidePlayer uses: a
+    // shadow must not land on a spawn point or the inside of an Area.
+    if (t == 4 || t == 6 || t == 7 || t == 8 || t == 9 || t == 11 || t == 13 ||
+        t == 14 || t == 17)
+      continue;
+    const GameModel* gm = nullptr;
+    if (t == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    const SkelModel* am = nullptr;
+    if (t == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      am = gameAnimModels[o.data.animModel].src.get();
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    V3 lc = {0.0F, 0.0F, 0.0F};
+    const float* mn = gm ? gm->mn : (am ? am->min : nullptr);
+    const float* mx = gm ? gm->mx : (am ? am->max : nullptr);
+    if (mn && mx) {
+      lc = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+            0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+            0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+    }
+    ProjRecv r;
+    r.minX = o.data.position[0] + lc.x - ex;
+    r.maxX = o.data.position[0] + lc.x + ex;
+    r.minZ = o.data.position[2] + lc.z - ez;
+    r.maxZ = o.data.position[2] + lc.z + ez;
+    r.top = o.data.position[1] + lc.y + ey;
+    // At or below the caster's feet (a small tolerance for standing exactly
+    // ON a surface), and overlapping the patch's footprint.
+    if (r.top > yMax) continue;
+    if (r.maxX < cx - reach || r.minX > cx + reach) continue;
+    if (r.maxZ < cz - reach || r.minZ > cz + reach) continue;
+    g_projRecv.push_back(r);
+    if (g_projRecv.size() >= 24) break;  // a patch never needs more
+  }
+}
+
+float TerrainGame::projSurfaceAt(float x, float z) {
+  float best = terrainHeightAt(x, z);
+  for (const ProjRecv& r : g_projRecv) {
+    if (r.top <= best) continue;
+    if (x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) continue;
+    best = r.top;
+  }
+  return best;
+}
+
+void TerrainGame::renderProjShadows() {
+  if (projShadows.empty()) return;
+
+  // The scene sun as ONE candidate source among the point lights. Its score
+  // is how much of the scene's shading it actually accounts for, so a black
+  // sun (a night scene lit only by torches) scores 0 and any lit torch beats
+  // it, while a daylight scene still throws the sun shadow it always did.
+  // Below ~15 degrees of elevation the ground projection runs away, so a low
+  // sun is simply not a candidate.
+  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
+  if (sl > 0.0001F)
+    sxd /= sl, syd /= sl, szd /= sl;
+  else
+    syd = 0.0F;
+  float sunCol = SCENE_LIGHT_COL_R;
+  if (SCENE_LIGHT_COL_G > sunCol) sunCol = SCENE_LIGHT_COL_G;
+  if (SCENE_LIGHT_COL_B > sunCol) sunCol = SCENE_LIGHT_COL_B;
+  const float sunScore = syd < 0.25F ? 0.0F : SCENE_DIFFUSE * sunCol;
+
+  // Nearest visible casters win the slots; shadows fade out 35..50 units
+  // from the camera so a slot handoff never pops.
+  struct Cand {
+    int obj;
+    float d2;
+  };
+  static std::vector<Cand> cands;
+  cands.clear();
+  for (int i : projCasters) {
+    if (i >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.visible) continue;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > 50.0F * 50.0F) continue;
+    cands.push_back({i, d2});
+  }
+  if (cands.empty()) return;
+  std::sort(cands.begin(), cands.end(),
+            [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+
+  auto& core = engine->renderer.core;
+  const CameraInfo3D mainCam(&cameraPosition, &cameraLookAt);
+  M4x4 lightVP[Tyra::RendererCoreShadowMap::slots];
+  float sgx[Tyra::RendererCoreShadowMap::slots],
+      sgz[Tyra::RendererCoreShadowMap::slots],
+      shalf[Tyra::RendererCoreShadowMap::slots],
+      sfade[Tyra::RendererCoreShadowMap::slots],
+      // The caster's underside, kept per slot: the patch loop below runs after
+      // every caster has been through, so it has to re-collect each one's
+      // receivers rather than inherit the last caster's list.
+      syMax[Tyra::RendererCoreShadowMap::slots];
+  int used = 0;
+
+  for (const Cand& c : cands) {
+    if (used >= (int)projShadows.size()) break;
+    const int i = c.obj;
+    RuntimeObject& o = runtimeObjects[i];
+    // Caster bounding sphere: half-diagonal of the scaled unit cube, and
+    // the center lifted for feet-anchored things (anim models, the player).
+    // The REAL half-diagonal, not 0.87 * the largest axis - identical for a
+    // uniform scale (0.5*sqrt(3) = 0.866) but a third smaller on a wall-like
+    // caster, which used to hand the light camera a frustum sized for a cube
+    // it is not and waste most of the 64x64 slot on empty margin.
+    const float sxs = o.data.scale[0], sys = o.data.scale[1],
+                szs = o.data.scale[2];
+    const float r =
+        0.5F * sqrtf(sxs * sxs + sys * sys + szs * szs) + 0.25F;
+    const float liftY =
+        (o.data.animModel >= 0 || i == PLAYER_INDEX) ? o.data.scale[1] * 0.5F
+                                                     : 0.0F;
+    const float cx = o.data.position[0], cy = o.data.position[1] + liftY,
+                cz = o.data.position[2];
+
+    // A statically batched caster owns no solo bag - its geometry lives only
+    // in the merged batch - so the silhouette pass had nothing to submit and
+    // the object simply cast nothing. Bake the solo bag on first use, exactly
+    // like the portal through-view does (a DIRTY member is left alone:
+    // rebuildObjectGeometry would eat the flag renderStaticBatches keys its
+    // demotion on, and this pass runs after it in the frame anyway).
+    const bool batched =
+        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+    if (batched) {
+      if (objectGeometry[i].parts.empty() && !o.dirty) rebuildObjectGeometry(i);
+    } else if (o.dirty) {
+      rebuildObjectGeometry(i);
+    }
+    ObjectGeometry& g = objectGeometry[i];
+    const bool anim = g.animInst != nullptr;
+    if (!anim && g.parts.empty()) continue;
+
+    // This caster's light. A point light is a POSITION, so the direction is
+    // per caster and the shadow swings around the prop as the torch moves
+    // instead of all shadows sharing one sun vector. Candidates are scored by
+    // how much they actually light the caster (authored brightness x this
+    // frame's live level x linear falloff), so a flickering light's shadow
+    // breathes with it and a switched-off one stops casting. A light INSIDE
+    // the caster's sphere or below it cannot throw a ground shadow - skip
+    // that light, not the caster: the next one may be fine.
+    float bestScore = sunScore;
+    bool bestSun = true;
+    float lpx = 0.0F, lpy = 0.0F, lpz = 0.0F, reachFade = 1.0F;
+    // "Is the light inside the caster?" is tested against the caster's BOX,
+    // never its bounding sphere: a wall's sphere swallows the whole room
+    // around it, so the sphere test threw away every light close enough to
+    // matter and the flat caster silently cast nothing at all.
+    const AreaBasis casterBox = areaBasis(o.data);
+    auto consider = [&](float px, float py, float pz, float radius,
+                        float bright, float level) {
+      if (radius < 0.01F || bright <= 0.0F || level <= 0.0F) return;
+      const float dx = cx - px, dy = cy - py, dz = cz - pz;
+      const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (d < 0.05F) return;
+      if (areaDistSq(casterBox, px, py, pz) < 0.04F) return;  // in the caster
+      // Level with the caster or below it: nothing lands on the ground. The
+      // bar is low (~5 degrees) because the patch distance is clamped below -
+      // a flat ray now yields a truncated shadow instead of none.
+      if (dy > -0.08F * d) return;
+      const float fall = 1.0F - d / radius;
+      if (fall <= 0.0F) return;  // out of the light's reach
+      const float score = bright * level * fall;
+      if (score <= bestScore) return;
+      bestScore = score;
+      bestSun = false;
+      lpx = px, lpy = py, lpz = pz;
+      // Fade out over the outer quarter of the reach, so walking out of a
+      // light's radius dissolves the shadow instead of popping it off.
+      reachFade = fall > 0.25F ? 1.0F : fall * 4.0F;
+    };
+    for (const DynLightRt& L : g_dynLights) {
+      if (L.lastLevel <= 0.0F || L.objIndex >= (int)runtimeObjects.size())
+        continue;
+      const SceneObjectData& ld = runtimeObjects[L.objIndex].data;  // live
+      consider(ld.position[0], ld.position[1], ld.position[2], ld.lightRadius,
+               ld.lightBright, L.lastLevel);
+    }
+    // Baked point lights cast too: their light is vertex-baked and static,
+    // but the CASTER moves, so its shadow cannot be baked with it.
+    for (const BakedPointLight& L : g_scenePointLights)
+      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F);
+    if (bestSun && sunScore <= 0.0F) continue;  // nothing lights it
+
+    // Light camera. For a point light the eye sits AT the light, so the
+    // silhouette - and the receiver mapping, which goes through this very
+    // view-proj - diverges the way a torch shadow really does: a prop
+    // walking up to the flame grows its shadow instead of sliding a
+    // fixed-size one around. The sun has no position, so it keeps the
+    // parallel stand-in: an eye a fixed distance up the sun vector.
+    float ex, ey, ez;
+    if (bestSun) {
+      const float D = r * 4.0F + 1.0F;
+      ex = cx + sxd * D, ey = cy + syd * D, ez = cz + szd * D;
+    } else {
+      ex = lpx, ey = lpy, ez = lpz;
+    }
+    float ddx = cx - ex, ddy = cy - ey, ddz = cz - ez;
+    const float eDist = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
+    if (eDist < 0.0001F) continue;
+    ddx /= eDist, ddy /= eDist, ddz /= eDist;
+    if (ddy > -0.08F) continue;  // level or rising: nothing reaches the ground
+
+    // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
+    // smears edge texels outward - the border guarantees the edges stay
+    // empty). Capped: a light almost touching the caster asks for a
+    // near-180-degree frustum, which no projection survives.
+    float fovDeg = 2.0F * atanf(r * 1.3F / eDist) * (180.0F / 3.14159265F);
+    if (fovDeg > 100.0F) fovDeg = 100.0F;
+    core.shadowMap.begin(used);
+    core.renderer3D.pushEnvView(Vec4(ex, ey, ez, 1.0F),
+                                Vec4(cx, cy, cz, 1.0F), fovDeg,
+                                (float)Tyra::RendererCoreShadowMap::size);
+    lightVP[used] = core.renderer3D.getViewProj();
+    if (anim) {
+      for (auto& ap : g.animParts)
+        if (ap.bag) stapip.core.render(ap.bag.get());
+    } else {
+      for (GeoPart& part : g.parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
+    core.renderer3D.popEnvView(mainCam);
+
+    // Where the light ray through the caster centre meets the ground. The
+    // second sample re-lands the ray on the terrain it actually reaches - a
+    // long shadow can walk a fair way up or down a slope.
+    // The hit of a nearly level ray runs to the horizon - a light level with a
+    // wall's middle throws a shadow that genuinely has no far edge - and a
+    // patch centred out there covers nothing near the caster, which is the
+    // part anyone looks at. Walk only as far as one patch can cover: the
+    // shadow then fades out at the patch edge instead of not existing.
+    const float tgMax = r * 4.0F;
+    // Receivers first: everything below is asking "where is the floor", and
+    // indoors the floor is geometry. yMax is the caster's own underside (feet
+    // for the anim/player types the lift above accounts for) plus a little,
+    // so a surface it is standing ON counts and the one it is standing UNDER
+    // does not.
+    projCollectReceivers(cx, cz, tgMax + r * 3.5F, cy - r + 0.35F);
+    float gy = projSurfaceAt(cx, cz);
+    float tg = (cy - gy) / -ddy;
+    if (tg > tgMax) tg = tgMax;
+    float gx = cx + ddx * tg, gz = cz + ddz * tg;
+    gy = projSurfaceAt(gx, gz);
+    tg = (cy - gy) / -ddy;
+    if (tg > tgMax) tg = tgMax;
+    gx = cx + ddx * tg, gz = cz + ddz * tg;
+
+    // Patch size. A point light diverges, so the umbra at ground range is
+    // r * (eDist + tg) / eDist across; the sun's eye is an artificial
+    // stand-in and keeps the old slant term instead. Both stay under the
+    // same CAP of 3.5x the caster radius: uncapped, a 3-unit monolith under
+    // a low light grew a ~14-unit carpet, the camera then stands INSIDE the
+    // quad, and its triangles straddle the near plane every frame - exactly
+    // where big triangles are fragile (and it looked wrong anyway). The cost
+    // is a cropped shadow tip when the light is very low or very close.
+    float half = bestSun ? r * 1.6F + tg * 0.25F
+                         : r * 1.7F * ((eDist + tg) / eDist);
+    const float halfCap = r * 3.5F;
+    if (half > halfCap) half = halfCap;
+
+    sgx[used] = gx, sgz[used] = gz, shalf[used] = half;
+    syMax[used] = cy - r + 0.35F;
+    const float dist = sqrtf(c.d2);
+    sfade[used] =
+        (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
+    ++used;
+  }
+  if (used == 0) return;
+  core.shadowMap.end();
+
+  // Receiver patches: centered and sized in the caster loop above, where the
+  // light that threw each shadow was still in hand.
+  // 4x4 cells = 96 vertices - the same single-VU1-package size as the light
+  // pools, which never exhibited the multi-package drop the 5x5 (150-vert)
+  // patch showed on the pad walks.
+  constexpr int kCells = 4;
+  // Clip space -> slot texel. Tyra's projection does NOT normalize to +-1:
+  // the visible frustum ends at |x|,|y| = w * size/4096, because VU1 scales
+  // the divided vertex by a fixed 2048 (the same convention the portal
+  // window carve spells out). Sampling as if it were plain NDC collapsed
+  // every receiver vertex onto the silhouette's CENTRE texel - a uniform
+  // patch, which is why no shadow SHAPE ever appeared. The V axis is not
+  // flipped either: the projection already carries the Y flip (m11 = -h),
+  // so the slot's rows run the same way the screen's do.
+  const float kUv = 2048.0F / (float)Tyra::RendererCoreShadowMap::size;
+  // Depth bias, along the VIEW RAY rather than upward.
+  //
+  // The patch is depth-TESTED (PipelineZTest_TestOnly - it never writes z) and
+  // lies 5 cm above the surface it falls on. That is not a margin the GS can
+  // always resolve: a receiver is often ONE enormous triangle (a 100-unit
+  // floor slab is twelve of them), its z is interpolated in fixed point, and
+  // the two surfaces land on the same value - so the shadow loses the test on
+  // some pixels, on some frames, and blinks in and out as the caster moves.
+  // A taller lift would fix the z and break the picture: the shadow would
+  // visibly detach from the feet.
+  //
+  // Pulling each vertex a fixed FRACTION of its eye distance CLOSER wins the
+  // test at every range and costs nothing visually - the displacement is along
+  // the view ray, so the vertex projects to exactly the same pixel. It also
+  // cannot poke the patch through a wall in front of it: a wall would have to
+  // be within 0.4% of the floor's depth, i.e. touching it.
+  auto zBias = [&](const Vec4& p) {
+    constexpr float k = 0.996F;
+    return Vec4(cameraPosition.x + (p.x - cameraPosition.x) * k,
+                cameraPosition.y + (p.y - cameraPosition.y) * k,
+                cameraPosition.z + (p.z - cameraPosition.z) * k, 1.0F);
+  };
+  for (int s = 0; s < used; ++s) {
+    ProjShadow& b = projShadows[s];
+    const float gx = sgx[s], gz = sgz[s], half = shalf[s];
+    projCollectReceivers(gx, gz, half + 0.5F, syMax[s]);
+
+    int v = 0;
+    for (int iz = 0; iz < kCells; ++iz) {
+      for (int ix = 0; ix < kCells; ++ix) {
+        const float x0 = gx + ((float)ix / kCells - 0.5F) * 2.0F * half;
+        const float x1 = gx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * half;
+        const float z0 = gz + ((float)iz / kCells - 0.5F) * 2.0F * half;
+        const float z1 = gz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * half;
+        const Vec4 p00(x0, projSurfaceAt(x0, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p10(x1, projSurfaceAt(x1, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p11(x1, projSurfaceAt(x1, z1) + 0.05F, z1, 1.0F);
+        const Vec4 p01(x0, projSurfaceAt(x0, z1) + 0.05F, z1, 1.0F);
+        const Vec4 tp[6] = {p00, p10, p11, p00, p11, p01};
+        for (int k = 0; k < 6; ++k) {
+          // STs come from the TRUE surface point: the depth bias below must
+          // move the patch in z only, never slide the silhouette across it.
+          const Vec4 clip = lightVP[s] * tp[k];
+          float u = 0.0F, vv = 0.0F;
+          if (clip.w > 0.0001F) {
+            u = 0.5F + clip.x / clip.w * kUv;
+            vv = 0.5F + clip.y / clip.w * kUv;
+          }
+          b.sts[v + k] = Vec4(u, vv, 1.0F, 0.0F);
+          b.verts[v + k] = zBias(tp[k]);
+        }
+        v += 6;
+      }
+    }
+    b.color.a = 55.0F * sfade[s];
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  }
+}
+
+// Per frame: billboard the coronas at the lights' runtime positions,
+// follow each light's level (flicker / Set Light / hidden object) through
+// the additive FIX value, submit. Runs at the end of renderScene so the
+// finished z-buffer occludes the beams behind walls.
+void TerrainGame::updateAndRenderLightBeams() {
+  if (lightBeams.empty() || !beamCoronaTex) return;
+
+  // Camera basis for the billboards.
+  float fx = cameraLookAt.x - cameraPosition.x,
+        fy = cameraLookAt.y - cameraPosition.y,
+        fz = cameraLookAt.z - cameraPosition.z;
+  const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 0.0001F) return;
+  fx /= fl, fy /= fl, fz /= fl;
+  float rx = -fz, ry = 0.0F, rz = fx;  // cross(fwd, worldUp)
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl < 0.0001F) return;
+  rx /= rl, rz /= rl;
+  const float ux = ry * fz - rz * fy, uy = rz * fx - rx * fz,
+              uz = rx * fy - ry * fx;  // cross(right, fwd)
+
+  for (LightBeam& b : lightBeams) {
+    if (b.objIndex >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& ro = runtimeObjects[b.objIndex];
+    if (!ro.active || !ro.visible) continue;
+    const SceneObjectData& d = ro.data;
+
+    float level = 1.0F;  // baked lights: steady
+    if (d.lightDynamic) {
+      level = 0.0F;
+      for (const DynLightRt& L : g_dynLights)
+        if (L.objIndex == b.objIndex) {
+          level = L.lastLevel;
+          break;
+        }
+    }
+    const float k = d.lightBright * level;
+    if (k <= 0.01F) continue;
+
+    const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
+    const float half = d.lightRadius * 0.14F;
+    const Vec4 corners[4] = {
+        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
+             cz + (-rz - uz) * half, 1.0F),
+        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
+             cz + (rz - uz) * half, 1.0F),
+        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
+             cz + (rz + uz) * half, 1.0F),
+        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
+             cz + (-rz + uz) * half, 1.0F)};
+    b.coronaVerts[0] = corners[0];
+    b.coronaVerts[1] = corners[1];
+    b.coronaVerts[2] = corners[2];
+    b.coronaVerts[3] = corners[0];
+    b.coronaVerts[4] = corners[2];
+    b.coronaVerts[5] = corners[3];
+    // Tint by the light color; brightness rides the additive FIX.
+    b.coronaColor.set(128.0F * d.color[0], 128.0F * d.color[1],
+                      128.0F * d.color[2], 128.0F);
+    float fix = 128.0F * (k > 1.0F ? 1.0F : k);
+    b.coronaInfo->additiveBlendFix =
+        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    b.coronaBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.coronaBag.get());
+
+    if (b.kind == 2 && b.coneBag) {
+      const float len = d.lightRadius * 0.7F;
+      const float rad = d.lightRadius * 0.3F;
+      const Color apex(128.0F * d.color[0], 128.0F * d.color[1],
+                       128.0F * d.color[2], 128.0F);
+      const Color rim(0.0F, 0.0F, 0.0F, 128.0F);
+      for (int s = 0; s < 8; ++s) {
+        const float a0 = (float)s * (3.14159265F / 4.0F);
+        const float a1 = (float)(s + 1) * (3.14159265F / 4.0F);
+        b.coneVerts[s * 3 + 0] = Vec4(cx, cy, cz, 1.0F);
+        b.coneVerts[s * 3 + 1] =
+            Vec4(cx + cosf(a0) * rad, cy - len, cz + sinf(a0) * rad, 1.0F);
+        b.coneVerts[s * 3 + 2] =
+            Vec4(cx + cosf(a1) * rad, cy - len, cz + sinf(a1) * rad, 1.0F);
+        b.coneColors[s * 3 + 0] = apex;
+        b.coneColors[s * 3 + 1] = rim;
+        b.coneColors[s * 3 + 2] = rim;
+      }
+      // The shaft is dimmer than the corona (it covers far more pixels).
+      float cfix = 52.0F * (k > 1.0F ? 1.0F : k);
+      b.coneInfo->additiveBlendFix =
+          cfix > 255.0F ? 255 : (cfix < 1.0F ? 1 : (u8)cfix);
+      b.coneBag->bboxVersion = ++g_bboxStamp;
+      stapip.core.render(b.coneBag.get());
+    }
+  }
+}
+
 // Runtime texts: same request/timer protocol as the baked ones, but the string
 // lives in dynTextBuf (refreshed every frame by the owning flow-graph script
 // while the slot is on) and is drawn glyph by glyph from the font's atlas.
@@ -7835,6 +9404,9 @@ void TerrainGame::buildSkyDome() {
   // solid fog color, so it opts out (the horizon still fades into the fog
   // because the terrain and objects do get fogged).
   skyDome.infoBag->fogDisabled = true;
+  // The dome is centered on the camera - a nearby dynamic light would win
+  // its pick and tint the whole sky.
+  skyDome.infoBag->dynLightPick = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -7934,6 +9506,12 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     g_aoAtlasRects = &SCENE_AO_ATLAS_RECTS[SCENE_AO_ATLAS_FIRST[index]];
     g_aoSts = &g.parts[0].aoSts;
   }
+  // Global illumination: the lightmap covers this object when its atlas light
+  // channel is a GI channel; everything else the grid reaches - imported
+  // models, textured receivers, physics bodies, spawned clones - takes the
+  // probe path. Never both (docs/global-illumination.md).
+  g_giLightmap = SCENE_AO_ATLAS_GI && g_emisAtlas;
+  g_giProbeShade = !g_giLightmap && SCENE_PROBES != nullptr;
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
@@ -8053,6 +9631,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g_emisAtlas = false;
   g_aoSts = nullptr;
   g_aoOff = false;
+  g_giLightmap = false;
+  g_giProbeShade = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -8335,6 +9915,10 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       g_aoAtlas = false;
       g_aoSts = nullptr;
       g_aoOff = true;  // imported models get no receive/self AO
+      // ...but they DO get global illumination, from the probe grid - which
+      // is the whole reason models were left parked on the vertex path.
+      g_giLightmap = false;
+      g_giProbeShade = SCENE_PROBES != nullptr;
       g_primKd = nullptr;
       g_primTextured = false;
       g_primUvRect = nullptr;
@@ -8582,6 +10166,12 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   g_primKd = gmat ? gmat->kd : nullptr;
   g_primKe = gmat ? gmat->ke : nullptr;  // batch members share one material
   g_primTextured = gmat && gmat->texture;
+  // A batched member never carries a lightmap region (the atlas keeps its
+  // receivers solo), so its global illumination comes from the probe grid.
+  // Staged explicitly: these are globals, and inheriting whatever the last
+  // rebuildObjectGeometry left set would shade a whole batch by accident.
+  g_giLightmap = false;
+  g_giProbeShade = SCENE_PROBES != nullptr;
   for (size_t k = 0; k < b.members.size(); ++k) {
     RuntimeObject& o = runtimeObjects[b.members[k]];
     // Members are never dirty here: scene load consumes the flag at
@@ -8615,6 +10205,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   g_primKd = nullptr;
   g_primKe = nullptr;
   g_primTextured = false;
+  g_giProbeShade = false;
   if (b.vertices.empty()) {
     b.bag.reset();
     return;
@@ -9535,6 +11126,18 @@ void TerrainGame::renderScene() {
   // scene, then the live through-view projected onto the winner's surface
   // (z-tested against the scene, so walls still occlude the portal).
   renderPortals();
+  // Dynamic lights' ground pools next (they ARE the terrain lighting -
+  // the chunks opt out of the per-bag light pick), then the projected
+  // silhouette shadows (raster redirect per caster + finished z for the
+  // receiver patches), the cheap blob shadows, and the additive beams.
+  updateAndRenderLightPools();
+  renderProjShadows();
+  // Blob shadows before the beams: dark quads on the terrain, z-tested
+  // against the finished scene (objects standing on them still cover them).
+  updateAndRenderBlobShadows();
+  // Visible light beams last: additive coronas/cones depth-test against the
+  // finished scene (no z writes), so walls occlude them correctly.
+  updateAndRenderLightBeams();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -11642,24 +13245,46 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     emisCollectLocal(chx, chy, chz,
                      0.5F * sqrtf(cw * cw + cd * cd) + hy, -1);
   }
+  // Global illumination on the ground (docs/global-illumination.md). Two
+  // routes, never both: an UNTEXTURED terrain takes it per pixel from the map
+  // RGB (terrainGi - the vertex shade goes black and the additive pass puts
+  // the whole thing back, modulated by the ground's own tint); a TEXTURED one
+  // cannot - a flat additive term over a texture blows out its dark texels -
+  // so it stays on the vertex path and reads the probe grid there. The
+  // terrain grid is dense enough (one sample per cell) that probes look right
+  // on it, which is not true of a two-triangle box face.
+  const bool terrainGi = terrainMapLit && SCENE_AO_MAP_GI;
+  const bool terrainProbeGi = !terrainGi && SCENE_PROBES != nullptr;
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
     const float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
-    V3 s = shadeOf(n);
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
+    V3 s;
+    bool giHere = terrainGi;
+    GiSample gs;
+    if (terrainGi) {
+      s = {0.0F, 0.0F, 0.0F};
+    } else if (terrainProbeGi && giProbeAt(wp.x, wp.y, wp.z, gs)) {
+      s = giShade(gs, n);
+      giHere = true;
+    } else {
+      s = shadeOf(n);
+    }
     // Terrain ambient occlusion arrives per pixel through the AO map pass
     // (ao_data.gen.hpp) - nothing to fold into the vertex shade here.
-    const V3 pl = pointLightAt(wp, n);
-    s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    if (!giHere) {
+      const V3 pl = pointLightAt(wp, n);
+      s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    }
     // Emissive materials pool light on the ground under them too (the local
     // emitter list is collected once for this chunk, above). With the terrain
     // lightmap lit this is the TEXTURED path instead - the vertex grid is one
     // sample per terrain cell, which quantises every pool and every shadow
     // edge into cell-sized squares, so the light rides the map's RGB and the
     // additive pass puts it down per pixel. It must not land in both.
-    if (!terrainMapLit) {
+    if (!terrainMapLit && !giHere) {
       const V3 el = emissiveLightAt(wp, n);
       s.x += el.x, s.y += el.y, s.z += el.z;
     }
@@ -12320,6 +13945,8 @@ void TerrainGame::init() {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
+  g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -12492,6 +14119,8 @@ void TerrainGame::loop() {
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.playerVelY = players[0].velY;
+  scriptCtx.playerBoom = players[0].boom;
   scriptCtx.player2Active =
       MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
   scriptCtx.player2Position =
@@ -12573,7 +14202,11 @@ void TerrainGame::loop() {
       players[0].x = scriptCtx.teleportPos.x;
       players[0].y = scriptCtx.teleportPos.y;
       players[0].z = scriptCtx.teleportPos.z;
-      players[0].velY = 0.0F;
+      // A rewind restores the motion it captured; every other teleport (the
+      // Spawn Player At node, a memory-card load) lands standing still.
+      players[0].velY = scriptCtx.teleportMotion ? scriptCtx.playerVelY : 0.0F;
+      if (scriptCtx.teleportMotion) players[0].boom = scriptCtx.playerBoom;
+      scriptCtx.teleportMotion = false;
       players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
       if (playerTwoActive && players[1].objIndex >= 0) {
         players[1].x = players[0].x + 1.2F;
@@ -12639,6 +14272,14 @@ void TerrainGame::loop() {
   if (scriptCtx.grain >= 0) {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
+  }
+  if (scriptCtx.flare >= 0) {
+    g_flareAmount = scriptCtx.flare;
+    scriptCtx.flare = -1;
+  }
+  if (scriptCtx.godRays >= 0) {
+    engine->renderer.core.postFx.setGodRays(scriptCtx.godRays);
+    scriptCtx.godRays = -1;
   }
   if (scriptCtx.dof == -2) {
     // Set Depth Of Field, "Scene setting" mode: back to the authored values
@@ -12724,6 +14365,9 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
+  // Dynamic point lights: apply Set Light requests + register this frame's
+  // lights (the engine picks the strongest per mesh, flashlight included).
+  updateDynLights(engine, scriptCtx);
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -12762,7 +14406,12 @@ void TerrainGame::loop() {
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
     // DoF pass (a crosshair HUD showed through the blur as a box).
-    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
+    // Sun state first (god-rays zoom center + flare fade), then the depth
+    // of field + god-rays composite, then the flare sprites on top of both.
+    updateSunFx();
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof |
+                                      Tyra::RendererCorePostFx::PassGodRays);
+    renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -13591,6 +15240,12 @@ void TerrainGame::generateTerrainGrid() {
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
   infoBag->shadingType = TyraShadingFlat;
+  // Terrain draws in CHUNKS sharing this info bag: a per-chunk dynamic-light
+  // pick shows a hard rectangular seam wherever neighboring chunks pick
+  // different lights, so the terrain opts out (the flashlight still lights
+  // it globally) and the scene lights paint their ground pools as smooth
+  // additive patches instead (updateAndRenderLightPools).
+  infoBag->dynLightPick = false;
   infoBag->fullClipChecks = false;
 
   colorBag = std::make_unique<StaPipColorBag>();
@@ -13700,6 +15355,14 @@ struct ScriptContext {
   // sequence player writes cameraOverride = true + cameraEye/cameraAt every
   // frame such a cutscene is active; the game applies them to the frame camera
   // just before rendering, and the player writes false when the cutscene ends.
+  // Time machine (docs/time-machine.md): the walker's own motion, which lives
+  // in the game class rather than in the object table. Published every frame
+  // so a capture can see it; a restore writes them back next to ctx.teleport
+  // and the teleport branch picks them up - gated on teleportMotion, because
+  // an ordinary Spawn Player At must keep landing you standing still.
+  float playerVelY = 0.0F;
+  float playerBoom = 0.0F;
+  bool teleportMotion = false;
   bool cameraOverride = false;
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
@@ -13744,6 +15407,14 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Dynamic point lights (Set Light flow node), indexed by scene-object
+  // index like `objects`. lightRequest[i]: -1 = leave, 0 = off, 1 = on.
+  // lightIntensity[i]: < 0 = leave, else a multiplier on the light's
+  // authored brightness. Only meaningful on Point Light objects with the
+  // 'Dynamic (live)' flag; the game applies and resets both every frame.
+  signed char* lightRequest = nullptr;
+  float* lightIntensity = nullptr;
+
   // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
   // Text node). Same request protocol as textRequest above, but the string is
   // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
@@ -13762,12 +15433,15 @@ struct ScriptContext {
   int flashlight = -1;
 
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // flow nodes). fog / particles: -1 = leave, 0 = off, 1 = on. bloom / grain:
-  // -1 = leave, else a 0..128 fixed-point amount. The game applies and resets.
+  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
+  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
+  // 0..128 fixed-point amount. The game applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+  int flare = -1;
+  int godRays = -1;
 
   // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
   // restore the scene's authored setting (Tools > UI Editor), else a 0..128
@@ -14296,15 +15970,25 @@ bin/*.elf.sym
 .vscode/
 .res-baked/
 docker-compose.yml
-# Devkit runtime files (docs/devkit.md): the editor <-> game channel and
-# a crash report. Written next to the ELF while you work, never shipped.
+# Devkit runtime files (docs/devkit.md): the editor <-> game channels, a
+# crash report and the game's log. Written next to the ELF while you work,
+# never shipped. bin/.gitignore already ignores the whole directory - this
+# list is the readable one, and the fallback for a project that took bin/
+# under its own control.
 bin/livedbg.bin
 bin/livedbg.cmd
 bin/livelink.bin
 bin/livelink.sig
 bin/livelogic.bin
+bin/livetex.bin
+bin/livetime.bin
+bin/livetime.rst
+bin/vucap.bin
 bin/crash.txt
 bin/log.txt
+bin/ps2link.run
+# Atomic writes land as a sibling .tmp before the rename.
+bin/*.tmp
 # Codegen's devkit side tables: regenerated on every build (the editor reads
 # them next to the sources), so they are artifacts, not source.
 src/gen/livedbg.sym
@@ -14646,12 +16330,22 @@ static std::string aoDataHeader(const Project& p) {
     std::vector<bool> hasMap(sceneCount, false);
     std::vector<bool> mapOcc(sceneCount, false);
     std::vector<bool> mapLit(sceneCount, false);
+    std::vector<bool> atlasGi(sceneCount, false);
+    std::vector<bool> mapGi(sceneCount, false);
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
         const ProjectSettings srs = project::resolvedSettings(p, sc);
-        // The atlas carries occlusion AND baked emissive light, so it is built
+        // Baked global illumination, when the scene has a fresh one
+        // (docs/global-illumination.md). The GI bake is EXPLICIT and cached -
+        // a build never runs it - so this is a pure read: a missing or stale
+        // cache falls the scene back to the emissive-only bake below, which
+        // is bit-for-bit what a pre-GI project produced.
+        const gibake::Bake gi = gibake::load(p, si);
+        // The atlas carries occlusion AND baked light, so it is built
         // whenever either exists - only the terrain map below is AO-gated.
-        const aobake::SceneLightAtlas atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn);
+        const aobake::SceneLightAtlas atlas =
+            gi.valid ? gi.atlas : aobake::bakeSceneLightAtlas(p, sc, aabbFn);
+        atlasGi[si] = atlas.gi;
         if (atlas.size > 0 && !atlas.rects.empty()) {
             hasAtlas[si] = true;
             out << "static const AoAtlasRect S" << si << "_AO_RECTS["
@@ -14684,15 +16378,18 @@ static std::string aoDataHeader(const Project& p) {
         // its RGB carries the baked emissive light, which is what puts the
         // pools and their shadows on the ground per pixel instead of per
         // ~2-metre vertex.
-        const aobake::AoImage map = aobake::terrainAOMap(
-            sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-            (float)sc.terrain.depth,
-            aobake::collectOccluders(sc.objects, aabbFn),
-            aobake::collectEmitters(p.dir, sc.objects, aabbFn), srs.aoRadius,
-            srs.aoStrength, srs.aoEnabled);
+        const aobake::AoImage map =
+            gi.valid ? gi.terrain
+                     : aobake::terrainAOMap(
+                           sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                           (float)sc.terrain.depth,
+                           aobake::collectOccluders(sc.objects, aabbFn),
+                           aobake::collectEmitters(p.dir, sc.objects, aabbFn),
+                           srs.aoRadius, srs.aoStrength, srs.aoEnabled);
         hasMap[si] = map.size > 0;
         mapOcc[si] = map.hasAlpha;
         mapLit[si] = map.hasLight;
+        mapGi[si] = map.gi;
     }
     out << "static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {";
     for (int si = 0; si < sceneCount; ++si)
@@ -14738,6 +16435,21 @@ static std::string aoDataHeader(const Project& p) {
            "static const unsigned char SCENE_AO_MAP_LITS[] = {";
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << (mapLit[si] ? 1 : 0);
+    // Global illumination (docs/global-illumination.md): the light channel of
+    // these two images carries ALL the incoming light, not just the emissive
+    // add-on. Wherever it does, the geometry must drop its own ambient +
+    // directional + point-light + emissive vertex shade, or the scene is lit
+    // twice. Per SCENE for the terrain, per OBJECT for the atlas (through
+    // SCENE_AO_ATLAS_LIT, which is exactly the set the bake wrote a light
+    // channel for).
+    out << "};\n"
+           "static const unsigned char SCENE_AO_ATLAS_GIS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << (atlasGi[si] ? 1 : 0);
+    out << "};\n"
+           "static const unsigned char SCENE_AO_MAP_GIS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << (mapGi[si] ? 1 : 0);
     out << "};\n"
            "}  // namespace\n\n"
            "#define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]\n"
@@ -14750,7 +16462,73 @@ static std::string aoDataHeader(const Project& p) {
            "#define SCENE_AO_ATLAS_PATH SCENE_AO_ATLAS_PATHS[g_activeScene]\n"
            "#define SCENE_AO_MAP_PATH SCENE_AO_MAP_PATHS[g_activeScene]\n"
            "#define SCENE_AO_MAP_OCC SCENE_AO_MAP_OCCS[g_activeScene]\n"
-           "#define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]\n";
+           "#define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]\n"
+           "#define SCENE_AO_ATLAS_GI SCENE_AO_ATLAS_GIS[g_activeScene]\n"
+           "#define SCENE_AO_MAP_GI SCENE_AO_MAP_GIS[g_activeScene]\n";
+    return out.str();
+}
+
+// inc/probe_data.gen.hpp - the baked light-probe grid
+// (docs/global-illumination.md). The lightmap covers static geometry; this is
+// what lights everything that moves - the player, NPCs, animated models,
+// physics bodies and spawn-pool clones - plus every static surface that
+// cannot take a lightmap (imported models, textured receivers).
+//
+// L1 spherical harmonics, 4 coefficients x 3 channels at one byte each: 12
+// bytes per probe plus one liveness byte. Always emitted; scenes with no bake
+// get a null grid and every read folds away to the old flat ambient.
+static std::string probeDataHeader(const Project& p) {
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "// Baked light probes (docs/global-illumination.md). sh holds 12\n"
+           "// signed bytes per probe - L0.rgb then L1x.rgb, L1y.rgb, L1z.rgb -\n"
+           "// decoded as coefficient = byte / 127 * scale. live = 0 marks a\n"
+           "// probe that sits inside solid geometry; the lookup weighs it at\n"
+           "// zero instead of dragging a wall's interior into the room.\n"
+           "// Probes are indexed x + dim[0] * (y + dim[1] * z).\n\n"
+           "namespace {\n"
+           "struct GiProbeGridData {\n"
+           "  float origin[3];\n"
+           "  float step[3];\n"
+           "  int dim[3];\n"
+           "  float scale;\n"
+           "  const signed char* sh;\n"
+           "  const unsigned char* live;\n"
+           "};\n\n";
+    const int sceneCount = (int)p.scenes.size();
+    std::vector<bool> has(sceneCount, false);
+    for (int si = 0; si < sceneCount; ++si) {
+        const gibake::Bake gi = gibake::load(p, si);
+        if (!gi.valid || gi.probes.empty()) continue;
+        const gibake::ProbeGrid& g = gi.probes;
+        has[si] = true;
+        out << "static const signed char S" << si << "_PROBE_SH["
+            << g.sh.size() << "] = {";
+        for (size_t i = 0; i < g.sh.size(); ++i)
+            out << (i ? "," : "") << (int)g.sh[i];
+        out << "};\n"
+               "static const unsigned char S"
+            << si << "_PROBE_LIVE[" << g.live.size() << "] = {";
+        for (size_t i = 0; i < g.live.size(); ++i)
+            out << (i ? "," : "") << (int)g.live[i];
+        out << "};\n"
+               "static const GiProbeGridData S"
+            << si << "_PROBES = {{" << floatLit(g.origin[0]) << ", "
+            << floatLit(g.origin[1]) << ", " << floatLit(g.origin[2]) << "}, {"
+            << floatLit(g.step[0]) << ", " << floatLit(g.step[1]) << ", "
+            << floatLit(g.step[2]) << "}, {" << g.dim[0] << ", " << g.dim[1]
+            << ", " << g.dim[2] << "}, " << floatLit(g.scale) << ", S" << si
+            << "_PROBE_SH, S" << si << "_PROBE_LIVE};\n";
+    }
+    out << "\nstatic const GiProbeGridData* const SCENE_PROBE_GRIDS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (has[si] ? ("&S" + std::to_string(si) + "_PROBES") : "nullptr");
+    if (sceneCount == 0) out << "nullptr";
+    out << "};\n"
+           "}  // namespace\n\n"
+           "#define SCENE_PROBES SCENE_PROBE_GRIDS[g_activeScene]\n";
     return out.str();
 }
 
@@ -14882,11 +16660,18 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "                     // (plain stereo, full volume, no distance/pan)\n"
            "  float lightBright; // point lights (type 9): baked intensity\n"
            "  float lightRadius; // point lights (type 9): falloff radius\n"
+           "  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,\n"
+           "                     // Set Light / flicker work) instead of baked\n"
+           "  float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble\n"
+           "  int lightBeam;     // point lights: 0 none, 1 glow corona,\n"
+           "                     // 2 corona + cone shaft (additive, at the source)\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
            "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
+           "  int projShadow; // 1 = live projected silhouette shadow (the\n"
+           "                  // per-object AO 'castShadow' is baked, not here)\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -15028,17 +16813,20 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             // Placeholder row so the array is never zero-sized. Field order
             // must track SceneObjectData 1:1 (physics params physMass/Bounce/
             // Friction/Tumble/Sleep after the `physics` flag, pickable/
-            // pickThrow after `usable`, `reflected` before the anim block) -
-            // an empty scene must still compile. A missing value here does not
-            // fail loudly: every later column shifts one field left and the
-            // build dies far away with "narrowing conversion of '0.0f' to
-            // 'int'" in scene_data.hpp. Count the values against the struct
-            // above whenever either side gains a field.
+            // pickThrow after `usable`, the lighting-batch
+            // lightDynamic/lightFlicker/lightBeam after lightRadius and
+            // projShadow after `reflected`) - an empty scene must still
+            // compile. A missing value here does not fail loudly: every later
+            // column shifts one field left and the build dies far away with
+            // "narrowing conversion of '0.0f' to 'int'" in scene_data.hpp.
+            // Count the values against the struct above whenever either side
+            // gains a field.
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, "
                    "1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, "
                    "0, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, "
+                   "0, 0, 0.0F, 0, 0, -1, \"\", 1, 1, "
                    "1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
@@ -15101,9 +16889,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.soundRange) << ", "
                     << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)
                     << ", " << floatLit(o.lightBright)
-                    << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
+                    << ", " << floatLit(o.lightRadius)
+                    << ", " << (o.lightDynamic ? 1 : 0)
+                    << ", " << floatLit(o.lightFlicker)
+                    << ", " << o.lightBeam << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
                     << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
+                    << ", " << (o.projShadow ? 1 : 0)
                     << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
@@ -16124,6 +17916,27 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return 1 + (int)(s * 3.0f + 0.5f);
     });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    sceneInts("POSTFX_FLARES", [&](int si) { return fx128(rs[si].flare); });
+    sceneInts("POSTFX_GODRAYS_ARR", [&](int si) { return fx128(rs[si].godRays); });
+    // Gates the flare-sprite texture load; MUST equal the refreshGenerated
+    // predicate that bakes res/hud/flare-*.png (templates::projectUsesFlare).
+    out << "constexpr int FLARE_USED = " << (projectUsesFlare(p) ? 1 : 0)
+        << ";\n";
+    // Same contract for the light-beam corona sprite (projectUsesBeams).
+    out << "constexpr int BEAMS_USED = " << (projectUsesBeams(p) ? 1 : 0)
+        << ";\n";
+    // Blob shadows under moving objects (project-wide preference; the glow
+    // sprite doubles as the shadow's alpha mask, baked when either is on).
+    out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
+        << ";\n";
+    // Projected silhouette shadows: any caster anywhere -> the game
+    // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
+    {
+        bool any = false;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects) any |= o.projShadow;
+        out << "constexpr int PROJ_SHADOWS_USED = " << (any ? 1 : 0) << ";\n";
+    }
     sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });
     sceneFloats("POSTFX_DOF_FOCUSES",
                 [&](int si) { return floatLit(rs[si].dofFocus); });
@@ -16157,6 +17970,16 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("FLASHLIGHT_ANGLES", [&](int si) {
         return floatLit(players[0][si] ? players[0][si]->flashlightAngle : 20.0f);
     });
+    // Ground-pool sprite of the beam ("" = the built-in procedural corona).
+    // Stored res-relative; the game loads cwd-relative, so drop the "res/".
+    out << "constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si) {
+        std::string t =
+            players[0][si] ? players[0][si]->flashlightTexture : std::string();
+        if (t.rfind("res/", 0) == 0) t = t.substr(4);
+        out << (si ? ", " : "") << "\"" << escapeCString(t) << "\"";
+    }
+    out << "};\n";
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
     sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
@@ -16422,6 +18245,8 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_FLARE POSTFX_FLARES[g_activeScene]
+#define POSTFX_GODRAYS POSTFX_GODRAYS_ARR[g_activeScene]
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
@@ -16440,6 +18265,7 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]
@@ -16695,6 +18521,37 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
     return s;
+}
+
+bool projectUsesFlare(const Project& p) {
+    for (const SceneData& sc : p.scenes) {
+        if (project::resolvedSettings(p, sc).flare > 0.0f) return true;
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetFlare") return true;
+    }
+    return false;
+}
+
+bool projectUsesBeams(const Project& p) {
+    // Dynamic lights count too: their ground pools draw with the same corona
+    // sprite (the terrain opts out of the per-chunk light pick, so the pool
+    // is how a scene light reaches the ground smoothly). So does the camera
+    // flashlight - its pool is what lets you light your own feet, which
+    // per-vertex lighting cannot do (the footprint is smaller than a
+    // terrain cell). A Set Flashlight node can turn one on at runtime, so
+    // that counts as well.
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.type == PrimitiveType::PointLight &&
+                (o.lightBeam != 0 || o.lightDynamic))
+                return true;
+            if (o.type == PrimitiveType::Player && o.flashlightEnabled)
+                return true;
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetFlashlight") return true;
+        }
+    return false;
 }
 
 std::filesystem::path nativePath(const std::string& relativePath) {
@@ -17407,6 +19264,12 @@ bool liveDebugOn(const Project& p, const DbgSymbols& syms) {
     return liveDebugEnabled(p) && !syms.nodes.empty();
 }
 
+// The time machine (docs/time-machine.md): the same shape of switch again. It
+// needs no graphs - a scene of physics props is worth rewinding on its own.
+bool liveTimeOn(const Project& p) {
+    return p.settings.buildProfile == "debug" && p.settings.timeMachine;
+}
+
 // Live Logic (docs/live-logic.md) is the same shape of switch: a debug-profile
 // feature behind its own preference, and pointless with nothing to patch.
 bool liveLogicOn(const Project& p) {
@@ -17571,6 +19434,10 @@ std::string flowGraphScript(const Project& p) {
         out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
                "hits / halt / force-fire\n";
     const bool logicOn = liveLogicOn(p);
+    const bool timeOn = liveTimeOn(p);
+    // Classes whose own state the time machine walks, in emission order - the
+    // order the free functions below lay them out in a capture.
+    std::vector<std::string> timeScriptClasses;
     if (logicOn)
         out << "#include \"scripts/live_logic.gen.hpp\"  // Live Logic: a "
                "patched graph runs on the interpreter\n";
@@ -18368,6 +20235,17 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     c << pad << obj << ".visible = !" << obj << ".visible;\n";
                 else
                     c << pad << obj << ".visible = true;\n";
+            } else if (n.type == "SetLight") {
+                // Request slots applied by updateDynLights before rendering.
+                // No-op on objects that are not dynamic point lights.
+                c << pad << "if (ctx.lightRequest && " << objIdx
+                  << " >= 0 && " << objIdx << " < ctx.objectCount) {\n";
+                c << pad << "  ctx.lightRequest[" << objIdx
+                  << "] = " << (n.num[0] != 0.0f ? 1 : 0) << ";\n";
+                c << pad << "  ctx.lightIntensity[" << objIdx
+                  << "] = " << floatLit(n.num[1] < 0.0f ? 0.0f : n.num[1])
+                  << ";\n";
+                c << pad << "}\n";
             } else if (n.type == "MoveObjectBy") {
                 for (int a = 0; a < 3; ++a)
                     if (n.num[a] != 0.0f)
@@ -18478,14 +20356,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             } else if (n.type == "SetParticles") {
                 c << pad << "ctx.particles = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
-            } else if (n.type == "SetBloom" || n.type == "SetGrain") {
+            } else if (n.type == "SetBloom" || n.type == "SetGrain" ||
+                       n.type == "SetFlare" || n.type == "SetGodRays") {
                 // Bloom's re-add FIX is a whole byte, so it accepts up to 2
-                // (over-add, hot glow); grain's blend tops out at 1.
+                // (over-add, hot glow); grain / flare / god rays top out at 1.
                 int v = (int)(n.num[0] * 128.0f + 0.5f);
                 const int hi = n.type == "SetBloom" ? 255 : 128;
                 if (v < 0) v = 0;
                 if (v > hi) v = hi;
-                c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
+                c << pad << "ctx."
+                  << (n.type == "SetBloom"    ? "bloom"
+                      : n.type == "SetGrain"  ? "grain"
+                      : n.type == "SetFlare"  ? "flare"
+                                              : "godRays")
                   << " = " << v << ";\n";
             } else if (n.type == "SetDof") {
                 // Mode (num[3]): 0 = set the custom params, 1 = off,
@@ -18956,6 +20839,26 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
         std::ostringstream members;
         std::ostringstream flagResets;
+        // A graph's own state - armed Delays, edge latches, latched node
+        // outputs. It is what makes "the same trigger does not fire twice"
+        // work, so a rewind that restores the world but not this leaves the
+        // graphs living in the future (docs/time-machine.md).
+        //
+        // `addMember` is the ONE place a member is declared: it writes the
+        // declaration and records how the snapshot walks it. A field added
+        // straight to `members` would be invisible to a rewind, which is
+        // exactly the silent kind of wrong this avoids.
+        struct WalkField {
+            std::string name;
+            int count;  // scalars (1, or the array length)
+            char kind;  // 'i' int, 'b' bool, 'f' float, 'c' char
+        };
+        std::vector<WalkField> walk;
+        auto addMember = [&](const char* type, const std::string& name,
+                             const char* init, char kind, int count) {
+            members << "  " << type << " " << name << " = " << init << ";\n";
+            walk.push_back({name, count, kind});
+        };
 
         // Per-frame node state, ticked before the trigger scans so anything
         // armed this frame starts counting/moving on the NEXT frame:
@@ -18972,7 +20875,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     flagResets << "      flowSpawned[" << k << "] = -1;\n";
             } else if (n.type == "Delay") {
                 const std::string var = "delay" + std::to_string(n.id);
-                members << "  int " << var << " = 0;\n";
+                addMember("int", var, "0", 'i', 1);
                 flagResets << "      " << var << " = 0;\n";
                 clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
                        << linkedActions(n.id, "      ") << "    }\n";
@@ -19009,7 +20912,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 const std::string var = "move" + std::to_string(n.id);
-                members << "  bool " << var << " = false;\n";
+                addMember("bool", var, "false", 'b', 1);
                 flagResets << "      " << var << " = false;\n";
                 const auto e = posExpr(n);
                 const float speed = n.num[3] > 0.001f ? n.num[3] : 2.0f;
@@ -19053,20 +20956,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             // Get Position latches only its position - its object output
             // stays the compile-time resolution.
             if (t->idOut && n.type != "GetPosition") {
-                members << "  int objOut" << id << " = -1;\n";
+                addMember("int", "objOut" + id, "-1", 'i', 1);
                 flagResets << "      objOut" << id << " = -1;\n";
             }
             if (t->boolOut) {
-                members << "  bool boolOut" << id << " = false;\n";
+                addMember("bool", "boolOut" + id, "false", 'b', 1);
                 flagResets << "      boolOut" << id << " = false;\n";
             }
             if (t->posOut) {
-                members << "  float posOut" << id << "[3] = {};\n";
+                addMember("float", "posOut" + id + "[3]", "{}", 'f', 3);
                 flagResets << "      posOut" << id << "[0] = posOut" << id
                            << "[1] = posOut" << id << "[2] = 0.0F;\n";
             }
             if (t->textOut) {
-                members << "  char textOut" << id << "[64] = {};\n";
+                addMember("char", "textOut" + id + "[64]", "{}", 'c', 64);
                 flagResets << "      textOut" << id << "[0] = 0;\n";
             }
         }
@@ -19149,7 +21052,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     idxStr = dyn;
                 }
                 const std::string flag = "near" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
                 clsOut << "    " << (dyn.empty() ? "{" : "if (" + dyn + " >= 0) {")
@@ -19170,7 +21073,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 const std::string flag = "inArea" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 clsOut << "    {\n      const bool isIn = flowInArea(ctx, "
                        << idx << ", " << intLit(n.num[0])
@@ -19193,7 +21096,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     idxStr = dyn;
                 }
                 const std::string flag = "seen" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 clsOut << "    "
                        << (dyn.empty() ? "{" : "if (" + dyn + " >= 0) {")
@@ -19209,7 +21112,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // tracks the measured dt, and a modulo against a moving
                 // divisor can skip its == 0 frame entirely at uncapped FPS.
                 const std::string var = "every" + std::to_string(n.id);
-                members << "  int " << var << " = 1;\n";  // first frame fires
+                addMember("int", var, "1", 'i', 1);  // first frame fires
                 flagResets << "      " << var << " = 1;\n";
                 clsOut << "    if (--" << var << " <= 0) {\n      " << var
                        << " = everyFrames(" << floatLit(n.num[0]) << ");\n"
@@ -19248,7 +21151,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 const std::string flag = "cond" + std::to_string(n.id);
-                members << "  bool " << flag << " = false;\n";
+                addMember("bool", flag, "false", 'b', 1);
                 flagResets << "      " << flag << " = false;\n";
                 clsOut << "    {\n      const bool c = " << expr
                     << ";\n      if (c && !" << flag << ") {\n"
@@ -19272,6 +21175,68 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             clsOut << "  }\n";
         }
 
+        // The time machine's walk over this graph's own state
+        // (docs/time-machine.md), emitted from the very list that declared the
+        // members below. `frame` and `started` join it - "has On Start fired"
+        // is state a rewind must put back - but `generation` deliberately does
+        // NOT: it is the scene-reload guard, and restoring a stale one would
+        // make the graph believe the scene reloaded and wipe itself.
+        if (timeOn) {
+            int bytes = 4 + 1;  // frame + started
+            for (const WalkField& w : walk)
+                bytes += w.count * (w.kind == 'b' || w.kind == 'c' ? 1 : 4);
+            clsOut << "\n public:\n"
+                      "  // Time machine (docs/time-machine.md): this graph's own\n"
+                      "  // state - armed Delays, edge latches, latched outputs.\n"
+                      "  "
+                   << cls << "() { g_time_" << cls << " = this; }\n"
+                   << "  static const unsigned int kTimeBytes = " << bytes
+                   << ";\n";
+            // Capture and restore are one pair over one list, in one order.
+            for (int pass = 0; pass < 2; ++pass) {
+                const bool cap = pass == 0;
+                clsOut << (cap ? "  void timeCapture(unsigned char* p) const {\n"
+                               : "  void timeRestore(const unsigned char* p) {\n");
+                int off = 0;
+                auto one = [&](const std::string& name, char kind, int idx) {
+                    const std::string src =
+                        idx < 0 ? name : name + "[" + std::to_string(idx) + "]";
+                    if (kind == 'b') {
+                        clsOut << (cap ? "    p[" + std::to_string(off) +
+                                             "] = " + src + " ? 1 : 0;\n"
+                                       : "    " + src + " = p[" +
+                                             std::to_string(off) + "] != 0;\n");
+                        off += 1;
+                    } else if (kind == 'c') {
+                        clsOut << (cap ? "    p[" + std::to_string(off) +
+                                             "] = (unsigned char)" + src + ";\n"
+                                       : "    " + src + " = (char)p[" +
+                                             std::to_string(off) + "];\n");
+                        off += 1;
+                    } else {
+                        clsOut << (cap ? "    memcpy(p + " + std::to_string(off) +
+                                             ", &" + src + ", 4);\n"
+                                       : "    memcpy(&" + src + ", p + " +
+                                             std::to_string(off) + ", 4);\n");
+                        off += 4;
+                    }
+                };
+                one("frame", 'i', -1);
+                one("started", 'b', -1);
+                for (const WalkField& w : walk) {
+                    // The declaration carries the array bounds ("posOut7[3]");
+                    // the walk needs the bare name.
+                    std::string base = w.name;
+                    const size_t br = base.find('[');
+                    if (br != std::string::npos) base = base.substr(0, br);
+                    for (int k = 0; k < w.count; ++k)
+                        one(base, w.kind, w.count == 1 ? -1 : k);
+                }
+                clsOut << "  }\n";
+            }
+            timeScriptClasses.push_back(cls);
+        }
+
         clsOut << "\n private:\n"
                "  unsigned int generation = 0;\n"
                "  int frame = 0;\n"
@@ -19283,6 +21248,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         }
         clsOut << members.str() << "};\n";
 
+        // One instance per class (TYRA_SCRIPT makes exactly one) remembered in
+        // its constructor, so the walk below reaches it without a virtual on
+        // Script - a user-ownable header that must stay as the user's.
+        if (timeOn)
+            out << "class " << cls << ";\n"
+                << cls << "* g_time_" << cls << " = nullptr;\n";
         out << replaceAll(clsOut.str(), "{{FLAG_RESETS}}", flagResets.str());
 
         registrations << "TYRA_SCRIPT(" << ns << "::" << cls << ");\n";
@@ -19321,6 +21292,92 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     << "][1]; out3[2] = flowPos[" << i << "][2];\n"
                        "      break;  // "
                     << posVars[i] << "\n";
+            out << "    default: break;\n  }\n";
+        }
+        out << "}\n";
+    }
+
+    // The graphs' own state, laid end to end in class-emission order. The
+    // runtime asks for the size, hands over a buffer and gets it back; it never
+    // needs to know what a graph keeps, which is the point.
+    if (timeOn) {
+        size_t total = 0;
+        out << "\n// Time machine (docs/time-machine.md): every graph's own "
+               "state.\n"
+               "unsigned int flowTimeScriptBytes() {\n  return ";
+        if (timeScriptClasses.empty()) {
+            out << "0";
+        } else {
+            for (size_t i = 0; i < timeScriptClasses.size(); ++i)
+                out << (i ? " +\n         " : "") << timeScriptClasses[i]
+                    << "::kTimeBytes";
+        }
+        out << ";\n}\n";
+        for (int pass = 0; pass < 2; ++pass) {
+            const bool cap = pass == 0;
+            out << (cap ? "void flowTimeScriptCapture(unsigned char* p) {\n"
+                        : "void flowTimeScriptRestore(const unsigned char* p) {\n");
+            if (timeScriptClasses.empty()) out << "  (void)p;\n";
+            for (const std::string& c : timeScriptClasses) {
+                // A null instance cannot happen (TYRA_SCRIPT constructs one per
+                // class at static init), but the offset must advance either way
+                // or every later graph in the capture shifts.
+                out << "  if (g_time_" << c << ") g_time_" << c
+                    << "->" << (cap ? "timeCapture" : "timeRestore") << "(p);\n"
+                    << "  p += " << c << "::kTimeBytes;\n";
+            }
+            out << "}\n";
+        }
+        (void)total;
+    }
+
+    // The time machine's view of the same variables (docs/time-machine.md):
+    // read for a capture, written back for a restore. Its own pair rather than
+    // the debugger's, because rewinding must work with the debugger off - and
+    // both are generated from the one variable list above, so they cannot
+    // disagree about what slot N is.
+    if (timeOn) {
+        const size_t total = intVars.size() + boolVars.size() + posVars.size();
+        out << "\n// Time machine (docs/time-machine.md): the flow variables, "
+               "both directions.\n"
+               "int flowTimeVarCount() { return "
+            << total << "; }\n"
+               "void flowTimeRead(int index, float* out3) {\n"
+               "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
+        if (total == 0) {
+            out << "  (void)index;  // this project defines no flow variables\n";
+        } else {
+            out << "  switch (index) {\n";
+            size_t slot = 0;
+            for (size_t i = 0; i < intVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = (float)flowInt[" << i
+                    << "]; break;  // " << intVars[i] << "\n";
+            for (size_t i = 0; i < boolVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": out3[0] = flowBool[" << i
+                    << "] ? 1.0F : 0.0F; break;  // " << boolVars[i] << "\n";
+            for (size_t i = 0; i < posVars.size(); ++i, ++slot)
+                out << "    case " << slot << ":\n      out3[0] = flowPos[" << i
+                    << "][0]; out3[1] = flowPos[" << i << "][1]; out3[2] = flowPos["
+                    << i << "][2];\n      break;  // " << posVars[i] << "\n";
+            out << "    default: break;\n  }\n";
+        }
+        out << "}\n"
+               "void flowTimeWrite(int index, const float* in3) {\n";
+        if (total == 0) {
+            out << "  (void)index; (void)in3;\n";
+        } else {
+            out << "  switch (index) {\n";
+            size_t slot = 0;
+            for (size_t i = 0; i < intVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": flowInt[" << i
+                    << "] = (int)in3[0]; break;  // " << intVars[i] << "\n";
+            for (size_t i = 0; i < boolVars.size(); ++i, ++slot)
+                out << "    case " << slot << ": flowBool[" << i
+                    << "] = in3[0] != 0.0F; break;  // " << boolVars[i] << "\n";
+            for (size_t i = 0; i < posVars.size(); ++i, ++slot)
+                out << "    case " << slot << ":\n      flowPos[" << i
+                    << "][0] = in3[0]; flowPos[" << i << "][1] = in3[1]; flowPos["
+                    << i << "][2] = in3[2];\n      break;  // " << posVars[i] << "\n";
             out << "    default: break;\n  }\n";
         }
         out << "}\n";
@@ -21067,6 +23124,425 @@ static std::string liveDebugSymFile(const Project& p) {
 // global Script polls that file every few frames; otherwise the file compiles
 // to an empty translation unit. Records address objects by the stable id
 // hash baked into scene_data.hpp (SCENE_*_OBJECT_ID_HASHES), so a session
+// ---------------------------------------------------------------------------
+// The time machine: src/gen/live_time.gen.cpp (docs/time-machine.md).
+//
+// The game captures everything it MUTATES into bin/livetime.bin every few
+// frames; the editor keeps those captures and can push one back through
+// bin/livetime.rst, which puts the running game where it was. With Live Logic
+// that closes the loop: rewind, patch a graph, watch the fix play out on the
+// situation that just broke.
+//
+// Like the Live Logic pump this is an ordinary global Script, not a game-loop
+// hook - everything it touches is reachable through ScriptContext, including
+// moving the player (ctx.teleport, the Spawn Player At node's own mechanism).
+// That is what keeps it out of the two duplicated game templates entirely.
+//
+// Binary layout v1 (little-endian, both sides are LE; the editor's twin lives
+// in src/livetime.hpp/.cpp - change one and the other must follow):
+//   u32 magic 'TXTM', u32 version=1, u32 seq, u32 frame, i32 scene,
+//   u32 stateBytes, u64 layout, u32 flags, u32 objectCount, u32 rsvd[2]
+//   state:
+//     u16 objectCount, then 100 bytes per object:
+//       f32 position[3], rotation[3], scale[3], color[3]   (48)
+//       f32 velocityX/Y/Z, spin[3], flatTgt[3]             (36)
+//       i16 restFrames, u16 flags(1 visible|2 active|4 dirty)
+//       i16 animClip, u16 animFlags(1 playing|2 loop|4 restart|8 finished)
+//       f32 animSpeed, animFade                            (16)
+//     u16 playerFlags(1 = the capture carries a player), f32 pos[3], yaw, pitch
+//     u16 varCount, then 3 floats per flow variable
+//     u16 saveCount, then 1 float per save value
+//   u32 footer = seq ^ 0x5A5A5A5A   (guards torn/partial reads)
+//
+// The layout hash is what makes a restore safe: it mixes the object/variable/
+// save counts, so a snapshot taken before a rebuild that changed the scene is
+// refused instead of writing garbage over a differently shaped world.
+static const char* TPL_LIVE_TIME_CPP = R"TIME(// Generated by TyraX. Do not edit - regenerated on every build.
+// The time machine (docs/time-machine.md): debug builds with Project >
+// Preferences > Build > "Time machine" on; otherwise this file is an empty
+// translation unit.
+//
+// Two files next to the ELF, on the same host: filesystem the game already
+// loads its assets from (PCSX2's Host Filesystem / the ps2link file server):
+//
+//   livetime.bin  written here, read by the editor - one capture of everything
+//                 the game mutates, rewritten every few frames.
+//   livetime.rst  written by the editor, read here - a capture to go back to.
+//
+// The layout is documented field by field above the generator in the editor's
+// templates.cpp and parsed in src/livetime.hpp; the two ends must agree, so
+// change them together. Torn writes are rejected by an exact-size +
+// footer-echo check on both sides, and a restore is applied only when its
+// sequence number changes.
+#include <tyra>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
+
+#include "scripts/script.hpp"
+
+namespace {{NS}} {
+
+// The flow variables are statics in flow_graph.gen.cpp, so their accessors
+// live there too - same arrangement the Live Debugger's watch table uses.
+int flowTimeVarCount();
+void flowTimeRead(int index, float* out3);
+void flowTimeWrite(int index, const float* in3);
+// ...and so does each graph's own state (armed Delays, edge latches): the
+// classes live in that translation unit, so the walk over them does too.
+unsigned int flowTimeScriptBytes();
+void flowTimeScriptCapture(unsigned char* p);
+void flowTimeScriptRestore(const unsigned char* p);
+
+namespace livetime {
+namespace {
+
+typedef unsigned long long tllu64;
+constexpr u32 TM_MAGIC = 0x4D545854;  // "TXTM"
+constexpr u32 TM_VERSION = 1;
+constexpr int TM_HEADER = 48;
+constexpr u32 TM_FOOTER_XOR = 0x5A5A5A5A;
+constexpr int TM_OBJ_STRIDE = 100;
+// Authored objects plus the runtime spawn pool: a capture covers the clones
+// too, or rewinding past a Spawn Object leaves the clone standing there.
+constexpr int TM_MAX_OBJECTS = {{MAX_OBJECTS}};
+constexpr int TM_MAX_VARS = {{MAX_VARS}};
+constexpr int TM_MAX_SAVES = {{MAX_SAVES}};
+constexpr tllu64 TM_LAYOUT = {{LAYOUT}}ull;
+constexpr int TM_GRAPH_BYTES = {{GRAPH_BYTES}};
+constexpr int TM_STATE_MAX = 2 + TM_MAX_OBJECTS * TM_OBJ_STRIDE + 30 + 2 +
+                             TM_MAX_VARS * 12 + 2 + TM_MAX_SAVES * 4 + 2 +
+                             TM_GRAPH_BYTES;
+
+unsigned char buf[TM_HEADER + TM_STATE_MAX + 4];
+
+u32 seqOut = 0;         // captures written
+u32 frameNo = 0;        // monotonic across restores: the history's ordering key
+u32 lastRestoreSeq = 0;  // the restore we last applied
+int cooldown = 1;
+unsigned int lastGen = 0xFFFFFFFFu;
+
+inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
+inline void put32(unsigned char* p, u32 v) { memcpy(p, &v, 4); }
+inline void putf(unsigned char* p, float v) { memcpy(p, &v, 4); }
+inline unsigned short get16(const unsigned char* p) {
+  unsigned short v; memcpy(&v, p, 2); return v;
+}
+inline u32 get32(const unsigned char* p) { u32 v; memcpy(&v, p, 4); return v; }
+inline float getf(const unsigned char* p) { float v; memcpy(&v, p, 4); return v; }
+
+/** Writes the mutable state into `p`, returns the byte count. The ONE walk
+ * over the world: restore() below reads exactly the same fields in exactly the
+ * same order, and both live here so they cannot drift. */
+int capture(ScriptContext& ctx, unsigned char* p) {
+  unsigned char* const start = p;
+  int count = ctx.objectCount;
+  if (count > TM_MAX_OBJECTS) count = TM_MAX_OBJECTS;
+  put16(p, (unsigned short)count);
+  p += 2;
+  for (int i = 0; i < count; ++i) {
+    const RuntimeObject& o = ctx.objects[i];
+    for (int k = 0; k < 3; ++k) putf(p + k * 4, o.data.position[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 12 + k * 4, o.data.rotation[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 24 + k * 4, o.data.scale[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 36 + k * 4, o.data.color[k]);
+    putf(p + 48, o.velocityX);
+    putf(p + 52, o.velocityY);
+    putf(p + 56, o.velocityZ);
+    for (int k = 0; k < 3; ++k) putf(p + 60 + k * 4, o.spin[k]);
+    for (int k = 0; k < 3; ++k) putf(p + 72 + k * 4, o.flatTgt[k]);
+    put16(p + 84, (unsigned short)o.restFrames);
+    put16(p + 86, (unsigned short)((o.visible ? 1 : 0) | (o.active ? 2 : 0) |
+                                   (o.dirty ? 4 : 0)));
+    put16(p + 88, (unsigned short)o.animClip);
+    put16(p + 90,
+          (unsigned short)((o.animPlaying ? 1 : 0) | (o.animLoop ? 2 : 0) |
+                           (o.animRestart ? 4 : 0) | (o.animFinished ? 8 : 0)));
+    putf(p + 92, o.animSpeed);
+    putf(p + 96, o.animFade);
+    p += TM_OBJ_STRIDE;
+  }
+
+  // The walker: where it stands, which way it faces, and how it is moving.
+  // The motion (fall speed, camera boom) lives in the game class, which
+  // publishes it onto ScriptContext each frame for exactly this.
+  put16(p, 1);
+  putf(p + 2, ctx.playerPosition.x);
+  putf(p + 6, ctx.playerPosition.y);
+  putf(p + 10, ctx.playerPosition.z);
+  const float lx = ctx.playerLook.x, lz = ctx.playerLook.z;
+  putf(p + 14, atan2f(lx, lz));
+  putf(p + 18, asinf(ctx.playerLook.y < -1.0F   ? -1.0F
+                     : (ctx.playerLook.y > 1.0F ? 1.0F : ctx.playerLook.y)));
+  putf(p + 22, ctx.playerVelY);
+  putf(p + 26, ctx.playerBoom);
+  p += 30;
+
+  int vars = flowTimeVarCount();
+  if (vars > TM_MAX_VARS) vars = TM_MAX_VARS;
+  put16(p, (unsigned short)vars);
+  p += 2;
+  for (int i = 0; i < vars; ++i, p += 12) {
+    float v[3];
+    flowTimeRead(i, v);
+    putf(p + 0, v[0]);
+    putf(p + 4, v[1]);
+    putf(p + 8, v[2]);
+  }
+
+  int saves = ctx.saveValueCount;
+  if (saves > TM_MAX_SAVES) saves = TM_MAX_SAVES;
+  put16(p, (unsigned short)saves);
+  p += 2;
+  for (int i = 0; i < saves; ++i, p += 4) putf(p, ctx.saveValues[i]);
+
+  // The graphs' own state, one opaque block. Its size is fixed by the build,
+  // so it rides behind a length the reader can check rather than trust.
+  const unsigned int gs = flowTimeScriptBytes();
+  if (gs > (unsigned int)TM_GRAPH_BYTES) {
+    // Cannot happen with the bound the editor computes, and if it ever did,
+    // an unrewound graph block beats a smashed buffer.
+    put16(p, 0);
+    p += 2;
+  } else {
+    put16(p, (unsigned short)gs);
+    p += 2;
+    flowTimeScriptCapture(p);
+    p += gs;
+  }
+
+  return (int)(p - start);
+}
+
+/** Reads back exactly what capture() wrote. */
+void restore(ScriptContext& ctx, const unsigned char* p, int bytes) {
+  const unsigned char* const end = p + bytes;
+  if (p + 2 > end) return;
+  int count = (int)get16(p);
+  p += 2;
+  if (count > ctx.objectCount) count = ctx.objectCount;
+  if (p + (size_t)count * TM_OBJ_STRIDE > end) return;
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& o = ctx.objects[i];
+    for (int k = 0; k < 3; ++k) o.data.position[k] = getf(p + k * 4);
+    for (int k = 0; k < 3; ++k) o.data.rotation[k] = getf(p + 12 + k * 4);
+    for (int k = 0; k < 3; ++k) o.data.scale[k] = getf(p + 24 + k * 4);
+    for (int k = 0; k < 3; ++k) o.data.color[k] = getf(p + 36 + k * 4);
+    o.velocityX = getf(p + 48);
+    o.velocityY = getf(p + 52);
+    o.velocityZ = getf(p + 56);
+    for (int k = 0; k < 3; ++k) o.spin[k] = getf(p + 60 + k * 4);
+    for (int k = 0; k < 3; ++k) o.flatTgt[k] = getf(p + 72 + k * 4);
+    o.restFrames = (short)get16(p + 84);
+    const unsigned short fl = get16(p + 86);
+    o.visible = (fl & 1) != 0;
+    o.active = (fl & 2) != 0;
+    o.animClip = (short)get16(p + 88);
+    const unsigned short af = get16(p + 90);
+    o.animPlaying = (af & 1) != 0;
+    o.animLoop = (af & 2) != 0;
+    o.animRestart = (af & 4) != 0;
+    o.animFinished = (af & 8) != 0;
+    o.animSpeed = getf(p + 92);
+    o.animFade = getf(p + 96);
+    // ALWAYS dirty, whatever the capture said: a restored object has moved as
+    // far as the renderer is concerned, and a batched member that is not
+    // demoted keeps drawing at its old place (see staticBatchEligible).
+    o.dirty = true;
+    p += TM_OBJ_STRIDE;
+  }
+
+  if (p + 30 > end) return;
+  if (get16(p) & 1) {
+    // Moving the player is a REQUEST the loop consumes, exactly as the Spawn
+    // Player At node makes it - the walker's own state lives in the game class
+    // and this is the door into it. teleportMotion is what tells that branch
+    // this is a rewind and not a spawn, so the fall speed comes back too.
+    ctx.teleport = true;
+    ctx.teleportPos = Tyra::Vec4(getf(p + 2), getf(p + 6), getf(p + 10));
+    ctx.teleportYaw = getf(p + 14) * (180.0F / 3.14159265F);
+    ctx.playerVelY = getf(p + 22);
+    ctx.playerBoom = getf(p + 26);
+    ctx.teleportMotion = true;
+  }
+  p += 30;
+
+  if (p + 2 > end) return;
+  int vars = (int)get16(p);
+  p += 2;
+  if (vars > flowTimeVarCount()) vars = flowTimeVarCount();
+  if (p + (size_t)vars * 12 > end) return;
+  for (int i = 0; i < vars; ++i, p += 12) {
+    const float v[3] = {getf(p + 0), getf(p + 4), getf(p + 8)};
+    flowTimeWrite(i, v);
+  }
+
+  if (p + 2 > end) return;
+  int saves = (int)get16(p);
+  p += 2;
+  if (saves > ctx.saveValueCount) saves = ctx.saveValueCount;
+  if (p + (size_t)saves * 4 > end) return;
+  for (int i = 0; i < saves; ++i, p += 4) ctx.saveValues[i] = getf(p);
+
+  if (p + 2 > end) return;
+  const unsigned int gs = (unsigned int)get16(p);
+  p += 2;
+  // A block that is not exactly this build's size belongs to other graphs -
+  // the layout hash should have caught it, so refuse rather than guess.
+  if (gs == 0) return;  // the capture carried no graph block
+  if (gs != flowTimeScriptBytes() || p + gs > end) return;
+  flowTimeScriptRestore(p);
+  p += gs;
+}
+
+void writeCapture(ScriptContext& ctx) {
+  const int stateBytes = capture(ctx, buf + TM_HEADER);
+  ++seqOut;
+  put32(buf + 0, TM_MAGIC);
+  put32(buf + 4, TM_VERSION);
+  put32(buf + 8, seqOut);
+  put32(buf + 12, frameNo);
+  put32(buf + 16, (u32)ctx.scene);
+  put32(buf + 20, (u32)stateBytes);
+  put32(buf + 24, (u32)(TM_LAYOUT & 0xFFFFFFFFull));
+  put32(buf + 28, (u32)(TM_LAYOUT >> 32));
+  put32(buf + 32, 0);
+  put32(buf + 36, (u32)ctx.objectCount);
+  put32(buf + 40, 0);
+  put32(buf + 44, 0);
+  put32(buf + TM_HEADER + stateBytes, seqOut ^ TM_FOOTER_XOR);
+
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livetime.bin").c_str(), "wb");
+  if (!f) return;
+  fwrite(buf, 1, (size_t)(TM_HEADER + stateBytes + 4), f);
+  fclose(f);
+}
+
+void pollRestore(ScriptContext& ctx) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livetime.rst").c_str(), "rb");
+  if (!f) return;  // nothing to go back to (the usual case)
+  const size_t got = fread(buf, 1, sizeof(buf), f);
+  fclose(f);
+  if (got < (size_t)TM_HEADER + 4) return;
+  if (get32(buf + 0) != TM_MAGIC || get32(buf + 4) != TM_VERSION) return;
+  const u32 seq = get32(buf + 8);
+  if (seq == lastRestoreSeq) return;  // already applied
+  const u32 stateBytes = get32(buf + 20);
+  if (stateBytes > (u32)TM_STATE_MAX) return;
+  if (got < (size_t)TM_HEADER + stateBytes + 4) return;
+  if (get32(buf + TM_HEADER + stateBytes) != (seq ^ TM_FOOTER_XOR)) return;
+  // A capture from a differently built game describes a world this one does
+  // not have. Refuse it rather than write it somewhere plausible-looking.
+  const tllu64 layout = (tllu64)get32(buf + 24) | ((tllu64)get32(buf + 28) << 32);
+  if (layout != TM_LAYOUT) {
+    lastRestoreSeq = seq;  // do not re-read it every poll
+    TYRA_LOG("Time machine: ignoring a capture from another build");
+    return;
+  }
+  if ((s32)get32(buf + 16) != ctx.scene) {
+    lastRestoreSeq = seq;
+    TYRA_LOG("Time machine: that capture belongs to another scene");
+    return;
+  }
+  lastRestoreSeq = seq;
+  restore(ctx, buf + TM_HEADER, (int)stateBytes);
+  TYRA_LOG("Time machine: restored capture ", (int)seq);
+}
+
+/** An ordinary global Script, like the Live Logic pump: everything the walk
+ * touches is on ScriptContext, so no game-loop hook and nothing in the two
+ * duplicated game templates. */
+class TimeMachine : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    // A scene (re)load rebuilds the world from its baked state; captures from
+    // before it describe a different one. The editor drops the history when it
+    // sees the frame counter go backwards, so reset it here.
+    if (ctx.sceneGeneration != lastGen) {
+      lastGen = ctx.sceneGeneration;
+      frameNo = 0;
+      seqOut = 0;
+    }
+    ++frameNo;
+    // Over ps2link every fopen is a network round-trip; PCSX2's host
+    // filesystem is plain local IO, so capture ~10x/s there.
+    if (--cooldown > 0) return;
+    cooldown = Tyra::IrxLoader::keepIopResident ? {{POLL_PS2LINK}} : {{POLL}};
+    pollRestore(ctx);
+    writeCapture(ctx);
+  }
+};
+TimeMachine g_timeMachine;
+const bool g_timeMachineRegistered = []() {
+  getScripts().push_back(&g_timeMachine);
+  return true;
+}();
+
+}  // namespace
+}  // namespace livetime
+}  // namespace {{NS}}
+)TIME";
+
+static std::string liveTimeSource(const Project& p) {
+    if (!liveTimeOn(p)) {
+        const std::string why = p.settings.buildProfile != "debug"
+                                    ? "this is a release build"
+                                    : "the \"Time machine\" preference is off";
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// Time machine: nothing to compile here - " +
+               why +
+               ".\n// See docs/time-machine.md (Project > Preferences > "
+               "Build).\n";
+    }
+
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes)
+        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+    maxObjects += 32;  // the runtime spawn pool (MAX_SPAWNED_OBJECTS)
+    std::vector<std::string> intVars, boolVars, posVars;
+    collectFlowVars(p, intVars, boolVars, posVars);
+    const size_t vars = intVars.size() + boolVars.size() + posVars.size();
+    // Upper bound on the graphs' own state. The exact figure is a sum of
+    // per-class constants in flow_graph.gen.cpp, which this translation unit
+    // can only ask for at runtime - so size the buffer for the worst case a
+    // node can contribute (a 64-byte latched text output, plus a position, an
+    // object id and a flag) and let the runtime guard below refuse anything
+    // that somehow still does not fit.
+    size_t graphBytes = 0;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (!o.flowGraph.empty())
+                graphBytes += 5 + o.flowGraph.nodes.size() * 96;
+    if (graphBytes == 0) graphBytes = 8;
+    const size_t saves = p.saveValues.size();
+
+    // Identity of the state SHAPE. A capture only goes back into a game whose
+    // world has the same dimensions - anything else would be writing one
+    // scene's numbers over another's.
+    uint64_t layout = 1469598103934665603ull;
+    auto mix = [&layout](uint64_t v) {
+        layout = (layout ^ v) * 1099511628211ull;
+    };
+    mix(2);  // layout version - bump when the walk above changes
+    mix(maxObjects);
+    mix(vars);
+    mix(saves);
+    mix(graphBytes);
+    for (const SceneData& sc : p.scenes) mix(sc.objects.size());
+
+    std::string s = TPL_LIVE_TIME_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{MAX_OBJECTS}}", std::to_string(maxObjects));
+    s = replaceAll(s, "{{MAX_VARS}}", std::to_string(vars ? vars : 1));
+    s = replaceAll(s, "{{MAX_SAVES}}", std::to_string(saves ? saves : 1));
+    s = replaceAll(s, "{{GRAPH_BYTES}}", std::to_string(graphBytes));
+    s = replaceAll(s, "{{LAYOUT}}", std::to_string(layout));
+    s = replaceAll(s, "{{POLL}}", std::to_string(livetime::kCaptureFrames));
+    s = replaceAll(s, "{{POLL_PS2LINK}}",
+                   std::to_string(livetime::kCaptureFramesPs2Link));
+    return s;
+}
+
 // survives renames/reorders, spawns NEWLY ADDED objects through the runtime
 // spawn pool (templateIdx names an equal-recipe authored object to clone) and
 // hides deleted ones (absence from the snapshot = deleted; restored on undo).
@@ -24625,6 +27101,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\ao_data.gen.hpp", aoDataHeader(p)},
+        {"inc\\probe_data.gen.hpp", probeDataHeader(p)},
         {"inc\\save_system.gen.hpp", saveSystemHeader(p)},
         {"src\\save_system.gen.cpp", saveSystemSource(p)},
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},
@@ -24639,6 +27116,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scripts\\live_debug.gen.hpp", liveDebugHeader(p)},
         {"src\\gen\\live_debug.gen.cpp", liveDebugSource(p)},
         {"src\\gen\\livedbg.sym", liveDebugSymFile(p)},
+        {"src\\gen\\live_time.gen.cpp", liveTimeSource(p)},
         {"src\\gen\\live_link.gen.cpp", liveLinkScript(p)},
         {"src\\gen\\live_tex.gen.cpp", liveTexScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},

@@ -344,6 +344,9 @@ std::string objectJson(const SceneObject& o) {
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
+        (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
+        // projected (live) silhouette shadow; default (false) stays implicit
+        (o.projShadow ? std::string(", \"projShadow\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
@@ -386,7 +389,12 @@ std::string objectJson(const SceneObject& o) {
                 fmtVec3(o.flashlightColor) + ", \"range\": " +
                 fmtFloat(o.flashlightRange) + ", \"angle\": " +
                 fmtFloat(o.flashlightAngle) + ", \"toggle\": \"" +
-                jsonEscape(o.flashlightToggleButton) + "\" }" + " }";
+                jsonEscape(o.flashlightToggleButton) + "\"" +
+                (o.flashlightTexture.empty()
+                     ? ""
+                     : ", \"texture\": \"" + jsonEscape(o.flashlightTexture) +
+                           "\"") +
+                " }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
         static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain",
@@ -418,7 +426,10 @@ std::string objectJson(const SceneObject& o) {
     }
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
-                ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
+                ", \"radius\": " + fmtFloat(o.lightRadius) +
+                ", \"dynamic\": " + (o.lightDynamic ? "true" : "false") +
+                ", \"flicker\": " + fmtFloat(o.lightFlicker) +
+                ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
         json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) +
@@ -584,7 +595,9 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"grain\": " << fmtFloat(s.grain)
       << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
       << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
-      << ", \"dofRange\": " << fmtFloat(s.dofRange) << " }, \"fog\": { \"enabled\": "
+      << ", \"dofRange\": " << fmtFloat(s.dofRange)
+      << ", \"flare\": " << fmtFloat(s.flare)
+      << ", \"godRays\": " << fmtFloat(s.godRays) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
       << " }, \"highlight\": { \"usable\": "
@@ -658,6 +671,10 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                     s.dofFocus = (float)v->numberOr(s.dofFocus);
                 if (const auto* v = pf->find("dofRange"))
                     s.dofRange = (float)v->numberOr(s.dofRange);
+                if (const auto* v = pf->find("flare"))
+                    s.flare = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("godRays"))
+                    s.godRays = clamp01((float)v->numberOr(0.0));
             }
             if (const auto* fg = st->find("fog")) {
                 if (const auto* v = fg->find("enabled")) s.fogEnabled = v->boolOr(false);
@@ -740,6 +757,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.dofAmount = o.dofAmount;
         r.dofFocus = o.dofFocus;
         r.dofRange = o.dofRange;
+        r.flare = o.flare;
+        r.godRays = o.godRays;
     }
     if (s.overrides.fog) {
         r.fogEnabled = o.fogEnabled;
@@ -865,6 +884,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.eeCrashHandler ? "true" : "false") << ",\n"
          << "    \"liveLogic\": " << (p.settings.liveLogic ? "true" : "false")
          << ",\n"
+         << "    \"timeMachine\": "
+         << (p.settings.timeMachine ? "true" : "false") << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -921,6 +942,21 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"aoStrength\": " << fmtFloat(p.settings.aoStrength) << ",\n"
          << "    \"aoRadius\": " << fmtFloat(p.settings.aoRadius) << ",\n"
+         << "    \"giEnabled\": " << (p.settings.giEnabled ? "true" : "false")
+         << ",\n"
+         << "    \"giRays\": " << p.settings.giRays << ",\n"
+         << "    \"giBounces\": " << p.settings.giBounces << ",\n"
+         << "    \"giSkyLight\": " << fmtFloat(p.settings.giSkyLight) << ",\n"
+         << "    \"giSunLight\": " << fmtFloat(p.settings.giSunLight) << ",\n"
+         << "    \"giAmbientFloor\": " << fmtFloat(p.settings.giAmbientFloor)
+         << ",\n"
+         << "    \"giProbes\": " << (p.settings.giProbes ? "true" : "false")
+         << ",\n"
+         << "    \"giProbeSpacing\": " << fmtFloat(p.settings.giProbeSpacing)
+         << ",\n"
+         << "    \"giProbeHeight\": " << fmtFloat(p.settings.giProbeHeight)
+         << ",\n"
+         << "    \"giProbeLevels\": " << p.settings.giProbeLevels << ",\n"
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -930,6 +966,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
          << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
          << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
+         << "    \"flare\": " << fmtFloat(p.settings.flare) << ",\n"
+         << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
+         << "    \"blobShadows\": " << (p.settings.blobShadows ? "true" : "false")
+         << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -2580,6 +2620,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
         if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(true);
+        if (const auto* v = jo.find("bakedLighting"))
+            o.bakedLighting = v->boolOr(true);
+        if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -2638,6 +2681,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.flashlightAngle = (float)v->numberOr(20.0);
                 if (const auto* v = fl->find("toggle"))
                     o.flashlightToggleButton = v->stringOr("");
+                if (const auto* v = fl->find("texture"))
+                    o.flashlightTexture = v->stringOr("");
                 if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
                 if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
                 if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
@@ -2694,6 +2739,15 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = lt->find("radius"))
                 o.lightRadius = (float)v->numberOr(8.0);
             if (o.lightRadius < 0.1f) o.lightRadius = 0.1f;
+            if (const auto* v = lt->find("dynamic"))
+                o.lightDynamic = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = lt->find("flicker"))
+                o.lightFlicker = (float)v->numberOr(0.0);
+            if (o.lightFlicker < 0.0f) o.lightFlicker = 0.0f;
+            if (o.lightFlicker > 1.0f) o.lightFlicker = 1.0f;
+            if (const auto* v = lt->find("beam"))
+                o.lightBeam = (int)v->numberOr(0.0);
+            if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
         }
         if (const auto* cm = jo.find("camera")) {
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
@@ -2871,14 +2925,18 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
+        if (const auto* v = s->find("timeMachine"))
+            st.timeMachine = v->boolOr(true);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
-        // ps2link option now always means the custom TyraX ps2link)
+        // ps2link option now always means the TyraX ps2link, the only one the
+        // editor deploys to; a project that predates the key gets it ON, which
+        // is what that ps2link supports)
         if (const auto* v = s->find("keyboardMousePs2Link"))
-            st.keyboardMousePs2Link = v->boolOr(false);
+            st.keyboardMousePs2Link = v->boolOr(true);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
@@ -2997,6 +3055,34 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.aoRadius = (float)v->numberOr(2.5);
         if (st.aoRadius < 0.1f) st.aoRadius = 0.1f;
         if (st.aoRadius > 50.0f) st.aoRadius = 50.0f;
+        // Baked global illumination (docs/global-illumination.md). Every read
+        // defaults to the struct initializer, which is what a project saved
+        // before GI existed loads as - i.e. off, and identical to before.
+        if (const auto* v = s->find("giEnabled")) st.giEnabled = v->boolOr(false);
+        if (const auto* v = s->find("giRays")) st.giRays = (int)v->numberOr(128);
+        if (st.giRays < 8) st.giRays = 8;
+        if (st.giRays > 1024) st.giRays = 1024;
+        if (const auto* v = s->find("giBounces"))
+            st.giBounces = (int)v->numberOr(2);
+        if (st.giBounces < 0) st.giBounces = 0;
+        if (st.giBounces > 8) st.giBounces = 8;
+        if (const auto* v = s->find("giSkyLight"))
+            st.giSkyLight = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("giSunLight"))
+            st.giSunLight = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("giAmbientFloor"))
+            st.giAmbientFloor = clamp01((float)v->numberOr(0.03));
+        if (const auto* v = s->find("giProbes")) st.giProbes = v->boolOr(true);
+        if (const auto* v = s->find("giProbeSpacing"))
+            st.giProbeSpacing = (float)v->numberOr(3.0);
+        if (st.giProbeSpacing < 0.5f) st.giProbeSpacing = 0.5f;
+        if (const auto* v = s->find("giProbeHeight"))
+            st.giProbeHeight = (float)v->numberOr(2.0);
+        if (st.giProbeHeight < 0.25f) st.giProbeHeight = 0.25f;
+        if (const auto* v = s->find("giProbeLevels"))
+            st.giProbeLevels = (int)v->numberOr(4);
+        if (st.giProbeLevels < 1) st.giProbeLevels = 1;
+        if (st.giProbeLevels > 16) st.giProbeLevels = 16;
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
@@ -3012,6 +3098,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.dofFocus = (float)v->numberOr(st.dofFocus);
         if (const auto* v = s->find("dofRange"))
             st.dofRange = (float)v->numberOr(st.dofRange);
+        if (const auto* v = s->find("flare"))
+            st.flare = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("godRays"))
+            st.godRays = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("blobShadows"))
+            st.blobShadows = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -4253,7 +4345,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (uint64_t)o.type);
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
-                  (o.decalProject ? 8 : 0));
+                  (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
@@ -4261,6 +4353,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // Cast shadow feeds the build-time AO bake (occluder tables + textures);
     // a live edit of it cannot show without a rebuild.
     fnvMix(h, o.castShadow ? 1 : 0);
+    fnvMix(h, o.bakedLighting ? 1 : 0);
     // Physics material: baked into SCENE_OBJECTS, never live-patched (the
     // snapshot record carries only transform + color), and copied wholesale
     // by a spawned clone. Only meaningful while `physics` is on - the runtime
@@ -4291,6 +4384,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
     fnvMixS(h, o.flashlightToggleButton);
+    fnvMixS(h, o.flashlightTexture);
     fnvMix(h, (uint64_t)o.emitterKind);
     fnvMix(h, (uint64_t)o.emitterCount);
     fnvMixF(h, o.emitterSize);
@@ -4337,6 +4431,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) {
         fnvMix3(h, o.position), fnvMix3(h, o.color);
         fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+        // Dynamic lights live in a baked side table (DYN_LIGHTS) - flipping
+        // the flag or the flicker needs a rebuild like any baked change.
+        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f), fnvMixF(h, o.lightFlicker);
+        fnvMixF(h, (float)o.lightBeam);
     }
     // An Area's box is what mirror/portal/camera-feed target lists were
     // expanded against at build time, so moving one changes baked tables even
@@ -4440,6 +4538,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
             f.relativePath == "src\\gen\\live_logic.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_time.gen.cpp" ||
             f.relativePath == "inc\\scripts\\live_logic.gen.hpp" ||
             f.relativePath == "src\\gen\\livelogic.built" ||
             f.relativePath == "src\\gen\\live_debug.gen.cpp" ||
@@ -4462,6 +4561,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
+            f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp" ||
@@ -4627,6 +4727,59 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(png.parent_path(), ec);
         std::ofstream f(png, std::ios::binary);
         if (f) f.write(reinterpret_cast<const char*>(a.data), (std::streamsize)a.size);
+    }
+
+    // Lens flare sprites: procedural (no font), written whenever the project
+    // can show the flare - an authored per-scene amount OR a Set Flare node
+    // that could raise it at runtime. FLARE_USED in scene_data.hpp gates the
+    // game-side texture load, so it matches this exact predicate (see
+    // templates::projectUsesFlare).
+    if (templates::projectUsesFlare(p)) {
+        for (int kind = 0; kind < 2; ++kind) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeFlarePNG(kind, png))
+                return "Lens flare sprite bake failed";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(kind);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write flare sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // Blob shadows reuse the soft glow as their alpha mask - bake it even
+    // when the flare is off (kind 0 only; the flare block above already
+    // wrote it otherwise).
+    if (!templates::projectUsesFlare(p) && p.settings.blobShadows) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakeFlarePNG(0, png))
+            return "Blob shadow sprite bake failed";
+        const fs::path path =
+            fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(0);
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write blob shadow sprite: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()),
+                (std::streamsize)png.size());
+    }
+    // Light-beam corona (Point Light > Beam): its own RGB-shaped sprite.
+    if (templates::projectUsesBeams(p)) {
+        for (int kind = 2; kind < 3; ++kind) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeFlarePNG(kind, png))
+                return "Lens flare sprite bake failed";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(kind);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write flare sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
     }
 
     // Game menu panels: derived from project data (labels, colors), so

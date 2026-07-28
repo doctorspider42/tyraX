@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 
 #include "objparser.hpp"
 
@@ -698,11 +699,14 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn) {
+                     float strength, bool aoOn, const LightFn* gi) {
     AoImage out;
     if (width <= 0 || depth <= 0) return out;
     const bool bakeOcc = aoOn && strength > 0.0f;
-    const bool bakeLight = !ems.empty();
+    // With a GI light source the RGB channel always has content - "no
+    // emitters" no longer means "no light", it means daylight.
+    const bool bakeLight = gi != nullptr || !ems.empty();
+    out.gi = gi != nullptr;
     if (!bakeOcc && !bakeLight) return out;
     const bool hasHeights = w >= 2 && d >= 2 && (int)heights.size() == w * d;
     // ~4 texels per terrain unit, power of two. Capped at 256: the maps ship
@@ -832,14 +836,31 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             // bake stays independent of the terrain material).
             if (!bakeLight) continue;
             float add[3] = {0, 0, 0};
-            for (int sy = 0; sy < kSuper; ++sy)
-                for (int sx = 0; sx < kSuper; ++sx) {
+            // GI samples on a coarser sub-grid - see kSuperGi.
+            const int sup = gi ? kSuperGi : kSuper;
+            const float invSup = 1.0f / (sup * sup);
+            for (int sy = 0; sy < sup; ++sy)
+                for (int sx = 0; sx < sup; ++sx) {
                     float sp[3];
-                    subPoint(sx, sy, sp);
+                    // subPoint divides by kSuper; re-derive for `sup`.
+                    sp[0] = x + ((sx + 0.5f) / sup - 0.5f) * sxStep;
+                    sp[1] = h0;
+                    sp[2] = z + ((sy + 0.5f) / sup - 0.5f) * szStep;
+                    if (gi) {
+                        // Seeded by the texel AND its sub-sample, so the
+                        // sub-samples of one texel do not share a ray set and
+                        // waste the supersampling.
+                        float l[3];
+                        (*gi)(sp, n,
+                              (uint32_t)(texel * 17u + (uint32_t)(sy * sup + sx)),
+                              l);
+                        for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
+                        continue;
+                    }
                     for (size_t e = 0; e < ems.size(); ++e) {
                         float l[3];
                         emitterLightAt(ems[e], sp, n, l, &emBlock[e]);
-                        for (int k = 0; k < 3; ++k) add[k] += l[k] * invSuper;
+                        for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
                     }
                 }
             const float dz = bayerDither(i, j);
@@ -992,15 +1013,18 @@ int regionCountFor(PrimitiveType t) {
 }  // namespace
 
 SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
-                              const ModelAabbFn& modelAabb) {
+                              const ModelAabbFn& modelAabb, const LightFn* gi) {
     SceneLightAtlas out;
     const ProjectSettings rs = project::resolvedSettings(p, sc);
     out.firstRegion.assign(sc.objects.size(), -1);
     out.lit.assign(sc.objects.size(), 0);
-    // Two independent reasons to build an atlas; either one is enough.
+    out.gi = gi != nullptr;
+    // Three independent reasons to build an atlas; any one is enough. A GI
+    // light source is the third: with it every eligible surface has a light
+    // channel whether or not anything in the scene glows.
     const bool aoOn = rs.aoEnabled && rs.aoStrength > 0.0f;
     const std::vector<Emitter> ems = collectEmitters(p.dir, sc.objects, modelAabb);
-    if (!aoOn && ems.empty()) return out;
+    if (!aoOn && ems.empty() && !gi) return out;
 
     // Collected regardless of the AO preference: with emitters present these
     // same shapes also SHADOW the baked light (a wall must not be lit through).
@@ -1020,13 +1044,23 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     };
     std::vector<Region> regions;
     GlowCache glowCache;
+    // Collected once: the set of object names any flow graph can move.
+    const std::set<std::string> movableRefs = project::runtimeRefNames(p, sc.objects);
     for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
         const SceneObject& o = sc.objects[oi];
         const int rc = regionCountFor(o.type);
         if (rc == 0) continue;
         // Runtime movers keep the vertex bake (which re-bakes on rebuild);
-        // an atlas region would glue the baked shadow to the moved surface.
-        if (o.physics || o.pickable || o.saveState) continue;
+        // an atlas region would GLUE the baked light to the moved surface -
+        // tip a lightmapped cylinder over and it carries a contact shadow that
+        // matches nothing. project::objectRuntimeMovable is the same predicate
+        // static batching and the live catch areas already use: physics,
+        // pickable, usable, save-state, streamed, owning a graph, or named by
+        // one. `bakedLighting` is the manual override on top, for the channels
+        // no build-time scan can see (Live Link, a Raycast latch, a custom
+        // node's object output).
+        if (!o.bakedLighting || project::objectRuntimeMovable(o, movableRefs))
+            continue;
         // An emissive surface takes neither bake: the atlas passes multiply and
         // add per pixel AFTER the emissive floor is already in the vertex
         // colors, so occlusion would darken a surface that is supposed to be
@@ -1132,7 +1166,12 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
         return occ > 1.0f ? 1.0f : occ;
     };
-    auto lightAt = [&](const float wp[3], const float n[3], float add[3]) {
+    auto lightAt = [&](const float wp[3], const float n[3], uint32_t seed,
+                       float add[3]) {
+        if (gi) {
+            (*gi)(wp, n, seed, add);
+            return;
+        }
         add[0] = add[1] = add[2] = 0.0f;
         for (const Emitter* em : localEm) {
             float l[3];
@@ -1140,6 +1179,13 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
             for (int k = 0; k < 3; ++k) add[k] += l[k];
         }
     };
+    // "Does this receiver have a light channel at all?" Without GI that is
+    // "an emitter reaches it"; with GI every untextured surface has one,
+    // because daylight and bounce reach everything. A TEXTURED receiver never
+    // does, GI or not - a flat additive term blows out its dark texels, so it
+    // stays on the vertex path (which multiplies the texture instead) and
+    // takes its GI from the probe grid.
+    auto hasLight = [&] { return !recvTextured && (gi || !localEm.empty()); };
 
     // --- importance pre-pass ------------------------------------------------
     // Sizing every region by world area alone spends most of the atlas on
@@ -1164,9 +1210,15 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                               wp, n);
                     float s = 0.0f;
                     if (aoOn) s = rs.aoStrength * occlusionAt(wp, n);
-                    if (!recvTextured && !localEm.empty()) {
+                    if (hasLight()) {
                         float add[3];
-                        lightAt(wp, n, add);
+                        // The pre-pass only decides texel BUDGET, so it may
+                        // sample coarsely - but its seed still has to be
+                        // stable, hence (region, probe).
+                        lightAt(wp, n,
+                                (uint32_t)((&rg - regions.data()) * 37 +
+                                           j * kProbe + i),
+                                add);
                         for (int k = 0; k < 3; ++k) {
                             const float lv = add[k] * recvTint[k];
                             if (lv > s) s = lv;
@@ -1303,34 +1355,57 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                 // a one-texel ramp, which is exactly the staircase you see on
                 // a wall. Averaging band-limits the edge to what the texel
                 // grid can actually carry, so the reconstruction is smooth.
-                float occAcc = 0.0f, addAcc[3] = {0, 0, 0};
-                for (int sy = 0; sy < kSuper; ++sy)
-                    for (int sx = 0; sx < kSuper; ++sx) {
-                        const float u = (i + (sx + 0.5f) / kSuper) / iw;
-                        const float v = (j + (sy + 0.5f) / kSuper) / ih;
-                        float wp[3], n[3];
-                        surfaceAt(o, rg.idx, u, v, wp, n);
-                        if (aoOn) occAcc += occlusionAt(wp, n);
-                        if (!recvTextured && !localEm.empty()) {
-                            float add[3];
-                            lightAt(wp, n, add);
-                            for (int k = 0; k < 3; ++k) addAcc[k] += add[k];
-                        }
-                    }
-                const float invS = 1.0f / (kSuper * kSuper);
                 const size_t texel =
                     (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
                 if (aoOn) {
-                    const uint8_t a = (uint8_t)(255.0f * rs.aoStrength *
-                                                    occAcc * invS +
-                                                0.5f);
+                    float occAcc = 0.0f;
+                    for (int sy = 0; sy < kSuper; ++sy)
+                        for (int sx = 0; sx < kSuper; ++sx) {
+                            const float u = (i + (sx + 0.5f) / kSuper) / iw;
+                            const float v = (j + (sy + 0.5f) / kSuper) / ih;
+                            float wp[3], n[3];
+                            surfaceAt(o, rg.idx, u, v, wp, n);
+                            occAcc += occlusionAt(wp, n);
+                        }
+                    const uint8_t a =
+                        (uint8_t)(255.0f * rs.aoStrength * occAcc /
+                                      (kSuper * kSuper) +
+                                  0.5f);
                     out.alpha[texel] = a;
                     if (a) objHasBake[rg.obj] = 1;
                 }
-                // Emissive light, folded with the receiver's own diffuse and
-                // scaled to framebuffer units (255 = full white) - the
+                // The light channel, folded with the receiver's own diffuse
+                // and scaled to framebuffer units (255 = full white) - the
                 // additive pass adds these bytes straight onto the frame.
-                if (!recvTextured) {
+                // GI samples on a coarser sub-grid: every one of ITS samples
+                // is already an average over `rays` hemisphere directions, so
+                // the 4x4 the analytic emitters need would multiply a bake
+                // that is already the expensive half by four for no visible
+                // gain.
+                if (!hasLight()) continue;
+                const int sup = gi ? kSuperGi : kSuper;
+                float addAcc[3] = {0, 0, 0};
+                for (int sy = 0; sy < sup; ++sy)
+                    for (int sx = 0; sx < sup; ++sx) {
+                        const float u = (i + (sx + 0.5f) / sup) / iw;
+                        const float v = (j + (sy + 0.5f) / sup) / ih;
+                        float wp[3], n[3];
+                        surfaceAt(o, rg.idx, u, v, wp, n);
+                        float add[3];
+                        lightAt(wp, n,
+                                (uint32_t)(texel * 17u +
+                                           (uint32_t)(sy * sup + sx)),
+                                add);
+                        for (int k = 0; k < 3; ++k) addAcc[k] += add[k];
+                    }
+                const float invS = 1.0f / (sup * sup);
+                // GI owns this surface's whole shade, so its region must be
+                // kept even where the answer is (nearly) black - a dark
+                // corner is a RESULT here, not an absence. Without this the
+                // corner would fall back to the vertex path and come out
+                // BRIGHTER than the lit wall beside it.
+                if (gi) objHasBake[rg.obj] = 1, out.lit[rg.obj] = 1;
+                {
                     const float dz = bayerDither(rg.px + 1 + i, rg.py + 1 + j);
                     for (int k = 0; k < 3; ++k) {
                         float v = 255.0f * addAcc[k] * invS * recvTint[k] + dz;

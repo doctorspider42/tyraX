@@ -230,6 +230,27 @@ struct SceneObject {
     // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
     // casts nothing; it still receives shadows from others.
     bool castShadow = true;
+    // Baked lighting (docs/global-illumination.md). On = this object may take
+    // a per-texel lightmap, which is the best-looking route and also GLUES the
+    // result to its surface: tip the object over at runtime and it carries a
+    // shadow that no longer matches anything. Off = it stays on the probe
+    // path, where the light is re-read from the grid every time the geometry
+    // is rebuilt, so it relights as it moves.
+    //
+    // The bake already excludes everything it can PROVE moves
+    // (project::objectRuntimeMovable - physics, pickable, usable, save-state,
+    // streamed, owning a graph, or named by one). This switch is for the rest:
+    // an object moved through a channel no build-time scan can see (Live Link,
+    // a Raycast latch, a custom node's object output), or one you simply want
+    // to keep relightable.
+    bool bakedLighting = true;
+    // Projected silhouette shadow (runtime, NOT the baked AO above): the
+    // game renders this object's silhouette from the sun into a small VRAM
+    // target every frame and projects it onto the terrain under it - a
+    // real-shape moving shadow. Manual opt-in per object; the 4 nearest
+    // casters are active at a time, each costing a 64x64 silhouette render
+    // plus a small terrain patch.
+    bool projShadow = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -306,6 +327,11 @@ struct SceneObject {
     float flashlightRange = 30.0f;  // world units
     float flashlightAngle = 20.0f;  // cone half-angle, degrees
     std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+    // Texture of the beam's ground pool (res-relative PNG, e.g.
+    // "res/hud/beam.png"). Empty = the built-in procedural corona. The
+    // shape must live in the RGB channels: the pool draws additively and
+    // additive bags ignore texture alpha.
+    std::string flashlightTexture;
 
     // Particle emitter parameters (used when type == Emitter). The particle
     // texture comes from the shared materialPath (first material's map_Kd);
@@ -343,6 +369,17 @@ struct SceneObject {
     // is the shared `color` field above.
     float lightBright = 1.0f;   // intensity added on top of the scene ambient
     float lightRadius = 8.0f;   // world units; contribution fades linearly to 0
+    // Dynamic (live) point light: instead of baking into vertex colors at
+    // build, the game registers it every frame and the engine lights nearby
+    // meshes through the VU1 spot-light slot - it can flicker and be driven
+    // by the Set Light flow node. Max 8 dynamic lights per scene.
+    bool lightDynamic = false;
+    float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
+    // Visible beam drawn at the light source (additive, follows the light's
+    // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
+    // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
+    // lamp / stage light look). Works on baked lights too (steady glow).
+    int lightBeam = 0;
 
     // Camera entity parameter (used when type == Camera): vertical field of
     // view in degrees. A Cutscene Director shot bound to this camera applies
@@ -481,6 +518,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
+           a.projShadow == b.projShadow &&
+           a.bakedLighting == b.bakedLighting &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -507,6 +546,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flashlightRange == b.flashlightRange &&
            a.flashlightAngle == b.flashlightAngle &&
            a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.flashlightTexture == b.flashlightTexture &&
            a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.emitterEnabled == b.emitterEnabled &&
@@ -520,6 +560,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
+           a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
            a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
            a.camFeedObjects == b.camFeedObjects &&
@@ -624,6 +666,15 @@ struct ProjectSettings {
     // they were compiled to.
     bool liveLogic = true;
 
+    // Debug profile only: compile the time machine into the game
+    // (docs/time-machine.md). The game captures everything it mutates - object
+    // transforms and physics, the walkers, flow variables, save values - into
+    // bin/livetime.bin every few frames; the editor keeps a history of those
+    // captures and can push one back through bin/livetime.rst, which puts the
+    // running game where it was. Off = neither file is ever touched and the
+    // generated runtime is an empty translation unit.
+    bool timeMachine = true;
+
     // Debug profile only, EXPERIMENTAL and off by default: install the engine's
     // EE crash handler, which turns a real CPU exception (bad pointer, address
     // error, reserved instruction) into a crash.txt report instead of a silent
@@ -647,14 +698,15 @@ struct ProjectSettings {
     // a choice to make deliberately (docs/keyboard-mouse.md).
     bool keyboardMouse = true;
 
-    // Experimental (debug): keep keyboard/mouse working on a "Run on PS2"
-    // (ps2link) deploy, where they are normally skipped. REQUIRES the custom
-    // TyraX ps2link (tools/ps2link-usbhid) - it bakes usbd + ps2kbd + ps2mouse
-    // into its own boot, so the engine reuses that resident stack and loads
-    // none of its own (a second usbd would wedge it). On a stock ps2link there
-    // is no USB stack to reuse: the drivers just report "not ready". See
-    // docs/keyboard-mouse.md. Off by default.
-    bool keyboardMousePs2Link = false;
+    // Keep keyboard/mouse working on a "Run on PS2" (ps2link) deploy. The
+    // console side is always the TyraX ps2link (tools/ps2link, built by its
+    // build.sh/.ps1 - see docs/ps2link-setup.md): it bakes usbd + ps2kbd +
+    // ps2mouse into its own boot, so the engine reuses that resident stack and
+    // loads none of its own (a second usbd would wedge it). On by default for
+    // that reason; untick it only for a deliberately stock ps2link, which has
+    // no USB stack to reuse - the drivers then report "not ready" and the
+    // mouse is skipped rather than hanging. See docs/keyboard-mouse.md.
+    bool keyboardMousePs2Link = true;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -813,6 +865,15 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
+    // Sun lens flare (0 = off, else brightness 0..1): additive sprites along
+    // the sun->screen-center axis, drawn after the 3D scene under the HUD,
+    // occluded by geometry/terrain via one ray cast per frame. The sun sits
+    // infinitely far along lightDir; its tint follows lightColor.
+    float flare = 0.0f;
+    // God rays / light shafts from the sun (0 = off, else strength 0..1):
+    // a bright-pass + radial blur toward the sun's screen position on the GS
+    // (reuses the bloom blur chain), composited additively after the scene.
+    float godRays = 0.0f;
     // Baked ambient occlusion (docs/ambient-occlusion.md): terrain
     // self-shadowing, contact darkening between static geometry and raycast
     // self-AO for imported .obj models - all folded into the baked vertex
@@ -821,6 +882,30 @@ struct ProjectSettings {
     bool aoEnabled = false;
     float aoStrength = 0.55f;  // 0..1, how dark full occlusion gets
     float aoRadius = 2.5f;     // world units the contact darkening reaches
+
+    // Baked global illumination (docs/global-illumination.md). Project-wide on
+    // purpose - unlike the sky/lighting above these are not part of the
+    // ambience-preset overlay: a preset changes what the light LOOKS like, the
+    // bake quality is a project decision. Nothing here reaches the game
+    // directly; it drives the host bake in gibake, whose OUTPUT ships as the
+    // scene lightmap's RGB channel plus inc/probe_data.gen.hpp.
+    //
+    // The bake is explicit (Tools > Bake Global Illumination) and cached in
+    // .res-baked/gi/ - a build never silently re-bakes it. A stale or missing
+    // cache simply falls the scene back to the pre-GI emissive-only lighting.
+    bool giEnabled = false;
+    int giRays = 128;    // hemisphere rays per lightmap texel / per probe
+    int giBounces = 2;   // interreflection passes (0 = direct + sky only)
+    float giSkyLight = 1.0f;  // the sky dome's strength as a light source
+    float giSunLight = 1.0f;  // the directional sun's strength
+    // A constant added to every gather. Real GI makes a sealed room with no
+    // light source pitch black, which reads as "the bake is broken" rather
+    // than "you forgot a lamp"; this is the floor under that.
+    float giAmbientFloor = 0.03f;
+    bool giProbes = true;        // bake the light-probe grid
+    float giProbeSpacing = 3.0f; // world units between probes, horizontally
+    float giProbeHeight = 2.0f;  // ...and between vertical levels
+    int giProbeLevels = 4;       // vertical levels above the lowest ground
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -863,6 +948,13 @@ struct ProjectSettings {
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
 
+    // Soft dark blob shadows under moving things (the third-person avatar,
+    // animated models, physics objects): a terrain-conforming alpha-blended
+    // quad through the same soft-glow sprite the flare uses, fading out as
+    // the object rises. Project-wide; grounds objects visually for almost
+    // nothing (one quad per object).
+    bool blobShadows = false;
+
     // In-game outline around usable objects while the player is within
     // highlightDistance (fading silhouette shells drawn after the scene).
     bool highlightUsable = false;
@@ -889,7 +981,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
-           a.liveLogic == b.liveLogic &&
+           a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
@@ -921,12 +1013,21 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
-           a.aoRadius == b.aoRadius &&
+           a.aoRadius == b.aoRadius && a.giEnabled == b.giEnabled &&
+           a.giRays == b.giRays && a.giBounces == b.giBounces &&
+           a.giSkyLight == b.giSkyLight && a.giSunLight == b.giSunLight &&
+           a.giAmbientFloor == b.giAmbientFloor &&
+           a.giProbes == b.giProbes &&
+           a.giProbeSpacing == b.giProbeSpacing &&
+           a.giProbeHeight == b.giProbeHeight &&
+           a.giProbeLevels == b.giProbeLevels &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
+           a.flare == b.flare && a.godRays == b.godRays &&
+           a.blobShadows == b.blobShadows &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -949,7 +1050,7 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain, depth of field
+    bool postFx = false;      // bloom, grain, depth of field, flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
