@@ -5,7 +5,9 @@ its light from a probe grid. The PlayStation 2 pays **nothing** at run time for
 either: the ray tracing happens on your desktop and ships as one texture and one
 table.
 
-Turn it on in *Tools > Bake Global Illumination*, press **Bake this scene**, and
+Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab -
+the same window the sky, the sun and the AO are authored in - press **Bake this
+scene**, and
 build. Two example projects: [global-illumination](../examples/global-illumination)
 is the one-room proof (a red wall and a green wall, and nothing else coloured),
 [gi-showcase](../examples/gi-showcase) is the guided walk with one station per
@@ -169,7 +171,7 @@ minutes and a `touch` (or a checkout, or a copy) must not throw it away — and 
 example project ships its cache, which a fresh `git clone` would otherwise
 invalidate the instant it landed on disk.
 
-Run it from *Tools > Bake Global Illumination* (worker thread, progress bar,
+Run it from *Tools > Ambience Editor > Global illumination* (worker thread, progress bar,
 cancel), or headlessly:
 
 ```bash

@@ -758,7 +758,7 @@ void App::drawUI() {
     drawInputMapWindow();
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
-    drawGiBakeWindow();
+    giBakerPoll();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
@@ -1282,7 +1282,12 @@ void App::drawMenuBar() {
             }
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::Separator();
-            if (ImGui::MenuItem("Bake Global Illumination...")) showGiBake_ = true;
+            // Lives in the Ambience Editor now; the menu item still works
+            // and simply opens that window on its GI tab.
+            if (ImGui::MenuItem("Bake Global Illumination...")) {
+                showAmbienceEditor_ = true;
+                showGiBake_ = true;
+            }
             ImGui::EndMenu();
         }
 
@@ -11221,22 +11226,23 @@ void App::rebuildTreePreview() {
 // window owns the whole loop - the quality knobs, the per-scene staleness
 // readout, and the button. Everything downstream (codegen, texbake, the
 // viewport) only ever READS the cache in .res-baked/gi/.
-void App::drawGiBakeWindow() {
-    // Polled every frame, before the window's own early-out: a bake that
-    // finishes has to reach the VIEWPORT, and applyProjectToViewport is
-    // event-driven - without this the preview would keep showing the previous
-    // bake until the user happened to touch something else.
+// Polled every frame and from nowhere else: a bake that finishes has to reach
+// the VIEWPORT, and applyProjectToViewport is event-driven - without this the
+// preview would keep showing the previous bake until the user happened to
+// touch something else. It must not hang off any window being open.
+void App::giBakerPoll() {
     if (hasProject_ && giBakerSeen_ != giBaker_.version()) {
         giBakerSeen_ = giBaker_.version();
         applyProjectToViewport();
     }
-    if (!showGiBake_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(560.0f), scaled(520.0f)),
-                             ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Bake Global Illumination", &showGiBake_)) {
-        ImGui::End();
-        return;
-    }
+}
+
+// The "Global illumination" tab of the Ambience Editor (drawAmbienceWindow).
+// It lives there because that window is already where a scene's light is
+// authored - the AO settings, the sky, the sun - and the bake is the last step
+// of the same job. Not inside the PRESET editor beside it: these are
+// project-wide settings plus a per-scene cache, not part of a mood bundle.
+void App::drawGiBakeSection() {
     ProjectSettings& st = project_.settings;
     bool changed = false;
 
@@ -11381,7 +11387,6 @@ void App::drawGiBakeWindow() {
         "The editor preview evaluates the probe grid per pixel, so the "
         "console's per-texel contact shadows are sharper than what you see "
         "here.");
-    ImGui::End();
 }
 
 // Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a
@@ -14402,8 +14407,32 @@ void App::drawAmbienceWindow() {
         return;
     }
 
+    // Two jobs, one window: authoring a scene's mood, and baking the light it
+    // implies. showGiBake_ is no longer a window flag - it is "show me the GI
+    // tab", set by the Tools menu item and by a saved layout that had the old
+    // standalone window open.
+    const bool wantGi = showGiBake_;
+    showGiBake_ = false;
     bool changed = false;
 
+    if (ImGui::BeginTabBar("##ambience_tabs")) {
+        if (ImGui::BeginTabItem("Presets")) {
+            drawAmbiencePresets(changed);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Global illumination", nullptr,
+                                wantGi ? ImGuiTabItemFlags_SetSelected : 0)) {
+            drawGiBakeSection();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::End();
+    if (changed) commitChange();
+}
+
+// The preset half of the Ambience Editor (see drawAmbienceWindow).
+void App::drawAmbiencePresets(bool& changed) {
     // --- left: preset list -------------------------------------------------
     ImGui::BeginChild("##ambience_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
     if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
@@ -14447,7 +14476,6 @@ void App::drawAmbienceWindow() {
         ImGui::BulletText("picking one per scene in Scene > Preferences");
         ImGui::BulletText("the Set Ambience flow node (category \"Scene\")");
         ImGui::EndChild();
-        ImGui::End();
         return;
     }
     AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
@@ -14594,9 +14622,6 @@ void App::drawAmbienceWindow() {
     }
 
     ImGui::EndChild();
-    ImGui::End();
-
-    if (changed) commitChange();
 }
 
 // --- Cutscene Director -------------------------------------------------------

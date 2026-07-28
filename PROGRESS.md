@@ -10,6 +10,38 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (135) **The GI bake moved into the Ambience Editor** (owner's ask). It was
+  its own *Tools* window; it is now the **Global illumination** tab of *Tools >
+  Ambience Editor*, beside the presets. That window is already where a scene's
+  light is authored - the sky, the sun, the AO strength and radius - and the
+  bake is the last step of the same job, so having it somewhere else was the
+  odd part.
+
+  It is a TAB rather than a section inside the preset editor on purpose: the GI
+  settings are project-wide plus a per-scene cache, not part of a mood bundle,
+  and folding them into an `AmbiencePreset` would have implied they travel with
+  one. `drawAmbienceWindow` now owns the tab bar and calls
+  `drawAmbiencePresets` / `drawGiBakeSection`.
+
+  Two details worth keeping straight if this moves again. The bake's
+  finished-version poll (`App::giBakerPoll`) had been living at the top of the
+  old window function and now runs from `drawUI` directly - a bake that
+  finishes must reach the viewport whether or not anything is open, and hanging
+  that off a window body is exactly the bug that would look like "the preview
+  is stale". And `showGiBake_` survives as "show me the GI tab" rather than a
+  window flag, so the *Tools > Bake Global Illumination...* menu item still
+  works (it opens the Ambience Editor on that tab) and a saved window layout
+  that had the old window open still lands somewhere sensible.
+
+  **Verified** by driving the running editor with main's `wayland-control.py`:
+  clicked the menu item, screenshotted the Ambience Editor opening straight on
+  the GI tab with the whole bake UI on it (quality sliders, probe grid, the
+  scenes table showing `main / baked / lightmap 128, ground 256, probes
+  15x4x15`, both Bake buttons), then clicked back to *Presets* and
+  screenshotted that intact. The editor staying alive through both is the
+  Begin/End balance check - ImGui asserts on a mismatch, and this refactor
+  moved four of them.
+
 - (134) **The editor's ground went one flat colour after a GI bake** (owner
   report; the game was fine). The viewport lit the TERRAIN from the probe grid
   like everything else, and that is wrong twice over. One probe sample every

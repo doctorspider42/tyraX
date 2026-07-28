@@ -115,8 +115,8 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
 - `--bake-gi` runs the whole global-illumination bake for every scene
   (docs/global-illumination.md) into `.res-baked/gi/` and then refreshes the
   generated files, so the probe table and the lightmap flags follow - **no
-  Docker, no GUI**. It is the headless twin of *Tools > Bake Global
-  Illumination* and the only practical way to verify GI in a script: bake,
+  Docker, no GUI**. It is the headless twin of the *Global illumination*
+  tab in *Tools > Ambience Editor* and the only practical way to verify GI in a script: bake,
   grep `inc/ao_data.gen.hpp` for `SCENE_AO_ATLAS_GIS`/`SCENE_AO_MAP_GIS` (1 =
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
