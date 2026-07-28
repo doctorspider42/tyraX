@@ -721,7 +721,10 @@ Each finished feature lands as its own commit.
      numbered in parallel (main's own set repeats 216, 217 and 219 for the same
      reason). The drone set is the one directly below; main's set follows it,
      running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
-     at the head of that second section. Continue from 225. -->
+     at the head of that second section.
+     Once more for the flow-graph expansion batch: it was written against 222
+     and numbered 223-229 in parallel with main's 223/224, so it was
+     RENUMBERED to 225-231 when the two met. Continue from 232. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
@@ -12646,7 +12649,7 @@ Each finished feature lands as its own commit.
   did not use (an object-LINK target via Self, `stop` on pin 1) was read out of
   `flow_graph.gen.cpp` and compiled in Docker.
 
-- (223) **The exec plane becomes a language: multiple exec OUTPUTS and the Flow
+- (225) **The exec plane becomes a language: multiple exec OUTPUTS and the Flow
   category** (user asked for a survey of the node set and then "jedź po kolei ze
   wszystkim" - this is stage 1 of six).
 
@@ -12726,8 +12729,8 @@ Each finished feature lands as its own commit.
   clean. Not yet run in PCSX2 - that comes with the later stages, whose nodes
   share these mechanisms.
 
-- (224) **The value plane grows arithmetic, and learns to reach positions**
-  (stage 2 of the flow-graph expansion; the survey in 223 named these next).
+- (226) **The value plane grows arithmetic, and learns to reach positions**
+  (stage 2 of the flow-graph expansion; the survey in 225 named these next).
 
   The number plane had four operators and one comparison. It now has the rest:
   n-ary **Min / Max / Modulo / Power** folding like Add does, the unary shapers
@@ -12753,7 +12756,7 @@ Each finished feature lands as its own commit.
   re-evaluated at every read, so `Set Int` and a `Switch Number` reading "the
   same" roll would see two different numbers. So **Roll Random** and **Roll Point
   In Area** are actions that LATCH their result and fire a `then` output - which
-  is only expressible because of stage 223's exec outputs. Roll Point In Area
+  is only expressible because of stage 225's exec outputs. Roll Point In Area
   samples through `areaBasis` (the same basis `pointInArea` tests against), so a
   ROTATED area scatters inside itself rather than inside its axis-aligned bound.
 
@@ -12800,10 +12803,10 @@ Each finished feature lands as its own commit.
   `3.0F * 2.0F` after With Y 3 and Scale 2, the folded 45-degree rotation really
   is `0.707107F`, and the cycle fixture terminates. Editor builds clean.
 
-- (225) **A graph can finally READ the world it was already allowed to change**
+- (227) **A graph can finally READ the world it was already allowed to change**
   (stage 3 of the flow-graph expansion).
 
-  The most surprising hole the 223 audit found was that a graph could teleport
+  The most surprising hole the 225 audit found was that a graph could teleport
   the player but had **no way to ask where the player was**. Nor an object's
   scale, rotation or velocity. Nor how far apart two things were. Fixed:
   **Player Position** (either player - player 2's slot equals player 1's while
@@ -12813,7 +12816,7 @@ Each finished feature lands as its own commit.
 
   **The three-float readers ride the POSITION plane rather than growing a new
   one.** A scale and a rotation are 3-vectors, and the plane that already
-  carries three floats plus the Vector nodes from 224 makes "read a rotation,
+  carries three floats plus the Vector nodes from 226 makes "read a rotation,
   change its Y, write it back" a three-node graph - Get Object Rotation -> With
   Y -> Set Object Rotation - with no new machinery. That only worked once **Set
   Object Rotation and Rotate Object By gained `posIn`**, which they lacked: the
@@ -12866,7 +12869,7 @@ Each finished feature lands as its own commit.
   C++ read line by line, including the `flowVelPerSec` conversions and the
   runtime-handle guards around every action fed a latched object.
 
-- (226) **A Camera category, built out of what the Cutscene Director already
+- (228) **A Camera category, built out of what the Cutscene Director already
   publishes** (stage 4 of the flow-graph expansion).
 
   `ScriptContext` already carried `cameraOverride`/`cameraEye`/`cameraAt`/
@@ -12920,9 +12923,9 @@ Each finished feature lands as its own commit.
   `terrain_game.cpp` (all of `g_camShake`) and `sequences.gen.cpp` (`playing()`
   plus the bars fallback). Not yet run in PCSX2.
 
-- (227) **The event bus: two graphs can finally talk without naming each other**
+- (229) **The event bus: two graphs can finally talk without naming each other**
   (stage 5 of the flow-graph expansion, and the one architectural gap in the
-  223 audit).
+  225 audit).
 
   Every graph belongs to one object, and until now the ONLY channel between two
   of them was a game-global variable polled from On Update - slower than it needs
@@ -12970,15 +12973,15 @@ Each finished feature lands as its own commit.
   the sender writes `flowEvtNext[0]`/`[1]` and the receiver reads `flowEvtCur[]`,
   and the two events' four capture slots follow the one variable's.
 
-- (228) **Text formatting, live screen effects, and the architectural change
+- (230) **Text formatting, live screen effects, and the architectural change
   that turned out not to be needed** (stage 6, the last of the flow-graph
   expansion).
 
-  The 223 plan listed "multiple typed OUTPUTS" as this stage's big item - a node
+  The 225 plan listed "multiple typed OUTPUTS" as this stage's big item - a node
   publishing more than one number/position - so that Break Position and Get
   Object Transform could exist. **They already do, and without it.** Get X / Get
-  Y / Get Z (224) are three unary nodes rather than one three-output node, and
-  Get Object Scale / Rotation / Velocity (225) ride the position plane as
+  Y / Get Z (226) are three unary nodes rather than one three-output node, and
+  Get Object Scale / Rotation / Velocity (227) ride the position plane as
   3-vectors. Both read better in a graph than a fan of pins would, so the
   machinery was not built. Recording that here because "we planned it and then
   didn't need it" is worth more than a silent omission.
@@ -13028,10 +13031,10 @@ Each finished feature lands as its own commit.
   Sound); positional 3D one-shots; and editor-side comment boxes / reroute nodes,
   which are graph presentation rather than nodes.
 
-- (229) **The whole 84-node expansion, verified in PCSX2 by numbers rather than
+- (231) **The whole 84-node expansion, verified in PCSX2 by numbers rather than
   by looking at it** (user: "Śmiało uruchamiaj").
 
-  Entries 223-228 each stopped at the codegen layer. This is the boot. One
+  Entries 225-230 each stopped at the codegen layer. This is the boot. One
   fixture at `~/tyra-projects/flowe2e` (52-char ELF path - the ~145 limit is
   real), a **79-node graph on the player and an 8-node graph on a crate**, every
   new mechanism wired to an UNATTENDED trigger (On Start / On Update / Every N

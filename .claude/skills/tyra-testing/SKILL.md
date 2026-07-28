@@ -429,7 +429,7 @@ Notes:
   PROGRESS.md and leave it for a human.
 
   **A screen effect that cannot be SEEN and one that is not happening look
-  identical** (PROGRESS 229). A Camera Shake at amplitude 0.05 measured **0
+  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
   pixels differing** across four captures 250 ms apart — the ease-out cuts it to
   0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
   than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
@@ -635,7 +635,7 @@ Notes:
   every watch variable BY NAME, and the armed timers. A hand-rolled Python
   reader can disagree with the format; this one cannot. That turns "did this node
   fire, how often, and what did it leave behind" into a command — which is how
-  the 84-node flow-graph expansion (entry 229) was verified: wire every new
+  the 84-node flow-graph expansion (entry 231) was verified: wire every new
   mechanism to an unattended trigger, have each write a **distinct predictable
   integer** into a flow variable, and read the lot back in one shot. `hashMatch`
   in that dump is the check that the ELF's symbol table is the one the editor
