@@ -1054,22 +1054,23 @@ void App::rebuildTreePreview() {
 // window owns the whole loop - the quality knobs, the per-scene staleness
 // readout, and the button. Everything downstream (codegen, texbake, the
 // viewport) only ever READS the cache in .res-baked/gi/.
-void App::drawGiBakeWindow() {
-    // Polled every frame, before the window's own early-out: a bake that
-    // finishes has to reach the VIEWPORT, and applyProjectToViewport is
-    // event-driven - without this the preview would keep showing the previous
-    // bake until the user happened to touch something else.
+// Polled every frame and from nowhere else: a bake that finishes has to reach
+// the VIEWPORT, and applyProjectToViewport is event-driven - without this the
+// preview would keep showing the previous bake until the user happened to
+// touch something else. It must not hang off any window being open.
+void App::giBakerPoll() {
     if (hasProject_ && giBakerSeen_ != giBaker_.version()) {
         giBakerSeen_ = giBaker_.version();
         applyProjectToViewport();
     }
-    if (!showGiBake_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(560.0f), scaled(520.0f)),
-                             ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Bake Global Illumination", &showGiBake_)) {
-        ImGui::End();
-        return;
-    }
+}
+
+// The "Global illumination" tab of the Ambience Editor (drawAmbienceWindow).
+// It lives there because that window is already where a scene's light is
+// authored - the AO settings, the sky, the sun - and the bake is the last step
+// of the same job. Not inside the PRESET editor beside it: these are
+// project-wide settings plus a per-scene cache, not part of a mood bundle.
+void App::drawGiBakeSection() {
     ProjectSettings& st = project_.settings;
     bool changed = false;
 
@@ -1214,7 +1215,6 @@ void App::drawGiBakeWindow() {
         "The editor preview evaluates the probe grid per pixel, so the "
         "console's per-texel contact shadows are sharper than what you see "
         "here.");
-    ImGui::End();
 }
 
 // Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a

@@ -549,7 +549,8 @@ private:
     void drawTreeGeneratorWindow();
     // Tools > Bake Global Illumination: per-scene staleness + the bake itself
     // on gibake::Baker's worker thread (docs/global-illumination.md).
-    void drawGiBakeWindow();
+    void giBakerPoll();
+    void drawGiBakeSection();
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
@@ -667,6 +668,7 @@ private:
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
+    void drawAmbiencePresets(bool& changed);
     void drawCutsceneWindow();
     // Poses a copy of the active scene's objects at the Cutscene Director
     // playhead (the same interpolation the PS2 runtime uses) so the viewport

@@ -55,7 +55,7 @@ over guessing from this file.
 
 ## Semantics you must respect
 
-- **Triggers** (On Start, On Button, Near Object, In Area, On Used, Every N
+- **Triggers** (On Start, On Update, On Button, Near Object, In Area, On Used, Every N
   Seconds, On Animation Finished, On Condition, On Menu Event) have an exec **output**;
   **actions** have only an exec **input** - to run several actions, wire each
   of them from the trigger (they run in link order). The only non-trigger exec
@@ -75,6 +75,15 @@ over guessing from this file.
   to the text plane.
 - To change a variable BY an amount, prefer Set Int's `"pin": 1` (add) with
   `num[0]` as the delta over reading it back through Get Int + Add.
+- **Continuous MOTION does not belong under On Update.** The game re-bakes an
+  object's world-space geometry on the PS2 whenever a graph moves it, so
+  nudging a transform 50 times a second is the expensive way to do everything.
+  Use the nodes the game integrates itself: **Spin Object** (angular velocity
+  in degrees/second, `start`/`stop` pins - a permanently turning coin/fan is
+  just `On Start -> Spin Object`) and **Move Object To** (glides at a speed
+  until it arrives). **Rotate Object By** / **Set Object Position** are
+  one-shots: fire them from an event, not every frame. Reserve On Update for
+  logic that genuinely has to be re-evaluated per frame.
 - `Spawn Object`'s object output is the **clone**; `Raycast`'s outputs are
   latched at cast time. Both may yield "no object" - downstream actions are
   guarded automatically.

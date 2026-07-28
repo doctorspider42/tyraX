@@ -57,6 +57,7 @@ const std::vector<TriggerMap>& triggerMap() {
         {"OnButton", BK_OnButton},
         {"NearObject", BK_NearObject},
         {"OnCondition", BK_OnCondition},
+        {"OnUpdate", BK_OnUpdate},
     };
     return v;
 }
@@ -87,6 +88,9 @@ const std::vector<ActionMap>& actionMap() {
         {"SetBloom", OP_SetBloom},
         {"SetGrain", OP_SetGrain},
         {"SetParticles", OP_SetParticles},
+        {"RotateObjectBy", OP_RotateObjectBy},
+        {"SetRotation", OP_SetRotation},
+        {"SpinObject", OP_SpinObject},
     };
     return v;
 }
@@ -144,7 +148,8 @@ const std::vector<std::string>& opNames() {
 const std::vector<std::string>& blockKindNames() {
     static const std::vector<std::string> v = {"BK_OnStart",   "BK_EverySeconds",
                                                "BK_OnButton",  "BK_NearObject",
-                                               "BK_OnCondition", "BK_Delay"};
+                                               "BK_OnCondition", "BK_Delay",
+                                               "BK_OnUpdate"};
     return v;
 }
 

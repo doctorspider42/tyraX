@@ -10,6 +10,269 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (138) **The "shadow corners": a projected shadow sampled its own silhouette
+  twice.** Owner, after (136) and (137), with a magnified crop: thin dark
+  streaks still sitting on the ground beside the real shadow - and the original
+  "the shadow tiles" report, which is the same thing seen bigger.
+
+  The receiver patch is sized in WORLD units while its texture coordinates come
+  out of the light's projection, so its outer ring lands outside 0..1 by design
+  - measured `u = -0.38 .. 1.39`. The code assumed the GS wrap mode would take
+  care of that ("CLAMP smears edge texels outward - the border guarantees the
+  edges stay empty"), and **nothing ever set it**: `Texture::setWrapSettings`
+  reaches the GS only through `path3` and the post-fx blits, and no 3D pipeline
+  in this engine emits `GS_REG_CLAMP` at all. So the patch sampled with
+  whatever global state the last 2D draw happened to leave - in practice
+  REPEAT, which fetched a second copy of the silhouette at the patch edge.
+
+  Writing `GS_SET_CLAMP` from the shadow pass was tried first and **measured to
+  change nothing** (two engine builds, byte-identical frames), so that was
+  reverted rather than shipped on a theory. The STs are clamped on the EE
+  instead, which is better anyway: it depends on no global GS state, and it is
+  free - the light frustum is sized to leave the silhouette a ~22% transparent
+  border, so the edge those vertices now sample is empty by construction and
+  only the outer ring of a 4x4 patch moves at all.
+
+  **Verified** on the owner's scene: exactly **28 pixels** changed, all in a
+  thin band on the ground where the streaks were, and the real shadow came out
+  byte-identical at every sample point.
+
+  The general rule went into the engine skill's pitfalls, because it is not
+  about shadows: **if a 3D mesh's texture coordinates can leave 0..1, clamp
+  them where you build them - a wrap mode set on the texture is silently
+  ignored in 3D.**
+
+- (137) **A thrown object's shadow landed half way down** - what (136) left
+  open, and the other half of what the owner saw as "several shadows".
+
+  `tg`, the distance the light ray travels before the patch is placed, was
+  capped at `r * 4`. That cap exists for a real reason: a nearly LEVEL ray (a
+  light beside the caster) has no far edge at all, and a patch centred out at
+  the horizon covers nothing anyone is looking at. But it was applied to the
+  RAY LENGTH, which conflates that case with its opposite - a caster high in
+  the air, whose ray is steep and whose long distance is a DROP, exactly where
+  the shadow belongs. A sphere seven units up therefore got its patch about
+  half way down, with the silhouette mostly outside it, and the sliver that
+  survived read as a second stray shadow beside the real one.
+
+  The cap is now on the SIDEWAYS run (`tg * horizRun <= r * 4`), which is the
+  thing that actually runs away. A level ray is capped exactly as before
+  (`horizRun` is ~1 there); a vertical drop is not capped at all.
+
+  **Verified** on the owner's scene: 1426 pixels changed, all of them inside
+  the ground band - the stray slivers went and nothing above the horizon moved.
+
+- (136) **A projected shadow could stand up in the air.** Owner, with a
+  screenshot of four spheres hanging in a line: black curtains climbing out of
+  the ground into the sky, "the higher, the more of it".
+
+  The receiver patch is a 4x4 heightfield and it asked `projSurfaceAt` for a
+  height at EVERY vertex. That function answers "the top of any receiver whose
+  footprint contains this point", which is the right question for *placing* a
+  patch and the wrong one for *shaping* one: a receiver is any visible solid,
+  so a prop standing inside the patch punched a cliff into it - one vertex on
+  the ground, its neighbour on the prop's roof - and the quad between them
+  rasterized as a wall. Casters in the AIR made it spectacular, because the
+  receiver cut-off is the caster's own underside: the higher the caster, the
+  more objects qualify as "floor", so a stack of spheres each drew a curtain up
+  through the ones below it.
+
+  The patch now decides what it lies on ONCE, at its centre: on the terrain it
+  samples the terrain per vertex as before (smooth by nature, and following the
+  relief is the whole point), on geometry it stays flat at the height the
+  centre found - which is what a floor is. The cost, said out loud: a patch
+  that overhangs the edge of a small platform instead of folding down beside
+  it. A shadow that floats a little beats one that stands up in the air.
+
+  **Verified** on the owner's own scene (`shadow-problem`, copied out of
+  ~/TyraProjects so their working copy was left alone), in PCSX2 on the
+  software renderer: 3937 pixels of sky stopped being covered, and the
+  difference is confined to the curtain's bounding box - nothing else in the
+  frame moved.
+
+  **Not fixed, and now the visible remainder**: the shadow of a caster high
+  above the ground lands SHORT. `tg` is clamped to `r * 4`, so a sphere 7 units
+  up throws its patch about half way to where the shadow really belongs, and
+  the silhouette is then mostly outside its own patch - what is left reads as a
+  thin dark sliver on the ground. That clamp is deliberate (an unclamped patch
+  runs to the horizon and the camera ends up inside it) but it was tuned for
+  casters standing on the floor, and a thrown object is exactly the case it
+  handles worst. Backlog.
+
+- (135) **The GI bake moved into the Ambience Editor** (owner's ask). It was
+  its own *Tools* window; it is now the **Global illumination** tab of *Tools >
+  Ambience Editor*, beside the presets. That window is already where a scene's
+  light is authored - the sky, the sun, the AO strength and radius - and the
+  bake is the last step of the same job, so having it somewhere else was the
+  odd part.
+
+  It is a TAB rather than a section inside the preset editor on purpose: the GI
+  settings are project-wide plus a per-scene cache, not part of a mood bundle,
+  and folding them into an `AmbiencePreset` would have implied they travel with
+  one. `drawAmbienceWindow` now owns the tab bar and calls
+  `drawAmbiencePresets` / `drawGiBakeSection`.
+
+  Two details worth keeping straight if this moves again. The bake's
+  finished-version poll (`App::giBakerPoll`) had been living at the top of the
+  old window function and now runs from `drawUI` directly - a bake that
+  finishes must reach the viewport whether or not anything is open, and hanging
+  that off a window body is exactly the bug that would look like "the preview
+  is stale". And `showGiBake_` survives as "show me the GI tab" rather than a
+  window flag, so the *Tools > Bake Global Illumination...* menu item still
+  works (it opens the Ambience Editor on that tab) and a saved window layout
+  that had the old window open still lands somewhere sensible.
+
+  **Verified** by driving the running editor with main's `wayland-control.py`:
+  clicked the menu item, screenshotted the Ambience Editor opening straight on
+  the GI tab with the whole bake UI on it (quality sliders, probe grid, the
+  scenes table showing `main / baked / lightmap 128, ground 256, probes
+  15x4x15`, both Bake buttons), then clicked back to *Presets* and
+  screenshotted that intact. The editor staying alive through both is the
+  Begin/End balance check - ImGui asserts on a mismatch, and this refactor
+  moved four of them.
+
+- (134) **The editor's ground went one flat colour after a GI bake** (owner
+  report; the game was fine). The viewport lit the TERRAIN from the probe grid
+  like everything else, and that is wrong twice over. One probe sample every
+  ~3 units over a broadly flat ground is nearly constant, so the whole terrain
+  came out one tone - and because the fragment shader replaces `shade` with the
+  probe answer outright, while the terrain carries its own tint IN the vertex
+  colour (objects carry theirs in a uniform), the ground also lost its green
+  and took the sky's colour. Measured over the same 3175 ground pixels, the
+  mean went from `(122,171,228)` - a pale sky blue - to `(48,105,60)`.
+
+  The console never did this: `buildTerrainChunk` gives an UNTEXTURED terrain
+  the per-texel lightmap (`terrainGi`: the vertex shade goes black and the
+  additive pass puts the light back, modulated by the ground's own tint) and
+  only falls back to probes when the terrain is TEXTURED, where a flat additive
+  term would blow out the dark texels. The viewport now makes the same split:
+  `Viewport::setGiTerrain` takes the baked map out of the same `.res-baked/gi/`
+  cache the game reads, `buildTerrainChunkMesh`'s `shadeAt` samples it right
+  where the game's `shadeAt` does, and a new `uGiSkipProbe` keeps the fragment
+  shader off the probes for those draws (and off the point lights and emissive
+  pools, which are inside the baked answer already).
+
+  Where the two still differ, and deliberately: the game reads that image per
+  PIXEL through an additive pass, the preview samples it per terrain VERTEX.
+  That is a resolution difference, not a different answer - and the render grid
+  is one sample per cell, which is what the game's own vertex path uses.
+
+  **Verified** with an offscreen viewport harness (the PROGRESS 208 pattern) so
+  the image is measurable rather than eyeballed: a hidden GLFW window, a real
+  `Viewport`, `grabPreviewRgb` to a PNG, and a `noterr` switch that skips the
+  new setter so one binary produces both sides of the A/B. The editor's own
+  window cannot be captured any other way here - it is a native Wayland
+  surface, so X11 tools see nothing (main's `wayland-control.py` can, and is
+  the right tool for the surrounding UI; the harness is better for the
+  viewport image itself because it isolates it).
+
+- (133) **A dyn-lit object's one light slot now points where the probe says the
+  light IS.** VU1 gives these meshes a single directional slot, and
+  `updateDynLitObjects` used to reconstruct the probe's L1 term along the SUN,
+  then let VU1 multiply it by `N.L(sun)`. That is only right when the sun is
+  the light: in a room lit by a bounce off a coloured wall the field points at
+  the wall, so the shading leaned the wrong way and a surface facing the actual
+  light got nothing. The direction is now L1's own dominant direction (the
+  luminance-weighted mean of the per-channel L1 vectors), which makes the slot
+  EXACT at that direction - the term there is the probe's own answer - and
+  degrades smoothly off it. A probe with no directionality at all keeps the
+  sun; L0 carries the whole answer there anyway.
+
+  That needed per-OBJECT directions, so `GeoPart` grew `litDirs[3]` and the bag
+  no longer points at the shared `animLightDirs`. **Verified** in PCSX2 on a
+  fixture with a big red wall beside the cylinders: the computed direction came
+  out `(0.524, 0.789, 0.323)` against a sun of `(0.369, 0.819, 0.439)` - a real
+  swing, and in the physically right direction, which is *away* from the wall,
+  because a 14x8 wall removes more sky from that side than its red bounce puts
+  back. The rendered lobe follows: the lit gradient now spans about twice as
+  much of the cylinder's width before it clamps to ambient.
+
+  **The animated-model path still reconstructs along the sun** and still shares
+  one global direction array (`updateAndRenderAnimObjects`). The same argument
+  applies to it word for word and the fix is the same shape - it was left out
+  of this commit only because it touches every animated model in every project
+  and deserves its own before/after. Backlog.
+
+- (132) **Opt-in dynamic lighting: three real bugs, and the banding that was
+  never there.** Picking up the backlog entry left by the WIP commit, which
+  listed three suspects in order. All three were settled, two of them were
+  bugs, and the headline symptom - "the cylinder still bands" - turned out to
+  be a **misread of the screen**.
+  - **Suspect (1), normal/vertex alignment: not a bug for primitives, but a
+    real one for models.** A primitive cannot drift, because the normal is
+    pushed *inside* `pushVert` - one normal per vertex, by construction, for
+    every builder. But `g_litNormals` pointed at `parts[0]` for the whole
+    object, so a multi-part model piled every part's normals into part 0: the
+    `litNormals.size() == vertices.size()` gate then failed for *every* part,
+    no part got a lit bag, and the model rendered at the flat white albedo
+    `pushVert` had already written - worse than not opting in. The capture is
+    now staged per part. **Verified** on a two-material `.obj` in PCSX2: two
+    parts, `verts == norms` on both, a lit bag on both.
+  - **Suspect (2), the color space: a bug, and exactly half a stop.**
+    `pushVert` builds an UNTEXTURED surface in 0..255 and a textured one in
+    128 = 1.0 modulation; `updateDynLitObjects` built its light colors at 128
+    for everything, copied from the animated-model precedent - which is always
+    textured. Every untextured dyn-lit object was therefore exactly half as
+    bright as the same object baked. Now `GeoPart::litScale` per part, and the
+    per-object terms are kept as 0..1 fractions until they meet it (one object
+    can hold both kinds). **Verified** by measurement, not by eye: with the
+    visible side of the test cylinder facing away from the sun, `N.L` clamps to
+    0 and the surface must land on the ambient term exactly - the log said
+    `amb=(72.8, 119.3, 147.2)` and the framebuffer said `(71, 121, 151)`.
+  - **Suspect (3), the pointer `setLightsManually` keeps: not a bug.** Read
+    back through the bag on the console: `bagptr == &part.litColors[0]` and the
+    value written that frame comes straight back out. `g.parts` is sized once at
+    the top of `rebuildObjectGeometry` and the bags are wired at the bottom, so
+    the (130) rule is already satisfied here.
+  - **A fourth one nobody had listed: static batching silently ate the whole
+    feature.** `staticBatchEligible` did not exclude `dynamicLighting`, so a
+    plain authored box or cylinder with the flag on - no physics, no script, no
+    layer - was merged into a combined batch bag, rebuilt by
+    `rebuildStaticBatch` with `g_litNormals == nullptr`, and quietly rendered
+    with ordinary baked shading while its lit bag never drew. **Verified** by
+    A/B on the generated table: the `batchStatic` column flips 1 -> 0 with the
+    exclusion in.
+  - **A fifth: the object rendered black for a frame on every rebuild.**
+    `renderObjects` rebuilds a dirty object from *inside* the draw loop, i.e.
+    after this frame's `updateDynLitObjects` has already run, so a freshly
+    wired bag drew once with the zero-initialized `litColors`. Not just at
+    load - that is every Live Link edit. The per-object fill is now
+    `fillDynLitColors(index)` and `rebuildObjectGeometry` calls it the moment
+    it wires a lit bag.
+
+  **And the banding: there wasn't any.** The screen's X axis runs opposite to
+  world X, and the striped cylinder in the test scene was the *reference* one -
+  a `bakedLighting: false` primitive on the per-vertex probe path, whose hard
+  diagonal wedges are the known two-triangle seam the lightmap exists to avoid
+  (`TyraShadingFlat` on every static bag makes each triangle one color). The
+  dyn-lit cylinder standing beside it shades smoothly, max adjacent step 1-2
+  units across its whole width. The proof took forcing the ambient slot to a
+  loud red: the wedged cylinder did not change color, the *other* one turned
+  red. Worth writing down as a method - a per-object A/B in ONE frame is only
+  as good as knowing which object is which, and "left" is not a fact.
+
+  **A dead end, recorded so nobody re-derives it.** Before that, the flat
+  wedges looked exactly like a shading-mode bug, and the engine has a real
+  structural hazard that would explain one: `addBuffersDataToPacket` stamps the
+  GS PRIM giftag for a **whole half-ring of 16 buffers** from the renderer-wide
+  `prim_t`, long after `setInfo` wrote it for one bag - so a mesh can inherit a
+  later mesh's shading/blending/AA. Deriving those fields per buffer from
+  `buffers[i]->bag->info` compiles and is arguably more correct, but an A/B of
+  the two engine builds came out **byte-identical (0 differing pixels)**, so it
+  fixes nothing observable and was reverted rather than shipped unproven. If
+  someone hits a mesh drawing with a neighbour's PRIM attributes, that loop is
+  where to look.
+
+  **Verified** in PCSX2 (software renderer, 50 FPS) on a scratch fixture: three
+  cylinders side by side - dyn-lit, lightmapped, probe-baked - plus a
+  two-material static model with the flag on. Screen capture on this Wayland
+  box needed a workaround worth knowing: the compositor refuses non-interactive
+  capture (`gnome-screenshot` hangs on the portal), so PCSX2 was run under
+  XWayland (`QT_QPA_PLATFORM=xcb`) and grabbed with a ~50-line `XGetImage`
+  tool - which also makes the result *measurable* (pixel rows, plateau widths)
+  instead of eyeballed. The feature still needs the owner's own scene before it
+  is called done; the backlog entry carries what is left.
+
 - (131) **Flat casters could never pick a light.** Owner, after (130): "the
   sphere is perfect, the wall still nothing". Two separate over-conservative
   guards, both from approximating a caster with a sphere:
@@ -12248,9 +12511,36 @@ Each finished feature lands as its own commit.
   anywhere in the UI paid the full app.cpp compile. Dev vs Release measured
   back-to-back through the scripts: 60 s vs 79 s clean.
 
-  **Not covered / left on the table.** Linux is untested — `build.sh` and
-  `build.cmd` got the same `--dev`/`dev` flag by inspection, there is no Linux
-  box here. `templates.cpp` (27 141 lines, ~32 s) is now the tail of a clean
+  **Linux, tested afterwards on an 8-core box** (the entry above shipped with
+  it untested — `build.sh`/`build.cmd` had only had the `--dev` flag added by
+  inspection). Everything holds: clean Release 7 m 16 s, clean Dev 3 m 45 s,
+  and editing one panel 46 s Release / 29 s Dev against 2 m 28 s for the
+  `app.cpp` shell — the same shape as the Windows numbers, scaled to half the
+  cores. The ordering fix is visible in the generated `build.ninja`:
+  `tyrax-generated` carries no order-only dep on `libimgui.a`, so the editor
+  objects no longer queue behind it. `CMAKE_CXX_FLAGS_DEV` lands as `-O1 -g0`
+  in `build-dev/`'s cache and in the actual compile line. The compiler-cache
+  hook was exercised with a stub launcher on `TYRAX_COMPILER_CACHE=<path>`: it
+  reaches both the editor target and the vendored glfw subdirectory, and `OFF`
+  removes it. No ccache on that box, i.e. the `AUTO`-finds-nothing path is the
+  one the timings above ran through.
+
+  **The split introduces no new warnings on GCC 15.** Worth stating because a
+  smaller TU gives GCC a bigger inlining budget and can surface analysis the
+  26 k-line file never reached: compiling the pre-split `app.cpp` against its
+  own `src/` at the same `-O3` emits exactly the two `-Wformat-truncation`
+  sites that `mateditor_ui.cpp` and `devkit_ui.cpp` emit now. Pre-existing and
+  merely relocated — but the `matEdSavePreset` one is a real 256-byte buffer
+  that a long layer name overruns, and is filed separately. All six windows
+  were re-opened through the Tools menu on Wayland (Properties with
+  `walkSpeedDrag` at "5.00 units/s", Flow Graph, Debug, Cutscene Director,
+  Material Editor, UI Editor) and the editor exited with an empty log.
+  `--new`/`--refresh-gen`/`--dump` all clean. Fixed in passing: `ccache` was
+  added to the Windows quickstart only, so on Linux the pickup this entry adds
+  had nothing to pick up — it is now in `deps.sh`'s four package lists and the
+  Linux quickstart.
+
+  **Not covered / left on the table.** `templates.cpp` (27 141 lines, ~32 s) is now the tail of a clean
   build and wants the same treatment, but it is codegen held in raw string
   literals and was out of scope. A PCH was measured and **rejected for now**:
   ~3 s saved per TU but a 200 MB `.gch` costing 7.5 s to build, which mattered
@@ -12261,7 +12551,105 @@ Each finished feature lands as its own commit.
   `App::showFlagForKey` but missing from `kLayoutWindowKeys`, so the Input Map
   is the one optional window a named layout can neither restore nor close.
 
+- (222) **Rotation nodes, and an honest answer to "how do I make something spin
+  forever?"** (user: "Dodaj node do rotate obiektu. Pytanie tez takie, jest
+  jakis trigger onupdate we flowgraph? Czy powinien w ogole byc? Jakbym chcial
+  zrobic taka logike, ze cos sie caly czas obraca, jak to najlepiej i
+  najwydajniej zrobic?")
+
+  The position family had three shapes (delta / absolute / glide) and rotation
+  had **none** - turning a prop meant the `spin.flownode` custom node from
+  examples/custom-nodes. Rotation now has the same three: **Rotate Object By**
+  (delta in degrees), **Set Object Rotation** (absolute) and **Spin Object**
+  (continuous, degrees per SECOND, start/stop exec pins).
+
+  On the trigger question: an every-frame trigger already existed by accident -
+  `everyFrames(0)` clamps to 1, so *Every N Seconds* with Seconds 0 fires every
+  frame - and nothing said so anywhere. It is now spelled **On Update**, which
+  costs one registry entry and a codegen branch that emits no condition at all
+  (`update()` is already per-frame). Worth having for discoverability; NOT the
+  answer to continuous motion, and its `desc` says so.
+
+  **The performance answer is the interesting half, and it is why Spin Object
+  is not just sugar over Rotate Object By.** Writing a transform from a graph
+  sets `RuntimeObject::dirty`, and `renderScene` then re-bakes that object's
+  whole **world-space** vertex array on the EE. Per frame, per spinner. So the
+  rate lives on `RuntimeObject::spinRate` (deg/s, next to the physics `spin`
+  but independent of it - physics owns that one and zeroes it on sleep), and a
+  new `TerrainGame::updateSpinners()` integrates it right after the physics
+  pass. Crucially it also **promotes each spinner onto the matrix fast path
+  once** (`rebuildObjectGeometry(i, true)` when `physFastPathEligible`): local-
+  space vertices baked a single time, `objMat` refreshed per frame, VU1 applies
+  the motion - the exact mechanism the thrown-crate work (entry 116) built for
+  physics bodies, which is where the 14 → 156 FPS in that bench came from.
+  A permanently rotating coin therefore costs one matrix rebuild per frame and
+  nothing else; ineligible objects (usable, reflective, animated models) fall
+  back to `dirty` and pay the re-bake, honestly and only then. The trade-off is
+  inherited too: baked shading freezes at the promotion pose - which is right
+  for something whose orientation never stops changing anyway.
+
+  Chain covered: registry (`.desc` on all four, so the add-menu tooltips, node
+  hover and the AI generator's catalog documented themselves), codegen +
+  `flowWrapDeg` (fmodf, not the physics pass's single ±720 fold - a typed-in
+  delta is not a small per-frame step), the `updateSpinners` call in **both**
+  duplicated game loops, the Live Logic interpreter (3 opcodes + `BK_OnUpdate`,
+  so these nodes hot-patch like the rest), and the **time machine capture walk**
+  (`spinRate` joins it, stride 100 → 112, layout version 2 → 3 - a rewind that
+  did not put the spin back would silently strand a stopped fan). Batching
+  needed nothing: `strKind == ObjectName` already blocks named targets and any
+  object with a graph is already unbatchable. The `1.0f` drag step for angle
+  params is a small thing that matters - the generic `0.1f` makes reaching 90
+  a mouse marathon.
+
+  **Verified end to end in PCSX2** (`~/tyra-projects/spintst`, a gold cylinder
+  with On Start → Spin Object 120 deg/s Y, Every 3 s → Rotate Object By 45° X,
+  On Update → Set Int add 1), read numerically out of the time-machine capture
+  by a ~40-line Python probe rather than eyeballed: `spinRate = [0, 120, 0]`;
+  Y advanced **244.80° over 102 frames** = 120 × 2.04 s exactly, so the
+  integration is frame-rate true; X stepped 45° per timer fire and wrapped
+  through 360 → 90 correctly; and the `frames` variable's delta equalled the
+  frame delta **exactly** (354 == 354, then 204 == 204) - On Update fires every
+  single frame, no more and no less. 50 FPS, no asserts in `bin/log.txt`,
+  `VRAMSTAT up=3 (+0)` (no re-uploads). Screenshots a frame apart show the
+  facet shading rotating with the disc, which is what proves the local-space
+  promotion did not corrupt the geometry. Codegen for the shapes the e2e graph
+  did not use (an object-LINK target via Self, `stop` on pin 1) was read out of
+  `flow_graph.gen.cpp` and compiled in Docker.
+
 ## Backlog (rough order)
+
+- **Finish opt-in dynamic lighting per object** (branch
+  `claude/gi-dynamic-lighting-wip`; docs/global-illumination.md is the
+  surrounding design). An object may opt into being lit by the LIT VU1 program
+  with its four light colours re-read from the probe grid every frame - the
+  deal animated models already take - so it relights with zero latency,
+  including while it spins. Entry (132) settled the three suspects the WIP
+  commit left, plus two more nobody had listed, and established that the
+  reported banding was a misread of the screen: the dyn-lit cylinder shades
+  smoothly. What is left before this can merge:
+  - **The owner has not seen it in their own scene.** Everything so far is a
+    scratch fixture of primitives plus a two-material model.
+  - **One probe sample per OBJECT, taken at its origin.** That is the whole
+    point (it moves, so it cannot be baked), but it means a large object is lit
+    as if it stood at its own centre, and an object whose origin sits inside
+    geometry reads that occlusion over its whole surface. Decide whether that
+    is the documented deal or whether big objects want a second sample.
+  - **The ANIMATED-model path still reconstructs along the sun** (entry 133 did
+    the dyn-lit one). `updateAndRenderAnimObjects` evaluates L1 along
+    `SCENE_LIGHT_*` and every model shares one `animLightDirs`, so a character
+    in a bounce-lit interior leans the same wrong way this just fixed. Same
+    shape of fix: per-model directions plus the dominant-L1 direction. Kept
+    separate because it touches every animated model in every project.
+  - **A textured dyn-lit part is untested.** `litScale` handles the 128 vs 255
+    split by construction, but no fixture has exercised it.
+  - Then: a README bullet, a docs/global-illumination.md section, and an
+    example (or a dyn-lit prop dropped into `examples/gi-showcase`).
+
+  **The two engine-level facts this work established** are worth keeping
+  whatever happens to the feature - both are now in
+  docs/global-illumination.md's trap list: the untextured/textured colour-space
+  split for a lit bag, and `StaPipVU1Cull_D` never reading the colour bag at
+  all (the albedo must be folded into the light colours).
 
 - **Session internet exposure** — today sessions are LAN (or any mesh VPN:
   Tailscale/ZeroTier make remote peers look local, zero code). The researched

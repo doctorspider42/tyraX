@@ -731,7 +731,7 @@ void App::drawUI() {
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
     drawDroneGeneratorWindow();
-    drawGiBakeWindow();
+    giBakerPoll();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
@@ -1258,7 +1258,12 @@ void App::drawMenuBar() {
                     "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::Separator();
-            if (ImGui::MenuItem("Bake Global Illumination...")) showGiBake_ = true;
+            // Lives in the Ambience Editor now; the menu item still works
+            // and simply opens that window on its GI tab.
+            if (ImGui::MenuItem("Bake Global Illumination...")) {
+                showAmbienceEditor_ = true;
+                showGiBake_ = true;
+            }
             ImGui::EndMenu();
         }
 
@@ -7733,8 +7738,32 @@ void App::drawAmbienceWindow() {
         return;
     }
 
+    // Two jobs, one window: authoring a scene's mood, and baking the light it
+    // implies. showGiBake_ is no longer a window flag - it is "show me the GI
+    // tab", set by the Tools menu item and by a saved layout that had the old
+    // standalone window open.
+    const bool wantGi = showGiBake_;
+    showGiBake_ = false;
     bool changed = false;
 
+    if (ImGui::BeginTabBar("##ambience_tabs")) {
+        if (ImGui::BeginTabItem("Presets")) {
+            drawAmbiencePresets(changed);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Global illumination", nullptr,
+                                wantGi ? ImGuiTabItemFlags_SetSelected : 0)) {
+            drawGiBakeSection();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::End();
+    if (changed) commitChange();
+}
+
+// The preset half of the Ambience Editor (see drawAmbienceWindow).
+void App::drawAmbiencePresets(bool& changed) {
     // --- left: preset list -------------------------------------------------
     ImGui::BeginChild("##ambience_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
     if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
@@ -7778,7 +7807,6 @@ void App::drawAmbienceWindow() {
         ImGui::BulletText("picking one per scene in Scene > Preferences");
         ImGui::BulletText("the Set Ambience flow node (category \"Scene\")");
         ImGui::EndChild();
-        ImGui::End();
         return;
     }
     AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
@@ -7925,9 +7953,6 @@ void App::drawAmbienceWindow() {
     }
 
     ImGui::EndChild();
-    ImGui::End();
-
-    if (changed) commitChange();
 }
 
 // --- Options-menu "option blocks" ------------------------------------------
@@ -10168,6 +10193,9 @@ void App::applyProjectToViewport() {
         giViewVersion_ = giBaker_.version();
         const gibake::Bake b = gibake::load(project_, project_.activeScene);
         viewport_.setGiProbes(b.valid ? b.probes : gibake::ProbeGrid());
+        // The ground takes the baked terrain lightmap instead of the probes -
+        // the same split the console makes (see Viewport::setGiTerrain).
+        viewport_.setGiTerrain(b.valid ? b.terrain : aobake::AoImage());
     }
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's

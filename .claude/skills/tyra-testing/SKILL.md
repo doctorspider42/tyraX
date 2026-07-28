@@ -155,8 +155,8 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
 - `--bake-gi` runs the whole global-illumination bake for every scene
   (docs/global-illumination.md) into `.res-baked/gi/` and then refreshes the
   generated files, so the probe table and the lightmap flags follow - **no
-  Docker, no GUI**. It is the headless twin of *Tools > Bake Global
-  Illumination* and the only practical way to verify GI in a script: bake,
+  Docker, no GUI**. It is the headless twin of the *Global illumination*
+  tab in *Tools > Ambience Editor* and the only practical way to verify GI in a script: bake,
   grep `inc/ao_data.gen.hpp` for `SCENE_AO_ATLAS_GIS`/`SCENE_AO_MAP_GIS` (1 =
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
@@ -427,6 +427,25 @@ Notes:
   eyeballed, and works with no display permissions at all. What it cannot
   cover — the surrounding UI and anything dragged by hand — say so in
   PROGRESS.md and leave it for a human.
+
+  **A capture is worth more when it is measured** (PROGRESS 132). Whichever
+  tool produced the PNG, read pixel ROWS out of it rather than eyeballing:
+  plateau widths and adjacent-step sizes are what told flat shading apart from
+  Gouraud on a cylinder, and two engine builds A/B'd from a frozen fixture came
+  out byte-identical, which is a much stronger statement than "looks the same".
+  A few lines of PIL will do it.
+  Driving PCSX2 by hand (rather than through `--build --run`) inherits none of
+  the launcher's setup: the Runner is what forces `HostFs` and the USB ports in
+  `PCSX2.ini`, so run through the editor at least once first, and set
+  `Renderer = 13` (software) in that ini while PCSX2 is **closed** — it rewrites
+  the file on exit.
+
+  **When an A/B compares two objects in ONE frame, prove which is which**
+  before reading anything into it. The screen's X runs opposite to world X in
+  the generated game (a Player at yaw 0 looks along +Z), so "the left one" is
+  the object at *positive* X. An hour went into a banding hypothesis about the
+  wrong cylinder. The cheap disambiguator: force one object's colour to
+  something absurd for a single run and see which one changes.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then
