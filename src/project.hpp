@@ -1734,7 +1734,19 @@ struct Project {
     // collaboration cache keys downloaded projects on it. Generated at create,
     // backfilled on load for older projects (see project::ensureProjectId).
     std::string projectId;
-    std::string gameTemplate = "orbit";  // "orbit" | "fpp"
+    // The starting preset, chosen ONCE in the New Project dialog and fixed for
+    // the project's life (Project > Preferences shows it read-only): it decides
+    // which game-template sources are generated, and those sources are
+    // user-ownable - flipping it later would either overwrite work or, on an
+    // owned file, silently stop matching what the project actually builds.
+    // "orbit" = Empty (no player entity); "fpp" and "thirdperson" both generate
+    // the player-entity template and differ in the seeded Player's mode.
+    std::string gameTemplate = "orbit";  // "orbit" | "fpp" | "thirdperson"
+
+    // Does this project's template carry a player entity (i.e. is it anything
+    // but the Empty/orbit preset)? The one place the two player presets are
+    // treated as one thing.
+    bool hasPlayerTemplate() const { return gameTemplate != "orbit"; }
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
     int activeScene = 0;  // scene edited in the editor (not persisted in json)
@@ -1988,9 +2000,13 @@ struct Project {
 namespace project {
 
 // Creates the project directory, generates all Tyra game sources / build files
-// and the <name>.tyra project file. `preset` picks the starting content:
-//   "empty" - orbit camera, no objects.
-//   "fpp"   - FPP game template with a single Player entity in the center.
+// and the <name>.tyra project file. `preset` picks the starting content, and it
+// is the project's permanent game template (Project::gameTemplate):
+//   "empty"       - orbit camera, no objects.
+//   "fpp"         - player template, one Player entity in walk (FPP) mode.
+//   "thirdperson" - player template, one Player entity in third-person mode
+//                   (the avatar is that object's own animated model, assigned
+//                   later - the camera rig works without one).
 // `unitsPerMeter` is the project's world scale (ProjectSettings::unitsPerMeter,
 // docs/world-scale.md); the metric-by-definition FPP/physics defaults (eye
 // height, walk speed, gravity, jump) are multiplied by it so the preset player

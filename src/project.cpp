@@ -1911,16 +1911,36 @@ std::string create(Project& out, const std::string& name, const std::string& par
     // Seed the built-in window layouts (Default/Director/Material Designer).
     seedBuiltinLayouts(out);
 
-    // Two presets: "fpp" (FPP game template with a single player entity) and
-    // "empty" (orbit camera, no objects). Anything else is treated as empty.
-    const bool fpp = preset == "fpp";
-    out.gameTemplate = fpp ? "fpp" : "orbit";
+    // Three presets: "fpp" and "thirdperson" (the player-entity game template,
+    // differing only in the seeded Player's mode) and "empty" (no objects).
+    // Anything else is treated as empty. The choice is permanent - see
+    // Project::gameTemplate.
+    const bool thirdPerson = preset == "thirdperson";
+    const bool player1st = preset == "fpp";
+    out.gameTemplate = thirdPerson ? "thirdperson" : player1st ? "fpp" : "orbit";
 
-    if (fpp) {
+    if (!thirdPerson && !player1st) {
+        // An empty project starts EMPTY: nothing in the scene and a camera that
+        // does not move on its own. The template's automatic orbit is what a
+        // scene with no Player object falls back to, and `orbitSpeed = 0` parks
+        // it at a fixed vantage point looking at the origin - so the first
+        // thing the project does is whatever the user adds (a Player, a script,
+        // a Camera object, a cutscene), not a demo turntable. Set here rather
+        // than in the struct initializer, which is what projects saved before
+        // this load as (they keep their turntable).
+        out.settings.orbitSpeed = 0.0f;
+    }
+
+    if (thirdPerson || player1st) {
         // The player entity: the camera becomes this player at game start.
         SceneObject player;
         player.name = "player-1";
         player.type = PrimitiveType::Player;
+        // Walk (FPP) vs third person - the only difference between the two
+        // player presets. A third-person avatar is the object's OWN animated
+        // model; it starts without one (the rig and the movement work anyway,
+        // the model is dropped in from Properties later).
+        player.playerMode = thirdPerson ? 2 : 0;
         player.position[0] = 0.0f, player.position[1] = 0.0f, player.position[2] = 0.0f;
         player.color[0] = 0.15f, player.color[1] = 0.9f, player.color[2] = 0.9f;
         // Same reasoning as the settings above: these are metres by definition
@@ -3949,8 +3969,10 @@ std::string load(Project& out, const std::string& projectDir) {
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";
 
-    if (const auto* v = root.find("template"))
-        out.gameTemplate = v->stringOr("orbit") == "fpp" ? "fpp" : "orbit";
+    if (const auto* v = root.find("template")) {
+        const std::string t = v->stringOr("orbit");
+        out.gameTemplate = t == "fpp" ? "fpp" : t == "thirdperson" ? "thirdperson" : "orbit";
+    }
 
     if (const auto* v = root.find("projectId")) out.projectId = v->stringOr("");
     ensureProjectId(out);  // backfill projects born before project ids
