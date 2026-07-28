@@ -224,7 +224,11 @@ deltas + button mask) drivers, loaded by the IrxLoader behind
 `EngineOptions::loadUsbKbdMouse`; `Pad::injectVirtual` overlays a virtual
 pad — held buttons OR into the polled state, click edges derived from the
 previous overlay, stick offsets clamped — which is how generated games map
-keys onto the pad; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
+keys onto the pad. It takes an overlay **slot** (`Pad::VIRT_SLOTS`, one
+`virtPrev` per slot): 0 is this keyboard/mouse fold, 1 is the editor's Remote
+Pad (docs/remote-pad.md). A second source must never reuse slot 0 — the two
+would each read as the other releasing everything, so every held button
+re-clicks every frame; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
 symbols and drivers added to an already-running ps2link's un-reset IOP never
 come up cleanly (PS2MouseInit then spins forever on an RPC server that never
 registered — a boot freeze on the Tyra logo). The

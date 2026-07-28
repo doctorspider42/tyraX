@@ -30,7 +30,10 @@ with it **on**, exactly as they did when the feature shipped for everyone.
   stick). Because everything downstream reads `engine->pad`, menus, the save
   menu, flow-graph *On Button* triggers, scripts and the walkers all react to
   the keyboard without knowing it exists — and a real DualShock keeps working
-  at the same time.
+  at the same time. `injectVirtual` takes an overlay **slot** (this path uses 0,
+  the [Remote Pad](remote-pad.md) uses 1) because click edges are derived from
+  the previous overlay: two sources sharing one history would each look like the
+  other had released everything, turning a held button into a click every frame.
 - **Mouse look** bypasses the stick path: the FPP and Player-entity walkers
   add the per-frame deltas straight to yaw/pitch, so the same swipe turns the
   same angle at any frame rate (no `g_frameScale`, no deadzone eating slow

@@ -24,6 +24,7 @@
 #include "elfsym.hpp"
 #include "vucap.hpp"
 #include "livedbg.hpp"
+#include "livepad.hpp"
 #include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
@@ -1959,6 +1960,27 @@ private:
     /** Pushes history entry `index` back into the running game. */
     void timeMachineRewind(int index);
     void drawTimeMachinePanel();
+
+    // Remote Pad (docs/remote-pad.md): the fourth direction of the same host:
+    // channel, and the only one carrying INPUT. While the window is open the
+    // editor IS the controller - remotePadTick() rewrites bin/livepad.bin at
+    // ~25 Hz (the game treats a `seq` that stopped moving as "the driver went
+    // away", so a held button has to be re-announced), and writes one detached
+    // state when the window closes so nothing is left held.
+    bool showRemotePad_ = false;
+    livepad::State padState_;
+    uint32_t padSeq_ = 0;
+    bool padAttached_ = false;      // is the editor currently driving?
+    bool padKeyboard_ = false;      // fold the EDITOR's own keyboard onto it
+    int padTarget_ = 0;             // which connector the panel edits (0/1)
+    double padNextWrite_ = 0.0;     // ImGui::GetTime() gate for the rewrite
+    // Per pad, per button: hold it at least until this time. A click shorter
+    // than the write interval would otherwise fall between two snapshots and
+    // never be announced at all - "I clicked Cross and nothing happened".
+    double padLatch_[livepad::kPads][16] = {};
+    std::string padStatus_;
+    void remotePadTick();
+    void drawRemotePadWindow();
 
     // Crash reporting (docs/devkit.md). A real EE exception is not a
     // TYRA_ASSERT: with the engine's crash handler installed the game writes

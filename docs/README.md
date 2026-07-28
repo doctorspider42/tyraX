@@ -107,8 +107,9 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   differs from PCSX2 when debugging, and a table of every failure message. Plus
   the loop for changing the patch, because we will.
 - [The devkit, and its zero-cost promise](devkit.md) - the live channels, the
-  crash reporting, the VU1 packet inspector, and the release audit; the three live channels
-  (Live Link / Live Debugger / Live Logic) as one development kit, what a debug
+  crash reporting, the VU1 packet inspector, and the release audit; the live
+  channels (Live Link / Live Debugger / Live Logic / Remote Pad) as one
+  development kit, what a debug
   build actually costs in code and RAM, and the release audit that PROVES a
   shipped ELF carries none of it (`--audit-release`, run automatically after
   every release build).
@@ -130,6 +131,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the watch table (flow variables + save values), the rewindable execution
   timeline, firing a trigger from the editor, and the file channel + symbol
   table it all rides on.
+- [Remote Pad (hold the running game's controller)](remote-pad.md) - the input
+  direction of the same channel: a clickable DualShock in the editor (plus a
+  keyboard mode) and a scriptable `--pad` CLI that drive the game **with no
+  window focus anywhere** - what the little script language does, why the state
+  expires when a driver stops refreshing it, the second `injectVirtual` overlay
+  slot, and how to write an unattended input test around it.
 - [Live collaboration sessions](collaboration.md) - real-time multi-user
   editing: hosting a project, joining over the LAN with a code, what syncs
   live and how conflicts resolve (host-ordered last-write-wins), presence

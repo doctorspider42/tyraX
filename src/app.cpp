@@ -709,6 +709,7 @@ void App::drawUI() {
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
     livetimeTick();
+    remotePadTick();  // the editor holds the controller (docs/remote-pad.md)
 
     // Hot-patch edited flow graphs into the running game (throttled; writes
     // only when the compiled program actually changed).
@@ -747,6 +748,7 @@ void App::drawUI() {
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
+    drawRemotePadWindow();
     drawSessionWindow();
     drawPhoneCamWindow();
     drawNewProjectModal();
@@ -1259,6 +1261,13 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::Separator();
             if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
+            if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Hold the running game's controller from here - click the\n"
+                    "buttons or drive it with the editor's keyboard. PCSX2 does\n"
+                    "not need the focus, and the same channel is scriptable\n"
+                    "(tyrax-editor --pad). Debug builds only.");
             ImGui::Separator();
             if (ImGui::MenuItem("Tree Generator...")) {
                 showTreeGenerator_ = true;
@@ -3731,6 +3740,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
+    if (key == "pad") return &showRemotePad_;
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     return nullptr;
@@ -3750,7 +3760,8 @@ bool* App::showFlagForKey(const std::string& key) {
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
-    "debugger", "phonecam", "assets",   "gibake",   "input",  "drone"};
+    "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
+    "pad"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -10729,6 +10740,19 @@ void App::drawPreferencesModal() {
         "on the situation that just broke. Costs one small file written next\n"
         "to the ELF every few frames, and nothing at all in a release build.\n"
         "See docs/time-machine.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
+        "you can click (or drive with the editor's own keyboard), and the game\n"
+        "reads it out of one small file next to the ELF. Nothing needs the\n"
+        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
+        "channel is scriptable from the command line\n"
+        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
+        "an unattended input test possible. Works on real hardware over\n"
+        "ps2link too (polled less often - it is a network round-trip there).\n"
+        "Release builds carry none of it. See docs/remote-pad.md.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("EE crash handler (experimental)",
                     &prefSettings_.eeCrashHandler);

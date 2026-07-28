@@ -13929,3 +13929,69 @@ Each finished feature lands as its own commit.
   dark on *Scene ambience*, light up independently when each is switched to
   *Neutral studio*, a named preset (`Default`, warm light) reads differently
   from neutral, and both selections survive a restart.
+
+- (224) **Remote Pad - the editor (or a script) holds the running game's
+  controller.** Asked for as "there is no good way to control the game once it
+  boots in the emulator, find one so the features can actually be tested". The
+  honest diagnosis first: on Windows a background process cannot reliably give
+  PCSX2 the foreground (`SetForegroundWindow` silently fails, see entry 108's
+  notes), so every pad-driven check was a human clicking into the emulator - and
+  synthetic `PostMessage` keys only work while it HAS the focus, which a
+  screenshot-taking script then has to fight for. So instead of trying harder at
+  the emulator's window, the input now rides the channel the devkit already
+  owns: a fourth live layer, `bin/livepad.bin` over the same `host:` filesystem
+  the game loads its assets from. The editor writes a pad state, the game
+  overlays it on the physical pad through `Pad::injectVirtual`, and **nothing
+  needs the keyboard focus anywhere** - PCSX2 can sit behind the editor, and a
+  fully unattended test can drive the game and screenshot it in the same script.
+  Two front ends over one encoder (`src/livepad.hpp`, harness-testable like
+  livedbg/livetime): *Tools > Remote Pad*, a clickable DualShock with two stick
+  sliders and a "drive with the editor's keyboard" mode (WASD/arrows = left
+  stick, IJKL = right, Space = Cross, ... read only while that window is
+  focused); and `tyrax-editor --pad <project> "<script>"`, a tiny line language
+  (`press cross [s]` / `hold up` / `release all` / `stick l|r x y` / `wait s` /
+  `neutral` / `pad 1|2`, `;`-separated) that `parseScript` resolves into a flat
+  timeline of (state, seconds), so the language is checkable with no game and no
+  file system. Works on real hardware too (polled every 4th frame there - each
+  `fopen` is a network round-trip), and drives BOTH connectors, which finally
+  makes the two-player hot-join testable without a second physical pad.
+  Three decisions worth keeping: the file is absolute **state, not events**, so
+  a dropped poll cannot swallow a press and a doubled one cannot repeat it - the
+  cost being that a writer must keep refreshing it, and the game therefore
+  expires an overlay whose `seq` stopped moving for 120 frames (~2.4 s), which is
+  what stops a Ctrl+C'd script from leaving the player walking into a wall
+  forever; `injectVirtual` grew an overlay **slot** (`Pad::VIRT_SLOTS`, one
+  `virtPrev` each) because the USB keyboard/mouse fold already used it and two
+  sources sharing one click history each read as the other releasing everything,
+  i.e. every held button re-clicks every frame; and the tick sits at the top of
+  both game loops but **after** `pad2.update()`, since `update()` rebuilds the
+  pad from hardware and would throw an earlier overlay away.
+  Verified e2e in PCSX2 on an `fpp` fixture, entirely from a shell with the
+  emulator in the background and never focused - numbers rather than an
+  impression, because "the camera looks different" is not evidence: 3 s idle
+  changes **620 px** (all of them PCSX2's own status bar), a 1.5 s right-stick
+  hold **196918 px**, a 2.5 s left-stick walk **1402919 px**, and 4 s after the
+  script ends the frame is idle again at **1660 px** - which is what proves the
+  detach on exit actually releases rather than just stopping. The editor panel
+  was verified rendering (`TYRAX_SHOT` self-capture with `"pad"` pre-opened in
+  the layout) and driving the file at ~12 Hz with the attached flag set; its
+  buttons being CLICKED is still a hands-on check, since a synthetic click into
+  the editor is its own problem - the panel writes through the same
+  `livepad::write` the CLI does.
+  The zero-cost rule holds and was checked in both directions (entry 193's
+  lesson): the debug ELF's audit names `livepad.bin` among its findings, and a
+  release build of the same fixture comes back `Release audit: clean`. Getting
+  there caught a **real trap worth remembering**: `refreshGenerated`'s
+  "always overwritten" set is a hand-written path list, not a rule about the
+  `.gen.` suffix, so `live_pad.gen.cpp` was written once by `project::create`
+  and never refreshed - the release build happily compiled the full devkit
+  runtime because the file still held the settings the project was CREATED with.
+  It looks perfectly generated; only the audit saw it. That list, and the trap,
+  are now in the tyra-editor-dev skill.
+  The committed example projects are NOT regenerated here, for the same reason
+  the Live Debugger / Live Logic / time-machine entries did not: their generated
+  trees are already several layers behind (`examples/script-demo/src/gen/` has no
+  `live_debug.gen.cpp` at all), and a `--refresh-gen` sweep across ~20 examples
+  belongs in its own commit rather than inside a feature diff. Nothing breaks -
+  a build regenerates the whole tree, so the new include and the new file arrive
+  together.

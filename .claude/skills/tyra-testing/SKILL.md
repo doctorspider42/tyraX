@@ -134,6 +134,7 @@ TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
+TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -296,7 +297,36 @@ Notes:
   project's *Keyboard & mouse controls* preference is on; `bin/log.txt` prints
   `KbdMouse: keyboard driver ready` / `mouse driver ready` when the game saw
   the devices. See `docs/keyboard-mouse.md`.)
-- **Synthetic input into PCSX2** (scripted keyboard/mouse tests). **On Linux
+- **Driving the game: use the Remote Pad, not the emulator's keyboard.**
+  `tyrax-editor --pad <projectDir> "<script>"` writes the pad state the running
+  game polls out of `bin/livepad.bin` (docs/remote-pad.md), so **no window needs
+  the focus on either OS** and the whole class of problems below stops applying.
+  It is the honest way to test anything pad-driven unattended:
+
+  ```powershell
+  build\tyrax-editor.exe --pad %TEMP%\tyra-editor-test\padtest `
+      "stick r 110 0; wait 1.5; stick r 0 0; stick l 0 -127; wait 2.5; neutral"
+  ```
+
+  `press cross [s]` / `hold up` / `release all` / `stick l|r <x> <y>` /
+  `wait <s>` / `neutral` / `pad 1|2`, separated by `;`. Needs a **debug** build
+  with the *Remote Pad* preference on (default) - the driver warns on stderr
+  when the project was built without the channel, which is the only way "nothing
+  happened" can mean "the game cannot hear you". Four things worth knowing:
+  a `hold` with no `wait` after it does nothing visible (the driver detaches on
+  exit and the game lets go - on purpose, so a killed script cannot leave a
+  direction held); the game reads **only the analog sticks**, so a held D-pad
+  `Up` changes nothing (that is the game, and it looks exactly like a broken
+  tool); the pad answers every 4th frame over ps2link instead of every frame;
+  and the state is dropped after ~2.4 s without a refresh, so a long hold needs
+  the driver to stay alive rather than one write. To hold something while
+  another tool works, run `--pad` in the background with a long enough `wait`.
+  Measured on the fpp fixture: 3 s idle changes 620 px (the PCSX2 status bar
+  only), a 1.5 s right-stick turn changes ~197k px, a 2.5 s forward walk ~1.4M -
+  and 4 s after the script the frame is idle again, which is what proves the
+  release actually happened.
+- **Synthetic input into PCSX2** (the older, focus-dependent path - still the
+  only way to reach PCSX2's OWN keys, e.g. F8 or the pause hotkey). **On Linux
   this is the easy side**: `wayland-control.py` (see Screenshots below) injects
   through the compositor, so PCSX2 cannot tell the events from a real keyboard —
   click the render area once to focus it, then send pad keys, holding them with
@@ -690,17 +720,20 @@ Notes:
   times proved music/sfx features before; a by-ear speaker check stays with the
   human.
 - **Two-player modes** (docs/multiplayer.md): the split/shared toggle is
-  testable with ONE keyboard: give the scene two Player objects and a pause
-  menu with the "Player count" option block, then drive pad 1 synthetically
-  (PostMessage on Windows, `wayland-control.py` on Linux —
-  Start=Return opens the menu, Cross=K cycles the row) and screenshot — the
-  frame visibly flips between full-screen and the top/bottom split (or the
-  pulled-back shared camera). Pad-2 hot-join (Start on pad 2) needs a second
-  pad configured in PCSX2's Pad2 slot — that part stays a hands-on test.
-- **Flow-graph / gameplay logic**: wire the behavior to an unattended trigger
-  (`On Start`, `Every N Seconds`) so it fires without a pad; note in
-  PROGRESS.md when the interactive path (pad buttons, mouse feel) still needs
-  a hands-on human test — that's the established convention.
+  testable with no controller at all through the Remote Pad - give the scene two
+  Player objects and a pause menu with the "Player count" option block, then
+  `--pad <dir> "press start; wait 0.5; press cross"` and screenshot: the frame
+  visibly flips between full-screen and the top/bottom split (or the pulled-back
+  shared camera). **Pad-2 hot-join is now scriptable too** (`pad 2; press
+  start`) - it no longer needs a second physical pad in PCSX2's Pad2 slot, since
+  the overlay is applied to the game's own second connector.
+- **Flow-graph / gameplay logic**: an `On Button` / `On Action` trigger is
+  reachable unattended now (`--pad <dir> "press cross"`), so prefer that over
+  rewiring the behavior to `On Start` / `Every N Seconds` just to test it. What
+  still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
+  own on-screen pad being CLICKED (the panel writes through the same
+  `livepad::write` the CLI does, but a synthetic click into the editor is its own
+  problem) - say so in PROGRESS.md, that's the established convention.
 
 ## Choosing the right depth
 

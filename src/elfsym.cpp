@@ -181,8 +181,8 @@ Audit auditRelease(const std::string& elfPath) {
     // Symbols the debugging layers would leave behind. Namespace names survive
     // C++ mangling, so a substring match on the mangled name is enough.
     static const char* const kSymbolNeedles[] = {
-        "livedbg", "livelogic", "LiveLink", "LiveDebug", "LiveLogic", "LiveTex",
-        "flowDbg", "flowLive"};
+        "livedbg", "livelogic", "livepad", "LiveLink", "LiveDebug", "LiveLogic",
+        "LiveTex", "flowDbg", "flowLive"};
     for (const char* needle : kSymbolNeedles)
         for (const Symbol* s : img.symbolsContaining(needle))
             a.findings.push_back({s->name, "symbol", s->size});
@@ -195,7 +195,7 @@ Audit auditRelease(const std::string& elfPath) {
     // polling code cannot exist without them.
     static const char* const kStringNeedles[] = {
         "TXDEVKIT-", "livedbg.bin", "livedbg.cmd", "livelink.bin",
-        "livelogic.bin"};
+        "livelogic.bin", "livepad.bin"};
     for (const char* sectionName : {".rodata", ".data", ".sdata"}) {
         const Section* s = img.section(sectionName);
         if (!s || !s->size || s->type == 8 /* SHT_NOBITS */) continue;

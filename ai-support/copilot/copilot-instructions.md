@@ -65,6 +65,13 @@ The editor executable on this machine: `{TYRAX_EXE}`
   (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
   a scene falls its lighting back to classic shading until you re-bake)
 - `--resave <projectDir>` - load + save with validation/migrations
+- `--pad <projectDir> "<script>"` - drive the RUNNING game's controller through
+  `bin/livepad.bin`, so a pad-driven behavior can be tested from a script with
+  no window focus anywhere: `press cross [s]`, `hold up`, `release all`,
+  `stick l|r <x> <y>` (-127..127), `wait <s>`, `neutral`, `pad 1|2`, separated
+  by `;`. Debug builds with the *Remote Pad* preference on (default). The
+  walkers read the analog sticks, not the D-pad, and a `hold` needs a `wait`
+  after it (the driver releases the pad when it exits).
 
 ## Building and debugging
 

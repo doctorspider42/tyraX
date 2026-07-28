@@ -139,6 +139,7 @@ add_executable(tyrax-editor
     src/elfsym.cpp
     src/livedbg.cpp
     src/livelogic.cpp
+    src/livepad.cpp
     src/livetime.cpp
     src/vucap.cpp
     src/bvh.cpp
