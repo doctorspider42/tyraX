@@ -487,6 +487,19 @@ Each finished feature lands as its own commit.
   source fork. The preset labels/strings live in ONE table (`kNewPresets` in
   app.cpp) read by the dialog and by the read-only Preferences row.
 
+  **Empty now really is empty** (owner, on the PR: "Empty should be without
+  that orbiting camera. Let's just create an empty scene. User can then program
+  their own code, or add a player"). The template's automatic turntable is what
+  a scene with NO Player object falls back to, so the fix is a create-only
+  default rather than a source change: `project::create` sets
+  `settings.orbitSpeed = 0` for the empty preset, which parks the camera at a
+  fixed vantage looking at the origin. The struct initializer keeps 1.0, so
+  every project saved before this keeps its turntable, and the Preferences
+  slider still turns it back on - it just is not what a new project does before
+  the user has built anything. Labels followed: "Empty (no objects)", and the
+  Preferences section is "Camera" with a `(?)` saying what 0 means and that a
+  scene with a Player ignores it entirely.
+
   **Verified** (layers 0-2 + a driven GUI check): editor builds clean on Linux;
   `--new` with `fpp` / `thirdperson` / `empty` writes `"template": "fpp"` /
   `"thirdperson"` / `"orbit"`, seeds the Player at `"mode": "walk"` /
@@ -497,7 +510,15 @@ Each finished feature lands as its own commit.
   a hand-edited unknown `"template"` both clamp to `"orbit"`. The GUI was driven
   with `wayland-control.py`: the New Project combo lists exactly the three
   presets, and in Preferences the Game row shows "Third person" greyed - a click
-  on it opens no dropdown.
+  on it opens no dropdown. A third-person project also **builds in Docker (exit
+  0) and boots** in PCSX2 at 50 FPS.
+
+  The static camera was measured, not eyeballed, because "the picture did not
+  change" and "the game froze" look identical: two full-screen captures 6 s
+  apart, cropped to the render rect, differ in **0 of 512120 pixels** with the
+  empty preset - and in **205312** after flipping that same project's
+  `orbitSpeed` back to 1 and rebuilding. The A/B is the point: without the
+  second run the zero proves nothing.
 
 - (215) **Baked global illumination + light probes**
   ([docs/global-illumination.md](docs/global-illumination.md),

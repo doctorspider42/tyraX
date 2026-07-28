@@ -352,8 +352,9 @@ guards on `find("key")`, so the struct initializer is what a project saved
 *before that key existed* loads as — changing it silently changes those
 projects' behavior. When a fresh project should start somewhere else, the
 struct keeps the legacy answer and **`project::create` assigns the new one**
-(the AmbiencePreset `aoEnabled` precedent; `buildProfile = "debug"` and
-`keyboardMouse = false` are there for the same reason). Two corollaries:
+(the AmbiencePreset `aoEnabled` precedent; `buildProfile = "debug"`,
+`keyboardMouse = false` and the Empty preset's `orbitSpeed = 0` are there for
+the same reason). Two corollaries:
 `create`'s block is also the only place that may scale metric-by-definition
 defaults by `ProjectSettings::unitsPerMeter` — the *New Project* dialog picks
 the world scale, so the FPP preset is a 1.8 m player at any scale, while an

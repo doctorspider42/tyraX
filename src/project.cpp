@@ -1912,12 +1912,24 @@ std::string create(Project& out, const std::string& name, const std::string& par
     seedBuiltinLayouts(out);
 
     // Three presets: "fpp" and "thirdperson" (the player-entity game template,
-    // differing only in the seeded Player's mode) and "empty" (orbit camera, no
-    // objects). Anything else is treated as empty. The choice is permanent -
-    // see Project::gameTemplate.
+    // differing only in the seeded Player's mode) and "empty" (no objects).
+    // Anything else is treated as empty. The choice is permanent - see
+    // Project::gameTemplate.
     const bool thirdPerson = preset == "thirdperson";
     const bool player1st = preset == "fpp";
     out.gameTemplate = thirdPerson ? "thirdperson" : player1st ? "fpp" : "orbit";
+
+    if (!thirdPerson && !player1st) {
+        // An empty project starts EMPTY: nothing in the scene and a camera that
+        // does not move on its own. The template's automatic orbit is what a
+        // scene with no Player object falls back to, and `orbitSpeed = 0` parks
+        // it at a fixed vantage point looking at the origin - so the first
+        // thing the project does is whatever the user adds (a Player, a script,
+        // a Camera object, a cutscene), not a demo turntable. Set here rather
+        // than in the struct initializer, which is what projects saved before
+        // this load as (they keep their turntable).
+        out.settings.orbitSpeed = 0.0f;
+    }
 
     if (thirdPerson || player1st) {
         // The player entity: the camera becomes this player at game start.

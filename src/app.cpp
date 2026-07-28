@@ -24751,7 +24751,7 @@ static const NewProjectPreset kNewPresets[] = {
     // carries the explanation.
     {"FPP (first person)", "fpp", "fpp"},
     {"Third person", "thirdperson", "thirdperson"},
-    {"Empty (orbit camera)", "empty", "orbit"},
+    {"Empty (no objects)", "empty", "orbit"},
 };
 static const int kNewPresetCount = (int)(sizeof(kNewPresets) / sizeof(kNewPresets[0]));
 
@@ -24850,7 +24850,9 @@ void App::drawNewProjectModal() {
             "- Third person: camera on a boom behind the player; the avatar\n"
             "  is the Player object's own animated model (.glb/.fbx),\n"
             "  assigned in Properties - the rig works without one.\n"
-            "- Empty: no player entity, the camera orbits the terrain.");
+            "- Empty: nothing in the scene and a camera that does not move\n"
+            "  on its own - add a player, or drive it from your own code,\n"
+            "  a Camera object or a cutscene.");
 
         ImGui::SeparatorText("AI support");
         ImGui::Checkbox("Claude Code", &newAiClaude_);
@@ -25819,8 +25821,15 @@ void App::drawPreferencesModal() {
                       prefSettings_.unitsPerMeter);
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
-        ImGui::SeparatorText("Orbit camera");
+        ImGui::SeparatorText("Camera");
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
+        prefHelp(
+            "How fast the camera circles the terrain in a scene that has no\n"
+            "Player object. 0 - what the Empty preset starts at - parks it at\n"
+            "a fixed vantage point looking at the origin, so the project shows\n"
+            "what you built instead of a turntable; drive the camera from a\n"
+            "script, a Camera object or a cutscene. A scene WITH a Player\n"
+            "object ignores this - the player owns the camera.");
     }
 
     ImGui::SeparatorText("Multiplayer");
