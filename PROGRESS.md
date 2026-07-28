@@ -681,7 +681,7 @@ Each finished feature lands as its own commit.
   `build.ps1` - whose only change is the patch's new name - is unrun, there
   being no PowerShell here.
 
-- (220) **The Input Map was the one window a layout could not carry.**
+- (221) **The Input Map was the one window a layout could not carry.**
   `App::showFlagForKey` mapped 17 keys to their show-flags, but
   `kLayoutWindowKeys` - the array both `applyOpenWindows` and
   `captureOpenWindows` walk - listed only 16 and omitted `"input"`. So the

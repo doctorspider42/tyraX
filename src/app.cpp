@@ -3668,7 +3668,7 @@ bool* App::showFlagForKey(const std::string& key) {
 // does not know is ignored, and a window flag missing HERE is the worse half -
 // layouts can then neither capture nor reset it, so it leaks across switches
 // while every other optional window is deterministic ("input" was that way
-// until PROGRESS 220). Adding a window? Add it to both. Layouts persist the
+// until PROGRESS 221). Adding a window? Add it to both. Layouts persist the
 // keys by name (project.cpp writes them as a JSON string array), so the order
 // is cosmetic - append rather than insert to keep saved files diff-friendly.
 static const char* const kLayoutWindowKeys[] = {
