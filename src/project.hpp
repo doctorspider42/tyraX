@@ -230,6 +230,20 @@ struct SceneObject {
     // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
     // casts nothing; it still receives shadows from others.
     bool castShadow = true;
+    // Baked lighting (docs/global-illumination.md). On = this object may take
+    // a per-texel lightmap, which is the best-looking route and also GLUES the
+    // result to its surface: tip the object over at runtime and it carries a
+    // shadow that no longer matches anything. Off = it stays on the probe
+    // path, where the light is re-read from the grid every time the geometry
+    // is rebuilt, so it relights as it moves.
+    //
+    // The bake already excludes everything it can PROVE moves
+    // (project::objectRuntimeMovable - physics, pickable, usable, save-state,
+    // streamed, owning a graph, or named by one). This switch is for the rest:
+    // an object moved through a channel no build-time scan can see (Live Link,
+    // a Raycast latch, a custom node's object output), or one you simply want
+    // to keep relightable.
+    bool bakedLighting = true;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -505,6 +519,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
+           a.bakedLighting == b.bakedLighting &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&

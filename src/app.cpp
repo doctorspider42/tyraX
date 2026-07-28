@@ -7408,6 +7408,20 @@ void App::drawPropertiesWindow() {
                 "(ambient occlusion - needs it enabled in the scene's\n"
                 "ambience preset). Off = this object casts nothing; it still\n"
                 "receives shadows from others. Rebuild to see it in-game.");
+        // Baked global illumination: may this object take a per-texel
+        // lightmap, which glues the result to its surface?
+        if (ImGui::Checkbox("Baked lighting", &o.bakedLighting))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Lets baked global illumination paint this object's light per\n"
+                "pixel - the best-looking route, and one that GLUES the result\n"
+                "to the surface: tip the object over at runtime and it carries\n"
+                "a shadow that matches nothing.\n"
+                "Off = it reads the light probes instead and relights when it\n"
+                "moves. The bake already excludes anything it can prove moves\n"
+                "(physics, pickable, usable, save-state, streamed, or moved by\n"
+                "a flow graph) - this is for the rest.");
     }
 
     if (isArea) {

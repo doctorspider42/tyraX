@@ -1,1 +1,1 @@
-{ "id": "s204slotBR00000001", "name": "s2-deep-right", "type": "box", "position": [8.5, 4.5, 4], "rotation": [0, 0, 0], "scale": [0.6, 9, 9], "color": [0.88, 0.87, 0.84], "physics": false }
+{ "id": "s204slotBR00000001", "name": "s2-deep-right", "type": "box", "position": [8.5, 4.5, 4.15], "rotation": [0, 0, 0], "scale": [0.6, 9, 8.7], "color": [0.88, 0.87, 0.84], "physics": false }

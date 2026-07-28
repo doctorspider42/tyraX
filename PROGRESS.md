@@ -563,6 +563,57 @@ Each finished feature lands as its own commit.
   progress/cancel path was exercised through its headless twin rather than by
   hand.
 
+- (218) **The projected shadow stopped blinking, and one flag for "do not bake
+  my light"** (user, after 217: "cien pod graczem tak sobie lubi mrugac znikac
+  czasami, troszke tak, jakby sie klocil o priorytet z powierzchnia, na ktora
+  pada" - and separately, on tipping a lightmapped cylinder over: "w najgorszym
+  wypadku dobrze by miec mozliwosc wylaczenia tego per obiekt").
+
+  **The blink was z-fighting**, exactly as described. The patch is depth-TESTED
+  (`PipelineZTest_TestOnly` - it never writes z) and sits 5 cm above the surface
+  it falls on, which is not a margin the GS can always resolve: a receiver is
+  often ONE enormous triangle (a 100-unit floor slab is twelve of them), its z
+  is interpolated in fixed point, and the two land on the same value - so the
+  shadow loses the test on some pixels on some frames and blinks as the camera
+  moves. Raising the lift fixes the z and breaks the picture: the shadow
+  visibly detaches from the feet.
+  The bias now runs along the **view ray** instead of upward - each patch
+  vertex is pulled a fixed FRACTION (0.4%) of its eye distance closer. That wins
+  the test at every range and costs nothing visually, because the displacement
+  is along the ray and the vertex projects to exactly the same pixel; the STs
+  are still computed from the TRUE surface point, so the silhouette does not
+  slide. It also cannot poke the patch through a wall in front of it - a wall
+  would have to be within 0.4% of the floor's depth, i.e. touching it.
+
+  **`SceneObject::bakedLighting`** (*Properties > Baked lighting*, default on)
+  is the per-object opt-out. A per-texel lightmap is the best-looking route and
+  also GLUES the light to the surface - tip the object over and it carries a
+  contact shadow that matches nothing. Off = it stays on the probe path, where
+  the light is re-read from the grid every time the geometry is rebuilt, so it
+  relights as it moves. The bake now also excludes everything it can PROVE
+  moves, through `project::objectRuntimeMovable` - the same predicate static
+  batching and the live catch areas already use (physics, pickable, usable,
+  save-state, streamed, owning a graph, or named by one), replacing the old
+  hand-rolled `physics || pickable || saveState`. So the cylinder case is
+  correct by DEFAULT the moment a graph can move it; the flag is for the
+  channels no build-time scan can see (Live Link, a Raycast latch, a custom
+  node's object output).
+
+  Also in `examples/gi-showcase`: every side wall now **ends inside** the back
+  wall it meets instead of flush with its far face (user: "tu dwie sciany sa na
+  sobie", with a screenshot of the dithered zip). Two solids may overlap all
+  they like; what no depth buffer resolves is two COPLANAR faces covering the
+  same area. Burying the end face removes the pair rather than trying to
+  out-bias it - and the same goes for the roofs, which were coplanar with the
+  wall tops.
+
+  **Verified** in PCSX2: the corner between the red and the white wall is a
+  clean edge (the red still bleeds onto the white - that is the GI, not the
+  bug), the shadow stays attached under the cat, 50.05 FPS. **Not covered:** the
+  blink itself was reported while WALKING and this machine does not drive
+  synthetic input, so the fix targets its measured mechanism rather than a
+  reproduced frame - a hands-on walk is the confirming check.
+
 - (217) **Projected shadows land on GEOMETRY, not only the terrain** (user, on
   the GI showcase: "a mozemy zrobic, zeby byl normalnie projektowany na modelu?
   Bo tak sobie mysle, ze czesto moze byc w praktyce sytuacja, ze chodzimy w grze
