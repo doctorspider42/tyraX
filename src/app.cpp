@@ -3744,10 +3744,18 @@ bool* App::showFlagForKey(const std::string& key) {
 // The optional windows a layout can carry, in a stable order (also the capture
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
+//
+// This list and showFlagForKey above must agree: a key here that showFlagForKey
+// does not know is ignored, and a window flag missing HERE is the worse half -
+// layouts can then neither capture nor reset it, so it leaks across switches
+// while every other optional window is deterministic ("input" was that way
+// until PROGRESS 220). Adding a window? Add it to both. Layouts persist the
+// keys by name (project.cpp writes them as a JSON string array), so the order
+// is cosmetic - append rather than insert to keep saved files diff-friendly.
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
-    "debugger", "phonecam", "assets",   "gibake"};
+    "debugger", "phonecam", "assets",   "gibake",   "input"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
