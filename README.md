@@ -11,6 +11,7 @@ An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engin
 ```powershell
 # 1. Install prerequisites (skip what you already have)
 scoop install mingw cmake ninja       # editor toolchain
+scoop install ccache                  # optional; picked up automatically if present
 # + Docker Desktop (running) and PCSX2 in Program Files\PCSX2 (with BIOS configured)
 
 # 2. Build and run the editor (clones deps + configures + builds)
@@ -18,7 +19,7 @@ scoop install mingw cmake ninja       # editor toolchain
 ```
 
 From a plain `cmd.exe` (or a double-click) use `build.cmd` / `build.cmd run` /
-`build.cmd clean` and `setup.cmd` instead — they are thin wrappers that forward
+`build.cmd clean` / `build.cmd dev` and `setup.cmd` instead — thin wrappers that forward
 to the PowerShell scripts with the execution policy bypassed, so there is only
 ever one implementation and one dependency list to keep current.
 
@@ -46,6 +47,8 @@ the scoop MinGW kit rather than the MSVC one.
 `setup.sh --deps` picks the package list for your package manager (apt / dnf / pacman / zypper) and installs it with `sudo`, falling back to `pkexec` when there is no terminal to authenticate in. It is the only part that needs root, which is why it is opt-in — plain `./setup.sh` just fetches `vendor/` and `tools/`. On a machine that already has a toolchain you can skip straight to `./build.sh`.
 
 Both build scripts handle the rest: clone the `vendor/` dependencies on first run, check the toolchain (and name the exact install command when something is missing), configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency lists live in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
+
+`-Dev`/`--dev` builds for **iteration speed instead of run speed** (`-O1`, into its own `build-dev/` so switching back and forth costs nothing): a clean build is roughly a third faster and a one-file edit rebuilds in a few seconds. The host bakes (GI, material raytracing, ambient occlusion, texture quantization) are genuinely slow in it, so it is for working on the UI and the model, never for a release or a benchmark. If **ccache** (or sccache) is on `PATH`, CMake picks it up automatically — which matters here because the repo is normally checked out in several git worktrees at once, each with its own build directory compiling the same translation units from scratch. `-DTYRAX_COMPILER_CACHE=OFF` opts out.
 
 Everything the two platforms disagree about — spawning child processes, native file dialogs, where the machine-global config lives, which system fonts exist, how to reveal a file in the file manager — lives behind [`src/platform.hpp`](src/platform.hpp). Projects are portable between the two: the `.tyra` format is identical, and a font referenced by a name this OS doesn't have falls back instead of failing the bake.
 
@@ -297,7 +300,7 @@ architecture guides live under [.claude/skills/](.claude/skills).
 
 ## Structure
 
-- `src/` — editor code (`app` UI, `assetbrowser` the res/ asset manager, `viewport` GL preview, `project`+`templates` project generator, `flownode` custom flow-graph node loader, `aigen` AI flow-graph generation, `aisupport` AI-support installer, `runner` docker/PCSX2 pipeline, `platform` the single OS-abstraction layer, `gl_loader` minimal GL loader).
+- `src/` — editor code (`app` the UI shell — menus, toolbar, viewport window, scene/layers/assets panels, sessions, preferences — with the big panels in sibling TUs of their own: `props_ui`, `flowgraph_ui`, `hud_ui`, `cutscene_ui`, `mateditor_ui`, `devkit_ui`; `assetbrowser` the res/ asset manager, `viewport` GL preview, `project`+`templates` project generator, `flownode` custom flow-graph node loader, `aigen` AI flow-graph generation, `aisupport` AI-support installer, `runner` docker/PCSX2 pipeline, `platform` the single OS-abstraction layer, `gl_loader` minimal GL loader).
 - `ai-support/` — source markdown for the AI assistant guides installed into projects (embedded into the exe at build time; see [docs/ai-support.md](docs/ai-support.md)).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
