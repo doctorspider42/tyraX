@@ -720,12 +720,42 @@ Each finished feature lands as its own commit.
      shadows / ps2link / presets batch were written against the same base and
      numbered in parallel (main's own set repeats 216, 217 and 219 for the same
      reason). The drone set is the one directly below; main's set follows it,
-     running up to 222 (main took 222 for the rotation nodes), and 223 sits at
-     the head of that second section. Continue from 224. -->
+     running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
+     at the head of that second section. Continue from 225. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
+
+- (224) **Directional third-person locomotion: face-camera (strafe) mode +
+  back/strafe-left/strafe-right clips.** Until now the avatar always turned
+  into its movement direction, so one walk clip covered every step. New Player
+  fields (`playerFaceCamera` + `playerBackClip`/`playerStrafeLeftClip`/
+  `playerStrafeRightClip`, all optional): with **Face camera (strafe)** on the
+  avatar keeps facing the camera yaw (same shortest-arc turn-rate lerp) while
+  the stick moves it in any direction, and `drivePlayerAnim` now takes the
+  movement direction in the avatar's frame (`moveLocal`, wrapped ±π) and picks
+  the clip by sector — within 60° of ahead = walk/run (speed split unchanged),
+  within 60° of straight back = back clip, side quadrants = strafe clips
+  (negative `moveLocal` = the avatar's right, matching the existing
+  shoulder/strafe convention). Unmapped directions fall back to walk, so a
+  model with only idle/walk behaves exactly as before; the playback-speed
+  scaling that stops foot-sliding now covers all moving clips. Directional
+  clip names are blanked at codegen when face-camera is off — with turn-to-face
+  they'd flicker in during the turn transient. Full property chain: fields +
+  `operator==`, thirdPerson JSON save/load (defaulted reads, backward
+  compatible), `liveLinkRecipeHash`, Properties UI (checkbox + three combos,
+  shown only in face-camera mode), per-scene codegen arrays
+  (`PLAYER_BACK_CLIPS`/`PLAYER_STRAFE_L/R_CLIPS`/`PLAYER_FACE_CAMERAS`) +
+  scene-load `resolveClipIndex` wiring. Merged onto the two-player rig
+  (219/221): the clip indices live in `PlayerCtl` and the tables are emitted
+  per player slot (`PLAYER_*` + `PLAYER2_*`, read through the `PP_*` macros),
+  so P2 gets its own strafe set for free. Verified: editor builds clean;
+  scratch project patched to third-person + all clips round-trips through
+  `--resave` (fields persist), `--refresh-gen` emits the arrays and the new
+  runtime code, and the Docker game build compiles (=== Build OK ===). The
+  visual pass (does a sidestep actually play StrafeL on a real rigged model)
+  needs a hands-on pad test with a model that has such clips.
 
 - (223) **The material-preset writer truncated long layer names, and the corrupt
   file reported success.** GCC 15 at -O3 on Linux named it exactly:
