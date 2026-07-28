@@ -10,6 +10,33 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (133) **A dyn-lit object's one light slot now points where the probe says the
+  light IS.** VU1 gives these meshes a single directional slot, and
+  `updateDynLitObjects` used to reconstruct the probe's L1 term along the SUN,
+  then let VU1 multiply it by `N.L(sun)`. That is only right when the sun is
+  the light: in a room lit by a bounce off a coloured wall the field points at
+  the wall, so the shading leaned the wrong way and a surface facing the actual
+  light got nothing. The direction is now L1's own dominant direction (the
+  luminance-weighted mean of the per-channel L1 vectors), which makes the slot
+  EXACT at that direction - the term there is the probe's own answer - and
+  degrades smoothly off it. A probe with no directionality at all keeps the
+  sun; L0 carries the whole answer there anyway.
+
+  That needed per-OBJECT directions, so `GeoPart` grew `litDirs[3]` and the bag
+  no longer points at the shared `animLightDirs`. **Verified** in PCSX2 on a
+  fixture with a big red wall beside the cylinders: the computed direction came
+  out `(0.524, 0.789, 0.323)` against a sun of `(0.369, 0.819, 0.439)` - a real
+  swing, and in the physically right direction, which is *away* from the wall,
+  because a 14x8 wall removes more sky from that side than its red bounce puts
+  back. The rendered lobe follows: the lit gradient now spans about twice as
+  much of the cylinder's width before it clamps to ambient.
+
+  **The animated-model path still reconstructs along the sun** and still shares
+  one global direction array (`updateAndRenderAnimObjects`). The same argument
+  applies to it word for word and the fix is the same shape - it was left out
+  of this commit only because it touches every animated model in every project
+  and deserves its own before/after. Backlog.
+
 - (132) **Opt-in dynamic lighting: three real bugs, and the banding that was
   never there.** Picking up the backlog entry left by the WIP commit, which
   listed three suspects in order. All three were settled, two of them were
@@ -11713,12 +11740,12 @@ Each finished feature lands as its own commit.
     as if it stood at its own centre, and an object whose origin sits inside
     geometry reads that occlusion over its whole surface. Decide whether that
     is the documented deal or whether big objects want a second sample.
-  - **The directional term is reconstructed along the SUN**, not along the
-    probe's own dominant L1 direction: `dif = (2/3) * dot(L1, sun)` and then
-    VU1 multiplies it by `N.L(sun)`. In a bounce-lit interior the light does
-    not come from the sun, so the shading leans the wrong way. Using L1's
-    direction as the one directional slot is the obvious next experiment - the
-    VU1 side already takes an arbitrary direction matrix.
+  - **The ANIMATED-model path still reconstructs along the sun** (entry 133 did
+    the dyn-lit one). `updateAndRenderAnimObjects` evaluates L1 along
+    `SCENE_LIGHT_*` and every model shares one `animLightDirs`, so a character
+    in a bounce-lit interior leans the same wrong way this just fixed. Same
+    shape of fix: per-model directions plus the dominant-L1 direction. Kept
+    separate because it touches every animated model in every project.
   - **A textured dyn-lit part is untested.** `litScale` handles the 128 vs 255
     split by construction, but no fixture has exercised it.
   - Then: a README bullet, a docs/global-illumination.md section, and an

@@ -686,6 +686,10 @@ class TerrainGame : public Tyra::Game {
     // every untextured dyn-lit object exactly half as bright as its bake.
     float litScale = 255.0F;
     Tyra::Vec4 litColors[4];
+    // Per-object light DIRECTIONS (the transpose - see litColors' fill). Not
+    // the shared animLightDirs: this object's one directional slot points
+    // where its own probe says the light comes from, which is not the sun.
+    Tyra::Vec4 litDirs[3];
     std::unique_ptr<Tyra::StaPipLightingBag> litBag;
     std::unique_ptr<Tyra::PipelineDirLightsBag> litLights;
     std::unique_ptr<Tyra::StaPipColorBag> litColorBag;
@@ -1622,6 +1626,10 @@ class TerrainGame : public Tyra::Game {
     // every untextured dyn-lit object exactly half as bright as its bake.
     float litScale = 255.0F;
     Tyra::Vec4 litColors[4];
+    // Per-object light DIRECTIONS (the transpose - see litColors' fill). Not
+    // the shared animLightDirs: this object's one directional slot points
+    // where its own probe says the light comes from, which is not the sun.
+    Tyra::Vec4 litDirs[3];
     std::unique_ptr<Tyra::StaPipLightingBag> litBag;
     std::unique_ptr<Tyra::PipelineDirLightsBag> litLights;
     std::unique_ptr<Tyra::StaPipColorBag> litColorBag;
@@ -5654,15 +5662,38 @@ void TerrainGame::fillDynLitColors(int i) {
     float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+    // The one directional slot points where the probe says the light actually
+    // comes from, not at the sun.
+    //
+    // VU1 computes ambient + color * clamp(N.L), and the probe's answer is
+    // shade(n) = L0 + (2/3) * dot(L1, n). Evaluating L1 along the SUN (what
+    // the animated path does, and what this used to do) is only right when the
+    // sun IS the light: in a room lit by a bounce off a red wall the field's
+    // direction is the wall, so shading along the sun leans the wrong way and
+    // a surface facing the actual light gets nothing. Taking L1's own dominant
+    // direction instead makes the VU1 slot exact at that direction - the term
+    // there is the probe's own answer - and it degrades smoothly off it.
+    // L1 is per channel, so the direction is their luminance-weighted mean.
+    V3 ldir = sun;
     GiSample gs;
     if (giProbeAt(o.data.position[0], o.data.position[1], o.data.position[2],
                   gs)) {
+      float d3[3];
+      for (int a = 0; a < 3; ++a)
+        d3[a] = 0.299F * gs.l1[a][0] + 0.587F * gs.l1[a][1] +
+                0.114F * gs.l1[a][2];
+      const float len = sqrtf(d3[0] * d3[0] + d3[1] * d3[1] + d3[2] * d3[2]);
+      // A probe with no direction at all (a uniform environment) keeps the sun
+      // - there is nothing better to point at, and L0 carries the whole answer
+      // anyway, so the directional term comes out near zero either way.
+      if (len > 0.0001F)
+        ldir = {d3[0] / len, d3[1] / len, d3[2] / len};
       for (int k = 0; k < 3; ++k) {
         float a = gs.l0[k];
         if (a < 0.0F) a = 0.0F;
         amb[k] = a;
-        float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
-                                   gs.l1[2][k] * sun.z);
+        float d = (2.0F / 3.0F) * (gs.l1[0][k] * ldir.x + gs.l1[1][k] * ldir.y +
+                                   gs.l1[2][k] * ldir.z);
         if (d < 0.0F) d = 0.0F;
         dif[k] = d;
       }
@@ -5681,6 +5712,13 @@ void TerrainGame::fillDynLitColors(int i) {
       part.litColors[3].set(s * (amb[0] + dl[0]) * base[0],
                             s * (amb[1] + dl[1]) * base[1],
                             s * (amb[2] + dl[2]) * base[2], 128.0F);
+      // Per-object directions, so this cannot ride the shared animLightDirs.
+      // The array is the TRANSPOSE of the three light directions - light i
+      // goes in COLUMN i (see pipeline_lighting_options.hpp) - and only slot 0
+      // carries a light here.
+      part.litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
+      part.litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
+      part.litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
     }
   }
 }
@@ -10078,7 +10116,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.infoBag->shadingType = TyraShadingGouraud;
       part.litBag->lightMatrix = part.infoBag->model;
       part.litBag->normals = part.litNormals.data();
-      part.litLights->setLightsManually(part.litColors, animLightDirs);
+      part.litLights->setLightsManually(part.litColors, part.litDirs);
       part.litBag->dirLights = part.litLights.get();
       part.bag->color = part.litColorBag.get();
       part.bag->lighting = part.litBag.get();

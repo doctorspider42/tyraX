@@ -362,24 +362,17 @@ Notes:
   cover — the surrounding UI and anything dragged by hand — say so in
   PROGRESS.md and leave it for a human.
 
-  **For the GAME, Wayland is not a dead end** (PROGRESS 132): PCSX2 is an
-  ordinary X client if you ask it to be. Launch it yourself with
-  `QT_QPA_PLATFORM=xcb pcsx2-qt -elf <project>/bin/<name>.elf` (XWayland), then
-  grab its window with a ~50-line `XGetImage` tool — find the top-level window
-  by name with `XQueryTree`/`XFetchName`, `XGetImage`, write a PNG through the
-  repo's `vendor/stb/stb_image_write.h`; build it with
-  `gcc -O2 shot.c -Ivendor/stb -lX11 -lm`. Needs only `libX11` + `X11/Xlib.h`,
-  which are already there for GLFW. Keep the tool in the scratchpad, not the
-  repo. Two things this buys beyond "a picture": the capture is **measurable**
-  (read a pixel row and look at plateau widths / adjacent-step sizes — that is
-  how flat shading was told apart from Gouraud), and two engine builds can be
-  A/B'd pixel-for-pixel from a frozen fixture. Do NOT call `gnome-screenshot`
-  first to check — on this box it does not fail, it **hangs** on the portal
-  dialog and has to be killed.
-  Note the launcher's own settings still apply: the Runner forces `HostFs` and
-  the USB ports in `PCSX2.ini`, so launch through `--build --run` at least once
-  before driving PCSX2 by hand, and set `Renderer = 13` (software) in that ini
-  while PCSX2 is **closed** — it rewrites the file on exit.
+  **A capture is worth more when it is measured** (PROGRESS 132). Whichever
+  tool produced the PNG, read pixel ROWS out of it rather than eyeballing:
+  plateau widths and adjacent-step sizes are what told flat shading apart from
+  Gouraud on a cylinder, and two engine builds A/B'd from a frozen fixture came
+  out byte-identical, which is a much stronger statement than "looks the same".
+  A few lines of PIL will do it.
+  Driving PCSX2 by hand (rather than through `--build --run`) inherits none of
+  the launcher's setup: the Runner is what forces `HostFs` and the USB ports in
+  `PCSX2.ini`, so run through the editor at least once first, and set
+  `Renderer = 13` (software) in that ini while PCSX2 is **closed** — it rewrites
+  the file on exit.
 
   **When an A/B compares two objects in ONE frame, prove which is which**
   before reading anything into it. The screen's X runs opposite to world X in
