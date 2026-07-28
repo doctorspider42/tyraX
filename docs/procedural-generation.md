@@ -9,6 +9,10 @@ gets a finished mesh.** The PlayStation 2 never evaluates a graph, never
 transforms an instance, never knows the feature exists. It loads chunk meshes
 the way it loads any other model.
 
+Working demo: [examples/procedural](../examples/procedural) — six volumes that
+between them use every node below, from a noise-thinned forest to a colonnade
+placed exactly by `Radial Array`.
+
 ---
 
 ## Why it is built this way (read this before tuning anything)

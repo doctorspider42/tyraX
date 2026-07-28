@@ -722,13 +722,45 @@ Each finished feature lands as its own commit.
      reason). The drone set is the one directly below; main's set follows it,
      running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
      at the head of that second section, and 225 (procedural generation, merged
-     in from its own branch) sits above them, and 226 above that. Continue
-     from 227. -->
+     in from its own branch) sits above them, and 226/227 above that. Continue
+     from 228. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
+- (227) **`examples/procedural`: the whole node library in one map** (owner:
+  "dodaj example projekt, który pokazuje jak największy wachlarz tych opcji").
+  Six volumes over a 140x140 terrain shaped to give the terrain-reading nodes
+  something to read (flat plaza, rolling ground, one genuinely steep ridge):
+  **forest** (noise clearings x slope mask, soft-edged slope filter, minimum
+  distance, keep-away-from the plaza BY NAME, weighted pool, Vary),
+  **colonnade** (Single Point -> Radial Array, 12 pillars on an exact circle),
+  **cairn** (Single Point -> Array up Y with per-copy yaw and taper), **fence**
+  (Curve -> Scatter along Curve -> Array stepping in POINT space for the second
+  row), **orchard** (grid source, mask filter, Set Attribute driving size) and
+  **crystals** (Scatter in Volume merged with a surface scatter, then Limit).
+  All 23 node types appear at least once; three volumes carry Object Settings.
+  345 instances bake to **17 chunk meshes / 6 894 triangles**; the project ships
+  in the release profile and opens on its own *Procedural* window layout, so the
+  graph editor is there on first launch. Five hand-written assets (8-72 tris,
+  one shared .mtl, the pine deliberately two-material so the bake's per-material
+  submesh split is exercised) keep it about the graphs rather than the art.
+  **Two things the authoring caught**, both worth knowing: a chunk mesh file is
+  named after the volume's id **shortened to 8 hex** (`procbake::shortId`), so
+  hand-authored ids sharing a prefix silently overwrite each other's meshes -
+  real ids are 16 random hex, but a fixture that invents them must vary the
+  FIRST eight; and a graph whose last link is missing bakes zero instances with
+  no error, because "no path to Output" is a valid (empty) graph - the window's
+  issue list says it, a headless `--refresh-gen` does not.
+  **Verified**: `--refresh-gen` reports 6 volumes -> 17 chunks -> 345 instances,
+  and the per-volume counts were re-derived from the baked `.obj` files
+  (98 pines + 35 rocks, 12 pillars, 6 rocks, 94 posts, 30 trees, 70 crystals);
+  Docker build clean with the release audit passing; PCSX2 (software renderer,
+  PAL) runs it at the **50 FPS vsync cap**, EE 44 % / VU 19 % / GS 12 %; the
+  editor opens it with the Procedural window on the forest graph, "baked", no
+  validation issues. Real hardware not measured - 17 draw calls is the number to
+  watch there.
 - (226) **The procedural graph learns to say "all of them" and "exactly there"**
   (owner, after using 225: "brakuje mi foreach - np wszystkie wygenerowane
   assety mają LOD na 5unit" and "wstawiam asset i analitycznie go powielam - po
