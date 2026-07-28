@@ -31,17 +31,29 @@ RendererCorePostFx::RendererCorePostFx() {
   settings = nullptr;
   gs = nullptr;
   bloom = 0;
+  bloomThreshold = 0;
+  bloomSpread = 1;
   grain = 0;
   dof = 0;
   dofFocus = 0.0F;
   dofRange = 0.01F;
+  rays = 0;
+  raysSunX = raysSunY = 0.0F;
+  raysVis = 0.0F;
   clearGrading();
   rng = 0xC0FFEE01u;
   curFbVram = 0;
   curFbBufW = 0;
-  // Sized for every pass at once: DoF (8 blits) + bloom (6) + grading (6
-  // quads) + grain (2) + setup/teardown still leave headroom.
-  packet = packet2_create(352, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  // Sized for every pass at once: DoF (8 blits) + bloom (downsample + the
+  // optional bright-pass quad + up to 4 soften rounds of 4 blits + the
+  // add-back = 18 primitives at full spread) + god rays (downsample + a
+  // bright-pass quad + 2 zoom rounds of 2 blits + the composite = 7 blits
+  // and a quad) + grading (6 quads) + grain (2) + setup/teardown. A blit is
+  // 12 qwords, a quad 7 - the worst case is ~500, so 768 keeps real
+  // headroom. An UNDERSIZED packet here corrupts the GIF stream, so grow
+  // this whenever a pass gains primitives (the god-rays pass pushed the old
+  // 512 to the edge when it met main's spread-capable bloom).
+  packet = packet2_create(768, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
 }
 
 RendererCorePostFx::~RendererCorePostFx() {
@@ -148,7 +160,9 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
 
 qword_t* RendererCorePostFx::flatQuad(qword_t* q, int dstVram, int dstBufW,
                                       u32 fbmsk, u8 r, u8 g, u8 b, u8 a,
-                                      u64 alpha) {
+                                      u64 alpha, int w, int h) {
+  if (w < 0) w = fbW;
+  if (h < 0) h = fbH;
   PACK_GIFTAG(q, GIF_SET_TAG(6, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, GS_PSM_32, fbmsk),
@@ -163,11 +177,198 @@ qword_t* RendererCorePostFx::flatQuad(qword_t* q, int dstVram, int dstBufW,
   q++;
   PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0xFFFFFFFFu), GS_REG_XYZ2);
   q++;
-  PACK_GIFTAG(q,
-              GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0xFFFFFFFFu),
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + w) << 4, (2048 + h) << 4, 0xFFFFFFFFu),
               GS_REG_XYZ2);
   q++;
   return q;
+}
+
+qword_t* RendererCorePostFx::sizedQuad(qword_t* q, int dstVram, int dstBufW,
+                                       int w, int h, u8 r, u8 g, u8 b, u8 a,
+                                       u64 alpha) {
+  PACK_GIFTAG(q, GIF_SET_TAG(6, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, GS_PSM_32, 0),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(r, g, b, a, 0x3F800000), GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 1 /* abe */, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0xFFFFFFFFu), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + w) << 4, (2048 + h) << 4, 0xFFFFFFFFu),
+              GS_REG_XYZ2);
+  q++;
+  return q;
+}
+
+void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
+  if (gs == nullptr) return;
+  if (x0 < 0) x0 = 0;
+  if (y0 < 0) y0 = 0;
+  if (x1 > fbW) x1 = fbW;
+  if (y1 > fbH) y1 = fbH;
+  if (x1 <= x0 || y1 <= y0) return;
+
+  auto* fb = gs->getCurrentFrameBuffer();
+  const int fbVram = static_cast<int>(fb->address);
+  const int fbBufW = static_cast<int>(fb->width);
+
+  packet2_reset(packet, false);
+  // Screen-origin offset for the z-clear sprite; the window-centered offset
+  // the destination view's VU1 render expects is restored below.
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->base, 0, 2048.0F, 2048.0F));
+  qword_t* q = packet->next;
+  // NLOOP = 7: SCISSOR, FRAME, TEST, RGBAQ, PRIM + two XYZ2 - a miscount
+  // here stalls the GIF forever (the stray qword parses as a new giftag).
+  PACK_GIFTAG(q, GIF_SET_TAG(7, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  // Bound the destination view's fill to the portal's screen bbox. The
+  // scissor is expressed in window coordinates (unaffected by XYOFFSET).
+  PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
+  q++;
+  // z-only clear of the bbox: with several portal views per frame, an
+  // earlier portal's z-cap must not reject this portal's destination
+  // geometry where their bboxes overlap (first portal: no-op, z is still
+  // at the frame clear's far).
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0xFFFFFFFFu),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
+              GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+              GS_REG_XYZ2);
+  q++;
+  // Color writes back on + the drawing environment's tests for the
+  // destination render (their own giftags - not in the NLOOP above).
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+              GS_REG_FRAME_1);
+  q++;
+  q = draw_enable_tests(q, 0, &gs->zBuffer);
+  packet2_update(packet, q);
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->next, 0,
+                                         2048.0F - (fbW / 2.0F),
+                                         2048.0F - (fbH / 2.0F)));
+  packet2_update(packet, draw_finish(packet->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
+}
+
+void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
+                                       int count, u8 clearR, u8 clearG,
+                                       u8 clearB) {
+  if (gs == nullptr || count < 3) return;
+  if (count > 12) count = 12;  // a frustum-clipped quad tops out at 9 verts
+
+  auto* fb = gs->getCurrentFrameBuffer();
+  const int fbVram = static_cast<int>(fb->address);
+  const int fbBufW = static_cast<int>(fb->width);
+
+  packet2_reset(packet, false);
+  // Screen-origin raster offset for the mask sprites/fan; restored to the
+  // window-centered offset the VU1 pipeline expects at the end. The scissor
+  // is still the bbox from portalMaskBegin - every op below is bounded.
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->base, 0, 2048.0F, 2048.0F));
+
+  qword_t* q = packet->next;
+  // NLOOP = 13 fixed regs + one XYZ2 per fan vertex - an undercount stalls
+  // the GIF forever (the stray qword parses as a garbage giftag).
+  PACK_GIFTAG(q, GIF_SET_TAG(13 + count, 0, 0, 0, GIF_FLG_PACKED, 1),
+              GIF_REG_AD);
+  q++;
+  // --- 1) z-only: re-far the whole bbox (kill the destination depths) ---
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0xFFFFFFFFu),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
+              GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+              GS_REG_XYZ2);
+  q++;
+  // --- 2) z-only: cap the quad interior at the surface depth ------------
+  PACK_GIFTAG(q, GS_SET_PRIM(5 /* triangle fan */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  for (int i = 0; i < count; i++) {
+    // 12.4 fixed point; the caller clips to the frustum so raster coords
+    // stay far from the 4096 wrap, but clamp defensively anyway.
+    int xf = static_cast<int>((xy[i * 2] + 2048.0F) * 16.0F + 0.5F);
+    int yf = static_cast<int>((xy[i * 2 + 1] + 2048.0F) * 16.0F + 0.5F);
+    xf = xf < 0 ? 0 : (xf > 65535 ? 65535 : xf);
+    yf = yf < 0 ? 0 : (yf > 65535 ? 65535 : yf);
+    PACK_GIFTAG(q, GS_SET_XYZ(xf, yf, z[i]), GS_REG_XYZ2);
+    q++;
+  }
+  // --- 3) color: repaint the still-far ring with the clear color --------
+  // GEQUAL at z=0 passes exactly where step 1 left z at far and step 2 did
+  // NOT re-cap - i.e. the destination pixels that spilled outside the quad
+  // opening (writing z=0 over z=0 is a no-op, so no ZBUF toggle needed).
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_TEST(0, 0, 0, 0, 0, 0, 1,
+                          static_cast<int>(gs->zBuffer.method)),
+              GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(clearR, clearG, clearB, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+              GS_REG_XYZ2);
+  q++;
+  // Restore: full-screen scissor, the drawing environment's tests, and the
+  // window-centered raster offset (their own giftags - not in the NLOOP).
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_SCISSOR(0, fbW - 1, 0, fbH - 1), GS_REG_SCISSOR_1);
+  q++;
+  q = draw_enable_tests(q, 0, &gs->zBuffer);
+
+  packet2_update(packet, q);
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->next, 0,
+                                         2048.0F - (fbW / 2.0F),
+                                         2048.0F - (fbH / 2.0F)));
+  packet2_update(packet, draw_finish(packet->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
 }
 
 qword_t* RendererCorePostFx::gradingQuads(qword_t* q, int fbVram,
@@ -310,25 +511,109 @@ void RendererCorePostFx::apply(int passes) {
     }
   }
 
+  // God rays before bloom: the shafts are scene light, so bloom can glow on
+  // top of them and grading corrects the combined image.
+  if ((passes & PassGodRays) && rays > 0 && raysVis > 0.01F) {
+    const int w4 = lowW << 4, h4 = lowH << 4;
+    // Downsample, then bright-pass: subtract a flat threshold and add the
+    // result onto a copy of itself (x2) - max(0, x - t) * 2 keeps the hot
+    // sky around the sun and highlights, cuts midtone geometry. 150 looks
+    // right in practice: a plain daytime sky (~200) passes at ~40%, white
+    // passes fully, lit terrain stays out (96 washed the whole frame).
+    q = blit(q, fbVram, fbBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4, lowVram[0],
+             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
+    q = sizedQuad(q, lowVram[0], lowBufW, lowW, lowH, 150, 150, 150, 0x80,
+                  GS_SET_ALPHA(2, 0, 2, 1, 128));  // Cd - Cs
+    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 0, w4, h4, lowVram[1],
+             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
+    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 0, w4, h4, lowVram[1],
+             lowBufW, 0, 0, lowW, lowH, true, false, 1,
+             GS_SET_ALPHA(0, 2, 2, 1, 128));  // low1 = 2 * low0
+
+    // Sun position in low-res texels, clamped so a far-off-screen sun still
+    // gives a sane zoom center. The game passes LOGICAL screen pixels -
+    // divide by the logical height (getHeight), not the physical buffer
+    // height: under field rendering (InterlacedField) the buffer is half
+    // the logical height and fbH tracks the buffer.
+    float sunLx = raysSunX * ((float)lowW / (float)fbW);
+    float sunLy = raysSunY * ((float)lowH / settings->getHeight());
+    if (sunLx < -2.0F * lowW) sunLx = -2.0F * lowW;
+    if (sunLx > 3.0F * lowW) sunLx = 3.0F * lowW;
+    if (sunLy < -2.0F * lowH) sunLy = -2.0F * lowH;
+    if (sunLy > 3.0F * lowH) sunLy = 3.0F * lowH;
+
+    // Two zoom-toward-the-sun iterations, ping-ponging the work buffers:
+    // dst = zoom(src) + src/2. Each zoom samples a window shrunk by s around
+    // the sun, which stretches bright pixels radially away from it; the
+    // compounding zoom extends the streaks exponentially.
+    int cur = 1, other = 0;
+    const float s = 0.72F;
+    for (int it = 0; it < 2; it++) {
+      const int u0 = (int)(sunLx * (1.0F - s) * 16.0F);
+      const int v0 = (int)(sunLy * (1.0F - s) * 16.0F);
+      const int u1 = u0 + (int)(lowW * s * 16.0F);
+      const int v1 = v0 + (int)(lowH * s * 16.0F);
+      q = blit(q, lowVram[cur], lowBufW, lowW, lowH, u0, v0, u1, v1,
+               lowVram[other], lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
+      q = blit(q, lowVram[cur], lowBufW, lowW, lowH, 0, 0, w4, h4,
+               lowVram[other], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+               GS_SET_ALPHA(0, 2, 2, 1, 64));
+      const int t = cur;
+      cur = other;
+      other = t;
+    }
+
+    // Composite the streak buffer back over the frame additively, scaled by
+    // strength x the sun's visibility factor. Halved: the streak buffer is
+    // pre-gained x2 by the bright-pass, and full-strength washed the frame.
+    int fix = (int)((float)rays * raysVis * 0.5F);
+    if (fix > 128) fix = 128;
+    if (fix > 0)
+      q = blit(q, lowVram[cur], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram,
+               fbBufW, 0, 0, fbW, fbH, true, false, 1,
+               GS_SET_ALPHA(0, 2, 2, 1, fix));
+  }
+
   if ((passes & PassBloom) && bloom > 0) {
     const int w4 = lowW << 4, h4 = lowH << 4;
     // Downsample the frame to quarter res (bilinear averages 2x2).
     q = blit(q, fbVram, fbBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4, lowVram[0],
              lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
-    // Soften: 4 taps of low0 blended into low1 at half/one texel offsets.
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 0, w4, h4, lowVram[1],
-             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 16, 16, w4 + 16, h4 + 16,
-             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
-             GS_SET_ALPHA(0, 1, 2, 1, 64));
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 16, 0, w4 + 16, h4,
-             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
-             GS_SET_ALPHA(0, 1, 2, 1, 43));
-    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 16, w4, h4 + 16,
-             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
-             GS_SET_ALPHA(0, 1, 2, 1, 32));
-    // Add the blur back over the frame: Cd + Cs * bloom / 128.
-    q = blit(q, lowVram[1], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram, fbBufW,
+    // Bright pass: subtract a flat grey from the downsampled frame,
+    // Cv = (0 - Cs) * 128 >> 7 + Cd = Cd - threshold, which the GS clamps at
+    // zero. Everything below the threshold becomes black and stops
+    // contributing to the blur, so the glow collapses onto the bright pixels -
+    // emissive materials, sky, specular hits - instead of veiling the whole
+    // image. One extra low-res sprite; the blur chain below is unchanged.
+    if (bloomThreshold > 0)
+      q = flatQuad(q, lowVram[0], lowBufW, 0xFF000000u, bloomThreshold,
+                   bloomThreshold, bloomThreshold, 0x80,
+                   GS_SET_ALPHA(2, 0, 2, 1, 128), lowW, lowH);
+    // Soften: 4 taps of the source blended into the destination at half/one
+    // texel offsets. Iterating with DOUBLED offsets each round grows the halo
+    // geometrically (1 texel, then 2, then 4...) for 4 sprites a round, which
+    // is what turns a tight fringe into a corona; the buffers ping-pong so
+    // every round reads the previous one's result. Round 1 alone is the
+    // original blur, so spread 1 is bit-identical to the old behavior.
+    int src = 0, dst = 1;
+    for (int it = 0; it < bloomSpread; it++) {
+      const int o = 16 << it;  // 1/16 texel units: 1 texel, 2, 4, 8
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, 0, 0, w4, h4, lowVram[dst],
+               lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, o, o, w4 + o, h4 + o,
+               lowVram[dst], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, 64));
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, o, 0, w4 + o, h4,
+               lowVram[dst], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, 43));
+      q = blit(q, lowVram[src], lowBufW, lowW, lowH, 0, o, w4, h4 + o,
+               lowVram[dst], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, 32));
+      src ^= 1, dst ^= 1;
+    }
+    // Add the blur back over the frame: Cd + Cs * bloom / 128. bloom may
+    // exceed 128 (the editor allows up to 2x) for a hotter re-add.
+    q = blit(q, lowVram[src], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram, fbBufW,
              0, 0, fbW, fbH, true, false, 1, GS_SET_ALPHA(0, 2, 2, 1, bloom));
   }
 
@@ -417,8 +702,8 @@ void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
   q++;
 
   // The user-authored effect appends its GS primitives here. It draws through
-  // blit()/flatQuad() (or raw PACK_GIFTAG) and advances the cursor. The 352-
-  // qword packet leaves ~330 qwords after this setup: roughly 27 blits or 47
+  // blit()/flatQuad() (or raw PACK_GIFTAG) and advances the cursor. The 768-
+  // qword packet leaves ~745 qwords after this setup: roughly 60 blits or 105
   // flat quads - plenty for a screen effect, but not unbounded.
   q = build(*this, q, user);
 

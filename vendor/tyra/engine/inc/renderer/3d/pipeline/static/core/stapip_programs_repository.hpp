@@ -34,6 +34,10 @@
 #include "./programs/as_is/stapip_as_is_tce_vu1_program.hpp"
 #include "./programs/clip/stapip_clip_tce_vu1_program.hpp"
 
+// Modified by TyraX: particle billboard programs (centers -> quads on VU1).
+#include "./programs/billboard/stapip_billboard_c_vu1_program.hpp"
+#include "./programs/billboard/stapip_billboard_t_vu1_program.hpp"
+
 namespace Tyra {
 
 class StaPipProgramsRepository {
@@ -61,6 +65,9 @@ class StaPipProgramsRepository {
   StaPipCullTCEVU1Program cullTextureEnv;
   StaPipAsIsTCEVU1Program asIsTextureEnv;
   StaPipClipTCEVU1Program clipTextureEnv;
+  // Modified by TyraX: particle billboard programs.
+  StaPipBillboardCVU1Program billboardColor;
+  StaPipBillboardTVU1Program billboardTexture;
 };
 
 }  // namespace Tyra

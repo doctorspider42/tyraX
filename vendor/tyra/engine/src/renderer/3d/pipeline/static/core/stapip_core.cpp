@@ -9,6 +9,7 @@
 */
 
 #include <gs_gp.h>
+#include <math.h>
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
@@ -105,9 +106,25 @@ void StaPipCore::render(StaPipBag* bag) {
                          bag->lighting->dirLights),
       "If you want lighting, please provide light matrix normals and dir "
       "lights!");
-  TYRA_ASSERT(
-      !bag->texture || (bag->texture->texture && bag->texture->coordinates),
-      "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: a billboard bag carries a texture bag purely for the
+  // per-particle params channel - the image itself is optional there.
+  TYRA_ASSERT(!bag->texture || ((bag->texture->texture || bag->billboard) &&
+                                bag->texture->coordinates),
+              "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: particle billboards (centers expanded on VU1).
+  // frustumCulling None is SAFE here (unlike ordinary bags - see the
+  // "never submit with None" pitfall): the billboard programs cull every
+  // quad whose corner leaves the GS raster window / depth range, so
+  // off-screen centers never wrap the 4096-px window.
+  TYRA_ASSERT(!bag->billboard ||
+                  (bag->texture && bag->texture->coordinates &&
+                   bag->color->many && !bag->lighting &&
+                   !bag->info->fullClipChecks &&
+                   bag->info->frustumCulling ==
+                       PipelineInfoBagFrustumCulling_None),
+              "Billboard bags need per-particle params in the texture "
+              "coordinates slot, per-particle colors, no lighting, no "
+              "frustum culling and no clip checks (VU1 culls per quad)!");
   // Modified by TyraX: env (matcap) bags - normals in the ST slot, ST
   // computed on VU1 (cull_tce + as_is_tce / clip_tce). No lighting - the
   // env programs derive no dir-light color.
@@ -173,13 +190,52 @@ void StaPipCore::render(StaPipBag* bag) {
   // struct immediately, the old per-bag new/delete was pure heap churn.
   RendererCoreTextureBuffers texBuffersStorage;
   RendererCoreTextureBuffers* texBuffers = nullptr;
-  if (bag->texture) {
+  // Modified by TyraX: billboard bags may carry a texture bag with no image
+  // (params channel only) - nothing to bind then.
+  if (bag->texture && bag->texture->texture) {
     auto temp = rendererCore->texture.useTexture(bag->texture->texture);
     texBuffersStorage = {temp.id, temp.core, temp.clut};
     texBuffers = &texBuffersStorage;
   }
 
+  // Modified by TyraX: billboard bags run from their own on-demand program
+  // set (micro memory is full - see ensureProgramSet); non-billboard bags
+  // lazily restore the resident set.
+  qbufferRenderer.ensureProgramSet(bag->billboard != nullptr);
+
   qbufferRenderer.clearLastProgramName();
+
+  // Modified by TyraX: pick this bag's dynamic light (flashlight vs scene
+  // point lights - the color programs have ONE light slot per mesh). The
+  // pick runs on the bag's world-space bounding sphere; without a bbox
+  // (frustumCulling != Precise, e.g. the sky dome) the model translation
+  // stands in with radius 0. Bags with dynLightPick = false (terrain
+  // chunks, the sky dome) keep the global flashlight state - a per-chunk
+  // pick shows a hard seam wherever neighbors pick different lights.
+  if (!bag->lighting && !bag->info->dynLightPick) {
+    qbufferRenderer.setBagLight(nullptr);
+  } else if (!bag->lighting) {
+    const M4x4& m = *bag->info->model;
+    Vec4 center(m.data[12], m.data[13], m.data[14], 1.0F);
+    float radius = 0.0F;
+    if (bbox) {
+      const auto* mb = bbox->getMainBBox();
+      const Vec4& lo = (*mb)[0];
+      const Vec4& hi = (*mb)[7];
+      const Vec4 mid((lo.x + hi.x) * 0.5F, (lo.y + hi.y) * 0.5F,
+                     (lo.z + hi.z) * 0.5F, 1.0F);
+      center = m * mid;
+      // Near-uniform scale assumed (same as the light's object-space
+      // transform in sendObjectData) - column 0 length is the scale.
+      const float scale = sqrtf(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
+                                m.data[2] * m.data[2]);
+      const float ex = hi.x - lo.x, ey = hi.y - lo.y, ez = hi.z - lo.z;
+      radius = 0.5F * sqrtf(ex * ex + ey * ey + ez * ez) * scale;
+    }
+    qbufferRenderer.setBagLight(rendererCore->pickDynLight(center, radius));
+  } else {
+    qbufferRenderer.setBagLight(nullptr);
+  }
 
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 

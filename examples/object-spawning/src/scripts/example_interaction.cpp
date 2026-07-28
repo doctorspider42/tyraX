@@ -1,6 +1,6 @@
 // Example TyraX script. This file is yours - it is never regenerated.
-// Walk close to the box and press X: the sky changes color (and a message
-// lands in the PCSX2 log via TYRA_LOG).
+// Says hello in the PCSX2 log at startup. Uncomment the block in update()
+// for a working example that reacts to the pad.
 #include "scripts/script.hpp"
 #include "terrain_config.hpp"
 
@@ -8,31 +8,30 @@ namespace Object_spawning {
 
 class ExampleInteraction : public Script {
  public:
-  void update(ScriptContext& ctx) override {
-    // Find the first box in the scene
-    RuntimeObject* box = nullptr;
-    for (int i = 0; i < ctx.objectCount; ++i) {
-      if (ctx.objects[i].data.type == 0) {  // 0 = box
-        box = &ctx.objects[i];
-        break;
-      }
-    }
-    if (!box) return;
-
-    const float dx = ctx.playerPosition.x - box->data.position[0];
-    const float dz = ctx.playerPosition.z - box->data.position[2];
-    const bool nearBox = (dx * dx + dz * dz) < 8.0F * 8.0F;
-
-    if (nearBox && ctx.engine->pad.getClicked().Cross) {
-      toggled = !toggled;
-      TYRA_LOG("Box says hello! Sky toggled: ", (int)toggled);
-      ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
-                             : Tyra::Color(SKY_R, SKY_G, SKY_B);
-    }
+  void init(ScriptContext& ctx) override {
+    (void)ctx;
+    TYRA_LOG("Hello from TyraX! Edit src/scripts/example_interaction.cpp.");
   }
 
- private:
-  bool toggled = false;
+  void update(ScriptContext& ctx) override {
+    (void)ctx;
+    // Example: walk up to the first box and press X to toggle the sky color.
+    // Commented out so a jump (X) does not recolor the sky - uncomment to try.
+    //
+    // static bool toggled = false;
+    // RuntimeObject* box = nullptr;
+    // for (int i = 0; i < ctx.objectCount; ++i)
+    //   if (ctx.objects[i].data.type == 0) { box = &ctx.objects[i]; break; }
+    // if (!box) return;
+    // const float dx = ctx.playerPosition.x - box->data.position[0];
+    // const float dz = ctx.playerPosition.z - box->data.position[2];
+    // if ((dx * dx + dz * dz) < 8.0F * 8.0F && ctx.engine->pad.getClicked().Cross) {
+    //   toggled = !toggled;
+    //   TYRA_LOG("Box says hello! Sky toggled: ", (int)toggled);
+    //   ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
+    //                          : Tyra::Color(SKY_R, SKY_G, SKY_B);
+    // }
+  }
 };
 
 }  // namespace Object_spawning

@@ -1,0 +1,6 @@
+{
+  "layers": [
+    {"name": "Cavity grime", "blend": 1, "opacity": 0.85, "color": [0.24, 0.2, 0.15], "source": 2, "lo": 0.15, "hi": 0.7, "invert": false, "scale": 4, "seed": 1, "breakup": 0.35, "breakupScale": 6, "mortar": 0.06},
+    {"name": "Edge wear", "blend": 0, "opacity": 0.9, "color": [0.92, 0.9, 0.84], "source": 0, "lo": 0.25, "hi": 0.65, "invert": false, "scale": 4, "seed": 1, "breakup": 0.55, "breakupScale": 9, "mortar": 0.06}
+  ]
+}

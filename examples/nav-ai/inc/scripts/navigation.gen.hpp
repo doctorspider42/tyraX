@@ -9,7 +9,7 @@ namespace Nav_ai {
 // agent state per runtime object - starting a behavior replaces the current
 // one. Movement runs in the generated NavAiScript every frame: A* over the
 // baked nav grid (at most one pathfind per frame, round-robin), terrain
-// snapping, turn-to-face. See src/scripts/navigation.gen.cpp.
+// snapping, turn-to-face. See src/gen/navigation.gen.cpp.
 void navPatrol(ScriptContext& ctx, int obj, const int* waypoints, int count,
                float speed, float pauseSec, int once);
 void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,

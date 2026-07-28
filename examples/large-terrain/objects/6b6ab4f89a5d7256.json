@@ -1,0 +1,1 @@
+{ "id": "6b6ab4f89a5d7256", "name": "wobbler-60", "type": "model", "position": [-26.988, -0.074, -13.277], "rotation": [0, 168.2, 0], "scale": [2.59, 2.59, 2.59], "color": [0.9, 0.95, 0.95], "physics": false, "collision": "none", "drawDistance": 80, "model": "res/models/wobbler.glb", "anim": { "clip": "Wiggle", "autoplay": true, "loop": true, "speed": 1.1 } }

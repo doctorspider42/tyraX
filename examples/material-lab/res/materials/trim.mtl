@@ -1,0 +1,4 @@
+newmtl trim
+# tyra-brightness 1
+Kd 1.0 1.0 1.0
+map_Kd trim.png

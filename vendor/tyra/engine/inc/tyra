@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: exports the VU0 micromode ray tracer.
 */
 
 #pragma once
@@ -17,6 +18,7 @@
 #include "./loaders/3d/obj_loader/obj_loader.hpp"
 #include "./loaders/3d/obj_loader/lean_obj_loader.hpp"
 #include "./loaders/3d/tanm_loader/tanm_loader.hpp"
+#include "./loaders/3d/tmdl_loader/tmdl_loader.hpp"
 #include "./loaders/3d/tskl_loader/tskl_loader.hpp"
 #include "./loaders/texture/png_loader.hpp"
 #include "./packet2/packet2_tyra_utils.hpp"
@@ -28,5 +30,6 @@
 #include "./renderer/3d/mesh/dynamic/dynamic_mesh.hpp"
 #include "./renderer/3d/mesh/dynamic/skel_instance.hpp"
 #include "./renderer/3d/mesh/static/static_mesh.hpp"
+#include "./renderer/rt/vu0_raytracer.hpp"
 #include "./thread/threading.hpp"
 #include "./time/timer.hpp"

@@ -6,7 +6,7 @@
 // framebuffer blit that composites over the frame (no pixel shaders on the
 // PS2). The file carries a small manifest (title + up to four numeric params)
 // and the raw C++ body that draws the effect; the body is emitted into
-// src/scripts/screen_fx.gen.cpp and run via RendererCore::applyCustomPostFx at
+// src/gen/screen_fx.gen.cpp and run via RendererCore::applyCustomPostFx at
 // the effect's slot in the UI Editor screen stack.
 //
 // A Project references an effect only by placement (ScreenFxPlacement, in

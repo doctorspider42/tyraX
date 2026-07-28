@@ -28,6 +28,31 @@ constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
 constexpr float USE_PROMPT_Y = 0.755714F;
 constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels
 constexpr float USE_PROMPT_H = 32.0F;
+// The "PICK UP" variant, shown instead for pickable objects
+// (same screen position as USE; its own text/image and size)
+constexpr const char* PICK_PROMPT_PATH = "hud/pickup.png";
+constexpr float PICK_PROMPT_W = 128.0F;
+constexpr float PICK_PROMPT_H = 32.0F;
+
+// Live glyph slots in the prompt sprites: the baked text leaves a
+// hole per {{action}} token and the game blits the CURRENT binding's
+// icon into each, so a runtime rebind is reflected. One entry per
+// token in reading order, so "Press {{use}} to open" and a two-
+// action prompt both work; count 0 = the sprite is complete on its
+// own (icons that are not actions are baked in - see docs).
+struct PromptIconSlot {
+  short action;   // index into the Input Map's actions
+  short x, y;     // top-left inside the prompt sprite, pixels
+  short size;     // glyph box side, pixels
+};
+constexpr int USE_PROMPT_ICON_COUNT = 0;
+inline const PromptIconSlot USE_PROMPT_ICONS[USE_PROMPT_ICON_COUNT > 0 ? USE_PROMPT_ICON_COUNT : 1] = {
+    {-1, 0, 0, 0},
+};
+constexpr int PICK_PROMPT_ICON_COUNT = 0;
+inline const PromptIconSlot PICK_PROMPT_ICONS[PICK_PROMPT_ICON_COUNT > 0 ? PICK_PROMPT_ICON_COUNT : 1] = {
+    {-1, 0, 0, 0},
+};
 
 struct HudTextData {
   const char* path;  // baked text sprite, relative to the ELF

@@ -1,0 +1,1 @@
+{ "id": "cccc000000000030", "name": "paint-canvas", "type": "box", "position": [0, 1.6, 8.5], "rotation": [0, 0, 0], "scale": [6, 3.2, 0.35], "color": [1, 1, 1], "physics": false, "material": "res/materials/canvas.mtl" }

@@ -1,0 +1,6 @@
+newmtl neon-green
+# tyra-brightness 1
+Kd 0.2500 1.0000 0.3000
+# tyra-glow 1 0.25 1 0.3 0.15
+# tyra-glow-light 7 1.3
+Ke 0.4000 1.1500 0.4500
