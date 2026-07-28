@@ -24935,6 +24935,9 @@ void App::applyProjectToViewport() {
         giViewVersion_ = giBaker_.version();
         const gibake::Bake b = gibake::load(project_, project_.activeScene);
         viewport_.setGiProbes(b.valid ? b.probes : gibake::ProbeGrid());
+        // The ground takes the baked terrain lightmap instead of the probes -
+        // the same split the console makes (see Viewport::setGiTerrain).
+        viewport_.setGiTerrain(b.valid ? b.terrain : aobake::AoImage());
     }
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's

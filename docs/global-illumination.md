@@ -74,6 +74,14 @@ lands twice.
 | Imported models, textured receivers, batched props, physics bodies, spawn-pool clones, textured terrain | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
 | Animated models, the player, NPCs | **probe grid**, sampled once per frame at the model's centre | `updateAndRenderAnimObjects` |
 
+**The editor viewport takes the same routes**, and has to: it shows what the
+console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
+ground goes down the lightmap route, and `setGiProbes` covers everything else.
+Putting the ground on the probe route instead is not a small preview
+inaccuracy - it paints the whole terrain one flat colour AND drops the ground's
+own tint, because the terrain carries that tint in its vertex colour and the
+probe answer replaces the vertex shade wholesale (PROGRESS 134).
+
 In every GI case the ambient + directional term, the baked point lights and the
 emissive pools are **skipped**, because the baked answer already contains them.
 
