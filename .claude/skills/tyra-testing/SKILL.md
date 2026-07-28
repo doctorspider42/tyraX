@@ -244,7 +244,7 @@ different access*), and neutralise whatever pulls in GL. For the Material
 Editor that is `matEdPaintW_ = 0`, which makes `matEdRegenLayer` /
 `matEdComposite` / `matEdSavePaintTarget` early-return, so a real
 `matEdSavePreset` → file → `matEdApplyPreset` round trip runs **with no GL
-context at all** (PROGRESS 222). What it cannot cover is the panel around the
+context at all** (PROGRESS 223). What it cannot cover is the panel around the
 call — say so rather than implying a click-through happened.
 
 **Collaboration sessions are headless-testable the same way**: `session.cpp` +

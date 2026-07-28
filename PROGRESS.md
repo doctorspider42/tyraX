@@ -720,14 +720,14 @@ Each finished feature lands as its own commit.
      shadows / ps2link / presets batch were written against the same base and
      numbered in parallel (main's own set repeats 216, 217 and 219 for the same
      reason). The drone set is the one directly below; main's set follows it,
-     running up to 221, and 222 sits at the head of that second section.
-     Continue from 223. -->
+     running up to 222 (main took 222 for the rotation nodes), and 223 sits at
+     the head of that second section. Continue from 224. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
-- (222) **The material-preset writer truncated long layer names, and the corrupt
+- (223) **The material-preset writer truncated long layer names, and the corrupt
   file reported success.** GCC 15 at -O3 on Linux named it exactly:
   `'", "mortar": ' directive output may be truncated writing 12 bytes into a
   region of size between 10 and 92` in `App::matEdSavePreset`, with the note
