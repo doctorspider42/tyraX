@@ -229,13 +229,13 @@ static int debugStateFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
-//   tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
-//                    [unitsPerMeter]
+//   tyrax-editor.exe --new <name> <parentDir> [width] [depth]
+//                    [empty|fpp|thirdperson] [unitsPerMeter]
 static int createFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --new <name> <parentDir> [width] [depth] "
-                     "[empty|fpp] [unitsPerMeter]\n");
+                     "[empty|fpp|thirdperson] [unitsPerMeter]\n");
         return 2;
     }
     TerrainConfig t;
@@ -1013,7 +1013,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
-            "  --new <name> <parentDir> [w] [d] [empty|fpp] [unitsPerMeter]\n"
+            "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] [unitsPerMeter]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"

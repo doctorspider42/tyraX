@@ -27070,7 +27070,10 @@ std::vector<File> generate(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     auto fill = [&](const char* tpl) { return fillTemplate(p, tpl); };
 
-    const bool fpp = p.gameTemplate == "fpp";
+    // The FPP and third-person presets share one game template - the camera rig
+    // is a per-Player-object property (playerMode), not a source-level fork.
+    // Only the Empty ("orbit") preset generates different sources.
+    const bool fpp = p.hasPlayerTemplate();
     const std::string gameCpp =
         fill(TPL_GAME_CPP_PROLOG) +
         fill(fpp ? TPL_GAME_CPP_FPP_HEAD : TPL_GAME_CPP_ORBIT_HEAD) +

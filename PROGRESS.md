@@ -458,6 +458,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (219) **Three starting presets, and the choice is now permanent** (user:
+  "Zaktualizuj presety. Niech do wyboru jest tylko fpp, third person i empty.
+  Jak juz sie go wybierze, to niech sie juz nie da tego zmieniac w
+  preferencjach projektu").
+
+  *New Project* offers **FPP (first person)**, **Third person** and **Empty
+  (orbit camera)**. Third person is the new one: the same player-entity
+  template as FPP with the seeded Player object in mode 2, so the camera sits
+  on a boom behind it and its avatar is that object's own animated model -
+  assigned later in Properties, the rig and the movement work without one.
+  `Project::gameTemplate` grew a third value (`"thirdperson"`); the two player
+  presets generate the SAME sources, which is why the fork in
+  `templates::generate` is now `Project::hasPlayerTemplate()` rather than a
+  string compare against `"fpp"`. Unknown template strings still clamp to
+  `"orbit"` on load, so nothing old moves.
+
+  **The lock is the point of the change.** *Project > Preferences* used to
+  carry a Template combo that rewrote `gameTemplate` on OK - which quietly
+  regenerates `src/terrain_game.cpp` / `inc/terrain_game.hpp` from a different
+  template, and those are **user-ownable** files: the switch either overwrites
+  work or, on a file whose ownership marker was deleted, leaves an owned source
+  that no longer matches what the project builds. The row is now disabled and
+  says so, `prefTemplate_` is gone (a staged field that can never be edited is
+  a trap waiting for the next contributor), and the OK path no longer writes
+  `gameTemplate` at all. What stays editable is the thing that should be: the
+  Player object's own Mode / camera style / boom - a per-object property, not a
+  source fork. The preset labels/strings live in ONE table (`kNewPresets` in
+  app.cpp) read by the dialog and by the read-only Preferences row.
+
+  **Verified** (layers 0-2 + a driven GUI check): editor builds clean on Linux;
+  `--new` with `fpp` / `thirdperson` / `empty` writes `"template": "fpp"` /
+  `"thirdperson"` / `"orbit"`, seeds the Player at `"mode": "walk"` /
+  `"thirdperson"` / no object, and emits `PLAYER_MODES = {0}` / `{2}` into
+  `scene_data.hpp`; the FPP and third-person `src/terrain_game.cpp` are
+  byte-identical apart from the project namespace, while the empty one forks as
+  before. `--resave` round-trips `"thirdperson"`, an unknown preset argument and
+  a hand-edited unknown `"template"` both clamp to `"orbit"`. The GUI was driven
+  with `wayland-control.py`: the New Project combo lists exactly the three
+  presets, and in Preferences the Game row shows "Third person" greyed - a click
+  on it opens no dropdown.
+
 - (215) **Baked global illumination + light probes**
   ([docs/global-illumination.md](docs/global-illumination.md),
   [examples/global-illumination](examples/global-illumination)). Static geometry

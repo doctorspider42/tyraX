@@ -91,7 +91,7 @@ probe is still absent after a fetch.
 `TYRAX` below.)
 
 ```
-TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp] [unitsPerMeter]
+TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter]
 TYRAX --build <projectDir> [--run]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
@@ -104,7 +104,12 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
 
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
   Dockerfile) **without Docker** — instant way to get a fixture. `fpp` seeds a
-  single Player entity; `empty` is an orbit-camera scene with no objects.
+  single Player entity in walk mode and `thirdperson` the same entity in
+  third-person mode (both generate the SAME game sources — the mode is a
+  per-object property); `empty` is an orbit-camera scene with no objects. The
+  preset is the project's permanent `template` field, so it is also the way to
+  fixture either game template — the editor deliberately offers no way to
+  switch afterwards.
   Defaults match the *New Project* dialog: 100x100 terrain, 1 unit = 1 m, the
   **debug** profile with Live Link on, USB keyboard & mouse off. It echoes the
   terrain size and world scale, so `--new` + a grep over the `.tyra` is the

@@ -332,6 +332,21 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
 `inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
 
+**The starting preset (`Project::gameTemplate`) is create-only.** The three
+presets the *New Project* dialog offers — `fpp`, `thirdperson`, `orbit` (Empty)
+— live in ONE table, `kNewPresets` in app.cpp, read by both the dialog and the
+(disabled) Preferences row that displays the choice; `project::create` is the
+only writer. It is deliberately not editable afterwards, because it picks which
+**user-ownable** game-template sources are generated (`src/terrain_game.cpp`,
+`inc/terrain_game.hpp`) — flipping it would either overwrite the user's work or
+leave an owned file no longer matching what the project builds. The two player
+presets generate the SAME sources (`Project::hasPlayerTemplate()` is the one
+place they are treated as one thing) and differ only in the seeded Player
+object's `playerMode`, which stays editable per object like any other property.
+A new preset is a row in that table plus a branch in `project::create`; a new
+*game template* (a genuine source fork) is that plus a `hasPlayerTemplate`-style
+predicate at the `templates::generate` fork.
+
 **A member initializer is NOT the new-project default.** Every `read*Section`
 guards on `find("key")`, so the struct initializer is what a project saved
 *before that key existed* loads as — changing it silently changes those
