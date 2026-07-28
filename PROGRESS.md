@@ -10,6 +10,43 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (136) **A projected shadow could stand up in the air.** Owner, with a
+  screenshot of four spheres hanging in a line: black curtains climbing out of
+  the ground into the sky, "the higher, the more of it".
+
+  The receiver patch is a 4x4 heightfield and it asked `projSurfaceAt` for a
+  height at EVERY vertex. That function answers "the top of any receiver whose
+  footprint contains this point", which is the right question for *placing* a
+  patch and the wrong one for *shaping* one: a receiver is any visible solid,
+  so a prop standing inside the patch punched a cliff into it - one vertex on
+  the ground, its neighbour on the prop's roof - and the quad between them
+  rasterized as a wall. Casters in the AIR made it spectacular, because the
+  receiver cut-off is the caster's own underside: the higher the caster, the
+  more objects qualify as "floor", so a stack of spheres each drew a curtain up
+  through the ones below it.
+
+  The patch now decides what it lies on ONCE, at its centre: on the terrain it
+  samples the terrain per vertex as before (smooth by nature, and following the
+  relief is the whole point), on geometry it stays flat at the height the
+  centre found - which is what a floor is. The cost, said out loud: a patch
+  that overhangs the edge of a small platform instead of folding down beside
+  it. A shadow that floats a little beats one that stands up in the air.
+
+  **Verified** on the owner's own scene (`shadow-problem`, copied out of
+  ~/TyraProjects so their working copy was left alone), in PCSX2 on the
+  software renderer: 3937 pixels of sky stopped being covered, and the
+  difference is confined to the curtain's bounding box - nothing else in the
+  frame moved.
+
+  **Not fixed, and now the visible remainder**: the shadow of a caster high
+  above the ground lands SHORT. `tg` is clamped to `r * 4`, so a sphere 7 units
+  up throws its patch about half way to where the shadow really belongs, and
+  the silhouette is then mostly outside its own patch - what is left reads as a
+  thin dark sliver on the ground. That clamp is deliberate (an unclamped patch
+  runs to the horizon and the camera ends up inside it) but it was tuned for
+  casters standing on the floor, and a thrown object is exactly the case it
+  handles worst. Backlog.
+
 - (135) **The GI bake moved into the Ambience Editor** (owner's ask). It was
   its own *Tools* window; it is now the **Global illumination** tab of *Tools >
   Ambience Editor*, beside the presets. That window is already where a scene's

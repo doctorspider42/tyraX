@@ -8818,6 +8818,30 @@ void TerrainGame::renderProjShadows() {
     ProjShadow& b = projShadows[s];
     const float gx = sgx[s], gz = sgz[s], half = shalf[s];
     projCollectReceivers(gx, gz, half + 0.5F, syMax[s]);
+    // What this patch lies on is decided ONCE, at its centre - never per
+    // vertex.
+    //
+    // projSurfaceAt answers "the top of any receiver whose footprint contains
+    // this point", which is the right question for placing the patch and the
+    // wrong one for shaping it: a receiver is any visible solid, so a prop
+    // standing INSIDE the patch punched a cliff into it - one vertex on the
+    // ground, its neighbour on the prop's roof - and the quad between them
+    // rasterized as a wall climbing into the sky. Casters in the AIR made it
+    // spectacular, because yMax rises with the caster and lets every object
+    // below it qualify: a stack of spheres each drew a black curtain up
+    // through the ones under it, worse the higher they went.
+    //
+    // So: on the terrain, sample the terrain (smooth by nature, and the
+    // relief is exactly what this patch wants to follow); on geometry, stay
+    // FLAT at the height the centre found, which is what a floor is anyway.
+    // The cost is a patch that overhangs the edge of a small platform instead
+    // of folding down beside it - a shadow that floats a little, against one
+    // that stands up in the air.
+    const float baseY = projSurfaceAt(gx, gz);
+    const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
+    auto patchY = [&](float px, float pz) {
+      return onGeometry ? baseY : terrainHeightAt(px, pz);
+    };
 
     int v = 0;
     for (int iz = 0; iz < kCells; ++iz) {
@@ -8826,10 +8850,10 @@ void TerrainGame::renderProjShadows() {
         const float x1 = gx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * half;
         const float z0 = gz + ((float)iz / kCells - 0.5F) * 2.0F * half;
         const float z1 = gz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * half;
-        const Vec4 p00(x0, projSurfaceAt(x0, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p10(x1, projSurfaceAt(x1, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p11(x1, projSurfaceAt(x1, z1) + 0.05F, z1, 1.0F);
-        const Vec4 p01(x0, projSurfaceAt(x0, z1) + 0.05F, z1, 1.0F);
+        const Vec4 p00(x0, patchY(x0, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p10(x1, patchY(x1, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p11(x1, patchY(x1, z1) + 0.05F, z1, 1.0F);
+        const Vec4 p01(x0, patchY(x0, z1) + 0.05F, z1, 1.0F);
         const Vec4 tp[6] = {p00, p10, p11, p00, p11, p01};
         for (int k = 0; k < 6; ++k) {
           // STs come from the TRUE surface point: the depth bias below must
