@@ -143,8 +143,12 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
                 s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
                      flowExecOutLabel(t, e);
             out.push_back(s);
-        } else if (eo == 1 && t.execThrough) {
-            out.push_back("exec (fires later - see doc)");
+        } else if (eo == 1) {
+            // A single output still has to be NAMED, or a node whose whole
+            // point is "and then this runs" (Tween's finished, Do Once's then)
+            // reads in the catalog as having no exec output at all.
+            out.push_back(std::string("exec \"") + flowExecOutLabel(t, 0) +
+                          "\" (fires later - see doc)");
         }
     }
     if (t.idIn) in.push_back("object");
