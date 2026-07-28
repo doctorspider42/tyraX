@@ -92,6 +92,13 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [Running and debugging on a real PS2](ps2link-setup.md) - the one-time
+  console setup for the F6 network deploy: building the TyraX ps2link (the only
+  one supported - a pinned upstream plus our patch, built in Docker), flashing
+  it with an `IPCONFIG.DAT`, the editor's IP preference, what the deploy
+  actually does step by step, the ports a firewall has to let through, what
+  differs from PCSX2 when debugging, and a table of every failure message. Plus
+  the loop for changing the patch, because we will.
 - [The devkit, and its zero-cost promise](devkit.md) - the live channels, the
   crash reporting, the VU1 packet inspector, and the release audit; the three live channels
   (Live Link / Live Debugger / Live Logic) as one development kit, what a debug

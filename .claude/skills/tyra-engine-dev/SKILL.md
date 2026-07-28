@@ -228,12 +228,13 @@ keys onto the pad; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
 symbols and drivers added to an already-running ps2link's un-reset IOP never
 come up cleanly (PS2MouseInit then spins forever on an RPC server that never
 registered — a boot freeze on the Tyra logo). The
-`loadUsbKbdMouseUnderPs2Link` option instead targets the **custom TyraX
-ps2link** (`tools/ps2link-usbhid` — bakes usbd+ps2kbd+ps2mouse into ps2link's
-OWN boot): the engine then loads NO USB modules and reuses that resident
-stack. `KbdMouse::init(underPs2Link)` guards PS2MouseInit on the keyboard
-device having opened, so mis-ticking it on stock ps2link logs instead of
-hanging. Two real-hardware traps found the hard way: PS2MouseData must be
+`loadUsbKbdMouseUnderPs2Link` option instead targets the **TyraX ps2link**
+(`tools/ps2link` — bakes usbd+ps2kbd+ps2mouse into ps2link's OWN boot; it is
+the ONLY ps2link the editor deploys to, so the option is on by default —
+docs/ps2link-setup.md): the engine then loads NO USB modules and reuses that
+resident stack. `KbdMouse::init(underPs2Link)` guards PS2MouseInit on the
+keyboard device having opened, so running it against a stock ps2link logs
+instead of hanging. Two real-hardware traps found the hard way: PS2MouseData must be
 zero-initialised (a real mouse sends no packet on a still frame, so garbage
 read as a constant delta spins the camera — PCSX2 never shows it) and the
 read mode is set to DIFF explicitly; the IrxLoader gives HID a fixed settle

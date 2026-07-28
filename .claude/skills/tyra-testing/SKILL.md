@@ -5,9 +5,11 @@ description: >
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
   game builds, checking code
   generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
-  reliable window screenshots via the bundled script), and audio verification.
+  reliable screenshots and synthetic keyboard/mouse via the bundled scripts —
+  GDI on Windows, mutter's D-Bus APIs on Wayland), and audio verification.
   Use this skill EVERY time you need to test a change, run the editor, build a
-  game, boot PCSX2, take a screenshot, create a scratch project, or decide
+  game, boot PCSX2, take a screenshot, drive the editor or the emulator without
+  a human, create a scratch project, or decide
   "how do I know this works?" — including before writing a PROGRESS.md entry or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
@@ -39,8 +41,22 @@ box you are on; they take the same flags and do the same things.
 ./build.sh --clean   # full rebuild
 ```
 
+`build.cmd` / `setup.cmd` exist for plain `cmd.exe` and double-clicks. They are
+**wrappers only** — they map `run`/`clean` onto `-Run`/`-Clean` and forward to
+`build.ps1`/`setup.ps1` with `-ExecutionPolicy Bypass`. Never give them logic of
+their own: they used to carry a hand-copied dependency list, it drifted behind
+`deps.ps1`, and a fresh clone got "vendor\tyra is not an empty directory" from
+setup plus "Cannot find source file: vendor/ufbx/ufbx.c" from cmake.
+
 Needs `scoop install mingw cmake ninja` (Windows) or `./setup.sh --deps`
-(Linux — apt/dnf/pacman/zypper, the lists live in deps.sh). build.sh checks
+(Linux — apt/dnf/pacman/zypper, the lists live in deps.sh). **The Windows
+compiler is MinGW-w64 GCC; MSVC is not a supported target and no flag makes it
+one** — `src/templates.cpp` holds the PS2 templates as raw string literals far
+past MSVC's hard 16380-byte cap per literal, so Visual Studio's default
+`x64-Debug` CMake preset dies with a wall of *C2026 string too big* (plus
+C2589/C2660 in `wire.cpp`, where `windows.h`'s `min` macro eats `std::min`).
+Report of that error means "you configured with the wrong kit", not a code bug.
+build.sh checks
 the tools and the pkg-config headers up front, names the exact install command
 for the distro it is on, and refuses to configure rather than failing later
 inside cmake. This is also the compile check for everything under `src/` —
@@ -225,7 +241,18 @@ Notes:
   project's *Keyboard & mouse controls* preference is on; `bin/log.txt` prints
   `KbdMouse: keyboard driver ready` / `mouse driver ready` when the game saw
   the devices. See `docs/keyboard-mouse.md`.)
-- **Synthetic input into PCSX2** (scripted keyboard/mouse tests): plain
+- **Synthetic input into PCSX2** (scripted keyboard/mouse tests). **On Linux
+  this is the easy side**: `wayland-control.py` (see Screenshots below) injects
+  through the compositor, so PCSX2 cannot tell the events from a real keyboard —
+  click the render area once to focus it, then send pad keys, holding them with
+  `keydown`/`keyup` where a direction has to be held. Per `[Pad1]` in PCSX2.ini
+  the ones that matter are **W/A/S/D = left stick**, **T/G/F/H = right stick**,
+  **K = Cross**, `Return` = Start, arrows = D-pad. Note the generated game reads
+  **only the analog sticks** (`getLeftJoyPad`/`getRightJoyPad` in
+  `updatePlayer`), so a held D-pad `Up` changes nothing — that is the game, not
+  the injection, and it looks identical to a broken tool. Mouse buttons work
+  too, and `movrel` covers the captured-cursor case. **On Windows** it is
+  the mess below: plain
   `SetForegroundWindow` from a background shell silently fails — use the
   ALT-tap + `AttachThreadInput` trick and VERIFY `GetForegroundWindow`
   afterwards, or inputs go nowhere. `PostMessage` WM_KEYDOWN to the main
@@ -272,12 +299,58 @@ Notes:
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
 
-  **On Linux there may be no screen capture at all**: under a Wayland session
-  the compositor refuses non-interactive capture, so `gnome-screenshot -f`
-  exits 0 and writes nothing and the `org.gnome.Shell.Screenshot` D-Bus method
-  answers `AccessDenied`. Do not spend time on it — for **editor viewport**
-  work there is a better substitute anyway: an **offscreen GL harness**
-  (PROGRESS 208). A hidden GLFW window (`GLFW_VISIBLE` false, `GLFW_INCLUDE_NONE`
+  **On Linux/Wayland use the bundled `wayland-control.py`** — screenshots *and*
+  synthetic keyboard/mouse, no human in the loop:
+
+  ```bash
+  python3 .claude/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
+  ```
+
+  It talks straight to **mutter's own D-Bus APIs** (`org.gnome.Mutter.ScreenCast`
+  for pixels over PipeWire, `org.gnome.Mutter.RemoteDesktop` for input). Neither
+  prompts, and both work for native Wayland surfaces — which is the whole point:
+  the editor's GLFW window and PCSX2's Qt window are Wayland surfaces, so X11
+  tools see nothing at all (`xwininfo -root -tree` lists neither). Do not spend
+  time on the paths that look obvious and are dead: `gnome-screenshot -f` exits 0
+  and writes nothing, and `org.gnome.Shell.Screenshot` / `org.gnome.Shell.Introspect`
+  answer `AccessDenied` to any plain session client. The mutter APIs one level
+  below them are not gated. Needs `python3-gi` + `gstreamer1.0-pipewire`, both
+  stock on Ubuntu GNOME.
+
+  Drive a whole interaction with `script`, which runs it in ONE mutter session —
+  a session dies with the process, so a chain of one-shot calls re-negotiates
+  PipeWire every time (~0.6 s each) and drops pointer state in between:
+
+  ```bash
+  python3 .claude/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
+  key ctrl+n
+  sleep 0.6
+  click --at 917,382
+  key ctrl+a
+  type WlTest_42
+  shot dialog.png --area 807,345,375,365
+  EOF
+  ```
+
+  Coordinates are global screen pixels — the same space a full-screen `shot`
+  returns, so read a target's position off one capture and click it in the next
+  step. Verified on this box: menus and dialogs opened by clicking in the editor,
+  `ctrl+n` / `ctrl+a`, typing that needs shift levels (`WlTest_42` arrives
+  verbatim), right-drag and wheel orbiting/zooming the viewport, and `k` reaching
+  PCSX2 as **pad 1 Cross** inside the emulated machine (the PS2 BIOS advanced
+  past its language screen).
+
+  Two limits. There is **no per-window capture**: mutter's `RecordWindow` wants a
+  window id that only the denied `Shell.Introspect` hands out, and the ids are
+  random-based rather than sequential (probing 0..79 matched nothing), so capture
+  the monitor and `--area` crop instead — and remember an occluded window
+  captures as whatever is on top of it. And a **pointer-locked** client (PCSX2
+  with mouse capture on, a game grabbing the cursor) never sees absolute motion:
+  use `movrel` there, not `move`.
+
+  For **editor viewport** work an **offscreen GL harness** (PROGRESS 208) is
+  still the better instrument when you want numbers instead of a picture.
+  A hidden GLFW window (`GLFW_VISIBLE` false, `GLFW_INCLUDE_NONE`
   before glfw3.h so the loader's symbols win), `glInit()`, a real `Viewport`,
   real `render()` calls at a real panel size, then `glReadPixels` off
   `lastImageFbo_` into a PNG through the already-linked `stb_image_write`
@@ -318,6 +391,13 @@ Notes:
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then
   screenshot; compare against a known-good screenshot when hunting regressions.
+  The reverse trap bites within ONE run: **an axis-aligned walk over the flat
+  checkerboard terrain is nearly invisible to a pixel diff**, because
+  translating along the grid maps the repeating pattern onto itself — a 2.5 s
+  forward hold from the default FPP pose changed an 11-pixel band at the
+  terrain's far edge and nothing else, which reads as "input never arrived".
+  Turn the camera first (right stick), then walk: the same hold then moves
+  ~150k pixels.
   **A strict pixel A/B between two RUNS usually cannot work** — an orbiting or
   auto-spinning camera is at a different phase in each boot, and the
   interlaced FIELD modes alternate fields, so window captures never line up
@@ -435,9 +515,11 @@ Notes:
   help text suggests: on the pinned build `dumpmem` answers `EE: pkoDumpMem()
   write failed` (the destination file is created, zero bytes) and `scrdump`
   exits 0 having written nothing — vestigial pko-era plumbing, not working
-  tools. Anything wanted from them is a **ps2link patch** (the workflow exists:
-  `tools/ps2link-usbhid/` clones a pinned ps2link, applies a patch and builds
-  it in Docker), and hardware-only — PCSX2 runs no ps2link. (Verified: a session
+  tools. Anything wanted from them is a **ps2link patch**, which is the normal
+  workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
+  pinned upstream, applies `tyrax.patch` and builds it in Docker via
+  `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
+  PCSX2 runs no ps2link. (Verified: a session
   orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
   the game is actually gone do you need the runner's two commands —
   `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`
@@ -545,8 +627,9 @@ Notes:
   human.
 - **Two-player modes** (docs/multiplayer.md): the split/shared toggle is
   testable with ONE keyboard: give the scene two Player objects and a pause
-  menu with the "Player count" option block, then drive pad 1 via PostMessage
-  (Start=Return opens the menu, Cross=K cycles the row) and screenshot — the
+  menu with the "Player count" option block, then drive pad 1 synthetically
+  (PostMessage on Windows, `wayland-control.py` on Linux —
+  Start=Return opens the menu, Cross=K cycles the row) and screenshot — the
   frame visibly flips between full-screen and the top/bottom split (or the
   pulled-back shared camera). Pad-2 hot-join (Start on pad 2) needs a second
   pad configured in PCSX2's Pad2 slot — that part stays a hands-on test.
@@ -559,7 +642,7 @@ Notes:
 
 | Change | Minimum honest verification |
 |---|---|
-| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (Windows; see the screenshot note for what stands in on Linux) |
+| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (`screenshot-window.ps1` on Windows, `wayland-control.py` on Linux — both can drive the UI too) |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |

@@ -643,6 +643,62 @@ Each finished feature lands as its own commit.
   progress/cancel path was exercised through its headless twin rather than by
   hand.
 
+- (219) **One ps2link, and it is ours**
+  ([docs/ps2link-setup.md](docs/ps2link-setup.md)). The question was "mamy
+  instrukcję, jak zbudować ps2link i jak go skonfigurować, żeby móc debugować
+  z edytorem?", and the honest answer was: in three places, with a hole. The
+  README explained F6 and the IP preference; `tools/ps2link-usbhid/` explained
+  building a *custom* ps2link, but framed as an opt-in extra for keyboard and
+  mouse; and the **console-side one-time setup** - copying `PS2LINK.ELF` onto a
+  memory card next to an `IPCONFIG.DAT` - lived exclusively in a code comment in
+  `deps.sh`/`deps.ps1`, which is the last place a person looks. Followed by the
+  decision that resolves it: "przejdźmy na taką ścieżkę, że zawsze zakładamy, że
+  budujemy naszego ps2linka... to jest jedyna ścieżka".
+
+  So the TyraX ps2link is now the *only* supported console side, and the tree
+  says so. `tools/ps2link-usbhid` → **`tools/ps2link`**, `usbhid.patch` →
+  **`tyrax.patch`**: the directory was named after the one feature we happened
+  to patch in, and more patches are expected (ps2link's own `dumpmem`/`scrdump`
+  are vestigial - anything wanted from the console is a patch, see the
+  tyra-testing skill). The name was free because `deps` **stopped downloading a
+  stock ps2link release**; nothing fetches a ps2link for you now, you build it.
+  And `build.ps1` gained the **`build.sh`** it never had - the only script in
+  the repo without a POSIX twin, which on a Linux machine with no `pwsh` meant
+  "we have instructions" was false in practice.
+
+  [docs/ps2link-setup.md](docs/ps2link-setup.md) is the missing document, end to
+  end: hardware, the one build command, flashing, and the `IPCONFIG.DAT` details
+  that are only obvious from ps2link's source - it is opened by a **relative**
+  path (so it belongs next to `PS2LINK.ELF`), it is `ip netmask gateway` on one
+  line, there is no DHCP, and when it cannot be read ps2link silently uses a
+  compiled-in **192.168.1.10**, which is the tell for "your file was never
+  found". Then the editor's IP preference, what F6 actually does in order (the
+  `bin/ps2link.run` marker the game probes over `host:` because `execee` cannot
+  be trusted to deliver argv, `reset`, then the `execee` whose `ps2client` *is*
+  the session's file server), the ports a firewall has to pass (console listens
+  on TCP 18193 and UDP 18194; the `[ps2]` log lines come back as UDP 18194),
+  what differs from PCSX2 when debugging, a table of every failure message, and
+  the loop for changing the patch - regenerate it **before** rebuilding, because
+  both build scripts start with `git checkout -- .`.
+
+  One behaviour change fell out of the decision: *Preferences > Build >
+  Keyboard & mouse > Also over ps2link* is **on by default** (`keyboardMousePs2Link`,
+  reader default flipped too, so a project predating the key gets it) and its
+  label lost the "needs the TyraX ps2link" qualifier - that ps2link is now the
+  premise, not a condition. A stock one still degrades safely: the keyboard
+  device does not open, the mouse is skipped rather than hanging.
+
+  **Verified**: `tools/ps2link/build.sh` from a clean tree on Linux - pulled
+  `ps2dev/ps2dev`, cloned ps2link at the pinned `0c6138c`, applied
+  `tyrax.patch`, `make ee` - produced `ps2link.elf`, 283 828 bytes, and the
+  patched `loadModules()`/banner are in the built tree. Editor rebuilt clean
+  with the preference and comment changes. **Not covered**: there is no PS2 on
+  this machine, so every console-side step is documented from ps2link's own
+  sources (the `IPCONFIG.DAT` open, the fallback constants, `PKO_PORT` /
+  `PKO_CMD_PORT`) and from `runner.cpp`, not from a flash-and-boot; and
+  `build.ps1` - whose only change is the patch's new name - is unrun, there
+  being no PowerShell here.
+
 - (218) **The projected shadow stopped blinking, and one flag for "do not bake
   my light"** (user, after 217: "cien pod graczem tak sobie lubi mrugac znikac
   czasami, troszke tak, jakby sie klocil o priorytet z powierzchnia, na ktora
@@ -12784,3 +12840,102 @@ Each finished feature lands as its own commit.
   this machine is still in the white-window state from 101/PROGRESS notes (the
   AMD GL present quirk reproduces on baseline builds), so screenshots capture
   nothing - the visual pass needs a human.
+
+- (216) **Build: the .cmd scripts were a third dependency list, and it had
+  drifted** (user report on a fresh clone: `setup.cmd` complained that
+  `vendor\tyra` is not empty - "it isn't and never will be" - and `build.cmd`
+  then failed on a missing ufbx). Entry 102 collapsed setup and build onto the
+  one list in `deps.ps1`, but `setup.cmd`/`build.cmd` were never part of that:
+  they carried their own hand-copied six-repo list and their own four-directory
+  guard. Both were stale in exactly the way 102 predicted - no `vendor/ufbx`
+  anywhere, so cmake reached `Cannot find source file: vendor/ufbx/ufbx.c`; no
+  PS2 tools; `.git` as the "is it there" probe instead of a file the build
+  compiles; and a plain `git clone` into `vendor\tyra`, whose engine sources are
+  versioned in this repo, so every run printed `fatal: destination path already
+  exists and is not an empty directory` as if something were broken.
+  The fix is to delete the duplicate rather than repair it: both .cmd files are
+  now wrappers that locate `pwsh.exe` (else `powershell.exe`) and forward to
+  `setup.ps1`/`build.ps1` with `-NoProfile -ExecutionPolicy Bypass`, `build.cmd`
+  mapping its `run`/`clean` words onto `-Run`/`-Clean` and propagating the exit
+  code. `-ExecutionPolicy Bypass` is the only reason to keep a .cmd at all -
+  that, and double-clicking. There is now one list (`deps.ps1`) and one
+  implementation per platform; a `.cmd` that grows logic again is the bug.
+  Rode along in the same pass, from a second user report - a wall of MSVC
+  errors (C2026 *string too big* across `templates.cpp`, plus C2589/C2660 in
+  `wire.cpp`) from someone who opened the folder in Visual Studio and built the
+  default `x64-Debug` preset. That is not fixable: `templates.cpp` is ~1.3 MB of
+  raw string literals in 48 chunks averaging ~27 KB, and MSVC's cap is a hard
+  16380 bytes **per literal** - splitting every PS2 template into 16 KB pieces
+  to please a compiler this project does not target is not a trade worth making
+  (the `windows.h` `min` macro eating `std::min` in `wire.cpp` is the same
+  build, and merely the first symptom that scrolls past). So the Windows
+  toolchain being MinGW-w64 GCC *only* is now stated where people look: the
+  README Quickstart, the Requirements list, and the tyra-testing skill, with the
+  error text spelled out so the next report is recognised as a wrong CMake kit
+  rather than a code bug.
+  *Verified* on Linux, which shares the implementation the wrappers now call:
+  `./setup.sh` on this worktree (vendor/ held only the in-tree `tyra`) cloned
+  imgui/glfw/imguizmo/imnodes/stb/**ufbx** plus both PS2 tools and printed
+  `OK: vendor/tyra already present` - the exact complaint the .cmd path used to
+  produce, gone - and `./build.sh` went through to `OK: build/tyrax-editor`.
+  The .cmd wrappers themselves are **unchecked by execution**: no cmd.exe on
+  this machine. They need one run on Windows.
+
+- (217) **Screenshots and synthetic input on Linux/Wayland - the "there may be
+  no screen capture at all" note in tyra-testing was wrong**, and the way
+  around it turned out to be one D-Bus layer below where everyone gives up.
+  The dead ends the old note recorded are real and stay documented:
+  `gnome-screenshot -f` exits 0 and writes nothing, and both
+  `org.gnome.Shell.Screenshot` and `org.gnome.Shell.Introspect` answer
+  `AccessDenied` to a plain session client (gnome-shell allowlists the two
+  desktop portals and nothing else). But **mutter's own APIs are not gated**:
+  `org.gnome.Mutter.ScreenCast.CreateSession` and
+  `org.gnome.Mutter.RemoteDesktop.CreateSession` both hand a session to any
+  process on the bus, no prompt, no portal dialog - pixels come out over
+  PipeWire, and the remote-desktop session injects keyboard and pointer events
+  straight into the compositor. That is the whole story, and it matters here
+  because the editor's GLFW window and PCSX2's Qt window are **native Wayland
+  surfaces**: `xwininfo -root -tree` lists neither, so every X11 tool is blind
+  to exactly the two windows this project needs to see.
+  New `.claude/skills/tyra-testing/scripts/wayland-control.py` (the Linux twin
+  of `screenshot-window.ps1`, ~300 lines of python3-gi + gstreamer) wraps it:
+  `shot` (whole monitor or `--area` crop), `move`/`movrel`/`click`/`drag`/
+  `button`/`scroll`, `key ctrl+n`, `type`, and `script` - which runs a whole
+  interaction in ONE mutter session, the mode that matters, because a session
+  dies with the process and a chain of one-shot calls re-negotiates PipeWire
+  every time (~0.6 s) and loses pointer state in between.
+  *Verified end to end on this box* (Ubuntu GNOME 1920x984, Wayland): the
+  editor's File menu clicked open; `ctrl+n` opened New Project; `ctrl+a` +
+  `type WlTest_42` landed verbatim in the name field, so keysym injection
+  handles shift levels on its own; right-drag and the wheel orbited and zoomed
+  the viewport (both absolute drag and `movrel`, the latter being the only
+  motion a pointer-locked client sees); and against `pcsx2-qt -bios`, `k`
+  arrived as **pad 1 Cross inside the emulated PS2** - the BIOS advanced past
+  its language-select screen. So the emulator is drivable without a human on
+  Linux, which on Windows it never fully was (mouse buttons were never seen
+  from synthetic events there at all).
+  Two limits, both measured. **No per-window capture**: mutter's `RecordWindow`
+  wants a window id that only the denied `Shell.Introspect` publishes, and the
+  ids are random-based rather than sequential (a probe of 0..79 matched
+  nothing), so the recipe is capture-monitor + `--area` crop, and an occluded
+  window captures as whatever sits on top of it.
+  Then the same tooling was pointed at **a real Tyra game, full Layer 3**, which
+  is the check that matters: `h4570/tyra` is **0.32 GB compressed / 1.15 GB on
+  disk** (small enough that skipping the boot over disk worry was the wrong
+  call), first `--build` of a fresh `--new ... fpp` fixture took ~4 minutes
+  including libtyra, and the game booted in PCSX2 at 50 FPS. Driving it:
+  `keydown h` / `keyup h` (right stick right) swung the camera - 151k pixels
+  changed - and `keydown w` walked the player forward. Two things learned in
+  the process. The generated FPP game reads **only the analog sticks**
+  (`getLeftJoyPad`/`getRightJoyPad` in `updatePlayer`), so the D-pad moves
+  nothing at all - a held `Up` produced a byte-identical frame, which looks
+  exactly like broken input injection and is not; the pad keys that do work are
+  W/A/S/D (left stick), T/G/F/H (right stick) and K = Cross, per `[Pad1]` in
+  PCSX2.ini. And an **axis-aligned walk over the flat checkerboard terrain is
+  nearly invisible to a pixel diff**: the first forward test changed only an
+  11-pixel band at the terrain's far edge, because a translation along the grid
+  maps the repeating pattern onto itself. Turn first, then walk - after a yaw
+  change the same `w` hold moved 146k pixels.
+  Unrelated to entry 215's white-window note, which is a Windows/AMD present
+  quirk: this Linux box renders and captures both the editor viewport and the
+  emulated game correctly.
