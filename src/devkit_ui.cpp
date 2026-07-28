@@ -1677,7 +1677,7 @@ void App::drawDebuggerWindow() {
                     ImGui::TableNextRow();
                     ImGui::PushID((int)i);
                     ImGui::TableSetColumnIndex(0);
-                    char label[16];
+                    char label[24];  // fits any 64-bit size_t
                     std::snprintf(label, sizeof(label), "%zu", i);
                     const bool pinnedHere =
                         dbgVuPinFlush_ && dbgVuFlushWanted_ == (int)i;
