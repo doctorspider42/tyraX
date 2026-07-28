@@ -266,6 +266,9 @@ std::string bake(const Project& p,
         // "<model>.uvs" replacement-UV sidecars (animated-model unwrap) are
         // folded into the baked .tskl - the file itself never ships
         if (lowerExt(rel) == ".uvs") return true;
+        // "<track>.drone" patches (Drone Generator) describe how a WAV was
+        // generated; the game only ever streams the WAV.
+        if (lowerExt(rel) == ".drone") return true;
         const std::string top = rel.begin()->generic_string();
         if (top == "fonts") {
             const std::string ext = lowerExt(rel);

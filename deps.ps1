@@ -36,6 +36,9 @@ $VendorDeps = @(
     @{ Url = 'https://github.com/ufbx/ufbx.git'
        Branch = 'master'; Dir = 'vendor/ufbx'
        Probe = 'vendor/ufbx/ufbx.c'; Build = $true },
+    @{ Url = 'https://github.com/mackron/miniaudio.git'
+       Branch = 'master'; Dir = 'vendor/miniaudio'
+       Probe = 'vendor/miniaudio/miniaudio.h'; Build = $true },
     @{ Url = 'https://github.com/h4570/tyra.git'
        Branch = 'master'; Dir = 'vendor/tyra'
        Probe = 'vendor/tyra/Makefile.base'; Build = $false }

@@ -1,14 +1,17 @@
 @echo off
 REM cmd entry point for setup.ps1 - for shells where "./setup.ps1" is awkward
-REM (plain cmd.exe, a double-click, a restrictive execution policy).
+REM (plain cmd.exe, a double-click, a restrictive execution policy). Clones the
+REM third-party dependencies into vendor\ and fetches the PS2 deploy tools.
 REM
 REM This is a WRAPPER ON PURPOSE. It used to carry its own copy of the
-REM dependency list and drifted behind deps.ps1: it never cloned vendor/ufbx,
+REM dependency list - a column of :clone calls - and drifted behind deps.ps1:
+REM it never cloned vendor/ufbx (nor, earlier, stb's headers and miniaudio),
 REM and it tried to "git clone" into vendor\tyra, whose engine sources are
 REM tracked in this repo, so a fresh clone got "destination path already exists
 REM and is not an empty directory" followed by cmake failing on the missing
 REM ufbx sources. There is one list (deps.ps1) and one implementation
 REM (setup.ps1) - do not reintroduce a second one here.
+REM See "Platform parity" in .claude/skills/tyra-editor-dev/SKILL.md.
 setlocal
 cd /d "%~dp0"
 
