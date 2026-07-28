@@ -5595,9 +5595,18 @@ void TerrainGame::updateDynLitObjects() {
   // The shared light DIRECTIONS - the anim path sets these too, but it bails
   // out early when a scene has no animated models, and this pass must not
   // depend on that having happened.
-  animLightDirs[0].set(SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z, 1.0F);
-  animLightDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
-  animLightDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+  // The direction array is a MATRIX, not three vectors: VU1 computes
+  //   out = D[0]*n.x + D[1]*n.y + D[2]*n.z
+  // and out.i - the term that multiplies light color i - is ROW i dotted with
+  // the normal. So light i's direction goes in COLUMN i, i.e. this array holds
+  // the transpose. Filled row-wise (which is what it looks like it wants) the
+  // single sun silently degrades to out.x = SCENE_LIGHT_X * n.x: shading that
+  // follows one coordinate of the normal, scaled by one coordinate of the
+  // light. On a cylinder that reads as vertical bands; on a character it just
+  // reads as "a bit dark". See pipeline_lighting_options.hpp.
+  animLightDirs[0].set(SCENE_LIGHT_X, 0.0F, 0.0F, 1.0F);
+  animLightDirs[1].set(SCENE_LIGHT_Y, 0.0F, 0.0F, 1.0F);
+  animLightDirs[2].set(SCENE_LIGHT_Z, 0.0F, 0.0F, 1.0F);
   const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
@@ -5658,9 +5667,18 @@ void TerrainGame::updateAndRenderAnimObjects() {
   animLightColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
   animLightColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
   animLightColors[3].set(amb, amb, amb, 128.0F);
-  animLightDirs[0].set(SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z, 1.0F);
-  animLightDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
-  animLightDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+  // The direction array is a MATRIX, not three vectors: VU1 computes
+  //   out = D[0]*n.x + D[1]*n.y + D[2]*n.z
+  // and out.i - the term that multiplies light color i - is ROW i dotted with
+  // the normal. So light i's direction goes in COLUMN i, i.e. this array holds
+  // the transpose. Filled row-wise (which is what it looks like it wants) the
+  // single sun silently degrades to out.x = SCENE_LIGHT_X * n.x: shading that
+  // follows one coordinate of the normal, scaled by one coordinate of the
+  // light. On a cylinder that reads as vertical bands; on a character it just
+  // reads as "a bit dark". See pipeline_lighting_options.hpp.
+  animLightDirs[0].set(SCENE_LIGHT_X, 0.0F, 0.0F, 1.0F);
+  animLightDirs[1].set(SCENE_LIGHT_Y, 0.0F, 0.0F, 1.0F);
+  animLightDirs[2].set(SCENE_LIGHT_Z, 0.0F, 0.0F, 1.0F);
 
   // pass 1: playback bookkeeping for every instance; collect the in-view
   // ones with their camera distance

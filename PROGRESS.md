@@ -11561,6 +11561,60 @@ Each finished feature lands as its own commit.
 
 ## Backlog (rough order)
 
+- **Finish opt-in dynamic lighting per object** (branch
+  `claude/gi-dynamic-lighting-wip`, do NOT merge as-is;
+  docs/global-illumination.md is the surrounding design). An object may opt
+  into being lit by the LIT VU1 program with its four light colours re-read
+  from the probe grid every frame - the deal animated models already take - so
+  it relights with zero latency, including while it spins. Everything is wired
+  (`SceneObject::dynamicLighting`, the `dynLit` scene-data column, the
+  per-part `StaPipLightingBag`, `updateDynLitObjects()`); a detail-16 cylinder
+  renders at 50 FPS and is *still wrong*: hard vertical bands.
+
+  **What was already found and fixed on that branch** (these are real and
+  worth keeping regardless of whether the feature lands):
+  - **The dir-light direction array is a MATRIX, not three vectors.** VU1 does
+    `out = D[0]*n.x + D[1]*n.y + D[2]*n.z` and `out.i` - the term multiplying
+    light colour i - is ROW i dotted with the normal, so the array must hold
+    the TRANSPOSE of the directions. The generated game had filled it
+    row-wise since the animated-model work, which silently degrades a single
+    sun to `out.x = SCENE_LIGHT_X * n.x`: shading that follows one coordinate
+    of the normal, scaled by one coordinate of the light. **Every animated
+    model in every project has been lit that way**; the fix visibly brightens
+    and re-shades the third-person cat in `examples/gi-showcase`. The contract
+    is now documented in the engine's `pipeline_lighting_options.hpp`, which
+    is where the next person will look - the engine never fills that array
+    itself, it forwards the caller's pointer, so the convention lived nowhere.
+  - A lit part needs `TyraShadingGouraud`; the static path's `TyraShadingFlat`
+    takes one corner's normal for the whole triangle.
+  - `StaPipVU1Cull_D` (the untextured lit program) **never reads the colour
+    bag** - the entire output is `CalculateTyraDirectionalLights`. So
+    `colorBag->single` is irrelevant to the result and the albedo must be
+    folded into the light colours, exactly as the anim path does.
+  - `setLightsManually` stores POINTERS (not copies), so per-frame writes do
+    reach the bag - that was ruled out, not fixed.
+  - `TYRA_ASSERT` compiles to `((void)0)` in release, so the engine's
+    "Multicolor is not supported with lighting" guard is NOT a safety net in a
+    shipped build.
+
+  **What is still wrong, and the remaining suspects in order:**
+  1. **Normal/vertex index alignment per builder.** The banding follows the
+     cylinder's segments exactly. `g_litNormals` is pointed at
+     `g.parts[0].litNormals` for the whole object, which is fine for a
+     one-part primitive but is WRONG for a multi-part model - every part's
+     normals land in part 0. Check the primitive builders emit exactly one
+     normal per `pushVert` in the same order, and make the capture per part.
+  2. **What the lit program expects of the ambient slot vs the 0..255 static
+     colour space.** The anim precedent is always textured or material-backed;
+     an untextured lit mesh may want a different scale.
+  3. The pointer `setLightsManually` keeps into `part.litColors`, which
+     dangles if `g.parts` ever reallocates after the bag is wired.
+
+  Next session: start at (1) - dump the first few normals next to their
+  vertices for one cylinder (the Live Debugger watch list or a plain TYRA_LOG
+  will do) rather than reasoning about it.
+
+
 - **Session internet exposure** — today sessions are LAN (or any mesh VPN:
   Tailscale/ZeroTier make remote peers look local, zero code). The researched
   built-in options, in preference order: a Cloudflare quick tunnel
