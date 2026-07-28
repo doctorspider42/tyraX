@@ -5,10 +5,10 @@ description: >
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
   game builds, checking code
   generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
-  reliable screenshots, and DRIVING the game's controller unattended with
-  `--pad` — no window focus needed — plus synthetic keyboard/mouse via the
-  bundled scripts, GDI on Windows, mutter's D-Bus APIs on Wayland), and audio
-  verification.
+  reliable screenshots, and DRIVING both the game's controller (`--pad`) and the
+  EDITOR's own UI (`--ui-script`, clicking widgets BY NAME) unattended — neither
+  needs window focus — plus synthetic keyboard/mouse via the bundled scripts, GDI
+  on Windows, mutter's D-Bus APIs on Wayland), and audio verification.
   Use this skill EVERY time you need to test a change, run the editor, build a
   game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
   the emulator or the editor without a human, create a scratch project, or decide
@@ -137,6 +137,7 @@ TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
+TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -442,16 +443,42 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
-  The editor can also **capture its own framebuffer**, on either OS and with no
+  **To DRIVE the editor, use `--ui-script`** (docs/ui-scripting.md) - the editor
+  runs for real and holds its own mouse and keyboard, naming WIDGETS instead of
+  pixels, with **no window focus needed on either OS**:
+
+  ```powershell
+  build\tyrax-editor.exe --ui-script <projectDir> `
+      "frames 20; click Tools; click 'Remote Pad'; shot panel.png; quit"
+  ```
+
+  `click|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
+  plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
+  code is 0 only if every step passed, so a scripted GUI run gates a shell
+  script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
+  it prints every widget on screen with its rect AND its checked/open state, so
+  you neither guess a label nor read a value off a screenshot. Four things that
+  save time: a step that names a target WAITS for it (menus need no sleeps, and a
+  timeout prints what was on screen instead), a target is `"Window/Label"` with
+  prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
+  `...`), `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
+  (one big item: `drag` inside it, or work through the Project panel's list), the
+  imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
+  click their `Cancel`; `dump` shows it.
+
+  The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally
   `TYRAX_SHOT_EVERY=<seconds>`, default 2) and it writes `<dir>/shotNN.png` every
   interval (`App::captureFrameIfRequested`). It reads what the editor DREW rather
   than what was presented, so it is the one path that survives the AMD present
-  quirk that leaves the window blank. It cannot click anything: to reach a panel
-  that needs a menu click, pre-open it by adding its key to the active layout's
-  `open` list in the project's `.tyra` (`kLayoutWindowKeys` in app.cpp has the
-  names — `"drone"`, `"tree"`, `"material"`, ...). PROGRESS 210/211 verified a
-  whole tool window this way, including reading values off the knobs.
+  quirk that leaves the window blank. It cannot click anything - before
+  `--ui-script` existed the way to reach a panel behind a menu was to pre-open it
+  by adding its key to the active layout's `open` list in the project's `.tyra`
+  (`kLayoutWindowKeys` in app.cpp has the names - `"drone"`, `"tree"`,
+  `"material"`, ...), which is how PROGRESS 210/211 verified whole tool windows.
+  That trick still works and is fine for a pure "does it render" check; anything
+  that needs a click or an assertion is now a UI script.
 
   For **editor viewport** work an **offscreen GL harness** (PROGRESS 208) is
   still the better instrument when you want numbers instead of a picture.
@@ -789,7 +816,8 @@ test rather than a screenshot:
 
 | Change | Minimum honest verification |
 |---|---|
-| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (`screenshot-window.ps1` on Windows, `wayland-control.py` on Linux — both can drive the UI too; `TYRAX_SHOT=<dir>` self-capture when neither can see the window) |
+| Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot` to look at. No focus, no coordinates, either OS |
+| Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |

@@ -25,6 +25,7 @@
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "uiscript.hpp"
 #include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
@@ -65,6 +66,11 @@ class App {
 public:
     // initialProjectDir: optional project to open on startup (may be empty)
     int run(const std::string& initialProjectDir = "");
+
+    /** Hands run() a UI script to drive itself with (docs/ui-scripting.md).
+     * Called by --ui-script before run(); run() then returns non-zero if any
+     * step failed, so a scripted GUI run gates a shell script like any test. */
+    void setUiScript(const std::vector<uiscript::Step>& steps);
 
 private:
     void drawUI();
@@ -1981,6 +1987,26 @@ private:
     std::string padStatus_;
     void remotePadTick();
     void drawRemotePadWindow();
+
+    // UI scripting (docs/ui-scripting.md): --ui-script drives the editor itself
+    // by injecting into ImGui's own event queue, resolving targets by widget
+    // NAME through uiscript's item registry. Nothing reaches the OS, so the
+    // window needs no focus and a script is independent of DPI and ui scale.
+    // uiScriptTick() runs once per frame, immediately BEFORE ImGui::NewFrame():
+    // it reads the item map the LAST frame built, then injects for this one.
+    std::vector<uiscript::Step> uiScript_;
+    size_t uiStepIndex_ = 0;
+    int uiStepPhase_ = 0;        // sub-frame progress within the current step
+    double uiStepStarted_ = 0.0;  // ImGui::GetTime() the step began
+    double uiStepUntil_ = 0.0;   // for wait / hold
+    int uiStepFrames_ = 0;       // for `frames`
+    float uiTargetX_ = 0, uiTargetY_ = 0;  // resolved click point
+    bool uiScriptActive_ = false;
+    bool uiScriptFailed_ = false;
+    std::string uiShotPath_;     // a `shot` step: written after this frame renders
+    void uiScriptTick();
+    /** Reads the window back into a PNG. Shared with the TYRAX_SHOT capture. */
+    bool captureFrameTo(const std::string& path, int w, int h);
 
     // Crash reporting (docs/devkit.md). A real EE exception is not a
     // TYRA_ASSERT: with the engine's crash handler installed the game writes

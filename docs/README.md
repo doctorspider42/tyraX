@@ -131,6 +131,13 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the watch table (flow variables + save values), the rewindable execution
   timeline, firing a trigger from the editor, and the file channel + symbol
   table it all rides on.
+- [UI scripting (drive the editor without a human)](ui-scripting.md) - the same
+  idea one level up: `--ui-script` runs the real editor and holds its mouse and
+  keyboard itself, naming WIDGETS instead of pixels (`click "Remote Pad/Cross"`),
+  with no window focus, no DPI arithmetic and assertions on widget state. How the
+  item registry falls out of ImGui's own test-engine hooks (no imgui_test_engine
+  dependency), why `dump` is where every script starts, and what it cannot reach
+  (the viewport, imnodes, the gizmo).
 - [Remote Pad (hold the running game's controller)](remote-pad.md) - the input
   direction of the same channel: a clickable DualShock in the editor (plus a
   keyboard mode) and a scriptable `--pad` CLI that drive the game **with no

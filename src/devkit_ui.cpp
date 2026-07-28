@@ -2185,6 +2185,296 @@ void App::drawErrorModal() {
 }
 
 // -------------------------------------------------------------------------
+// UI scripting (docs/ui-scripting.md) - driving the EDITOR without a human.
+//
+// Same idea as the Remote Pad one file over: instead of asking the window
+// manager to focus a window and synthesising OS clicks at guessed pixel
+// coordinates, we go through what the application already owns - ImGui's item
+// bookkeeping (which widget is where, by name: src/uiscript.cpp) and ImGui's own
+// event queue. So a script says `click "Remote Pad/Cross"`, nothing reaches the
+// OS, no window needs the focus, and the same script works at any DPI or UI
+// scale.
+//
+// The tick runs once per frame immediately BEFORE ImGui::NewFrame(): it reads
+// the item map the LAST frame produced (so a target only becomes clickable a
+// frame after the UI that owns it was drawn - which is exactly why every step
+// that needs a target WAITS for it instead of sleeping a guessed interval), then
+// queues this frame's input. Injecting after the GLFW backend's NewFrame is what
+// makes our position win: the backend only feeds the real cursor when the window
+// is focused, and a later event in the queue overrides an earlier one anyway.
+// -------------------------------------------------------------------------
+
+void App::setUiScript(const std::vector<uiscript::Step>& steps) {
+    uiScript_ = steps;
+    uiScriptActive_ = !steps.empty();
+    uiStepIndex_ = 0;
+    uiStepPhase_ = 0;
+}
+
+void App::uiScriptTick() {
+    if (!uiScriptActive_) return;
+    ImGuiIO& io = ImGui::GetIO();
+    // glfwGetTime, not ImGui::GetTime: this runs BEFORE NewFrame, so ImGui's
+    // clock is still last frame's - and it is exactly 0.0 on the first frame,
+    // which is also our "this step has not started yet" sentinel.
+    const double now = glfwGetTime();
+
+    auto finishStep = [&]() {
+        uiStepIndex_++;
+        uiStepPhase_ = 0;
+        uiStepStarted_ = 0.0;
+    };
+    auto failStep = [&](const uiscript::Step& s, const std::string& why) {
+        std::printf("[ui] FAILED: %s\n     %s\n", s.source.c_str(), why.c_str());
+        std::fflush(stdout);
+        uiScriptFailed_ = true;
+        uiScriptActive_ = false;
+        exitConfirmed_ = true;  // never leave an unattended run sitting on a modal
+        glfwSetWindowShouldClose(window_, GLFW_TRUE);
+    };
+    // What a failed lookup should say: the labels that ARE there. Guessing from
+    // a blank "not found" is the single most expensive part of UI scripting.
+    auto candidates = [&](const std::string& target) {
+        std::string wantWindow;
+        const size_t slash = target.find('/');
+        if (slash != std::string::npos) wantWindow = target.substr(0, slash);
+        std::string out;
+        int n = 0;
+        for (const uiscript::Item& it : uiscript::items()) {
+            if (it.label.empty()) continue;
+            if (!wantWindow.empty() && it.window.rfind(wantWindow, 0) != 0) continue;
+            if (n++ >= 12) {
+                out += ", ...";
+                break;
+            }
+            out += (n > 1 ? ", " : "") + it.window + "/" + it.label;
+        }
+        if (out.empty()) out = "(nothing on screen yet)";
+        return "on screen now: " + out;
+    };
+
+    if (uiStepIndex_ >= uiScript_.size()) {
+        uiScriptActive_ = false;
+        uiscript::beginFrame();
+        return;
+    }
+    const uiscript::Step& s = uiScript_[uiStepIndex_];
+    if (uiStepStarted_ == 0.0) {
+        uiStepStarted_ = now;
+        std::printf("[ui] %s\n", s.source.c_str());
+        std::fflush(stdout);
+    }
+
+    // Steps that need a widget resolve it first, and wait for it to appear. The
+    // timeout is generous: opening a project or a bake can hold a frame for a
+    // while, and a false failure is worse than a slow pass.
+    const bool needsTarget =
+        s.kind == uiscript::Step::Click || s.kind == uiscript::Step::DoubleClick ||
+        s.kind == uiscript::Step::HoldClick || s.kind == uiscript::Step::Hover ||
+        s.kind == uiscript::Step::Drag || s.kind == uiscript::Step::Expect;
+    if (needsTarget && uiStepPhase_ == 0) {
+        // Everything here but Expect ends in a mouse event, so exclude the
+        // whole-window items (see uiscript::find).
+        const bool clickable = s.kind != uiscript::Step::Expect;
+        const uiscript::Item* it = uiscript::find(s.arg, clickable);
+        if (!it) {
+            if (now - uiStepStarted_ > 5.0)
+                failStep(s, "no widget matching '" + s.arg + "'; " +
+                                candidates(s.arg));
+            uiscript::beginFrame();
+            return;  // try again next frame
+        }
+        uiTargetX_ = (it->x0 + it->x1) * 0.5f;
+        uiTargetY_ = (it->y0 + it->y1) * 0.5f;
+        if (s.kind == uiscript::Step::Expect) {
+            finishStep();
+            uiscript::beginFrame();
+            return;
+        }
+        // Hover first, press next frame: that is what a real cursor does, and
+        // some widgets (drag sources, menus) only arm once hovered.
+        io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+        uiStepPhase_ = 1;
+        uiscript::beginFrame();
+        return;
+    }
+
+    switch (s.kind) {
+        case uiscript::Step::Expect:  // handled above
+            finishStep();
+            break;
+        case uiscript::Step::ExpectNot: {
+            const uiscript::Item* it = uiscript::find(s.arg);
+            if (it)
+                failStep(s, "'" + s.arg + "' is on screen and should not be");
+            else
+                finishStep();
+            break;
+        }
+        case uiscript::Step::ExpectChecked:
+        case uiscript::Step::ExpectUnchecked: {
+            // ImGui reports a checkbox's / menu item's tick through the same
+            // hook the boxes come from, so a script can assert STATE instead of
+            // a human reading it off a screenshot.
+            const uiscript::Item* it = uiscript::find(s.arg);
+            const bool want = s.kind == uiscript::Step::ExpectChecked;
+            if (!it) {
+                if (now - uiStepStarted_ > 5.0)
+                    failStep(s, "no widget matching '" + s.arg + "'; " +
+                                    candidates(s.arg));
+            } else if (!it->checkable) {
+                failStep(s, "'" + s.arg + "' is not a checkable widget");
+            } else if (it->checked != want) {
+                failStep(s, std::string("'") + s.arg + "' is " +
+                                (it->checked ? "checked" : "unchecked") +
+                                " and should be " + (want ? "checked" : "unchecked"));
+            } else {
+                finishStep();
+            }
+            break;
+        }
+        case uiscript::Step::Hover:
+            io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+            if (uiStepPhase_++ >= 2) finishStep();
+            break;
+        case uiscript::Step::Click:
+            io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+            if (uiStepPhase_ == 1) {
+                io.AddMouseButtonEvent(0, true);
+                uiStepPhase_ = 2;
+            } else if (uiStepPhase_ == 2) {
+                io.AddMouseButtonEvent(0, false);
+                uiStepPhase_ = 3;
+            } else {
+                finishStep();  // one settle frame, so the UI has reacted
+            }
+            break;
+        case uiscript::Step::DoubleClick:
+            io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+            if (uiStepPhase_ == 1 || uiStepPhase_ == 3) {
+                io.AddMouseButtonEvent(0, true);
+                uiStepPhase_++;
+            } else if (uiStepPhase_ == 2 || uiStepPhase_ == 4) {
+                io.AddMouseButtonEvent(0, false);
+                uiStepPhase_++;
+            } else {
+                finishStep();
+            }
+            break;
+        case uiscript::Step::HoldClick:
+            // Holding matters for anything that reads "is this being pressed
+            // right now" rather than a click - the Remote Pad's buttons are the
+            // reason this exists.
+            io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+            if (uiStepPhase_ == 1) {
+                io.AddMouseButtonEvent(0, true);
+                uiStepUntil_ = now + s.seconds;
+                uiStepPhase_ = 2;
+            } else if (uiStepPhase_ == 2) {
+                if (now >= uiStepUntil_) {
+                    io.AddMouseButtonEvent(0, false);
+                    uiStepPhase_ = 3;
+                }
+            } else {
+                finishStep();
+            }
+            break;
+        case uiscript::Step::Drag: {
+            io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+            const int kSteps = 6;  // a slide, not a teleport: ImGui needs motion
+            if (uiStepPhase_ == 1) {
+                io.AddMouseButtonEvent(0, true);
+                uiStepPhase_ = 2;
+            } else if (uiStepPhase_ >= 2 && uiStepPhase_ < 2 + kSteps) {
+                const float t = (float)(uiStepPhase_ - 1) / (float)kSteps;
+                io.AddMousePosEvent(uiTargetX_ + s.dx * t, uiTargetY_ + s.dy * t);
+                uiStepPhase_++;
+            } else if (uiStepPhase_ == 2 + kSteps) {
+                io.AddMousePosEvent(uiTargetX_ + s.dx, uiTargetY_ + s.dy);
+                io.AddMouseButtonEvent(0, false);
+                uiStepPhase_++;
+            } else {
+                finishStep();
+            }
+            break;
+        }
+        case uiscript::Step::Key: {
+            int key = 0;
+            bool ctrl = false, shift = false, alt = false;
+            if (!uiscript::parseChord(s.arg, key, ctrl, shift, alt)) {
+                failStep(s, "cannot parse the key chord '" + s.arg + "'");
+                break;
+            }
+            if (uiStepPhase_ == 0) {
+                if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, true);
+                if (shift) io.AddKeyEvent(ImGuiMod_Shift, true);
+                if (alt) io.AddKeyEvent(ImGuiMod_Alt, true);
+                io.AddKeyEvent((ImGuiKey)key, true);
+                uiStepPhase_ = 1;
+            } else if (uiStepPhase_ == 1) {
+                io.AddKeyEvent((ImGuiKey)key, false);
+                if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, false);
+                if (shift) io.AddKeyEvent(ImGuiMod_Shift, false);
+                if (alt) io.AddKeyEvent(ImGuiMod_Alt, false);
+                uiStepPhase_ = 2;
+            } else {
+                finishStep();
+            }
+            break;
+        }
+        case uiscript::Step::Text:
+            if (uiStepPhase_ == 0) {
+                for (char c : s.arg)
+                    io.AddInputCharacter((unsigned int)(unsigned char)c);
+                uiStepPhase_ = 1;
+            } else {
+                finishStep();
+            }
+            break;
+        case uiscript::Step::Wait:
+            if (uiStepPhase_ == 0) {
+                uiStepUntil_ = now + s.seconds;
+                uiStepPhase_ = 1;
+            } else if (now >= uiStepUntil_) {
+                finishStep();
+            }
+            break;
+        case uiscript::Step::Frames:
+            if (uiStepPhase_ == 0) {
+                uiStepFrames_ = s.n;
+                uiStepPhase_ = 1;
+            }
+            if (--uiStepFrames_ <= 0) finishStep();
+            break;
+        case uiscript::Step::Shot:
+            // The write happens after this frame renders (run() does it), so the
+            // capture holds the UI the script has built up to here.
+            uiShotPath_ = s.arg;
+            finishStep();
+            break;
+        case uiscript::Step::Dump:
+            std::printf("%s", uiscript::dumpText().c_str());
+            std::fflush(stdout);
+            finishStep();
+            break;
+        case uiscript::Step::Log:
+            std::printf("[ui] %s\n", s.arg.c_str());
+            std::fflush(stdout);
+            finishStep();
+            break;
+        case uiscript::Step::Quit:
+            std::printf("[ui] done - %zu step(s)%s\n", uiScript_.size(),
+                        uiScriptFailed_ ? ", WITH FAILURES" : "");
+            std::fflush(stdout);
+            uiScriptActive_ = false;
+            exitConfirmed_ = true;  // a script must not stop on a save prompt
+            glfwSetWindowShouldClose(window_, GLFW_TRUE);
+            break;
+    }
+    uiscript::beginFrame();
+}
+
+// -------------------------------------------------------------------------
 // Remote Pad (docs/remote-pad.md) - the input direction of the host: channel.
 //
 // The editor holds the controller: while the window is open we rewrite

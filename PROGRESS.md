@@ -13995,3 +13995,55 @@ Each finished feature lands as its own commit.
   belongs in its own commit rather than inside a feature diff. Nothing breaks -
   a build regenerates the whole tree, so the new include and the new file arrive
   together.
+
+- (225) **UI scripting: the editor drives itself** (`--ui-script`,
+  docs/ui-scripting.md). The Remote Pad (224) fixed driving the GAME; this is the
+  same problem one level up, and it had the same shape: verifying a panel meant a
+  human clicking, because synthetic OS clicks need the window focus (which a
+  background process cannot reliably take on Windows) and pixel coordinates that
+  move with DPI, ui scale and docking. The way out was not a better clicker but
+  two things Dear ImGui already does and nobody here was using: it **announces
+  every widget it submits** - id, bounding box, label, and the checked / open /
+  inputable status flags - through four `extern` hook functions that exist purely
+  so an external test engine can implement them, and its **input is a queue**
+  (`io.AddMousePosEvent` and friends are how the GLFW backend feeds real events).
+  So `src/uiscript.cpp` implements those four functions and the editor knows what
+  is on screen by NAME; a script says `click "Remote Pad/Cross"`, nothing goes
+  near the OS, and the same script works at any scale or layout.
+  Deliberately **without vendoring imgui_test_engine** - we need none of it and
+  its licence is not ours to take on; `IMGUI_ENABLE_TEST_ENGINE` is `PUBLIC` on
+  the imgui target because it changes `ImGuiContext`'s layout, and collection is
+  gated on ImGui's own `TestEngineHookItems`, so an ordinary session pays one
+  never-taken branch per widget.
+  The language is `click / doubleclick / hold / hover / drag / key / text / wait /
+  frames / shot / dump / log / quit` plus `expect`, `expect-not`,
+  `expect-checked`, `expect-unchecked`; the exit code is 0 only if every step
+  passed, so a scripted GUI run gates a shell script like any test. Two design
+  points earn their keep immediately: **a step that names a target WAITS for it**
+  (a menu popup only exists a frame after the click that opened it, so sleeps and
+  timing luck disappear) and a failed lookup **prints what was on screen
+  instead** - a blank "not found" is the expensive part of UI automation. `dump`
+  is where a script starts: it lists every widget with its rect and state, which
+  is also how "not all modals close on escape - click their Cancel" was answered.
+  Verified by closing 224's own open question, since that is the check that
+  needed both: a script opens *Tools > Remote Pad* by name and holds the panel's
+  Cross button, while a separate process reads `bin/livepad.bin` - **38 samples
+  with the Cross bit set spanning 3.9 s of a 4.0 s hold, 41 distinct sequence
+  numbers (so the file was live, not stale), and flags back to 0 at the end**.
+  Neither window was ever focused. A second script covers a different corner:
+  File > New Project by name, `expect "New Project/Create"`, Cancel, `expect-not`
+  the same, `key f9` opens the Debugger, then a checkbox toggled and asserted with
+  `expect-checked` - and the negative test too (asserting checked on an unchecked
+  box fails with exit 1 and names the state, entry 193's lesson).
+  Two real bugs fell out of writing the tests, which is the argument for writing
+  them: `find()` used to fall back to the WINDOW item, so `click "Remote Pad"`
+  resolved to the window's own rect and pressed **whatever widget sat in its
+  middle** (R3, when asked to open a panel) - whole-window items are now excluded
+  for anything that clicks; and the editor exited without releasing the Remote
+  Pad, leaving `livepad.bin` saying "attached, Cross down" forever, which made the
+  first run of this very test read as a 12-second stuck button.
+  What it cannot reach, stated rather than fudged: anything not made of ImGui
+  widgets - the 3D viewport (one big item; `drag` inside it or work through the
+  Project panel's list), the imnodes flow canvas and the ImGuizmo gizmo.
+  `ai-support/` is deliberately untouched: `--ui-script` drives the EDITOR, and
+  nothing a generated game project's assistant does needs it.
