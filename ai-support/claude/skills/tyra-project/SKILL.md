@@ -85,7 +85,7 @@ to see exactly what the game will compile.
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
   emitters, sound emitters, the player, decals, mirrors, cameras, areas,
-  scatter volumes...).
+  procedural volumes...).
 - An **area** is an invisible box (no geometry in the game). Other things
   reference one by name instead of carrying a distance: a streaming layer's
   auto zone, a mirror/portal/camera-feed target list (`catchArea`), and the
@@ -101,14 +101,18 @@ to see exactly what the game will compile.
   HUD images/texts, color gradings, ambience presets, loading screens,
   cutscene sequences and the **input map** (named input actions + binding
   presets). `--dump` lists all of their names.
-- **Scatter volumes** (type `scatter`) are procedural authoring regions: the
-  object carries a node graph (`procGraph` in its `objects/<id>.json`) that
-  scatters models inside its box, and every build bakes the result into merged
-  static chunk meshes plus one generated Model object per chunk. Those chunk
-  objects carry `procSource` (the volume's id), live in `res/models/.../procgen-*.obj`
-  and are **rewritten wholesale by the next bake** - never hand-edit them or
-  reference them by name; edit the volume's graph in the editor instead
-  (*Tools > Procedural*). A `--build` / `--refresh-gen` of such a project
+- **Procedural volumes** (type `scatter` in the file - the display name changed,
+  the key did not) are procedural authoring regions: the object carries a node
+  graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,
+  along a curve, or repeated exactly (Array / Radial Array) - and every build
+  bakes the result into merged static chunk meshes plus one generated Model
+  object per chunk. Those chunk objects carry `procSource` (the volume's id),
+  live in `res/models/.../procgen-*.obj` and are **rewritten wholesale by the
+  next bake** - never hand-edit them or reference them by name; edit the
+  volume's graph in the editor instead (*Tools > Procedural*). To give every
+  generated chunk a property (mesh LOD distance, baked lighting, reflections),
+  put an **ObjectSettings** node in the graph - a hand edit on one chunk does
+  not survive the next bake. A `--build` / `--refresh-gen` of such a project
   rewrites the `.tyra`, which is expected.
 - **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
   `{{action:jump}}` draws whatever that action is currently bound to. Works in

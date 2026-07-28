@@ -722,12 +722,73 @@ Each finished feature lands as its own commit.
      reason). The drone set is the one directly below; main's set follows it,
      running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
      at the head of that second section, and 225 (procedural generation, merged
-     in from its own branch) sits above them. Continue from 226. -->
+     in from its own branch) sits above them, and 226 above that. Continue
+     from 227. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
+- (226) **The procedural graph learns to say "all of them" and "exactly there"**
+  (owner, after using 225: "brakuje mi foreach - np wszystkie wygenerowane
+  assety mają LOD na 5unit" and "wstawiam asset i analitycznie go powielam - po
+  osi Y, albo po okręgu"). Three additions and one rename, all in the same
+  place the previous entry built.
+  *The foreach.* Instances merge into one mesh per (asset, chunk) at bake time,
+  so there is no per-instance anything on the console - what CAN carry a
+  property is the generated chunk OBJECT, and until now the bake hardcoded four
+  of them (cast shadow, collision, draw distance, layer) and left the rest at
+  editor defaults. Editing one by hand is not a workflow either: the next bake
+  makes new chunks that know nothing about it. The new **Object Settings** node
+  is where a property is stated ONCE for the whole volume - a rows table over
+  `procObjectProps()` (mesh LOD distance, baked lighting, show in reflections),
+  applied in `procbake::applySettings` after the fixed fields. It carries no
+  pins on purpose: it is not a step in the chain, it is a fact about the whole
+  output. Mesh LOD is the case the owner asked for and it needed NO new code
+  downstream - `templates.cpp` already bakes the decimated tiers for any model
+  a per-object `meshLodOverride > 0` names, so a scattered forest gets mesh LOD
+  without turning it on project-wide (measured: the chunk `.tmdl` goes
+  10 608 -> 14 072 bytes when the setting is on, and back).
+  *The analytic half.* The five sources were all stochastic or lattice-shaped;
+  "this asset, twelve times around a circle" and "three of them stacked up the
+  Y axis" could not be said at all. Now: **Single Point** (one point, at the
+  volume centre or at a named object, plus an offset), **Array** (count copies
+  along an XYZ step, with per-copy yaw and scale, optionally stepping in the
+  point's own frame so posts follow their fence) and **Radial Array** (count
+  copies around a circle centred on each incoming point; axis, start, sweep,
+  turn-with-the-ring). Both repeat nodes copy EVERY incoming point, so they
+  work on one placed point and on a whole scattered field alike. Three rules
+  they had to respect: identity is `copyKey(node, sourceKey, i)` so a manual
+  edit binds to "copy 7 of that point" rather than to an index; they do NOT
+  thin by the progressive-preview fraction (dropping copies would lie about an
+  exact count - the sources already thinned); and because they MULTIPLY their
+  input they stop at 200 000 points with a warning instead of eating the frame.
+  Doing this in the graph rather than as an editor "duplicate N times" is the
+  whole point: 12 pillars placed as 12 objects are 12 submits (~12 ms on real
+  hardware), through the graph they merge into one chunk mesh.
+  *The rename.* The owner also reported the entry points read as two different
+  things: the object type was "Scatter volume" while the graph's Sources menu
+  offers scatter/grid/volume/curve - so the object looked like it chose the
+  method. It is now a **Procedural volume** everywhere the user reads (menu
+  item, type label, window, docs), with the tooltip saying it opens the graph
+  editor; the enum and the serialized key stay `scatter`, because those are
+  file format. `+ Add object > Procedural volume...` and *Tools > Procedural >
+  New volume* now say they are the same verb. Also fixed: an ObjectName combo
+  hardcoded "(terrain)" as its empty label on every node, which was wrong on
+  Keep Away From (empty = every solid object) and would have been wrong on
+  Single Point (empty = the volume centre) - the label is a registry field now.
+  **Verified** headlessly and in the GUI: a fixture project (a 12-triangle
+  pillar, Single Point -> Radial Array 12 x r=10 -> Array 3 x Step Y 2, scale
+  0.9/copy -> Pick Asset -> Output, plus Object Settings) bakes 36 instances /
+  432 triangles into 4 chunks, and reading the baked `.obj` back gives exactly
+  what the graph says: distinct Y levels 0 / 2 / 3.8 / 4 / 5.62 (the 0.9 taper)
+  and vertex radii 9.51..10.51 around the ring. The chunk objects carry
+  `"meshLod": 5` and `"reflected": true`; a second `--refresh-gen` re-bakes
+  nothing (the settings rows hash into `bakeHash`, so idempotence holds) while
+  editing a settings row does make it stale. Docker build of the generated
+  game: OK. Editor GUI screenshot: the two Repeat nodes in their own purple
+  category, the pinless Object Settings card with its two rows, and the stacked
+  ring in the viewport preview.
 - (225) **Procedural content generation: a scatter-graph tool whose output is
   ordinary static geometry** (owner brief: a backlog for node-based procedural
   scenes, "adapt it to our system, aim for the best solution"). The backlog

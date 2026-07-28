@@ -194,10 +194,10 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
 - Both `--build` and `--refresh-gen` also run the **procedural bake** first
-  (`procbake::bakeAll` - docs/procedural-generation.md): stale Scatter volumes
-  are baked into their chunk meshes and the project is saved, printing
+  (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
+  volumes are baked into their chunk meshes and the project is saved, printing
   `procedural: baked N volume(s) -> ...`. So a headless build of a project with
-  a scatter volume MUTATES the `.tyra` (the chunk objects are real scene
+  a procedural volume MUTATES the `.tyra` (the chunk objects are real scene
   objects) - expect that diff, and use it: the fastest way to test a graph
   change is `--refresh-gen` + grep `inc/scene_data.hpp` for the
   `<volume>#<asset>-x<i>z<j>` chunk objects. The graph model itself is

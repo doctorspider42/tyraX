@@ -6396,9 +6396,16 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Point light")) addPointLight();
         ImGui::EndMenu();
     }
-    // Procedural authoring region: the graph inside it scatters instances,
-    // which the build bakes into ordinary static chunk meshes.
-    if (ImGui::MenuItem("Scatter volume")) addScatterVolume();
+    // Procedural authoring region: the box a node graph fills - by scattering,
+    // by exact repetition, or both - which the build bakes into ordinary static
+    // chunk meshes. This menu item and Tools > Procedural > New volume are the
+    // same verb; both land in the graph editor with the volume selected.
+    if (ImGui::MenuItem("Procedural volume...")) addScatterVolume();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(
+            "A region filled by a node graph (Tools > Procedural): forests,\n"
+            "rock fields, a colonnade around a plaza. Adding one opens the\n"
+            "graph editor - the object itself is just the box it works in.");
 }
 
 void App::drawSceneSection() {

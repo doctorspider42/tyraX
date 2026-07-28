@@ -989,6 +989,178 @@ Points genCurvePoints(Ctx& ctx, const ProcNode& n, const Value& curveIn) {
     return out;
 }
 
+// --- the analytic side: one placed point, and exact repetition of it --------
+
+Points genPoint(Ctx& ctx, const ProcNode& n) {
+    Points out;
+    const std::string& target = procgraph::str(n, "target");
+    float ax = ctx.vol.cx, ay = ctx.vol.cy, az = ctx.vol.cz;
+    if (!target.empty()) {
+        const SceneObject* tgt = nullptr;
+        for (const SceneObject& o : ctx.s.objects)
+            if (o.name == target) {
+                tgt = &o;
+                break;
+            }
+        if (tgt) {
+            ax = tgt->position[0];
+            ay = tgt->position[1];
+            az = tgt->position[2];
+        } else {
+            ctx.res->warnings.push_back("Single Point: no object named '" +
+                                        target + "' - using the volume centre");
+        }
+    }
+    const bool snap = procgraph::flag(n, "snap");
+    Instance inst;
+    inst.pos[0] = ax + procgraph::num(n, "x");
+    inst.pos[2] = az + procgraph::num(n, "z");
+    inst.pos[1] = (snap ? terrainHeight(ctx.s, inst.pos[0], inst.pos[2]) : ay) +
+                  procgraph::num(n, "y");
+    inst.key = mix64(((uint64_t)(uint32_t)n.id << 40) ^ 1ULL);
+    out.pts.push_back(inst);
+    ctx.res->candidates += 1;
+    ensureBaseAttrs(out);
+    float nrm[3] = {0.0f, 1.0f, 0.0f};
+    if (snap) terrainNormal(ctx.s, inst.pos[0], inst.pos[2], nrm);
+    writeSurfaceAttrs(out, 0, nrm[0], nrm[1], nrm[2]);
+    out.attrs[procattr::kRandom][0] = rand01(ctx.g.seed, n.id, inst.key, 1);
+    out.attrs[procattr::kSize][0] = 1.0f;
+    return out;
+}
+
+// Copy `i` of source point `srcKey`: a fresh identity derived from BOTH, so a
+// manual edit binds to "copy 7 of that point" and survives everything upstream
+// that leaves the source point alone. The odd multiplier keeps copy indices
+// from colliding with a generator's own ordinals.
+uint64_t copyKey(int nodeId, uint64_t srcKey, int i) {
+    return mix64(srcKey ^ ((uint64_t)(uint32_t)nodeId << 40) ^
+                 ((uint64_t)(uint32_t)i * 0x9E3779B97F4A7C15ULL));
+}
+
+// Shared tail of both repeat nodes: appends one copy and its attributes.
+void pushCopy(Points& out, const Points& in, size_t src, const Instance& inst) {
+    out.pts.push_back(inst);
+    for (const auto& kv : in.attrs) {
+        std::vector<float>& a = out.attrs[kv.first];
+        a.resize(out.pts.size(), 0.0f);
+        a[out.pts.size() - 1] = src < kv.second.size() ? kv.second[src] : 0.0f;
+    }
+    for (auto& kv : out.attrs) kv.second.resize(out.pts.size(), 0.0f);
+}
+
+// A repeat node multiplies its input, so it is the one place in the graph where
+// a typo (count 2000 on a 20 000-point cloud) turns into gigabytes. The cap is
+// reported rather than silently applied - a preview that quietly stops at a
+// round number is how people conclude the tool is broken.
+constexpr size_t kMaxRepeatOut = 200000;
+
+Points arrayCopies(Ctx& ctx, const ProcNode& n, const Points& in) {
+    Points out;
+    const int count = std::clamp(procgraph::inum(n, "count"), 1, 2000);
+    const float dx = procgraph::num(n, "dx");
+    const float dy = procgraph::num(n, "dy");
+    const float dz = procgraph::num(n, "dz");
+    const float yaw = procgraph::num(n, "yaw");
+    const float scale = std::max(0.1f, procgraph::num(n, "scale"));
+    const bool local = procgraph::flag(n, "local");
+    const bool snap = procgraph::flag(n, "snap");
+    ctx.res->candidates += (int)in.pts.size() * (count - 1);
+    out.pts.reserve(in.pts.size() * (size_t)count);
+    bool capped = false;
+    for (size_t s = 0; s < in.pts.size(); ++s) {
+        if ((s & 255) == 0 && ctx.canceled()) break;
+        const Instance& src = in.pts[s];
+        // Point space: the step rides the source point's own yaw, so a row of
+        // posts follows the fence it was scattered along instead of world X.
+        const float a = local ? src.rot[1] / kDeg : 0.0f;
+        const float ca = std::cos(a), sa = std::sin(a);
+        for (int i = 0; i < count; ++i) {
+            if (out.pts.size() >= kMaxRepeatOut) {
+                capped = true;
+                break;
+            }
+            Instance inst = src;
+            const float ox = dx * (float)i, oy = dy * (float)i, oz = dz * (float)i;
+            inst.pos[0] = src.pos[0] + (local ? ox * ca + oz * sa : ox);
+            inst.pos[2] = src.pos[2] + (local ? -ox * sa + oz * ca : oz);
+            inst.pos[1] = (snap ? terrainHeight(ctx.s, inst.pos[0], inst.pos[2])
+                                : src.pos[1]) +
+                          oy;
+            inst.rot[1] = src.rot[1] + yaw * (float)i;
+            inst.scale = src.scale * std::pow(scale, (float)i);
+            inst.key = i == 0 ? src.key : copyKey(n.id, src.key, i);
+            pushCopy(out, in, s, inst);
+        }
+        if (capped) break;
+    }
+    if (capped)
+        ctx.res->warnings.push_back(
+            "Array: stopped at " + std::to_string(kMaxRepeatOut) +
+            " points - lower the count or thin the input first");
+    return out;
+}
+
+Points radialCopies(Ctx& ctx, const ProcNode& n, const Points& in) {
+    Points out;
+    const int count = std::clamp(procgraph::inum(n, "count"), 1, 2000);
+    const float radius = std::max(0.0f, procgraph::num(n, "radius"));
+    const int axis = std::clamp(procgraph::inum(n, "axis"), 0, 2);
+    const float start = procgraph::num(n, "start");
+    const float sweep = std::clamp(procgraph::num(n, "sweep"), 1.0f, 360.0f);
+    const bool face = procgraph::flag(n, "face");
+    const bool snap = procgraph::flag(n, "snap");
+    // A full circle must not put the last copy on top of the first, an arc
+    // must reach its end angle - the two need different denominators.
+    const bool full = sweep >= 359.9f;
+    const float stepDeg =
+        count > 1 ? sweep / (float)(full ? count : count - 1) : 0.0f;
+    ctx.res->candidates += (int)in.pts.size() * (count - 1);
+    out.pts.reserve(in.pts.size() * (size_t)count);
+    bool capped = false;
+    for (size_t s = 0; s < in.pts.size(); ++s) {
+        if ((s & 255) == 0 && ctx.canceled()) break;
+        const Instance& src = in.pts[s];
+        for (int i = 0; i < count; ++i) {
+            if (out.pts.size() >= kMaxRepeatOut) {
+                capped = true;
+                break;
+            }
+            const float deg = start + stepDeg * (float)i;
+            const float rad = deg / kDeg;
+            const float c = std::cos(rad), sn = std::sin(rad);
+            Instance inst = src;
+            switch (axis) {
+                case 1:  // around X: the ring stands in the YZ plane
+                    inst.pos[1] = src.pos[1] + radius * c;
+                    inst.pos[2] = src.pos[2] + radius * sn;
+                    inst.rot[0] = src.rot[0] + (face ? deg : 0.0f);
+                    break;
+                case 2:  // around Z: the ring stands in the XY plane
+                    inst.pos[0] = src.pos[0] + radius * c;
+                    inst.pos[1] = src.pos[1] + radius * sn;
+                    inst.rot[2] = src.rot[2] + (face ? deg : 0.0f);
+                    break;
+                default:  // around Y: the flat ring on the ground
+                    inst.pos[0] = src.pos[0] + radius * sn;
+                    inst.pos[2] = src.pos[2] + radius * c;
+                    if (face) inst.rot[1] = src.rot[1] + deg;
+                    break;
+            }
+            if (snap)
+                inst.pos[1] = terrainHeight(ctx.s, inst.pos[0], inst.pos[2]);
+            inst.key = copyKey(n.id, src.key, i);
+            pushCopy(out, in, s, inst);
+        }
+        if (capped) break;
+    }
+    if (capped)
+        ctx.res->warnings.push_back(
+            "Radial Array: stopped at " + std::to_string(kMaxRepeatOut) +
+            " points - lower the count or thin the input first");
+    return out;
+}
+
 Mask genNoise(Ctx& ctx, const ProcNode& n) {
     const int kind = procgraph::inum(n, "kind");
     const float scale = std::max(1.0f, procgraph::num(n, "scale"));
@@ -1428,6 +1600,14 @@ Value evalNode(Ctx& ctx, int nodeId) {
     } else if (n.type == "ScatterCurve") {
         out.points = std::make_shared<Points>(
             genCurvePoints(ctx, n, ins.empty() ? Value{} : ins[0]));
+    } else if (n.type == "Point") {
+        out.points = std::make_shared<Points>(genPoint(ctx, n));
+    } else if (n.type == "Array") {
+        if (const Points* a = pointsIn(0))
+            out.points = std::make_shared<Points>(arrayCopies(ctx, n, *a));
+    } else if (n.type == "RadialArray") {
+        if (const Points* a = pointsIn(0))
+            out.points = std::make_shared<Points>(radialCopies(ctx, n, *a));
     } else if (n.type == "Curve") {
         auto c = std::make_shared<Curve>();
         c->closed = procgraph::flag(n, "closed");

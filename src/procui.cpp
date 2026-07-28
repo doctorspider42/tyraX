@@ -43,7 +43,7 @@ void App::addScatterVolume() {
     int counter = 0;
     std::string name;
     for (;;) {
-        name = "scatter-" + std::to_string(++counter);
+        name = "procedural-" + std::to_string(++counter);
         bool taken = false;
         for (const SceneObject& o : project_.objects()) taken |= (o.name == name);
         if (!taken) break;
@@ -70,8 +70,8 @@ void App::addScatterVolume() {
     showProcedural_ = true;
     commitChange();  // stamps the object id the window addresses it by
     procVolumeId_ = project_.objects()[procVolume_].id;
-    statusMessage_ =
-        "Added " + name + " - fill its Pick Asset pool, then Bake (Tools > Procedural)";
+    statusMessage_ = "Added " + name +
+                     " - fill its Pick Asset pool, then Bake (Tools > Procedural)";
 }
 
 ProcOverride& App::procOverrideFor(ProcGraph& g, uint64_t key) {
@@ -314,11 +314,16 @@ void App::drawProceduralWindow() {
     const std::vector<int> vols = procVolumes();
     if (vols.empty()) {
         ImGui::TextWrapped(
-            "A procedural graph lives on a Scatter volume: the object's box is the "
-            "region the graph works in, and its output is baked to ordinary static "
-            "meshes when you build.");
+            "A procedural graph lives on a Procedural volume: the object's box is "
+            "the region the graph works in, and its output is baked to ordinary "
+            "static meshes when you build. The graph decides HOW the box is "
+            "filled - scattered over the ground, along a curve, or repeated "
+            "exactly with Array / Radial Array.");
         ImGui::Spacing();
-        if (ImGui::Button("Add a scatter volume")) addScatterVolume();
+        ImGui::TextDisabled(
+            "Same thing as + Add object > Procedural volume in the Project panel.");
+        ImGui::Spacing();
+        if (ImGui::Button("Add a procedural volume")) addScatterVolume();
         ImGui::End();
         return;
     }
@@ -600,6 +605,7 @@ void App::drawProceduralWindow() {
         ImU32 title = IM_COL32(60, 80, 140, 255);
         if (std::strcmp(t->category, "Sources") == 0) title = IM_COL32(40, 110, 60, 255);
         else if (std::strcmp(t->category, "Masks") == 0) title = IM_COL32(45, 85, 150, 255);
+        else if (std::strcmp(t->category, "Repeat") == 0) title = IM_COL32(95, 60, 130, 255);
         else if (std::strcmp(t->category, "Output") == 0) title = IM_COL32(140, 100, 40, 255);
         if (n.id == procPreviewNode_) title = IM_COL32(30, 130, 170, 255);
         if (n.bypass) title = IM_COL32(90, 90, 90, 255);
@@ -688,8 +694,11 @@ void App::drawProceduralWindow() {
                 }
                 case ProcParamKind::ObjectName: {
                     std::string cur = procgraph::str(n, p.key);
-                    if (ImGui::BeginCombo(p.label, cur.empty() ? "(terrain)" : cur.c_str())) {
-                        if (ImGui::Selectable("(terrain)", cur.empty())) {
+                    const char* none = p.emptyLabel && *p.emptyLabel
+                                           ? p.emptyLabel
+                                           : "(terrain)";
+                    if (ImGui::BeginCombo(p.label, cur.empty() ? none : cur.c_str())) {
+                        if (ImGui::Selectable(none, cur.empty())) {
                             n.strs[p.key] = "";
                             changed = true;
                         }
@@ -819,6 +828,82 @@ void App::drawProceduralWindow() {
                 n.rows.erase(n.rows.begin() + removeRow);
                 if (procCurvePoint_ >= (int)n.rows.size()) procCurvePoint_ = -1;
                 changed = true;
+            }
+        } else if (t->rows == ProcRowKind::Settings) {
+            // One row per property the bake should set on every generated
+            // object. The list of what CAN be set is procObjectProps(), so the
+            // node grows a new switch without touching this code.
+            ImGui::TextDisabled("Applied to every generated object");
+            int removeRow = -1;
+            for (size_t r = 0; r < n.rows.size(); ++r) {
+                ImGui::PushID((int)(2000 + r));
+                ProcRow& row = n.rows[r];
+                const ProcObjProp* prop = procObjectProp(row.s);
+                ImGui::SetNextItemWidth(150.0f * zoom);
+                if (ImGui::BeginCombo("##prop",
+                                      prop ? prop->label : "(unknown)")) {
+                    for (const ProcObjProp& p : procObjectProps()) {
+                        const bool sel = row.s == p.key;
+                        if (ImGui::Selectable(p.label, sel) && !sel) {
+                            row.s = p.key;
+                            row.v[0] = p.def;
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (prop && prop->tip && *prop->tip &&
+                    ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(320.0f));
+                    ImGui::TextUnformatted(prop->tip);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
+                ImGui::SameLine();
+                if (prop && prop->kind == ProcObjPropKind::Bool) {
+                    bool on = row.v[0] >= 0.5f;
+                    if (ImGui::Checkbox("##v", &on)) {
+                        row.v[0] = on ? 1.0f : 0.0f;
+                        changed = true;
+                    }
+                } else {
+                    ImGui::SetNextItemWidth(70.0f * zoom);
+                    const float lo = prop ? prop->lo : 0.0f;
+                    const float hi = prop ? prop->hi : 1.0f;
+                    if (ImGui::DragFloat("##v", &row.v[0], (hi - lo) / 400.0f, lo,
+                                         hi, "%.1f")) {
+                        row.v[0] = std::clamp(row.v[0], lo, hi);
+                        changed = true;
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("x")) removeRow = (int)r;
+                ImGui::PopID();
+            }
+            if (removeRow >= 0) {
+                n.rows.erase(n.rows.begin() + removeRow);
+                changed = true;
+            }
+            if (ImGui::SmallButton("+ property")) {
+                // Offer the first property this node does not already carry -
+                // two rows for one field would be a silent contradiction.
+                const ProcObjProp* next = nullptr;
+                for (const ProcObjProp& p : procObjectProps()) {
+                    bool taken = false;
+                    for (const ProcRow& r : n.rows) taken |= (r.s == p.key);
+                    if (!taken) {
+                        next = &p;
+                        break;
+                    }
+                }
+                if (next) {
+                    ProcRow row;
+                    row.s = next->key;
+                    row.v[0] = next->def;
+                    n.rows.push_back(row);
+                    changed = true;
+                }
             }
         }
 
@@ -1041,7 +1126,8 @@ void App::drawProceduralWindow() {
     }
     if (ImGui::BeginPopup("##proc_add_node")) {
         const ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
-        for (const char* cat : {"Sources", "Masks", "Filters", "Attributes", "Output"}) {
+        for (const char* cat :
+             {"Sources", "Masks", "Filters", "Repeat", "Attributes", "Output"}) {
             if (!ImGui::BeginMenu(cat)) continue;
             for (const ProcNodeType& t : procNodeTypes()) {
                 if (std::strcmp(t.category, cat) != 0) continue;

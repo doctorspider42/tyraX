@@ -162,6 +162,11 @@ struct ProcParamDef {
     float lo = 0.0f;
     float hi = 1.0f;
     const char* choices = "";  // Enum only
+    // ObjectName only: what "no object chosen" means for THIS parameter. It
+    // differs per node (the terrain, the volume's own centre, nothing at all),
+    // and a combo that says "(terrain)" on a node where empty means something
+    // else is a small lie in the most-read place there is.
+    const char* emptyLabel = "(terrain)";
     const char* tip = "";
 };
 
@@ -174,9 +179,40 @@ struct ProcPinDef {
 // What a node's `rows` table means (the UI draws the matching editor).
 enum class ProcRowKind {
     None = 0,
-    Assets,  // s = asset key, v[0] = weight, v[1..2] = scale min/max
-    Points,  // v[0..2] = world XYZ control point
+    Assets,    // s = asset key, v[0] = weight, v[1..2] = scale min/max
+    Points,    // v[0..2] = world XYZ control point
+    Settings,  // s = procObjectProps() key, v[0] = the value
 };
+
+// ---------------------------------------------------------------------------
+// Object settings: the "apply this to everything the graph generates" list
+// ---------------------------------------------------------------------------
+// A bake rebuilds its chunk objects on every run, so editing one in the
+// Properties panel is not a workflow - the next density change makes new
+// chunks that know nothing about it. The Object Settings node is where a
+// property is stated ONCE for the whole volume, and procbake applies it to
+// every generated chunk.
+//
+// This list is the single source of truth for that node (UI rows, the bake and
+// the docs all read it). It is APPEND-ONLY in spirit: a row stores its property
+// by KEY, so removing an entry silently drops what a project asked for.
+// Deliberately absent are the four properties the Output node already owns
+// (draw distance, cast shadow, collision, layer) - two places to set one field
+// is how they end up disagreeing.
+enum class ProcObjPropKind { Float = 0, Bool };
+
+struct ProcObjProp {
+    const char* key = "";  // stored in ProcRow::s
+    const char* label = "";
+    ProcObjPropKind kind = ProcObjPropKind::Float;
+    float def = 0.0f;
+    float lo = 0.0f;
+    float hi = 1.0f;
+    const char* tip = "";
+};
+
+const std::vector<ProcObjProp>& procObjectProps();
+const ProcObjProp* procObjectProp(const std::string& key);
 
 struct ProcNodeType {
     const char* key = "";
@@ -233,6 +269,11 @@ std::vector<ProcIssue> validate(const ProcGraph& g);
 
 // The graph's terminal node (the first Output), or nullptr.
 const ProcNode* outputNode(const ProcGraph& g);
+
+// The graph's Object Settings node (the first one), or nullptr. Found by type
+// rather than by following links on purpose: the node states a fact about the
+// whole bake, so it carries no pins and sits beside the chain, not in it.
+const ProcNode* settingsNode(const ProcGraph& g);
 
 // Adds a node of `type` at the given editor position and returns its id
 // (0 for an unknown type). Parameters are seeded from the registry.

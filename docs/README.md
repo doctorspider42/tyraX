@@ -91,11 +91,14 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   storage/undo model, and why the baked-composite approach was abandoned.
 - [Procedural generation (scatter graphs)](procedural-generation.md) - the
   node graph that fills a region with instances (forests, rock fields, fence
-  posts): the Scatter volume, the node library (surface/grid/volume/curve
-  sources, noise and terrain masks, slope/mask/distance/avoid filters, weighted
-  asset pools, transform variation), per-instance hand edits that survive
-  re-evaluation, the live triangle budget, and the bake that merges instances
-  into ordinary static chunk meshes so the PS2 never sees a graph.
+  posts, a ring of columns): the Procedural volume, the node library
+  (surface/grid/volume/curve sources and a single placed point, noise and
+  terrain masks, slope/mask/distance/avoid filters, Array / Radial Array for
+  exact repetition, weighted asset pools, transform variation), the Object
+  Settings node that applies properties to everything the volume bakes,
+  per-instance hand edits that survive re-evaluation, the live triangle budget,
+  and the bake that merges instances into ordinary static chunk meshes so the
+  PS2 never sees a graph.
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by

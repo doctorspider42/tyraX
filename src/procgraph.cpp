@@ -100,6 +100,30 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "follow the curve. Writes the 't' attribute (0..1 along the "
                  "curve) so downstream nodes can vary anything with distance."},
 
+        {.key = "Point",
+         .title = "Single Point",
+         .category = "Sources",
+         .outs = {{.label = "points", .type = ProcType::Points}},
+         .params =
+             {{.key = "target", .label = "At object", .kind = PK::ObjectName,
+               .emptyLabel = "(volume centre)",
+               .tip = "Empty = the volume's own centre. An object name puts "
+                      "the point at that object's position instead."},
+              {.key = "x", .label = "Offset X", .kind = PK::Float, .def = 0.0f,
+               .lo = -2000.0f, .hi = 2000.0f},
+              {.key = "y", .label = "Offset Y", .kind = PK::Float, .def = 0.0f,
+               .lo = -2000.0f, .hi = 2000.0f},
+              {.key = "z", .label = "Offset Z", .kind = PK::Float, .def = 0.0f,
+               .lo = -2000.0f, .hi = 2000.0f},
+              {.key = "snap", .label = "Snap to surface", .kind = PK::Bool,
+               .def = 1.0f,
+               .tip = "Drop the point onto the terrain and read its normal "
+                      "(the offset Y is then measured from the ground)."}},
+         .desc = "ONE point, placed exactly. Nothing random happens here - it "
+                 "is the start of the analytic side of this graph: place an "
+                 "asset, then repeat it with Array or Radial Array. Also the "
+                 "way to give those nodes a centre that is not the volume's."},
+
         {.key = "Curve",
          .title = "Curve",
          .category = "Sources",
@@ -285,6 +309,7 @@ const std::vector<ProcNodeType>& procNodeTypes() {
          .outs = {{.label = "points", .type = ProcType::Points}},
          .params =
              {{.key = "target", .label = "Object", .kind = PK::ObjectName,
+               .emptyLabel = "(every solid object)",
                .tip = "Name of the object to keep clear of. Empty and with no "
                       "curve connected = every solid object in the scene "
                       "(nothing grows inside the buildings)."},
@@ -389,7 +414,108 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "world and the point world: sample a noise field, then filter "
                  "or scale by it."},
 
+        // --- Repeat -------------------------------------------------------
+        // The analytic counterpart to the Scatter sources: exact copies at
+        // exact places. Both take a point cloud and emit `count` copies of
+        // EVERY point in it, so they work on one placed Single Point ("this
+        // pillar, twelve times around a circle") and on a whole scattered
+        // field alike ("every bush, three times up the cliff face").
+        {.key = "Array",
+         .title = "Array",
+         .category = "Repeat",
+         .ins = {{.label = "points", .type = ProcType::Points}},
+         .outs = {{.label = "points", .type = ProcType::Points}},
+         .params =
+             {{.key = "count", .label = "Count", .kind = PK::Int, .def = 5.0f,
+               .lo = 1.0f, .hi = 2000.0f,
+               .tip = "Total copies INCLUDING the original, so 1 changes "
+                      "nothing."},
+              {.key = "dx", .label = "Step X", .kind = PK::Float, .def = 4.0f,
+               .lo = -500.0f, .hi = 500.0f},
+              {.key = "dy", .label = "Step Y", .kind = PK::Float, .def = 0.0f,
+               .lo = -500.0f, .hi = 500.0f,
+               .tip = "Stack upwards: Step Y = the asset's height, X and Z "
+                      "zero, Snap off."},
+              {.key = "dz", .label = "Step Z", .kind = PK::Float, .def = 0.0f,
+               .lo = -500.0f, .hi = 500.0f},
+              {.key = "yaw", .label = "Yaw per copy", .kind = PK::Float,
+               .def = 0.0f, .lo = -360.0f, .hi = 360.0f,
+               .tip = "Degrees added per step - a twisted stack, a spiral "
+                      "staircase."},
+              {.key = "scale", .label = "Scale per copy", .kind = PK::Float,
+               .def = 1.0f, .lo = 0.1f, .hi = 3.0f,
+               .tip = "Multiplied per step: 0.9 tapers a stack, 1 keeps it "
+                      "uniform."},
+              {.key = "local", .label = "Step in point space", .kind = PK::Bool,
+               .def = 0.0f,
+               .tip = "Off = the step is world XYZ. On = it is rotated by the "
+                      "point's own yaw, so fence posts march along the fence "
+                      "rather than along X."},
+              {.key = "snap", .label = "Snap to surface", .kind = PK::Bool,
+               .def = 0.0f,
+               .tip = "Drop every copy onto the terrain. For a row along the "
+                      "ground; leave OFF for a vertical stack, which it would "
+                      "flatten."}},
+         .desc = "Repeats every incoming point along a straight line: count "
+                 "copies, each one step further. Copies keep the source "
+                 "point's attributes and its picked asset, and each gets its "
+                 "own stable identity, so a manual edit sticks to copy 7 and "
+                 "not to 'the seventh point that happens to exist'."},
+
+        {.key = "RadialArray",
+         .title = "Radial Array",
+         .category = "Repeat",
+         .ins = {{.label = "points", .type = ProcType::Points}},
+         .outs = {{.label = "points", .type = ProcType::Points}},
+         .params =
+             {{.key = "count", .label = "Count", .kind = PK::Int, .def = 8.0f,
+               .lo = 1.0f, .hi = 2000.0f,
+               .tip = "Copies around the ring (the source point becomes the "
+                      "first one, at the start angle)."},
+              {.key = "radius", .label = "Radius", .kind = PK::Float,
+               .def = 8.0f, .lo = 0.0f, .hi = 2000.0f,
+               .tip = "Distance from the incoming point, which is the CENTRE "
+                      "of the ring."},
+              {.key = "axis", .label = "Axis", .kind = PK::Enum, .def = 0.0f,
+               .lo = 0.0f, .hi = 2.0f, .choices = "Y (flat ring)|X|Z",
+               .tip = "Which axis the ring turns around. Y is the usual one: "
+                      "columns around a plaza."},
+              {.key = "start", .label = "Start angle", .kind = PK::Float,
+               .def = 0.0f, .lo = -360.0f, .hi = 360.0f},
+              {.key = "sweep", .label = "Sweep", .kind = PK::Float,
+               .def = 360.0f, .lo = 1.0f, .hi = 360.0f,
+               .tip = "360 = a full circle (the last copy does not land on the "
+                      "first). Less = an arc, spread evenly end to end."},
+              {.key = "face", .label = "Turn with the ring", .kind = PK::Bool,
+               .def = 1.0f,
+               .tip = "Yaw each copy by its own angle, so an asset with a "
+                      "front faces outward all the way round. Only meaningful "
+                      "for the Y axis."},
+              {.key = "snap", .label = "Snap to surface", .kind = PK::Bool,
+               .def = 0.0f,
+               .tip = "Drop every copy onto the terrain - a ring of stones on "
+                      "uneven ground."}},
+         .desc = "Repeats every incoming point around a circle centred ON that "
+                 "point: count copies, evenly spaced over the sweep. Stone "
+                 "circles, colonnades, lamps around a fountain - the placement "
+                 "is exact, so it reads as built rather than grown."},
+
         // --- Output -------------------------------------------------------
+        {.key = "ObjectSettings",
+         .title = "Object Settings",
+         .category = "Output",
+         .rows = ProcRowKind::Settings,
+         .desc = "Applies a list of properties to EVERY scene object this "
+                 "volume bakes - the 'and all of them are like this' of the "
+                 "graph. It carries no pins because it is not a step in the "
+                 "chain: it states a fact about the whole output. Without it "
+                 "the generated chunks take the editor's defaults, and setting "
+                 "one by hand in the Properties panel does not survive - the "
+                 "next bake makes new chunks. Draw distance, cast shadow, "
+                 "collision and the streaming layer are NOT here: those live "
+                 "on Output (and the layer on the volume itself), so there is "
+                 "one place per field."},
+
         {.key = "Output",
          .title = "Output",
          .category = "Output",
@@ -437,6 +563,39 @@ const std::vector<ProcNodeType>& procNodeTypes() {
 const ProcNodeType* procNodeType(const std::string& key) {
     for (const ProcNodeType& t : procNodeTypes())
         if (key == t.key) return &t;
+    return nullptr;
+}
+
+// What the Object Settings node can set on a generated chunk. Every entry maps
+// to one SceneObject field in procbake::applySettings - keep the two together,
+// and prefer appending to renaming (a project stores the key).
+const std::vector<ProcObjProp>& procObjectProps() {
+    using PK = ProcObjPropKind;
+    static const std::vector<ProcObjProp> props = {
+        {.key = "meshLod", .label = "Mesh LOD distance", .kind = PK::Float,
+         .def = 20.0f, .lo = -1.0f, .hi = 2000.0f,
+         .tip = "Past this distance the chunk draws its decimated variant "
+                "(the build bakes ~50% and ~25% tiers for it). -1 = follow the "
+                "project preference, 0 = never decimate. Setting it here is "
+                "what makes the build bake the tiers at all, so a scattered "
+                "forest gets mesh LOD without touching the whole project."},
+        {.key = "bakedLighting", .label = "Baked lighting", .kind = PK::Bool,
+         .def = 1.0f,
+         .tip = "On = the chunk may take a per-texel lightmap from the GI bake "
+                "(best looking, and correct: baked geometry never moves). Off "
+                "puts it on the light-probe path instead."},
+        {.key = "reflected", .label = "Show in reflections", .kind = PK::Bool,
+         .def = 0.0f,
+         .tip = "Render the chunk into the dynamic environment map too. Each "
+                "marked object costs a second render per frame - on a scatter "
+                "volume that is many objects, so mean it."},
+    };
+    return props;
+}
+
+const ProcObjProp* procObjectProp(const std::string& key) {
+    for (const ProcObjProp& p : procObjectProps())
+        if (key == p.key) return &p;
     return nullptr;
 }
 
@@ -549,7 +708,7 @@ std::string linkError(const ProcGraph& g, int fromNode, int fromPin, int toNode,
 
 std::vector<ProcIssue> validate(const ProcGraph& g) {
     std::vector<ProcIssue> out;
-    int outputs = 0;
+    int outputs = 0, settings = 0;
     for (const ProcNode& n : g.nodes) {
         const ProcNodeType* t = procNodeType(n.type);
         if (!t) {
@@ -557,6 +716,12 @@ std::vector<ProcIssue> validate(const ProcGraph& g) {
             continue;
         }
         if (n.type == "Output") ++outputs;
+        if (n.type == "ObjectSettings") ++settings;
+        if (n.type == "ObjectSettings")
+            for (const ProcRow& r : n.rows)
+                if (!procObjectProp(r.s))
+                    out.push_back({n.id, "Object Settings: unknown property '" +
+                                             r.s + "' (ignored)"});
         for (size_t i = 0; i < t->ins.size(); ++i) {
             if (t->ins[i].optional) continue;
             if (!linkTo(g, n.id, (int)i))
@@ -577,12 +742,21 @@ std::vector<ProcIssue> validate(const ProcGraph& g) {
         out.push_back({0, "the graph has no Output node - nothing is baked"});
     else if (outputs > 1)
         out.push_back({0, "more than one Output node; the first one is used"});
+    if (settings > 1)
+        out.push_back({0, "more than one Object Settings node; the first one is "
+                          "used"});
     return out;
 }
 
 const ProcNode* outputNode(const ProcGraph& g) {
     for (const ProcNode& n : g.nodes)
         if (n.type == "Output") return &n;
+    return nullptr;
+}
+
+const ProcNode* settingsNode(const ProcGraph& g) {
+    for (const ProcNode& n : g.nodes)
+        if (n.type == "ObjectSettings") return &n;
     return nullptr;
 }
 

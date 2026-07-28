@@ -53,6 +53,22 @@ std::string shortId(const std::string& id) {
     return id.size() > 8 ? id.substr(0, 8) : id;
 }
 
+// The graph's Object Settings rows -> fields on one generated chunk object.
+// The twin of procObjectProps(): a property offered there and not handled here
+// is a switch that does nothing, so keep the two in one edit.
+void applySettings(const ProcGraph& g, SceneObject& o) {
+    const ProcNode* sn = procgraph::settingsNode(g);
+    if (!sn) return;
+    for (const ProcRow& r : sn->rows) {
+        const ProcObjProp* prop = procObjectProp(r.s);
+        if (!prop) continue;  // an unknown key is reported by procgraph::validate
+        const float v = std::clamp(r.v[0], prop->lo, prop->hi);
+        if (r.s == "meshLod") o.meshLodOverride = v;
+        else if (r.s == "bakedLighting") o.bakedLighting = v >= 0.5f;
+        else if (r.s == "reflected") o.reflected = v >= 0.5f;
+    }
+}
+
 void rotateVec(const float in[3], const float rotDeg[3], float out[3]) {
     const float rx = rotDeg[0] * kDeg, ry = rotDeg[1] * kDeg, rz = rotDeg[2] * kDeg;
     float x = in[0], y = in[1], z = in[2];
@@ -345,6 +361,10 @@ Report bakeVolume(Project& p, SceneData& s, const std::string& volumeId,
         o.collisionMode = collide == 1 ? 0 : 2;  // Box | None
         o.drawDistance = drawDist;
         o.layer = vol.layer;  // a streamed volume streams its output
+        // ...and whatever the graph's Object Settings node says about every
+        // object it generates. Applied AFTER the fixed fields, because that
+        // node is the explicit statement and these are the defaults.
+        applySettings(vol.procGraph, o);
         s.objects.push_back(o);
     }
 

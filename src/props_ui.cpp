@@ -76,7 +76,12 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Mirror: return "Mirror";
         case PrimitiveType::Portal: return "Portal";
         case PrimitiveType::Area: return "Area";
-        case PrimitiveType::Scatter: return "Scatter volume";
+        // The type is serialized as "scatter" (and the enum is Scatter), but
+        // the UI says PROCEDURAL: the object is the region a whole graph works
+        // in, and scattering is only one of the things that graph can do -
+        // naming it after one source node is what made people expect the
+        // object to choose the generation mode.
+        case PrimitiveType::Scatter: return "Procedural volume";
     }
     return "Object";
 }

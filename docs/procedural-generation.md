@@ -40,13 +40,20 @@ Three consequences you will feel:
 
 ## The pieces
 
-### The Scatter volume
+### The Procedural volume
 
-A procedural graph lives on a **Scatter volume** — an object type you add with
-*+ Add object > Scatter volume* (or the button in the Procedural window). Its
-**transform is the region**: position = centre, scale = box size, Y rotation
-yaws the footprint. Move or resize it with the ordinary gizmo and the content
-follows.
+A procedural graph lives on a **Procedural volume** — an object type you add
+with *+ Add object > Procedural volume...*, or with *New volume* in the
+Procedural window. Both are the same verb and land in the same place: the graph
+editor with the new volume selected. Its **transform is the region**: position =
+centre, scale = box size, Y rotation yaws the footprint. Move or resize it with
+the ordinary gizmo and the content follows.
+
+The object says nothing about HOW the box gets filled — that is the graph's job,
+and the graph can scatter, follow a curve, or repeat something exactly. (The
+type is still written to the project file as `scatter`, and the enum is still
+`PrimitiveType::Scatter`; only the name you read changed, because naming the
+region after one of its source nodes made it look like a choice of method.)
 
 The volume itself is authoring-only: a wireframe box in the editor, nothing at
 all in the game. It is not click-selectable in the viewport (its box usually
@@ -89,6 +96,9 @@ is why the library composes without a combinatorial explosion of node types.
 - **Scatter along Curve** — instances every N units along a curve, optionally
   offset to one side and yawed to follow it. Writes `t`.
 - **Curve** — control points edited in the viewport (see below).
+- **Single Point** — ONE point, placed exactly: at the volume's centre, at a
+  named object, plus an XYZ offset. Nothing random happens here; it is the head
+  of the analytic side of the graph (below).
 
 **Masks**
 
@@ -117,6 +127,27 @@ is why the library composes without a combinatorial explosion of node types.
   low-discrepancy order, keeping the first N thins the cloud **evenly** instead
   of cutting off a corner.
 
+**Repeat** — the analytic counterpart to the scatter sources: exact copies at
+exact places, no randomness anywhere. Both nodes copy **every** point that
+reaches them, so they work on one *Single Point* ("this pillar, twelve times
+around a circle") and on a whole scattered field alike ("every bush, three times
+up the cliff").
+
+- **Array** — `count` copies along a straight line: a world XYZ step, plus an
+  optional yaw and scale increment per copy. A stack is Step Y = the asset's
+  height with *Snap* off; a row along the ground is Step X/Z with *Snap* on.
+  *Step in point space* rotates the step by each point's own yaw, so posts march
+  along the fence they were scattered on rather than along world X.
+- **Radial Array** — `count` copies around a circle centred **on** the incoming
+  point: radius, axis (Y = the flat ring), start angle and sweep (360 = a full
+  circle that does not double up at the seam; less = an arc spread end to end).
+  *Turn with the ring* yaws each copy to face outward.
+
+Copies inherit the source point's attributes and its picked asset, and each one
+gets its own stable identity — so a hand edit sticks to "copy 7 of that point"
+and survives every later re-evaluation. Because they multiply their input, both
+nodes stop at 200 000 points and say so rather than eating the frame.
+
 **Attributes**
 
 - **Pick Asset** — assign each point a model from a weighted pool (pine 70,
@@ -130,6 +161,24 @@ is why the library composes without a combinatorial explosion of node types.
 **Output** — the terminal node: chunk size, per-chunk draw distance, cast
 shadow, collision, **instance detail** (decimate the source mesh once before
 merging) and the triangle budget. One per graph.
+
+**Object Settings** — the "and all of them are like this" node: a list of
+properties applied to **every scene object this volume bakes**. It has no pins,
+because it is not a step in the chain — it states a fact about the whole output,
+so it sits beside the graph rather than in it.
+
+| Property | What it does |
+|---|---|
+| **Mesh LOD distance** | past this distance the chunk draws its decimated variant. Setting it here is also what makes the build **bake** the ~50% / ~25% tiers for these meshes, so a scattered forest gets mesh LOD without turning it on project-wide. -1 = follow the project preference, 0 = never decimate |
+| **Baked lighting** | whether the chunk may take a per-texel lightmap from the GI bake (on by default — baked geometry never moves, which is exactly when a lightmap is correct) |
+| **Show in reflections** | render the chunks into the dynamic environment map too. One extra render per marked object per frame, and a volume makes many objects — mean it |
+
+This is the answer to "I want all of them to have X". Editing one generated
+chunk in the Properties panel is not: a bake rebuilds its objects, so the next
+density change makes new chunks that know nothing about the edit. Draw distance,
+cast shadow, collision and the streaming layer are deliberately **not** in this
+list — they live on Output (and the layer on the volume itself), so every field
+has exactly one place.
 
 Every node's tooltip (add menu and hover) is its full description — the
 registry entry is the documentation.
