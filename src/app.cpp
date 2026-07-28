@@ -850,7 +850,6 @@ void App::drawUI() {
             saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
             prefTerrain_ = project_.active().terrain;
-            prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
             prefSettings_ = project_.settings;
             openPreferencesPopup_ = true;
         }
@@ -1153,7 +1152,6 @@ void App::drawMenuBar() {
             const bool busy = runner_.busy();
             if (ImGui::MenuItem("Preferences...", "Ctrl+,")) {
                 prefTerrain_ = project_.active().terrain;
-                prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
                 prefSettings_ = project_.settings;
                 openPreferencesPopup_ = true;
             }
@@ -24737,6 +24735,34 @@ void App::drawDiscLayoutWindow() {
     ImGui::End();
 }
 
+// The starting presets New Project offers. The chosen one becomes
+// Project::gameTemplate for the project's LIFE - Project > Preferences shows it
+// read-only - because the game sources it generates are user-ownable: switching
+// afterwards would either overwrite the user's work or leave an owned file no
+// longer matching what the project builds. FPP and Third person generate the
+// same sources and differ in the seeded Player object's mode.
+struct NewProjectPreset {
+    const char* label;     // the New Project combo
+    const char* preset;    // project::create() argument
+    const char* tmpl;      // the resulting Project::gameTemplate
+};
+static const NewProjectPreset kNewPresets[] = {
+    // Short labels - the combo is one field wide and the "(?)" next to it
+    // carries the explanation.
+    {"FPP (first person)", "fpp", "fpp"},
+    {"Third person", "thirdperson", "thirdperson"},
+    {"Empty (no objects)", "empty", "orbit"},
+};
+static const int kNewPresetCount = (int)(sizeof(kNewPresets) / sizeof(kNewPresets[0]));
+
+// Which preset a project was created from, by its stored game template. Never
+// fails: project::load clamps unknown template strings to "orbit".
+static int presetIndexOf(const std::string& tmpl) {
+    for (int i = 0; i < kNewPresetCount; ++i)
+        if (tmpl == kNewPresets[i].tmpl) return i;
+    return kNewPresetCount - 1;  // "orbit" / anything unknown = Empty
+}
+
 void App::drawNewProjectModal() {
     if (openNewProjectPopup_) {
         ImGui::OpenPopup("New Project");
@@ -24811,10 +24837,22 @@ void App::drawNewProjectModal() {
                                 (float)newDepth_ / newUnitsPerMeter_);
 
         ImGui::SeparatorText("Preset");
-        const char* presetNames[] = {
-            "Empty (orbit camera, no objects)",
-            "FPP (a single player entity)"};
-        ImGui::Combo("Preset", &newTemplate_, presetNames, 2);
+        const char* presetNames[kNewPresetCount];
+        for (int i = 0; i < kNewPresetCount; ++i) presetNames[i] = kNewPresets[i].label;
+        ImGui::Combo("Preset", &newTemplate_, presetNames, kNewPresetCount);
+        prefHelp(
+            "What the project starts as - and what its generated game sources\n"
+            "are, permanently: the preset is fixed at creation and Project >\n"
+            "Preferences only shows it. Those sources are user-ownable, so\n"
+            "switching later would either overwrite your work or leave an\n"
+            "owned file no longer matching what the project builds.\n"
+            "- FPP: walk/look through the player's eyes.\n"
+            "- Third person: camera on a boom behind the player; the avatar\n"
+            "  is the Player object's own animated model (.glb/.fbx),\n"
+            "  assigned in Properties - the rig works without one.\n"
+            "- Empty: nothing in the scene and a camera that does not move\n"
+            "  on its own - add a player, or drive it from your own code,\n"
+            "  a Camera object or a cutscene.");
 
         ImGui::SeparatorText("AI support");
         ImGui::Checkbox("Claude Code", &newAiClaude_);
@@ -24828,9 +24866,11 @@ void App::drawNewProjectModal() {
             "Can also be added later in Project > Preferences.");
 
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
-        ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
-                            newDepth_,
-                            newTemplate_ == 1 ? " Adds a player entity." : "");
+        ImGui::TextDisabled(
+            "Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_, newDepth_,
+            newTemplate_ == 0   ? " Adds a player entity (FPP)."
+            : newTemplate_ == 1 ? " Adds a player entity (third person)."
+                                : "");
         // The build defaults a fresh project starts with - one line, because
         // nobody should have to discover why the FPS overlay is there or the
         // keyboard is not; the reasoning is in the tooltip.
@@ -24852,7 +24892,8 @@ void App::drawNewProjectModal() {
         if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
             Project p;
             TerrainConfig t{newWidth_, newDepth_};
-            const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
+            if (newTemplate_ < 0 || newTemplate_ >= kNewPresetCount) newTemplate_ = 0;
+            const char* preset = kNewPresets[newTemplate_].preset;
             std::string err =
                 project::create(p, newName_, newLocation_, t, preset, newUnitsPerMeter_);
             if (err.empty()) {
@@ -25287,9 +25328,24 @@ void App::drawPreferencesModal() {
         return;
 
     ImGui::SeparatorText("Game");
-    const char* templateNames[] = {"Terrain orbit", "FPP walkthrough"};
-    ImGui::Combo("Template", &prefTemplate_, templateNames, 2);
-    prefHelp("Applies to generated sources (files with the editor marker).");
+    // Read-only on purpose: the preset is picked once, in New Project. It
+    // decides which game-template sources are generated, and those are
+    // user-ownable - switching here would either overwrite work or leave an
+    // owned source no longer matching what the project builds.
+    ImGui::BeginDisabled();
+    {
+        int shown = presetIndexOf(project_.gameTemplate);
+        const char* names[kNewPresetCount];
+        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
+        ImGui::Combo("Preset", &shown, names, kNewPresetCount);
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "Fixed when the project was created and not changeable here: it picks\n"
+        "the generated game sources (files with the editor marker), which you\n"
+        "may have taken ownership of. Start a new project to use another\n"
+        "preset. The player's own camera settings stay editable - select the\n"
+        "Player object and see Properties.");
 
     ImGui::SeparatorText("Build");
     int videoSys = prefSettings_.videoSystem == "pal"    ? 2
@@ -25754,15 +25810,26 @@ void App::drawPreferencesModal() {
             "instead of only a rim behind the silhouette.");
     }
 
-    if (prefTemplate_ == 1) {
-        ImGui::SeparatorText("FPP camera");
-        ImGui::DragFloat("Eye height", &prefSettings_.eyeHeight, 0.05f, 0.2f, 50.0f, "%.2f");
+    // Player defaults - shared by both player presets (the height is the eye in
+    // FPP, the body in third person, the same way a Player object labels it).
+    if (project_.hasPlayerTemplate()) {
+        const bool third = project_.gameTemplate == "thirdperson";
+        ImGui::SeparatorText(third ? "Third-person camera" : "FPP camera");
+        ImGui::DragFloat(third ? "Body height" : "Eye height", &prefSettings_.eyeHeight,
+                         0.05f, 0.2f, 50.0f, "%.2f");
         walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
                       prefSettings_.unitsPerMeter);
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
-        ImGui::SeparatorText("Orbit camera");
+        ImGui::SeparatorText("Camera");
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
+        prefHelp(
+            "How fast the camera circles the terrain in a scene that has no\n"
+            "Player object. 0 - what the Empty preset starts at - parks it at\n"
+            "a fixed vantage point looking at the origin, so the project shows\n"
+            "what you built instead of a turntable; drive the camera from a\n"
+            "script, a Camera object or a cutscene. A scene WITH a Player\n"
+            "object ignores this - the player owns the camera.");
     }
 
     ImGui::SeparatorText("Multiplayer");
@@ -25842,10 +25909,10 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("Physics");
     ImGui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
                      "%.1f");
-    if (prefTemplate_ == 1)
+    if (project_.hasPlayerTemplate())
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
-    prefHelp("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
+    prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
 
     ImGui::SeparatorText("AI support");
     {
@@ -25876,7 +25943,8 @@ void App::drawPreferencesModal() {
         "category is overridden in Scene > Scene Preferences. The emulator\n"
         "path and dev-PS2 IP are machine-global - set them in Edit > Preferences.");
     if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
-        project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
+        // gameTemplate is deliberately NOT written back - the preset is fixed
+        // at creation and this dialog only shows it.
         project_.settings = prefSettings_;
         project_.active().terrain = prefTerrain_;
         applyProjectToViewport();  // scenes that inherit follow the new defaults
