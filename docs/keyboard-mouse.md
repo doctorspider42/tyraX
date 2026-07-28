@@ -107,33 +107,29 @@ enumerated the devices.
 ## Real hardware & ps2link
 
 On a real console the same build reads real USB HID devices — nothing to
-configure — **as long as the game boots from a disc, USB or the memory card,
-not from a ps2link network deploy**. Exception: **network deploys under
-ps2link skip the feature by default** (the engine refuses to load a second
-`usbd` — ps2link is commonly booted from a USB stick, and a second USB stack
-wedges the one already serving it). PCSX2 launches and exported ISOs are
-unaffected.
+configure — when the game boots from a disc, USB or the memory card. The F6
+network deploy works too, but only because of *how* it boots: the console runs
+the **TyraX ps2link**, which carries the USB stack for the game to reuse (below,
+and [ps2link-setup.md](ps2link-setup.md)).
 
-So the supported way to run keyboard/mouse on hardware is `Project > Export
-PS2 ISO` (burn it, or boot the ISO/ELF from USB via a loader) — *not* the F6
-"Run on PS2" network deploy.
-
-### Why it does nothing over F6 / "Run on PS2"
+### Why a game can't load the drivers itself over F6 / "Run on PS2"
 
 The generated `main.cpp` detects the ps2link deploy and sets
-`IrxLoader::keepIopResident = true`; the engine then computes
-`withKbdMouse = loadUsbKbdMouse && !keepIopResident`, which is false, so the
-drivers never load, `KbdMouse::init()` never runs and `applyKeyboardMouseInput`
-is a no-op. The pad loads separately, so **pad works but keyboard/mouse gives
-zero reaction** — that is the guard doing its job, not a bug.
+`IrxLoader::keepIopResident = true` — resetting the IOP would unload the
+ps2link serving the game. The engine then computes
+`withKbdMouse = loadUsbKbdMouse && (!keepIopResident || loadUsbKbdMouseUnderPs2Link)`:
+without the resident stack it loads nothing, `KbdMouse::init()` never runs and
+`applyKeyboardMouseInput` is a no-op. The pad loads separately, so a stock
+ps2link gives you **pad works, keyboard/mouse dead silent** — that is the guard
+doing its job, not a bug.
 
 ### Keyboard & mouse over ps2link: the TyraX ps2link
 
 Reading logs is the hard part on hardware: a burned ISO has no `host:`
 filesystem, so there is no `bin/log.txt`. A ps2link deploy is the opposite —
 it forwards the EE console over the network (the editor's *Output* panel /
-`ps2client` show `TYRA_LOG` live) — but it is exactly where the feature is off
-by default.
+`ps2client` show `TYRA_LOG` live) — and it is also where a game cannot bring up
+its own USB stack.
 
 Why it can't simply be switched on: `ps2kbd`/`ps2mouse` import `usbd`'s
 symbols, and a network-booted ps2link (its device list shows
@@ -145,23 +141,28 @@ never registered, freezing the boot on the Tyra logo.
 
 The fix is to bake `usbd` + `ps2kbd` + `ps2mouse` into **ps2link's own boot**
 (on its freshly-reset IOP, `usbd` first), so the drivers and their RPC servers
-are resident before any game runs and the game just **reuses** them. Build that
-ps2link from [`tools/ps2link-usbhid/`](../tools/ps2link-usbhid/README.md):
+are resident before any game runs and the game just **reuses** them. That is
+what the **TyraX ps2link** does, and it is the only ps2link the editor deploys
+to — you build it once and flash it (full setup:
+[ps2link-setup.md](ps2link-setup.md)):
 
 ```powershell
-tools/ps2link-usbhid/build.ps1
+tools/ps2link/build.ps1
 ```
 
-It clones a pinned ps2link, applies a three-file patch and builds in the
-`ps2dev/ps2dev` toolchain image, producing a `ps2link.elf` whose boot screen
-reads **“Welcome to TyraX ps2link (USB keyboard + mouse)”**. Flash it onto your
-PS2 in place of stock ps2link and plug in a **wired** USB keyboard + mouse.
+(`build.sh` on Linux.) It clones a pinned ps2link, applies
+[`tyrax.patch`](../tools/ps2link/tyrax.patch)
+and builds in the `ps2dev/ps2dev` toolchain image, producing a `ps2link.elf`
+whose boot screen reads **“Welcome to TyraX ps2link (USB keyboard + mouse)”**.
+Flash it onto the memory card as `PS2LINK.ELF` and plug in a **wired** USB
+keyboard + mouse.
 
-Then in *Project > Preferences > Build > Keyboard & mouse controls* tick
-**Also over ps2link — needs the TyraX ps2link** (stored as
-`"keyboardMousePs2Link"`), build and hit F6. The engine loads no USB modules of
-its own (a second `usbd` would wedge the resident one) and initialises the
-drivers ps2link already has. Watch *Output* / `ps2client`:
+In *Project > Preferences > Build > Keyboard & mouse controls*, **Also over
+ps2link** (stored as `"keyboardMousePs2Link"`) is **on by default** for exactly
+that reason — untick it only if you deliberately boot a stock ps2link. Build,
+hit F6: the engine loads no USB modules of its own (a second `usbd` would wedge
+the resident one) and initialises the drivers ps2link already has. Watch
+*Output* / `ps2client`:
 
 - `open name usbkbd:dev ... open fd = 3` + `KbdMouse: keyboard driver ready`
   **and** `KbdMouse: mouse driver ready` → both drivers are up; test WASD /

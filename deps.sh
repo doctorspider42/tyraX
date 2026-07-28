@@ -27,15 +27,17 @@ VENDOR_DEPS=(
 STB_HEADERS=(stb_image.h stb_truetype.h stb_image_write.h)
 
 # Real-PS2 network deploy tools ("Run on PS2" in the editor): ps2client talks
-# to a console running ps2link. The Runner looks for it in tools/ps2client/bin;
-# ps2link goes onto the console's memory card once (edit IPCONFIG.DAT for your
-# LAN - format: "ip netmask gateway"). Not needed to build the editor, so
-# build.sh never blocks on these. Note the ps2client tarball is per-OS - this
-# is the Linux build; deps.ps1 names the Windows one.
+# to a console running the TyraX ps2link. The Runner looks for it in
+# tools/ps2client/bin. Not needed to build the editor, so build.sh never blocks
+# on it. Note the ps2client tarball is per-OS - this is the Linux build;
+# deps.ps1 names the Windows one.
+#
+# ps2link itself is NOT downloaded: the console side is always OUR ps2link,
+# built from tools/ps2link/ (a pinned upstream + tyrax.patch, in Docker) and
+# flashed onto the memory card once. See docs/ps2link-setup.md.
 #   url|dir|probe
 PS2_TOOLS=(
     "https://github.com/ps2dev/ps2client/releases/download/v1.3.0/ps2client-211df54b-ubuntu-latest.tar.gz|tools/ps2client|tools/ps2client/bin/ps2client"
-    "https://github.com/ps2dev/ps2link/releases/download/RenameMe/ps2link-0269a955-highloading.tar.gz|tools/ps2link|tools/ps2link/ps2link/PS2LINK.ELF"
 )
 
 # Distro packages the editor needs to configure, link and run: the toolchain,

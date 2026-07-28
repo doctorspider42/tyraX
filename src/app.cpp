@@ -25370,16 +25370,16 @@ void App::drawPreferencesModal() {
         "USB devices on a console. Skipped on ps2link deploys.");
     ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
     ImGui::Indent(scaled(16));
-    ImGui::Checkbox("Also over ps2link - needs the TyraX ps2link",
-                    &prefSettings_.keyboardMousePs2Link);
+    ImGui::Checkbox("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
     prefHelp(
-        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy, where\n"
-        "they are normally skipped. Requires the custom TyraX ps2link built by\n"
-        "tools/ps2link-usbhid (its boot screen says \"TyraX ps2link\"): stock\n"
-        "ps2link loads no USB drivers at all, and they cannot be added safely\n"
-        "afterwards - with it the engine just reuses the resident stack. The\n"
-        "driver logs show up live in Output / ps2client. On a stock ps2link\n"
-        "the drivers simply report \"not ready\". See docs/keyboard-mouse.md.");
+        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
+        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
+        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
+        "engine reuses that resident stack instead of loading its own. The\n"
+        "driver logs show up live in Output / ps2client. Untick only if you\n"
+        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
+        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
+        "and docs/keyboard-mouse.md.");
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);

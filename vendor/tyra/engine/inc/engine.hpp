@@ -35,13 +35,14 @@ struct EngineOptions {
    * (Pad::injectVirtual) / camera themselves. */
   bool loadUsbKbdMouse = false;
 
-  /** Experimental (TyraX fork): keep the keyboard/mouse drivers on even under
-   * a ps2link deploy, where loadUsbKbdMouse is otherwise ignored. REQUIRES the
-   * custom TyraX ps2link (tools/ps2link-usbhid), which bakes usbd + ps2kbd +
-   * ps2mouse into its own boot: the engine REUSES that resident stack and
-   * loads none of its own (a second usbd would wedge it, and drivers added to
-   * a running ps2link's IOP never come up cleanly). With a stock ps2link there
-   * is nothing to reuse and the drivers just report "not ready". */
+  /** TyraX fork: keep the keyboard/mouse drivers on even under a ps2link
+   * deploy, where loadUsbKbdMouse is otherwise ignored. REQUIRES the TyraX
+   * ps2link (tools/ps2link), which bakes usbd + ps2kbd + ps2mouse into its own
+   * boot: the engine REUSES that resident stack and loads none of its own (a
+   * second usbd would wedge it, and drivers added to a running ps2link's IOP
+   * never come up cleanly). That is the only ps2link the editor deploys to, so
+   * generated games set this true by default; with a stock ps2link there is
+   * nothing to reuse and the drivers just report "not ready". */
   bool loadUsbKbdMouseUnderPs2Link = false;
 
   /** Forced output video signal; Auto follows the console region. */
