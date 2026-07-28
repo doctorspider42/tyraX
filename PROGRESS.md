@@ -12835,6 +12835,56 @@ Each finished feature lands as its own commit.
   `terrain_game.cpp` (all of `g_camShake`) and `sequences.gen.cpp` (`playing()`
   plus the bars fallback). Not yet run in PCSX2.
 
+- (227) **The event bus: two graphs can finally talk without naming each other**
+  (stage 5 of the flow-graph expansion, and the one architectural gap in the
+  223 audit).
+
+  Every graph belongs to one object, and until now the ONLY channel between two
+  of them was a game-global variable polled from On Update - slower than it needs
+  to be and impossible to read as intent. **Send Event** broadcasts a name plus
+  an optional number payload; **On Event** fires on it, exposes the payload on
+  its number output and "it arrived this frame" on its bool output. Events live
+  in one game-global namespace with the flow variables' rule: an event exists by
+  being named (`collectFlowEvents`, the twin of `collectFlowVars`).
+
+  **Delivery is one frame later, and that is the design rather than a
+  limitation.** Scripts run in `getScripts()` order, which is an emission detail
+  no author can see - so same-frame delivery would mean a receiver sees an event
+  this frame or next depending on which object's graph happens to be registered
+  first, and no graph could compensate. So the bus is **double-buffered**: senders
+  write `next`, receivers read `cur`, and a dedicated `FlowEventBus` script -
+  emitted and registered BEFORE every graph script, so it runs first each frame -
+  promotes one to the other. Uniform for every receiver, at the cost of 20 ms,
+  which the node's own description states. Two details that would otherwise be
+  silent bugs: the bus clears both buffers on a scene (re)load (a scene switch
+  must not deliver the old scene's mail), and with the Live Debugger on it
+  freezes while halted - promoting buffers behind a breakpoint would drop the very
+  event the author had stopped to look at.
+
+  **The bus joins the time machine's capture walk**, because that is the rule for
+  anything the running game mutates: two slots per event (the mail delivered and
+  the mail in flight) appended to `flowTimeRead`/`flowTimeWrite` after the
+  variables, `flowTimeVarCount()` grown to match, and the layout hash bumped to
+  4. An event flag lives exactly one frame, so a rewind that dropped it would
+  either lose a delivery or re-fire one already consumed. The trap here is that
+  `liveTimeSource` sizes its buffer WITHOUT being able to see the generated
+  arrays, so both sides now count from the same two collectors -
+  `TM_MAX_VARS = 5` against `flowTimeVarCount() { return 5; }` for the fixture
+  below is what that agreement looks like.
+
+  On Event needs no edge latch - the flag lives for exactly one frame, so its
+  presence IS the edge, which is why it is the only trigger in the registry
+  without a companion `bool` member.
+
+  Verified by codegen with a fixture that could not have been written before:
+  TWO graphs in one project, a sender on the player (`hit` with a variable as its
+  payload on a button, `level-start` on On Start) and a receiver on a crate
+  (three On Event nodes across two names, one driving Spin Object, one a Camera
+  Shake, one feeding a NOT into On Condition). Read out of
+  `flow_graph.gen.cpp`: `TYRA_SCRIPT(FlowEventBus)` is the first registration,
+  the sender writes `flowEvtNext[0]`/`[1]` and the receiver reads `flowEvtCur[]`,
+  and the two events' four capture slots follow the one variable's.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch

@@ -19733,6 +19733,23 @@ void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
             }
 }
 
+// Graph events (Send Event / On Event) live in one game-global namespace, like
+// the flow variables above and for the same reason: an event exists by being
+// named on either node, and the slot index has to be the same answer for
+// codegen and for the time machine's capture - which sizes its buffer from this
+// list without being able to see the generated arrays.
+void collectFlowEvents(const Project& p, std::vector<std::string>& events) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                if (n.type != "SendEvent" && n.type != "OnEvent") continue;
+                if (n.str.empty()) continue;
+                bool seen = false;
+                for (const std::string& e : events) seen |= (e == n.str);
+                if (!seen) events.push_back(n.str);
+            }
+}
+
 // A node is instrumented when it can "run": triggers (they fire) and actions
 // (they execute). Pure data nodes are expressions folded into the C++ of
 // whoever reads them - they have no moment in time to report.
@@ -19874,6 +19891,14 @@ std::string flowGraphScript(const Project& p) {
     // being named on any Set/Get node.
     std::vector<std::string> intVars, boolVars, posVars;
     collectFlowVars(p, intVars, boolVars, posVars);
+    // Graph events share the same "exists by being named" rule.
+    std::vector<std::string> flowEvents;
+    collectFlowEvents(p, flowEvents);
+    auto eventIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < flowEvents.size(); ++i)
+            if (flowEvents[i] == name) return (int)i;
+        return -1;
+    };
 
     // Live Debugger (docs/live-debugger.md): with the debugger on, every
     // trigger and every action reports itself to the running game's hit table
@@ -20404,6 +20429,70 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
     std::ostringstream registrations;
     bool anyGraph = false;
 
+    // Graph events (Send Event / On Event). DOUBLE-BUFFERED on purpose: senders
+    // write `next`, receivers read `cur`, and the bus script below - registered
+    // FIRST, so it runs before every graph - promotes one to the other once per
+    // frame. That is what makes delivery uniform. Without it, whether a receiver
+    // saw an event in the same frame or the next would depend on the order
+    // getScripts() happens to hold, which is an emission detail no author can
+    // see and no graph could compensate for. The cost is one frame of latency,
+    // stated in the node's own description.
+    if (!flowEvents.empty()) {
+        auto names = [&]() {
+            std::string s;
+            for (size_t i = 0; i < flowEvents.size(); ++i)
+                s += (i ? ", " : "") + flowEvents[i];
+            return s;
+        };
+        const std::string n = std::to_string(flowEvents.size());
+        out << "\n// Graph events (Send Event / On Event), one game-global "
+               "namespace:\n// "
+            << names()
+            << "\n"
+               "static unsigned char flowEvtCur["
+            << n << "] = {};\n"
+               "static float flowEvtCurVal["
+            << n << "] = {};\n"
+               "static unsigned char flowEvtNext["
+            << n << "] = {};\n"
+               "static float flowEvtNextVal["
+            << n << "] = {};\n"
+               "\n"
+               "// The bus. Registered before every graph script, so `cur` is\n"
+               "// already this frame's mail by the time any receiver looks.\n"
+               "class FlowEventBus : public Script {\n"
+               " public:\n"
+               "  void update(ScriptContext& ctx) override {\n";
+        if (dbgOn)
+            out << "    // Halted at a breakpoint: freeze the mail too, or an\n"
+                   "    // event sent just before the stop would be dropped\n"
+                   "    // while the author was looking at it.\n"
+                   "    if (livedbg::halted()) return;\n";
+        out << "    if (ctx.sceneGeneration != generation_) {\n"
+               "      // A scene (re)load must not deliver the old scene's mail.\n"
+               "      generation_ = ctx.sceneGeneration;\n"
+               "      for (int i = 0; i < "
+            << n
+            << "; ++i) {\n"
+               "        flowEvtCur[i] = flowEvtNext[i] = 0;\n"
+               "        flowEvtCurVal[i] = flowEvtNextVal[i] = 0.0F;\n"
+               "      }\n"
+               "      return;\n"
+               "    }\n"
+               "    for (int i = 0; i < "
+            << n
+            << "; ++i) {\n"
+               "      flowEvtCur[i] = flowEvtNext[i];\n"
+               "      flowEvtCurVal[i] = flowEvtNextVal[i];\n"
+               "      flowEvtNext[i] = 0;\n"
+               "    }\n"
+               "  }\n"
+               "\n private:\n"
+               "  unsigned int generation_ = 0;\n"
+               "};\n";
+        registrations << "TYRA_SCRIPT(" << ns << "::FlowEventBus);\n";
+    }
+
     for (size_t si = 0; si < p.scenes.size(); ++si) {
     const auto& sceneObjs = p.scenes[si].objects;
     auto objectIndex = [&](const std::string& name) {
@@ -20782,6 +20871,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        floatLit(n.num[0]) + ", " + floatLit(n.num[1]) + ", " +
                        std::to_string(ease) + ")";
             }
+            if (n.type == "OnEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) return "0.0F";
+                return "flowEvtCurVal[" + std::to_string(ei) + "]";
+            }
             if (n.type == "RollRandom") return "rnd" + std::to_string(n.id);
             if (n.type == "PlayerFallSpeed")
                 return "flowVelPerSec(ctx.playerVelY)";
@@ -20993,6 +21087,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 return "navPlayerSeen(ctx, " + std::to_string(idx) + args;
             }
             if (n.type == "OnSequenceEnd") return "sequences::playing()";
+            if (n.type == "OnEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) return "false";
+                return "(flowEvtCur[" + std::to_string(ei) + "] != 0)";
+            }
             if (n.type == "IsLayerLoaded") {
                 const int li = layerIndexOf(n.str);
                 if (li < 0) return "false";  // unknown layer name
@@ -22005,6 +22104,18 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     c << pad << t0 << " = 0.0F;\n" << pad << r << " = true;\n";
                 }
+            } else if (n.type == "SendEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) {
+                    c << pad << "// node " << n.id
+                      << " (SendEvent): no event name\n";
+                } else {
+                    // Written into `next`; the bus promotes it before any graph
+                    // runs on the following frame.
+                    c << pad << "flowEvtNext[" << ei << "] = 1;\n"
+                      << pad << "flowEvtNextVal[" << ei << "] = "
+                      << numOperand(n) << ";  // \"" << n.str << "\"\n";
+                }
             } else if (n.type == "SetCamera") {
                 // Eye from the position link, aim at the target object. Written
                 // straight onto the fields the Cutscene Director publishes, so
@@ -22744,6 +22855,17 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
                 clsOut << "    if (ctx.menuEvent == " << ei << ") {  // \"" << n.str
                     << "\"\n" << body << "    }\n";
+            } else if (n.type == "OnEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) {
+                    clsOut << "    // node " << n.id
+                           << " (OnEvent): no event name\n";
+                    continue;
+                }
+                // No edge latch needed: the flag lives for exactly one frame,
+                // so its presence IS the edge.
+                clsOut << "    if (flowEvtCur[" << ei << "]) {  // \"" << n.str
+                       << "\"\n" << body << "    }\n";
             } else if (n.type == "OnSequenceEnd") {
                 // The FALLING edge of "a cutscene is playing" - which covers a
                 // sequence running out, Stop Sequence, and the player skipping
@@ -22950,13 +23072,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
     // disagree about what slot N is.
     if (timeOn) {
         const size_t total = intVars.size() + boolVars.size() + posVars.size();
-        out << "\n// Time machine (docs/time-machine.md): the flow variables, "
-               "both directions.\n"
+        // Graph events join the walk after the variables: two slots each (the
+        // mail delivered this frame and the mail in flight), because an event
+        // flag lives exactly one frame and a rewind that dropped it would
+        // either lose a delivery or re-fire one already consumed.
+        // liveTimeSource sizes its buffer from collectFlowEvents, so the two
+        // counts agree by construction.
+        const size_t evSlots = flowEvents.size() * 2;
+        out << "\n// Time machine (docs/time-machine.md): the flow variables and "
+               "the event bus, both directions.\n"
                "int flowTimeVarCount() { return "
-            << total << "; }\n"
+            << (total + evSlots) << "; }\n"
                "void flowTimeRead(int index, float* out3) {\n"
                "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
-        if (total == 0) {
+        if (total + evSlots == 0) {
             out << "  (void)index;  // this project defines no flow variables\n";
         } else {
             out << "  switch (index) {\n";
@@ -22971,11 +23100,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 out << "    case " << slot << ":\n      out3[0] = flowPos[" << i
                     << "][0]; out3[1] = flowPos[" << i << "][1]; out3[2] = flowPos["
                     << i << "][2];\n      break;  // " << posVars[i] << "\n";
+            for (size_t i = 0; i < flowEvents.size(); ++i) {
+                out << "    case " << slot++ << ":\n      out3[0] = flowEvtCur["
+                    << i << "] ? 1.0F : 0.0F; out3[1] = flowEvtCurVal[" << i
+                    << "];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (delivered)\n";
+                out << "    case " << slot++ << ":\n      out3[0] = flowEvtNext["
+                    << i << "] ? 1.0F : 0.0F; out3[1] = flowEvtNextVal[" << i
+                    << "];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (in flight)\n";
+            }
             out << "    default: break;\n  }\n";
         }
         out << "}\n"
                "void flowTimeWrite(int index, const float* in3) {\n";
-        if (total == 0) {
+        if (total + evSlots == 0) {
             out << "  (void)index; (void)in3;\n";
         } else {
             out << "  switch (index) {\n";
@@ -22990,6 +23129,16 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 out << "    case " << slot << ":\n      flowPos[" << i
                     << "][0] = in3[0]; flowPos[" << i << "][1] = in3[1]; flowPos["
                     << i << "][2] = in3[2];\n      break;  // " << posVars[i] << "\n";
+            for (size_t i = 0; i < flowEvents.size(); ++i) {
+                out << "    case " << slot++ << ":\n      flowEvtCur[" << i
+                    << "] = in3[0] != 0.0F ? 1 : 0; flowEvtCurVal[" << i
+                    << "] = in3[1];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (delivered)\n";
+                out << "    case " << slot++ << ":\n      flowEvtNext[" << i
+                    << "] = in3[0] != 0.0F ? 1 : 0; flowEvtNextVal[" << i
+                    << "] = in3[1];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (in flight)\n";
+            }
             out << "    default: break;\n  }\n";
         }
         out << "}\n";
@@ -25139,7 +25288,14 @@ static std::string liveTimeSource(const Project& p) {
     maxObjects += 32;  // the runtime spawn pool (MAX_SPAWNED_OBJECTS)
     std::vector<std::string> intVars, boolVars, posVars;
     collectFlowVars(p, intVars, boolVars, posVars);
-    const size_t vars = intVars.size() + boolVars.size() + posVars.size();
+    // Must match flowTimeVarCount() in flow_graph.gen.cpp exactly: the graph
+    // events take two slots each after the variables (delivered + in flight).
+    // This TU cannot see the generated arrays, so both sides count from the
+    // same two collectors.
+    std::vector<std::string> flowEvents;
+    collectFlowEvents(p, flowEvents);
+    const size_t vars = intVars.size() + boolVars.size() + posVars.size() +
+                        flowEvents.size() * 2;
     // Upper bound on the graphs' own state. The exact figure is a sum of
     // per-class constants in flow_graph.gen.cpp, which this translation unit
     // can only ask for at runtime - so size the buffer for the worst case a
@@ -25161,7 +25317,8 @@ static std::string liveTimeSource(const Project& p) {
     auto mix = [&layout](uint64_t v) {
         layout = (layout ^ v) * 1099511628211ull;
     };
-    mix(3);  // layout version - bump when the walk above changes
+    mix(4);  // layout version - bump when the walk above changes
+             // (4: graph events joined the variable slots)
     mix(maxObjects);
     mix(vars);
     mix(saves);

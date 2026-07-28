@@ -149,6 +149,17 @@ over guessing from this file.
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).
+- **Graphs talk to each other with EVENTS, not with polled variables.**
+  **Send Event** broadcasts a name (plus an optional number payload) to every
+  graph in the game; every **On Event** of that name fires on the NEXT frame,
+  uniformly, whichever object owns it - so the order graphs happen to run in
+  can never change the outcome. On Event's number output is the payload and its
+  bool output is "it arrived this frame". Use this whenever one object's logic
+  has to reach another's (a pickup telling the HUD, a switch telling three
+  doors, a boss telling the music) instead of a global bool polled from On
+  Update. Events exist by being named - use the SAME string on both nodes.
+  The one-frame latency is the price of the uniform ordering; for something that
+  must happen inside the same frame, wire the action directly.
 - Object-parameter nodes resolve their target: incoming **object link** →
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge

@@ -128,6 +128,7 @@ enum class FlowParamKind {
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
     InputActionName,  // name of a Project::input action (Tools > Input Map)
     KeyName,   // a keyboard key label from inputKeyNames() ("Space", "F1")
+    EventName,  // name of a graph event (free text; exists by being named)
 };
 
 struct FlowNodeType {
@@ -1277,6 +1278,31 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Pure converter: linked number -> text. Wire it into Display "
                  "Text to put a computed value on screen. Whole numbers print "
                  "without a decimal point."},
+        // ------------------------------------------------------------------
+        // The event bus: the ONE way one object's graph talks to another's.
+        // Before it existed the only channel was a global variable polled from
+        // On Update, which is both slower and impossible to read as intent.
+        // Delivery is deliberately ONE FRAME later and uniform for every
+        // receiver - see the desc.
+        {.key = "SendEvent", .title = "Send Event", .category = "Events",
+         .strKind = FlowParamKind::EventName, .numCount = 1,
+         .numLabels = {"Value"}, .numIn = true,
+         .desc = "Broadcasts the event named str to EVERY graph in the game, "
+                 "with num[0] (Value) as an optional number payload (a linked "
+                 "number overrides it). Every On Event node of that name fires "
+                 "on the NEXT frame - uniformly, whichever object owns it, so "
+                 "the order graphs happen to run in can never change the "
+                 "outcome. That one frame (20 ms) is the price of that "
+                 "guarantee; for something that must happen inside the same "
+                 "frame, wire the action directly."},
+        {.key = "OnEvent", .title = "On Event", .category = "Events",
+         .trigger = true, .strKind = FlowParamKind::EventName, .boolOut = true,
+         .numOut = true,
+         .desc = "Fires the frame after any graph sends the event named str. Its "
+                 "number output is the Value that came with it, and its bool "
+                 "output is \"the event arrived this frame\". Events are how a "
+                 "pickup tells the HUD, a switch tells three doors, or a boss "
+                 "tells the music - without any of them naming the others."},
         {.key = "Log", .title = "Log Message", .category = "Debug",
          .strKind = FlowParamKind::Text, .textIn = true,
          .desc = "Prints str followed by every wired text input to the game "

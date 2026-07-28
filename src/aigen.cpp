@@ -100,6 +100,9 @@ static std::string strKindDesc(FlowParamKind k) {
             return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
                    "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
                    "Left Ctrl, Left Alt";
+        case FlowParamKind::EventName:
+            return "event name (free text - an event exists by being named; use "
+                   "the SAME string on the Send Event and the On Event)";
         default: return "";
     }
 }

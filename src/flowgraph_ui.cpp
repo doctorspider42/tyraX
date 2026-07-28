@@ -716,13 +716,22 @@ void App::drawFlowGraphWindow() {
             std::snprintf(pbuf, sizeof(pbuf), "%s", n.str2.c_str());
             if (ImGui::InputText("Prefix", pbuf, sizeof(pbuf))) n.str2 = pbuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-        } else if (t->strKind == FlowParamKind::VarName) {
+        } else if (t->strKind == FlowParamKind::VarName ||
+                   t->strKind == FlowParamKind::EventName) {
+            // Both are free text that EXISTS by being named, so both get the
+            // same field plus a picker over the names already in the project.
+            const bool event = t->strKind == FlowParamKind::EventName;
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
-            if (ImGui::InputText("Variable", buf, sizeof(buf))) n.str = buf;
+            if (ImGui::InputText(event ? "Event" : "Variable", buf, sizeof(buf)))
+                n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            // Same-type variable names already used anywhere in the project
-            // (variables are game-global; picking beats retyping/typos).
+            if (event && n.str.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                   "Name it - an unnamed event\ncompiles out.");
+            // Same-namespace names already used anywhere in the project
+            // (variables and events are game-global; picking beats
+            // retyping/typos).
             const std::vector<std::string> known = flowVarNames(n.type);
             if (!known.empty()) {
                 if (ImGui::SmallButton("Pick...")) ImGui::OpenPopup("##pickvar");
