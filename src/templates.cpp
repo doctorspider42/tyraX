@@ -2477,6 +2477,13 @@ float g_frameScale = 1.0F;
 // frame instead of advancing behind the menu.
 bool g_gameplayPaused = false;
 
+// True while the Set Player Input flow node has taken the controls away (a
+// cutscene, a dialogue, a scripted fall). Only the walker's INPUT reads honour
+// it - gravity, collision and the camera keep running, so a locked player still
+// falls and still gets framed instead of freezing in mid-air. Cleared on scene
+// load, so a lock cannot survive a reload.
+bool g_playerLocked = false;
+
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
 // the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
@@ -4440,6 +4447,11 @@ void TerrainGame::loop() {
   if (scriptCtx.flashlight >= 0) {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
+  }
+  // Player input lock (Set Player Input flow node).
+  if (scriptCtx.lockInput >= 0) {
+    g_playerLocked = scriptCtx.lockInput == 0;
+    scriptCtx.lockInput = -1;
   }
   // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
   if (scriptCtx.fog >= 0) {
@@ -6421,6 +6433,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   // on/off toggle starts on.
   g_flashEnabled = FLASHLIGHT_ENABLED;
   g_flashOn = true;
+  // A Set Player Input lock must never survive a scene load - a cutscene that
+  // switches scenes would otherwise hand the player a world they cannot move in.
+  g_playerLocked = false;
 
   // Authored objects + the dynamic spawn pool (Spawn Object flow node).
   runtimeObjects.assign(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS,
@@ -9249,11 +9264,18 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  // Set Player Input off (g_playerLocked) reads as both sticks centred: it is
+  // the ONE funnel every analog read goes through, so nothing downstream needs
+  // to know the controls were taken away.
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right). A shared-screen P2
@@ -9272,7 +9294,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // Mouse look (controls.hpp): the USB mouse drives player 1 (pad 1). The
     // deltas are the counts accumulated since the previous frame, so no
     // g_frameScale: the same swipe turns the same angle at any frame rate.
-    if (pi == 0 && (!fixedCam || PP_CAM_YAW_ROTATE(pi)))
+    if (pi == 0 && !g_playerLocked && (!fixedCam || PP_CAM_YAW_ROTATE(pi)))
       P.yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
 #endif
     if (fixedCam) {
@@ -9280,7 +9302,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     } else {
       P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
 #ifdef TYRAX_KBD_MOUSE
-      if (pi == 0)
+      if (pi == 0 && !g_playerLocked)
         P.pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
 #endif
       if (P.pitch > 1.35F) P.pitch = 1.35F;
@@ -9312,8 +9334,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.x += (fx * cp * forward - fz * strafe) * step;
     P.z += (fz * cp * forward + fx * strafe) * step;
     P.y += sinf(P.pitch) * forward * step;
-    if (inputPressed(pad, IA_ROLE_FLY_UP)) P.y += step;
-    if (inputPressed(pad, IA_ROLE_FLY_DOWN)) P.y -= step;
+    if (!g_playerLocked && inputPressed(pad, IA_ROLE_FLY_UP)) P.y += step;
+    if (!g_playerLocked && inputPressed(pad, IA_ROLE_FLY_DOWN)) P.y -= step;
 
     P.camPos = Vec4(P.x, P.y, P.z);
     P.camLook = Vec4(P.x + fx * cp, P.y + sinf(P.pitch), P.z + fz * cp);
@@ -9365,7 +9387,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       P.y = ground;
       P.velY = 0.0F;
       grounded = true;
-      if (PP_CAN_JUMP(pi) && inputClicked(pad, IA_ROLE_JUMP))
+      if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
         P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
@@ -9510,7 +9532,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (P.y <= ground) {
     P.y = ground;
     P.velY = 0.0F;
-    if (PP_CAN_JUMP(pi) && inputClicked(pad, IA_ROLE_JUMP))
+    if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
       P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
   }
 
@@ -14637,6 +14659,11 @@ void TerrainGame::loop() {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
   }
+  // Player input lock (Set Player Input flow node).
+  if (scriptCtx.lockInput >= 0) {
+    g_playerLocked = scriptCtx.lockInput == 0;
+    scriptCtx.lockInput = -1;
+  }
   // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
   if (scriptCtx.fog >= 0) {
     if (scriptCtx.fog)
@@ -14851,11 +14878,18 @@ void TerrainGame::updatePlayer() {
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  // Set Player Input off (g_playerLocked) reads as both sticks centred: it is
+  // the ONE funnel every analog read goes through, so nothing downstream needs
+  // to know the controls were taken away.
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
@@ -14865,8 +14899,10 @@ void TerrainGame::updatePlayer() {
   // Mouse look (controls.hpp). The deltas are the counts accumulated since
   // the previous frame, so no g_frameScale: the same swipe turns the same
   // angle at any frame rate.
-  yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
-  pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+  if (!g_playerLocked) {
+    yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
+    pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+  }
 #endif
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
@@ -14929,7 +14965,7 @@ void TerrainGame::updatePlayer() {
   if (playerY <= ground) {
     playerY = ground;
     playerVelY = 0.0F;
-    if (inputClicked(engine->pad, IA_ROLE_JUMP))
+    if (!g_playerLocked && inputClicked(engine->pad, IA_ROLE_JUMP))
       playerVelY = JUMP_SPEED * g_frameDt;
   }
 
@@ -15819,6 +15855,12 @@ struct ScriptContext {
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
+
+  // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
+  // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
+  // away - gravity, collision and the camera keep running, so a locked player
+  // still falls and is still framed. The game applies and resets it.
+  int lockInput = -1;
 
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
   // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
@@ -20088,11 +20130,73 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "  if (lo > hi) { const float t = lo; lo = hi; hi = t; }\n"
                "  return x >= lo && x <= hi;\n"
                "}\n";
-    if (uses("PosDistance"))
+    if (uses("PosDistance") || uses("ObjDistance") || uses("FindNearest"))
         out << "\nstatic inline float flowDist3(float ax, float ay, float az,\n"
                "                              float bx, float by, float bz) {\n"
                "  const float dx = ax - bx, dy = ay - by, dz = az - bz;\n"
                "  return sqrtf(dx * dx + dy * dy + dz * dz);\n"
+               "}\n";
+    if (uses("GetVelocity") || uses("PlayerFallSpeed"))
+        out << "\n// Velocities are stored as per-FRAME displacements (that is\n"
+               "// what the physics pass integrates); a graph reasons in units\n"
+               "// per second, so every read and write converts. Guarded because\n"
+               "// the very first frame has no measured dt yet.\n"
+               "static inline float flowVelPerSec(float perFrame) {\n"
+               "  return g_frameDt > 0.0001F ? perFrame / g_frameDt : 0.0F;\n"
+               "}\n";
+    if (uses("LookAt"))
+        out << "\n// Look At node: point an object at a world position. Yaw 0\n"
+               "// faces +Z (the walker's own convention: forward = (sin yaw,\n"
+               "// 0, cos yaw)), and because the engine applies Rz*Ry*Rx a\n"
+               "// model's +Z tilts to (0, -sin x, cos x) - hence the NEGATIVE\n"
+               "// pitch to aim upwards. Degenerate (target on top of the\n"
+               "// object) leaves the rotation alone rather than snapping it.\n"
+               "static void flowLookAt(RuntimeObject& o, float tx, float ty,\n"
+               "                       float tz, bool tilt) {\n"
+               "  const float dx = tx - o.data.position[0];\n"
+               "  const float dy = ty - o.data.position[1];\n"
+               "  const float dz = tz - o.data.position[2];\n"
+               "  const float flat = sqrtf(dx * dx + dz * dz);\n"
+               "  if (flat < 0.0001F && (!tilt || fabsf(dy) < 0.0001F)) return;\n"
+               "  if (flat >= 0.0001F)\n"
+               "    o.data.rotation[1] = atan2f(dx, dz) * 57.29578F;\n"
+               "  o.data.rotation[0] = tilt ? -atan2f(dy, flat) * 57.29578F\n"
+               "                            : 0.0F;\n"
+               "  o.data.rotation[2] = 0.0F;\n"
+               "  o.dirty = true;\n"
+               "}\n";
+    if (uses("FindNearest"))
+        out << "\n// Find Nearest node: the closest ACTIVE candidate to a point.\n"
+               "// The candidate list is a static index table baked by codegen\n"
+               "// from the name prefix, so the runtime never compares strings.\n"
+               "// maxDist 0 = no limit. Returns the object index (-1 = none)\n"
+               "// and writes its position; with no hit the position is left at\n"
+               "// the query point, so a downstream Spawn Object lands where you\n"
+               "// looked rather than at the world origin.\n"
+               "static int flowFindNearest(const ScriptContext& ctx,\n"
+               "                          const int* cand, int count, float px,\n"
+               "                          float py, float pz, float maxDist,\n"
+               "                          float* outPos) {\n"
+               "  int best = -1;\n"
+               "  float bestD = maxDist > 0.0F ? maxDist : 1e30F;\n"
+               "  for (int i = 0; i < count; ++i) {\n"
+               "    const int oi = cand[i];\n"
+               "    if (oi < 0 || oi >= ctx.objectCount) continue;\n"
+               "    const RuntimeObject& o = ctx.objects[oi];\n"
+               "    if (!o.active) continue;\n"
+               "    const float d = flowDist3(o.data.position[0],\n"
+               "                              o.data.position[1],\n"
+               "                              o.data.position[2], px, py, pz);\n"
+               "    if (d < bestD) { bestD = d; best = oi; }\n"
+               "  }\n"
+               "  if (best >= 0) {\n"
+               "    outPos[0] = ctx.objects[best].data.position[0];\n"
+               "    outPos[1] = ctx.objects[best].data.position[1];\n"
+               "    outPos[2] = ctx.objects[best].data.position[2];\n"
+               "  } else {\n"
+               "    outPos[0] = px; outPos[1] = py; outPos[2] = pz;\n"
+               "  }\n"
+               "  return best;\n"
                "}\n";
 
     if (anyTween) {
@@ -20297,7 +20401,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // own inputs).
                 if (const FlowNodeType* st = flowNodeType(src->type);
                     st && st->idOut &&
-                    (flowCustomNode(src->type) || src->type == "Raycast"))
+                    (flowCustomNode(src->type) || src->type == "Raycast" ||
+                     src->type == "FindNearest"))
                     return "objOut" + std::to_string(src->id);
                 cur = src;
             }
@@ -20350,6 +20455,18 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (!seen) {
                 visited.push_back(n.id);
                 const FlowNodeType* t = flowNodeType(n.type);
+                // A LATCHED output wins over this node's own position input.
+                // Find Nearest has both - a query point in, the found object's
+                // position out - and taking the input first silently made it
+                // forward the query point instead of the answer.
+                if (t && t->posOut &&
+                    (flowCustomNode(n.type) || n.type == "Raycast" ||
+                     n.type == "RollAreaPoint" || n.type == "FindNearest" ||
+                     getPosLatched(n))) {
+                    const std::string base =
+                        "posOut" + std::to_string(n.id) + "[";
+                    return {base + "0]", base + "1]", base + "2]"};
+                }
                 if (t && t->posIn) {
                     // The position wired in, or the origin when nothing is.
                     std::array<std::string, 3> in = {"0.0F", "0.0F", "0.0F"};
@@ -20418,7 +20535,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->posOut &&
                 (flowCustomNode(n.type) || n.type == "Raycast" ||
-                 n.type == "RollAreaPoint" || getPosLatched(n))) {
+                 n.type == "RollAreaPoint" || n.type == "FindNearest" ||
+                 getPosLatched(n))) {
                 const std::string base = "posOut" + std::to_string(n.id) + "[";
                 return {base + "0]", base + "1]", base + "2]"};
             }
@@ -20428,9 +20546,65 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string base = "flowPos[" + std::to_string(vi) + "][";
                 return {base + "0]", base + "1]", base + "2]"};
             }
+            // Nodes whose own X/Y/Z params ARE their position when nothing is
+            // wired (a rotation triple counts - it rides this plane too).
             if (n.type == "SetPosition" || n.type == "SetVarPos" ||
-                n.type == "MoveObjectTo" || n.type == "PosConst")
+                n.type == "MoveObjectTo" || n.type == "PosConst" ||
+                n.type == "SetRotation" || n.type == "RotateObjectBy" ||
+                n.type == "SetScale" || n.type == "SetVelocity")
                 return {floatLit(n.num[0]), floatLit(n.num[1]), floatLit(n.num[2])};
+            // The player, straight off ScriptContext. Player 2's slot equals
+            // player 1's while it is inactive, so "nearest player" logic needs
+            // no guard of its own.
+            if (n.type == "PlayerPos") {
+                const char* v = n.num[0] != 0.0f ? "ctx.player2Position."
+                                                 : "ctx.playerPosition.";
+                return {std::string(v) + "x", std::string(v) + "y",
+                        std::string(v) + "z"};
+            }
+            if (n.type == "PlayerLook")
+                return {"ctx.playerLook.x", "ctx.playerLook.y",
+                        "ctx.playerLook.z"};
+            // Object fields that are 3-vectors and therefore ride this plane.
+            // Velocity is stored as a per-FRAME displacement, so it converts to
+            // the units/second a graph reasons in - never leak the frame rate
+            // into the value plane.
+            if (n.type == "GetScale" || n.type == "GetRotation" ||
+                n.type == "GetVelocity") {
+                const char* field = n.type == "GetScale" ? "scale" : "rotation";
+                const std::string dyn2 = targetExpr(n);
+                const std::string obj =
+                    dyn2.empty()
+                        ? (resolveTarget(n) < 0
+                               ? std::string()
+                               : "ctx.objects[" +
+                                     std::to_string(resolveTarget(n)) + "]")
+                        : "ctx.objects[" + dyn2 + "]";
+                if (obj.empty()) return {"0.0F", "0.0F", "0.0F"};
+                if (n.type == "GetVelocity") {
+                    auto vel = [&](const char* c) {
+                        return "flowVelPerSec(" + obj + ".velocity" + c + ")";
+                    };
+                    // A runtime handle may be -1; a component read has to be
+                    // guarded on its own because it is an expression, not a
+                    // statement.
+                    if (!dyn2.empty()) {
+                        auto g = [&](const char* c) {
+                            return "(" + dyn2 + " >= 0 ? " + vel(c) + " : 0.0F)";
+                        };
+                        return {g("X"), g("Y"), g("Z")};
+                    }
+                    return {vel("X"), vel("Y"), vel("Z")};
+                }
+                auto comp = [&](int a) {
+                    const std::string e = obj + ".data." + field + "[" +
+                                          std::to_string(a) + "]";
+                    return dyn2.empty()
+                               ? e
+                               : "(" + dyn2 + " >= 0 ? " + e + " : 0.0F)";
+                };
+                return {comp(0), comp(1), comp(2)};
+            }
             // Runtime target (spawned clone / custom object output): read the
             // position through the handle, guarded per component.
             const std::string dyn = targetExpr(n);
@@ -20494,6 +20668,29 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        std::to_string(ease) + ")";
             }
             if (n.type == "RollRandom") return "rnd" + std::to_string(n.id);
+            if (n.type == "PlayerFallSpeed")
+                return "flowVelPerSec(ctx.playerVelY)";
+            if (n.type == "ObjDistance") {
+                // The distance between the target OBJECT and the linked point.
+                const std::string dyn2 = targetExpr(n);
+                std::string base;
+                if (!dyn2.empty())
+                    base = "ctx.objects[" + dyn2 + "].data.position[";
+                else if (resolveTarget(n) >= 0)
+                    base = "ctx.objects[" + std::to_string(resolveTarget(n)) +
+                           "].data.position[";
+                else
+                    return "0.0F";
+                std::vector<int> pv;
+                for (int id : visited)
+                    if (id != n.id) pv.push_back(id);
+                const auto e = posExprImpl(n, pv);
+                const std::string d = "flowDist3(" + base + "0], " + base +
+                                      "1], " + base + "2], " + e[0] + ", " +
+                                      e[1] + ", " + e[2] + ")";
+                return dyn2.empty() ? d
+                                    : "(" + dyn2 + " >= 0 ? " + d + " : 0.0F)";
+            }
             if (n.type == "SceneTime") return "timeSec";
             if (n.type == "FrameTime") return "g_frameDt";
             if (n.type == "Oscillate")
@@ -21053,18 +21250,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             } else if (n.type == "RotateObjectBy") {
                 // Wrapped like the physics tumble does: a node fired often
                 // enough would otherwise walk the angle into the range where
-                // float degrees lose resolution.
+                // float degrees lose resolution. A linked position carries the
+                // delta as a 3-vector, so a computed turn works; the skip-zero
+                // shortcut only applies to typed-in params.
+                const auto e = posExpr(n);
+                bool linked = false;
+                for (const FlowLink& l : fg.links)
+                    linked |= (l.kind == FlowLinkPos && l.toNode == n.id);
                 for (int a = 0; a < 3; ++a) {
-                    if (n.num[a] == 0.0f) continue;
+                    if (!linked && n.num[a] == 0.0f) continue;
                     c << pad << obj << ".data.rotation[" << a
                       << "] = flowWrapDeg(" << obj << ".data.rotation[" << a
-                      << "] + " << floatLit(n.num[a]) << ");\n";
+                      << "] + " << (linked ? e[a] : floatLit(n.num[a]))
+                      << ");\n";
                 }
                 c << pad << obj << ".dirty = true;\n";
             } else if (n.type == "SetRotation") {
+                // A linked position IS the rotation, which is what makes
+                // Get Object Rotation -> With Y -> Set Object Rotation work.
+                const auto e = posExpr(n);
                 for (int a = 0; a < 3; ++a)
-                    c << pad << obj << ".data.rotation[" << a
-                      << "] = " << floatLit(n.num[a]) << ";\n";
+                    c << pad << obj << ".data.rotation[" << a << "] = " << e[a]
+                      << ";\n";
                 c << pad << obj << ".dirty = true;\n";
             } else if (n.type == "SpinObject") {
                 // Only the RATE is written here; the game's own object pass
@@ -21682,6 +21889,84 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     c << pad << t0 << " = 0.0F;\n" << pad << r << " = true;\n";
                 }
+            } else if (n.type == "SetScale") {
+                const auto e = posExpr(n);  // a position link beats X/Y/Z
+                c << pad << obj << ".data.scale[0] = " << e[0] << ";\n"
+                  << pad << obj << ".data.scale[1] = " << e[1] << ";\n"
+                  << pad << obj << ".data.scale[2] = " << e[2] << ";\n"
+                  << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "ScaleObjectBy") {
+                c << pad << "{\n"
+                  << pad << "  const float f = " << numOperand(n) << ";\n"
+                  << pad << "  " << obj << ".data.scale[0] *= f;\n"
+                  << pad << "  " << obj << ".data.scale[1] *= f;\n"
+                  << pad << "  " << obj << ".data.scale[2] *= f;\n"
+                  << pad << "  " << obj << ".dirty = true;\n"
+                  << pad << "}\n";
+            } else if (n.type == "LookAt") {
+                const auto e = posExpr(n);
+                c << pad << "flowLookAt(" << obj << ", " << e[0] << ", " << e[1]
+                  << ", " << e[2] << ", "
+                  << (n.num[0] != 0.0f ? "true" : "false") << ");\n";
+            } else if (n.type == "SetVelocity") {
+                // The graph speaks units/SECOND; RuntimeObject stores a
+                // per-frame displacement.
+                const auto e = posExpr(n);
+                c << pad << obj << ".velocityX = (" << e[0] << ") * g_frameDt;\n"
+                  << pad << obj << ".velocityY = (" << e[1] << ") * g_frameDt;\n"
+                  << pad << obj << ".velocityZ = (" << e[2] << ") * g_frameDt;\n"
+                  // A body at PHYS_ASLEEP skips simulation entirely, so a
+                  // velocity written onto a sleeping crate would do nothing.
+                  << pad << obj << ".restFrames = 0;\n";
+            } else if (n.type == "StopMotion") {
+                c << pad << obj << ".velocityX = 0.0F;\n"
+                  << pad << obj << ".velocityY = 0.0F;\n"
+                  << pad << obj << ".velocityZ = 0.0F;\n"
+                  << pad << obj << ".spin[0] = 0.0F;\n"
+                  << pad << obj << ".spin[1] = 0.0F;\n"
+                  << pad << obj << ".spin[2] = 0.0F;\n"
+                  // Everything that was moving it on its own, a Spin Object
+                  // rate included - otherwise "stop" stops only half of it.
+                  << pad << obj << ".spinRate[0] = 0.0F;\n"
+                  << pad << obj << ".spinRate[1] = 0.0F;\n"
+                  << pad << obj << ".spinRate[2] = 0.0F;\n";
+            } else if (n.type == "SetUsable") {
+                c << pad << obj << ".data.usable = " << (pin == 1 ? 0 : 1)
+                  << ";\n";
+            } else if (n.type == "SetPlayerInput") {
+                c << pad << "ctx.lockInput = " << (pin == 1 ? 1 : 0)
+                  << ";  // " << (pin == 1 ? "unlock" : "lock") << "\n";
+            } else if (n.type == "FindNearest") {
+                // The prefix resolves to a static index table at codegen time,
+                // exactly like Patrol Waypoints' route - the runtime never
+                // compares strings.
+                std::vector<int> cands;
+                if (!n.str.empty())
+                    for (size_t i = 0; i < sceneObjs.size(); ++i)
+                        if (sceneObjs[i].name.rfind(n.str, 0) == 0)
+                            cands.push_back((int)i);
+                if (cands.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (FindNearest): no objects named '" << n.str
+                      << "<...>'\n";
+                } else {
+                    const auto e = posExpr(n);
+                    c << pad << "{\n" << pad << "  static const int cand"
+                      << n.id << "[] = {";
+                    for (size_t i = 0; i < cands.size(); ++i)
+                        c << (i ? ", " : "") << cands[i];
+                    c << "};  //";
+                    for (int ci : cands) c << " " << sceneObjs[ci].name;
+                    c << "\n"
+                      << pad << "  objOut" << n.id << " = flowFindNearest(\n"
+                      << pad << "      ctx, cand" << n.id << ", "
+                      << cands.size() << ", " << e[0] << ", " << e[1] << ", "
+                      << e[2] << ",\n"
+                      << pad << "      " << floatLit(n.num[0]) << ", posOut"
+                      << n.id << ");\n"
+                      << pad << "}\n"
+                      << branch(0, pad);
+                }
             } else if (n.type == "RollRandom") {
                 // Latched, not an expression: two consumers of "the same" roll
                 // must see the same number.
@@ -22089,7 +22374,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !(flowCustomNode(n.type) || n.type == "Raycast" ||
-                        n.type == "RollAreaPoint" || getPosLatched(n)))
+                        n.type == "RollAreaPoint" || n.type == "FindNearest" ||
+                        getPosLatched(n)))
                 continue;
             const std::string id = std::to_string(n.id);
             // Get Position latches only its position - its object output

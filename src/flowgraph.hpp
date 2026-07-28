@@ -461,18 +461,22 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "RotateObjectBy", .title = "Rotate Object By",
          .category = "Object", .strKind = FlowParamKind::ObjectName,
          .numCount = 3, .numLabels = {"dX", "dY", "dZ"}, .idIn = true,
-         .idOut = true,
+         .idOut = true, .posIn = true,
          .desc = "Instantly turns the target by (dX, dY, dZ) DEGREES about the "
-                 "world X/Y/Z axes (dY = yaw). A one-shot: for something that "
-                 "keeps turning use Spin Object rather than firing this every "
+                 "world X/Y/Z axes (dY = yaw); a linked position carries the "
+                 "delta as a 3-vector. A one-shot: for something that keeps "
+                 "turning use Spin Object rather than firing this every "
                  "frame."},
         {.key = "SetRotation", .title = "Set Object Rotation",
          .category = "Object", .strKind = FlowParamKind::ObjectName,
          .numCount = 3, .numLabels = {"X", "Y", "Z"}, .idIn = true,
-         .idOut = true,
+         .idOut = true, .posIn = true,
          .desc = "Sets the target's rotation to X/Y/Z degrees (absolute; Y is "
-                 "the yaw). Applied in the order X, then Y, then Z - the same "
-                 "as the Properties panel's Rotation."},
+                 "the yaw), or to a linked position read as a rotation triple - "
+                 "which is what makes Get Object Rotation -> With Y -> Set "
+                 "Object Rotation change just the heading. Applied in the order "
+                 "X, then Y, then Z - the same as the Properties panel's "
+                 "Rotation."},
         {.key = "SpinObject", .title = "Spin Object", .category = "Object",
          .strKind = FlowParamKind::ObjectName, .numCount = 3,
          .numLabels = {"X deg/s", "Y deg/s", "Z deg/s"}, .idIn = true,
@@ -489,6 +493,102 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "writes rotation too, so the two add up."},
         // Despawn on an authored object only deactivates it (layer streaming
         // can bring authored objects back).
+        // Scale and rotation as READABLE values, and the two writers the scale
+        // family was missing. Scale and rotation ride the POSITION plane as
+        // 3-vectors - it is the plane that already carries three floats, so
+        // "read a rotation, change its Y, write it back" is Get Object Rotation
+        // -> With Y -> Set Object Rotation with no new machinery.
+        {.key = "SetScale", .title = "Set Object Scale", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"X", "Y", "Z"}, .idIn = true, .idOut = true,
+         .posIn = true,
+         .desc = "Sets the target's scale to X/Y/Z (a linked position overrides "
+                 "the params, so a computed size works). Scale 0 on an axis "
+                 "flattens the object rather than hiding it - use Set Object "
+                 "Visible for that."},
+        {.key = "ScaleObjectBy", .title = "Scale Object By",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .numCount = 1, .numLabels = {"Factor"}, .idIn = true, .idOut = true,
+         .numIn = true,
+         .desc = "Multiplies the target's scale on all three axes by num[0] "
+                 "(Factor), or by a linked number. Factor 1 changes nothing; "
+                 "wire a Tween into it for a grow/shrink pop."},
+        {.key = "GetScale", .title = "Get Object Scale", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .posOut = true, .pure = true,
+         .desc = "Pure: the target's scale as a 3-vector on the position plane. "
+                 "Read a component out of it with Get X / Get Y / Get Z."},
+        {.key = "GetRotation", .title = "Get Object Rotation",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .idIn = true, .idOut = true, .posOut = true, .pure = true,
+         .desc = "Pure: the target's rotation in DEGREES as a 3-vector on the "
+                 "position plane (Y is the yaw). Get Object Rotation -> With Y "
+                 "-> Set Object Rotation changes just the heading."},
+        {.key = "LookAt", .title = "Look At", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 1,
+         .numLabels = {"Tilt too"}, .idIn = true, .idOut = true, .posIn = true,
+         .desc = "Turns the target to face the linked position. num[0] Tilt too "
+                 "= 0 rotates the yaw only (the normal case: a character, a "
+                 "turret base, a signpost stays upright), 1 also pitches it up "
+                 "or down at the point. Wire Player Position into it for an NPC "
+                 "that watches you, or a Get Position for one prop aiming at "
+                 "another."},
+        {.key = "ObjDistance", .title = "Distance To Object",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .idIn = true, .posIn = true, .pure = true, .numOut = true,
+         .desc = "Pure number: the distance from the target object to the linked "
+                 "position. With Player Position wired in it is \"how far away "
+                 "is the player\" as a VALUE - which Near Object (a trigger with "
+                 "a fixed radius) cannot give you. Feeds the comparators, Remap "
+                 "Range, a fade, an AI decision."},
+        // Physics reads and writes. Velocities on RuntimeObject are per-frame
+        // displacements, so codegen converts to and from units/SECOND here -
+        // a graph should never have to know the frame rate.
+        {.key = "SetVelocity", .title = "Set Velocity", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"X", "Y", "Z"}, .idIn = true, .idOut = true,
+         .posIn = true,
+         .desc = "Sets a physics body's velocity to X/Y/Z units per SECOND (a "
+                 "linked position overrides the params) and wakes it. Unlike "
+                 "Apply Impulse, which ADDS to whatever the body was already "
+                 "doing, this replaces it - use it to stop a body dead (0,0,0) "
+                 "or to launch one at an exact speed."},
+        {.key = "GetVelocity", .title = "Get Velocity", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .posOut = true, .pure = true,
+         .desc = "Pure: a physics body's velocity in units per SECOND as a "
+                 "3-vector. Get Y of it is the fall speed - the input for fall "
+                 "damage or a landing sound."},
+        {.key = "StopMotion", .title = "Stop Motion", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "Zeroes a physics body's velocity AND its tumble, and clears "
+                 "any Spin Object rate - everything that was moving the object "
+                 "on its own. It does not put the body to sleep, so gravity "
+                 "still applies."},
+        {.key = "SetUsable", .title = "Set Object Usable", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .execInCount = 2, .execInLabels = {"on", "off"},
+         .desc = "Turns the target's USE prompt on or off at runtime - a door "
+                 "that only becomes usable once you have the key, a lever that "
+                 "stops working after it is pulled."},
+        {.key = "IsActive", .title = "Is Object Active", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: is the target in the game at all this frame? False "
+                 "while its streaming layer is unloaded, or after Despawn "
+                 "Object. Different from Is Visible, which is about being "
+                 "DRAWN - an active object can be invisible."},
+        {.key = "FindNearest", .title = "Find Nearest", .category = "Object",
+         .strKind = FlowParamKind::Text, .numCount = 1,
+         .numLabels = {"Max Dist"}, .idOut = true, .posIn = true,
+         .posOut = true, .execOutCount = 1, .execOutLabels = {"then"},
+         .desc = "On exec, finds the nearest ACTIVE scene object whose name "
+                 "starts with prefix str, measured from the linked position, "
+                 "and LATCHES it: the object output is that object (none if "
+                 "nothing is within num[0] Max Dist, or Max Dist 0 = no limit) "
+                 "and the position output is where it is. 'then' fires right "
+                 "after. The runtime counterpart of naming an object in a param "
+                 "- \"the closest pickup\", \"the nearest waypoint\"."},
         {.key = "SpawnObject", .title = "Spawn Object", .category = "Object",
          .strKind = FlowParamKind::ObjectName, .numCount = 1,
          .numLabels = {"Yaw"}, .idIn = true, .idOut = true, .posIn = true,
@@ -570,6 +670,36 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "cast."},
         // The optional toggle button on the player still gates the beam,
         // but only while enabled.
+        // The player as a readable thing. Until these existed a graph could
+        // teleport the player but not ask where they were.
+        {.key = "PlayerPos", .title = "Player Position", .category = "Player",
+         .numCount = 1, .numLabels = {"Player"}, .posOut = true, .pure = true,
+         .desc = "Pure position: where the player is this frame (the eye/camera "
+                 "position). num[0] Player: 0 = player 1, 1 = player 2 (which "
+                 "reads as player 1's position while player 2 is not in the "
+                 "game, so \"nearest player\" logic works unconditionally). Wire "
+                 "it into Look At, Distance To Object, Spawn Object."},
+        {.key = "PlayerLook", .title = "Player Look Direction",
+         .category = "Player", .posOut = true, .pure = true,
+         .desc = "Pure position used as a DIRECTION: the unit vector the player "
+                 "is looking along. Scale Position it and Offset Position from "
+                 "Player Position to get a point out in front of the player - "
+                 "where to spawn a projectile, where to drop a marker."},
+        {.key = "PlayerFallSpeed", .title = "Player Fall Speed",
+         .category = "Player", .pure = true, .numOut = true,
+         .desc = "Pure number: the player's vertical speed in units per SECOND "
+                 "- negative while falling, positive on the way up, 0 on the "
+                 "ground. Number At Most a big negative value is a fall-damage "
+                 "test; wire it through Absolute for a landing thump."},
+        {.key = "SetPlayerInput", .title = "Set Player Input",
+         .category = "Player", .execInCount = 2,
+         .execInLabels = {"lock", "unlock"},
+         .desc = "'lock' takes the controls away from the player and 'unlock' "
+                 "gives them back - what a dialogue, a scripted moment or a "
+                 "cutscene that still shows the avatar needs. Only INPUT is "
+                 "taken: gravity, collision and the camera keep running, so a "
+                 "locked player still falls and is still framed instead of "
+                 "freezing in mid-air. A scene load always unlocks."},
         {.key = "SetFlashlight", .title = "Set Flashlight", .category = "Player",
          .numCount = 1, .numLabels = {"On"},
          .desc = "num[0] = 1 turns the player's flashlight master switch on, "

@@ -500,11 +500,20 @@ void App::drawFlowGraphWindow() {
             // Patrol Waypoints repurposes the text param as the waypoint
             // name prefix (the target NPC comes from the object link / self).
             const bool patrol = n.type == "PatrolWaypoints";
+            const bool prefix = patrol || n.type == "FindNearest";
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
-            if (ImGui::InputText(patrol ? "Prefix" : "Text", buf, sizeof(buf)))
+            if (ImGui::InputText(prefix ? "Prefix" : "Text", buf, sizeof(buf)))
                 n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (n.type == "FindNearest") {
+                int count = 0;
+                if (!n.str.empty())
+                    for (const SceneObject& o : project_.objects())
+                        if (o.name.rfind(n.str, 0) == 0) ++count;
+                ImGui::TextDisabled("%d candidate%s in this scene", count,
+                                    count == 1 ? "" : "s");
+            }
             if (patrol) {
                 int count = 0;
                 if (!n.str.empty())
@@ -855,6 +864,16 @@ void App::drawFlowGraphWindow() {
                 changed = true;
             }
             ImGui::TextDisabled("Wire the number output into\nwhatever should animate.");
+        } else if (n.type == "PlayerPos") {
+            const char* who[] = {"Player 1", "Player 2"};
+            int idx = n.num[0] != 0.0f ? 1 : 0;
+            if (ImGui::Combo("Player", &idx, who, 2)) {
+                n.num[0] = (float)idx;
+                changed = true;
+            }
+            if (idx == 1)
+                ImGui::TextDisabled(
+                    "Reads player 1 while\nplayer 2 is not in the game.");
         } else if (n.type == "RandomBranch") {
             int outs = (int)n.num[0];
             outs = outs < 2 ? 2 : outs > 4 ? 4 : outs;
@@ -901,6 +920,7 @@ void App::drawFlowGraphWindow() {
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
                                     std::strcmp(t->numLabels[a], "Once") == 0 ||
                                     std::strcmp(t->numLabels[a], "Whole") == 0 ||
+                                    std::strcmp(t->numLabels[a], "Tilt too") == 0 ||
                                     std::strcmp(t->numLabels[a], "LOS") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
@@ -1616,6 +1636,12 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "RollRandom") n.num[1] = 1.0f;
                     if (std::string(t.key) == "PosScale") n.num[0] = 1.0f;
                     if (std::string(t.key) == "PosRotateY") n.num[0] = 90.0f;
+                    // Object / Player: an identity default again - a scale of
+                    // (0,0,0) or a factor of 0 would flatten the target on the
+                    // first fire, which reads as a broken node.
+                    if (std::string(t.key) == "SetScale")
+                        n.num[0] = n.num[1] = n.num[2] = 1.0f;
+                    if (std::string(t.key) == "ScaleObjectBy") n.num[0] = 1.0f;
                     // A fresh rotate/spin node starts on the yaw: it is what
                     // almost every turning prop wants, and a node whose every
                     // param is 0 looks broken.

@@ -12715,6 +12715,72 @@ Each finished feature lands as its own commit.
   `3.0F * 2.0F` after With Y 3 and Scale 2, the folded 45-degree rotation really
   is `0.707107F`, and the cycle fixture terminates. Editor builds clean.
 
+- (225) **A graph can finally READ the world it was already allowed to change**
+  (stage 3 of the flow-graph expansion).
+
+  The most surprising hole the 223 audit found was that a graph could teleport
+  the player but had **no way to ask where the player was**. Nor an object's
+  scale, rotation or velocity. Nor how far apart two things were. Fixed:
+  **Player Position** (either player - player 2's slot equals player 1's while
+  it is inactive, so "nearest player" logic needs no guard), **Player Look
+  Direction**, **Player Fall Speed**, and on objects **Get Object Scale**, **Get
+  Object Rotation**, **Get Velocity** and **Distance To Object**.
+
+  **The three-float readers ride the POSITION plane rather than growing a new
+  one.** A scale and a rotation are 3-vectors, and the plane that already
+  carries three floats plus the Vector nodes from 224 makes "read a rotation,
+  change its Y, write it back" a three-node graph - Get Object Rotation -> With
+  Y -> Set Object Rotation - with no new machinery. That only worked once **Set
+  Object Rotation and Rotate Object By gained `posIn`**, which they lacked: the
+  first test graph had exactly that link pruned as invalid, which is the sort of
+  gap a promise in a `desc` makes visible immediately.
+
+  New writers: **Set Object Scale**, **Scale Object By**, **Look At** (yaw only
+  by default - a character or a signpost stays upright - or tilting too),
+  **Set Velocity**, **Stop Motion**, **Set Object Usable**, **Is Object Active**
+  and **Find Nearest**. Two conversions are deliberate and live in one place
+  each: velocity is stored as a per-FRAME displacement, so `flowVelPerSec`
+  converts on every read and `* g_frameDt` on every write - **the frame rate must
+  never leak into the value plane** - and `flowLookAt` derives its yaw from the
+  walker's own convention (forward = `(sin yaw, 0, cos yaw)`, so yaw 0 faces +Z)
+  with a NEGATIVE pitch, because the engine applies `Rz*Ry*Rx` and a model's +Z
+  tilts to `(0, -sin x, cos x)`. **Stop Motion clears `spinRate` as well as
+  `spin` and the velocities** - a "stop" that left a Spin Object rate running
+  would stop only half of what was moving the object.
+
+  **Set Player Input** is the one part that reached into the generated game.
+  `g_playerLocked` next to `g_gameplayPaused`, applied from
+  `ScriptContext::lockInput` in both game-loop copies and cleared on scene load
+  (a cutscene that switches scenes must not hand back a world the player cannot
+  move in). The lock is INPUT ONLY - gravity, collision and the camera keep
+  running, so a locked player still falls and is still framed rather than
+  freezing in mid-air. It rides the two `axisL`/`axisR` lambdas, which are the
+  single funnel every analog read goes through, plus the mouse-look, jump and
+  noclip-vertical sites. **Both walkers needed it**: the per-player
+  `updatePlayerWalker` in `TPL_GAME_CPP_SCENE` and the legacy
+  `TerrainGame::updatePlayer()` in `TPL_GAME_CPP_FPP_TAIL` are the duplicated
+  pair the editor skill warns about, and the generated `terrain_game.cpp` carries
+  both - verified by grepping the output for all seventeen `g_playerLocked` sites.
+
+  **One ordering bug, and it is the kind that produces plausible-looking code.**
+  `Find Nearest` has a position INPUT (the query point) and a latched position
+  OUTPUT (where the found object is). `posExprImpl` handled the pass-through
+  before the latch, so a downstream Set Object Position was handed the query
+  point back instead of the answer - `ctx.player2Position` where `posOut70`
+  belonged, which reads perfectly fine in the generated C++. The latch check now
+  comes first, and the rule is general: a latched output wins over the node's own
+  input.
+
+  Verified by codegen: a 41-node / 41-link graph over a seeded project reading
+  every new source into comparators and writers - Look At from Player Position,
+  Distance To Object into Number At Most into On Condition, Get Velocity's Y
+  through Absolute into a threshold, Get Object Rotation -> With Y -> Set Object
+  Rotation, Find Nearest driving both a visibility flip and a reposition through
+  its object AND position outputs, Set Player Input locked on a button and
+  unlocked by a Delay. All 41 links accepted after the `posIn` fix; the generated
+  C++ read line by line, including the `flowVelPerSec` conversions and the
+  runtime-handle guards around every action fed a latched object.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch

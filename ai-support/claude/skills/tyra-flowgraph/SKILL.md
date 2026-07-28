@@ -112,6 +112,26 @@ over guessing from this file.
   action like Roll Random: it latches a random point inside an Area object.
   A ring of 8 objects is For Loop -> (index x 45) -> Rotate Around Y of a
   Position -> Snap To Terrain -> Spawn Object.
+- **The player and an object's transform are readable, so do not guess.**
+  **Player Position** (player 1 or 2), **Player Look Direction** (a unit vector -
+  Scale Position + Offset Position from Player Position gives a point in front of
+  the player) and **Player Fall Speed**. On objects: **Get Object Scale**, **Get
+  Object Rotation** and **Get Velocity** all ride the POSITION plane as
+  3-vectors, so "turn this object to face 90 degrees" is Get Object Rotation ->
+  With Y -> Set Object Rotation (Set Object Rotation and Rotate Object By take a
+  position link too). **Distance To Object** with Player Position wired in is
+  "how far is the player" as a VALUE, which the Near Object trigger cannot give.
+  Writers: **Set Object Scale**, **Scale Object By**, **Look At** (yaw only
+  unless Tilt too is set), **Set Velocity** (units per SECOND - it REPLACES,
+  where Apply Impulse adds), **Stop Motion**, **Set Object Usable**.
+  **Is Object Active** is about being in the game at all (layer unloaded,
+  despawned); Is Visible is about being drawn.
+  **Find Nearest** is an action that latches the closest active object whose
+  name starts with a prefix, measured from a linked position - the runtime
+  counterpart of naming an object in a param.
+  **Set Player Input** (lock / unlock) takes the controls away for a dialogue or
+  a scripted moment; gravity and the camera keep running, and a scene load
+  always unlocks.
 - Object-parameter nodes resolve their target: incoming **object link** →
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge
