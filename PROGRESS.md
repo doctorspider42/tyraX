@@ -12781,6 +12781,60 @@ Each finished feature lands as its own commit.
   C++ read line by line, including the `flowVelPerSec` conversions and the
   runtime-handle guards around every action fed a latched object.
 
+- (226) **A Camera category, built out of what the Cutscene Director already
+  publishes** (stage 4 of the flow-graph expansion).
+
+  `ScriptContext` already carried `cameraOverride`/`cameraEye`/`cameraAt`/
+  `cameraUp`, `barsStyle`/`barsAmount`, `fadeAlpha`, `hidePlayer` and
+  `sfxVolume` - written by the generated sequence player, read by the game loop,
+  and reachable by no flow node at all. Nine nodes now use them: **Set Camera**
+  (eye from a linked position, aim at the target object), **Camera From Object**,
+  **Release Camera**, **Camera Shake**, **Set Screen Fade**, **Set Letterbox
+  Bars**, **Set Player Visible**, **On Sequence Finished** and **Set Sound
+  Volume**.
+
+  **The precedence question answered itself.** A flow-graph camera and a cutscene
+  camera write the same three fields, and the sequence player writes them EVERY
+  frame it is active and clears them on release - so a playing cutscene wins for
+  free, and hands the camera back when it ends. That is the behaviour you would
+  want anyway, and it meant `Set Camera` / `Release Camera` needed zero game-loop
+  change: `cameraOverride` is a persistent bool, so a graph takes the camera
+  explicitly and holds it until it says otherwise. Fired from On Start that is a
+  fixed room camera; from On Update it tracks. `Camera From Object` reuses
+  `seqCameraForward`'s exact convention (the +Z lens direction under `Rz*Ry*Rx`),
+  so a Camera entity placed and aimed in the viewport frames what the viewport
+  showed.
+
+  Two things did need the game. **Camera Shake** is a per-frame decaying wobble,
+  so it is a request pair on ScriptContext (`shakeAmp`/`shakeSec`, the rumble
+  idiom) applied right after the override branch in BOTH loop copies, using the
+  same sum-of-sines the Director's per-shot shake uses so the two look alike.
+  It moves the eye AND the look-at by the same offset - shaking only the eye
+  reads as a lurching pan - and eases out over the last quarter second instead of
+  snapping. It also clears on scene load, like the input lock. And **letterbox
+  bars** could not work at all outside a cutscene: `renderOverlay` took its
+  coverage from `kSeqs[idx].barTB`, which needs an active sequence. Two
+  `sequences::g_flowBar*` globals now cover the no-cutscene case - and the
+  style-to-fraction mapping stays on the HOST (`seqBarsFractions`, already
+  shared), so codegen writes `0.22106F` in as a literal and the console carries
+  no table.
+
+  **On Sequence Finished** is the falling edge of `sequences::playing()` (a new
+  three-word accessor), which is why it covers a sequence running out, Stop
+  Sequence and the player skipping it with one mechanism - all three land in the
+  same place. Its bool output is the live "a cutscene is playing" condition, so
+  gameplay logic can be gated out while one runs.
+
+  Verified by codegen on a `thirdperson` project (the template where Set Player
+  Visible actually means something): a 21-node graph exercising all nine, read
+  out of `flow_graph.gen.cpp` - the Set Camera eye really is the player position
+  plus the offset chain, `Camera From Object` calls `flowCameraFrom`, the cinema
+  style folded to `g_flowBarTB = 0.22106F`, the Tween drives both the fade and
+  the bars, and the trigger's falling-edge latch is there with its bool feeding a
+  NOT into an AND. The game side was checked in the generated
+  `terrain_game.cpp` (all of `g_camShake`) and `sequences.gen.cpp` (`playing()`
+  plus the bars fallback). Not yet run in PCSX2.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch

@@ -2484,6 +2484,14 @@ bool g_gameplayPaused = false;
 // load, so a lock cannot survive a reload.
 bool g_playerLocked = false;
 
+// Camera Shake flow node: a decaying handheld wobble applied to whatever camera
+// is in force this frame (the walker's, or a cutscene override). Amplitude in
+// world units, g_camShakeT the seconds left; the noise is the same sum of sines
+// the Cutscene Director's per-shot shake uses, so the two look alike.
+float g_camShake = 0.0F;
+float g_camShakeT = 0.0F;
+float g_camShakeClock = 0.0F;
+
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
 // the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
@@ -4536,6 +4544,32 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
+  // move by the same offset, so the shot wobbles without swinging the aim -
+  // shaking only the eye would read as a lurching pan.
+  if (scriptCtx.shakeAmp >= 0.0F) {
+    g_camShake = scriptCtx.shakeAmp;
+    g_camShakeT = scriptCtx.shakeSec;
+    scriptCtx.shakeAmp = -1.0F;
+  }
+  if (g_camShake > 0.0F && g_camShakeT > 0.0F) {
+    g_camShakeClock += g_frameDt;
+    const float t = g_camShakeClock;
+    // Fade out over the last of the hold, so it settles instead of snapping.
+    const float a = g_camShake * (g_camShakeT < 0.25F ? g_camShakeT * 4.0F
+                                                     : 1.0F);
+    const Vec4 off(
+        a * (0.6F * sinf(t * 23.7F) + 0.4F * sinf(t * 7.3F + 1.7F)),
+        a * (0.6F * sinf(t * 19.1F + 0.9F) + 0.4F * sinf(t * 9.7F)),
+        a * 0.3F * sinf(t * 13.9F + 2.3F));
+    cameraPosition = cameraPosition + off;
+    cameraLookAt = cameraLookAt + off;
+    g_camShakeT -= g_frameDt;
+    if (g_camShakeT <= 0.0F) {
+      g_camShakeT = 0.0F;
+      g_camShake = 0.0F;
+    }
+  }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -6436,6 +6470,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   // A Set Player Input lock must never survive a scene load - a cutscene that
   // switches scenes would otherwise hand the player a world they cannot move in.
   g_playerLocked = false;
+  g_camShake = 0.0F;
+  g_camShakeT = 0.0F;
 
   // Authored objects + the dynamic spawn pool (Spawn Object flow node).
   runtimeObjects.assign(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS,
@@ -14747,6 +14783,32 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
+  // move by the same offset, so the shot wobbles without swinging the aim -
+  // shaking only the eye would read as a lurching pan.
+  if (scriptCtx.shakeAmp >= 0.0F) {
+    g_camShake = scriptCtx.shakeAmp;
+    g_camShakeT = scriptCtx.shakeSec;
+    scriptCtx.shakeAmp = -1.0F;
+  }
+  if (g_camShake > 0.0F && g_camShakeT > 0.0F) {
+    g_camShakeClock += g_frameDt;
+    const float t = g_camShakeClock;
+    // Fade out over the last of the hold, so it settles instead of snapping.
+    const float a = g_camShake * (g_camShakeT < 0.25F ? g_camShakeT * 4.0F
+                                                     : 1.0F);
+    const Vec4 off(
+        a * (0.6F * sinf(t * 23.7F) + 0.4F * sinf(t * 7.3F + 1.7F)),
+        a * (0.6F * sinf(t * 19.1F + 0.9F) + 0.4F * sinf(t * 9.7F)),
+        a * 0.3F * sinf(t * 13.9F + 2.3F));
+    cameraPosition = cameraPosition + off;
+    cameraLookAt = cameraLookAt + off;
+    g_camShakeT -= g_frameDt;
+    if (g_camShakeT <= 0.0F) {
+      g_camShakeT = 0.0F;
+      g_camShake = 0.0F;
+    }
+  }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -15861,6 +15923,13 @@ struct ScriptContext {
   // away - gravity, collision and the camera keep running, so a locked player
   // still falls and is still framed. The game applies and resets it.
   int lockInput = -1;
+
+  // Camera shake (Camera Shake flow node). shakeAmp < 0 = leave; else the
+  // amplitude in world units (0 stops it) held for shakeSec seconds. The game
+  // applies the request to its own decaying shake and resets shakeAmp. It
+  // perturbs whatever camera is in force, cutscene override included.
+  float shakeAmp = -1.0F;
+  float shakeSec = 0.0F;
 
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
   // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
@@ -19038,6 +19107,17 @@ std::string sequencesHeader(const Project& p) {
            "// loop inside beginFrame/endFrame after the HUD (solid 2D quads;\n"
            "// no-op unless the active cutscene draws them).\n"
            "void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);\n"
+           "// True while a cutscene is playing - what the On Sequence Finished\n"
+           "// flow trigger edge-detects, and what tells a flow-graph camera or\n"
+           "// letterbox that a cutscene currently owns those.\n"
+           "bool playing();\n"
+           "// Letterbox coverage per edge (fractions of the screen) for the\n"
+           "// Set Letterbox Bars flow node, used by renderOverlay when NO\n"
+           "// sequence is active. The style -> fraction mapping stays on the\n"
+           "// host (seqBarsFractions in src/sequence.hpp), so the console needs\n"
+           "// no table: codegen writes the numbers straight in.\n"
+           "extern float g_flowBarTB;\n"
+           "extern float g_flowBarLR;\n"
            "}  // namespace sequences\n"
            "}  // namespace "
         << ns << "\n";
@@ -19495,6 +19575,13 @@ static const bool g_seqRegistered = []() {
 namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
+bool playing() { return g_seqDirector.activeIndex() >= 0; }
+
+// Set Letterbox Bars (flow graph): coverage per edge while NO cutscene is
+// active. A cutscene's own style wins, because it writes barsAmount every frame
+// and clears everything on release.
+float g_flowBarTB = 0.0F;
+float g_flowBarLR = 0.0F;
 
 // Solid black quads: the widescreen mask edges (coverage from the active
 // sequence's style scaled by the slide envelope) and the fade overlay. One
@@ -19521,10 +19608,14 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
     engine->renderer.renderer2D.render(quad);
   };
+  // A cutscene's baked style, or the flow node's coverage when none is
+  // playing - the two never both apply, so one pair of fractions is enough.
   const int idx = g_seqDirector.activeIndex();
-  if (ctx.barsAmount > 0.0F && idx >= 0) {
-    const float tb = kSeqs[idx].barTB * ctx.barsAmount * H;
-    const float lr = kSeqs[idx].barLR * ctx.barsAmount * W;
+  const float barTB = idx >= 0 ? kSeqs[idx].barTB : g_flowBarTB;
+  const float barLR = idx >= 0 ? kSeqs[idx].barLR : g_flowBarLR;
+  if (ctx.barsAmount > 0.0F && (barTB > 0.0F || barLR > 0.0F)) {
+    const float tb = barTB * ctx.barsAmount * H;
+    const float lr = barLR * ctx.barsAmount * W;
     fill(0.0F, 0.0F, W, tb, 1.0F);
     fill(0.0F, H - tb, W, tb, 1.0F);
     fill(0.0F, 0.0F, lr, H, 1.0F);
@@ -20164,6 +20255,30 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "                            : 0.0F;\n"
                "  o.data.rotation[2] = 0.0F;\n"
                "  o.dirty = true;\n"
+               "}\n";
+    if (uses("CameraFromObject"))
+        out << "\n// Camera From Object node: eye = the object's position, aim =\n"
+               "// its own +Z lens direction rotated by its Euler (Rz*Ry*Rx) -\n"
+               "// the SAME convention seqCameraForward uses for a Cutscene\n"
+               "// Director Camera entity, so an object placed and aimed in the\n"
+               "// viewport frames exactly what the viewport showed.\n"
+               "static void flowCameraFrom(ScriptContext& ctx,\n"
+               "                           const RuntimeObject& o) {\n"
+               "  const float d2r = 0.01745329F;\n"
+               "  const float sx = sinf(o.data.rotation[0] * d2r);\n"
+               "  const float cx = cosf(o.data.rotation[0] * d2r);\n"
+               "  const float sy = sinf(o.data.rotation[1] * d2r);\n"
+               "  const float cy = cosf(o.data.rotation[1] * d2r);\n"
+               "  const float sz = sinf(o.data.rotation[2] * d2r);\n"
+               "  const float cz = cosf(o.data.rotation[2] * d2r);\n"
+               "  const Tyra::Vec4 eye(o.data.position[0], o.data.position[1],\n"
+               "                       o.data.position[2]);\n"
+               "  const Tyra::Vec4 fwd(cx * sy * cz + sx * sz,\n"
+               "                       cx * sy * sz - sx * cz, cx * cy);\n"
+               "  ctx.cameraOverride = true;\n"
+               "  ctx.cameraEye = eye;\n"
+               "  ctx.cameraAt = eye + fwd;\n"
+               "  ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n"
                "}\n";
     if (uses("FindNearest"))
         out << "\n// Find Nearest node: the closest ACTIVE candidate to a point.\n"
@@ -20877,6 +20992,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (idx < 0) return "false";
                 return "navPlayerSeen(ctx, " + std::to_string(idx) + args;
             }
+            if (n.type == "OnSequenceEnd") return "sequences::playing()";
             if (n.type == "IsLayerLoaded") {
                 const int li = layerIndexOf(n.str);
                 if (li < 0) return "false";  // unknown layer name
@@ -21889,6 +22005,62 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     c << pad << t0 << " = 0.0F;\n" << pad << r << " = true;\n";
                 }
+            } else if (n.type == "SetCamera") {
+                // Eye from the position link, aim at the target object. Written
+                // straight onto the fields the Cutscene Director publishes, so
+                // there is no second camera system to keep in step - and a
+                // playing cutscene simply overwrites them next frame.
+                const auto e = posExpr(n);
+                c << pad << "ctx.cameraOverride = true;\n"
+                  << pad << "ctx.cameraEye = Tyra::Vec4(" << e[0] << ", " << e[1]
+                  << ", " << e[2] << ");\n"
+                  << pad << "ctx.cameraAt = Tyra::Vec4(" << obj
+                  << ".data.position[0], " << obj << ".data.position[1], " << obj
+                  << ".data.position[2]);\n"
+                  << pad << "ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n";
+            } else if (n.type == "CameraFromObject") {
+                c << pad << "flowCameraFrom(ctx, " << obj << ");\n";
+            } else if (n.type == "ReleaseCamera") {
+                c << pad << "ctx.cameraOverride = false;\n"
+                  << pad << "ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n";
+            } else if (n.type == "CameraShake") {
+                c << pad << "ctx.shakeAmp = " << numOperand(n) << ";\n"
+                  << pad << "ctx.shakeSec = " << floatLit(n.num[1]) << ";\n";
+            } else if (n.type == "SetFade") {
+                c << pad << "{\n"
+                  << pad << "  float a = " << numOperand(n) << ";\n"
+                  << pad << "  if (a < 0.0F) a = 0.0F;\n"
+                  << pad << "  if (a > 1.0F) a = 1.0F;\n"
+                  << pad << "  ctx.fadeAlpha = a;\n"
+                  << pad << "}\n";
+            } else if (n.type == "SetBars") {
+                // The style -> coverage mapping is resolved HERE (the host's own
+                // seqBarsFractions), so the console carries no table: codegen
+                // writes the two fractions in as literals.
+                int style = (int)std::lround(n.num[0]);
+                if (style < 0) style = 0;
+                if (style > 4) style = 4;
+                float bt = 0.0f, bb = 0.0f, bl = 0.0f, br = 0.0f;
+                seqBarsFractions(style, bt, bb, bl, br);
+                c << pad << "sequences::g_flowBarTB = " << floatLit(bt) << ";\n"
+                  << pad << "sequences::g_flowBarLR = " << floatLit(bl) << ";\n"
+                  << pad << "{\n"
+                  << pad << "  float a = " << numOperand(n) << ";\n"
+                  << pad << "  if (a < 0.0F) a = 0.0F;\n"
+                  << pad << "  if (a > 1.0F) a = 1.0F;\n"
+                  << pad << "  ctx.barsAmount = " << (style == 0 ? "0.0F" : "a")
+                  << ";\n"
+                  << pad << "}\n";
+            } else if (n.type == "SetPlayerVisible") {
+                c << pad << "ctx.hidePlayer = " << (pin == 1 ? "true" : "false")
+                  << ";\n";
+            } else if (n.type == "SetSfxVolume") {
+                c << pad << "{\n"
+                  << pad << "  int v = (int)(" << numOperand(n) << ");\n"
+                  << pad << "  if (v < 0) v = 0;\n"
+                  << pad << "  if (v > 100) v = 100;\n"
+                  << pad << "  ctx.sfxVolume = v;\n"
+                  << pad << "}\n";
             } else if (n.type == "SetScale") {
                 const auto e = posExpr(n);  // a position link beats X/Y/Z
                 c << pad << obj << ".data.scale[0] = " << e[0] << ";\n"
@@ -22572,6 +22744,16 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
                 clsOut << "    if (ctx.menuEvent == " << ei << ") {  // \"" << n.str
                     << "\"\n" << body << "    }\n";
+            } else if (n.type == "OnSequenceEnd") {
+                // The FALLING edge of "a cutscene is playing" - which covers a
+                // sequence running out, Stop Sequence, and the player skipping
+                // it, because all three land in the same place.
+                const std::string flag = "seqWas" + std::to_string(n.id);
+                addMember("bool", flag, "false", 'b', 1);
+                flagResets << "      " << flag << " = false;\n";
+                clsOut << "    {\n      const bool playing = sequences::playing();\n"
+                       << "      if (!playing && " << flag << ") {\n" << body
+                       << "      }\n      " << flag << " = playing;\n    }\n";
             } else if (n.type == "OnCondition") {
                 // bridge bool -> exec: fire on the rising edge of the input
                 const std::string expr = boolInputsOr(n);

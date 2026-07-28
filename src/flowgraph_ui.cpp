@@ -864,6 +864,25 @@ void App::drawFlowGraphWindow() {
                 changed = true;
             }
             ImGui::TextDisabled("Wire the number output into\nwhatever should animate.");
+        } else if (n.type == "SetBars") {
+            const char* styles[] = {"None", "Cinema 2.39:1", "Wide 16:9",
+                                    "Pillarbox", "Frame"};
+            int st = (int)n.num[0];
+            st = st < 0 ? 0 : st > 4 ? 4 : st;
+            if (ImGui::Combo("Style", &st, styles, 5)) {
+                n.num[0] = (float)st;
+                changed = true;
+            }
+            bool amtLinked = false;
+            for (const FlowLink& l : fg.links)
+                amtLinked |= (l.kind == FlowLinkNum && l.toNode == n.id);
+            if (amtLinked) {
+                ImGui::TextDisabled("Amount: from link");
+            } else {
+                ImGui::SliderFloat("Amount", &n.num[1], 0.0f, 1.0f, "%.2f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+            ImGui::TextDisabled("Wire a Tween into Amount\nto slide them in.");
         } else if (n.type == "PlayerPos") {
             const char* who[] = {"Player 1", "Player 2"};
             int idx = n.num[0] != 0.0f ? 1 : 0;
@@ -1642,6 +1661,16 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "SetScale")
                         n.num[0] = n.num[1] = n.num[2] = 1.0f;
                     if (std::string(t.key) == "ScaleObjectBy") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "SetSfxVolume") n.num[0] = 100.0f;
+                    if (std::string(t.key) == "SetFade") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "SetBars") {
+                        n.num[0] = 1.0f;  // cinema
+                        n.num[1] = 1.0f;  // fully in
+                    }
+                    if (std::string(t.key) == "CameraShake") {
+                        n.num[0] = 0.15f;  // a noticeable but not silly knock
+                        n.num[1] = 0.4f;
+                    }
                     // A fresh rotate/spin node starts on the yaw: it is what
                     // almost every turning prop wants, and a node whose every
                     // param is 0 looks broken.

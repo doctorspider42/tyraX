@@ -798,6 +798,65 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Repaints the sky from the ambience preset named str "
                  "(lighting/fog are baked per scene; only the sky changes "
                  "live)."},
+        // ------------------------------------------------------------------
+        // Camera and presentation. Everything here rides fields the Cutscene
+        // Director already publishes on ScriptContext, so a graph gets the
+        // cinematic vocabulary without a second camera system - and a running
+        // cutscene always wins, because its player rewrites those fields every
+        // frame and clears them when it ends.
+        {.key = "SetCamera", .title = "Set Camera", .category = "Camera",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .posIn = true,
+         .desc = "Takes the camera over: the linked position becomes the EYE and "
+                 "the target object is what it looks AT. Fired from On Start it "
+                 "is a fixed camera for the room; fired from On Update it "
+                 "tracks. Release Camera gives control back. A playing cutscene "
+                 "overrides it for as long as it runs."},
+        {.key = "CameraFromObject", .title = "Camera From Object",
+         .category = "Camera", .strKind = FlowParamKind::ObjectName,
+         .idIn = true, .idOut = true,
+         .desc = "Cuts the camera to the target object: its position is the eye "
+                 "and its own rotation is the aim (the +Z lens direction, the "
+                 "same convention the Cutscene Director's Camera entities use - "
+                 "so a Camera object placed and aimed in the viewport is exactly "
+                 "what you get). Move or rotate that object and the shot follows."},
+        {.key = "ReleaseCamera", .title = "Release Camera",
+         .category = "Camera",
+         .desc = "Hands the camera back to the player/game. Also un-tilts any "
+                 "roll a shot had applied."},
+        {.key = "CameraShake", .title = "Camera Shake", .category = "Camera",
+         .numCount = 2, .numLabels = {"Amplitude", "Seconds"}, .numIn = true,
+         .desc = "Shakes the camera by num[0] (Amplitude) world units for num[1] "
+                 "(Seconds), easing out at the end. Applies to whatever camera "
+                 "is in force, a cutscene's included. Amplitude 0 stops it. Both "
+                 "the eye and the aim move together, so the shot wobbles instead "
+                 "of swinging."},
+        {.key = "SetFade", .title = "Set Screen Fade", .category = "Camera",
+         .numCount = 1, .numLabels = {"Amount"}, .numIn = true,
+         .desc = "Black overlay over everything (0 = clear, 1 = fully black). "
+                 "Wire a Tween into it for a real fade: Tween 0 -> 1 over a "
+                 "second into Set Screen Fade, then its 'finished' output "
+                 "switches the scene. Survives across frames until something "
+                 "changes it."},
+        {.key = "SetBars", .title = "Set Letterbox Bars", .category = "Camera",
+         .numCount = 2, .numLabels = {"Style", "Amount"}, .numIn = true,
+         .desc = "Masks the frame with black bars. num[0] Style: 0 none, 1 "
+                 "cinema 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame. num[1] "
+                 "Amount 0..1 of that style's full coverage - wire a Tween into "
+                 "it to slide them in. A playing cutscene's own bars win."},
+        {.key = "SetPlayerVisible", .title = "Set Player Visible",
+         .category = "Camera", .execInCount = 2,
+         .execInLabels = {"show", "hide"},
+         .desc = "Shows or hides the third-person avatar (no effect in "
+                 "first-person or noclip, which have no visible body). For a "
+                 "scripted camera move that should fly free without the "
+                 "character in shot."},
+        {.key = "OnSequenceEnd", .title = "On Sequence Finished",
+         .category = "Camera", .trigger = true, .boolOut = true,
+         .desc = "Fires the frame a cutscene stops - whether it ran out, was "
+                 "stopped by Stop Sequence, or the player skipped it. THE way to "
+                 "chain \"play the cutscene, then carry on\". Its bool output is "
+                 "the live \"a cutscene is playing right now\" condition, so you "
+                 "can gate gameplay logic out while one runs."},
         {.key = "PlaySequence", .title = "Play Sequence", .category = "Scene",
          .strKind = FlowParamKind::SequenceName,
          .desc = "Starts the cutscene sequence named str; retriggering "
@@ -844,6 +903,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .numIn = true,
          .desc = "num[0] Volume 0..100. A linked number overrides num[0], so "
                  "a Tween can fade the music out."},
+        {.key = "SetSfxVolume", .title = "Set Sound Volume",
+         .category = "Audio", .numCount = 1, .numLabels = {"Volume"},
+         .numIn = true,
+         .desc = "Master sound-effect volume num[0] 0..100 (100 = unscaled). "
+                 "Rides on top of every Play Sound's own volume and every sound "
+                 "emitter, so it is the one place to duck the effects under a "
+                 "cutscene or a dialogue. Music has its own Set Music Volume."},
         {.key = "PlaySound", .title = "Play Sound", .category = "Audio",
          .strKind = FlowParamKind::SoundTrack, .numCount = 2,
          .numLabels = {"Volume", "Channel"},

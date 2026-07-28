@@ -132,6 +132,23 @@ over guessing from this file.
   **Set Player Input** (lock / unlock) takes the controls away for a dialogue or
   a scripted moment; gravity and the camera keep running, and a scene load
   always unlocks.
+- **The Camera category is the cinematic vocabulary, and it rides the same
+  ScriptContext fields the Cutscene Director does** - so a PLAYING cutscene
+  always wins (its player rewrites them every frame and clears them on release).
+  **Set Camera** takes the eye from a linked position and aims at the target
+  object; from On Start that is a fixed room camera, from On Update it tracks.
+  **Camera From Object** cuts to an object's position and its own +Z aim - place
+  and aim a Camera object in the viewport and that is the shot. **Release
+  Camera** hands it back. **Camera Shake** (amplitude + seconds, easing out)
+  applies to whatever camera is in force. **Set Screen Fade** and **Set
+  Letterbox Bars** take a 0..1 amount - wire a **Tween** into either for a real
+  fade or slide-in, and use the Tween's `finished` output to switch scenes at
+  full black. **Set Player Visible** drops the third-person avatar for a
+  free-flying camera move. **On Sequence Finished** fires when a cutscene stops
+  for ANY reason (ran out, Stop Sequence, player skipped) - the way to chain
+  "play the cutscene, then carry on"; its bool output is "a cutscene is playing
+  right now", for gating gameplay logic out while one runs.
+  **Set Sound Volume** ducks all sound effects (music has its own node).
 - Object-parameter nodes resolve their target: incoming **object link** →
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge
