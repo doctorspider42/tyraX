@@ -12496,7 +12496,7 @@ Each finished feature lands as its own commit.
   `App::showFlagForKey` but missing from `kLayoutWindowKeys`, so the Input Map
   is the one optional window a named layout can neither restore nor close.
 
-- (221) **Rotation nodes, and an honest answer to "how do I make something spin
+- (222) **Rotation nodes, and an honest answer to "how do I make something spin
   forever?"** (user: "Dodaj node do rotate obiektu. Pytanie tez takie, jest
   jakis trigger onupdate we flowgraph? Czy powinien w ogole byc? Jakbym chcial
   zrobic taka logike, ze cos sie caly czas obraca, jak to najlepiej i

@@ -200,7 +200,7 @@ the **matrix fast path**, not in a flow node fired every frame:
 `physFastPathEligible`) bakes local-space vertices, and from then on
 `updateObjMat` refreshes `objectGeometry[i].objMat` and VU1 applies the motion —
 the object's entire per-frame render cost. Built for physics bodies (PROGRESS
-116), now also `updateSpinners()` (the Spin Object node, PROGRESS 221): the
+116), now also `updateSpinners()` (the Spin Object node, PROGRESS 222): the
 node writes only a RATE onto the RuntimeObject and the loop integrates it.
 Ineligible objects (usable, reflective, animated models) must fall back to
 `dirty`. The inherited trade-off: baked shading freezes at the pose the object
