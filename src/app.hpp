@@ -1,16 +1,21 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
 #include "aigen.hpp"
+#include "audiopreview.hpp"
 #include "camtake.hpp"
+#include "dronegen.hpp"
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
@@ -63,6 +68,11 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
+    // Writes the editor's own framebuffer to <TYRAX_SHOT>/shotNN.png every
+    // TYRAX_SHOT_EVERY seconds (default 2), and nothing at all when the
+    // variable is unset. The only screenshot path that works under a compositor
+    // that denies external capture - see the comment on the definition.
+    void captureFrameIfRequested(int w, int h);
     // Icon toolbar drawn inline in the main menu bar (Save / Build / Run / Stop
     // + the live chips). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
@@ -289,6 +299,7 @@ private:
         Music,      // res/audio WAV (streamed)
         Sound,      // res/sfx WAV (ADPCM one-shot)
         Font,       // TTF/OTF source
+        DronePatch, // .drone - a Drone Generator audio project
         Other,
     };
     static AssetKind assetKindOf(const std::string& rel);
@@ -545,6 +556,57 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Drone Generator (docs/drone-generator.md) - the ambient/drone
+    // music tool. All of these live in droneui.cpp (the assetbrowser.cpp
+    // precedent: a self-contained subsystem gets its own TU).
+    void drawDroneGeneratorWindow();
+    // Starts/stops live audition. Opening the device also creates the
+    // LiveSynth; a machine with no sound card just gets droneAudioError_.
+    void droneAudition(bool on);
+    // Transport verbs. dronePlay starts at the playhead (rewinding first when it
+    // is already at the end, like every DAW); droneStop parks the playhead where
+    // playback actually got to.
+    void dronePlay(bool record);
+    void droneStop();
+    // Pushes droneParams_ into the running LiveSynth. Every knob edit calls it,
+    // so what you hear is always the current patch.
+    void dronePushParams();
+    // Kicks off the offline render on a worker thread; droneTickRender() polls
+    // it each frame and writes the WAV (+ .drone sidecar) when it finishes.
+    void droneStartRender(bool confirmedOverwrite = false);
+    void droneTickRender();
+    // Loads a .drone patch (a rendered track's sidecar, or any hand-written
+    // one) into the tool. Returns false and sets droneStatus_ on a bad file.
+    bool droneLoadPatch(const std::string& relOrAbs);
+    // Writes the patch to a project-relative path. Returns false and stages a
+    // confirmation when that file exists and is not the one already open.
+    bool droneSavePatch(const std::string& rel, bool confirmed = false);
+    // Back to defaults (asks first when the open patch has unsaved edits).
+    void droneNewPatch();
+    // Every .drone in the project, for the Open picker.
+    std::vector<std::string> dronePatchList() const;
+    // Rebuilds the min/max envelope the waveform strip draws from the last
+    // render, so the display does not walk a million samples per frame.
+    void droneBuildWaveOverview();
+    // Records `value` as a keyframe at the playhead for the parameter that lives
+    // at `offset` inside droneParams_. Called from the knob hook, which is what
+    // makes EVERY knob automatable without its call site knowing about lanes.
+    void droneWriteAuto(size_t offset, float value);
+    // Whether the field at `offset` has a timeline lane - knobs draw a marker
+    // and say so in their tooltip, so a value that springs back explains itself.
+    bool droneIsAutomated(size_t offset) const;
+    // The transport strip (position bar with ticks, playhead, click/drag seek)
+    // and the Timeline tab (one editable lane per automated parameter).
+    void drawDroneTimelineBar();
+    void drawDroneTimelineTab();
+    // The playhead: the live transport while auditioning, the scrubbed position
+    // otherwise. droneSeek moves both.
+    double droneHeadTime() const;
+    // `settle` re-establishes the sound at that position (see
+    // dronegen::Synth::setTime); the intermediate frames of a drag pass false
+    // so scrubbing stays cheap, and the release settles once.
+    void droneSeek(double sec, bool settle = true);
+
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -1048,6 +1110,58 @@ private:
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
     int treeGenDisplayMode_ = 0;
+    // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
+    // droneParams_ is the whole patch; the LiveSynth and the audio device are
+    // created lazily on the first Audition, so a session that never opens the
+    // tool never touches the sound card. The render runs on droneRenderThread_
+    // and hands its result over through droneRenderDone_ (Runner idiom: the UI
+    // thread only ever reads the result after that flag is set).
+    bool showDroneGenerator_ = false;
+    dronegen::Params droneParams_;
+    int dronePreset_ = 0;
+    int droneTab_ = 0;
+    char droneTrackName_[64] = "ambient";
+    std::unique_ptr<dronegen::LiveSynth> droneLive_;
+    std::unique_ptr<audiopreview::Device> droneDevice_;
+    bool droneAuditioning_ = false;
+    // Transport. Generate mode is free-running sound design (it plays until you
+    // stop it); Record mode is bound to the timeline - it starts at the playhead,
+    // stops itself at the end of the piece, and Rec writes keyframes while it
+    // runs. droneRecording_ is only true in the second case.
+    int droneMode_ = 0;  // 0 = Generate, 1 = Record
+    bool droneRecording_ = false;
+    std::string droneAudioError_;
+    std::string droneStatus_;
+    std::string dronePatchTitle_;
+    // The open patch, as a document: its project-relative path (empty = never
+    // saved) and whether it has edits the file does not have yet.
+    std::string dronePatchRel_;
+    bool droneDirty_ = false;
+    // Overwrite guards: the render (and a Save onto someone else's file) stage
+    // their target here and raise a confirmation instead of clobbering it.
+    std::string droneAskWav_, droneAskPatch_;
+    std::thread droneRenderThread_;
+    std::atomic<float> droneRenderProgress_{0.0f};
+    std::atomic<bool> droneRenderCancel_{false};
+    std::atomic<bool> droneRenderDone_{false};
+    bool droneRendering_ = false;
+    dronegen::RenderResult droneRenderResult_;
+    dronegen::Params droneRenderedWith_;
+    std::string droneRenderTarget_;  // res-relative WAV path being written
+    int droneLiveRate_ = 0;          // rate the LiveSynth was built for
+    std::string droneRenderAbs_;     // absolute destination, fixed at start
+    // Waveform overview of the last render + the analyzer bands, both display
+    // caches (never the source of truth for anything).
+    std::vector<float> droneWaveMin_, droneWaveMax_;
+    float droneBands_[32] = {};
+    // Timeline. droneHeadSec_ is the ONE playhead truth: the position bar, the
+    // waveform marker, the lane editors and the automated values the knobs
+    // display all read it. droneWriteArmed_ turns any knob edit into a keyframe.
+    double droneHeadSec_ = 0.0;
+    bool droneWriteArmed_ = false;
+    std::string droneWriteMsg_;    // "Filter cutoff @ 0:12.4" - write feedback
+    char droneLaneFilter_[48] = "";  // search box of the "add lane" picker
+
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
