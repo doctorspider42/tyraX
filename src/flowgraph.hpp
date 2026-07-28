@@ -168,6 +168,18 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "OnStart", .title = "On Start", .category = "Triggers",
          .trigger = true,
          .desc = "Fires once when the scene starts."},
+        // The explicit spelling of what "Every N Seconds" with Seconds 0 has
+        // always done (everyFrames(0) clamps to 1). Continuous MOTION belongs
+        // in a node the game integrates itself (Spin Object, Move Object To) -
+        // a graph re-entered 50 times a second to nudge a transform pays a
+        // world-space vertex re-bake per frame per object.
+        {.key = "OnUpdate", .title = "On Update", .category = "Triggers",
+         .trigger = true,
+         .desc = "Fires EVERY frame while the scene runs. For logic that must "
+                 "be re-evaluated continuously. For continuous MOVEMENT use "
+                 "Spin Object / Move Object To instead - those are integrated "
+                 "by the game itself and cost a fraction of a graph running "
+                 "every frame."},
         {.key = "OnButton", .title = "On Button", .category = "Triggers",
          .trigger = true, .strKind = FlowParamKind::Button,
          .desc = "Fires the frame the pad button (str) is pressed. This is the "
@@ -296,6 +308,38 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .idOut = true, .posIn = true, .posOut = true,
          .desc = "Sets the target's position to X/Y/Z (a linked position "
                  "overrides the params)."},
+        // Rotation, the three shapes the position family already has: a delta,
+        // an absolute set, and a continuous rate. Degrees, applied in the
+        // engine's Euler order (X, then Y, then Z), so Y is the yaw.
+        {.key = "RotateObjectBy", .title = "Rotate Object By",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .numCount = 3, .numLabels = {"dX", "dY", "dZ"}, .idIn = true,
+         .idOut = true,
+         .desc = "Instantly turns the target by (dX, dY, dZ) DEGREES about the "
+                 "world X/Y/Z axes (dY = yaw). A one-shot: for something that "
+                 "keeps turning use Spin Object rather than firing this every "
+                 "frame."},
+        {.key = "SetRotation", .title = "Set Object Rotation",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .numCount = 3, .numLabels = {"X", "Y", "Z"}, .idIn = true,
+         .idOut = true,
+         .desc = "Sets the target's rotation to X/Y/Z degrees (absolute; Y is "
+                 "the yaw). Applied in the order X, then Y, then Z - the same "
+                 "as the Properties panel's Rotation."},
+        {.key = "SpinObject", .title = "Spin Object", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"X deg/s", "Y deg/s", "Z deg/s"}, .idIn = true,
+         .idOut = true, .execInCount = 2, .execInLabels = {"start", "stop"},
+         .desc = "Continuous rotation - THE node for something that turns all "
+                 "the time (a coin, a fan, a lighthouse). 'start' gives the "
+                 "target an angular velocity of num[0..2] degrees per SECOND "
+                 "(Y = yaw), 'stop' clears it. The game integrates it in its "
+                 "own object pass, and a spinner renders through a per-object "
+                 "matrix instead of re-baking its vertices every frame, so the "
+                 "whole graph is On Start -> start and the runtime cost is one "
+                 "matrix refresh per frame. Frame-rate independent. Re-firing "
+                 "'start' replaces the rate. On a physics object the tumble "
+                 "writes rotation too, so the two add up."},
         // Despawn on an authored object only deactivates it (layer streaming
         // can bring authored objects back).
         {.key = "SpawnObject", .title = "Spawn Object", .category = "Object",

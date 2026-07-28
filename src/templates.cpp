@@ -973,6 +973,10 @@ class TerrainGame : public Tyra::Game {
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
   void updateObjectPhysics();
+  // Scripted continuous rotation (Spin Object flow node): integrates
+  // RuntimeObject::spinRate and promotes spinners onto the per-object
+  // matrix path so they cost no per-frame vertex re-bake.
+  void updateSpinners();
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.
@@ -1913,6 +1917,10 @@ class TerrainGame : public Tyra::Game {
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
   void updateObjectPhysics();
+  // Scripted continuous rotation (Spin Object flow node): integrates
+  // RuntimeObject::spinRate and promotes spinners onto the per-object
+  // matrix path so they cost no per-frame vertex re-bake.
+  void updateSpinners();
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.
@@ -4405,6 +4413,10 @@ void TerrainGame::loop() {
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Scripted rotation, right after the physics integration: both write
+  // data.rotation, and a spinner that is ALSO a body must see the tumble's
+  // value rather than fight it.
+  if (!menuActive) updateSpinners();
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
   // crossings see this frame's motion; on a player hop the camera is
@@ -10613,6 +10625,39 @@ void TerrainGame::renderStaticBatches() {
   }
 }
 
+// Scripted continuous rotation (the Spin Object flow node). Kept OUT of the
+// graphs on purpose: turning a prop from a per-frame trigger means the script
+// runs, writes rotation and marks the object dirty, and renderScene then
+// re-bakes its entire world-space vertex array on the EE - every frame, for
+// every spinner. Here the integration is a handful of instructions, and the
+// object is promoted ONCE onto the per-object matrix path (local-space
+// vertices + objMat, refreshed by renderScene and applied on VU1), which is
+// what makes a permanently rotating object essentially free. Same promotion
+// the physics fast path uses, and the same trade-off: the baked shading
+// freezes at the pose it was promoted in, which is exactly right for
+// something whose orientation never stops changing anyway.
+void TerrainGame::updateSpinners() {
+  const int count = (int)runtimeObjects.size();
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active) continue;
+    const float* r = o.spinRate;
+    if (r[0] == 0.0F && r[1] == 0.0F && r[2] == 0.0F) continue;
+    for (int a = 0; a < 3; ++a) {
+      if (r[a] == 0.0F) continue;
+      // degrees/second * dt: the rate is authored in wall-clock units, so a
+      // vsync-off build spins at the same speed (the everyFrames contract).
+      o.data.rotation[a] += r[a] * g_frameDt;
+      if (o.data.rotation[a] > 360.0F) o.data.rotation[a] -= 720.0F;
+      if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
+    }
+    ObjectGeometry& g = objectGeometry[i];
+    if (!g.matrixMode && !o.dirty && physFastPathEligible(i))
+      rebuildObjectGeometry(i, true);
+    if (!g.matrixMode) o.dirty = true;  // no fast path: pay the re-bake
+  }
+}
+
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2; velocities are per-frame displacements.
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
@@ -14557,6 +14602,10 @@ void TerrainGame::loop() {
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Scripted rotation, right after the physics integration: both write
+  // data.rotation, and a spinner that is ALSO a body must see the tumble's
+  // value rather than fight it.
+  if (!menuActive) updateSpinners();
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
   // crossings see this frame's motion; on a player hop the camera is
@@ -15637,6 +15686,13 @@ struct RuntimeObject {
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
   float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Scripted continuous rotation (the Spin Object flow node), degrees per
+  // SECOND - authored units, so it is frame-rate independent and readable.
+  // Integrated by TerrainGame::updateSpinners(), which also puts the object on
+  // the per-object matrix path so a permanently turning prop costs one matrix
+  // refresh per frame instead of a world-space vertex re-bake. Independent of
+  // `spin` above: physics owns that one, this one survives sleep and settle.
+  float spinRate[3] = {0.0F, 0.0F, 0.0F};
   // Settle-flatten targets, latched once per settle so the chosen face
   // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
   // stays" when the roll lands on an even 90deg step.
@@ -19748,6 +19804,7 @@ std::string flowGraphScript(const Project& p) {
     bool anyDynText = false;
     bool anyInArea = false;
     bool anyNumDiv = false;
+    bool anyRotateBy = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
@@ -19757,6 +19814,7 @@ std::string flowGraphScript(const Project& p) {
                 anyDynText |= (n.type == "DisplayText");
                 anyInArea |= (n.type == "InArea");
                 anyNumDiv |= (n.type == "NumDiv");
+                anyRotateBy |= (n.type == "RotateObjectBy");
             }
     const bool anyNav = anyNavAiNode(p);
 
@@ -19888,6 +19946,18 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
   return in1 || in2;
 }
 )";
+    }
+
+    if (anyRotateBy) {
+        // fmodf, not the physics pass's single +-720 fold: that one relies on
+        // the per-frame step being small, and a Rotate Object By delta is
+        // whatever the user typed.
+        out << "\n// Rotate Object By: keeps a repeatedly nudged angle inside\n"
+               "// (-360, 360), where float degrees still resolve well.\n"
+               "static inline float flowWrapDeg(float deg) {\n"
+               "  return (deg > 360.0F || deg < -360.0F) ? fmodf(deg, 360.0F)\n"
+               "                                         : deg;\n"
+               "}\n";
     }
 
     if (anyNumDiv) {
@@ -20617,6 +20687,30 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     c << pad << obj << ".data.position[" << a << "] = " << e[a] << ";\n";
                 c << pad << obj << ".restFrames = 0;\n";  // wake physics bodies
                 c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "RotateObjectBy") {
+                // Wrapped like the physics tumble does: a node fired often
+                // enough would otherwise walk the angle into the range where
+                // float degrees lose resolution.
+                for (int a = 0; a < 3; ++a) {
+                    if (n.num[a] == 0.0f) continue;
+                    c << pad << obj << ".data.rotation[" << a
+                      << "] = flowWrapDeg(" << obj << ".data.rotation[" << a
+                      << "] + " << floatLit(n.num[a]) << ");\n";
+                }
+                c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "SetRotation") {
+                for (int a = 0; a < 3; ++a)
+                    c << pad << obj << ".data.rotation[" << a
+                      << "] = " << floatLit(n.num[a]) << ";\n";
+                c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "SpinObject") {
+                // Only the RATE is written here; the game's own object pass
+                // integrates it (updateSpinners) and takes care of the matrix
+                // fast path. 'stop' clears it.
+                for (int a = 0; a < 3; ++a)
+                    c << pad << obj << ".spinRate[" << a << "] = "
+                      << (pin == 1 ? std::string("0.0F") : floatLit(n.num[a]))
+                      << ";\n";
             } else if (n.type == "TeleportPlayer") {
                 const auto e = posExpr(n);
                 c << pad << "ctx.teleport = true;\n"
@@ -21337,6 +21431,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
             if (n.type == "OnStart") {
                 clsOut << "    if (!started) {\n      started = true;\n" << body << "    }\n";
+            } else if (n.type == "OnUpdate") {
+                // update() already runs once per frame, so the trigger is the
+                // absence of a condition. Braced anyway: the chain declares
+                // locals and several triggers share this scope.
+                clsOut << "    {\n" << body << "    }\n";
             } else if (n.type == "OnUsed") {
                 const std::string dyn = targetExpr(n);
                 if (!dyn.empty()) {
@@ -21892,6 +21991,26 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "        ctx.grain = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
          "      }\n"},
         {"OP_SetParticles", "      ctx.particles = in.num[0] != 0.0F ? 1 : 0;\n"},
+        // The rotation family. flowWrapDeg lives in flow_graph.gen.cpp (emitted
+        // only when a graph uses the node), so the fold is spelled out here.
+        {"OP_RotateObjectBy",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) {\n"
+         "        float d = o->data.rotation[a] + in.num[a];\n"
+         "        if (d > 360.0F || d < -360.0F) d = fmodf(d, 360.0F);\n"
+         "        o->data.rotation[a] = d;\n"
+         "      }\n"
+         "      o->dirty = true;\n"},
+        {"OP_SetRotation",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a) o->data.rotation[a] = in.num[a];\n"
+         "      o->dirty = true;\n"},
+        // Only the rate: the game's updateSpinners integrates it and owns the
+        // matrix fast path, exactly as for a compiled graph.
+        {"OP_SpinObject",
+         "      if (!o) break;\n"
+         "      for (int a = 0; a < 3; ++a)\n"
+         "        o->spinRate[a] = in.pin == 1 ? 0.0F : in.num[a];\n"},
     };
     return v;
 }
@@ -22385,6 +22504,9 @@ void runProgram(ScriptContext& ctx, const Prog& pr) {
             fire = true;
           }
         }
+        break;
+      case BK_OnUpdate:
+        fire = true;  // runProgram already runs once per frame
         break;
       case BK_OnButton:
         fire = padClicked(ctx, bk.aux);
@@ -23485,12 +23607,13 @@ static std::string liveDebugSymFile(const Project& p) {
 //   u32 magic 'TXTM', u32 version=1, u32 seq, u32 frame, i32 scene,
 //   u32 stateBytes, u64 layout, u32 flags, u32 objectCount, u32 rsvd[2]
 //   state:
-//     u16 objectCount, then 100 bytes per object:
+//     u16 objectCount, then 112 bytes per object:
 //       f32 position[3], rotation[3], scale[3], color[3]   (48)
 //       f32 velocityX/Y/Z, spin[3], flatTgt[3]             (36)
 //       i16 restFrames, u16 flags(1 visible|2 active|4 dirty)
 //       i16 animClip, u16 animFlags(1 playing|2 loop|4 restart|8 finished)
 //       f32 animSpeed, animFade                            (16)
+//       f32 spinRate[3]  (Spin Object, degrees/second)     (12)
 //     u16 playerFlags(1 = the capture carries a player), f32 pos[3], yaw, pitch
 //     u16 varCount, then 3 floats per flow variable
 //     u16 saveCount, then 1 float per save value
@@ -23544,7 +23667,7 @@ constexpr u32 TM_MAGIC = 0x4D545854;  // "TXTM"
 constexpr u32 TM_VERSION = 1;
 constexpr int TM_HEADER = 48;
 constexpr u32 TM_FOOTER_XOR = 0x5A5A5A5A;
-constexpr int TM_OBJ_STRIDE = 100;
+constexpr int TM_OBJ_STRIDE = 112;
 // Authored objects plus the runtime spawn pool: a capture covers the clones
 // too, or rewinding past a Spawn Object leaves the clone standing there.
 constexpr int TM_MAX_OBJECTS = {{MAX_OBJECTS}};
@@ -23602,6 +23725,7 @@ int capture(ScriptContext& ctx, unsigned char* p) {
                            (o.animRestart ? 4 : 0) | (o.animFinished ? 8 : 0)));
     putf(p + 92, o.animSpeed);
     putf(p + 96, o.animFade);
+    for (int k = 0; k < 3; ++k) putf(p + 100 + k * 4, o.spinRate[k]);
     p += TM_OBJ_STRIDE;
   }
 
@@ -23687,6 +23811,7 @@ void restore(ScriptContext& ctx, const unsigned char* p, int bytes) {
     o.animFinished = (af & 8) != 0;
     o.animSpeed = getf(p + 92);
     o.animFade = getf(p + 96);
+    for (int k = 0; k < 3; ++k) o.spinRate[k] = getf(p + 100 + k * 4);
     // ALWAYS dirty, whatever the capture said: a restored object has moved as
     // far as the renderer is concerned, and a batched member that is not
     // demoted keeps drawing at its old place (see staticBatchEligible).
@@ -23865,7 +23990,7 @@ static std::string liveTimeSource(const Project& p) {
     auto mix = [&layout](uint64_t v) {
         layout = (layout ^ v) * 1099511628211ull;
     };
-    mix(2);  // layout version - bump when the walk above changes
+    mix(3);  // layout version - bump when the walk above changes
     mix(maxObjects);
     mix(vars);
     mix(saves);

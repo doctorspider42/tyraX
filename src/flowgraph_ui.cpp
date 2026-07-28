@@ -851,6 +851,11 @@ void App::drawFlowGraphWindow() {
             if (t->numIn)
                 for (const FlowLink& l : fg.links)
                     numLinked |= (l.kind == FlowLinkNum && l.toNode == n.id);
+            // Angles live in the tens-to-hundreds range, so the generic 0.1
+            // drag step would take a very long mouse journey to reach 90.
+            const bool isAngle = n.type == "RotateObjectBy" ||
+                                 n.type == "SetRotation" ||
+                                 n.type == "SpinObject";
             for (int a = firstNum; a < t->numCount; ++a) {
                 if (a == 0 && numLinked && !flowNumFolds(*t)) {
                     ImGui::TextDisabled("%s: from link", t->numLabels[0]);
@@ -877,7 +882,8 @@ void App::drawFlowGraphWindow() {
                     ImGui::SliderFloat("Volume", &n.num[a], 0.0f, 100.0f, "%.0f");
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 } else {
-                    ImGui::DragFloat(t->numLabels[a], &n.num[a], 0.1f);
+                    ImGui::DragFloat(t->numLabels[a], &n.num[a],
+                                     isAngle ? 1.0f : 0.1f);
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 }
             }
@@ -1506,6 +1512,11 @@ void App::drawFlowGraphWindow() {
                         n.num[2] = 1.0f;   // amount (num[3] mode: 0 = set)
                     }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
+                    // A fresh rotate/spin node starts on the yaw: it is what
+                    // almost every turning prop wants, and a node whose every
+                    // param is 0 looks broken.
+                    if (std::string(t.key) == "RotateObjectBy") n.num[1] = 45.0f;
+                    if (std::string(t.key) == "SpinObject") n.num[1] = 90.0f;
                     if (std::string(t.key) == "VibratePad") {
                         n.num[0] = 1.0f;  // big motor at full
                         n.num[2] = 0.5f;  // a short kick by default
