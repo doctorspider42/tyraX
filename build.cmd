@@ -9,8 +9,12 @@ REM This is a WRAPPER ON PURPOSE. It used to carry its own copy of the
 REM vendor-dependency guard, checking four hardcoded directories, and drifted
 REM behind deps.ps1 - so a fresh clone walked straight into cmake with
 REM vendor/ufbx missing and failed with "Cannot find source file:
-REM vendor/ufbx/ufbx.c". build.ps1 probes the ONE list in deps.ps1; keep the
-REM guard there, not here.
+REM vendor/ufbx/ufbx.c", and on another tree with "miniaudio.h: No such file or
+REM directory". Neither was a Windows-only accident waiting to be noticed: a
+REM bare `build` in PowerShell resolves to build.CMD before build.PS1 (PATHEXT
+REM order), so the stale twin is what actually ran. build.ps1 probes the ONE
+REM list in deps.ps1; keep the guard there, not here.
+REM See "Platform parity" in .claude/skills/tyra-editor-dev/SKILL.md.
 setlocal
 cd /d "%~dp0"
 

@@ -85,8 +85,22 @@ warnings matter, the build is expected to be clean.
 
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
-`src/platform.*`, `wire.cpp`, the Runner or CMakeLists needs a build on both,
-or say so in PROGRESS.md.
+`src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
+build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
+must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
+`build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
+`#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
+tyra-editor-dev ("Platform parity"). Editing one side only is the single most
+repeated way a change lands broken on the platform its author doesn't use.
+
+**On Windows, `build` is `build.cmd`.** PATHEXT resolves `.CMD` before `.PS1`,
+so the bare command runs the wrapper, which just calls `build.ps1`. That is a
+deliberate one-line delegation now — it used to be a full cmd translation with
+its OWN four-entry dependency list, which is how a tree that built fine on
+Linux died on Windows with `fatal error: miniaudio.h: No such file or
+directory`: the guard that fetches missing dependencies was in `build.ps1`, and
+`build.ps1` was not what ran (PROGRESS 214). When a Windows build fails on a
+missing `vendor/` header, check WHICH script ran before suspecting the code.
 
 **Third-party dependencies live in exactly one list per platform: `deps.ps1`
 and `deps.sh`.** `setup.ps1`/`setup.sh` fetch from them and `build.ps1`/
@@ -374,6 +388,17 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
+  The editor can also **capture its own framebuffer**, on either OS and with no
+  display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally
+  `TYRAX_SHOT_EVERY=<seconds>`, default 2) and it writes `<dir>/shotNN.png` every
+  interval (`App::captureFrameIfRequested`). It reads what the editor DREW rather
+  than what was presented, so it is the one path that survives the AMD present
+  quirk that leaves the window blank. It cannot click anything: to reach a panel
+  that needs a menu click, pre-open it by adding its key to the active layout's
+  `open` list in the project's `.tyra` (`kLayoutWindowKeys` in app.cpp has the
+  names — `"drone"`, `"tree"`, `"material"`, ...). PROGRESS 210/211 verified a
+  whole tool window this way, including reading values off the knobs.
+
   For **editor viewport** work an **offscreen GL harness** (PROGRESS 208) is
   still the better instrument when you want numbers instead of a picture.
   A hidden GLFW window (`GLFW_VISIBLE` false, `GLFW_INCLUDE_NONE`
@@ -638,7 +663,12 @@ Notes:
   the same way. If that is blank too, GUI visual verification is unavailable
   for this session: say so in PROGRESS rather than claiming a visual check
   that did not happen.
-- **Audio**: EE-side logs are invisible, so meter the PCSX2 process instead —
+- **Audio**: the *editor's* own audio (the Drone Generator's audition,
+  `src/audiopreview.cpp`) is testable directly — a host harness can open the
+  device and print peak levels (PROGRESS 210), and the generator's DSP needs no
+  device at all: link `dronegen.cpp` alone, render a preset and measure the
+  samples (automation included — PROGRESS 211). For the GAME's audio, EE-side
+  logs are invisible, so meter the PCSX2 process instead —
   on Windows the WASAPI session peak meter (e.g. via `AudioMeterInformation`),
   on Linux `pactl list sink-inputs` (the PCSX2 sink input's volume/peak, or a
   short `parec` capture of the monitor source). Silence vs bursts at expected
@@ -661,7 +691,7 @@ Notes:
 
 | Change | Minimum honest verification |
 |---|---|
-| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (`screenshot-window.ps1` on Windows, `wayland-control.py` on Linux — both can drive the UI too) |
+| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (`screenshot-window.ps1` on Windows, `wayland-control.py` on Linux — both can drive the UI too; `TYRAX_SHOT=<dir>` self-capture when neither can see the window) |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |

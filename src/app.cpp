@@ -571,10 +571,19 @@ int App::run(const std::string& initialProjectDir) {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        captureFrameIfRequested(w, h);
+
         glfwSwapBuffers(window_);
     }
 
     // No save on exit: the user chose to discard (or had nothing unsaved).
+
+    // Audio first: the device callback holds the LiveSynth, and a running
+    // render thread writes into droneRenderResult_. Both must be done before
+    // anything they touch is destroyed.
+    droneAudition(false);
+    droneRenderCancel_.store(true);
+    if (droneRenderThread_.joinable()) droneRenderThread_.join();
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
@@ -585,6 +594,48 @@ int App::run(const std::string& initialProjectDir) {
     glfwDestroyWindow(window_);
     glfwTerminate();
     return 0;
+}
+
+// Framebuffer self-capture, enabled by the TYRAX_SHOT environment variable
+// (a directory; TYRAX_SHOT_EVERY overrides the 2-second interval). The editor
+// reads back its own window and writes <dir>/shotNN.png.
+//
+// This exists because it is the ONLY screenshot path that works everywhere: a
+// Wayland compositor may refuse external capture outright (GNOME denies the
+// org.gnome.Shell.Screenshot call to unsanctioned clients, and there is no X11
+// window to grab when GLFW picks the Wayland backend), and it captures what the
+// editor DREW rather than what the compositor presented - which also survives
+// the AMD present quirk that leaves the window blank on some machines. Used to
+// verify UI work without a human at the keyboard; see the tyra-testing skill.
+void App::captureFrameIfRequested(int w, int h) {
+    const char* dir = getenv("TYRAX_SHOT");
+    if (!dir || !*dir || w <= 0 || h <= 0) return;
+    static double next = 1.0;
+    static int shotNo = 0;
+    static double every = 0.0;
+    if (every == 0.0) {
+        const char* e = getenv("TYRAX_SHOT_EVERY");
+        every = e ? atof(e) : 2.0;
+        if (every < 0.1) every = 0.1;
+    }
+    if (glfwGetTime() < next) return;
+    next = glfwGetTime() + every;
+
+    std::vector<unsigned char> px((size_t)w * h * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px.data());
+    // GL reads bottom-up; PNG is top-down.
+    std::vector<unsigned char> flipped((size_t)w * h * 3);
+    for (int y = 0; y < h; ++y)
+        std::memcpy(&flipped[(size_t)y * w * 3], &px[(size_t)(h - 1 - y) * w * 3],
+                    (size_t)w * 3);
+    char path[512];
+    std::snprintf(path, sizeof(path), "%s/shot%02d.png", dir, shotNo++);
+    if (stbi_write_png(path, w, h, 3, flipped.data(), w * 3))
+        std::printf("[shot] %s (%dx%d)\n", path, w, h);
+    else
+        std::printf("[shot] failed to write %s\n", path);
+    std::fflush(stdout);
 }
 
 void App::drawUI() {
@@ -679,6 +730,7 @@ void App::drawUI() {
     drawInputMapWindow();
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
+    drawDroneGeneratorWindow();
     giBakerPoll();
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
@@ -1199,6 +1251,11 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ambient / drone music generator: audition a patch live,\n"
+                    "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::Separator();
             // Lives in the Ambience Editor now; the menu item still works
@@ -3658,6 +3715,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
     if (key == "phonecam") return &showPhoneCamWindow_;
@@ -3668,10 +3726,18 @@ bool* App::showFlagForKey(const std::string& key) {
 // The optional windows a layout can carry, in a stable order (also the capture
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
+//
+// This list and showFlagForKey above must agree: a key here that showFlagForKey
+// does not know is ignored, and a window flag missing HERE is the worse half -
+// layouts can then neither capture nor reset it, so it leaks across switches
+// while every other optional window is deterministic ("input" was that way
+// until PROGRESS 221). Adding a window? Add it to both. Layouts persist the
+// keys by name (project.cpp writes them as a JSON string array), so the order
+// is cosmetic - append rather than insert to keep saved files diff-friendly.
 static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
-    "debugger", "phonecam", "assets",   "gibake"};
+    "debugger", "phonecam", "assets",   "gibake",   "input",  "drone"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -6789,6 +6855,13 @@ static void removeAudioTrack(Project& p, const std::string& relPath, bool music)
     }
     std::error_code ec;
     std::filesystem::remove(std::filesystem::path(p.dir) / relPath, ec);
+    // A Drone Generator patch is worthless without its track, so it goes too
+    // (the Asset Browser deletes sidecars itself before routing here - removing
+    // an already-removed file is a no-op).
+    std::filesystem::path patch = std::filesystem::path(p.dir) / relPath;
+    patch.replace_extension(".drone");
+    ec.clear();
+    std::filesystem::remove(patch, ec);
 }
 
 // Mirrors res/audio and res/sfx into the project lists, so assets can be
@@ -6884,6 +6957,11 @@ void App::drawMusicSection() {
 
     if (ImGui::SmallButton("Import WAV...##music")) importMusicTrack();
     ImGui::SameLine();
+    if (ImGui::SmallButton("Generate...##music")) showDroneGenerator_ = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Tools > Drone Generator: build an ambient/drone track\n"
+                          "in the editor instead of importing one.");
+    ImGui::SameLine();
     if (ImGui::SmallButton("Rescan##music")) rescanAssets(true);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Pick up WAVs dropped by hand into res/audio and res/sfx.");
@@ -6915,6 +6993,25 @@ void App::drawMusicSection() {
                                      ? name + " converted to 16-bit PCM 22050 Hz"
                                      : name + ": conversion failed - " + err;
                 wavIssueCache_.clear();
+            }
+        }
+        // A track the Drone Generator made kept its patch next to it, so it can
+        // be reopened and re-rendered instead of replaced by hand.
+        {
+            std::filesystem::path patch =
+                std::filesystem::path(project_.dir) / project_.music[i];
+            patch.replace_extension(".drone");
+            std::error_code pec;
+            if (std::filesystem::exists(patch, pec)) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Edit")) {
+                    std::filesystem::path rel(project_.music[i]);
+                    rel.replace_extension(".drone");
+                    droneLoadPatch(rel.generic_string());
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open this track's patch in the Drone "
+                                      "Generator (Tools > Drone Generator).");
             }
         }
         ImGui::SameLine();
