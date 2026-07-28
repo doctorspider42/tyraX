@@ -10,6 +10,38 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (138) **The "shadow corners": a projected shadow sampled its own silhouette
+  twice.** Owner, after (136) and (137), with a magnified crop: thin dark
+  streaks still sitting on the ground beside the real shadow - and the original
+  "the shadow tiles" report, which is the same thing seen bigger.
+
+  The receiver patch is sized in WORLD units while its texture coordinates come
+  out of the light's projection, so its outer ring lands outside 0..1 by design
+  - measured `u = -0.38 .. 1.39`. The code assumed the GS wrap mode would take
+  care of that ("CLAMP smears edge texels outward - the border guarantees the
+  edges stay empty"), and **nothing ever set it**: `Texture::setWrapSettings`
+  reaches the GS only through `path3` and the post-fx blits, and no 3D pipeline
+  in this engine emits `GS_REG_CLAMP` at all. So the patch sampled with
+  whatever global state the last 2D draw happened to leave - in practice
+  REPEAT, which fetched a second copy of the silhouette at the patch edge.
+
+  Writing `GS_SET_CLAMP` from the shadow pass was tried first and **measured to
+  change nothing** (two engine builds, byte-identical frames), so that was
+  reverted rather than shipped on a theory. The STs are clamped on the EE
+  instead, which is better anyway: it depends on no global GS state, and it is
+  free - the light frustum is sized to leave the silhouette a ~22% transparent
+  border, so the edge those vertices now sample is empty by construction and
+  only the outer ring of a 4x4 patch moves at all.
+
+  **Verified** on the owner's scene: exactly **28 pixels** changed, all in a
+  thin band on the ground where the streaks were, and the real shadow came out
+  byte-identical at every sample point.
+
+  The general rule went into the engine skill's pitfalls, because it is not
+  about shadows: **if a 3D mesh's texture coordinates can leave 0..1, clamp
+  them where you build them - a wrap mode set on the texture is silently
+  ignored in 3D.**
+
 - (137) **A thrown object's shadow landed half way down** - what (136) left
   open, and the other half of what the owner saw as "several shadows".
 

@@ -8876,6 +8876,22 @@ void TerrainGame::renderProjShadows() {
             u = 0.5F + clip.x / clip.w * kUv;
             vv = 0.5F + clip.y / clip.w * kUv;
           }
+          // Clamp HERE, on the EE, not with the GS wrap mode: nothing in the
+          // 3D pipeline ever emits GS_REG_CLAMP (only the 2D path and the
+          // post-fx blits do), so the register holds whatever the last of
+          // those left and a texture's own wrap setting is silently ignored.
+          // The patch is sized in world units while these STs come out of the
+          // light's projection, so its outer ring lands well outside 0..1 -
+          // measured -0.38..1.39 - and sampled the silhouette a second time,
+          // which is the thin dark "corner" that survived at the patch edge.
+          // Clamping costs nothing: the light frustum is sized to leave the
+          // silhouette a ~22% transparent border, so the edge these vertices
+          // now sample is empty by construction. Only the outer ring of a 4x4
+          // patch moves, and it moves within that border.
+          if (u < 0.0F) u = 0.0F;
+          if (u > 1.0F) u = 1.0F;
+          if (vv < 0.0F) vv = 0.0F;
+          if (vv > 1.0F) vv = 1.0F;
           b.sts[v + k] = Vec4(u, vv, 1.0F, 0.0F);
           b.verts[v + k] = zBias(tp[k]);
         }
