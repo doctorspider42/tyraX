@@ -60,6 +60,7 @@ Two sibling skills cover the rest of the system:
 | `flowgraph_ui.cpp` | ~1500 | The Flow Graph editor window (imnodes): add menu, pins, links, params, the debugger overlay. |
 | `hud_ui.cpp` | ~3250 | The 2D-authoring windows: UI Editor, Loading Screen, Splash, Font Manager, button icons, Input Map, Animation Editor, plus the GI-bake and Tree-generator tool windows. |
 | `cutscene_ui.cpp` | ~2180 | The Cutscene Director (dopesheet, camera shots), the phone-camera link UI and camera-take import. |
+| `credits_ui.cpp` | ~740 | **Credits Editor** (Tools > Credits Editor, docs/credits.md) - App:: methods declared in app.hpp, own TU (the assetbrowser.cpp precedent). Rolls are project-wide data edited through `saveAll()` (not undo), like Loading Screens. The load-bearing decision: the roll's BAKE is the single source of its look - `menubake::bakeCreditsStripRGBA` (in menubake.cpp, next to every other text bake) lays the blocks out and rasterizes them into a strip of pow2 PAGE textures, and the preview here uploads THOSE pixels and positions them with the generated player's own arithmetic. So there is no second layout implementation to drift, and "what scrolls in the editor is what scrolls on the console" is a property, not a promise. `creditsPreviewRefresh()` re-bakes when the roll changes, compared with `CreditsRoll::operator==` plus the fonts' TTF paths (a hand-built signature string forgets a field the day someone adds one). Pages instead of one sprite per line is a VRAM decision (`menubake::kCreditsMaxPages` = 16): the GS pins every texture it draws, so the window reports pages / duration / VRAM and says *content clipped* rather than silently cutting a roll. The layout is settings-over-preview with a **height splitter** (`creditsSplit_`, the matEdSplit_ idiom: InvisibleButton + `MouseDelta` + `saveGlobalConfig()` on release, persisted in editor.ini because how much room a preview deserves is a property of the monitor); the space a 512x448 preview leaves in a wide window is the **Jump to** list, which inverts the roll's own timing arithmetic ("when is this block centred") so a click scrubs to a block instead of hunting on the slider. |
 | `mateditor_ui.cpp` | ~3800 | The Material Editor: `.mtl` load/save, paint-layer stack + its own undo, the raytraced map bake, the UV validator. |
 | `devkit_ui.cpp` | ~2130 | The devkit host side: `liveLinkTick`, `liveLogicTick`, `livedbgTick`, `livetimeTick`, the Debugger window, the time-machine panel, the game-error modal. |
 | `assetbrowser.cpp` | ~1500 | **Asset Browser** (Tools > Asset Browser, docs/asset-browser.md) - App:: methods declared in app.hpp, in their own TU (the save_assets.cpp precedent) because they are a self-contained subsystem. `res/` IS the asset database, so everything is a view over the file system (`scanAssetTree`, throttled while the window is open) plus the two things a file manager cannot do: **`rebuildAssetUsage`** - ONE pass over the model recording every stored asset path (the census the grid's unused-ring, the inspector's user list and the delete warnings all read; keyed off `modelEditSerial_`) - and **the sibling invariant**: a Wavefront reference (`mtllib`/`map_Kd`/`refl`) is a bare name resolved next to the file that named it and the PS2 cannot walk `..`, so `moveAssets` moves a transitively closed dependency group (`assetWavefrontDeps`), COPIES a dependency the files left behind still need, and REFUSES rather than half-applying a move that would break a reference; `renameAsset` (same folder = safe) rewrites the siblings instead (`rewriteWavefrontRef`) and carries the `.mtl` a model exclusively owns. A new file type becomes a first-class asset by joining `assetKindOf`/`assetKindName`, the filter-chip counts, `matchesFilter`, `kindColor` (append - the cases are numeric, so inserting shifts every colour), `activateAsset` and the inspector switch - the `.drone` audio project (the drone batch's 213) is the worked example. **`retargetAssetPath` is the single list of every field that stores an asset path** - a new such field must join it or renaming its file silently breaks it. Sidecars (`.uvs`, `.aov`, the Drone Generator's `.drone` patch, `<tex>.layers/`) travel with their asset; the baked `.tmdl` is deleted for the next build to redo. Host-only apart from `Viewport::assetThumb` (thumbnails: one render per asset into a dedicated FBO, copied into its own texture, budgeted a few per frame) - so the whole non-UI half is exercisable from a harness (PROGRESS 105). |
@@ -581,6 +582,35 @@ menu JSON in project.cpp → `MenuEntryData` codegen + `applyMenuBindings` in
 templates.cpp → the runtime setting site (audio call, `axis`/`axisValue`,
 `applyVideoRequests`) → the Menu Editor UI.
 
+**Credits rolls** (`CreditsRoll`/`CreditsBlock` in project.hpp, docs/credits.md)
+are the reference point for **"a whole screen the game hands over to"**, and the
+three decisions worth reusing:
+- **The roll owns the frame.** The loop hook (in BOTH game-cpp loop templates,
+  right after the boot-splash block) ticks `credits::tick` and `return`s while
+  `credits::playing()` — no walker, no scripts, no scene render behind it. That
+  is why `playing()` is `inline` over one extern int rather than a function
+  call: the loop asks it every frame, roll or no roll. Anything that owns the
+  screen this way must ALSO own the pad, or the frame it ends the same press
+  reaches gameplay.
+- **A finish action, not a caller contract.** The roll carries where to go
+  afterwards (`CreditsRoll::Finish`, resolved to indices in
+  `credits_data.gen.hpp`), the player REPORTS it (`credits::Result`) and the
+  loop turns it into requests the loop already serves — `scriptCtx.requestScene`
+  / `openMenu` / `pendingEvent`. `pendingEvent` is the one addition:
+  `updateGameMenu` is the single place that clears `menuEvent`, so an event
+  queued earlier in the loop must be promoted there or it is wiped before any
+  script sees it. A SKIP runs the same finish action - a skip that only stops
+  the roll strands the player.
+- **`On Credits Finished` cannot be a falling edge.** A roll freezes every
+  graph, so between the frame that started it and the frame it ended, no node
+  ran to latch "it was playing" (the trick `OnSequenceEnd` uses). The runtime
+  counts finished rolls (`credits::endCount()`) and the node fires when its own
+  copy falls behind; a scene reload re-syncs that copy to the LIVE count instead
+  of zero. Any future "the world was frozen while it happened" trigger needs the
+  same shape.
+The look is baked, not drawn: see the `credits_ui.cpp` row above for why the
+page strip is the single source of truth and where the VRAM cap comes from.
+
 **New machine-global editor setting** (per-installation, NOT in the `.tyra` —
 e.g. UI scale, viewport navigation, emulator path, dev-PS2 IP) → a field on
 `EditorConfig` (app.cpp) with load/save lines in `loadEditorConfig`/
@@ -1016,6 +1046,26 @@ simply delegates are not.
   `px * uiScaleApplied_`); negative/`-FLT_MIN`/fill widths and text-measured
   (`CalcTextSize`) sizes already track scale, leave those alone. Free functions
   that draw fixed-size widgets take a `scale` param (see `gradingWheel`).
+  **`ScaleAllSizes` also does not reach a third-party style struct** -
+  `ImNodesStyle` (grid spacing, node padding, pin radii, link thickness) is the
+  editor's, so the Flow Graph scales it itself; a new vendored widget library
+  with its own style struct owes the same.
+- **A zoomable canvas scales its font with `PushFont`, never
+  `SetWindowFontScale`.** The latter writes `window->FontWindowScale`, and since
+  ImGui 1.92 `UpdateCurrentFontSize()` reads that field for the CURRENT window
+  only - the `FontWindowScaleParents` it computes for children is dead code. So a
+  per-window font scale does not reach anything drawn inside a `BeginChild`,
+  which is where imnodes (and any canvas) puts its content: the call compiles,
+  does not warn, and silently scales nothing. `PushFont(nullptr, sizePx)` sets the
+  context-level `FontSizeBase` and children inherit it.
+  Two consequences the Flow Graph's zoom is built around (`flowgraph_ui.cpp`,
+  PROGRESS 233), worth copying for any future zoomable view: **derive every
+  length from the rounded font pixel size, not from the zoom** (ImGui rounds font
+  sizes, so text width is a staircase while a raw `zoom` multiplier is a straight
+  line - snap the zoom to a whole font pixel and the view stays self-similar),
+  and remember that a **stored node position is a distance between nodes**, so it
+  carries the SAME factor the node contents do - the UI scale included, or a 250%
+  editor draws grown nodes at un-grown spacing and they overlap.
 
 ## Building the editor
 
@@ -1062,7 +1112,17 @@ glfw 3.4, imguizmo, imnodes, stb, ufbx, miniaudio — all git-ignored;
 whenever something is absent. **The dependency list lives only in `deps.ps1` /
 `deps.sh`**, which the setup and build scripts read — add a new third-party
 library **to both** and nowhere else, or one platform's build guard won't know
-about it (see tyra-testing for the failure that caused). Toolchain: Windows
+about it (see tyra-testing for the failure that caused). Every entry pins an
+exact `Commit` SHA and names a `Mirror` (our `doctorspider42/tyrax-vendor-*`
+fork, used when the upstream fetch fails); `Ref` is the branch/tag that SHA came
+from and is documentation only. **Never put a branch name where a SHA belongs** —
+setup skips a vendor directory whose probe already exists, so a branch pin
+freezes silently at whatever HEAD that machine happened to fetch, and two
+checkouts drift apart with nothing to say so. To bump: new SHA in both lists
+(`gh repo sync` the mirror first so the SHA exists there too), delete the vendor
+directory, re-run setup, build. A new dependency also needs its license notice
+in `THIRD-PARTY-LICENSES.md` — see the Dependency policy in the README.
+Toolchain: Windows
 `scoop install mingw cmake ninja` (build.ps1 finds scoop's mingw even
 off-PATH); Linux `./setup.sh --deps`, which reads the per-family package lists
 in deps.sh (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/`_zypper`) and installs via

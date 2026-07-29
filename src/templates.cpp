@@ -2464,6 +2464,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
+#include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
@@ -4329,6 +4330,24 @@ void TerrainGame::loop() {
         }
         bootPhase = 2;
       }
+    }
+  }
+
+  // Credits roll (Tools > Credits Editor, docs/credits.md): while one plays it
+  // owns the screen AND the pad, so the rest of the frame is skipped entirely -
+  // no walker, no scripts, nothing behind it to keep simulating. The frame it
+  // ends, its finish action becomes one of the requests this loop already
+  // serves (a scene switch, a menu, a flow event), so nothing about it is a
+  // special case further down.
+  if (credits::playing()) {
+    const credits::Result cr = credits::tick(engine, engine->pad, g_frameDt);
+    if (credits::playing()) return;
+    if (cr.finish == 1 && cr.scene >= 0) {
+      scriptCtx.requestScene = cr.scene;
+    } else if (cr.finish == 2 && cr.menu >= 0) {
+      scriptCtx.openMenu = cr.menu;
+    } else if (cr.finish == 3 && cr.event >= 0) {
+      scriptCtx.pendingEvent = cr.event;
     }
   }
 
@@ -7602,6 +7621,15 @@ void TerrainGame::renderSaveMenu() {
 // flag off float over the running game (pad presses reach both).
 bool TerrainGame::updateGameMenu() {
   scriptCtx.menuEvent = -1;
+  // A flow event queued from outside a menu row (a finished credits roll)
+  // becomes this frame's menu event, so the On Menu Event triggers see it
+  // exactly as if a row had fired it. Promoted HERE because this is the one
+  // place that clears menuEvent - a queuer running earlier in the loop would
+  // otherwise have its event wiped before any script could read it.
+  if (scriptCtx.pendingEvent >= 0) {
+    scriptCtx.menuEvent = scriptCtx.pendingEvent;
+    scriptCtx.pendingEvent = -1;
+  }
   auto pausing = [&] {
     return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
   };
@@ -7794,6 +7822,15 @@ bool TerrainGame::updateGameMenu() {
             e.inputAction < INPUT_ACTION_COUNT &&
             INPUT_REBINDABLE[e.inputAction])
           menuRebindRow = gameMenuCursor;
+        break;
+      case 11:  // roll the credits: the menu closes first, so the roll owns a
+        // clean screen and its own finish action decides what comes back (a
+        // title screen typically sends the player straight back to itself).
+        if (e.param >= 0) {
+          gameMenuIndex = -1;
+          gameMenuStackDepth = 0;
+          credits::play(e.param);
+        }
         break;
     }
   }
@@ -14611,6 +14648,24 @@ void TerrainGame::loop() {
     }
   }
 
+  // Credits roll (Tools > Credits Editor, docs/credits.md): while one plays it
+  // owns the screen AND the pad, so the rest of the frame is skipped entirely -
+  // no walker, no scripts, nothing behind it to keep simulating. The frame it
+  // ends, its finish action becomes one of the requests this loop already
+  // serves (a scene switch, a menu, a flow event), so nothing about it is a
+  // special case further down.
+  if (credits::playing()) {
+    const credits::Result cr = credits::tick(engine, engine->pad, g_frameDt);
+    if (credits::playing()) return;
+    if (cr.finish == 1 && cr.scene >= 0) {
+      scriptCtx.requestScene = cr.scene;
+    } else if (cr.finish == 2 && cr.menu >= 0) {
+      scriptCtx.openMenu = cr.menu;
+    } else if (cr.finish == 3 && cr.event >= 0) {
+      scriptCtx.pendingEvent = cr.event;
+    }
+  }
+
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
@@ -16107,6 +16162,11 @@ struct ScriptContext {
   // drives the "On Menu Event" trigger.
   int openMenu = -1;
   int menuEvent = -1;
+  // A flow event queued from OUTSIDE a menu row - today a credits roll whose
+  // finish action is "fire a flow event". updateGameMenu promotes it into
+  // menuEvent (the one place that clears it), so the trigger side needs to
+  // know only about menu events. -1 = none.
+  int pendingEvent = -1;
 
   // Scenes: `scene` is the active scene index (scene_data.hpp order),
   // `sceneGeneration` bumps on every (re)load - scripts use it to reset
@@ -16610,6 +16670,10 @@ static const char* TPL_RES_GITIGNORE =
 # checked in - a pulled project must render without missing files. Only
 # build-regenerated output is ignored.
 /menus/
+# Baked credits page strips (docs/credits.md). The roll ITSELF is in the
+# .tyra - these are its pixels, rewritten on every build. The images an
+# Image block points at live in res/credits/ and ARE checked in.
+/credits/pages/
 
 # Baked model output - the .glb/.obj next to it is the source, these are
 # regenerated on every build (docs/model-pipeline.md).
@@ -17438,7 +17502,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                    "0, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, "
-                   "0, 0, 0.0F, 0, 0, -1, \"\", 1, 1, "
+                   "0, 0, 0.0F, 0, 0, -1, -1, \"\", 1, 1, "
                    "1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
@@ -19280,6 +19344,326 @@ std::string sequencesHeader(const Project& p) {
     return out.str();
 }
 
+// inc/scripts/credits.gen.hpp - the credits player's API (runtime in
+// src/gen/credits.gen.cpp). `playing()` is inline over one global so the game
+// loop's per-frame check is a load, not a call: the loop asks it every frame
+// whether or not the project has a roll.
+std::string creditsHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "#include \"scripts/script.hpp\"\n\n"
+           "namespace "
+        << ns
+        << " {\n"
+           "namespace credits {\n"
+           "// What a finished roll asks the game to do (CreditsRollData::finish\n"
+           "// resolved): the player itself cannot switch scenes or open menus -\n"
+           "// those live on TerrainGame - so it reports and the loop applies.\n"
+           "struct Result {\n"
+           "  int finish = 0;  // 0 resume, 1 scene, 2 menu, 3 event, 4 hold\n"
+           "  int scene = -1;\n"
+           "  int menu = -1;\n"
+           "  int event = -1;\n"
+           "};\n\n"
+           "extern int g_active;  // rolling index, -1 = none\n"
+           "// Rolls that have finished this session. The On Credits Finished\n"
+           "// trigger watches THIS rather than the falling edge of playing():\n"
+           "// a roll freezes every graph, so a node cannot latch \"it was\n"
+           "// playing\" while it runs.\n"
+           "extern int g_ended;\n"
+           "// True while a roll owns the screen and the pad.\n"
+           "inline bool playing() { return g_active >= 0; }\n"
+           "inline int endCount() { return g_ended; }\n"
+           "void play(int index);  // start CREDITS[index] from the top\n"
+           "void stop();           // end it now, as a skip would\n"
+           "// One frame of the roll: presents it and advances. The returned\n"
+           "// Result matters only on the frame playing() goes false.\n"
+           "Result tick(Tyra::Engine* engine, Tyra::Pad& pad, float dt);\n"
+           "}  // namespace credits\n"
+           "}  // namespace "
+        << ns << "\n";
+    return out.str();
+}
+
+// src/gen/credits.gen.cpp - the credits player. Deliberately NOT a Script: a
+// roll owns the whole frame (the loop returns right after ticking it), so it
+// never competes with the scene's own rendering, and the pages load lazily per
+// roll - a project with three rolls must not pay their textures at boot.
+std::string creditsScript(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX from the Credits Editor. Do not edit -\n"
+           "// regenerated on every build. Edit the rolls in the editor.\n"
+           "#include \"scripts/credits.gen.hpp\"\n"
+           "#include \"credits_data.gen.hpp\"\n"
+           "#include \"input_map.gen.hpp\"\n\n"
+           "namespace "
+        << ns << " {\n";
+    out << R"(
+using Tyra::Color;
+using Tyra::Engine;
+using Tyra::FileUtils;
+using Tyra::Sprite;
+using Tyra::SpriteMode;
+using Tyra::Vec2;
+
+namespace credits {
+
+int g_active = -1;
+int g_ended = 0;
+
+namespace {
+
+// Sprites are built the first time a roll plays, never at boot: a page is a
+// texture the GS pins on first render (docs/gs-vram.md), so a project with
+// several rolls would otherwise spend its whole texture budget on credits
+// nobody has reached yet.
+struct RollGfx {
+  bool ready = false;
+  std::vector<Sprite> pages;
+  Sprite backdrop;
+  Sprite hint;
+  bool hasBackdrop = false;
+  bool hasHint = false;
+};
+
+RollGfx g_gfx[CREDITS_COUNT > 0 ? CREDITS_COUNT : 1];
+Sprite g_fade;       // hud/loading-white.png, tinted for the fades
+bool g_fadeReady = false;
+
+float g_time = 0.0F;    // seconds since play()
+float g_scroll = 0.0F;  // strip pixels scrolled past the screen bottom
+int g_phase = 0;        // 0 start delay, 1 rolling, 2 end hold, 3 held forever
+float g_hold = 0.0F;    // seconds left of the end hold
+Result g_result;
+
+void ensureGfx(Engine* engine, int i) {
+  RollGfx& g = g_gfx[i];
+  if (g.ready) return;
+  g.ready = true;
+  const CreditsRollData& r = CREDITS[i];
+  auto& repo = engine->renderer.getTextureRepository();
+  if (!g_fadeReady) {
+    g_fade.mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd("hud/loading-white.png"))->addLink(g_fade.id);
+    g_fadeReady = true;
+  }
+  g.pages.resize(r.pageCount > 0 ? r.pageCount : 0);
+  for (int k = 0; k < r.pageCount; ++k) {
+    g.pages[k].mode = SpriteMode::MODE_STRETCH;
+    g.pages[k].size = Vec2((float)r.pageW, (float)r.pageH);
+    repo.add(FileUtils::fromCwd(CREDITS_PAGES[r.pageFirst + k]))
+        ->addLink(g.pages[k].id);
+  }
+  if (r.bgPath[0] != '\0') {
+    g.backdrop.mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(r.bgPath))->addLink(g.backdrop.id);
+    g.hasBackdrop = true;
+  }
+  if (r.hintPath[0] != '\0') {
+    g.hint.mode = SpriteMode::MODE_STRETCH;
+    g.hint.size = Vec2((float)r.hintW, (float)r.hintH);
+    repo.add(FileUtils::fromCwd(r.hintPath))->addLink(g.hint.id);
+    g.hasHint = true;
+  }
+}
+
+// Cards cross-fade over a slice of their own time, capped so a short card still
+// shows its content rather than only its fade.
+float cardFade(const CreditsRollData& r, float inCard) {
+  float f = r.cardSeconds * 0.25F;
+  if (f > 0.35F) f = 0.35F;
+  if (f <= 0.0F) return 0.0F;
+  if (inCard < f) return 1.0F - inCard / f;
+  const float left = r.cardSeconds - inCard;
+  if (left < f) return 1.0F - left / f;
+  return 0.0F;
+}
+
+// The whole-roll fade: in from the background at the start, out at the very end
+// (during the hold). Pages are opaque plates of the background color when the
+// roll has no backdrop, so ONE tinted quad over everything is the fade - the
+// same trick sequences::renderOverlay uses for its fade-to-black.
+float rollFade(const CreditsRollData& r) {
+  float a = 0.0F;
+  if (r.fadeIn > 0.0F && g_time < r.fadeIn) a = 1.0F - g_time / r.fadeIn;
+  if (g_phase >= 2 && r.fadeOut > 0.0F) {
+    const float o = 1.0F - g_hold / r.fadeOut;
+    if (o > a) a = o;
+  }
+  if (g_phase == 3) a = 0.0F;  // held frame: keep it visible
+  return a < 0.0F ? 0.0F : (a > 1.0F ? 1.0F : a);
+}
+
+void render(Engine* engine, int i) {
+  const CreditsRollData& r = CREDITS[i];
+  RollGfx& g = g_gfx[i];
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth(), H = scr.getHeight();
+  engine->renderer.setClearScreenColor(Color(r.bg[0], r.bg[1], r.bg[2]));
+  engine->renderer.beginFrame();
+
+  if (g.hasBackdrop) {
+    g.backdrop.size = Vec2(r.bgW, r.bgH);
+    g.backdrop.position = Vec2(r.bgX * W - r.bgW * 0.5F, r.bgY * H - r.bgH * 0.5F);
+    engine->renderer.renderer2D.render(g.backdrop);
+  }
+
+  const float px = (W - (float)r.pageW) * 0.5F;  // pages are centered
+  float fade = rollFade(r);
+  if (r.mode == 1) {
+    // Cards: one page at a time, centered, its own fade on top of the roll's.
+    int card = (int)(g_scroll);  // card index counts in g_scroll (see tick)
+    if (card < 0) card = 0;
+    if (card >= r.pageCount) card = r.pageCount - 1;
+    if (g_phase >= 1 && card >= 0) {
+      Sprite& sp = g.pages[card];
+      sp.size = Vec2((float)r.pageW, (float)r.pageH);
+      sp.position = Vec2(px, (H - (float)r.pageH) * 0.5F);
+      engine->renderer.renderer2D.render(sp);
+      const float cf =
+          cardFade(r, g_time - r.startDelay - (float)card * r.cardSeconds);
+      if (cf > fade) fade = cf;
+    }
+  } else if (g_phase >= 1) {
+    // Scroll: the strip walks up past the screen. Only the pages that overlap
+    // the screen are submitted, so a long roll costs two sprites a frame.
+    for (int k = 0; k < r.pageCount; ++k) {
+      const float y = H - g_scroll + (float)(k * r.pageH);
+      if (y >= H || y + (float)r.pageH <= 0.0F) continue;
+      Sprite& sp = g.pages[k];
+      sp.size = Vec2((float)r.pageW, (float)r.pageH);
+      sp.position = Vec2(px, y);
+      engine->renderer.renderer2D.render(sp);
+    }
+  }
+
+  if (g.hasHint && r.skippable && g_phase >= 1 && g_phase < 2) {
+    g.hint.size = Vec2((float)r.hintW, (float)r.hintH);
+    g.hint.position = Vec2(r.hintX * W - (float)r.hintW * 0.5F,
+                           r.hintY * H - (float)r.hintH * 0.5F);
+    engine->renderer.renderer2D.render(g.hint);
+  }
+
+  if (fade > 0.0F && g_fadeReady) {
+    g_fade.size = Vec2(W, H);
+    g_fade.position = Vec2(0.0F, 0.0F);
+    g_fade.color = Color(r.bg[0] * 0.5F, r.bg[1] * 0.5F, r.bg[2] * 0.5F,
+                         128.0F * fade);
+    engine->renderer.renderer2D.render(g_fade);
+  }
+  engine->renderer.endFrame();
+}
+
+// Ends the roll: stops the music if the roll owns it and publishes what the
+// game should do next. "Hold" keeps presenting the last frame instead (an
+// ending that ends), which is why it does NOT clear g_active.
+void finish(Engine* engine, int i) {
+  const CreditsRollData& r = CREDITS[i];
+  if (r.musicStop != 0 && r.music[0] != '\0') engine->audio.song.stop();
+  g_result.finish = r.finish;
+  g_result.scene = r.finishScene;
+  g_result.menu = r.finishMenu;
+  g_result.event = r.finishEvent;
+  ++g_ended;  // what On Credits Finished watches
+  if (r.finish == 4) {
+    g_phase = 3;
+    return;
+  }
+  g_active = -1;
+}
+
+}  // namespace
+
+void play(int index) {
+  if (index < 0 || index >= CREDITS_COUNT) return;
+  g_active = index;
+  g_time = 0.0F;
+  g_scroll = 0.0F;
+  g_phase = 0;
+  g_hold = CREDITS[index].endHold;
+  g_result = Result();
+}
+
+// Ends the roll on the next ticked frame (which runs the finish action) rather
+// than dropping it here: finish() needs the engine to stop the music, and the
+// tick is where one is in hand.
+void stop() {
+  if (g_active < 0 || g_phase == 3) return;
+  g_phase = 2;
+  g_hold = 0.0F;
+}
+
+Result tick(Engine* engine, Tyra::Pad& pad, float dt) {
+  if (g_active < 0) return g_result;
+  const int i = g_active;
+  const CreditsRollData& r = CREDITS[i];
+  ensureGfx(engine, i);
+
+  // The music starts with the first ticked frame, not in play(): a flow node
+  // may fire play() from anywhere, and audsrv work belongs on the frame that
+  // is about to present the roll.
+  if (g_time == 0.0F && r.music[0] != '\0') {
+    auto& song = engine->audio.song;
+    song.stop();
+    song.load(FileUtils::fromCwd(r.music));
+    song.inLoop = r.musicLoop != 0;
+    song.setVolume(r.musicVolume);
+    song.play();
+  }
+  g_time += dt;
+
+  // A skip runs the FINISH action, never just a stop: dropping the player on a
+  // black screen would be the one thing worse than not being able to skip.
+  if (r.skippable != 0 && g_phase < 3 && g_time >= r.skipAfter) {
+    bool pressed = false;
+    if (r.skipAction >= 0) {
+      pressed = inputClicked(pad, r.skipAction);
+    } else {
+      pressed = inputClicked(pad, IA_ROLE_CONFIRM) ||
+                inputClicked(pad, IA_ROLE_MENU) || pad.getClicked().Start;
+    }
+    if (pressed) {
+      render(engine, i);
+      finish(engine, i);
+      return g_result;
+    }
+  }
+
+  render(engine, i);
+
+  if (g_phase == 0) {
+    if (g_time >= r.startDelay) g_phase = 1;
+  } else if (g_phase == 1) {
+    if (r.mode == 1) {
+      // g_scroll IS the card index in card mode - one clock for both modes.
+      const float elapsed = g_time - r.startDelay;
+      g_scroll = r.cardSeconds > 0.0F ? elapsed / r.cardSeconds : 0.0F;
+      if ((int)g_scroll >= r.pageCount) {
+        g_scroll = (float)(r.pageCount - 1);
+        g_phase = 2;
+      }
+    } else {
+      g_scroll += r.speed * dt;
+      const auto& scr = engine->renderer.core.getSettings();
+      // Done when the last strip pixel has left the top of the screen.
+      if (g_scroll >= (float)r.contentH + scr.getHeight()) g_phase = 2;
+    }
+  } else if (g_phase == 2) {
+    g_hold -= dt;
+    if (g_hold <= 0.0F) finish(engine, i);
+  }
+  return g_result;
+}
+
+}  // namespace credits
+)";
+    out << "}  // namespace " << ns << "\n";
+    return out.str();
+}
+
 std::string sequencesScript(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
 
@@ -20013,6 +20397,11 @@ std::string flowGraphScript(const Project& p) {
             if (p.sequences[i].name == name) return (int)i;
         return -1;
     };
+    auto creditsIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.credits.size(); ++i)
+            if (p.credits[i].name == name) return (int)i;
+        return -1;
+    };
     auto saveValueIndex = [&](const std::string& name) {
         for (size_t i = 0; i < p.saveValues.size(); ++i)
             if (p.saveValues[i].name == name) return (int)i;
@@ -20170,6 +20559,8 @@ std::string flowGraphScript(const Project& p) {
            "// edit - regenerated on every build. Edit the graphs in the editor.\n"
            "#include \"scripts/script.hpp\"\n"
            "#include \"scripts/sequences.gen.hpp\"  // Play/Stop Sequence nodes\n"
+           "#include \"scripts/credits.gen.hpp\"  // Play/Stop Credits, On "
+           "Credits Finished\n"
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
            "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n";
     if (anyRaycast || anyTerrainQuery)
@@ -21318,6 +21709,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        escapeCString(n.str) + "\"))";
             }
             if (n.type == "OnSequenceEnd") return "sequences::playing()";
+            if (n.type == "OnCreditsEnd") return "credits::playing()";
             if (n.type == "OnEvent") {
                 const int ei = eventIndex(n.str);
                 if (ei < 0) return "false";
@@ -21678,6 +22070,17 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
             } else if (n.type == "StopSequence") {
                 c << pad << "sequences::stop();\n";
+            } else if (n.type == "PlayCredits") {
+                const int ci = creditsIndexOf(n.str);
+                if (n.str.empty() || ci < 0) {
+                    c << pad << "// node " << n.id
+                      << " (PlayCredits): unknown credits roll '" << n.str << "'\n";
+                } else {
+                    c << pad << "credits::play(" << ci << ");  // \"" << n.str
+                      << "\"\n";
+                }
+            } else if (n.type == "StopCredits") {
+                c << pad << "credits::stop();\n";
             } else if (n.type == "SetObjectVisible") {
                 if (pin == 1)
                     c << pad << obj << ".visible = false;\n";
@@ -23161,6 +23564,24 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 clsOut << "    {\n      const bool playing = sequences::playing();\n"
                        << "      if (!playing && " << flag << ") {\n" << body
                        << "      }\n      " << flag << " = playing;\n    }\n";
+            } else if (n.type == "OnCreditsEnd") {
+                // NOT the falling edge of credits::playing(), which is what a
+                // cutscene can use: a roll FREEZES this graph, so between the
+                // frame that started it and the frame it ended, the node never
+                // ran to latch "it was playing". The runtime counts finished
+                // rolls instead and the node fires when its own copy of that
+                // count falls behind - one fire per roll, whatever the ordering
+                // of nodes inside the update.
+                const std::string flag = "crEnd" + std::to_string(n.id);
+                addMember("int", flag, "0", 'i', 1);
+                // A scene reload re-syncs to the LIVE count, not to zero: rolls
+                // that finished in an earlier scene are not news to a graph
+                // starting now.
+                flagResets << "      " << flag << " = credits::endCount();\n";
+                clsOut << "    {\n      const int ended = credits::endCount();\n"
+                       << "      if (ended != " << flag << ") {\n"
+                       << "        " << flag << " = ended;\n" << body
+                       << "      }\n    }\n";
             } else if (n.type == "OnCondition") {
                 // bridge bool -> exec: fire on the rising edge of the input
                 const std::string expr = boolInputsOr(n);
@@ -27823,6 +28244,144 @@ static std::string loadingDataHeader(const Project& p) {
     return out.str();
 }
 
+// Menu "Flow event" names (defined below): a roll can finish by firing one, so
+// both tables have to number them the same way.
+static std::vector<std::string> collectMenuEvents(const Project& p);
+
+// inc/credits_data.gen.hpp - credits rolls (Tools > Credits Editor,
+// docs/credits.md). One row per roll plus the flat page table its pageFirst /
+// pageCount slice into; every reference (music track, finish target, skip
+// action) is resolved to an index/path HERE, so the runtime carries no lookup.
+// The geometry comes from menubake::creditsLayout - the same call the baker and
+// the editor preview make, which is what keeps the scroll in strip pixels
+// meaning the same thing in all three.
+static std::string creditsDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const auto events = collectMenuEvents(p);
+    auto sceneIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.scenes.size(); ++i)
+            if (p.scenes[i].name == name) return (int)i;
+        return -1;
+    };
+    auto menuIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.menus.size(); ++i)
+            if (p.menus[i].name == name) return (int)i;
+        return -1;
+    };
+    auto eventIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < events.size(); ++i)
+            if (events[i] == name) return (int)i;
+        return -1;
+    };
+    auto binPath = [](std::string s) {
+        if (s.rfind("res/", 0) == 0) s = s.substr(4);
+        return s;
+    };
+
+    std::ostringstream out, pages, rolls;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "// A credits roll. The roll's blocks are already pixels: the editor\n"
+           "// bakes them into a vertical STRIP of pow2 page textures, and the\n"
+           "// runtime scrolls that strip past the screen (or shows one page at a\n"
+           "// time in card mode) - see docs/credits.md.\n"
+           "struct CreditsRollData {\n"
+           "  const char* name;\n"
+           "  float bg[3];       // clear color behind everything, 0..255\n"
+           "  const char* bgPath;  // still backdrop (\"\" = none)\n"
+           "  float bgX, bgY, bgW, bgH;  // normalized center anchor + px size\n"
+           "  int pageFirst, pageCount;  // slice into CREDITS_PAGES\n"
+           "  int pageW, pageH;          // page texture size\n"
+           "  int contentH;              // laid-out strip height in px\n"
+           "  int opaque;   // 1 = pages are opaque plates of bg (no backdrop)\n"
+           "  int mode;     // 0 = scroll up, 1 = one card per page\n"
+           "  float speed;         // scroll: px per second\n"
+           "  float cardSeconds;   // cards: seconds per card\n"
+           "  float startDelay, endHold, fadeIn, fadeOut;\n"
+           "  const char* music;   // track to start (\"\" = leave the current one)\n"
+           "  int musicLoop, musicStop, musicVolume;\n"
+           "  int skippable;\n"
+           "  // INPUT_ACTION index the skip listens on; -1 = the menu confirm\n"
+           "  // and menu (Start) roles, i.e. \"any of the obvious buttons\".\n"
+           "  int skipAction;\n"
+           "  float skipAfter;\n"
+           "  const char* hintPath;  // baked skip hint (\"\" = none)\n"
+           "  int hintW, hintH;\n"
+           "  float hintX, hintY;\n"
+           "  // What happens when the roll ends or is skipped: 0 resume the\n"
+           "  // game, 1 switch scene, 2 open menu, 3 fire a flow event, 4 hold\n"
+           "  // the last frame. The targets are resolved indices (-1 = unknown,\n"
+           "  // which degrades to \"resume\").\n"
+           "  int finish, finishScene, finishMenu, finishEvent;\n"
+           "};\n\n";
+
+    int nPage = 0;
+    for (const CreditsRoll& r : p.credits) {
+        const menubake::CreditsLayout l = menubake::creditsLayout(r, p);
+        for (int k = 0; k < l.pageCount; ++k) {
+            pages << "    \"credits/pages/" << menubake::creditsPageFileName(r.name, k)
+                  << "\",  // " << r.name << " page " << k << "\n";
+            ++nPage;
+        }
+        const bool hint = r.skippable && r.showSkipHint && !r.skipHint.empty();
+        int hintW = 0, hintH = 0;
+        if (hint) {
+            const HudText ht = menubake::creditsHintText(r);
+            hintW = 8;
+            hintH = 8;
+            menubake::textLayout(ht, p, hintW, hintH);
+        }
+        const HudImage& bg = r.bgImage;
+        int fScene = -1, fMenu = -1, fEvent = -1;
+        if (r.finish == CreditsRoll::SwitchScene) fScene = sceneIndexOf(r.finishParam);
+        if (r.finish == CreditsRoll::OpenMenu) fMenu = menuIndexOf(r.finishParam);
+        if (r.finish == CreditsRoll::FlowEvent) fEvent = eventIndexOf(r.finishParam);
+        bool knownTrack = false;
+        for (const std::string& m : p.music) knownTrack |= (m == r.music);
+        rolls << "    {\"" << escapeCString(r.name) << "\", {"
+              << floatLit(r.bgColor[0] * 255.0f) << ", "
+              << floatLit(r.bgColor[1] * 255.0f) << ", "
+              << floatLit(r.bgColor[2] * 255.0f) << "}, \""
+              << binPath(bg.imagePath) << "\", " << floatLit(bg.pos[0]) << ", "
+              << floatLit(bg.pos[1]) << ", " << floatLit(bg.size[0]) << ", "
+              << floatLit(bg.size[1]) << ", " << (nPage - l.pageCount) << ", "
+              << l.pageCount << ", " << l.pageW << ", " << l.pageH << ", "
+              << l.contentH << ", " << (bg.imagePath.empty() ? 1 : 0) << ", "
+              << r.mode << ", " << floatLit(r.speed) << ", "
+              << floatLit(r.cardSeconds) << ", " << floatLit(r.startDelay) << ", "
+              << floatLit(r.endHold) << ", " << floatLit(r.fadeIn) << ", "
+              << floatLit(r.fadeOut) << ", \""
+              << (knownTrack ? binPath(r.music) : std::string()) << "\", "
+              << (r.musicLoop ? 1 : 0) << ", " << (r.musicStopAtEnd ? 1 : 0) << ", "
+              << r.musicVolume << ", " << (r.skippable ? 1 : 0) << ", "
+              << (r.skipAction.empty() ? -1 : p.input.actionIndex(r.skipAction))
+              << ", " << floatLit(r.skipAfter) << ", \""
+              << (hint ? "credits/pages/" + menubake::creditsHintFileName(r.name)
+                       : std::string())
+              << "\", " << hintW << ", " << hintH << ", " << floatLit(r.hintPos[0])
+              << ", " << floatLit(r.hintPos[1]) << ", " << r.finish << ", " << fScene
+              << ", " << fMenu << ", " << fEvent << "},  // " << r.name << "\n";
+    }
+
+    const int n = (int)p.credits.size();
+    out << "constexpr int CREDITS_COUNT = " << n << ";\n"
+        << "constexpr int CREDITS_PAGE_TOTAL = " << nPage << ";\n"
+        << "inline const char* const CREDITS_PAGES[CREDITS_PAGE_TOTAL > 0 ? "
+           "CREDITS_PAGE_TOTAL : 1] = {\n"
+        << (nPage ? pages.str() : std::string("    \"\",\n")) << "};\n\n"
+        << "inline const CreditsRollData CREDITS[CREDITS_COUNT > 0 ? CREDITS_COUNT "
+           ": 1] = {\n"
+        << (n ? rolls.str()
+              : std::string("    {\"\", {0, 0, 0}, \"\", 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+                            "1, 0, 0, 0, 0, 0, 0, 0, \"\", 0, 0, 0, 0, -1, 0, \"\", "
+                            "0, 0, 0, 0, 0, -1, -1, -1},\n"))
+        << "};\n"
+        << "\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
 // Distinct "Flow event" names across all menu entries, first-seen order -
 // the contract between menu_data.gen.hpp and the flow-graph codegen (the
 // On Menu Event trigger resolves its name to an index in this list).
@@ -28472,6 +29031,11 @@ static std::string menuDataHeader(const Project& p) {
             if (events[i] == name) return (int)i;
         return -1;
     };
+    auto creditsIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.credits.size(); ++i)
+            if (p.credits[i].name == name) return (int)i;
+        return -1;
+    };
 
     std::ostringstream out;
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
@@ -28484,8 +29048,9 @@ static std::string menuDataHeader(const Project& p) {
            "// value holding the option index), 9 apply video mode (commits\n"
            "// the display-mode row's staged selection), 10 rebind an input\n"
            "// action (param = the save value holding the override code,\n"
-           "// inputAction = which action; docs/input-bindings.md). param =\n"
-           "// resolved index, -1 = unknown target.\n"
+           "// inputAction = which action; docs/input-bindings.md), 11 roll the\n"
+           "// credits (param = the CREDITS index). param = resolved index,\n"
+           "// -1 = unknown target.\n"
            "struct MenuEntryData {\n"
            "  int action;\n"
            "  int param;\n"
@@ -28575,6 +29140,7 @@ static std::string menuDataHeader(const Project& p) {
                     // Rebind rows: param = the save value holding the player's
                     // override code (docs/input-bindings.md).
                     case MenuEntry::RebindKey: param = valueIndexOf(en.param); break;
+                    case MenuEntry::PlayCredits: param = creditsIndexOf(en.param); break;
                     default: break;
                 }
                 // Which input action a rebind row drives (-1 = none/unknown).
@@ -29428,6 +29994,9 @@ std::vector<File> generate(const Project& p) {
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
         {"inc\\font_data.gen.hpp", fontDataHeader(p)},
         {"inc\\loading_data.gen.hpp", loadingDataHeader(p)},
+        {"inc\\credits_data.gen.hpp", creditsDataHeader(p)},
+        {"inc\\scripts\\credits.gen.hpp", creditsHeader(p)},
+        {"src\\gen\\credits.gen.cpp", creditsScript(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\nav_data.gen.hpp", navDataHeader(p)},
         {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},

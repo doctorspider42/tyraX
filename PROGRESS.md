@@ -13120,7 +13120,112 @@ Each finished feature lands as its own commit.
   but with no input in an unattended run there is nothing to block. That half
   stays a hands-on test, per the standing convention.
 
-- (232) **ps2link r2: the hangs that made a network session need a console
+- (232) **Credits Editor - end credits as project-wide data** (*Tools > Credits
+  Editor*, docs/credits.md), asked for as "credits editor/generator, nie tylko
+  pole tekstowe": a roll is a FLOW of blocks - headings, two-column role/name
+  rows, wrapped lines, images, gaps and page breaks - each free to override the
+  roll's size/typeface/colour, scrolling up at a chosen speed or playing as
+  cards (one screenful, cross-faded), over a music track it starts and stops
+  itself, with a skip and somewhere to go afterwards. Started by a menu row
+  (a new `MenuEntry::PlayCredits`, action 11 - a title screen's CREDITS row) or
+  the *Play Credits* node; *Stop Credits* and *On Credits Finished* complete the
+  set. Long rolls come from a text file (`# SECTION`, `Role: Name`, `> centered`,
+  `[image x.png 0.5]`, `---`), and the source path is kept so *Re-import* picks
+  up an edited file.
+  Three decisions carry the feature. (1) **The look is BAKED once and shared**:
+  `menubake::creditsLayout`/`bakeCreditsStripRGBA` lay the blocks out and
+  rasterize them into a strip of pow2 PAGE textures, and both the editor preview
+  and the generated player consume those same pixels with the same arithmetic -
+  so there is no second layout to drift, and the preview is the console's frame
+  rather than an impression of it. (2) **Pages, not a sprite per line**: the GS
+  pins every texture it draws in a ~1.33 MB budget with no eviction
+  (docs/gs-vram.md), so a dozen strings would flush mid-scroll; a 512x256 page at
+  4 bits is ~64 KB, the cap is 16 pages (4096 px of roll, over three minutes at
+  20 px/s), and the window prints pages / duration / VRAM estimate and says
+  *content clipped* instead of silently cutting. Pages bake OPAQUE on the roll's
+  background colour when there is no backdrop, which is what makes 16 colours
+  enough for antialiased text; a backdrop forces transparency and wants 8-bit.
+  (3) **The roll owns the frame and reports where to go**: the loop hook (both
+  game-cpp loops) ticks it and returns while `credits::playing()`, and the frame
+  it ends its finish action becomes an ordinary request - `requestScene`,
+  `openMenu`, or the new `scriptCtx.pendingEvent` (promoted inside
+  `updateGameMenu`, the one place that clears `menuEvent`). A skip runs the same
+  finish action, so skipping and watching land in the same place. *On Credits
+  Finished* deliberately does NOT edge-detect `playing()` the way
+  *On Sequence Finished* does: a roll freezes every graph, so no node ever runs
+  to latch "it was playing" - the runtime counts finished rolls and the node
+  fires when its own copy falls behind (re-synced to the live count on a scene
+  reload, not to zero).
+  **Verified** at layers 0-3. Editor and PS2 sides both compile clean
+  (`-Wall`, Build OK). Headless: a `--new` fpp fixture with a hand-written roll
+  (heading, three pair rows, a wrapped paragraph, a page break, THE END) plus a
+  title menu whose second row is action `credits`; `--refresh-gen` baked
+  `res/credits/credits-{0,1,2}.png` + the skip-hint sprite and emitted
+  `CREDITS_COUNT = 1`, `CREDITS_PAGE_TOTAL = 3`, `contentH 562`, `finish 2 menu
+  0`. Stitching the three pages back into one image is how the typography was
+  checked (gold heading, role right-aligned against the gutter, two names under
+  one role, the paragraph wrapped at the margin, the break leaving a clean
+  screenful). In PCSX2: the title screen's CREDITS row hands over, the roll
+  enters from the bottom with `PRESS (X) TO SKIP` baked including the button
+  glyph, scrolls ~120 PS2 px in 3 s at 40 px/s, and a Cross press skips it
+  straight back to the title menu. `VRAMSTAT` over the whole roll: 10 uploads,
+  9 resident, **0 evictions**, 0.216 MB free - the page budget behaving as
+  designed. One dead end worth recording: the first two runs read as "the finish
+  action never fires", and it was the TEST - the trailing `--pad "press cross"`
+  that was meant to prove the skip also selected START on the menu that had just
+  opened, closing it before the screenshot. Two `TYRA_LOG`s on the ownable
+  `terrain_game.cpp` settled it (`CRDBG finish=2 menu=0 gmi=-1` then `openMenu=0`)
+  before the clean run showed the panel. The editor window is `--ui-script`ed
+  too (13 steps, exit 0): Tools > Credits Editor, select the roll, `expect` the
+  block stack / *Import text...* / *+ Role/name* / the transport, and a capture
+  showing the imported blocks listed as `# TYRA CREDITS TEST` / `Game design:
+  Ada Lovelace` / `=== page break ===` next to the report line **3/16 pages |
+  27 s | ~216 KB VRAM**. Pressing *Play* and capturing at 12.7 s shows the
+  preview scrolling the same pairs and SPECIAL THANKS block the console drew at
+  that point in the roll - which is the property the shared bake buys.
+  What no script covered: judging the scroll's smoothness and the music mix by
+  eye and ear.
+  The window was reworked once it had real content in it ("potrafi się tu
+  ciasno zrobić... mamy trochę niewykorzystanego miejsca"): the fixed 300 px
+  preview became a **height splitter** (`creditsSplit_` in editor.ini, the
+  matEdSplit_ idiom) so the settings half and the preview half trade room, and
+  the space a 512x448 preview leaves beside itself in a wide window became the
+  **Jump to** list - every block with the second it is centred on screen,
+  clicking one scrubs the preview there and selects it (clipped blocks listed in
+  amber). The times are the roll's own arithmetic run backwards, so the list
+  cannot disagree with what the preview shows. The block inspector also became a
+  collapsing header: with a block selected it used to sit between you and the
+  roll settings. Verified with `--ui-script`: clicking `0:11  # CAST` in the list
+  moves the playhead to 11.4 s and the capture shows that heading centred in the
+  preview. The splitter DRAG itself is not scriptable - an InvisibleButton has no
+  label for the item registry to name, the same limitation the Material Editor's
+  splitter has - so that part is a by-hand check.
+  **`examples/credits`** ships with it, because a roll is the kind of thing you
+  want to SEE: a scrolling end roll on the title screen's CREDITS row (imported
+  from a checked-in `credits.txt`, logo image included, finishing back on that
+  title screen) plus a **card-mode dedication** that L1 plays mid-game and that
+  resumes exactly where it interrupted, with `On Credits Finished` wired to a
+  HUD text. Both were driven unattended with `--pad` and captured: cards
+  cross-fading, then the resumed checkerboard with THANKS FOR WATCHING over it.
+  Authoring it found the two real bugs of the day. The **page sweep ate the
+  user's image**: `res/credits` was swept of anything no roll claimed, which is
+  exactly where the editor imports an Image block's PNG - the bake now owns a
+  folder of its own (`res/credits/pages/`, git-ignored like `res/menus`, listed
+  as build-written in the Asset Browser) and never touches the assets one level
+  up. And **`flow_graph.gen.cpp` did not include `credits.gen.hpp`**, so a Play
+  Credits NODE (as opposed to a menu row) failed to compile - the menu path had
+  hidden it, since `updateGameMenu` lives in the game cpp that already included
+  the header. Both are the same lesson: the second way in is the one that finds
+  the bug.
+  One drive-by fix came out of checking the OTHER game template: an **Empty
+  (orbit) project did not compile at all** - the object-less scene's placeholder
+  row in `scene_data.hpp` was one value short of `SceneObjectData`, so every
+  column past `dynLit` shifted and the build died in a different TU with
+  "invalid conversion from 'const char*' to 'int'". Exactly the drift the
+  emitter's own comment warns about; a missing `-1` (animModel) restores it, and
+  an empty project with NO rolls now builds clean, which is also the check that
+  `CREDITS_COUNT = 0` costs the game nothing.
+- (234) **ps2link r2: the hangs that made a network session need a console
   Reset.** Asked as "obczaj naszą wersję ps2link (...) on często potrafi
   pierdolnąć i trzeba restować, może ma jakiś memory leak". Read the whole pinned
   tree (4.1k lines across `ee/` and `iop/`) rather than guessing, and the answer
@@ -13227,8 +13332,8 @@ Each finished feature lands as its own commit.
   troubleshooting rows, the harness, a "known remaining rough edges" section),
   tools/ps2link/README.md, tyra-testing.
 
-- (233) **ps2link r3: the SPU2 shuts up by itself now, so the silencer ELF is off
-  the hot path.** Follow-up to 232, asked as "jak się zrobi restart tego ps2link
+- (235) **ps2link r3: the SPU2 shuts up by itself now, so the silencer ELF is off
+  the hot path.** Follow-up to 234, asked as "jak się zrobi restart tego ps2link
   to dźwięk dostaje pierdolca (...) załatwiamy to teraz tak na szpetnie puszczając
   silence.elf, ale może da się temu ukrócić łeb". Root cause: **the SPU2 is a
   separate block from the IOP core and keeps its register state across an IOP
@@ -13269,7 +13374,7 @@ Each finished feature lands as its own commit.
   **Verified** (as far as it can be without a console): clean `-Wall -Werror`
   build of both halves, `build.ps1 -Clean` from a fresh clone applying to 12
   files, `r3` and `SPU2 silenced` both present in the shipped ELF's strings, the
-  editor rebuilds clean after the runner change, and entry 232's `net_fio`
+  editor rebuilds clean after the runner change, and entry 234's `net_fio`
   harness still passes 18/18 on the r3 tree (7/18 on pristine). The
   interesting one is the **safety** check, because the way this change could go
   wrong is not "it fails to silence" but "it leaves the next game mute": every
@@ -13396,6 +13501,72 @@ Each finished feature lands as its own commit.
   measure on hardware. Reusable instrumented scene:
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
+
+- (233) **Fix: the Flow Graph canvas was only half-zoomed - the node text never
+  scaled, and nothing in it knew about the UI scale** (user: "Rozjeżdżają nam się
+  trochę flow graphy, jak się je zoomuje/odzoomowuje. Może font też się powinien
+  zmieniać?").
+
+  Two independent bugs that produce the same picture - giant text in narrow
+  nodes, and node positions that no longer match node sizes.
+
+  **The font.** The zoom emulation set the canvas font with
+  `ImGui::SetWindowFontScale(zoom)`, which writes `window->FontWindowScale` on
+  the *Flow Graph* window. imnodes runs its canvas in a **child** window
+  (`BeginChild("scrolling_region")`) and since ImGui 1.92 the per-window font
+  scale is **not inherited by children**: `UpdateCurrentFontSize()` multiplies by
+  `window->FontWindowScale` only, and the `FontWindowScaleParents` it dutifully
+  computes for every child (imgui.cpp:8044) is read by nobody. So every node's
+  text stayed at 100% while its padding, pin radii, item widths and grid-space
+  positions shrank - the nodes drift apart at 180% and pile up at 40%, which is
+  exactly what the user photographed. The fix is `PushFont(nullptr, size)`:
+  that sets the context-level `FontSizeBase`, which children *do* inherit.
+  This is the second time an obsolete-but-still-compiling ImGui call has quietly
+  changed meaning under us - it does not warn, it just stops working.
+
+  **The UI scale.** `ImNodesStyle` is not touched by ImGui's `ScaleAllSizes()`
+  and nothing here scaled it, and the two pixel literals (`130.0f` param column,
+  `SetNextItemWidth(220.0f)`) carried neither scale. At the 300% this machine
+  runs at, a node was a 3x font wrapped in 100% padding with a 130-px combo next
+  to a 390-px label - unreadable, and the reason the reported symptom looked so
+  extreme. All of it now goes through one factor.
+
+  **The one factor is derived from the text, not from the zoom.** ImGui rounds
+  every font size to a whole pixel (`GetRoundedFontSize`), so text width is a
+  staircase in the zoom while every other length is a straight line - and a node
+  whose width steps while its position slides *is* the "positions change relative
+  to each other" complaint. So the zoom is snapped to whatever produces a whole
+  font pixel, `nodeScale = nodeFontPx / FontSizeBase` is what every length and
+  every node position is multiplied by, and the header reports that snapped value
+  (the wheel keeps accumulating the unsnapped request, or a notch that does not
+  reach the next pixel would pan without zooming). Node positions had to join the
+  UI scale too: a stored position is a distance *between* nodes, so keeping only
+  the zoom in it while the nodes themselves grew 3x is what made a 300% editor
+  overlap them.
+
+  Two things deliberately stay at the editor's own size: **combo dropdowns**
+  (`beginCombo`/`endCombo` re-push the UI font inside the popup - a node at 40%
+  is meant to be unreadable, its menus are not) and the **node-description
+  tooltip** (the style/font restore moved above it). The mini-map takes the UI
+  scale but not the zoom - it is a fixed overlay, not part of the canvas.
+
+  **Verified by driving the editor** (`--ui-script`), which needed one new
+  command: `wheel <target> <notches>`, because a canvas zoom is the one thing no
+  widget exposes - it injects `AddMouseWheelEvent` one notch per frame with the
+  cursor held on the target, and it is the only step that may resolve a bare
+  window name (the canvas submits no item of its own, and its middle is exactly
+  where you want to scroll). Three dumps of `examples/showcase`'s 30-node player
+  graph at 300% UI scale, at 100% / 56% / 177% zoom, measuring named node
+  widgets: param widths 390 / 220 / 690 px = `130 x nodeScale` for
+  nodeScale 3.0 / 1.692 / 5.308, i.e. exactly `round(39 x zoom)/13`. The
+  invariance that was asked for, from the same dumps: the Volume->Threshold
+  offset (-660, +630) becomes (-372, +355) - ratios **0.5636 / 0.5635** against
+  the 0.5641 the widths imply - and Volume->Seconds 270 -> 152 -> 478 px gives
+  0.5630 and 1.7704 against 1.7692. Sub-0.1% on both axes at both zooms, which is
+  the ItemSpacing rounding and nothing else. The screenshots confirm the rest:
+  at 56% the graph is a legible miniature instead of overlapping full-size text,
+  at 177% the hover tooltip is still chrome-sized, and an overlap that the
+  showcase graph is *authored* with is present identically at all three zooms.
 
 - (65) **AI: flow-graph generation, agent CLI, and per-project AI support** -
   three pieces. (a) *Generate with AI* in the Flow Graph window (src/aigen.cpp
@@ -14795,3 +14966,81 @@ Each finished feature lands as its own commit.
   this feature is ~20 - they have drifted behind codegen for a while, and folding
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
+
+- (227) **Vendored dependencies are pinned, mirrored and their licenses ship** -
+  the question that started it was "czy dobrze robimy, że osadzamy vendory tak,
+  że trzeba je osobno pobrać - jak je usuną, apka przestaje działać". The answer
+  turned out to be that upstream disappearing was the *least* of it, so this
+  entry records three separate findings rather than one feature.
+  **The real bug was version drift, not link rot.** Every dependency but GLFW was
+  fetched with `git clone --depth 1 --branch master`, and the setup loop skips a
+  vendor directory whose probe file already exists. So the build was never
+  reproducible in either direction: a fresh clone got whatever HEAD was that day,
+  and an existing checkout froze forever at whatever HEAD had been on the day it
+  was first set up, with no way to tell the two apart. `deps.sh` / `deps.ps1` now
+  carry `Commit` (the exact SHA, taken from the checkouts this repo is known to
+  build with) plus `Ref` (the branch/tag it came from - documentation only, since
+  nothing fetches it). `git clone --branch` will not take a SHA, so setup grew
+  `fetch_pinned` / `Get-PinnedCommit`: `git init`, then `git fetch --depth 1
+  <url> <sha>` and `checkout --detach FETCH_HEAD`. GitHub serves arbitrary
+  reachable SHAs, which is what lets the mirrors be plain forks instead of repos
+  carrying tyrax-specific tags. The `STB_HEADERS` back-fill was pulling from
+  `raw.githubusercontent.com/.../master/` and now reads the pinned SHA - it was
+  the one path that could mix a newer stb header into an older stb checkout.
+  **Mirrors**: each entry has a `Mirror` URL (`doctorspider42/tyrax-vendor-*`,
+  eight GitHub forks), tried when the upstream fetch fails, so a deleted, renamed
+  or force-pushed upstream costs a slow fetch instead of a broken build.
+  **The license gap was real and worse than expected.** `vendor/tyra/engine` is
+  redistributed in this repo under Apache-2.0, whose section 4(a) requires the
+  license text to travel with it - and there was no license text, because
+  upstream `h4570/tyra` *has no LICENSE file*. It had one until `44c1ee4`
+  ("remove tyrav1 stuff", 2022-07-17) deleted it, apparently by accident: the
+  upstream README still says "Distributed under the Apache License 2.0" and still
+  links a file that 404s, and GitHub still reports the repo as Apache-2.0. The
+  text is now recovered verbatim from `h4570/tyra@68eb496` (the last commit that
+  had it) into `vendor/tyra/LICENSE`, un-ignored, with the provenance written
+  down in `.gitignore` and `THIRD-PARTY-LICENSES.md`. That new file also carries
+  the full MIT/zlib/public-domain texts for the fetched dependencies, which
+  matters the moment a *binary* editor is distributed - there is no `vendor/` for
+  a user to look in then. Credits also gained miniaudio, which had been missing.
+  **The asset question was checked and the answer is no.** The premise was that
+  MakeHuman's assets are CC0 and could simply be embedded. Upstream's own
+  `makehumancommunity/makehuman-assets` README says the CC0 relicensing "is a
+  work in progress" and asks people to report assets still marked AGPL as bugs -
+  so "all CC0" is not true and, more to the point, not verifiable
+  project-by-project. Nothing was embedded; there is no MakeHuman consumer in
+  this codebase to embed it for. What landed instead is a written **Dependency
+  policy** in the README (pin the commit / mirror it / vendor in-tree when the
+  license allows / verify assets file-by-file and keep them optional).
+  Verified on Linux: deleting `vendor/imnodes` and running `./setup.sh` fetches
+  exactly `eb36902c`; pointing the upstream URL at a deliberately dead repo makes
+  it fall through to the mirror and land on the *same* SHA; `./build.sh` links
+  `tyrax-editor` clean on the pinned tree; and deleting the directory and running
+  `./build.sh` proves the missing-dependency guard still parses the widened list
+  (it re-ran setup and built). **Not verified: the Windows twins.** No PowerShell
+  on this box - `setup.ps1` / `build.ps1` are review-only. The one PowerShell trap
+  worth naming: a native command's stdout joins a function's output stream there,
+  so a chatty `git` would be returned alongside the status boolean and turn
+  `-not (...)` into a test on an array - i.e. a failed fetch reading as success.
+  Every git call in `Get-PinnedCommit` is piped to `Out-Null` and the caller
+  re-checks the probe file instead of trusting the return value.
+
+  **Follow-up in the same PR: the repo got its own license.** The audit above
+  turned up that TyraX had no `LICENSE` of its own - which formally means "all
+  rights reserved", an odd stance for something that reads as open source and
+  ships an Apache-2.0 engine inside it. Now **Apache-2.0**, matching the engine,
+  so the whole tree is under one set of terms with no compatibility question to
+  answer. `LICENSE` is the canonical text (verified byte-identical to the copy
+  recovered for `vendor/tyra` across all 186 lines of the license body; only the
+  appendix copyright line differs, filled in as "Copyright 2026 doctorspider42"
+  at the author's choice - the handle, not a legal name), plus a short `NOTICE`
+  recording the Tyra derivation, and a **License** section in the README.
+  The question that section had to answer out loud rather than leave implied:
+  **what license do generated games carry?** They are written from templates in
+  `src/templates.cpp`, so the generated sources begin life as a copy of
+  Apache-2.0 code and carry those terms - Apache-2.0 does not reach the user's
+  own game logic, art or audio, but it is not "your project, your terms" either.
+  Written down as the current state, with a note that an explicit exception is
+  what would change it. Not decided here: whether to grant one, and whether to
+  attach the Apache boilerplate header to `src/*.cpp` (recommended by the
+  license, not required, and a ~90-file sweep).

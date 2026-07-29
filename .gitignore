@@ -54,6 +54,12 @@ vendor/tyra/*
 !vendor/tyra/engine/
 !vendor/tyra/Makefile.base
 !vendor/tyra/README.MD
+# Apache-2.0 section 4 requires the license text to travel with the sources, and
+# the engine sources ARE redistributed here. Upstream's own LICENSE was deleted
+# by accident in h4570/tyra@44c1ee4 ("remove tyrav1 stuff", 2022) and never
+# restored, so this copy is recovered verbatim from h4570/tyra@68eb496 - the
+# last commit that had it. See THIRD-PARTY-LICENSES.md.
+!vendor/tyra/LICENSE
 # Prebuilt audsrv with L/R panning, overlaid onto the container's PS2SDK at
 # build time (see vendor/tyra/audsrv-pan/README.md).
 !vendor/tyra/audsrv-pan/

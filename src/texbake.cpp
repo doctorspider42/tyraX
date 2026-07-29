@@ -251,6 +251,21 @@ std::string bake(const Project& p,
     for (const GameFont& gf : p.fonts)
         fontQuant["res/fonts/" + menubake::atlasFileName(gf.name)] = gf.quant;
 
+    // Credits pages (res/credits/pages/<roll>-<k>.png, baked by refreshGenerated):
+    // like a font atlas, the roll carries its own depth (CreditsRoll::quant)
+    // instead of following the project default. It has to: a page is a
+    // half-screen 512x256 texture and a roll is a dozen of them, so full color
+    // would spend the whole ~1.33 MB GS budget on credits (docs/credits.md).
+    // The skip-hint sprite is left alone - it is one small transparent text.
+    std::map<std::string, std::string> creditsQuant;
+    for (const CreditsRoll& r : p.credits) {
+        const menubake::CreditsLayout l = menubake::creditsLayout(r, p);
+        for (int k = 0; k < l.pageCount; ++k)
+            creditsQuant[std::string(menubake::kCreditsBakeDir) + "/" +
+                         menubake::creditsPageFileName(r.name, k)] =
+                r.quant;
+    }
+
     // --- mirror res/ into .res-baked/ --------------------------------------
     // Editor-only assets never ship: paint brushes (res/brushes), the Material
     // Editor's paint-layer sidecars (`<texture>.layers/` dirs - the game loads
@@ -372,6 +387,12 @@ std::string bake(const Project& p,
         // project default.
         if (top == "fonts" && lowerExt(e.path()) == ".png") {
             if (auto it = fontQuant.find(relRes); it != fontQuant.end()) {
+                quantizable = true;
+                q = it->second;
+            }
+        }
+        if (top == "credits" && lowerExt(e.path()) == ".png") {
+            if (auto it = creditsQuant.find(relRes); it != creditsQuant.end()) {
                 quantizable = true;
                 q = it->second;
             }

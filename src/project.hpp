@@ -1419,6 +1419,151 @@ inline bool operator==(const SplashScreen& a, const SplashScreen& b) {
            a.bgColor[2] == b.bgColor[2] && a.duration == b.duration;
 }
 
+// One block of a credits roll (Tools > Credits Editor, docs/credits.md). A
+// roll is a vertical FLOW of blocks laid out on the host and baked into page
+// textures at build - the engine has no font, so nothing here reaches the PS2
+// as text.
+//
+// Presentation fields default to "inherit the roll's" (size 0, empty font,
+// ownColor false) so restyling a whole roll stays one edit, exactly like a
+// text's font reference.
+struct CreditsBlock {
+    enum Kind {
+        Heading = 0,  // a section title ("CAST"), the roll's heading size
+        Line = 1,     // a line of text, wrapped to the content width
+        Pair = 2,     // role on the left, name(s) on the right ("Music | Ana")
+        Image = 3,    // a PNG, scaled to `scale` of the content width
+        Gap = 4,      // `space` pixels of nothing
+        Break = 5,    // skip to the next page: a screenful gap when scrolling,
+                      // a new card in card mode (CreditsRoll::mode)
+    };
+    int kind = Line;
+    std::string text;   // Heading/Line: the string; Pair: the left column
+    std::string text2;  // Pair: the right column ('\n' = several names)
+    std::string imagePath;  // Image: project-relative PNG ("res/credits/x.png")
+    int size = 0;           // font pixel height; 0 = the roll's default
+    std::string font;       // Project::fonts entry; "" = the roll's font
+    bool ownColor = false;  // false = the roll's text color
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    int align = 1;        // 0 left, 1 center, 2 right (Pair ignores it)
+    float space = 0.0f;   // extra px below the block; Gap: the gap itself
+    float scale = 1.0f;   // Image: width as a fraction of the content width
+};
+
+inline bool operator==(const CreditsBlock& a, const CreditsBlock& b) {
+    return a.kind == b.kind && a.text == b.text && a.text2 == b.text2 &&
+           a.imagePath == b.imagePath && a.size == b.size && a.font == b.font &&
+           a.ownColor == b.ownColor && a.color[0] == b.color[0] &&
+           a.color[1] == b.color[1] && a.color[2] == b.color[2] &&
+           a.align == b.align && a.space == b.space && a.scale == b.scale;
+}
+
+// A credits roll (Tools > Credits Editor, docs/credits.md): the end-credits
+// screen as project-wide data, started by the Play Credits flow node or a menu
+// row, and free to end by going somewhere (a scene, a menu, a flow event).
+//
+// The roll owns the screen while it plays. Its blocks are laid out and baked
+// into a strip of pow2 PAGE textures (see menubake::creditsLayout) rather than
+// one sprite per line: a long roll would otherwise be dozens of textures on a
+// ~1.33 MB VRAM budget, and pages keep the runtime at two sprite draws a frame.
+struct CreditsRoll {
+    std::string name = "credits";
+
+    // --- look ---------------------------------------------------------------
+    float bgColor[3] = {0.0f, 0.0f, 0.0f};  // cleared behind everything
+    // Optional still backdrop (does NOT scroll), baked like any HUD image.
+    HudImage bgImage;
+    std::string font;   // default typeface for every block ("" = fonts[0])
+    int headingSize = 22;
+    int lineSize = 16;
+    float color[3] = {1.0f, 1.0f, 1.0f};          // body text
+    float headingColor[3] = {1.0f, 0.85f, 0.4f};  // Heading blocks
+    bool shadow = true;                           // 1px dark offset
+    int pageW = 512;      // page texture width: 256 or 512 (PS2 pow2 limit)
+    float margin = 40.0f;   // side margin inside the page, px
+    float columnGap = 24.0f;  // Pair: gap between the two columns
+    float lineSpacing = 1.25f;  // line pitch as a multiple of the font size
+
+    // --- motion -------------------------------------------------------------
+    int mode = 0;              // 0 = scroll up, 1 = cards (one page at a time)
+    float speed = 34.0f;       // scroll: pixels per second
+    float cardSeconds = 4.0f;  // cards: seconds per card
+    float startDelay = 0.8f;   // black/backdrop before anything moves
+    float endHold = 2.0f;      // held after the last block has left
+    float fadeIn = 0.6f;       // seconds of fade from the background color
+    float fadeOut = 1.2f;      // seconds of fade out at the very end
+
+    // --- music --------------------------------------------------------------
+    // A Project::music track played when the roll starts ("" = leave whatever
+    // is playing alone). Stopping at the end is the usual choice for a roll
+    // that hands over to a menu.
+    std::string music;
+    bool musicLoop = true;
+    bool musicStopAtEnd = true;
+    int musicVolume = 100;
+
+    // --- the player's way out ----------------------------------------------
+    bool skippable = true;
+    // Input Map action the skip listens on ("" = the menu confirm action, i.e.
+    // whatever Cross is bound to). A skip runs the finish action, so it never
+    // strands the player on a black screen.
+    std::string skipAction;
+    float skipAfter = 1.0f;  // seconds before a skip is accepted
+    // Baked hint sprite ("PRESS {{action:...}} TO SKIP"): static text, so its
+    // button glyph is the binding at BUILD time (a Display Text node is the
+    // tool for one that must follow a runtime rebind).
+    bool showSkipHint = true;
+    std::string skipHint = "PRESS {{confirm}} TO SKIP";
+    float hintPos[2] = {0.5f, 0.93f};  // normalized screen position, centered
+    int hintSize = 14;
+
+    // --- where it goes afterwards ------------------------------------------
+    enum Finish {
+        Resume = 0,       // back to the game exactly where it was
+        SwitchScene = 1,  // param = scene name
+        OpenMenu = 2,     // param = menu name (a title screen, typically)
+        FlowEvent = 3,    // param = event name (On Menu Event triggers)
+        Hold = 4,         // stay on the last frame (an ending that ends)
+    };
+    int finish = Resume;
+    std::string finishParam;
+
+    // Page texture depth, like a font atlas carries its own (GameFont::quant):
+    // "4bit" (16 colors) is plenty for text on a flat background and ~8x
+    // cheaper in VRAM than full color. "none" / "8bit" / "4bit".
+    std::string quant = "4bit";
+    // Text file the blocks were last imported from (docs/credits.md), kept so
+    // "Re-import" can pick up an edited file. Editor-side only.
+    std::string source;
+
+    std::vector<CreditsBlock> blocks;
+};
+
+inline bool operator==(const CreditsRoll& a, const CreditsRoll& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && eq3(a.bgColor, b.bgColor) &&
+           a.bgImage == b.bgImage && a.font == b.font &&
+           a.headingSize == b.headingSize && a.lineSize == b.lineSize &&
+           eq3(a.color, b.color) && eq3(a.headingColor, b.headingColor) &&
+           a.shadow == b.shadow && a.pageW == b.pageW &&
+           a.margin == b.margin && a.columnGap == b.columnGap &&
+           a.lineSpacing == b.lineSpacing && a.mode == b.mode &&
+           a.speed == b.speed && a.cardSeconds == b.cardSeconds &&
+           a.startDelay == b.startDelay && a.endHold == b.endHold &&
+           a.fadeIn == b.fadeIn && a.fadeOut == b.fadeOut &&
+           a.music == b.music && a.musicLoop == b.musicLoop &&
+           a.musicStopAtEnd == b.musicStopAtEnd &&
+           a.musicVolume == b.musicVolume && a.skippable == b.skippable &&
+           a.skipAction == b.skipAction && a.skipAfter == b.skipAfter &&
+           a.showSkipHint == b.showSkipHint && a.skipHint == b.skipHint &&
+           a.hintPos[0] == b.hintPos[0] && a.hintPos[1] == b.hintPos[1] &&
+           a.hintSize == b.hintSize && a.finish == b.finish &&
+           a.finishParam == b.finishParam && a.quant == b.quant &&
+           a.source == b.source && a.blocks == b.blocks;
+}
+
 // A named editor window layout (docking arrangement), stored per project and
 // switchable from the Layout menu. `ini` is an ImGui docking dump
 // (SaveIniSettingsToMemory); when it is empty and `recipe` >= 0 the layout is
@@ -1608,6 +1753,10 @@ struct MenuEntry {
         // current binding as runtime text from the menu's font atlas, so it is
         // not limited to a baked option strip.
         RebindKey = 10,
+        // Rolls the credits (param = a Project::credits roll name). Closes the
+        // menu first, so a title screen's CREDITS row hands the screen over and
+        // the roll's own finish action decides what comes back.
+        PlayCredits = 11,
     };
     int action = Close;
     std::string param;
@@ -1974,6 +2123,11 @@ struct Project {
     // Boot splash screens (Tools > Loading Screens > Boot splash): images shown
     // in order at startup, after the Tyra logo, before the loading screen.
     std::vector<SplashScreen> splashScreens;
+    // Credits rolls (Tools > Credits Editor, docs/credits.md): project-wide
+    // end-credits screens, started by the Play Credits flow node or a menu row.
+    // Persist through save() but are not part of undo/redo, like the preset
+    // collections above.
+    std::vector<CreditsRoll> credits;
     // Cutscene Director sequences (Tools > Cutscene Director): project-wide
     // keyframe timelines that pose scene objects + the camera over time. Like
     // the preset collections above they persist through save() but are not part
@@ -2137,6 +2291,7 @@ enum class Section {
     Ambience,        // "ambience", "defaultAmbience"
     LoadingScreens,  // "loadingScreens", "defaultLoadingScreen"
     Splash,          // "splashScreens"
+    Credits,         // "credits" (Tools > Credits Editor)
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
@@ -2147,7 +2302,7 @@ enum class Section {
 // one short silently stops writing the LAST section to the .tyra - and parallel
 // branches keep adding sections (ModelLods, ModelUnits and Input all arrived
 // while this one was open), which is exactly how it drifts.
-constexpr int kSectionCount = 15;
+constexpr int kSectionCount = 16;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);
