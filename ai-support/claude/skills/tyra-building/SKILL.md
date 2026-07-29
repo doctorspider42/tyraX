@@ -52,6 +52,39 @@ copy-back, so prefer it.
   Preferences > Build > Profile) - if `bin/log.txt` stays empty, check the
   profile.
 
+- **Editing a flow graph does NOT always need a build**: with the *Live Logic*
+  preference on (debug profile), the editor compiles an edited graph itself and
+  the running game switches to it within a fraction of a second
+  (`bin/livelogic.bin`). Graphs using nodes the interpreter does not implement
+  (audio, AI, animation, spawning, runtime text, custom nodes) still need
+  `--build`; the editor's Debugger > Logic tab names them.
+- **Flow-graph logic**: a debug build with the *Live Debugger* preference on
+  reports every trigger and action it runs into `bin/livedbg.bin`, and the
+  editor can set breakpoints / stop / step / force-fire a trigger through
+  `bin/livedbg.cmd`. If a node's logic seems not to run, that is the direct
+  way to find out: the editor's Debugger panel (F9) shows per-node hit
+  counters, the flow variables and the save values live. The map from the
+  keys in those files to objects and nodes is `src/gen/livedbg.sym`.
+
+## Driving the running game (no window focus needed)
+
+```
+"{TYRAX_EXE}" --pad <projectDir> "stick l 0 -127; wait 2; press cross; neutral"
+```
+
+The Remote Pad: the state is written into `bin/livepad.bin` and the running game
+overlays it on its controller, so a pad-driven behavior can be TESTED from a
+script - the emulator does not need the focus and nobody has to click into it.
+`press <button> [seconds]`, `hold`, `release all`, `stick l|r <x> <y>`
+(-127..127), `wait <seconds>`, `neutral`, `pad 1|2`, separated by `;`.
+
+Needs a debug build with the *Remote Pad* preference on (the default); the
+command warns when the project was built without the channel. Two gotchas: the
+generated walkers read the analog **sticks**, so a held D-pad `up` does nothing,
+and a `hold` with no `wait` after it does nothing visible - the driver detaches
+when it exits and the game lets go, so that a killed script cannot leave a
+direction held.
+
 ## Verification etiquette
 
 After changing project data or scripts: `--refresh-gen` + diff first (cheap),
@@ -62,7 +95,9 @@ log for conversion warnings.
 
 ## Related
 
-- `run.ps1` / `windows-pcsx2.ps1` in the project launch the already-built ELF.
+- `run.sh` (Linux/macOS) and `run.ps1` + `windows-pcsx2.ps1` (Windows) in the
+  project launch the already-built ELF. Both sets are always present - a
+  project is portable, so the helper for the other machine ships with it.
 - ISO export: `--export-iso <projectDir>` writes a bootable `<name>.iso` from an
   already-built `bin/`; `--export-esr <projectDir>` writes `<name>-esr.iso`, the
   same disc made bootable through the ESR loader on a modchip-free PS2. Build

@@ -6,7 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by TyraX: demote the main thread below the audio threads
+# Modified by TyraX: demote the main thread below the audio threads;
+#                    USB keyboard/mouse device (kbdMouse)
 */
 
 #include "engine.hpp"
@@ -33,6 +34,7 @@ void Engine::run(Game* t_game) {
 
 void Engine::realLoop() {
   pad.update();
+  if (kbdMouse.isEnabled()) kbdMouse.update();
   game->loop();
   info.update();
 }
@@ -54,11 +56,25 @@ void Engine::initAll(const EngineOptions& options) {
   ChangeThreadPriority(GetThreadId(), 0x40);
 
   srand(time(nullptr));
-  irx.loadAll(options.loadUsbDriver, info.writeLogsToFile);
+  // No keyboard/mouse under ps2link by default: USB drivers cannot be added
+  // safely to a ps2link that is already running (its IOP is never reset, and
+  // ps2kbd/ps2mouse need a usbd that a network-booted ps2link does not carry).
+  // The loadUsbKbdMouseUnderPs2Link override targets the TyraX ps2link
+  // (tools/ps2link), which bakes usbd + ps2kbd + ps2mouse into its OWN boot:
+  // we then reuse that resident stack and load nothing of our own - a second
+  // usbd would wedge it. The editor deploys to no other ps2link, so it turns
+  // the override on by default (docs/ps2link-setup.md).
+  const bool underPs2Link = IrxLoader::keepIopResident;
+  const bool withKbdMouse =
+      options.loadUsbKbdMouse &&
+      (!underPs2Link || options.loadUsbKbdMouseUnderPs2Link);
+  const bool loadOwnHid = withKbdMouse && !underPs2Link;
+  irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
   renderer.init(options.videoMode, options.displayMode, options.widescreen);
   banner.show(&renderer);
   audio.init();
   pad.init();
+  if (withKbdMouse) kbdMouse.init(underPs2Link);
 }
 
 }  // namespace Tyra

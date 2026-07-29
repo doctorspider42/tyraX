@@ -18,13 +18,30 @@
 namespace Tyra {
 
 /**
+ * One decimated variant of a part's mesh (same layout, fewer triangles),
+ * rendered instead of the full mesh beyond a distance. Only the binary .tmdl
+ * format carries these (TmdlLoader); an .obj never has any.
+ */
+struct LeanObjLod {
+  std::vector<float> vertices;  // flat triangle list, 8 floats per vertex
+  std::vector<u8> vertexAo;     // empty, or one byte per vertex
+};
+
+/**
  * One draw batch of a model: all triangles that share a material.
  * Vertices are a flat triangle list, 8 floats each (x, y, z, nx, ny, nz, u, v).
+ *
+ * Shared by both static-model loaders: LeanObjLoader (ASCII .obj) and
+ * TmdlLoader (the baked binary .tmdl), so the game builds its parts through
+ * one code path regardless of which format shipped.
  */
 struct LeanObjMaterial {
   std::string name;         // usemtl name ("" = no material)
   std::string textureName;  // map_Kd, relative to the .obj directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};  // diffuse color 0..1
+  // Ke: emission - a per-channel brightness floor the consumer must never
+  // shade below (TyraX emissive materials). {0,0,0} = matte.
+  float ke[3] = {0.0F, 0.0F, 0.0F};
   // refl: spherical environment map ("" = not reflective) + strength 0..1;
   // rounded = env normals radiate from the part centroid ("-rounded" flag)
   std::string reflTextureName;
@@ -41,6 +58,10 @@ struct LeanObjMaterial {
   // "<model>.aov" sidecar exists next to the model (TyraX bakes one when
   // the project enables ambient occlusion); empty otherwise.
   std::vector<u8> vertexAo;
+  // Distance LOD tiers, coarsest last (empty = none). Filled only by
+  // TmdlLoader - the build bakes them into the .tmdl when the project's mesh
+  // LOD distance is on.
+  std::vector<LeanObjLod> lods;
 };
 
 struct LeanObjMesh {
@@ -59,6 +80,8 @@ struct LeanMtlMaterial {
   std::string name;
   std::string textureName;  // map_Kd, relative to the .mtl directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};
+  // Ke: emission - a per-channel brightness floor (see LeanObjMaterial).
+  float ke[3] = {0.0F, 0.0F, 0.0F};
   // refl: spherical environment map ("" = not reflective) + strength 0..1;
   // rounded = env normals radiate from the part centroid ("-rounded" flag)
   std::string reflTextureName;

@@ -1,19 +1,31 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "input.hpp"
+#include "procgraph.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
 
 struct TerrainConfig {
-    int width = 64;   // world units, X axis
-    int depth = 64;   // world units, Z axis
+    int width = 100;  // world units, X axis
+    int depth = 100;  // world units, Z axis
+    // Does this scene HAVE a terrain at all (New Project > Create terrain, or
+    // the Terrain Editor's toggle)? False removes the ground completely: no
+    // mesh, no textures, no heightmap bakes, and the game has no floor either -
+    // the player and the physics stand on placed geometry and fall through the
+    // void everywhere else (docs/terrain.md). Width/depth stay meaningful, they
+    // are also the world bounds every walker is clamped to. Default true: a
+    // project saved before this key existed had a terrain.
+    bool enabled = true;
 };
 
 // One paintable terrain layer above the base (the scene's terrain material).
@@ -104,7 +116,25 @@ enum class PrimitiveType {
     // transform - a seamless corridor between two parts of the map. See
     // portalTarget / portalObjects below and docs/portals.md.
     Portal = 16,
+    // Area: an invisible oriented box (the unit cube under the object's
+    // position/rotation/scale) with no geometry in the game - the editor draws
+    // its wireframe only. It replaces hand-typed distances: point a streaming
+    // layer's zone, a mirror's reflected set, a portal's through-view set or a
+    // camera feed's view set at an Area instead of a radius or a hand-built
+    // list, and use the In Area flow trigger for volume triggers.
+    // See docs/areas.md.
+    Area = 17,
+    // Scatter volume: an authoring-only region (wireframe box in the editor,
+    // nothing at all in the game) carrying a procedural graph in
+    // procGraph. The graph scatters instances inside this box; the build
+    // bakes them into ordinary static chunk meshes, so the console never
+    // learns a graph existed. See docs/procedural-generation.md.
+    Scatter = 18,
 };
+
+// One past the last PrimitiveType value - loops over "every object type" (the
+// multi-select tally) bound on this instead of a hardcoded member.
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scatter + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -215,6 +245,46 @@ struct SceneObject {
     // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
     // casts nothing; it still receives shadows from others.
     bool castShadow = true;
+    // Baked lighting (docs/global-illumination.md). On = this object may take
+    // a per-texel lightmap, which is the best-looking route and also GLUES the
+    // result to its surface: tip the object over at runtime and it carries a
+    // shadow that no longer matches anything. Off = it stays on the probe
+    // path, where the light is re-read from the grid every time the geometry
+    // is rebuilt, so it relights as it moves.
+    //
+    // The bake already excludes everything it can PROVE moves
+    // (project::objectRuntimeMovable - physics, pickable, usable, save-state,
+    // streamed, owning a graph, or named by one). This switch is for the rest:
+    // an object moved through a channel no build-time scan can see (Live Link,
+    // a Raycast latch, a custom node's object output), or one you simply want
+    // to keep relightable.
+    bool bakedLighting = true;
+    // Dynamic lighting (docs/global-illumination.md). Opt-in, and a different
+    // deal from bakedLighting above rather than a stronger version of it: the
+    // object moves to the LIT VU1 program - one base colour plus a light bag
+    // whose colours are re-read from the probe grid every frame - which is
+    // exactly how animated models are lit. So it relights with zero latency,
+    // including while it spins.
+    //
+    // What it costs, and it is not nothing:
+    //  - the engine refuses per-vertex colours on a lit bag ("Multicolor is
+    //    not supported with lighting"), so the object gives up everything the
+    //    bake put in them - contact AO, per-face variation - and gets VU1's
+    //    N.L instead;
+    //  - a lit bag takes no dynamic-light slot, so the flashlight and the live
+    //    point lights have to be folded into its ambient term by hand (the
+    //    animated models already do this - dynLightAt);
+    //  - it needs a per-vertex normal array it does not otherwise keep.
+    // For things that TUMBLE it is worth all of that; for things that merely
+    // slide, leaving bakedLighting off is cheaper and looks better.
+    bool dynamicLighting = false;
+    // Projected silhouette shadow (runtime, NOT the baked AO above): the
+    // game renders this object's silhouette from the sun into a small VRAM
+    // target every frame and projects it onto the terrain under it - a
+    // real-shape moving shadow. Manual opt-in per object; the 4 nearest
+    // casters are active at a time, each costing a 64x64 silhouette render
+    // plus a small terrain patch.
+    bool projShadow = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -235,7 +305,11 @@ struct SceneObject {
 
     // Player entity parameters (used when type == Player)
     int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly), 2 = third person
-    float playerWalkSpeed = 0.4f;  // units per frame at full stick
+    // Movement per 1/50 s at full stick (the generated game's step unit -
+    // g_frameScale normalizes it to real time). 0.1 = 5 units/s. The editor
+    // shows and edits this in units per SECOND; only the file and the game
+    // see the step form.
+    float playerWalkSpeed = 0.1f;
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
@@ -253,6 +327,14 @@ struct SceneObject {
     std::string playerWalkClip;       // "" = the model's first clip
     std::string playerRunClip;        // "" = never runs (walk covers all speeds)
     std::string playerJumpClip;       // "" = no airborne clip (holds walk/idle)
+    // Directional locomotion (all optional; "" = the walk clip covers that
+    // direction). Only visible with playerFaceCamera on: facing then stays on
+    // the camera direction instead of turning into the movement, so sideways/
+    // backward movement keeps the avatar oriented and these clips play.
+    std::string playerBackClip;         // backpedaling
+    std::string playerStrafeLeftClip;   // sidestep toward the avatar's left
+    std::string playerStrafeRightClip;  // sidestep toward the avatar's right
+    bool playerFaceCamera = false;      // strafe locomotion (see above)
     float playerRunThreshold = 0.55f; // planar-speed fraction where run kicks in
     // The camera rig, expressed in the camera's own frame: Dist is the offset
     // back, Height the offset up, Shoulder the offset sideways - together a
@@ -287,6 +369,11 @@ struct SceneObject {
     float flashlightRange = 30.0f;  // world units
     float flashlightAngle = 20.0f;  // cone half-angle, degrees
     std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+    // Texture of the beam's ground pool (res-relative PNG, e.g.
+    // "res/hud/beam.png"). Empty = the built-in procedural corona. The
+    // shape must live in the RGB channels: the pool draws additively and
+    // additive bags ignore texture alpha.
+    std::string flashlightTexture;
 
     // Particle emitter parameters (used when type == Emitter). The particle
     // texture comes from the shared materialPath (first material's map_Kd);
@@ -324,6 +411,17 @@ struct SceneObject {
     // is the shared `color` field above.
     float lightBright = 1.0f;   // intensity added on top of the scene ambient
     float lightRadius = 8.0f;   // world units; contribution fades linearly to 0
+    // Dynamic (live) point light: instead of baking into vertex colors at
+    // build, the game registers it every frame and the engine lights nearby
+    // meshes through the VU1 spot-light slot - it can flicker and be driven
+    // by the Set Light flow node. Max 8 dynamic lights per scene.
+    bool lightDynamic = false;
+    float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
+    // Visible beam drawn at the light source (additive, follows the light's
+    // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
+    // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
+    // lamp / stage light look). Works on baked lights too (steady glow).
+    int lightBeam = 0;
 
     // Camera entity parameter (used when type == Camera): vertical field of
     // view in degrees. A Cutscene Director shot bound to this camera applies
@@ -341,6 +439,25 @@ struct SceneObject {
     // primitive): "" = none, "camera:<name>" = a feed camera's view,
     // "mirror:<name>" = a raytraced mirror's traced image. Renames remap.
     std::string textureFeed;
+
+    // Catch area (docs/areas.md): name of an Area object whose volume selects
+    // this object's target list instead of (well, on top of) the hand-built
+    // one. Read for the three types that carry such a list - Mirror
+    // (mirrorObjects), Portal (portalObjects), Camera feed (camFeedObjects) -
+    // which is why one field serves all three: an object is only ever one of
+    // them. Empty = no area. Renames remap; a dangling name catches nothing.
+    // Resolved at BUILD time (project::areaCaughtObjects, the same call the
+    // Properties panel previews with), so the second-render cost stays visible
+    // to the author instead of growing silently at runtime.
+    std::string catchArea;
+    // Live catch area: also re-test the volume EVERY FRAME, so an object that
+    // walks/falls/spawns into it starts reflecting (showing, feeding) there
+    // and then. Only objects that can actually move are re-tested - the
+    // build-time list still covers the immovable rest, so a static room costs
+    // nothing extra (project::areaLiveCandidates picks the movable set, which
+    // is by construction the set static batching already refuses). Ignored by
+    // raytraced mirrors: their proxy meshes are baked per mirror at build.
+    bool catchAreaLive = false;
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -410,12 +527,65 @@ struct SceneObject {
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
 
+    // Procedural graph (type == Scatter): what this volume generates. The
+    // object's transform IS the region the graph works in, so the ordinary
+    // gizmo moves and resizes it. Evaluated in the editor (procgen), baked to
+    // static geometry at build (procbake); nothing of it reaches the PS2.
+    ProcGraph procGraph;
+    // Set on the chunk objects a Scatter bake produced: the id of the Scatter
+    // object that owns them. They are real scene objects (so codegen,
+    // culling, LOD and the disc layout need no special case) but the editor
+    // treats them as build output: not drawn in the viewport (the live graph
+    // preview stands in for them), grouped in the outliner, and replaced
+    // wholesale by the next bake. Empty = hand-authored, the normal case.
+    std::string procSource;
+    // Name of the prefab this object was stamped from (empty = authored by
+    // hand, the normal case). Editor bookkeeping ONLY - nothing downstream
+    // reads it: an inserted prefab produces ordinary, fully independent
+    // objects, and editing the prefab afterwards does not reach back. It exists
+    // because the outliner otherwise cannot tell twenty hand-placed slabs from
+    // twenty that arrived together, which is the one question you ask when a
+    // scene has prefabs in it. Kept through a copy/paste on purpose (a copy of
+    // a room is still a room); dropped by prefab::capture, which must not
+    // record where its own members came from.
+    std::string prefabSource;
+
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
     // instance in the game (Unity-style components); the same class can be
     // attached to any number of objects across scenes.
     std::vector<std::string> scripts;
 };
+
+// A reusable group of scene objects - their flow graphs included - stamped
+// into the world by hand, by a procedural graph, or by the Spawn Prefab flow
+// node while the game runs (docs/prefabs.md). The verbs live in prefab.hpp;
+// the struct is here because a prefab MEMBER is a SceneObject and nothing
+// lighter: a prefab is a piece of scene, and everything the editor, codegen and
+// the runtime already do with an object has to keep working after it comes out
+// of one. The only difference is the frame - member transforms are LOCAL to the
+// prefab origin, so instantiating is a yaw plus a translation.
+struct Prefab {
+    // Stable, opaque identity (16 hex chars) - the collaboration merge key,
+    // like SceneObject::id. Every REFERENCE to a prefab is by name.
+    std::string id;
+    std::string name;
+    // Free prose: what this thing is for, how it is meant to be placed, what
+    // the caller has to provide. Multi-line - the field it is edited in wraps,
+    // because a one-line box turned every note into its own first half.
+    std::string notes;
+    // Members. Their `id` is empty by construction - an instance gets fresh
+    // ids, and two instances of one prefab must never share an identity.
+    std::vector<SceneObject> objects;
+
+    bool empty() const { return objects.empty(); }
+};
+
+inline bool operator==(const Prefab& a, const Prefab& b) {
+    return a.id == b.id && a.name == b.name && a.notes == b.notes &&
+           a.objects == b.objects;
+}
+inline bool operator!=(const Prefab& a, const Prefab& b) { return !(a == b); }
 
 const char* primitiveTypeName(PrimitiveType t);
 
@@ -443,6 +613,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
+           a.projShadow == b.projShadow &&
+           a.bakedLighting == b.bakedLighting &&
+           a.dynamicLighting == b.dynamicLighting &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -451,6 +624,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
            a.playerCanJump == b.playerCanJump &&
+           a.playerBackClip == b.playerBackClip &&
+           a.playerStrafeLeftClip == b.playerStrafeLeftClip &&
+           a.playerStrafeRightClip == b.playerStrafeRightClip &&
+           a.playerFaceCamera == b.playerFaceCamera &&
            a.playerIdleClip == b.playerIdleClip &&
            a.playerWalkClip == b.playerWalkClip &&
            a.playerRunClip == b.playerRunClip &&
@@ -469,6 +646,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flashlightRange == b.flashlightRange &&
            a.flashlightAngle == b.flashlightAngle &&
            a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.flashlightTexture == b.flashlightTexture &&
            a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.emitterEnabled == b.emitterEnabled &&
@@ -482,10 +660,14 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
+           a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
            a.camFeed == b.camFeed && a.camFeedTerrain == b.camFeedTerrain &&
            a.camFeedObjects == b.camFeedObjects &&
            a.textureFeed == b.textureFeed &&
+           a.catchArea == b.catchArea &&
+           a.catchAreaLive == b.catchAreaLive &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
@@ -501,7 +683,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
-           a.flowGraph == b.flowGraph && a.scripts == b.scripts;
+           a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
+           a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.prefabSource == b.prefabSource;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -511,7 +695,10 @@ struct ProjectSettings {
     // forces 60 Hz, "pal" forces 50 Hz (gameplay speed is wall-clock
     // normalized via g_frameScale in the generated game, so both play the
     // same). The "debug" profile unlocks the on-screen FPS / free-RAM
-    // overlays; "release" strips them from the build.
+    // overlays and the Live Link poller; "release" strips them from the build.
+    // NOTE these are the values a project that predates the key loads as, NOT
+    // the new-project defaults - project::create() starts a fresh project in
+    // "debug" (you author with Live Link, then switch to release for the disc).
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
 
@@ -557,11 +744,78 @@ struct ProjectSettings {
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
                                 // (scene / highlight / particles / whole frame)
+    // Debug profile only: draw Area objects (docs/areas.md) in the game as
+    // wireframe boxes. An area has no geometry on the console by design, which
+    // is exactly why "why did the layer not unload / why is that not
+    // reflecting" is hard to see - this puts the volume back on screen.
+    bool showAreas = false;
     // Debug profile only: compile the Live Link poller into the game, so the
     // editor can stream scene edits into the running game (docs/live-link.md).
     // Off = the game never reads livelink.bin and the editor never writes it -
     // for anyone who does not want their debug builds patched from outside.
     bool liveLink = true;
+
+    // Debug profile only: compile the Live Debugger runtime into the game -
+    // the flow graphs report every node they run to the editor, and the editor
+    // can set breakpoints, stop/step the game and force-fire a trigger
+    // (docs/live-debugger.md). Off = no instrumentation, no reporting, and
+    // livedbg.bin / livedbg.cmd are never touched by either side.
+    bool liveDebug = true;
+
+    // Debug profile only: compile the Live Logic interpreter into the game, so
+    // the editor can hot-patch an edited flow graph into the RUNNING game with
+    // no rebuild (docs/live-logic.md). Off = graphs only ever run as the C++
+    // they were compiled to.
+    bool liveLogic = true;
+
+    // Debug profile only: compile the time machine into the game
+    // (docs/time-machine.md). The game captures everything it mutates - object
+    // transforms and physics, the walkers, flow variables, save values - into
+    // bin/livetime.bin every few frames; the editor keeps a history of those
+    // captures and can push one back through bin/livetime.rst, which puts the
+    // running game where it was. Off = neither file is ever touched and the
+    // generated runtime is an empty translation unit.
+    bool timeMachine = true;
+
+    // Debug profile only: compile the Remote Pad overlay into the game
+    // (docs/remote-pad.md), so the editor's on-screen pad and the --pad CLI can
+    // drive it through bin/livepad.bin - no window focus, no real controller,
+    // and scriptable for unattended tests. Off = the game never looks for the
+    // file and the generated runtime is an empty translation unit.
+    bool remotePad = true;
+
+    // Debug profile only, EXPERIMENTAL and off by default: install the engine's
+    // EE crash handler, which turns a real CPU exception (bad pointer, address
+    // error, reserved instruction) into a crash.txt report instead of a silent
+    // freeze. Measured under PCSX2, ps2sdk's ee_dbg_install() wedges the game
+    // the moment it goes in, so this needs a real console (or a hand-written
+    // exception stub) before it can be the default - see docs/devkit.md.
+    bool eeCrashHandler = false;
+
+    // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
+    // drivers and maps keys/mouse onto a virtual pad (bindings live in the
+    // generated controls.hpp). Works in PCSX2 (the editor configures its
+    // emulated USB devices before launch) and with real USB devices on a
+    // console. Skipped automatically on ps2link deploys - a second usbd on
+    // an IOP that may already run one (ps2link booted from a USB stick)
+    // wedges the USB stack.
+    //
+    // true here is what a project that predates the key loads as (the feature
+    // was retroactively on for everyone); project::create() starts a fresh
+    // project with it OFF - a pad game pays nothing for drivers it never uses,
+    // and the console only speaks the USB HID boot protocol anyway, so this is
+    // a choice to make deliberately (docs/keyboard-mouse.md).
+    bool keyboardMouse = true;
+
+    // Keep keyboard/mouse working on a "Run on PS2" (ps2link) deploy. The
+    // console side is always the TyraX ps2link (tools/ps2link, built by its
+    // build.sh/.ps1 - see docs/ps2link-setup.md): it bakes usbd + ps2kbd +
+    // ps2mouse into its own boot, so the engine reuses that resident stack and
+    // loads none of its own (a second usbd would wedge it). On by default for
+    // that reason; untick it only for a deliberately stock ps2link, which has
+    // no USB stack to reuse - the drivers then report "not ready" and the
+    // mouse is skipped rather than hanging. See docs/keyboard-mouse.md.
+    bool keyboardMousePs2Link = true;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -576,6 +830,18 @@ struct ProjectSettings {
     // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
     // (cull-only). Projects saved before the vu1 default keep their value.
     std::string clipping = "vu1";
+
+    // Animation frame rate. glTF and FBX store keyframe times in SECONDS,
+    // never an fps, so a clip authored as N frames for F fps but exported
+    // from a scene running at S fps arrives S/F times too long - the
+    // classic "Blender scene is 24 fps, the animation was made for 30"
+    // mismatch, which plays back visibly too slow on the console. These two
+    // numbers say what the source fps was and what it should have been; the
+    // build scales every clip's keyframe times by animSourceFps /
+    // animPlayFps at bake time, so nothing is destroyed and the .glb is
+    // never touched. Equal values (the default) = no scaling at all.
+    float animSourceFps = 24.0f;  // fps the clips were exported at
+    float animPlayFps = 24.0f;    // fps they should play at
 
     // Animation LOD: animated-model instances farther than this from the
     // camera refresh their pose/skinning every 2nd frame (every 4th beyond
@@ -619,6 +885,20 @@ struct ProjectSettings {
     float navMaxSlope = 40.0f;    // degrees; steeper terrain is unwalkable
     float navAgentRadius = 0.4f;  // obstacle inflation around blockers, world units
 
+    // World scale: how many world units one REAL-WORLD METER is. The engine
+    // itself has no opinion about units - a unit is whatever the project
+    // decides - but everything imported from reality does: a phone camera
+    // take records meters, a Mixamo/Maya/Blender model carries meters (or a
+    // unit the importer normalizes to meters). This number is the one place
+    // that conversion is written down, so a project authored at, say, 5 units
+    // per meter lands those imports at the size its own content already uses
+    // instead of 5x too small (docs/world-scale.md).
+    //
+    // Host-side only - it never reaches the game, which keeps working in
+    // plain units. 1.0 (the default, and what every pre-existing project
+    // loads as) means "one unit is one meter" and changes nothing.
+    float unitsPerMeter = 1.0f;
+
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
 
     // Terrain streaming: the generated game builds the terrain in 16x16-cell
@@ -639,8 +919,19 @@ struct ProjectSettings {
 
     // FPP template
     float eyeHeight = 1.8f;
-    float walkSpeed = 0.4f;
+    // Movement per 1/50 s at full stick, like SceneObject::playerWalkSpeed -
+    // NOT per second. 0.1 = 5 units/s, which in a metric project (the default
+    // 1 unit = 1 m, and an eye height of 1.8) is a brisk 5 m/s run; the old
+    // 0.4 default was 20 units/s, i.e. 72 km/h for a person-sized player, and
+    // it is why projects tended to get built several times larger than metric
+    // (docs/world-scale.md). Existing projects keep whatever they saved.
+    float walkSpeed = 0.1f;
     float lookSpeed = 1.0f;  // multiplier
+
+    // Sprint: while the "sprint" input action (Tools > Input Map) is held, the
+    // walkers multiply their walk speed by this. 1.0 = sprinting does nothing
+    // (the switch that turns the feature off without unbinding the button).
+    float sprintMultiplier = 1.8f;  // 1..4
 
     // Analog sticks: offsets below this fraction of full deflection read as
     // zero (real DualShock sticks rest off-center); motion rescales smoothly
@@ -683,6 +974,15 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
+    // Sun lens flare (0 = off, else brightness 0..1): additive sprites along
+    // the sun->screen-center axis, drawn after the 3D scene under the HUD,
+    // occluded by geometry/terrain via one ray cast per frame. The sun sits
+    // infinitely far along lightDir; its tint follows lightColor.
+    float flare = 0.0f;
+    // God rays / light shafts from the sun (0 = off, else strength 0..1):
+    // a bright-pass + radial blur toward the sun's screen position on the GS
+    // (reuses the bloom blur chain), composited additively after the scene.
+    float godRays = 0.0f;
     // Baked ambient occlusion (docs/ambient-occlusion.md): terrain
     // self-shadowing, contact darkening between static geometry and raycast
     // self-AO for imported .obj models - all folded into the baked vertex
@@ -691,6 +991,30 @@ struct ProjectSettings {
     bool aoEnabled = false;
     float aoStrength = 0.55f;  // 0..1, how dark full occlusion gets
     float aoRadius = 2.5f;     // world units the contact darkening reaches
+
+    // Baked global illumination (docs/global-illumination.md). Project-wide on
+    // purpose - unlike the sky/lighting above these are not part of the
+    // ambience-preset overlay: a preset changes what the light LOOKS like, the
+    // bake quality is a project decision. Nothing here reaches the game
+    // directly; it drives the host bake in gibake, whose OUTPUT ships as the
+    // scene lightmap's RGB channel plus inc/probe_data.gen.hpp.
+    //
+    // The bake is explicit (Tools > Bake Global Illumination) and cached in
+    // .res-baked/gi/ - a build never silently re-bakes it. A stale or missing
+    // cache simply falls the scene back to the pre-GI emissive-only lighting.
+    bool giEnabled = false;
+    int giRays = 128;    // hemisphere rays per lightmap texel / per probe
+    int giBounces = 2;   // interreflection passes (0 = direct + sky only)
+    float giSkyLight = 1.0f;  // the sky dome's strength as a light source
+    float giSunLight = 1.0f;  // the directional sun's strength
+    // A constant added to every gather. Real GI makes a sealed room with no
+    // light source pitch black, which reads as "the bake is broken" rather
+    // than "you forgot a lamp"; this is the floor under that.
+    float giAmbientFloor = 0.03f;
+    bool giProbes = true;        // bake the light-probe grid
+    float giProbeSpacing = 3.0f; // world units between probes, horizontally
+    float giProbeHeight = 2.0f;  // ...and between vertical levels
+    int giProbeLevels = 4;       // vertical levels above the lowest ground
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -701,6 +1025,15 @@ struct ProjectSettings {
     // Post effects (GS framebuffer blits at the end of every frame; no
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
+    // Bright-pass cut for the bloom, 0..1 of full white. 0 = the whole frame
+    // glows (soft focus); raise it and only what is brighter than this blooms,
+    // which is what makes emissive materials (docs/emissive-materials.md) read
+    // as glowing objects instead of veiling the picture.
+    float bloomThreshold = 0.0f;
+    // How far the glow reaches, 0..1 -> 1..4 soften iterations over the
+    // quarter-res buffer (each doubles the tap offsets). 0 = the original
+    // tight fringe; raise it for a real corona around emissive surfaces.
+    float bloomSpread = 0.0f;
     float grain = 0.0f;  // animated film grain noise overlay
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
@@ -723,6 +1056,13 @@ struct ProjectSettings {
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
+
+    // Soft dark blob shadows under moving things (the third-person avatar,
+    // animated models, physics objects): a terrain-conforming alpha-blended
+    // quad through the same soft-glow sprite the flare uses, fading out as
+    // the object rises. Project-wide; grounds objects visually for almost
+    // nothing (one quad per object).
+    bool blobShadows = false;
 
     // In-game outline around usable objects while the player is within
     // highlightDistance (fading silhouette shells drawn after the scene).
@@ -748,21 +1088,30 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
-           a.showProfiler == b.showProfiler &&
-           a.liveLink == b.liveLink &&
+           a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
+           a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
+           a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
+           a.remotePad == b.remotePad &&
+           a.eeCrashHandler == b.eeCrashHandler &&
+           a.keyboardMouse == b.keyboardMouse &&
+           a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.animSourceFps == b.animSourceFps &&
+           a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
+           a.unitsPerMeter == b.unitsPerMeter &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.sprintMultiplier == b.sprintMultiplier &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
            a.stickCurveL == b.stickCurveL && a.stickCurveR == b.stickCurveR &&
@@ -774,10 +1123,21 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&
-           a.aoRadius == b.aoRadius &&
+           a.aoRadius == b.aoRadius && a.giEnabled == b.giEnabled &&
+           a.giRays == b.giRays && a.giBounces == b.giBounces &&
+           a.giSkyLight == b.giSkyLight && a.giSunLight == b.giSunLight &&
+           a.giAmbientFloor == b.giAmbientFloor &&
+           a.giProbes == b.giProbes &&
+           a.giProbeSpacing == b.giProbeSpacing &&
+           a.giProbeHeight == b.giProbeHeight &&
+           a.giProbeLevels == b.giProbeLevels &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
+           a.bloomThreshold == b.bloomThreshold &&
+           a.bloomSpread == b.bloomSpread &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
+           a.flare == b.flare && a.godRays == b.godRays &&
+           a.blobShadows == b.blobShadows &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -800,7 +1160,7 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain, depth of field
+    bool postFx = false;      // bloom, grain, depth of field, flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
@@ -898,6 +1258,126 @@ inline bool operator==(const GameFont& a, const GameFont& b) {
            a.shadow == b.shadow && a.quant == b.quant;
 }
 
+// One inline icon a text can splice in (Tools > UI Editor > Button icons,
+// docs/text-icons.md). ANY text in the project - HUD texts, menu titles and
+// entry labels, loading-screen texts, Display Text nodes - substitutes
+// `{{name}}` with this image, sized to the text it sits in.
+//
+// The seeded set is named after the pad buttons ("cross", "l1", "start", ...),
+// which is also what makes `{{action:jump}}` work: that form resolves the
+// action's bound button and then looks up the icon of that name. Extra entries
+// with any name are fine ({{coin}}) - they just have no action to resolve from.
+struct TextIcon {
+    std::string name;  // the placeholder token: {{cross}}
+    // Project-relative PNG. The seeded pad-button entries point at
+    // res/hud/icon-<name>.png, which the editor generates when the file is
+    // missing - overriding an icon is just replacing that PNG (or pointing
+    // this at your own).
+    std::string path;
+    // Height relative to the text's line height (1 = as tall as a capital).
+    float scale = 1.0f;
+};
+
+inline bool operator==(const TextIcon& a, const TextIcon& b) {
+    return a.name == b.name && a.path == b.path && a.scale == b.scale;
+}
+
+// One piece of a text carrying icon placeholders: either a run of plain
+// characters or a resolved icon token. Every text renderer walks these instead
+// of raw bytes, which is what makes `{{cross}}` work in every text at once.
+struct TextRun {
+    std::string text;  // non-empty on a plain run
+    std::string icon;  // non-empty on an icon token (a TextIcon name)
+    // On an icon token that resolved through an ACTION ({{action:jump}} or the
+    // {{jump}} shorthand): the action's name. This is what lets a consumer draw
+    // the glyph from the LIVE binding instead of the one baked in - the
+    // interaction prompts do exactly that (docs/text-icons.md).
+    std::string action;
+};
+
+// Lowercased pad-button name, i.e. the TextIcon that stands for that button
+// ("Cross" -> "cross"). The naming convention the seeded icon set follows.
+inline std::string textIconNameForPad(const std::string& padName) {
+    std::string s;
+    for (char c : padName) s += (char)tolower((unsigned char)c);
+    return s;
+}
+
+// The icon a token names when read as an ACTION rather than an icon: the
+// lowercased pad button that action is bound to. Empty when no action goes by
+// that name or it has no pad button.
+//
+// This is the `{{use}}` shorthand: `{{action:use}}` spelled out is precise, but
+// a bare `{{use}}` is what people actually type, so a token that matches no
+// icon gets one more chance as an action name before falling back to literal
+// text. Icon names win - `{{cross}}` stays the Cross glyph even if a project
+// ever names an action "cross".
+inline std::string textIconForAction(const std::string& token,
+                                     const InputMap& input) {
+    if (!input.findAction(token)) return std::string();
+    const InputBinding b = input.resolve(token);
+    return b.pad.empty() ? std::string() : textIconNameForPad(b.pad);
+}
+
+// Splits `s` into plain runs and icon tokens.
+//   {{cross}}        -> the icon named "cross"
+//   {{action:jump}}  -> the icon named after the pad button the "jump" action
+//                       is bound to in `input`'s active preset
+// A token whose action is unknown or has no pad button, and anything that is
+// not a well-formed `{{...}}`, stays LITERAL text - a typo shows up on screen
+// instead of silently vanishing.
+//
+// A BARE token comes out as-is in TextRun::icon; a caller that finds no icon of
+// that name should try textIconForAction() before giving up, which is what makes
+// the `{{use}}` shorthand work (see there).
+inline std::vector<TextRun> parseTextIcons(const std::string& s,
+                                           const InputMap& input) {
+    std::vector<TextRun> out;
+    auto pushText = [&out](const std::string& t) {
+        if (t.empty()) return;
+        if (!out.empty() && out.back().icon.empty())
+            out.back().text += t;
+        else
+            out.push_back(TextRun{t, ""});
+    };
+    size_t i = 0;
+    while (i < s.size()) {
+        const size_t open = s.find("{{", i);
+        if (open == std::string::npos) {
+            pushText(s.substr(i));
+            break;
+        }
+        const size_t close = s.find("}}", open + 2);
+        if (close == std::string::npos) {
+            pushText(s.substr(i));
+            break;
+        }
+        pushText(s.substr(i, open - i));
+        const std::string token = s.substr(open + 2, close - open - 2);
+        std::string icon = token;
+        std::string action;
+        if (token.rfind("action:", 0) == 0) {
+            action = token.substr(7);
+            const InputBinding b = input.resolve(action);
+            icon = b.pad.empty() ? std::string() : textIconNameForPad(b.pad);
+        }
+        if (icon.empty())
+            pushText(s.substr(open, close + 2 - open));  // keep it visible
+        else
+            out.push_back(TextRun{"", icon, action});
+        i = close + 2;
+    }
+    return out;
+}
+
+// The text with every icon token removed - what a plain-text consumer (a
+// window title, a list row) should show.
+inline std::string stripTextIcons(const std::string& s, const InputMap& input) {
+    std::string out;
+    for (const TextRun& r : parseTextIcons(s, input)) out += r.text;
+    return out;
+}
+
 // An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
 // build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
 // runtime by the Set Text Visible flow node. Multi-line on '\n'. The string is
@@ -920,6 +1400,18 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
            a.color[2] == b.color[2] && a.font == b.font &&
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
+}
+
+// A prompt text's starting state. HudText's own default is "New text" (right
+// for the HUD-texts list, nonsense in a prompt field), so the prompts carry the
+// classic word plus the button glyph - "{{use}} USE" reads as the old sprite did
+// and follows a rebind (docs/text-icons.md).
+inline HudText defaultPromptText(const char* name, const char* text) {
+    HudText t;
+    t.name = name;
+    t.text = text;
+    t.size = 20;
+    return t;
 }
 
 // A progress bar on a loading screen (Tools > Loading Screens). Continuous =
@@ -989,6 +1481,151 @@ inline bool operator==(const SplashScreen& a, const SplashScreen& b) {
            a.bgColor[2] == b.bgColor[2] && a.duration == b.duration;
 }
 
+// One block of a credits roll (Tools > Credits Editor, docs/credits.md). A
+// roll is a vertical FLOW of blocks laid out on the host and baked into page
+// textures at build - the engine has no font, so nothing here reaches the PS2
+// as text.
+//
+// Presentation fields default to "inherit the roll's" (size 0, empty font,
+// ownColor false) so restyling a whole roll stays one edit, exactly like a
+// text's font reference.
+struct CreditsBlock {
+    enum Kind {
+        Heading = 0,  // a section title ("CAST"), the roll's heading size
+        Line = 1,     // a line of text, wrapped to the content width
+        Pair = 2,     // role on the left, name(s) on the right ("Music | Ana")
+        Image = 3,    // a PNG, scaled to `scale` of the content width
+        Gap = 4,      // `space` pixels of nothing
+        Break = 5,    // skip to the next page: a screenful gap when scrolling,
+                      // a new card in card mode (CreditsRoll::mode)
+    };
+    int kind = Line;
+    std::string text;   // Heading/Line: the string; Pair: the left column
+    std::string text2;  // Pair: the right column ('\n' = several names)
+    std::string imagePath;  // Image: project-relative PNG ("res/credits/x.png")
+    int size = 0;           // font pixel height; 0 = the roll's default
+    std::string font;       // Project::fonts entry; "" = the roll's font
+    bool ownColor = false;  // false = the roll's text color
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    int align = 1;        // 0 left, 1 center, 2 right (Pair ignores it)
+    float space = 0.0f;   // extra px below the block; Gap: the gap itself
+    float scale = 1.0f;   // Image: width as a fraction of the content width
+};
+
+inline bool operator==(const CreditsBlock& a, const CreditsBlock& b) {
+    return a.kind == b.kind && a.text == b.text && a.text2 == b.text2 &&
+           a.imagePath == b.imagePath && a.size == b.size && a.font == b.font &&
+           a.ownColor == b.ownColor && a.color[0] == b.color[0] &&
+           a.color[1] == b.color[1] && a.color[2] == b.color[2] &&
+           a.align == b.align && a.space == b.space && a.scale == b.scale;
+}
+
+// A credits roll (Tools > Credits Editor, docs/credits.md): the end-credits
+// screen as project-wide data, started by the Play Credits flow node or a menu
+// row, and free to end by going somewhere (a scene, a menu, a flow event).
+//
+// The roll owns the screen while it plays. Its blocks are laid out and baked
+// into a strip of pow2 PAGE textures (see menubake::creditsLayout) rather than
+// one sprite per line: a long roll would otherwise be dozens of textures on a
+// ~1.33 MB VRAM budget, and pages keep the runtime at two sprite draws a frame.
+struct CreditsRoll {
+    std::string name = "credits";
+
+    // --- look ---------------------------------------------------------------
+    float bgColor[3] = {0.0f, 0.0f, 0.0f};  // cleared behind everything
+    // Optional still backdrop (does NOT scroll), baked like any HUD image.
+    HudImage bgImage;
+    std::string font;   // default typeface for every block ("" = fonts[0])
+    int headingSize = 22;
+    int lineSize = 16;
+    float color[3] = {1.0f, 1.0f, 1.0f};          // body text
+    float headingColor[3] = {1.0f, 0.85f, 0.4f};  // Heading blocks
+    bool shadow = true;                           // 1px dark offset
+    int pageW = 512;      // page texture width: 256 or 512 (PS2 pow2 limit)
+    float margin = 40.0f;   // side margin inside the page, px
+    float columnGap = 24.0f;  // Pair: gap between the two columns
+    float lineSpacing = 1.25f;  // line pitch as a multiple of the font size
+
+    // --- motion -------------------------------------------------------------
+    int mode = 0;              // 0 = scroll up, 1 = cards (one page at a time)
+    float speed = 34.0f;       // scroll: pixels per second
+    float cardSeconds = 4.0f;  // cards: seconds per card
+    float startDelay = 0.8f;   // black/backdrop before anything moves
+    float endHold = 2.0f;      // held after the last block has left
+    float fadeIn = 0.6f;       // seconds of fade from the background color
+    float fadeOut = 1.2f;      // seconds of fade out at the very end
+
+    // --- music --------------------------------------------------------------
+    // A Project::music track played when the roll starts ("" = leave whatever
+    // is playing alone). Stopping at the end is the usual choice for a roll
+    // that hands over to a menu.
+    std::string music;
+    bool musicLoop = true;
+    bool musicStopAtEnd = true;
+    int musicVolume = 100;
+
+    // --- the player's way out ----------------------------------------------
+    bool skippable = true;
+    // Input Map action the skip listens on ("" = the menu confirm action, i.e.
+    // whatever Cross is bound to). A skip runs the finish action, so it never
+    // strands the player on a black screen.
+    std::string skipAction;
+    float skipAfter = 1.0f;  // seconds before a skip is accepted
+    // Baked hint sprite ("PRESS {{action:...}} TO SKIP"): static text, so its
+    // button glyph is the binding at BUILD time (a Display Text node is the
+    // tool for one that must follow a runtime rebind).
+    bool showSkipHint = true;
+    std::string skipHint = "PRESS {{confirm}} TO SKIP";
+    float hintPos[2] = {0.5f, 0.93f};  // normalized screen position, centered
+    int hintSize = 14;
+
+    // --- where it goes afterwards ------------------------------------------
+    enum Finish {
+        Resume = 0,       // back to the game exactly where it was
+        SwitchScene = 1,  // param = scene name
+        OpenMenu = 2,     // param = menu name (a title screen, typically)
+        FlowEvent = 3,    // param = event name (On Menu Event triggers)
+        Hold = 4,         // stay on the last frame (an ending that ends)
+    };
+    int finish = Resume;
+    std::string finishParam;
+
+    // Page texture depth, like a font atlas carries its own (GameFont::quant):
+    // "4bit" (16 colors) is plenty for text on a flat background and ~8x
+    // cheaper in VRAM than full color. "none" / "8bit" / "4bit".
+    std::string quant = "4bit";
+    // Text file the blocks were last imported from (docs/credits.md), kept so
+    // "Re-import" can pick up an edited file. Editor-side only.
+    std::string source;
+
+    std::vector<CreditsBlock> blocks;
+};
+
+inline bool operator==(const CreditsRoll& a, const CreditsRoll& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && eq3(a.bgColor, b.bgColor) &&
+           a.bgImage == b.bgImage && a.font == b.font &&
+           a.headingSize == b.headingSize && a.lineSize == b.lineSize &&
+           eq3(a.color, b.color) && eq3(a.headingColor, b.headingColor) &&
+           a.shadow == b.shadow && a.pageW == b.pageW &&
+           a.margin == b.margin && a.columnGap == b.columnGap &&
+           a.lineSpacing == b.lineSpacing && a.mode == b.mode &&
+           a.speed == b.speed && a.cardSeconds == b.cardSeconds &&
+           a.startDelay == b.startDelay && a.endHold == b.endHold &&
+           a.fadeIn == b.fadeIn && a.fadeOut == b.fadeOut &&
+           a.music == b.music && a.musicLoop == b.musicLoop &&
+           a.musicStopAtEnd == b.musicStopAtEnd &&
+           a.musicVolume == b.musicVolume && a.skippable == b.skippable &&
+           a.skipAction == b.skipAction && a.skipAfter == b.skipAfter &&
+           a.showSkipHint == b.showSkipHint && a.skipHint == b.skipHint &&
+           a.hintPos[0] == b.hintPos[0] && a.hintPos[1] == b.hintPos[1] &&
+           a.hintSize == b.hintSize && a.finish == b.finish &&
+           a.finishParam == b.finishParam && a.quant == b.quant &&
+           a.source == b.source && a.blocks == b.blocks;
+}
+
 // A named editor window layout (docking arrangement), stored per project and
 // switchable from the Layout menu. `ini` is an ImGui docking dump
 // (SaveIniSettingsToMemory); when it is empty and `recipe` >= 0 the layout is
@@ -1008,7 +1645,14 @@ struct WindowLayout {
 
 // Built-in DockBuilder recipe ids (WindowLayout::recipe). The arrangement lives
 // in App::buildLayoutRecipe; only the id travels in the .tyra file.
-enum class LayoutRecipe { None = -1, Default = 0, Director = 1, Material = 2 };
+enum class LayoutRecipe {
+    None = -1,
+    Default = 0,
+    Director = 1,
+    Material = 2,
+    Debugger = 3,
+    Procedural = 4
+};
 
 // One custom screen effect placed in the screen stack. The effect body lives
 // in a <project>/screen-effects/<stem>.screenfx file (loaded into
@@ -1046,13 +1690,19 @@ struct SceneLayer {
     bool autoStream = false;
     float streamX = 0.0f, streamZ = 0.0f;  // zone center, world units
     float streamRadius = 60.0f;            // load within this range
+    // Zone shape: the name of an Area object in this scene (docs/areas.md)
+    // whose oriented box IS the zone, replacing the (streamX, streamZ) +
+    // streamRadius circle. Empty / dangling = the circle. Unlike the circle
+    // the box also bounds Y, so a zone can cover one floor of a building; the
+    // area is read live, so a moved area moves the zone with it.
+    std::string streamArea;
 };
 
 inline bool operator==(const SceneLayer& a, const SceneLayer& b) {
     return a.name == b.name && a.startLoaded == b.startLoaded &&
            a.editorVisible == b.editorVisible && a.autoStream == b.autoStream &&
            a.streamX == b.streamX && a.streamZ == b.streamZ &&
-           a.streamRadius == b.streamRadius;
+           a.streamRadius == b.streamRadius && a.streamArea == b.streamArea;
 }
 
 // A scene: its own objects (each with its flow graph), its own terrain
@@ -1117,6 +1767,7 @@ struct SceneData {
 inline bool operator==(const SceneData& a, const SceneData& b) {
     return a.name == b.name && a.objects == b.objects && a.layers == b.layers &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
+           a.terrain.enabled == b.terrain.enabled &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
            a.terrainLayers == b.terrainLayers && a.splat == b.splat &&
            a.splatW == b.splatW && a.splatD == b.splatD &&
@@ -1157,6 +1808,18 @@ struct MenuEntry {
         // confirm). Without one, display rows keep the classic
         // switch-on-change behavior.
         ApplyVideo = 9,
+        // Rebinds one input action (docs/input-bindings.md). `bindAction` names
+        // the Tools > Input Map action, `param` the save value holding the
+        // player's override as an inputCodes() index (0 = the project's preset
+        // binding). Selecting the row arms capture mode: the next button or
+        // key the player presses becomes the binding. The row draws its
+        // current binding as runtime text from the menu's font atlas, so it is
+        // not limited to a baked option strip.
+        RebindKey = 10,
+        // Rolls the credits (param = a Project::credits roll name). Closes the
+        // menu first, so a title screen's CREDITS row hands the screen over and
+        // the roll's own finish action decides what comes back.
+        PlayCredits = 11,
     };
     int action = Close;
     std::string param;
@@ -1187,14 +1850,20 @@ struct MenuEntry {
                               // / PAL 576i (see MenuEntry::optionModes)
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
         BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
+        BindInputPreset = 8,  // Tools > Input Map preset (options = presets)
     };
     int settingBind = BindNone;
+    // RebindKey rows only: which InputAction the row rebinds (by name). Last
+    // field on purpose - the positional MenuEntry{...} initializers in app.cpp
+    // predate it and must keep meaning what they say.
+    std::string bindAction;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
-           a.amount == b.amount && a.options == b.options &&
-           a.optionModes == b.optionModes && a.settingBind == b.settingBind;
+           a.bindAction == b.bindAction && a.amount == b.amount &&
+           a.options == b.options && a.optionModes == b.optionModes &&
+           a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -1286,6 +1955,38 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
     return a.name == b.name && a.value == b.value;
 }
 
+// One non-destructive edit of one animation clip of one model asset
+// (Tools > Animation Editor). The source file is never rewritten: these
+// numbers are folded into the clip on its way into the .tskl at build time,
+// and the editor's preview applies the identical math (animedit.hpp).
+//
+// Order of operations, both here and in the preview: trim in SOURCE seconds,
+// then rebase the trimmed range to start at 0, then scale time. The clip the
+// game sees is `rename` (when set) with duration
+// (trimEnd - trimStart) / (timeScale * project fps ratio).
+struct AnimClipEdit {
+    std::string model;   // project-relative asset, e.g. "res/models/hero.glb"
+    std::string clip;    // source clip name, as authored in the file
+    std::string rename;  // "" = keep the source name
+    float timeScale = 1.0f;   // >1 plays faster; on top of the project fps ratio
+    float trimStart = 0.0f;   // seconds into the source clip; 0 = from the start
+    float trimEnd = 0.0f;     // seconds into the source clip; 0 = to the end
+    bool loop = true;         // default Loop for objects that pick this clip
+
+    // True when this entry changes nothing - the Animation Editor drops such
+    // entries on save so an untouched project keeps an empty list.
+    bool isDefault() const {
+        return rename.empty() && timeScale == 1.0f && trimStart == 0.0f &&
+               trimEnd == 0.0f && loop;
+    }
+};
+
+inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
+    return a.model == b.model && a.clip == b.clip && a.rename == b.rename &&
+           a.timeScale == b.timeScale && a.trimStart == b.trimStart &&
+           a.trimEnd == b.trimEnd && a.loop == b.loop;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -1294,7 +1995,19 @@ struct Project {
     // collaboration cache keys downloaded projects on it. Generated at create,
     // backfilled on load for older projects (see project::ensureProjectId).
     std::string projectId;
-    std::string gameTemplate = "orbit";  // "orbit" | "fpp"
+    // The starting preset, chosen ONCE in the New Project dialog and fixed for
+    // the project's life (Project > Preferences shows it read-only): it decides
+    // which game-template sources are generated, and those sources are
+    // user-ownable - flipping it later would either overwrite work or, on an
+    // owned file, silently stop matching what the project actually builds.
+    // "orbit" = Empty (no player entity); "fpp" and "thirdperson" both generate
+    // the player-entity template and differ in the seeded Player's mode.
+    std::string gameTemplate = "orbit";  // "orbit" | "fpp" | "thirdperson"
+
+    // Does this project's template carry a player entity (i.e. is it anything
+    // but the Empty/orbit preset)? The one place the two player presets are
+    // treated as one thing.
+    bool hasPlayerTemplate() const { return gameTemplate != "orbit"; }
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
     int activeScene = 0;  // scene edited in the editor (not persisted in json)
@@ -1329,6 +2042,18 @@ struct Project {
         return &fonts.front();
     }
 
+    // Uniform scale a new object gets when this model is dropped into a
+    // scene: the model's real-world size (meters per file unit) expressed in
+    // the project's own units. 1.0 for a model whose real size was never
+    // recorded, and for every project that left the world scale at 1 unit =
+    // 1 meter - so this only ever moves content that asked for it.
+    float modelInsertScale(const std::string& modelPath) const {
+        auto it = modelUnitMeters.find(modelPath);
+        if (it == modelUnitMeters.end()) return 1.0f;
+        const float s = it->second * settings.unitsPerMeter;
+        return s > 0.0001f ? s : 1.0f;
+    }
+
     // Typefaces the project draws with (Tools > Font Manager). Never empty:
     // fonts[0] is the default every text falls back to, and the Font Manager
     // refuses to delete the last entry - so an empty `font` reference always
@@ -1336,9 +2061,34 @@ struct Project {
     std::vector<GameFont> fonts{GameFont{}};
 
     std::vector<HudImage> hud;
+    // Inline text icons (Tools > UI Editor > Button icons,
+    // docs/text-icons.md): any text in the project can splice one in with a
+    // {{name}} placeholder. Seeded with one entry per pad button by
+    // project::ensureTextIcons, so {{cross}} works in a fresh project.
+    std::vector<TextIcon> textIcons;
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).
     // Always present - the UI Editor edits it but cannot delete it.
     HudImage usePrompt = defaultUsePrompt();
+    // The two interaction prompts (Tools > UI Editor > USE prompt) are each
+    // either TEXT or an IMAGE - an explicit mode, not "text wins when non-empty":
+    // switching to the image to compare should not mean losing the text you
+    // typed. Text is the interesting mode because it can carry a button glyph
+    // that follows the binding, which is why a fresh project starts on it
+    // ("{{use}} Use" / "{{use}} Pick up", docs/text-icons.md).
+    //
+    // Either way the build produces ONE sprite per prompt and the game draws it
+    // the same: text is rasterized to res/hud/use-text.png / pick-text.png and
+    // the prompt simply points there. The texts' `pos` is unused (the USE
+    // prompt's own position places both); size/color/font/shadow are the text's.
+    bool usePromptIsText = false;
+    HudText usePromptText = defaultPromptText("use-prompt", "{{use}} USE");
+    // The "PICK UP" prompt, shown instead of USE while the looked-at object is
+    // pickable. It shares the USE prompt's screen position; `pickPromptImage`
+    // empty = the built-in res/hud/pickup.png.
+    bool pickPromptIsText = false;
+    HudText pickPromptText =
+        defaultPromptText("pick-prompt", "{{use}} PICK UP");
+    std::string pickPromptImage;
     // On-screen texts baked to sprites at build, triggered by the Show Text /
     // Hide Text flow nodes (Tools > UI Editor > Texts).
     std::vector<HudText> hudTexts;
@@ -1387,9 +2137,32 @@ struct Project {
     // HIGHEST requested quality - e.g. everything 4-bit, but the hero model
     // pinned to "none" keeps its textures full color.
     std::map<std::string, std::string> textureQuality;
+    // Artist-authored mesh LOD variants of a static model, keyed by the
+    // model's asset path ("res/models/tree.obj") -> the tier files in order,
+    // nearest first ("res/models/tree_lod1.obj", ...). No entry (the default)
+    // = the build decimates automatically. A tier must keep the model's
+    // material set (same count, same usemtl names) and be smaller than the
+    // one before it, or the build warns and falls back to decimation.
+    // Only used when a mesh LOD distance is in play (Preferences > Rendering
+    // or a per-object override) - see docs/model-pipeline.md.
+    std::map<std::string, std::vector<std::string>> modelLods;
+    // Real-world size of an imported model, keyed by its asset path:
+    // how many METERS one unit of the file measures. An entry exists only
+    // for models whose real size is known - written when a model is imported
+    // (docs/world-scale.md) - so procedurally generated assets that are
+    // authored in world units already (the Tree Generator) stay untouched.
+    // Combined with ProjectSettings::unitsPerMeter it gives the scale a new
+    // object gets when the model is dropped into a scene; see
+    // Project::modelInsertScale.
+    std::map<std::string, float> modelUnitMeters;
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
+    // Configurable buttons/keys (Tools > Input Map, docs/input-bindings.md).
+    // Named actions + per-project binding presets; the generated game reads
+    // every gameplay button through them. Never empty after a load -
+    // project::ensureInputActions() seeds the built-in roles.
+    InputMap input;
     // Color grading presets (Tools > Color Grading): project-wide looks
     // applied as GS full-screen passes. defaultGrading is the index applied
     // at game boot (-1 = none); the Set Color Grading flow node switches
@@ -1413,11 +2186,34 @@ struct Project {
     // Boot splash screens (Tools > Loading Screens > Boot splash): images shown
     // in order at startup, after the Tyra logo, before the loading screen.
     std::vector<SplashScreen> splashScreens;
+    // Credits rolls (Tools > Credits Editor, docs/credits.md): project-wide
+    // end-credits screens, started by the Play Credits flow node or a menu row.
+    // Persist through save() but are not part of undo/redo, like the preset
+    // collections above.
+    std::vector<CreditsRoll> credits;
     // Cutscene Director sequences (Tools > Cutscene Director): project-wide
     // keyframe timelines that pose scene objects + the camera over time. Like
     // the preset collections above they persist through save() but are not part
     // of undo/redo. The Play/Stop Sequence flow nodes drive them at runtime.
     std::vector<Sequence> sequences;
+
+    // Non-destructive animation-clip edits (Tools > Animation Editor). One
+    // entry per (model, source clip) the user has touched; clips with no
+    // entry bake exactly as authored. The source .glb/.fbx is never
+    // modified - the edits are applied to the parsed skeleton on the way
+    // into the .tskl at build time (animedit::applyClipEdits), and the
+    // viewport preview applies the same numbers, so what you scrub is what
+    // ships. Like the preset collections above these persist through save()
+    // but are not part of undo/redo.
+    std::vector<AnimClipEdit> animClipEdits;
+
+    // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
+    // objects - their flow graphs included - stamped into the world by hand,
+    // by a procedural graph, or by the Spawn Prefab node while the game runs.
+    // Project-wide like the preset collections above (a prefab built in one
+    // scene is available in all of them) and persisted through save(), but not
+    // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
+    std::vector<Prefab> prefabs;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
@@ -1426,6 +2222,15 @@ struct Project {
     int gizmoOp = 0;           // transform gizmo: 0 move, 1 rotate, 2 scale
     int gizmoSpace = 0;        // gizmo axes: 0 absolute (world), 1 camera-relative
     int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
+    // Viewport camera projection (Viewport::Projection): 0 perspective,
+    // 1 ortho (free), 2..7 the locked Top/Bottom/Front/Back/Right/Left views.
+    int viewProjection = 0;
+    // Live Debugger breakpoints (docs/live-debugger.md), as
+    // "<objectId>:<nodeId>" - the owning object's stable id and the flow-graph
+    // node id, so they survive renames, reorders and rebuilds. Personal
+    // editing state: kept in the .tyra like the selection, but deliberately
+    // NOT a collaboration section (a peer's breakpoints are their own).
+    std::vector<std::string> debugBreakpoints;
     // Named window layouts (docking arrangements), switchable from the Layout
     // menu and edited by simply rearranging windows. Every project keeps at
     // least one; seedBuiltinLayouts() fills a fresh/legacy project with the
@@ -1442,18 +2247,49 @@ struct Project {
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
-    std::string elfPath() const { return dir + "\\bin\\" + elfName(); }
+    // Handed to PCSX2 (and ps2client) on a command line, so it must come out
+    // natively separated - see filePath().
+    std::string elfPath() const { return filePath("bin/" + elfName()); }
+
+    // A project-relative path (always stored forward-slashed: "res/models/x.obj")
+    // as a real filesystem path in the platform's OWN separators. ALWAYS use
+    // this instead of `dir + "\\" + rel` - outside Windows a backslash is an
+    // ordinary FILENAME character, so the hand-join silently names a file that
+    // does not exist and the asset just fails to load.
+    //
+    // The make_preferred() is not cosmetic. Plain `path(dir) / relative` leaves
+    // a MIXED path on Windows ("C:\proj\bin/proj.elf"): the CRT and
+    // std::filesystem accept it, so every load and every fs::exists() check
+    // passes, but an external program need not - PCSX2 v2.6.3 answers
+    // "Requested boot ELF ... does not exist" for exactly the ELF it boots
+    // fine when the same path is spelled "C:\proj\bin\proj.elf" - which is
+    // what broke Build & Run on Windows entirely. Anything handed to another
+    // process must be natively separated, and normalizing here is what makes
+    // that true for every caller.
+    std::string filePath(const std::string& relative) const {
+        return (std::filesystem::path(dir) / relative).make_preferred().string();
+    }
 };
 
 namespace project {
 
 // Creates the project directory, generates all Tyra game sources / build files
-// and the <name>.tyra project file. `preset` picks the starting content:
-//   "empty" - orbit camera, no objects.
-//   "fpp"   - FPP game template with a single Player entity in the center.
+// and the <name>.tyra project file. `preset` picks the starting content, and it
+// is the project's permanent game template (Project::gameTemplate):
+//   "empty"       - orbit camera, no objects.
+//   "fpp"         - player template, one Player entity in walk (FPP) mode.
+//   "thirdperson" - player template, one Player entity in third-person mode
+//                   (the avatar is that object's own animated model, assigned
+//                   later - the camera rig works without one).
+// `unitsPerMeter` is the project's world scale (ProjectSettings::unitsPerMeter,
+// docs/world-scale.md); the metric-by-definition FPP/physics defaults (eye
+// height, walk speed, gravity, jump) are multiplied by it so the preset player
+// is person-sized whatever scale the project chose. Decided here and not later
+// because changing the scale afterwards deliberately rescales nothing.
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& preset = "empty");
+                   const TerrainConfig& terrain, const std::string& preset = "empty",
+                   float unitsPerMeter = 1.0f);
 
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
@@ -1477,6 +2313,24 @@ void ensureObjectIds(Project& p);
 // Assigns Project::projectId when it is empty (fresh create or a project from
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
+
+// Fills in the built-in input actions and the "Default" preset (Tools > Input
+// Map) with the bindings that were hardcoded before the Input Map existed, so
+// a project from an older TyraX plays identically. Only ADDS what is missing:
+// an action the user renamed/rebound/deleted stays as it is, and re-running is
+// a no-op. Called from create() and at the end of load().
+void ensureInputActions(Project& p);
+
+// The built-in action name for a role (InputAction::Role), e.g. "jump" - what
+// ensureInputActions seeds and what the codegen role slots look for. Empty for
+// RoleNone / out-of-range values.
+const char* inputRoleName(int role);
+
+// Fills in the pad-button text icons (Tools > UI Editor > Button icons) so
+// {{cross}} and {{action:jump}} resolve in a fresh or older project. Only ADDS
+// missing entries - a renamed/repointed/deleted icon stays as the user left it.
+// Their PNGs are generated into res/hud/ when absent (saveAssets).
+void ensureTextIcons(Project& p);
 
 // --- Per-object / per-section (de)serialization ------------------------------
 // The building blocks of both the on-disk format and the collaboration wire
@@ -1502,15 +2356,25 @@ enum class Section {
     Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
+    ModelLods,       // "modelLods" (per-model custom LOD meshes)
     SaveData,        // "saveValues", "saveTexts"
     Gradings,        // "gradings", "defaultGrading"
     Ambience,        // "ambience", "defaultAmbience"
     LoadingScreens,  // "loadingScreens", "defaultLoadingScreen"
     Splash,          // "splashScreens"
+    Credits,         // "credits" (Tools > Credits Editor)
     Sequences,       // "sequences"
     Menus,           // "menus"
+    AnimEdits,       // "animClipEdits"
+    ModelUnits,      // "modelUnits" (per-model real-world size)
+    Input,           // "input" (actions + binding presets)
+    Prefabs,         // "prefabs" (reusable object groups)
 };
-constexpr int kSectionCount = 11;
+// KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
+// one short silently stops writing the LAST section to the .tyra - and parallel
+// branches keep adding sections (ModelLods, ModelUnits and Input all arrived
+// while this one was open), which is exactly how it drifts.
+constexpr int kSectionCount = 16;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);
@@ -1641,6 +2505,61 @@ void moveTerrainLayer(Project& p, int idx, int dir);  // dir = -1 up / +1 down; 
 
 std::string saveSplat(const Project& p);
 void loadSplat(Project& p);  // silent no-op when the file is absent
+
+// --- Areas (PrimitiveType::Area, docs/areas.md) ------------------------------
+// An Area is an invisible oriented box: the unit cube under the object's
+// position/rotation/scale, exactly what the editor draws as a wireframe. These
+// three helpers are the ONE implementation every consumer shares - the
+// Properties/Layers previews, codegen (mirror/portal/camera-feed target lists,
+// the streaming-layer zone) and the generated game's point test (emitted from
+// areaContainsPointSource() so the runtime cannot drift from the host).
+
+// The Area object named `name` in an object list (nullptr = none/not an Area).
+// Takes the raw vector, not a SceneData, so the viewport - which only ever
+// sees the active scene's objects - shares the same resolution.
+const SceneObject* findArea(const std::vector<SceneObject>& objs,
+                            const std::string& name);
+
+// Is the world point inside the area's box?
+bool areaContainsPoint(const SceneObject& area, float x, float y, float z);
+
+// Types an area may catch: everything the game draws as static geometry (the
+// same set the mirror/portal pickers offer). Markers have nothing to render or
+// reflect, so an area never picks them up.
+bool areaCatchable(PrimitiveType t);
+
+// Scene-object indices the named area catches, in scene-table order: catchable
+// objects whose bounding sphere (half the largest scale axis, the USE picker's
+// approximation) touches the volume. `exclude` drops the referencing object
+// itself (-1 = none). Empty for a missing/dangling area name.
+std::vector<int> areaCaughtObjects(const std::vector<SceneObject>& objs,
+                                   const std::string& areaName, int exclude);
+
+// Object names reachable by something that can move, hide or re-target them at
+// runtime: same-scene flow nodes with an object-name param (writers and readers
+// alike - over-including is cheap), mirror/portal target lists, and the
+// project's cutscene tracks / camera-shot bindings (they apply to whatever
+// scene is active). Shared by static-batching eligibility and the live-catch
+// candidate set, which is why over-including stays safe in both: the first
+// costs one solo bag, the second one point test per frame.
+std::set<std::string> runtimeRefNames(const Project& p,
+                                      const std::vector<SceneObject>& objs);
+
+// Can this object's transform change (or can the object appear) after load?
+// The exact complement of the immovability static batching relies on, so a
+// live-catch candidate is by construction never a batch member - it always has
+// the solo bag a second submission needs.
+bool objectRuntimeMovable(const SceneObject& o,
+                          const std::set<std::string>& refs);
+
+// Scene-object indices a LIVE catch area (SceneObject::catchAreaLive) has to
+// re-test every frame: every catchable object that can move, in scene-table
+// order. Deliberately not filtered by the area - a candidate's whole point is
+// that it may be outside now and inside next frame. `exclude` drops the
+// referencing object itself (-1 = none).
+std::vector<int> areaLiveCandidates(const std::vector<SceneObject>& objs,
+                                    int exclude,
+                                    const std::set<std::string>& refs);
 
 // --- History file (<name>.history) ------------------------------------------
 // The undo history (up to History::kMaxEntries scene snapshots), kept next to

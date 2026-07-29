@@ -7,8 +7,11 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Wellington Carvalho <wellcoj@gmail.com>
+# Modified by TyraX: injectVirtual - overlay keyboard/mouse input on the pad
 # Modified by TyraX: optional second pad (port parametric, non-blocking,
 # hot-join) for two-player games. padInit() is called once globally.
+# Modified by TyraX: handlePressedButtons() also reports L3/R3/Start/Select
+# (they have no pressure value, so they live only in the digital mask).
 */
 
 // Modified by TyraX: setActuators() - runtime DualShock vibration control.
@@ -30,6 +33,7 @@ Pad::Pad() {
   ready = false;
   connected = false;
   oldPad = 0;
+  for (int i = 0; i < VIRT_SLOTS; ++i) virtPrev[i] = PadButtons{};
   resetJoys();
 }
 
@@ -50,6 +54,7 @@ void Pad::ensurePadmanInit() {
 
 void Pad::init() {
   this->oldPad = 0;
+  for (int i = 0; i < VIRT_SLOTS; ++i) this->virtPrev[i] = PadButtons{};
   ensurePadmanInit();
   this->port = 0;  // 0 -> Connector 1, 1 -> Connector 2
   this->slot = 0;  // Always zero if not using multitap
@@ -301,6 +306,65 @@ void Pad::handlePressedButtons() {
   if (this->buttons.l2_p) this->pressed.L2 = 1;
   if (this->buttons.r1_p) this->pressed.R1 = 1;
   if (this->buttons.r2_p) this->pressed.R2 = 1;
+  // Modified by TyraX: L3/R3/Start/Select were missing from `pressed` entirely.
+  // The reads above use the PRESSURE fields (buttons.*_p), which the DualShock
+  // only reports for those twelve - the stick clicks and Start/Select have no
+  // analog value, so they exist solely in the digital mask. getClicked() always
+  // had all sixteen (it reads newPad), so binding an action to L3 looked like it
+  // worked - the press was seen once - and then nothing ever held it down.
+  if (this->padData & PAD_L3) this->pressed.L3 = 1;
+  if (this->padData & PAD_R3) this->pressed.R3 = 1;
+  if (this->padData & PAD_START) this->pressed.Start = 1;
+  if (this->padData & PAD_SELECT) this->pressed.Select = 1;
+}
+
+/** TyraX: overlay virtual (keyboard/mouse) input on the freshly polled
+ * hardware state. OR-merges held buttons into pressed, derives click edges
+ * from the previous overlay, and offsets the stick axes. */
+void Pad::injectVirtual(const PadButtons& held, s16 leftJoyH, s16 leftJoyV,
+                        s16 rightJoyH, s16 rightJoyV, u8 slot) {
+  if (slot >= VIRT_SLOTS) slot = 0;
+  PadButtons& virtPrev = this->virtPrev[slot];
+  auto btn = [](u8& pressedBit, u8& clickedBit, const u8& now, const u8& was) {
+    if (now) {
+      pressedBit = 1;
+      if (!was) clickedBit = 1;
+    }
+  };
+  btn(pressed.Cross, clicked.Cross, held.Cross, virtPrev.Cross);
+  btn(pressed.Square, clicked.Square, held.Square, virtPrev.Square);
+  btn(pressed.Triangle, clicked.Triangle, held.Triangle, virtPrev.Triangle);
+  btn(pressed.Circle, clicked.Circle, held.Circle, virtPrev.Circle);
+  btn(pressed.DpadUp, clicked.DpadUp, held.DpadUp, virtPrev.DpadUp);
+  btn(pressed.DpadDown, clicked.DpadDown, held.DpadDown, virtPrev.DpadDown);
+  btn(pressed.DpadLeft, clicked.DpadLeft, held.DpadLeft, virtPrev.DpadLeft);
+  btn(pressed.DpadRight, clicked.DpadRight, held.DpadRight,
+      virtPrev.DpadRight);
+  btn(pressed.L1, clicked.L1, held.L1, virtPrev.L1);
+  btn(pressed.L2, clicked.L2, held.L2, virtPrev.L2);
+  btn(pressed.L3, clicked.L3, held.L3, virtPrev.L3);
+  btn(pressed.R1, clicked.R1, held.R1, virtPrev.R1);
+  btn(pressed.R2, clicked.R2, held.R2, virtPrev.R2);
+  btn(pressed.R3, clicked.R3, held.R3, virtPrev.R3);
+  btn(pressed.Start, clicked.Start, held.Start, virtPrev.Start);
+  btn(pressed.Select, clicked.Select, held.Select, virtPrev.Select);
+  virtPrev = held;
+
+  auto axis = [](u8& value, const s16& add) {
+    if (!add) return;
+    int merged = static_cast<int>(value) + add;
+    if (merged < 0) merged = 0;
+    if (merged > 255) merged = 255;
+    value = static_cast<u8>(merged);
+  };
+  axis(leftJoyPad.h, leftJoyH);
+  axis(leftJoyPad.v, leftJoyV);
+  axis(rightJoyPad.h, rightJoyH);
+  axis(rightJoyPad.v, rightJoyV);
+  leftJoyPad.isCentered = leftJoyPad.h == 127 && leftJoyPad.v == 127;
+  leftJoyPad.isMoved = !leftJoyPad.isCentered;
+  rightJoyPad.isCentered = rightJoyPad.h == 127 && rightJoyPad.v == 127;
+  rightJoyPad.isMoved = !rightJoyPad.isCentered;
 }
 
 /** Resets state of joys/buttons */

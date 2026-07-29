@@ -25,8 +25,13 @@ struct Track { int scene; int obj; int chPos; int chRot; int chScale;
 // dolly it); eye/at hold the entity's authored pose as the fallback
 // when its scene is not the active one. fov is the entity's for bound
 // shots, the key's own for free ones. shake = handheld amplitude.
+// roll = the Dutch angle in degrees, rotation about the view axis.
+// Free shots carry the authored value; a shot BOUND to a Camera
+// entity leaves it 0 and takes its tilt from that entity's own
+// orientation instead (see the runtime's rollOf).
 struct CamKey { float t; float eye[3]; float at[3]; float fov;
-                float shake; int ease; int camScene; int camObj; };
+                float shake; float roll; int ease; int camScene;
+                int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
              int hidePlayer;  // hide the third-person avatar while playing
              int bars; int skippable; float fadeIn; float fadeOut;
@@ -155,7 +160,40 @@ class SequenceDirector : public Script {
       // CURRENT pose (object tracks already ran this frame, so a keyframed
       // camera entity gives a dolly/crane move); the +Z lens direction math
       // mirrors seqCameraForward in src/sequence.hpp.
-      auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+      // Camera up for a view direction plus a roll about it - mirrors
+      // seqCameraUp in src/sequence.hpp. Roll 0 gives world up, so an unrolled
+      // cutscene renders exactly as it did before roll existed.
+      auto upFor = [](const float fwd[3], float roll, float out[3]) {
+        float f[3] = {fwd[0], fwd[1], fwd[2]};
+        const float fl = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+        if (fl > 1e-8F) { f[0] /= fl; f[1] /= fl; f[2] /= fl; }
+        float ref[3] = {0.0F, 1.0F, 0.0F};
+        if (f[1] > 0.9995F || f[1] < -0.9995F) {
+          ref[0] = 0.0F; ref[1] = 0.0F; ref[2] = -1.0F;
+        }
+        float r[3] = {ref[1] * f[2] - ref[2] * f[1],
+                      ref[2] * f[0] - ref[0] * f[2],
+                      ref[0] * f[1] - ref[1] * f[0]};
+        const float rl = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+        if (rl > 1e-8F) { r[0] /= rl; r[1] /= rl; r[2] /= rl; }
+        const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2],
+                            f[0] * r[1] - f[1] * r[0]};
+        const float a = roll * 3.14159265F / 180.0F;
+        const float ca = cosf(a), sa = sinf(a);
+        for (int j = 0; j < 3; ++j) out[j] = u[j] * ca + r[j] * sa;
+      };
+      // Inverse: an arbitrary basis's roll - mirrors seqRollFromUp. Used to turn
+      // a bound Camera entity's own orientation into the same scalar channel the
+      // free shots interpolate.
+      auto rollOf = [&](const float fwd[3], const float up[3]) {
+        float lv[3], rt[3];
+        upFor(fwd, 0.0F, lv);
+        upFor(fwd, 90.0F, rt);
+        const float dc = up[0] * lv[0] + up[1] * lv[1] + up[2] * lv[2];
+        const float ds = up[0] * rt[0] + up[1] * rt[1] + up[2] * rt[2];
+        return atan2f(ds, dc) * 180.0F / 3.14159265F;
+      };
+      auto shot = [&](int i, float eye[3], float at[3], float& fov, float& roll) {
         const CamKey& c = k[i];
         if (c.camObj >= 0 && c.camScene == ctx.scene &&
             c.camObj < ctx.objectCount) {
@@ -173,31 +211,45 @@ class SequenceDirector : public Script {
             eye[j] = o.data.position[j];
             at[j] = o.data.position[j] + fwd[j];
           }
+          // The entity's own up (Rz*Ry*Rx applied to +Y - the middle column of
+          // seqEulerMatrix) turned into a roll, so a tilted camera object leans
+          // the shot. NOT c.roll: rotation.z is a world-axis rotation applied
+          // last, not a lens-axis roll, and only coincides with one when the
+          // camera is unpitched.
+          const float eu[3] = {cz * sy * sx - sz * cx, sz * sy * sx + cz * cx,
+                               cy * sx};
+          roll = rollOf(fwd, eu);
         } else {
           for (int j = 0; j < 3; ++j) {
             eye[j] = c.eye[j];
             at[j] = c.at[j];
           }
+          roll = c.roll;
         }
         fov = c.fov;
       };
       int i = 0;
       while (i < n - 1 && t >= k[i + 1].t) ++i;
-      float eye[3], at[3], fov;
-      shot(i, eye, at, fov);
+      float eye[3], at[3], fov, roll;
+      shot(i, eye, at, fov, roll);
       float shake = k[i].shake;
       if (t > k[i].t && i < n - 1) {
         const float span = k[i + 1].t - k[i].t;
         const float u = span > 1e-6F ? (t - k[i].t) / span : 0.0F;
         const float w = seqEase(k[i].ease, u);
-        float eye1[3], at1[3], fov1;
-        shot(i + 1, eye1, at1, fov1);
+        float eye1[3], at1[3], fov1, roll1;
+        shot(i + 1, eye1, at1, fov1, roll1);
         for (int j = 0; j < 3; ++j) {
           eye[j] += (eye1[j] - eye[j]) * w;
           at[j] += (at1[j] - at[j]) * w;
         }
         fov += (fov1 - fov) * w;
         shake += (k[i + 1].shake - shake) * w;
+        // Take the short way round, or a shot crossing +-180 deg spins.
+        float dr = roll1 - roll;
+        while (dr > 180.0F) dr -= 360.0F;
+        while (dr < -180.0F) dr += 360.0F;
+        roll += dr * w;
       }
       if (shake > 0.0F) {
         // handheld noise - mirrors seqShakeOffset in src/sequence.hpp
@@ -216,6 +268,14 @@ class SequenceDirector : public Script {
       ctx.cameraAt.x = at[0];
       ctx.cameraAt.y = at[1];
       ctx.cameraAt.z = at[2];
+      {
+        const float fwd[3] = {at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]};
+        float up[3];
+        upFor(fwd, roll, up);
+        ctx.cameraUp.x = up[0];
+        ctx.cameraUp.y = up[1];
+        ctx.cameraUp.z = up[2];
+      }
       applyFov(ctx, fov);
     }
     // Presentation: bars slide in/out over the sequence's reveal times

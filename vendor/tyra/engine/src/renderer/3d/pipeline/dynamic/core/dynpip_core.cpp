@@ -60,7 +60,8 @@ void DynPipCore::sendObjectDataToVU1(DynPipBag* bag) {
   RendererCoreTextureBuffers* texBuffers = nullptr;
   if (bag->texture) {
     auto temp = rendererCore->texture.useTexture(bag->texture->texture);
-    texBuffers = new RendererCoreTextureBuffers{temp.id, temp.core, temp.clut};
+    texBuffers =
+        new RendererCoreTextureBuffers{temp.id, temp.core, temp.clut, 0};
   }
 
   if (bag->info->transformationType == TyraMP) {

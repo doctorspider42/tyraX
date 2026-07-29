@@ -1,0 +1,7 @@
+# Station 2, rung 2: the same glow, white-hot core 0.35. Ke = color + 0.35 on
+# every channel -> salmon, and now G and B clear the threshold too.
+newmtl hot-1
+# tyra-brightness 1
+Kd 1.0000 0.1500 0.1000
+# tyra-glow 1 1 0.15 0.1 0.35
+Ke 1.3500 0.5000 0.4500

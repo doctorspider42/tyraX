@@ -32,6 +32,11 @@ namespace Tyra {
  * - Film grain: a small noise texture is drawn over the frame twice
  *   (subtractive, then additive) with different random offsets every frame,
  *   which yields zero-mean grain out of unsigned GS math.
+ * - God rays: the frame is downsampled, bright-passed (subtract a flat
+ *   threshold, double back up) and iteratively zoomed toward the sun's
+ *   screen position on the quarter-res buffers - each pass adds a copy of
+ *   the buffer sampled from a window shrunk around the sun, which stretches
+ *   bright pixels into radial streaks - then composited back additively.
  * - Depth of field: the frame is downsampled/softened like bloom, then the
  *   blur is alpha-blended back through full-screen sprites drawn at GS depths
  *   derived from the focus distance, with the ordinary z-test (GEQUAL, z
@@ -50,6 +55,29 @@ class RendererCorePostFx {
 
   /** Bloom strength: 0 = off, 128 = the blurred frame fully re-added. */
   void setBloom(const u8 strength) { bloom = strength; }
+
+  /**
+   * Bloom bright-pass threshold: 0 = off (the whole frame glows, the classic
+   * soft-focus look), 1..255 = only what is BRIGHTER than this contributes.
+   * Implemented as a flat subtract over the downsampled frame - the GS clamps
+   * at zero, so darker pixels drop out entirely and bright ones keep the
+   * excess. That is what turns a global soft glow into a halo around emissive
+   * materials (TyraX "Ke" materials) and specular hits.
+   */
+  void setBloomThreshold(const u8 level) { bloomThreshold = level; }
+  u8 getBloomThreshold() const { return bloomThreshold; }
+
+  /**
+   * How far the glow reaches: extra soften iterations over the quarter-res
+   * buffer, 1 (the original single 4-tap pass) to 4. Each iteration doubles
+   * the tap offsets, so the halo roughly doubles in radius while staying
+   * 4 blits - the cheapest way to turn a tight fringe into a real corona.
+   * Costs 4 extra GS sprites per extra iteration, no EE work and no VRAM.
+   */
+  void setBloomSpread(const u8 iterations) {
+    bloomSpread = iterations < 1 ? 1 : (iterations > 4 ? 4 : iterations);
+  }
+  u8 getBloomSpread() const { return bloomSpread; }
 
   /** Film grain strength: 0 = off, 128 = maximum. */
   void setGrain(const u8 strength) { grain = strength; }
@@ -70,6 +98,28 @@ class RendererCorePostFx {
   u8 getBloom() const { return bloom; }
   u8 getGrain() const { return grain; }
   u8 getDepthOfField() const { return dof; }
+
+  /**
+   * God rays / sun light shafts: bright parts of the frame streak toward the
+   * sun's screen position (a bright-pass + iterative zoom-toward-the-sun on
+   * the quarter-res bloom buffers) and composite back additively.
+   * strength: 0 = off, 128 = full. The game must also feed the sun's screen
+   * position every frame via setGodRaysSun - without it the pass is a no-op.
+   */
+  void setGodRays(const u8 strength) { rays = strength; }
+  u8 getGodRays() const { return rays; }
+
+  /**
+   * Per-frame sun state for the god rays: screen position in pixels
+   * (may sit off screen - the zoom center just moves out) and a 0..1
+   * visibility factor (0 = sun behind the camera, eases near the edge).
+   */
+  void setGodRaysSun(const float screenX, const float screenY,
+                     const float visibility) {
+    raysSunX = screenX;
+    raysSunY = screenY;
+    raysVis = visibility < 0.0F ? 0.0F : (visibility > 1.0F ? 1.0F : visibility);
+  }
 
   /**
    * Color grading, applied between bloom and grain. Per channel:
@@ -109,7 +159,8 @@ class RendererCorePostFx {
     PassGrading = 2,
     PassGrain = 4,
     PassDof = 8,
-    PassAll = 15
+    PassGodRays = 16,
+    PassAll = 31
   };
 
   /** True when any of the selected effects is active (apply draws something). */
@@ -117,7 +168,8 @@ class RendererCorePostFx {
     return (((passes & PassBloom) && bloom != 0) ||
             ((passes & PassGrading) && hasGrading()) ||
             ((passes & PassGrain) && grain != 0) ||
-            ((passes & PassDof) && dof != 0 && dofFocus > 0.0F));
+            ((passes & PassDof) && dof != 0 && dofFocus > 0.0F) ||
+            ((passes & PassGodRays) && rays != 0 && raysVis > 0.0F));
   }
 
   /**
@@ -181,9 +233,11 @@ class RendererCorePostFx {
   // One untextured full-screen sprite: flat RGBAQ color, blended over the
   // frame by `alpha`; `fbmsk` bits protect framebuffer bits from the write
   // (per-channel gain masks everything but its channel). Public for custom
-  // passes (flat tint / fade / lift / mix).
+  // passes (flat tint / fade / lift / mix). w/h default to the framebuffer
+  // size; pass the low-res extent to cover a quarter-res scratch buffer
+  // instead (the bloom bright-pass does).
   qword_t* flatQuad(qword_t* q, int dstVram, int dstBufW, u32 fbmsk, u8 r,
-                    u8 g, u8 b, u8 a, u64 alpha);
+                    u8 g, u8 b, u8 a, u64 alpha, int w = -1, int h = -1);
 
   // TyraX portals: the in-place through-view mask. The destination scene
   // renders FULL-RES into the real framebuffer right after the frame clear,
@@ -213,9 +267,14 @@ class RendererCorePostFx {
   RendererCoreGS* gs;
   packet2_t* packet;
   u8 bloom, grain;
+  u8 bloomThreshold;  // bright-pass cut, 0 = the whole frame blooms
+  u8 bloomSpread;     // soften iterations, 1 = the original tight blur
   u8 dof;         // depth-of-field strength, 0 = off
   float dofFocus; // sharp up to this camera distance (world units)
   float dofRange; // full blur reached at dofFocus + dofRange
+  u8 rays;           // god-rays strength, 0 = off
+  float raysSunX, raysSunY;  // sun screen position, pixels
+  float raysVis;             // 0..1 (0 = behind camera / faded out)
   u8 gGain[3];   // per-channel multiplier, 128 = 1x
   s16 gLift[3];  // per-channel offset, -255..255
   u8 gMix[3];    // mix target color
@@ -239,6 +298,10 @@ class RendererCorePostFx {
 
   /** The color grading sprites (gain -> lift -> mix), see setGrading(). */
   qword_t* gradingQuads(qword_t* q, int fbVram, int fbBufW);
+
+  /** flatQuad at an arbitrary size (the low-res work buffers). */
+  qword_t* sizedQuad(qword_t* q, int dstVram, int dstBufW, int w, int h, u8 r,
+                     u8 g, u8 b, u8 a, u64 alpha);
 };
 
 }  // namespace Tyra

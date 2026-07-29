@@ -1,6 +1,7 @@
 #include "fbxparser.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -789,8 +790,10 @@ int copyExternalTextures(const std::string& fbxPath,
 namespace animimport {
 namespace {
 bool isFbx(const std::string& path) {
-    return path.size() > 4 &&
-           _stricmp(path.c_str() + path.size() - 4, ".fbx") == 0;
+    if (path.size() <= 4) return false;
+    std::string ext = path.substr(path.size() - 4);
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+    return ext == ".fbx";
 }
 
 // --- "<model>.uvs" replacement-UV sidecar (see the header) -----------------

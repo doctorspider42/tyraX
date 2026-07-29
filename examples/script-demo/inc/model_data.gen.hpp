@@ -7,8 +7,16 @@ constexpr int MODEL_COUNT = 0;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
 };
-// per-model .mtl override ("" = the model's own material libraries)
+// per-model .mtl override, for the .obj fallback path only (a
+// .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "",
+};
+// The AUTHORED asset path each slot was baked from ("res/models/x.obj").
+// Nothing loads it - it is the key a runtime procedural volume
+// resolves its asset pool against, because a graph names assets the
+// way the editor does and the console only has baked .tmdl names.
+inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
 };
 constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};

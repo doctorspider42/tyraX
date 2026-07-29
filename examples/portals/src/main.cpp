@@ -59,6 +59,16 @@ int main(int argc, char** argv) {
     options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = false;
+  // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
+  // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
+  // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
+  // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
+  options.loadUsbKbdMouse = true;
+  // Preferences > Build > Keyboard & mouse > Also over ps2link (on by
+  // default): the engine reuses the USB stack of the TyraX ps2link
+  // (tools/ps2link), which bakes usbd+ps2kbd+ps2mouse into its own boot - it
+  // loads none of its own. See docs/ps2link-setup.md and docs/keyboard-mouse.md.
+  options.loadUsbKbdMouseUnderPs2Link = false;
   Tyra::Engine engine(options);
   Portals::TerrainGame game(&engine);
   engine.run(&game);

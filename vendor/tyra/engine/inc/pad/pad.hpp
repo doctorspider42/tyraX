@@ -7,6 +7,7 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Wellington Carvalho <wellcoj@gmail.com>
+# Modified by TyraX: injectVirtual - overlay keyboard/mouse input on the pad
 # Modified by TyraX: optional second pad (port parametric, non-blocking,
 # hot-join) for two-player games.
 */
@@ -60,6 +61,25 @@ class Pad {
   inline const PadJoy& getLeftJoyPad() const { return leftJoyPad; }
   inline const PadJoy& getRightJoyPad() const { return rightJoyPad; }
 
+  /** TyraX: overlay virtual input (e.g. USB keyboard mapped to buttons)
+   * on top of the physical pad. Call once per frame, after update() -
+   * update() rebuilds the state from hardware, so a skipped frame simply
+   * drops the overlay. held = buttons currently down; the joy args are
+   * -127..127 offsets added to the stick axes (0 = leave alone). Click
+   * edges are derived from the previous overlay internally.
+   *
+   * `slot` picks which overlay's history the click edges come from, so two
+   * independent virtual sources can both inject in one frame: 0 = the USB
+   * keyboard/mouse fold, 1 = the editor's Remote Pad (docs/remote-pad.md).
+   * Sharing a slot between two sources makes each call look like the other
+   * one released everything, which turns held buttons into a click every
+   * frame - hence one slot per source, not one shared previous state. */
+  void injectVirtual(const PadButtons& held, s16 leftJoyH, s16 leftJoyV,
+                     s16 rightJoyH, s16 rightJoyV, u8 slot = 0);
+
+  /** Overlay slots - see injectVirtual. */
+  static const int VIRT_SLOTS = 2;
+
  private:
   char padBuf[256] alignas(sizeof(char) * 256);
   char actAlign[6];
@@ -67,6 +87,8 @@ class Pad {
   padButtonStatus buttons;
   u32 padData, oldPad, newPad;
   PadButtons pressed, clicked;
+  // TyraX: last frame's injectVirtual held set, per overlay slot.
+  PadButtons virtPrev[VIRT_SLOTS];
   PadJoy leftJoyPad, rightJoyPad;
   bool optional, opened, ready, connected;
 

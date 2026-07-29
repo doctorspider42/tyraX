@@ -11,7 +11,7 @@ namespace pcsx2 {
 // Locates PCSX2.ini for the given emulator executable: portable builds keep
 // inis/ next to the exe, installed builds use <Documents>\PCSX2\inis
 // (Documents may be redirected, e.g. to OneDrive, so the shell is asked
-// instead of assuming %USERPROFILE%). Returns an empty path if not found.
+// instead of assuming the home directory). Returns an empty path if not found.
 std::filesystem::path findIni(const std::filesystem::path& exePath);
 
 enum class HostFsResult { AlreadyEnabled, Enabled, WriteFailed };
@@ -19,5 +19,12 @@ enum class HostFsResult { AlreadyEnabled, Enabled, WriteFailed };
 // Makes sure HostFs = true under [EmuCore]; a missing key means false
 // (the PCSX2 default), so it is added when absent.
 HostFsResult ensureHostFs(const std::filesystem::path& ini);
+
+// Configures PCSX2's emulated USB devices for the keyboard & mouse project
+// preference: [USB1] becomes a HID keyboard bound to the host keyboard and
+// [USB2] a HID mouse bound to the host pointer, matching the ps2kbd/ps2mouse
+// drivers the generated game loads. Overwrites whatever occupied the ports
+// (logged by the caller) - same policy as ensureHostFs.
+HostFsResult ensureUsbKbdMouse(const std::filesystem::path& ini);
 
 }  // namespace pcsx2

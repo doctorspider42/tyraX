@@ -25,7 +25,7 @@ git log --oneline HEAD..origin/main   # anything incoming?
 git merge origin/main                 # merge NOW, locally
 ```
 
-If the merge conflicts: resolve, rebuild the editor (`./build.ps1`), run at
+If the merge conflicts: resolve, rebuild the editor (`./build.ps1` or `./build.sh`), run at
 least one Docker game build (`build\tyrax-editor.exe --build <projectDir>` -
 codegen conflicts compile only inside the container), commit the merge, THEN
 create the PR.
@@ -64,7 +64,7 @@ Report the mergeable state to the user as part of "PR is up".
 ## After resolving: verify before pushing
 
 A merge that compiles the editor can still emit game code that does not
-compile on the PS2 toolchain. Minimum: `./build.ps1` clean + one
+compile on the PS2 toolchain. Minimum: `./build.ps1` / `./build.sh` clean + one
 `--build <projectDir>` returning exit 0 (see tyra-testing). If the merge
 touched player/scene runtime templates, boot PCSX2 once.
 

@@ -4,6 +4,45 @@ project(tyrax-editor CXX C)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- Compiler cache (optional) ---
+# Nothing here depends on it, but a hit costs milliseconds instead of seconds
+# and this repo is worked on in several git worktrees at once, each with its own
+# build directory - so the same translation unit gets compiled from scratch over
+# and over. Picked up if it is on PATH; absent, the build is exactly what it
+# was. Override with -DTYRAX_COMPILER_CACHE=OFF (or =/path/to/ccache).
+set(TYRAX_COMPILER_CACHE "AUTO" CACHE STRING
+    "Compiler cache to use: AUTO (ccache then sccache, if on PATH), OFF, or a path")
+if(NOT TYRAX_COMPILER_CACHE STREQUAL "OFF")
+    if(TYRAX_COMPILER_CACHE STREQUAL "AUTO")
+        find_program(TYRAX_CACHE_EXE NAMES ccache sccache)
+    else()
+        set(TYRAX_CACHE_EXE "${TYRAX_COMPILER_CACHE}")
+    endif()
+    if(TYRAX_CACHE_EXE)
+        set(CMAKE_C_COMPILER_LAUNCHER "${TYRAX_CACHE_EXE}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${TYRAX_CACHE_EXE}")
+        message(STATUS "Compiler cache: ${TYRAX_CACHE_EXE}")
+    endif()
+endif()
+
+# --- Dev build type ---
+# Optimizes for how long the BUILD takes, not for how fast the editor runs:
+# -O3 is roughly two thirds of this project's compile time (measured on
+# app.cpp: 21 s at -O0, 37 s at -O1, 66 s at -O3). -O1 is the compromise that
+# keeps the CPU-heavy host bakes (gibake/matbake/aobake raytracing, texture
+# quantization) usable - do NOT ship a Dev build or benchmark one.
+#
+# FORCE-if-empty, not a plain cache set: compiler detection inside project()
+# already created an empty CMAKE_<LANG>_FLAGS_DEV cache entry for the requested
+# build type, so a non-FORCE set here is silently a no-op and Dev compiles at
+# -O0-with-no-flags. Guarding on "still empty" keeps a user's own
+# -DCMAKE_CXX_FLAGS_DEV=... on the command line winning.
+foreach(_devflag C_FLAGS_DEV CXX_FLAGS_DEV)
+    if(NOT CMAKE_${_devflag})
+        set(CMAKE_${_devflag} "-O1 -g0" CACHE STRING "Dev build type flags" FORCE)
+    endif()
+endforeach()
+
 # Compile the Windows resource script (app icon). Named GLFW_ICON so GLFW picks
 # it up for the window/taskbar icon too - see resources/app.rc.
 if(WIN32)
@@ -34,6 +73,18 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_link_libraries(imgui PUBLIC glfw)
+# UI scripting (docs/ui-scripting.md): ImGui's test-engine hooks are how the
+# editor knows which widget is where, so a script can click by NAME. We
+# implement the four hook functions ourselves in src/uiscript.cpp - the
+# imgui_test_engine library is NOT vendored (its licence is not ours to take on),
+# and we need none of it.
+#
+# PUBLIC, and that is load-bearing: the define adds fields to ImGuiContext and
+# values to ImGuiItemStatusFlags_, so the library and every consumer must agree
+# or they disagree about the layout of a struct they both touch. ImGui only calls
+# the hooks when g.TestEngineHookItems is set, which happens only while a script
+# runs - so a normal session pays one never-taken branch per widget.
+target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_TEST_ENGINE)
 
 # --- Embedded AI-support skills (ai-support/ -> generated header) ---
 # The markdown under ai-support/ is the source of truth for the assistant
@@ -51,30 +102,84 @@ add_custom_command(
     DEPENDS ${AI_SUPPORT_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
     COMMENT "Embedding ai-support/ skills")
 
+# --- Embedded app icon (resources/icon.png -> generated header) ---
+# Windows gets its icon from the GLFW_ICON resource in resources/app.rc above.
+# Every other platform needs the same image at RUNTIME - GLFW wants decoded
+# pixels for the window icon and the freedesktop desktop entry wants a PNG on
+# disk - so the file is baked in rather than shipped loose next to the binary.
+set(APP_ICON_GEN ${CMAKE_BINARY_DIR}/generated/icon_gen.hpp)
+add_custom_command(
+    OUTPUT ${APP_ICON_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/icon.png
+            -DOUT_FILE=${APP_ICON_GEN}
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/icon.png
+            ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+    COMMENT "Embedding resources/icon.png")
+
+# Own target for the two generators. If the headers were listed straight in
+# tyrax-editor's sources, CMake would attach their custom commands to that
+# target and give them order-only deps on everything it LINKS - so both
+# generators (0.1 s of work) waited for libimgui.a, and with them every editor
+# .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
+add_custom_target(tyrax-generated DEPENDS ${AI_SUPPORT_GEN} ${APP_ICON_GEN})
+
 # --- Editor ---
 add_executable(tyrax-editor
-    ${AI_SUPPORT_GEN}
     src/main.cpp
     src/aigen.cpp
     src/aisupport.cpp
+    src/animedit.cpp
     src/aobake.cpp
     src/app.cpp
+    src/audiopreview.cpp
+    src/assetbrowser.cpp
     src/camtake.cpp
+    src/credits_ui.cpp
+    src/cutscene_ui.cpp
+    src/devkit_ui.cpp
+    src/devsession.cpp
+    src/flowgraph_ui.cpp
     src/flownode.cpp
+    src/hud_ui.cpp
+    src/mateditor_ui.cpp
+    src/prefab_ui.cpp
+    src/procui.cpp
+    src/props_ui.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
+    src/elfsym.cpp
+    src/livedbg.cpp
+    src/livelogic.cpp
+    src/livepad.cpp
+    src/livetime.cpp
+    src/vucap.cpp
+    src/bvh.cpp
+    src/gibake.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
     src/esrudf.cpp
     src/menubake.cpp
+    src/meshlod.cpp
     src/pcsx2_config.cpp
+    src/phonecam.cpp
+    src/placement.cpp
+    src/platform.cpp
     src/pngquant.cpp
+    src/prefab.cpp
     src/primmesh.cpp
+    src/procgraph.cpp
+    src/procgen.cpp
+    src/procbake.cpp
+    src/procrt.cpp
     src/decalproj.cpp
+    src/dronegen.cpp
+    src/droneui.cpp
     src/navmesh.cpp
     src/project.cpp
     src/screenfx.cpp
@@ -82,6 +187,9 @@ add_executable(tyrax-editor
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
+    src/tmdl.cpp
+    src/treegen.cpp
+    src/uiscript.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp
@@ -95,10 +203,23 @@ add_executable(tyrax-editor
 
     ${TYRAX_EDITOR_RC}
 )
-target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx ${CMAKE_BINARY_DIR}/generated)
+target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx vendor/miniaudio ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
-# ws2_32: the collaboration transport (src/wire.cpp) uses Winsock2 sockets.
-target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid ws2_32)
+add_dependencies(tyrax-editor tyrax-generated)
+
+find_package(OpenGL REQUIRED)
+target_link_libraries(tyrax-editor PRIVATE imgui glfw OpenGL::GL)
+
+if(WIN32)
+    # shell32/ole32/uuid: the native file pickers and "Reveal in Explorer"
+    # (src/platform.cpp). ws2_32: the socket transport (src/wire.cpp).
+    target_link_libraries(tyrax-editor PRIVATE shell32 ole32 uuid ws2_32)
+else()
+    # Threads: std::thread needs an explicit -pthread with libstdc++, and
+    # ${CMAKE_DL_LIBS} is what GLFW's runtime GL/Vulkan loading wants.
+    find_package(Threads REQUIRED)
+    target_link_libraries(tyrax-editor PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 if(MINGW)
     # Self-contained exe: don't depend on libstdc++/libgcc/libwinpthread DLLs

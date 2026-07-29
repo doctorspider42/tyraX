@@ -13,6 +13,15 @@ struct Submesh {
                            // that defined it (the .obj's directory when the
                            // library came from mtllib/the sibling .mtl)
     float kd[3] = {1.0f, 1.0f, 1.0f};  // diffuse color, multiplies the object color
+    // Ke: emission (docs/emissive-materials.md). A brightness FLOOR the shaded
+    // surface never drops below - the material stays lit in total darkness.
+    // {0,0,0} = matte, lit like everything else.
+    float ke[3] = {0.0f, 0.0f, 0.0f};
+    // "# tyra-glow-light <range> <strength>": the material also BAKES light
+    // into the geometry around it (docs/emissive-materials.md). range in world
+    // units, 0 = lights nothing (the default).
+    float glowRange = 0.0f;
+    float glowLight = 1.0f;
     std::string refl;           // refl sphere map ("" = not reflective)
     float reflStrength = 0.0f;  // reflection strength 0..1
     bool reflRounded = false;   // -rounded: centroid-radial env normals
@@ -42,6 +51,14 @@ struct MtlMaterial {
     std::string name;
     std::string texture;  // map_Kd, relative to the .mtl's directory ("" = none)
     float kd[3] = {1.0f, 1.0f, 1.0f};
+    float ke[3] = {0.0f, 0.0f, 0.0f};  // emission floor ({0,0,0} = matte)
+    // The AUTHORED glow color from "# tyra-glow" - Ke with the white-hot core
+    // already folded in, so it is the wrong thing to light a room with (an
+    // overexposed emitter looks whiter, the light it casts does not change
+    // hue). Falls back to Ke normalized by its brightest channel.
+    float glowColor[3] = {1.0f, 1.0f, 1.0f};
+    float glowRange = 0.0f;   // "# tyra-glow-light": baked light reach, 0 = none
+    float glowLight = 1.0f;   // ...and its strength
     float scale[2] = {1.0f, 1.0f};  // map_Kd -s (u, v) UV multiplier; 1 = as-is
     std::string refl;           // refl sphere map ("" = not reflective)
     float reflStrength = 0.0f;  // reflection strength 0..1 (refl -mm gain)
@@ -65,8 +82,9 @@ struct MtlMaterial {
 bool load(const std::string& path, Model& out,
           const std::string& overrideMtl = "");
 
-// Parses a standalone .mtl library (newmtl/Kd/map_Kd/refl), materials in file
-// order. Returns false when the file cannot be read or defines no materials.
+// Parses a standalone .mtl library (newmtl/Kd/Ke/map_Kd/refl), materials in
+// file order. Returns false when the file cannot be read or defines no
+// materials.
 bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out);
 
 // Applies a material library as an OVERRIDE to an already-parsed model (a

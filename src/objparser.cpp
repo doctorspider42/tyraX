@@ -1,5 +1,6 @@
 #include "objparser.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -17,6 +18,11 @@ namespace {
 
 struct Material {
     float kd[3] = {1.0f, 1.0f, 1.0f};
+    float ke[3] = {0.0f, 0.0f, 0.0f};  // Ke: emission floor ({0,0,0} = matte)
+    float glowColor[3] = {1.0f, 1.0f, 1.0f};  // "# tyra-glow" authored color
+    bool gotGlowColor = false;
+    float glowRange = 0.0f;  // "# tyra-glow-light <range> <strength>"
+    float glowLight = 1.0f;
     std::string texture;  // map_Kd, relative to its .mtl's directory
     float scale[2] = {1.0f, 1.0f};  // map_Kd -s (u, v); UV multiplier
     std::string refl;          // refl sphere map, relative to the .mtl ("" = none)
@@ -69,6 +75,11 @@ bool parseMtl(const std::filesystem::path& path,
         } else if (tag == "Kd" && !current.empty()) {
             Material& m = materials[current];
             ss >> m.kd[0] >> m.kd[1] >> m.kd[2];
+        } else if (tag == "Ke" && !current.empty()) {
+            // Standard Wavefront emission. TyraX reads it as a per-channel
+            // brightness floor (docs/emissive-materials.md).
+            Material& m = materials[current];
+            ss >> m.ke[0] >> m.ke[1] >> m.ke[2];
         } else if (tag == "map_Kd" && !current.empty()) {
             Material& m = materials[current];
             parseMapKd(ss, m.texture, m.scale);
@@ -93,6 +104,25 @@ bool parseMtl(const std::filesystem::path& path,
                 if (toks[i] == "-rounded") m.reflRounded = true;
             if (m.reflStrength <= 0.0f && !m.refl.empty())
                 m.reflStrength = 0.5f;  // refl without -mm: sensible default
+        } else if (tag == "#" && !current.empty()) {
+            // TyraX hint: "# tyra-glow-light <range> <strength>" - the emissive
+            // material also bakes light into the geometry around it. Wavefront
+            // has no statement for this, and a comment stays portable.
+            std::string what;
+            ss >> what;
+            if (what == "tyra-glow-light") {
+                Material& m = materials[current];
+                ss >> m.glowRange >> m.glowLight;
+            } else if (what == "tyra-glow") {
+                // "<strength> [r g b] [white-hot]" - only the authored color
+                // matters here (Ke already carries strength and white-hot).
+                Material& m = materials[current];
+                float s, r, g, b;
+                if (ss >> s >> r >> g >> b) {
+                    m.glowColor[0] = r, m.glowColor[1] = g, m.glowColor[2] = b;
+                    m.gotGlowColor = true;
+                }
+            }
         }
     }
     return true;
@@ -112,6 +142,18 @@ bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out) {
         m.kd[0] = materials[name].kd[0];
         m.kd[1] = materials[name].kd[1];
         m.kd[2] = materials[name].kd[2];
+        for (int i = 0; i < 3; ++i) m.ke[i] = materials[name].ke[i];
+        if (materials[name].gotGlowColor) {
+            for (int i = 0; i < 3; ++i)
+                m.glowColor[i] = materials[name].glowColor[i];
+        } else {
+            // Hand-written Ke with no hint: recover the hue by normalizing.
+            const float mx = std::max(m.ke[0], std::max(m.ke[1], m.ke[2]));
+            for (int i = 0; i < 3; ++i)
+                m.glowColor[i] = mx > 0.0001f ? m.ke[i] / mx : 1.0f;
+        }
+        m.glowRange = materials[name].glowRange;
+        m.glowLight = materials[name].glowLight;
         m.scale[0] = materials[name].scale[0];
         m.scale[1] = materials[name].scale[1];
         m.refl = materials[name].refl;
@@ -163,6 +205,9 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
             s.kd[0] = m->second.kd[0];
             s.kd[1] = m->second.kd[1];
             s.kd[2] = m->second.kd[2];
+            for (int i = 0; i < 3; ++i) s.ke[i] = m->second.ke[i];
+            s.glowRange = m->second.glowRange;
+            s.glowLight = m->second.glowLight;
             s.texture = m->second.texture;
             s.refl = m->second.refl;
             s.reflStrength = m->second.reflStrength;
