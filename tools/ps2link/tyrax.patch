@@ -186,7 +186,7 @@ index 08f9b19..83e8f93 100644
      }
      close(fd);
      return ret;
-@@ -364,7 +401,14 @@ pkoDumpReg(pko_pkt_dump_regs *cmd)
+@@ -364,7 +401,20 @@ pkoDumpReg(pko_pkt_dump_regs *cmd)
          sizeof(gsregs) + sizeof(sifregs) + sizeof(fiforegs) +
          sizeof(gifregs) + sizeof(vif0regs) + sizeof(vif1regs) +
          sizeof(ipuregs);
@@ -196,9 +196,15 @@ index 08f9b19..83e8f93 100644
 +     * REGALL_SIZE is 508 bytes but the REGVU0/REGVU1 asm below stores 896
 +     * bytes here, so the accidental over-allocation was load-bearing and the
 +     * tidy-looking fix would overflow the stack frame. Size it for the real
-+     * worst case instead (896 bytes rather than 2032). */
++     * worst case instead (896 bytes rather than 2032).
++     *
++     * aligned(16) because the REGVU0/REGVU1 asm reaches this buffer with
++     * sqc2/sq, and the R5900 MASKS the low 4 bits of an lq/sq address instead
++     * of faulting: on a 4-byte-aligned array every store would silently land
++     * up to 12 bytes BELOW where it was aimed, off the front of the buffer. */
 +#define REGDUMP_VU_SIZE 896
-+    unsigned int regs[((REGALL_SIZE > REGDUMP_VU_SIZE ? REGALL_SIZE : REGDUMP_VU_SIZE) + 3) / 4];
++    unsigned int regs[((REGALL_SIZE > REGDUMP_VU_SIZE ? REGALL_SIZE : REGDUMP_VU_SIZE) + 3) / 4]
++        __attribute__((aligned(16)));
  
      size = 0;
      j = 0;

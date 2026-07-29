@@ -67,6 +67,7 @@ recoverable hiccup into "the console is dead, hit Reset":
 | `ee/cmdHandler.c` `pkoExecEE()` | a failed thread start zeroed **`cmdThreadID`** — the wrong variable, and the one the SIF DMA handler wakes. After that ps2link answered no command at all. |
 | `ee/cmdHandler.c` `pkoReset()` | `while (SifIopSync());` — **inverted**. It fell through on the first (still-resetting) call, so the reload ran against a half-reset IOP. Every deploy goes through here. The correct idiom is the one `restartIOP()` in the same tree already used. |
 | `ee/cmdHandler.c` | `dumpmem`/`writemem`/`dumpreg` returned on failure without `close()`, leaking a `host:` fd on both sides; `writemem` copied the requested length rather than what `read()` delivered; `gsexec` DMA'd a packet-supplied qword count out of a buffer it had only filled 128 bytes of. |
+| `ee/cmdHandler.c` `pkoDumpReg()` | `unsigned int regs[REGALL_SIZE]` used a byte count as an element count. Do **not** "fix" that with `/4`: `REGALL_SIZE` is 508 bytes while the `REGVU0`/`REGVU1` asm stores 896 into the same buffer, so the 4× over-allocation was load-bearing — it is sized for the real worst case instead, and marked `aligned(16)`, because `sqc2`/`sq` reach it and the R5900 masks the low 4 bits of an `lq`/`sq` address rather than faulting. |
 | `ee/excepHandler.c` | the exception-name table has 14 entries and was indexed with a 0..31 code, so half the codes printed whatever followed it — a second fault while reporting the first. |
 
 **Silencing the SPU2 on reset (r3)** — the SPU2 is a separate block from the IOP
