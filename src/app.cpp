@@ -546,6 +546,16 @@ int App::run(const std::string& initialProjectDir) {
         openProjectAt(dir);  // failure leaves the welcome screen up
     }
 
+    // UI scripting (docs/ui-scripting.md): collect ImGui's item boxes so a
+    // script can name widgets, and stop pacing to the monitor - an unattended
+    // run has nobody watching, and every step costs frames.
+    if (uiScriptActive_) {
+        uiscript::setEnabled(true);
+        glfwSwapInterval(0);
+        std::printf("[ui] running %zu step(s)\n", uiScript_.size());
+        std::fflush(stdout);
+    }
+
     while (true) {
         glfwPollEvents();
 
@@ -573,6 +583,10 @@ int App::run(const std::string& initialProjectDir) {
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
+        // Between the backend and NewFrame on purpose: the script reads the item
+        // map the last frame built and queues this frame's input, and a later
+        // event overrides whatever the backend just fed from a real cursor.
+        uiScriptTick();
         ImGui::NewFrame();
 
         drawUI();
@@ -592,11 +606,25 @@ int App::run(const std::string& initialProjectDir) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         captureFrameIfRequested(w, h);
+        if (!uiShotPath_.empty()) {  // a script's shot step, after its frame drew
+            captureFrameTo(uiShotPath_, w, h);
+            uiShotPath_.clear();
+        }
 
         glfwSwapBuffers(window_);
     }
 
     // No save on exit: the user chose to discard (or had nothing unsaved).
+
+    // Let go of the Remote Pad. Closing the editor while a button was held used
+    // to leave livepad.bin saying "attached, Cross down" forever - the game's
+    // staleness watchdog covers a running game, but the leftover file also reads
+    // as a held button to anything inspecting it, and that made a UI-script test
+    // look like it had a stuck button for 12 seconds when the hold was 4.
+    if (padAttached_) {
+        showRemotePad_ = false;
+        remotePadTick();  // the detach path: neutral state, attached flag cleared
+    }
 
     // Audio first: the device callback holds the LiveSynth, and a running
     // render thread writes into droneRenderResult_. Both must be done before
@@ -616,7 +644,7 @@ int App::run(const std::string& initialProjectDir) {
     ImGui::DestroyContext();
     glfwDestroyWindow(window_);
     glfwTerminate();
-    return 0;
+    return uiScriptFailed_ ? 1 : 0;  // a UI script gates a scripted run
 }
 
 // Framebuffer self-capture, enabled by the TYRAX_SHOT environment variable
@@ -644,6 +672,14 @@ void App::captureFrameIfRequested(int w, int h) {
     if (glfwGetTime() < next) return;
     next = glfwGetTime() + every;
 
+    char path[512];
+    std::snprintf(path, sizeof(path), "%s/shot%02d.png", dir, shotNo++);
+    captureFrameTo(path, w, h);
+}
+
+// The read-back itself, also used by a UI script's `shot` step.
+bool App::captureFrameTo(const std::string& path, int w, int h) {
+    if (w <= 0 || h <= 0) return false;
     std::vector<unsigned char> px((size_t)w * h * 3);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px.data());
@@ -652,13 +688,12 @@ void App::captureFrameIfRequested(int w, int h) {
     for (int y = 0; y < h; ++y)
         std::memcpy(&flipped[(size_t)y * w * 3], &px[(size_t)(h - 1 - y) * w * 3],
                     (size_t)w * 3);
-    char path[512];
-    std::snprintf(path, sizeof(path), "%s/shot%02d.png", dir, shotNo++);
-    if (stbi_write_png(path, w, h, 3, flipped.data(), w * 3))
-        std::printf("[shot] %s (%dx%d)\n", path, w, h);
-    else
-        std::printf("[shot] failed to write %s\n", path);
+    const bool ok =
+        stbi_write_png(path.c_str(), w, h, 3, flipped.data(), w * 3) != 0;
+    std::printf(ok ? "[shot] %s (%dx%d)\n" : "[shot] failed to write %s (%dx%d)\n",
+                path.c_str(), w, h);
     std::fflush(stdout);
+    return ok;
 }
 
 void App::drawUI() {
@@ -720,6 +755,7 @@ void App::drawUI() {
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
     livetimeTick();
+    remotePadTick();  // the editor holds the controller (docs/remote-pad.md)
 
     // Hot-patch edited flow graphs into the running game (throttled; writes
     // only when the compiled program actually changed).
@@ -760,6 +796,7 @@ void App::drawUI() {
     drawLoadingScreenWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
+    drawRemotePadWindow();
     drawSessionWindow();
     drawPhoneCamWindow();
     drawNewProjectModal();
@@ -1272,6 +1309,13 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::Separator();
             if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
+            if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Hold the running game's controller from here - click the\n"
+                    "buttons or drive it with the editor's keyboard. PCSX2 does\n"
+                    "not need the focus, and the same channel is scriptable\n"
+                    "(tyrax-editor --pad). Debug builds only.");
             ImGui::Separator();
             if (ImGui::MenuItem("Tree Generator...")) {
                 showTreeGenerator_ = true;
@@ -3825,6 +3869,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
+    if (key == "pad") return &showRemotePad_;
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     return nullptr;
@@ -3845,7 +3890,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
     "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "proc",     "prefabs"};
+    "pad",      "proc",     "prefabs"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -10862,6 +10907,19 @@ void App::drawPreferencesModal() {
         "on the situation that just broke. Costs one small file written next\n"
         "to the ELF every few frames, and nothing at all in a release build.\n"
         "See docs/time-machine.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
+        "you can click (or drive with the editor's own keyboard), and the game\n"
+        "reads it out of one small file next to the ELF. Nothing needs the\n"
+        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
+        "channel is scriptable from the command line\n"
+        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
+        "an unattended input test possible. Works on real hardware over\n"
+        "ps2link too (polled less often - it is a network round-trip there).\n"
+        "Release builds carry none of it. See docs/remote-pad.md.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("EE crash handler (experimental)",
                     &prefSettings_.eeCrashHandler);

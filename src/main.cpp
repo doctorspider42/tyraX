@@ -5,6 +5,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -16,6 +17,8 @@
 #include "elfsym.hpp"
 #include "gibake.hpp"
 #include "livedbg.hpp"
+#include "livepad.hpp"
+#include "uiscript.hpp"
 #include "vucap.hpp"
 #include "app.hpp"
 #include "platform.hpp"
@@ -843,6 +846,220 @@ static int symbolizeFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
+//   tyrax-editor.exe --pad <projectDir> "<script>" [more...]
+//   tyrax-editor.exe --pad <projectDir> --file <script.pad>
+//   tyrax-editor.exe --pad <projectDir> --stdin
+//
+// Holds the controller for a running game (docs/remote-pad.md). This is the
+// unattended half of the Remote Pad: it writes bin/livepad.bin, which the game
+// polls over the same host: filesystem it loads assets from - so no window
+// needs the keyboard focus, which on Windows is the difference between an input
+// test that can be scripted and one that needs a human in front of PCSX2.
+//
+// The script language is livepad::parseScript. Note that a `hold` with no
+// `wait` after it does nothing visible: the driver detaches when it exits and
+// the game lets go, on purpose - a killed driver must not leave the player
+// walking into a wall.
+static int padFromCli(int argc, char** argv) {
+    auto usage = [] {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --pad <projectDir> \"<script>\" "
+                     "[more...]\n"
+                     "       tyrax-editor --pad <projectDir> --file "
+                     "<script.pad>\n"
+                     "       tyrax-editor --pad <projectDir> --stdin\n"
+                     "\n"
+                     "script: press cross [s] | hold up | release up|all |\n"
+                     "        stick l|r <x> <y> | wait <s> | neutral | pad 1|2\n"
+                     "        (separated by ';' or newlines, '#' comments)\n"
+                     "example: --pad myproj \"stick l 0 -127; wait 2; neutral\"\n");
+        return 2;
+    };
+    if (argc < 3) return usage();
+    Project p;
+    const std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+
+    std::string text;
+    auto append = [&text](const std::string& s) {
+        if (!text.empty()) text += "\n";
+        text += s;
+    };
+    for (int i = 3; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--stdin") {
+            std::ostringstream ss;
+            ss << std::cin.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        if (a == "--file") {
+            if (i + 1 >= argc) return usage();
+            std::ifstream f(argv[++i]);
+            if (!f) {
+                std::fprintf(stderr, "error: cannot read %s\n", argv[i]);
+                return 1;
+            }
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        append(a);
+    }
+    if (text.empty()) return usage();
+
+    std::vector<livepad::Step> steps;
+    std::string perr;
+    if (!livepad::parseScript(text, steps, perr)) {
+        std::fprintf(stderr, "error: %s\n", perr.c_str());
+        return 2;
+    }
+    if (steps.empty()) {
+        std::fprintf(stderr, "error: nothing to do\n");
+        return 2;
+    }
+    // The commonest reason "nothing happened": the game was never built with
+    // the channel in it. Say so up front rather than letting the run look fine.
+    if (p.settings.buildProfile != "debug")
+        std::fprintf(stderr,
+                     "warning: this project's build profile is \"%s\" - a "
+                     "release build carries no Remote Pad, so the running game "
+                     "will ignore this.\n",
+                     p.settings.buildProfile.c_str());
+    else if (!p.settings.remotePad)
+        std::fprintf(stderr,
+                     "warning: the \"Remote Pad\" preference is off for this "
+                     "project - the game was built without the channel and "
+                     "will ignore this.\n");
+
+    const std::string path =
+        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string();
+    // Seed the sequence from the clock: a second driver run must never reuse a
+    // number the still-running game already saw, or its first state reads as
+    // "nothing changed" and the staleness watchdog starts counting.
+    uint32_t seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    bool failed = false;
+    auto push = [&](const livepad::State& s, bool attached) {
+        const std::string e = livepad::write(path, s, ++seq, attached);
+        if (e.empty()) return true;
+        std::fprintf(stderr, "error: %s\n", e.c_str());
+        failed = true;
+        return false;
+    };
+
+    const auto t0 = std::chrono::steady_clock::now();
+    for (const livepad::Step& st : steps) {
+        std::printf("[pad] %s\n", st.source.c_str());
+        std::fflush(stdout);
+        if (!push(st.state, true)) break;
+        if (st.seconds <= 0.0) continue;
+        // Keep refreshing while we hold: the seq is what tells the game we are
+        // still here (see livepad::kStaleFrames), and a state written once
+        // would expire mid-hold on a long wait.
+        const auto until = std::chrono::steady_clock::now() +
+                           std::chrono::milliseconds((int)(st.seconds * 1000.0));
+        while (std::chrono::steady_clock::now() < until) {
+            platform::sleepMs(40);
+            if (!push(st.state, true)) break;
+        }
+        if (failed) break;
+    }
+    // Detach: neutral AND flagged gone, so the game drops the overlay on its
+    // next poll instead of holding the last state for the watchdog's two
+    // seconds.
+    push(livepad::State(), false);
+    const double secs =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+            .count();
+    if (!failed)
+        std::printf("[pad] done - %zu step(s) in %.1fs, pad released\n",
+                    steps.size(), secs);
+    return failed ? 1 : 0;
+}
+
+// Scripted GUI run:
+//   tyrax-editor.exe --ui-script [projectDir] "<script>" [more...]
+//   tyrax-editor.exe --ui-script [projectDir] --file <script.ui>
+//
+// Drives the EDITOR without a human (docs/ui-scripting.md). Unlike every other
+// entry point here this one RUNS THE GUI - it just holds the mouse and keyboard
+// itself, by injecting into ImGui's event queue and resolving targets by widget
+// name. Exit code 0 = every step succeeded.
+static int uiScriptFromCli(int argc, char** argv) {
+    auto usage = [] {
+        std::fprintf(
+            stderr,
+            "usage: tyrax-editor --ui-script [projectDir] \"<script>\" [more...]\n"
+            "       tyrax-editor --ui-script [projectDir] --file <script.ui>\n"
+            "\n"
+            "script: click|hover|doubleclick|expect|expect-not <target>\n"
+            "        hold <target> [seconds] | drag <target> <dx> <dy>\n"
+            "        key <chord> | text <string> | wait <s> | frames <n>\n"
+            "        shot <file.png> | dump | log <text> | quit\n"
+            "target: \"Window/Label\" or \"Label\" (case-insensitive)\n"
+            "example: --ui-script myproj \"click Tools; click 'Remote Pad';"
+            " shot pad.png\"\n"
+            "hint:    a script of just \"dump\" lists every widget on screen\n");
+        return 2;
+    };
+    if (argc < 3) return usage();
+
+    // The project directory is optional (a script may only need the welcome
+    // screen), so it is "the first argument, if it looks like a directory".
+    int i = 2;
+    std::string projectDir;
+    if (std::filesystem::is_directory(argv[i]) ||
+        std::filesystem::path(argv[i]).extension() == ".tyra") {
+        projectDir = argv[i];
+        ++i;
+    }
+    std::string text;
+    auto append = [&text](const std::string& s) {
+        if (!text.empty()) text += "\n";
+        text += s;
+    };
+    for (; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--file") {
+            if (i + 1 >= argc) return usage();
+            std::ifstream f(argv[++i]);
+            if (!f) {
+                std::fprintf(stderr, "error: cannot read %s\n", argv[i]);
+                return 1;
+            }
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        if (a == "--stdin") {
+            std::ostringstream ss;
+            ss << std::cin.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        append(a);
+    }
+    if (text.empty()) return usage();
+
+    std::vector<uiscript::Step> steps;
+    std::string err;
+    if (!uiscript::parseScript(text, steps, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 2;
+    }
+    App app;
+    app.setUiScript(steps);
+    return app.run(projectDir);
+}
+
+// Headless helper:
 //   tyrax-editor.exe --dump-vucap <projectDir>
 //
 // Decodes bin/vucap.bin - the VU1 DMA chain the game handed over - so the
@@ -1012,6 +1229,10 @@ int main(int argc, char** argv) {
         return symbolizeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--audit-release") == 0)
         return auditReleaseFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--pad") == 0)
+        return padFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--ui-script") == 0)
+        return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
@@ -1041,6 +1262,10 @@ int main(int argc, char** argv) {
             "on this machine right now\n"
             "  --dump-vucap <projectDir>               decode the last VU1 "
             "capture\n"
+            "  --pad <projectDir> \"<script>\"           drive the running "
+            "game's controller (docs/remote-pad.md)\n"
+            "  --ui-script [projectDir] \"<script>\"     drive the EDITOR's own "
+            "UI (docs/ui-scripting.md)\n"
             "  --resave <projectDir>\n"
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "

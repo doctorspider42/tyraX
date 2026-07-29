@@ -755,6 +755,13 @@ struct ProjectSettings {
     // generated runtime is an empty translation unit.
     bool timeMachine = true;
 
+    // Debug profile only: compile the Remote Pad overlay into the game
+    // (docs/remote-pad.md), so the editor's on-screen pad and the --pad CLI can
+    // drive it through bin/livepad.bin - no window focus, no real controller,
+    // and scriptable for unattended tests. Off = the game never looks for the
+    // file and the generated runtime is an empty translation unit.
+    bool remotePad = true;
+
     // Debug profile only, EXPERIMENTAL and off by default: install the engine's
     // EE crash handler, which turns a real CPU exception (bad pointer, address
     // error, reserved instruction) into a crash.txt report instead of a silent
@@ -1062,6 +1069,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
+           a.remotePad == b.remotePad &&
            a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
