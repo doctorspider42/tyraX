@@ -14609,3 +14609,49 @@ Each finished feature lands as its own commit.
   this feature is ~20 - they have drifted behind codegen for a while, and folding
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
+
+- (232) **Recent projects in the menu bar, and Close Project** - asked as "dodaj
+  recent projects do menu głównego i opcję close project (wraca do tego ekranu,
+  który jest zaraz po włączeniu)". Half of it already existed: entry (180) put
+  the recent list on the welcome screen the Viewport draws before anything is
+  open. What was missing is that the list was **only** reachable there, i.e.
+  exactly when you no longer needed it - switching projects meant a file dialog,
+  and there was no way back to the welcome screen short of restarting the
+  editor. So: `File > Recent Projects` (the same `recentProjects_`, name in the
+  item and the full folder in its tooltip - a path in a menu item makes the menu
+  as wide as the deepest project on the machine - plus *Clear list*), and
+  `File > Close Project`.
+  The two ways in now share one exit: `openRecentProject(dir)` re-probes the
+  entry and reports the folder that vanished since startup (the probe is once
+  per entry at boot, not per frame), and the welcome screen's rows call it
+  instead of repeating that. The menu goes through `requestOpenRecent`, the
+  dirty guard's fifth and sixth verbs (`PendingAction::OpenRecent` carries its
+  target in `pendingRecentDir_`, `::Close` carries nothing).
+  `closeProject()` is the interesting one, and it is small for a reason: the
+  per-frame channels (Live Link, the debugger, Live Logic, the Remote Pad, the
+  error catcher) and every tool window already open with `if (!hasProject_)`
+  and stand down by themselves, so the close path inherited them for free. What
+  it has to say out loud is only what would OUTLIVE the project - the phone
+  camera link (stopped through `stopPhoneCam`, which bakes a recording in
+  progress into its cutscene first, so a close never eats a take), the GI baker,
+  and a running build, which is cancelled because Stop lives on the toolbar and
+  the toolbar goes away with the project - plus the disk-derived caches keyed by
+  project-relative paths (`viewport_.invalidateAssets()`, layer RAM, WAV issues,
+  model info), which a *different* project must not inherit. A game already
+  running in PCSX2 is deliberately left alone. No keyboard shortcut: `Ctrl+W` is
+  one slip away from the `W` that flies the viewport camera, and this throws the
+  project out of the editor.
+  Verified by clicking it (`--ui-script`, 43 steps, exit 0) on two scratch
+  projects created headlessly - `recentA` (FPP) and `recentB` (Empty). The probe
+  for "is a project attached" is the **Tools** menu, which only exists with one:
+  `expect Tools` -> File > Close Project -> `expect-not Tools` plus the welcome
+  screen's own `New project` / `Open project` buttons, and the `shot` is the boot
+  screen with the status bar reading "Project closed". Then File > Recent
+  Projects > `recentA` -> `expect Tools` again AND `expect "Project/Player"`,
+  which is what proves *which* project came back (the Empty-preset one has no
+  objects at all). Last third is the guard: add an Empty (which saves), Edit >
+  Undo (which commits without writing - the actual unsaved state), Close Project
+  -> the *Unsaved Changes* modal is on screen, *Don't Save* -> welcome screen.
+  The `editor.ini` the run wrote its two scratch entries into was restored
+  afterwards - the recent list is machine-global, so a test that leaves entries
+  in it is a test that edits the user's editor.

@@ -581,6 +581,26 @@ menu JSON in project.cpp → `MenuEntryData` codegen + `applyMenuBindings` in
 templates.cpp → the runtime setting site (audio call, `axis`/`axisValue`,
 `applyVideoRequests`) → the Menu Editor UI.
 
+**Project lifetime: `attachProject()` and `closeProject()` are a pair.** A
+project reaches the editor through `openProjectAt`/`openRemoteProject`/the New
+Project modal, all of which end in `attachProject()`; it leaves through
+`closeProject()` (File > Close Project), which returns the editor to the state
+it boots in — `hasProject_ = false`, an empty `Project`, and the Viewport
+drawing `drawWelcomeScreen()` again. Most subsystems need nothing from either:
+the per-frame channels (`liveLinkTick`/`livedbgTick`/`liveLogicTick`/
+`remotePadTick`/`pollGameError`) and every tool window already open with
+`if (!hasProject_)` and stand down on their own — **that guard is what a new
+window or channel owes the close path**, and it costs one line. What
+`closeProject` handles explicitly is only the state that would otherwise
+OUTLIVE the project: worker threads still writing into it (the phone camera
+link, the GI baker, a running build) and the disk-derived caches keyed by
+project-relative paths (`viewport_.invalidateAssets()`, the layer-RAM / WAV /
+model-info caches), which a *different* project must not inherit. So a new
+subsystem with a worker thread or such a cache joins `closeProject`; one that
+only reads `project_` per frame does not. The unsaved-edit guard is NOT in
+there — `requestCloseProject()` owns it, like `requestOpen/New/Exit`, via
+`PendingAction` + the discard modal.
+
 **New machine-global editor setting** (per-installation, NOT in the `.tyra` —
 e.g. UI scale, viewport navigation, emulator path, dev-PS2 IP) → a field on
 `EditorConfig` (app.cpp) with load/save lines in `loadEditorConfig`/
