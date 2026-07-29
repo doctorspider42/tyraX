@@ -100,6 +100,12 @@ static std::string strKindDesc(FlowParamKind k) {
             return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
                    "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
                    "Left Ctrl, Left Alt";
+        case FlowParamKind::EventName:
+            return "event name (free text - an event exists by being named; use "
+                   "the SAME string on the Send Event and the On Event)";
+        case FlowParamKind::ScreenFxName:
+            return "custom screen-effect key, \"custom:<file-stem>\" (only "
+                   "effects PLACED in the screen stack can be driven)";
         default: return "";
     }
 }
@@ -126,7 +132,24 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
         } else {
             in.push_back("exec");
         }
-        if (t.execThrough) out.push_back("exec (fires later - see doc)");
+        // Exec OUTPUTS: a flow-control node's branches are only reachable
+        // through a link's "fpin", so the catalog has to name them for the same
+        // reason it names the input pins - otherwise every graph the model
+        // writes leaves pin 0 ("true", "1", "A") whatever it meant.
+        const int eo = flowExecOutCount(t);
+        if (eo > 1) {
+            std::string s = "exec out pins";
+            for (int e = 0; e < eo; ++e)
+                s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
+                     flowExecOutLabel(t, e);
+            out.push_back(s);
+        } else if (eo == 1) {
+            // A single output still has to be NAMED, or a node whose whole
+            // point is "and then this runs" (Tween's finished, Do Once's then)
+            // reads in the catalog as having no exec output at all.
+            out.push_back(std::string("exec \"") + flowExecOutLabel(t, 0) +
+                          "\" (fires later - see doc)");
+        }
     }
     if (t.idIn) in.push_back("object");
     if (t.idOut) out.push_back("object");
@@ -207,6 +230,8 @@ static std::string graphPromptJson(const FlowGraph& fg) {
         // to silently rewrite every hide/toggle/add link to pin 0 when the
         // model edited an existing graph.
         if (l.toPin) o << ", \"pin\": " << l.toPin;
+        // ...and which branch of a flow-control node it LEAVES.
+        if (l.fromPin) o << ", \"fpin\": " << l.fromPin;
         o << " }";
     }
     o << "] }";
@@ -253,14 +278,24 @@ std::string systemPrompt(const Project& p, int ownerIndex,
          "An exec link may carry \"pin\": N to fire a specific labeled exec "
          "input of a merged node (the catalog lists them, e.g. Set Int has "
          "0=set, 1=add). Omit it for the node's first pin.\n"
+         "It may also carry \"fpin\": N to LEAVE a specific labeled exec output "
+         "of a flow-control node (the catalog lists those too, e.g. Branch has "
+         "0=true, 1=false; Sequence 0..3). Omit it for the node's first "
+         "output.\n"
          "\n"
          "SEMANTICS:\n"
          "- Triggers fire their exec output; every action wired from it runs "
-         "that frame. Ordinary actions have NO exec output - to run several "
+         "that frame. Most actions have NO exec output - to run several "
          "actions, wire EACH of them directly from the trigger (they run in "
-         "link order). The only exec outputs besides triggers are the 'fires "
-         "later' ones (Delay's after-timeout, Raycast's after-cast) - use "
-         "Delay to sequence actions over time.\n"
+         "link order). The exceptions are the 'fires later' outputs (Delay's "
+         "after-timeout, Raycast's after-cast) and the Flow category, whose "
+         "nodes decide which of their own outputs continues.\n"
+         "- Use the Flow nodes instead of inventing patterns for control flow: "
+         "Branch for if/else on a bool, Sequence when the ORDER of several "
+         "actions matters, Do Once to make a repeating trigger fire a one-shot, "
+         "Cooldown to rate-limit one, Gate for an on/off valve, Switch Number "
+         "to dispatch a state machine, Timer/Tween for anything that plays out "
+         "over time. Tween's number output animates any number input.\n"
          "- Nodes with an object input resolve their target in this order: "
          "incoming object link, then their \"str\" object name, then the "
          "graph's owner object (self). An empty str on an object param means "
@@ -477,6 +512,7 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                                         : FlowLinkExec;
             }
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
+            if (const auto* v = jl.find("fpin")) l.fromPin = (int)v->numberOr(0);
             // Same validity rules the graph editor prunes by.
             const FlowNodeType* from = typeOf(l.fromNode);
             const FlowNodeType* to = typeOf(l.toNode);
@@ -484,12 +520,12 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
             if (ok) {
                 switch (l.kind) {
                     case FlowLinkExec:
-                        ok = (from->trigger || from->execThrough) && !to->trigger &&
-                             !to->pure;
-                        // A pin the target does not have would fire nothing at
+                        // A pin either end does not have would fire nothing at
                         // all, which reads as "the node was ignored".
-                        ok = ok && l.toPin >= 0 &&
-                             l.toPin < (to->execInCount < 1 ? 1 : to->execInCount);
+                        ok = !to->trigger && !to->pure && l.toPin >= 0 &&
+                             l.toPin < (to->execInCount < 1 ? 1 : to->execInCount) &&
+                             l.fromPin >= 0 &&
+                             l.fromPin < flowExecOutCount(*from);
                         break;
                     case FlowLinkObject: ok = from->idOut && to->idIn; break;
                     case FlowLinkPos: ok = from->posOut && to->posIn; break;

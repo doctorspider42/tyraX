@@ -50,6 +50,10 @@ over guessing from this file.
 - `pin`: on an exec link only - which labeled exec input of a merged node it
   fires (e.g. Set Int has `0`=set, `1`=add). Omit for the first pin.
   `--list-nodes` names the pins of every merged node.
+- `fpin`: on an exec link only - which labeled exec **output** of a
+  flow-control node it leaves (Branch `0`=true, `1`=false; Sequence `0..3`;
+  Switch Number `0..3` plus `4`=else). Omit for the node's first output.
+  `--list-nodes` names those too.
 - The editor's native storage uses bool flags (`"data"`, `"pos"`, `"bool"`,
   `"text"`, `"number"`) instead of `"kind"`; `--apply-graph` accepts both.
 
@@ -57,19 +61,125 @@ over guessing from this file.
 
 - **Triggers** (On Start, On Update, On Button, Near Object, In Area, On Used, Every N
   Seconds, On Animation Finished, On Condition, On Menu Event) have an exec **output**;
-  **actions** have only an exec **input** - to run several actions, wire each
-  of them from the trigger (they run in link order). The only non-trigger exec
+  most **actions** have only an exec **input** - to run several actions, wire
+  each of them from the trigger (they run in link order). The non-trigger exec
   outputs are the "fires later" ones (Delay's after-timeout, Raycast's
-  after-cast); use **Delay** to sequence actions over time. **Pure** nodes
+  after-cast) and the whole **Flow** category. **Pure** nodes
   (logic gates, getters, converters) have no exec pins and evaluate every
   frame on demand.
+- **Reach for the Flow category instead of improvising control flow.** These
+  are the nodes that decide which of their OWN outputs continues (`fpin`):
+  - **Branch (If)** - if/else on a bool, evaluated at the moment it runs.
+    Different from On Condition, which is a *trigger* on a rising edge.
+  - **Sequence** - four outputs fired in order, when the order matters.
+  - **Do Once** / **Do N Times** - make a repeating trigger (On Update, Near
+    Object) fire a one-shot; both have a `reset` pin.
+  - **Cooldown** - rate-limit a trigger. Swallowed execs are LOST, not queued
+    (that is Delay).
+  - **Gate** - an open/close valve; **Flip Flop** - alternate A/B.
+  - **Switch Number** - dispatch a state machine kept in an int variable.
+  - **Counter** - fire every N-th exec; its number output is the tally.
+  - **Timer** - a stopwatch whose number output is the elapsed seconds
+    (wire it through Number To Text for an on-screen clock); fires `finished`
+    at Duration.
+  - **Tween Value** - drive a number From→To over Seconds with an ease and
+    fire `finished`. Its number output animates ANY number input (bloom, music
+    volume, a save value, a position component), which is how a parameter is
+    animated without touching On Update.
+  - **For Loop** - `body` runs Times times with the index on the number output,
+    then `done`. Whole loop is one frame; capped at 64.
+- **The Math category is a full calculator, so do not fake arithmetic with
+  variables.** n-ary (fold over every wired link): Add, Subtract, Multiply,
+  Divide, Min, Max, Modulo, Power. Unary (one wired input): Absolute, Negate,
+  Sign, Floor, Ceiling, Round, Square Root, Sine, Cosine (both in DEGREES),
+  Clamp, Lerp, Remap Range. Comparators into the bool plane: Number At Least /
+  At Most / Equals (with a tolerance) / In Range. Clocks: **Scene Time**
+  (seconds since the scene loaded), **Frame Time** (last frame's duration) and
+  **Oscillate** (a sine wave on the scene clock - the node for a pulsing light,
+  one `sinf` instead of a per-frame graph). **Roll Random** is an ACTION, not a
+  pure node: it latches its roll and fires `then`, so two consumers see the
+  same number instead of two different ones.
+  On Clamp / Lerp / Remap / the comparators the wired number is the SUBJECT and
+  the num params stay separate config - unlike the usual "a wired number
+  replaces num[0]".
+- **The Vector category computes positions.** A position input takes exactly one
+  link, so these are all unary and COMPOSE by chaining: **Position** (a literal),
+  **Offset Position**, **Scale Position**, **Rotate Around Y**, **With X / With
+  Y / With Z** (replace one component, which is how a computed number becomes a
+  coordinate), **Snap To Terrain** (put a computed point ON the ground - the node
+  to place before Spawn Object), plus the readers **Get X / Get Y / Get Z**,
+  **Distance To Point** and **Terrain Height At**. **Roll Point In Area** is an
+  action like Roll Random: it latches a random point inside an Area object.
+  A ring of 8 objects is For Loop -> (index x 45) -> Rotate Around Y of a
+  Position -> Snap To Terrain -> Spawn Object.
+- **The player and an object's transform are readable, so do not guess.**
+  **Player Position** (player 1 or 2), **Player Look Direction** (a unit vector -
+  Scale Position + Offset Position from Player Position gives a point in front of
+  the player) and **Player Fall Speed**. On objects: **Get Object Scale**, **Get
+  Object Rotation** and **Get Velocity** all ride the POSITION plane as
+  3-vectors, so "turn this object to face 90 degrees" is Get Object Rotation ->
+  With Y -> Set Object Rotation (Set Object Rotation and Rotate Object By take a
+  position link too). **Distance To Object** with Player Position wired in is
+  "how far is the player" as a VALUE, which the Near Object trigger cannot give.
+  Writers: **Set Object Scale**, **Scale Object By**, **Look At** (yaw only
+  unless Tilt too is set), **Set Velocity** (units per SECOND - it REPLACES,
+  where Apply Impulse adds), **Stop Motion**, **Set Object Usable**.
+  **Is Object Active** is about being in the game at all (layer unloaded,
+  despawned); Is Visible is about being drawn.
+  **Find Nearest** is an action that latches the closest active object whose
+  name starts with a prefix, measured from a linked position - the runtime
+  counterpart of naming an object in a param.
+  **Set Player Input** (lock / unlock) takes the controls away for a dialogue or
+  a scripted moment; gravity and the camera keep running, and a scene load
+  always unlocks.
+- **The Camera category is the cinematic vocabulary, and it rides the same
+  ScriptContext fields the Cutscene Director does** - so a PLAYING cutscene
+  always wins (its player rewrites them every frame and clears them on release).
+  **Set Camera** takes the eye from a linked position and aims at the target
+  object; from On Start that is a fixed room camera, from On Update it tracks.
+  **Camera From Object** cuts to an object's position and its own +Z aim - place
+  and aim a Camera object in the viewport and that is the shot. **Release
+  Camera** hands it back. **Camera Shake** (amplitude + seconds, easing out)
+  applies to whatever camera is in force. **Set Screen Fade** and **Set
+  Letterbox Bars** take a 0..1 amount - wire a **Tween** into either for a real
+  fade or slide-in, and use the Tween's `finished` output to switch scenes at
+  full black. **Set Player Visible** drops the third-person avatar for a
+  free-flying camera move. **On Sequence Finished** fires when a cutscene stops
+  for ANY reason (ran out, Stop Sequence, player skipped) - the way to chain
+  "play the cutscene, then carry on"; its bool output is "a cutscene is playing
+  right now", for gating gameplay logic out while one runs.
+  **Set Sound Volume** ducks all sound effects (music has its own node).
+- **Graphs talk to each other with EVENTS, not with polled variables.**
+  **Send Event** broadcasts a name (plus an optional number payload) to every
+  graph in the game; every **On Event** of that name fires on the NEXT frame,
+  uniformly, whichever object owns it - so the order graphs happen to run in
+  can never change the outcome. On Event's number output is the payload and its
+  bool output is "it arrived this frame". Use this whenever one object's logic
+  has to reach another's (a pickup telling the HUD, a switch telling three
+  doors, a boss telling the music) instead of a global bool polled from On
+  Update. Events exist by being named - use the SAME string on both nodes.
+  The one-frame latency is the price of the uniform ordering; for something that
+  must happen inside the same frame, wire the action directly.
+- **Text has real formatting, so do not build strings by hand.** **Number To
+  Text (formatted)** takes decimals and a zero-padded minimum width (a score
+  reads 00420); **Seconds To Clock** turns a Timer into "M:SS" or "M:SS.t";
+  **Join Text** concatenates every wired text with `str` between them; **Text
+  Equals** compares the wired text against `str` for the bool plane.
+- **Set Screen Effect** drives a custom `.screenfx` placement at runtime - the
+  `set` pin writes its four parameters (the effect's own, by name), `on`/`off`
+  switch it, and a wired number overrides the first parameter so a Tween can
+  ramp it. Only effects PLACED in the screen stack can be driven.
+  **Value At Most** completes Value At Least, and **Restart Scene** reloads the
+  current scene (flow variables and save values survive; they are game-global).
 - Object-parameter nodes resolve their target: incoming **object link** →
   explicit `str` name → **self** (the graph's owner). Empty `str` = self.
 - Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge
   back to execution with **On Condition** (fires on the rising edge).
 - A position link into a node with X/Y/Z params overrides those params; a
   **number** link overrides the target's `num[0]` the same way. Number sources
-  are Number / Get Int / Get Save Value; Add/Subtract/Multiply/Divide fold over
+  are Number / Get Int / Get Save Value / Timer / Tween / Counter / For Loop /
+  Scene Time / Frame Time / Oscillate / Roll Random and the Vector getters;
+  Add/Subtract/Multiply/Divide/Min/Max/Modulo/Power fold over
   **all** their wired number inputs (with one input wired, `num[0]` is the
   second operand); Number At Least bridges to the bool plane and Number To Text
   to the text plane.

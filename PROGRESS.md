@@ -721,7 +721,10 @@ Each finished feature lands as its own commit.
      numbered in parallel (main's own set repeats 216, 217 and 219 for the same
      reason). The drone set is the one directly below; main's set follows it,
      running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
-     at the head of that second section. Continue from 225. -->
+     at the head of that second section.
+     Once more for the flow-graph expansion batch: it was written against 222
+     and numbered 223-229 in parallel with main's 223/224, so it was
+     RENUMBERED to 225-231 when the two met. Continue from 232. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
@@ -12645,6 +12648,477 @@ Each finished feature lands as its own commit.
   promotion did not corrupt the geometry. Codegen for the shapes the e2e graph
   did not use (an object-LINK target via Self, `stop` on pin 1) was read out of
   `flow_graph.gen.cpp` and compiled in Docker.
+
+- (225) **The exec plane becomes a language: multiple exec OUTPUTS and the Flow
+  category** (user asked for a survey of the node set and then "jedź po kolei ze
+  wszystkim" - this is stage 1 of six).
+
+  The audit that started it is worth recording, because it named the real
+  ceiling. 96 built-in nodes across 16 categories, and **no if/else**: a
+  `FlowLink` carried `toPin` but nothing for the source side, so a node had at
+  most one exec output (`trigger`, or `execThrough` for Delay/Raycast/Get
+  Position). The only bridge from the bool plane back to exec was *On Condition*
+  - a rising-edge *trigger*, which answers "when did this become true", never
+  "is it true at this moment". Every classic control-flow node (Branch,
+  Sequence, Gate, Flip-Flop, Switch, Random Branch, For Loop) was inexpressible
+  for the same one reason.
+
+  So: `FlowLink::fromPin` (serialized `"fpin": N`, omitted at 0 - which is every
+  link ever written, so no migration), `FlowNodeType::execOutCount` +
+  `execOutLabels`, and pin slots 18..24 for outputs 1..7 inside the existing
+  stride-32 space (`kFlowMaxExecOut` = 8). **`flowExecOutCount(t)` is the single
+  answer** to how many outputs a type has - the editor's pin submission, both
+  link-validity checks (the editor's prune AND `aigen.cpp`'s, which are twins)
+  and codegen all read it, rather than each re-deriving it from
+  trigger/execThrough. Output 0 deliberately keeps the original slot 1, so a
+  saved graph's links resolve unchanged.
+
+  Thirteen nodes in a new **Flow** category: **Branch (If)**, **Sequence**,
+  **Do Once**, **Do N Times**, **Gate**, **Flip Flop**, **Switch Number**,
+  **Random Branch**, **Cooldown**, **Counter**, **Timer**, **Tween Value**,
+  **For Loop**. All of it compiles to ordinary C++ control flow - a Branch is
+  one `if`, a For Loop one `for` - because `actionCode` gained a local
+  `branch(outPin, pad)` that returns that output's whole chain inline. That
+  needed `emitExec` and `actionCode` to become mutually recursive (a
+  forward-declared `std::function`, assigned right after `emitExec` is defined)
+  and `visited` threaded through `actionCode`. **Each branch walks with its own
+  COPY of the path**, which is the one subtle decision here: two outputs of one
+  Sequence reaching the same action means it runs twice, which is what the
+  wiring says - but a link back into the path is still caught as a cycle.
+
+  Two of the thirteen carry most of the weight. **Timer** publishes its elapsed
+  seconds on the number plane (an on-screen clock is Timer → Number To Text →
+  Display Text, no variable involved), and **Tween Value** drives a number
+  From→To over Seconds with four eases and fires `finished` - so *any* number
+  input animates without a graph running every frame. Which immediately exposed
+  a second gap: `Set Bloom`, `Set Grain`, `Set Lens Flare`, `Set God Rays`,
+  `Set Music Volume` and `Delay` had **no `numIn` at all**, so the value plane
+  could not reach them and the very first test graph had its Tween → Set Bloom
+  link pruned as invalid. They accept a wired number now, clamped at the read
+  site when one is wired and folded at codegen time when none is (a wired
+  `everyFrames()` argument needed nothing - it already runs at arm time).
+  Tween's value is deliberately NOT stored: `numExprImpl` emits
+  `flowTween(elapsed, ...)`, recomputed wherever it is read, so the eased curve
+  and the value cannot drift apart.
+
+  State discipline followed the Delay precedent exactly: Timer/Tween/Cooldown
+  tick in the `update()` prologue and every member goes through `addMember`, so
+  all nine new kinds of per-node state join the **time machine's capture walk**
+  by construction - a rewind puts a half-open gate, a mid-flight tween and a
+  cooling-down valve back. **Live Logic cannot patch a branching graph** and now
+  says so: a block is a straight instruction list, so `capability()` rejects any
+  node with `flowExecOutCount > 1`, and `livelogic.cpp`'s own exec walk filters
+  `fromPin != 0` - today unreachable (every branching type is unsupported
+  anyway), but the walk would silently run BOTH arms if a supported node ever
+  gained a branch. The For Loop's 64-iteration cap is the same kind of
+  defensiveness: the body runs inside one frame, so an unbounded count off the
+  number plane would be a hang, not a slow frame.
+
+  Verified by codegen, which is the layer that matters for a language change: a
+  scratch `--new ... fpp` project, a 43-node / 46-link graph exercising every
+  new node and every branch shape (`--apply-graph`, which validates with the
+  same rules the editor prunes by - it is what caught the Set Bloom gap, as
+  "Dropped 1 invalid link"), then `--refresh-gen` and a read of
+  `flow_graph.gen.cpp`. Every construct came out as the intended C++: the
+  Sequence as three commented blocks in order, the Branch as `if/else`, Switch
+  Number as a chained `if` on `lroundf` with the `else` arm guarded by
+  `< 0 || > 3`, the For Loop with its clamp and the index as a member so the
+  number output is a name that exists outside the loop, Tween → Set Bloom as
+  `flowTween(twT100, 1.5F, 0.0F, 2.0F, 3)` clamped into `ctx.bloom`, and all
+  nine state members present in the scene-reload reset block. Editor builds
+  clean. Not yet run in PCSX2 - that comes with the later stages, whose nodes
+  share these mechanisms.
+
+- (226) **The value plane grows arithmetic, and learns to reach positions**
+  (stage 2 of the flow-graph expansion; the survey in 225 named these next).
+
+  The number plane had four operators and one comparison. It now has the rest:
+  n-ary **Min / Max / Modulo / Power** folding like Add does, the unary shapers
+  **Absolute, Negate, Sign, Floor, Ceiling, Round, Square Root, Sine, Cosine**
+  (degrees), **Clamp**, **Lerp**, **Remap Range**, the comparators **At Most /
+  Equals / In Range**, and three clocks - **Scene Time**, **Frame Time** and
+  **Oscillate**, a sine wave on the scene clock that answers "make this light
+  pulse" with one `sinf` instead of a graph running every frame. Plus a new
+  **Vector** category: **Position** (a literal), **Offset / Scale / Rotate
+  Around Y / With X / With Y / With Z / Snap To Terrain**, and the readers **Get
+  X / Get Y / Get Z / Distance To Point / Terrain Height At**.
+
+  Two design constraints shaped the whole set. First, **a position input takes
+  exactly one link** (unlike bool and number, which fold), so every Vector node
+  is unary - the second operand is either params or a number wire, and you build
+  a vector by CHAINING (Position -> With X -> Offset -> Snap To Terrain) rather
+  than by feeding a three-input Make Position, which the model cannot express
+  until typed multi-outputs land. That turned out to be fine and arguably better:
+  the ring-of-eight-crates test graph is For Loop -> index x 45 -> Rotate Around
+  Y -> Snap To Terrain -> Spawn Object and reads left to right.
+
+  Second, **randomness cannot be a pure node**. A pure random is an expression
+  re-evaluated at every read, so `Set Int` and a `Switch Number` reading "the
+  same" roll would see two different numbers. So **Roll Random** and **Roll Point
+  In Area** are actions that LATCH their result and fire a `then` output - which
+  is only expressible because of stage 225's exec outputs. Roll Point In Area
+  samples through `areaBasis` (the same basis `pointInArea` tests against), so a
+  ROTATED area scatters inside itself rather than inside its axis-aligned bound.
+
+  **Two flags replaced two pieces of inference, and one of them was a live bug.**
+  `flowNumFolds` was `pure && numIn && numOut` - true of a unary Sine as well as
+  an n-ary Add, so it is now the declared `numFold`. And the editor's "num[0]:
+  from link" notice assumed a wired number always REPLACES num[0]; on a node
+  whose subject IS the wire (Clamp's value between its Min/Max) that hides real
+  params and claims they came from the link while codegen keeps reading what was
+  typed. **That was already wrong for the existing Number At Least** - wiring a
+  number into it hid its Threshold. Hence `numInExtra`, declared on the seven
+  nodes of that shape.
+
+  **The two planes now feed each other, which cost two bugs worth writing down.**
+  `posExprImpl` and `numExprImpl` became mutually recursive (Get X reads a
+  position, With X writes one from a number). (1) `numExprImpl` pushes its own id
+  before dispatching, so handing that path straight to `posExprImpl` made the
+  position walk read the node as already visited and skip its own input link -
+  `Get X` of a five-node Vector chain silently resolved to the graph owner's
+  position, which looks entirely plausible in the generated C++. Its own id has
+  to be dropped. (2) The obvious fix - a fresh path at the plane boundary - makes
+  a pos->num->pos cycle recurse until the stack goes, because `numInput` starts
+  fresh at a consumer's top level. So the boundary carries the path
+  (`numInputVis`/`numOperandVis`), and a deliberate cycle graph
+  (With X <- Add <- Get X <- that same With X) is now a codegen regression check:
+  it terminates and resolves to a finite expression. The residual cost is
+  honest and documented - a position is three independent C++ expressions, so a
+  Vector chain is re-emitted per component per consumer; constant chains fold
+  away in the compiler, and `Rotate Around Y` folds its `sinf`/`cosf` at codegen
+  time when the angle is typed rather than wired for exactly that reason.
+
+  Every generated helper is gated on the one node type that needs it (a `used`
+  set over the project's node types), and every one of them exists to stop a
+  graph producing a NaN or an infinity that then lands in a position, a save file
+  or the GS: zero divisors yield 0, a negative square root yields 0, a
+  zero-width Remap range yields its output minimum, Lerp clamps its fraction.
+
+  Verified by codegen again: a 58-node / 66-link graph over a seeded project (a
+  box and a rotated Area, written into `objects/` by hand since there is no CLI
+  to add objects) wiring one Get Int through all sixteen shapers, three
+  comparators into an AND into On Condition, the full Vector chain into Spawn
+  Object, and the ring loop. `--apply-graph` accepted all 66 links, and the
+  generated C++ was read component by component - the chain's Y really is
+  `3.0F * 2.0F` after With Y 3 and Scale 2, the folded 45-degree rotation really
+  is `0.707107F`, and the cycle fixture terminates. Editor builds clean.
+
+- (227) **A graph can finally READ the world it was already allowed to change**
+  (stage 3 of the flow-graph expansion).
+
+  The most surprising hole the 225 audit found was that a graph could teleport
+  the player but had **no way to ask where the player was**. Nor an object's
+  scale, rotation or velocity. Nor how far apart two things were. Fixed:
+  **Player Position** (either player - player 2's slot equals player 1's while
+  it is inactive, so "nearest player" logic needs no guard), **Player Look
+  Direction**, **Player Fall Speed**, and on objects **Get Object Scale**, **Get
+  Object Rotation**, **Get Velocity** and **Distance To Object**.
+
+  **The three-float readers ride the POSITION plane rather than growing a new
+  one.** A scale and a rotation are 3-vectors, and the plane that already
+  carries three floats plus the Vector nodes from 226 makes "read a rotation,
+  change its Y, write it back" a three-node graph - Get Object Rotation -> With
+  Y -> Set Object Rotation - with no new machinery. That only worked once **Set
+  Object Rotation and Rotate Object By gained `posIn`**, which they lacked: the
+  first test graph had exactly that link pruned as invalid, which is the sort of
+  gap a promise in a `desc` makes visible immediately.
+
+  New writers: **Set Object Scale**, **Scale Object By**, **Look At** (yaw only
+  by default - a character or a signpost stays upright - or tilting too),
+  **Set Velocity**, **Stop Motion**, **Set Object Usable**, **Is Object Active**
+  and **Find Nearest**. Two conversions are deliberate and live in one place
+  each: velocity is stored as a per-FRAME displacement, so `flowVelPerSec`
+  converts on every read and `* g_frameDt` on every write - **the frame rate must
+  never leak into the value plane** - and `flowLookAt` derives its yaw from the
+  walker's own convention (forward = `(sin yaw, 0, cos yaw)`, so yaw 0 faces +Z)
+  with a NEGATIVE pitch, because the engine applies `Rz*Ry*Rx` and a model's +Z
+  tilts to `(0, -sin x, cos x)`. **Stop Motion clears `spinRate` as well as
+  `spin` and the velocities** - a "stop" that left a Spin Object rate running
+  would stop only half of what was moving the object.
+
+  **Set Player Input** is the one part that reached into the generated game.
+  `g_playerLocked` next to `g_gameplayPaused`, applied from
+  `ScriptContext::lockInput` in both game-loop copies and cleared on scene load
+  (a cutscene that switches scenes must not hand back a world the player cannot
+  move in). The lock is INPUT ONLY - gravity, collision and the camera keep
+  running, so a locked player still falls and is still framed rather than
+  freezing in mid-air. It rides the two `axisL`/`axisR` lambdas, which are the
+  single funnel every analog read goes through, plus the mouse-look, jump and
+  noclip-vertical sites. **Both walkers needed it**: the per-player
+  `updatePlayerWalker` in `TPL_GAME_CPP_SCENE` and the legacy
+  `TerrainGame::updatePlayer()` in `TPL_GAME_CPP_FPP_TAIL` are the duplicated
+  pair the editor skill warns about, and the generated `terrain_game.cpp` carries
+  both - verified by grepping the output for all seventeen `g_playerLocked` sites.
+
+  **One ordering bug, and it is the kind that produces plausible-looking code.**
+  `Find Nearest` has a position INPUT (the query point) and a latched position
+  OUTPUT (where the found object is). `posExprImpl` handled the pass-through
+  before the latch, so a downstream Set Object Position was handed the query
+  point back instead of the answer - `ctx.player2Position` where `posOut70`
+  belonged, which reads perfectly fine in the generated C++. The latch check now
+  comes first, and the rule is general: a latched output wins over the node's own
+  input.
+
+  Verified by codegen: a 41-node / 41-link graph over a seeded project reading
+  every new source into comparators and writers - Look At from Player Position,
+  Distance To Object into Number At Most into On Condition, Get Velocity's Y
+  through Absolute into a threshold, Get Object Rotation -> With Y -> Set Object
+  Rotation, Find Nearest driving both a visibility flip and a reposition through
+  its object AND position outputs, Set Player Input locked on a button and
+  unlocked by a Delay. All 41 links accepted after the `posIn` fix; the generated
+  C++ read line by line, including the `flowVelPerSec` conversions and the
+  runtime-handle guards around every action fed a latched object.
+
+- (228) **A Camera category, built out of what the Cutscene Director already
+  publishes** (stage 4 of the flow-graph expansion).
+
+  `ScriptContext` already carried `cameraOverride`/`cameraEye`/`cameraAt`/
+  `cameraUp`, `barsStyle`/`barsAmount`, `fadeAlpha`, `hidePlayer` and
+  `sfxVolume` - written by the generated sequence player, read by the game loop,
+  and reachable by no flow node at all. Nine nodes now use them: **Set Camera**
+  (eye from a linked position, aim at the target object), **Camera From Object**,
+  **Release Camera**, **Camera Shake**, **Set Screen Fade**, **Set Letterbox
+  Bars**, **Set Player Visible**, **On Sequence Finished** and **Set Sound
+  Volume**.
+
+  **The precedence question answered itself.** A flow-graph camera and a cutscene
+  camera write the same three fields, and the sequence player writes them EVERY
+  frame it is active and clears them on release - so a playing cutscene wins for
+  free, and hands the camera back when it ends. That is the behaviour you would
+  want anyway, and it meant `Set Camera` / `Release Camera` needed zero game-loop
+  change: `cameraOverride` is a persistent bool, so a graph takes the camera
+  explicitly and holds it until it says otherwise. Fired from On Start that is a
+  fixed room camera; from On Update it tracks. `Camera From Object` reuses
+  `seqCameraForward`'s exact convention (the +Z lens direction under `Rz*Ry*Rx`),
+  so a Camera entity placed and aimed in the viewport frames what the viewport
+  showed.
+
+  Two things did need the game. **Camera Shake** is a per-frame decaying wobble,
+  so it is a request pair on ScriptContext (`shakeAmp`/`shakeSec`, the rumble
+  idiom) applied right after the override branch in BOTH loop copies, using the
+  same sum-of-sines the Director's per-shot shake uses so the two look alike.
+  It moves the eye AND the look-at by the same offset - shaking only the eye
+  reads as a lurching pan - and eases out over the last quarter second instead of
+  snapping. It also clears on scene load, like the input lock. And **letterbox
+  bars** could not work at all outside a cutscene: `renderOverlay` took its
+  coverage from `kSeqs[idx].barTB`, which needs an active sequence. Two
+  `sequences::g_flowBar*` globals now cover the no-cutscene case - and the
+  style-to-fraction mapping stays on the HOST (`seqBarsFractions`, already
+  shared), so codegen writes `0.22106F` in as a literal and the console carries
+  no table.
+
+  **On Sequence Finished** is the falling edge of `sequences::playing()` (a new
+  three-word accessor), which is why it covers a sequence running out, Stop
+  Sequence and the player skipping it with one mechanism - all three land in the
+  same place. Its bool output is the live "a cutscene is playing" condition, so
+  gameplay logic can be gated out while one runs.
+
+  Verified by codegen on a `thirdperson` project (the template where Set Player
+  Visible actually means something): a 21-node graph exercising all nine, read
+  out of `flow_graph.gen.cpp` - the Set Camera eye really is the player position
+  plus the offset chain, `Camera From Object` calls `flowCameraFrom`, the cinema
+  style folded to `g_flowBarTB = 0.22106F`, the Tween drives both the fade and
+  the bars, and the trigger's falling-edge latch is there with its bool feeding a
+  NOT into an AND. The game side was checked in the generated
+  `terrain_game.cpp` (all of `g_camShake`) and `sequences.gen.cpp` (`playing()`
+  plus the bars fallback). Not yet run in PCSX2.
+
+- (229) **The event bus: two graphs can finally talk without naming each other**
+  (stage 5 of the flow-graph expansion, and the one architectural gap in the
+  225 audit).
+
+  Every graph belongs to one object, and until now the ONLY channel between two
+  of them was a game-global variable polled from On Update - slower than it needs
+  to be and impossible to read as intent. **Send Event** broadcasts a name plus
+  an optional number payload; **On Event** fires on it, exposes the payload on
+  its number output and "it arrived this frame" on its bool output. Events live
+  in one game-global namespace with the flow variables' rule: an event exists by
+  being named (`collectFlowEvents`, the twin of `collectFlowVars`).
+
+  **Delivery is one frame later, and that is the design rather than a
+  limitation.** Scripts run in `getScripts()` order, which is an emission detail
+  no author can see - so same-frame delivery would mean a receiver sees an event
+  this frame or next depending on which object's graph happens to be registered
+  first, and no graph could compensate. So the bus is **double-buffered**: senders
+  write `next`, receivers read `cur`, and a dedicated `FlowEventBus` script -
+  emitted and registered BEFORE every graph script, so it runs first each frame -
+  promotes one to the other. Uniform for every receiver, at the cost of 20 ms,
+  which the node's own description states. Two details that would otherwise be
+  silent bugs: the bus clears both buffers on a scene (re)load (a scene switch
+  must not deliver the old scene's mail), and with the Live Debugger on it
+  freezes while halted - promoting buffers behind a breakpoint would drop the very
+  event the author had stopped to look at.
+
+  **The bus joins the time machine's capture walk**, because that is the rule for
+  anything the running game mutates: two slots per event (the mail delivered and
+  the mail in flight) appended to `flowTimeRead`/`flowTimeWrite` after the
+  variables, `flowTimeVarCount()` grown to match, and the layout hash bumped to
+  4. An event flag lives exactly one frame, so a rewind that dropped it would
+  either lose a delivery or re-fire one already consumed. The trap here is that
+  `liveTimeSource` sizes its buffer WITHOUT being able to see the generated
+  arrays, so both sides now count from the same two collectors -
+  `TM_MAX_VARS = 5` against `flowTimeVarCount() { return 5; }` for the fixture
+  below is what that agreement looks like.
+
+  On Event needs no edge latch - the flag lives for exactly one frame, so its
+  presence IS the edge, which is why it is the only trigger in the registry
+  without a companion `bool` member.
+
+  Verified by codegen with a fixture that could not have been written before:
+  TWO graphs in one project, a sender on the player (`hit` with a variable as its
+  payload on a button, `level-start` on On Start) and a receiver on a crate
+  (three On Event nodes across two names, one driving Spin Object, one a Camera
+  Shake, one feeding a NOT into On Condition). Read out of
+  `flow_graph.gen.cpp`: `TYRA_SCRIPT(FlowEventBus)` is the first registration,
+  the sender writes `flowEvtNext[0]`/`[1]` and the receiver reads `flowEvtCur[]`,
+  and the two events' four capture slots follow the one variable's.
+
+- (230) **Text formatting, live screen effects, and the architectural change
+  that turned out not to be needed** (stage 6, the last of the flow-graph
+  expansion).
+
+  The 225 plan listed "multiple typed OUTPUTS" as this stage's big item - a node
+  publishing more than one number/position - so that Break Position and Get
+  Object Transform could exist. **They already do, and without it.** Get X / Get
+  Y / Get Z (226) are three unary nodes rather than one three-output node, and
+  Get Object Scale / Rotation / Velocity (227) ride the position plane as
+  3-vectors. Both read better in a graph than a fan of pins would, so the
+  machinery was not built. Recording that here because "we planned it and then
+  didn't need it" is worth more than a silent omission.
+
+  What did land: **Number To Text (formatted)** (fixed decimals + a zero-padded
+  minimum width, so a score reads 00420 - the width counts the WHOLE digits
+  only, since padding the decimals too would be a second meaning for one
+  number), **Seconds To Clock** (a Timer straight into "1:23.4"; negative clamps
+  to 0:00, because a countdown that overshoots must not print "-0:01"), **Join
+  Text**, **Text Equals**, **Value At Most**, **Restart Scene** and **Set Screen
+  Effect**.
+
+  **Join Text is the first node with a text INPUT and a text OUTPUT**, which
+  means the text plane could suddenly contain a cycle - it never could before, so
+  it had no guard at all. It has one now (`textPath`), and `textExpr` and the
+  text-input walker are mutually recursive through a forward-declared
+  `std::function` for the third time in this batch (the exec plane and the
+  number/position planes needed the same trick).
+
+  **Set Screen Effect fixes a real dead end.** A `.screenfx` effect's four
+  parameters were emitted as a function-local `const float param[4] = {...}` -
+  frozen at whatever the editor authored, with a whole authoring system behind
+  them and no way to touch them at runtime. They are now a writable global per
+  PLACEMENT (`g_screenFxParam_N`), initialized from the authored values so a
+  project without the node behaves exactly as before, plus `g_screenFxOn_N`
+  which the dispatch honours. Both are exported from `screen_fx.gen.hpp`, and the
+  node resolves its effect key to the placement index through the SAME
+  `enabledScreenFx()` order `screenFxSource` emits the bodies in - so the symbol
+  suffix cannot drift. The node's params are labelled and bounded in the editor
+  from the effect's own `.screenfx` manifest rather than a generic P1..P4, which
+  is the whole point of that manifest existing.
+
+  Verified by codegen on a project seeded with a two-parameter `tint.screenfx`
+  and a placement of it: the Tween drives `g_screenFxParam_0[0]`, the on/off pins
+  write `g_screenFxOn_0`, `screen_fx.gen.cpp` reads the global through
+  `const float* param`, the header exports both, and `terrain_game.cpp` guards
+  the dispatch on the flag. The formatters and Join Text came out as one
+  expression (`flowClockText(timerT10, true) + std::string("   ") +
+  flowNumTextFmt(ctx.saveValues[1], 0, 5)`) feeding a Display Text.
+
+  **Deliberately left for later** (each is a bigger change than it looks, and
+  none blocks anything above): per-HUD-image visibility and a bar/meter widget
+  (needs a per-image request array and a new drawn primitive); a silent Save To
+  Slot / Load From Slot (the save path is menu-driven end to end); a global time
+  scale (`g_frameDt` is read in dozens of places and a scaled one would need
+  every consumer audited); Stop Sound (no per-channel handle survives a Play
+  Sound); positional 3D one-shots; and editor-side comment boxes / reroute nodes,
+  which are graph presentation rather than nodes.
+
+- (231) **The whole 84-node expansion, verified in PCSX2 by numbers rather than
+  by looking at it** (user: "Śmiało uruchamiaj").
+
+  Entries 225-230 each stopped at the codegen layer. This is the boot. One
+  fixture at `~/tyra-projects/flowe2e` (52-char ELF path - the ~145 limit is
+  real), a **79-node graph on the player and an 8-node graph on a crate**, every
+  new mechanism wired to an UNATTENDED trigger (On Start / On Update / Every N
+  Seconds) so nothing needs a pad, and each one made to write a **distinct,
+  predictable integer** into a flow variable. Docker build exit 0 in 147 s; the
+  PS2 toolchain compiled `flow_graph.gen.cpp` and `screen_fx.gen.cpp` at
+  `-Wall -O3` with **no warnings from either** - which is the first new fact,
+  because none of this generated C++ had ever met `mips64r5900el-ps2-elf-g++`.
+  Then 50 FPS on the software renderer, `is executing`, no assertion, no TYRA
+  error banner, `VRAMSTAT reup=0 evict=0`.
+
+  **The instrument is worth more than the run.** A ~60-line host harness links
+  the editor's OWN snapshot decoder (`src/livedbg.cpp`, no GL/ImGui) and prints
+  `bin/livedbg.bin` plus `src/gen/livedbg.sym`: per-node hit counts with node ids
+  and types, every watch variable by name, armed timers. So "did this node fire,
+  how often, and what did it leave behind" is a command, not a screenshot - and
+  the probe cannot disagree with the format the way a hand-rolled Python reader
+  could. `hashMatch=1` says the ELF's symbol table is the one the editor thinks
+  it is.
+
+  At frame 2239 (~45.7 s at 49 FPS), 66 instrumented nodes:
+
+  | mechanism | expected | measured |
+  |---|---|---|
+  | Sequence order + Math fold (x10 + N per output) | 1234 | **1234** |
+  | Do Once under 2238 On Update fires | 1 | node hit 2238, chain **1** |
+  | Cooldown 0.5 s over 45.7 s | ~91 | **90** |
+  | Counter Every 3 | floor(448/3) = 149 | cnt **448**, third **149** |
+  | Timer Duration 2 | finished 1, elapsed 2 | **1**, **2** |
+  | Tween 0->100 over 1 s | 100, finished 1 | **100**, **1** |
+  | For Loop Times 5 (one frame) | body 5, done 1 | **5**, **1** |
+  | Flip Flop over 448 fires | 224 / 224 | **224 / 224** |
+  | Branch on a true bool | true 448, false 0 | **448 / 0** |
+  | Switch Number on 2 | case2 448, others 0 | **448 / 0 / 0** |
+  | Random Branch, 3 arms | sum = 448, all hit | **145 + 152 + 151 = 448** |
+  | Vector: (10,0,10) rotated 90 deg about Y | x 10, z -10, dist 14 | **10, -10, 14** |
+  | Scene Time | ~45.7 | **45** |
+  | Look At: crate (4,1,4) -> player (0,y,0) | yaw -135 | **-135** |
+  | Set Object Scale (2,3,4) -> Get Object Scale.Y | 3 | **3** |
+  | Value At Most + On Condition | 1 | **1** |
+  | Event bus: 224 Send Event fires | 224 deliveries | pong **224** |
+  | Set Player Input lock + Delay-driven unlock | 2 | **2** |
+
+  Two of those rows are better than a pass. **`payload = 446` is the one-frame
+  delivery latency measured as a number**: the payload is a counter that ticks
+  every 0.1 s, sends happen every 0.2 s, and the last delivered value trails the
+  live counter (448) by exactly the 2 ticks that fit in that window. And
+  **`quiet = 225`** comes from a *second* On Event on the same name whose exec
+  output is unwired: its BOOL output still drove a NOT into an On Condition and
+  counted 225 rising edges of "no event this frame" against 224 events. (That
+  node's own hit count is 0, and correctly so - codegen does not instrument a
+  trigger with an empty chain. Not a bug; noting it so nobody reads it as one.)
+
+  **The four things a variable cannot hold were measured off the screen**, on the
+  software renderer, with PIL rather than an eyeball:
+  - **Letterbox bars**: rows are *exactly* `0,0,0` outside a lit band, and the
+    black covers **0.223 / 0.221** of the game image's height against the
+    `0.22106F` that codegen folded from `seqBarsFractions(cinema)` - within the
+    20-px sampling step.
+  - **Set Screen Effect really overrides the authored params.** The placement was
+    authored as a dim BLUE wash (Amount 0.35, RGB 0.1/0/0.2); the graph's `set`
+    pin wrote Amount 0.5, **Red 1.0**. The frame came out strongly red
+    (R/B = 2.25). Had the parameters still been the old function-local `const`,
+    the frame would have been faintly blue - so the writable-global change is
+    proven by the colour being the wrong one for the baked values.
+  - **Set Screen Fade driven by a Tween**: identical frame composition (same
+    crate, same checkerboard, same bars) at mean brightness **11.1** mid-ramp and
+    **99.2** after the Tween reached 0.
+  - **Camera Shake**: and here the first attempt measured **0 pixels differing**
+    across four captures 250 ms apart. Not a bug - the fixture asked for
+    amplitude 0.05 units, which the ease-out cuts to 0.03, and a 3 cm camera
+    TRANSLATION (eye and aim move together by design) is sub-pixel at 512x448
+    with nothing closer than 5.6 m. At amplitude 2.0 the horizon sweeps a
+    **215-pixel** span and up to **545k pixels** differ between consecutive
+    captures. Worth recording as the trap it is: a shake that cannot be seen and
+    a shake that is not happening look identical, and the fix is arithmetic, not
+    debugging. (The zero-difference baseline was itself useful - it says the
+    fixture's frames are otherwise perfectly static, which is what makes this a
+    clean instrument.)
+
+  **Still not verified, and deliberately**: whether `Set Player Input`'s lock
+  actually stops a player who is pressing something - it fired twice on schedule,
+  but with no input in an unattended run there is nothing to block. That half
+  stays a hands-on test, per the standing convention.
 
 ## Backlog (rough order)
 
