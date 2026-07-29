@@ -14609,3 +14609,61 @@ Each finished feature lands as its own commit.
   this feature is ~20 - they have drifted behind codegen for a while, and folding
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
+
+- (227) **Vendored dependencies are pinned, mirrored and their licenses ship** -
+  the question that started it was "czy dobrze robimy, że osadzamy vendory tak,
+  że trzeba je osobno pobrać - jak je usuną, apka przestaje działać". The answer
+  turned out to be that upstream disappearing was the *least* of it, so this
+  entry records three separate findings rather than one feature.
+  **The real bug was version drift, not link rot.** Every dependency but GLFW was
+  fetched with `git clone --depth 1 --branch master`, and the setup loop skips a
+  vendor directory whose probe file already exists. So the build was never
+  reproducible in either direction: a fresh clone got whatever HEAD was that day,
+  and an existing checkout froze forever at whatever HEAD had been on the day it
+  was first set up, with no way to tell the two apart. `deps.sh` / `deps.ps1` now
+  carry `Commit` (the exact SHA, taken from the checkouts this repo is known to
+  build with) plus `Ref` (the branch/tag it came from - documentation only, since
+  nothing fetches it). `git clone --branch` will not take a SHA, so setup grew
+  `fetch_pinned` / `Get-PinnedCommit`: `git init`, then `git fetch --depth 1
+  <url> <sha>` and `checkout --detach FETCH_HEAD`. GitHub serves arbitrary
+  reachable SHAs, which is what lets the mirrors be plain forks instead of repos
+  carrying tyrax-specific tags. The `STB_HEADERS` back-fill was pulling from
+  `raw.githubusercontent.com/.../master/` and now reads the pinned SHA - it was
+  the one path that could mix a newer stb header into an older stb checkout.
+  **Mirrors**: each entry has a `Mirror` URL (`doctorspider42/tyrax-vendor-*`,
+  eight GitHub forks), tried when the upstream fetch fails, so a deleted, renamed
+  or force-pushed upstream costs a slow fetch instead of a broken build.
+  **The license gap was real and worse than expected.** `vendor/tyra/engine` is
+  redistributed in this repo under Apache-2.0, whose section 4(a) requires the
+  license text to travel with it - and there was no license text, because
+  upstream `h4570/tyra` *has no LICENSE file*. It had one until `44c1ee4`
+  ("remove tyrav1 stuff", 2022-07-17) deleted it, apparently by accident: the
+  upstream README still says "Distributed under the Apache License 2.0" and still
+  links a file that 404s, and GitHub still reports the repo as Apache-2.0. The
+  text is now recovered verbatim from `h4570/tyra@68eb496` (the last commit that
+  had it) into `vendor/tyra/LICENSE`, un-ignored, with the provenance written
+  down in `.gitignore` and `THIRD-PARTY-LICENSES.md`. That new file also carries
+  the full MIT/zlib/public-domain texts for the fetched dependencies, which
+  matters the moment a *binary* editor is distributed - there is no `vendor/` for
+  a user to look in then. Credits also gained miniaudio, which had been missing.
+  **The asset question was checked and the answer is no.** The premise was that
+  MakeHuman's assets are CC0 and could simply be embedded. Upstream's own
+  `makehumancommunity/makehuman-assets` README says the CC0 relicensing "is a
+  work in progress" and asks people to report assets still marked AGPL as bugs -
+  so "all CC0" is not true and, more to the point, not verifiable
+  project-by-project. Nothing was embedded; there is no MakeHuman consumer in
+  this codebase to embed it for. What landed instead is a written **Dependency
+  policy** in the README (pin the commit / mirror it / vendor in-tree when the
+  license allows / verify assets file-by-file and keep them optional).
+  Verified on Linux: deleting `vendor/imnodes` and running `./setup.sh` fetches
+  exactly `eb36902c`; pointing the upstream URL at a deliberately dead repo makes
+  it fall through to the mirror and land on the *same* SHA; `./build.sh` links
+  `tyrax-editor` clean on the pinned tree; and deleting the directory and running
+  `./build.sh` proves the missing-dependency guard still parses the widened list
+  (it re-ran setup and built). **Not verified: the Windows twins.** No PowerShell
+  on this box - `setup.ps1` / `build.ps1` are review-only. The one PowerShell trap
+  worth naming: a native command's stdout joins a function's output stream there,
+  so a chatty `git` would be returned alongside the status boolean and turn
+  `-not (...)` into a test on an array - i.e. a failed fetch reading as success.
+  Every git call in `Get-PinnedCommit` is piped to `Out-Null` and the caller
+  re-checks the probe file instead of trusting the return value.

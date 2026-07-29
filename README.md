@@ -46,7 +46,7 @@ the scoop MinGW kit rather than the MSVC one.
 
 `setup.sh --deps` picks the package list for your package manager (apt / dnf / pacman / zypper) and installs it with `sudo`, falling back to `pkexec` when there is no terminal to authenticate in. It is the only part that needs root, which is why it is opt-in — plain `./setup.sh` just fetches `vendor/` and `tools/`. On a machine that already has a toolchain you can skip straight to `./build.sh`.
 
-Both build scripts handle the rest: clone the `vendor/` dependencies on first run, check the toolchain (and name the exact install command when something is missing), configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency lists live in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
+Both build scripts handle the rest: fetch the `vendor/` dependencies at their pinned commits on first run, check the toolchain (and name the exact install command when something is missing), configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency lists live in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
 
 `-Dev`/`--dev` builds for **iteration speed instead of run speed** (`-O1`, into its own `build-dev/` so switching back and forth costs nothing): a clean build is roughly a third faster and a one-file edit rebuilds in a few seconds. The host bakes (GI, material raytracing, ambient occlusion, texture quantization) are genuinely slow in it, so it is for working on the UI and the model, never for a release or a benchmark. If **ccache** (or sccache) is on `PATH`, CMake picks it up automatically — which matters here because the repo is normally checked out in several git worktrees at once, each with its own build directory compiling the same translation units from scratch. `setup.sh --deps` installs it on Linux, `scoop install ccache` on Windows; because CMake caches the *miss*, installing it after a build directory already exists needs a `-Clean`/`--clean` (or a deleted build dir) before it takes effect. `-DTYRAX_COMPILER_CACHE=OFF` opts out.
 
@@ -238,7 +238,7 @@ flashing, `IPCONFIG.DAT`, firewall ports, what every failure message means — i
 
 ## The in-tree Tyra engine
 
-`vendor/tyra/engine` is a fork of the [Tyra engine](https://github.com/h4570/tyra) (Apache License 2.0, forked at `9273416`), maintained directly in this repo — edit it and the next Build & Run picks the change up automatically. The editor's modifications over upstream (marked `Modified by TyraX` / `TyraX guard band` in the sources):
+`vendor/tyra/engine` is a fork of the [Tyra engine](https://github.com/h4570/tyra) (Apache License 2.0, forked at `9273416`; license text in [`vendor/tyra/LICENSE`](vendor/tyra/LICENSE)), maintained directly in this repo — edit it and the next Build & Run picks the change up automatically. The editor's modifications over upstream (marked `Modified by TyraX` / `TyraX guard band` in the sources):
 
 - `planes_clip_algorithm.cpp` — Cohen–Sutherland outcodes: fully-visible triangles skip the 6-plane clipper, fully-outside ones are rejected instantly.
 - `stapip_clipper.cpp`, `stapip_qbuffer.cpp` — static pools instead of per-call heap allocations.
@@ -312,8 +312,43 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `ai-support/` — source markdown for the AI assistant guides installed into projects (embedded into the exe at build time; see [docs/ai-support.md](docs/ai-support.md)).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
-- `vendor/` (rest) — editor dependencies (not versioned; fetched by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know). `build.cmd` / `setup.cmd` are cmd.exe wrappers over the PowerShell scripts and deliberately contain no logic of their own — note that a bare `build` in PowerShell resolves to `build.cmd` first.
+- `vendor/` (rest) — editor dependencies (not versioned; fetched at a **pinned commit** by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know). `build.cmd` / `setup.cmd` are cmd.exe wrappers over the PowerShell scripts and deliberately contain no logic of their own — note that a bare `build` in PowerShell resolves to `build.cmd` first.
 - `tools/` — PS2 network-deploy tools: `ps2client` (versioned, the rest fetched by `setup.ps1` / `setup.sh`) and the [TyraX ps2link](tools/ps2link/README.md) (`ps2link` — the patch + Docker build for the only ps2link the F6 deploy supports, see [docs/ps2link-setup.md](docs/ps2link-setup.md)), plus the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
+
+## Dependency policy
+
+Four rules, so that "it built last year" keeps meaning something.
+
+**1. Pin the commit, never a branch.** Every entry in `deps.ps1` / `deps.sh`
+names an exact SHA. A branch is a moving target, and because setup skips a
+vendor directory whose probe file already exists, a branch pin also freezes
+silently: two people who ran setup a month apart get two different imgui and
+neither is told. To bump a dependency, change the SHA in **both** lists, delete
+the vendor directory, re-run setup, and actually build.
+
+**2. Mirror everything the build needs.** Each dependency also carries a
+`Mirror` URL — our fork under `doctorspider42/tyrax-vendor-*`. Setup tries
+upstream first and falls back to the mirror, so a deleted, renamed or
+force-pushed upstream costs a slower fetch instead of a broken build. Refresh a
+mirror with `gh repo sync` *before* bumping its pin, so the new SHA exists in
+both places.
+
+**3. If the license permits redistribution and the thing is small, vendor it
+in-tree.** Fetching at setup time buys nothing legally — MIT, zlib, Apache-2.0
+and public domain all allow redistribution outright — so it is purely an
+engineering trade. Fetch only what is genuinely large, or what may not be
+redistributed. `vendor/tyra/engine` is in-tree for exactly this reason.
+
+**4. Assets are not code; verify them file-by-file.** A permissive license on a
+project says nothing about the license on its models, textures or sounds, and
+asset collections are commonly *mixed* — a CC0 default with a long tail of
+AGPL/GPL leftovers is the normal shape of an open asset pack, not the
+exception. Never conclude "the project is CC0, therefore the pack is CC0".
+Anything that cannot be redistributed must be an **optional** download whose
+absence disables one feature, never something the build or the editor requires.
+
+Notices for everything currently shipped are in
+[THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 
 ## Credits
 
@@ -323,6 +358,9 @@ This project stands on the shoulders of the PS2 homebrew community:
   and contributors — Apache License 2.0. `vendor/tyra/engine` is an in-tree
   fork; every departure from upstream is marked `Modified by TyraX` in
   the sources. The `h4570/tyra` Docker image provides the PS2 toolchain.
+  The license text ships as [`vendor/tyra/LICENSE`](vendor/tyra/LICENSE),
+  recovered from upstream history — upstream's own copy was deleted by accident
+  in 2022 and never restored (see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)).
 - **[ps2client](https://github.com/ps2dev/ps2client)** and
   **[ps2link](https://github.com/ps2dev/ps2link)** by the
   [ps2dev project](https://ps2dev.github.io/) contributors — the network link
@@ -338,10 +376,15 @@ This project stands on the shoulders of the PS2 homebrew community:
 - **[PS2SDK](https://github.com/ps2dev/ps2sdk)** (ps2dev) — the SDK every
   generated game links against; the custom `audsrv` build in
   `vendor/tyra/audsrv-pan` derives from its audsrv module.
-- Editor dependencies fetched by `setup.ps1` / `setup.sh`: [Dear ImGui](https://github.com/ocornut/imgui)
+- Editor dependencies fetched at a pinned commit by `setup.ps1` / `setup.sh`:
+  [Dear ImGui](https://github.com/ocornut/imgui)
   (MIT), [GLFW](https://www.glfw.org/) (zlib/libpng),
   [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) (MIT),
   [imnodes](https://github.com/Nelarius/imnodes) (MIT),
   [stb](https://github.com/nothings/stb) (public domain / MIT),
-  [ufbx](https://github.com/ufbx/ufbx) (MIT).
+  [ufbx](https://github.com/ufbx/ufbx) (public domain / MIT),
+  [miniaudio](https://github.com/mackron/miniaudio) (public domain / MIT-0).
+  Full license texts for all of them — required when a **binary** editor is
+  distributed, since there is no `vendor/` to look in then — are in
+  [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.

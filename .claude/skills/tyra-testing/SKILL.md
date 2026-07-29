@@ -107,10 +107,18 @@ missing `vendor/` header, check WHICH script ran before suspecting the code.
 **Third-party dependencies live in exactly one list per platform: `deps.ps1`
 and `deps.sh`.** `setup.ps1`/`setup.sh` fetch from them and `build.ps1`/
 `build.sh` probe them before configuring, so adding a dependency **to both** is
-all it takes — the build guard picks it up for free and `git clone`s it on the
+all it takes — the build guard picks it up for free and fetches it on the
 next build. Add one anywhere else, or to only one of the two, and you recreate
 the bug this arrangement exists to prevent: the lists used to drift, and a
 worktree that predated a new dependency reached cmake with the sources missing.
+
+Each entry is fetched at a **pinned commit**, not a branch (`git init` + `git
+fetch --depth 1 <url> <sha>`, since `git clone --branch` refuses a SHA), with a
+fallback to our mirror fork. This is what makes a build reproducible, so when
+you are chasing "it worked yesterday", `git -C vendor/<dep> rev-parse HEAD`
+should always equal the SHA in `deps.sh` — if it does not, that checkout
+predates the pinning and is stale. Fix it by deleting the directory and
+re-running setup, not by pulling in it.
 
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
