@@ -1,5 +1,6 @@
 #include "esrudf.hpp"
 
+#include <algorithm>  // std::min in dstring()/regid()
 #include <array>
 #include <cstring>
 #include <fstream>

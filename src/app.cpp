@@ -792,6 +792,10 @@ void App::drawUI() {
         openExportDonePopup_ = false;
         ImGui::OpenPopup("Export complete");
     }
+    // Centered over the main viewport, like every other modal here
+    // (drawDiscardModal) - without it the popup lands wherever the cursor was.
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
+                            ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Export complete", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("ISO export finished. Wrote:");
         ImGui::TextWrapped("%s", exportDonePath_.c_str());

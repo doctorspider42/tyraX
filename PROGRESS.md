@@ -734,6 +734,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (249) **ESR export, review pass after merging main** (three findings, all in
+  the export path added by 247/248). *The one that mattered*: the "Open folder"
+  button on the export-complete popup called `CreateProcessA` +
+  `explorer.exe /select,` directly - written before the editor was
+  cross-platform, and it would not COMPILE on Linux. It goes through
+  `platform::revealInFileManager` now, which is the one place that difference is
+  allowed to live (and is what the Asset Browser already uses). Two smaller
+  ones: `esrudf.cpp` used `std::min` without including `<algorithm>` (it built
+  only because libstdc++ drags it in via `<array>`/`<fstream>`), and the
+  export-complete modal did not centre itself over the viewport the way every
+  other modal in `app.cpp` does. Also merged main into the branch: the export
+  launchers now pass `projectForBuild()` (so stale procedural volumes bake
+  before the disc is written) instead of the raw `project_`.
+  **Verified** with an independent byte-level validator over both images
+  exported from a scratch project with a fabricated `bin/` (6 files, one
+  two-level directory): ISO9660 side - PVD/terminator, volume space size
+  (218 / 458 sectors) matching the real file length, EVERY both-endian pair
+  agreeing (volume space size, path table size, volume set/sequence, block
+  size, and the extent+size of every directory record), the L- and M-path
+  tables byte-swapped copies of each other over all 5 records, every extent
+  inside the volume, `SYSTEM.CNF` naming a `BOOT2` file that exists, and the
+  bytes of all 5 payload files identical to the ones in `bin/`. UDF side -
+  all 16 descriptors (2x PVD/IUVD/PD/LVD/USD/TD, LVID, 2 TDs, 2 anchors) carry
+  a correct tag checksum AND CRC at their own tag location, the anchors at 256
+  and at the last sector point at VDS 32/48, esrtool's `check_udf` and
+  `check_patched` both pass, both partition descriptors read `+NSR02` /
+  start 128 / length 12, the LVD's File Set Descriptor reference resolves to
+  partition block 0, and the fake partition at 128..139 is byte-identical to the
+  ported blob (whose own 10 descriptors - File Set, File Entries, File
+  Identifiers naming VIDEO_TS / AUDIO_TS / VIDEO_TS.IFO / VIDEO_TS.BUP - also
+  verify). The plain image is unchanged (root dir still at LBA 20, no UDF
+  descriptors anywhere) and the ESR image is exactly 240 sectors bigger: the
+  239-sector reserved gap plus the tail anchor. **Still owed by a human:** a
+  real ESR boot on a modded PS2 from a burned DVD-R. PCSX2 cannot answer it
+  (ESR / the DVD-Video path is not emulated) and was not run here.
 - (248) **ISO export now builds first, shows progress, and offers to open the
   output folder** (owner request, follow-up to (247)). *Export PS2 ISO* and
   *Export ESR ISO* used to run `isoexport` straight over whatever was in `bin/`
