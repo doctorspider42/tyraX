@@ -558,6 +558,11 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Prefabs (docs/prefabs.md): reusable groups of scene objects,
+    // captured from a selection and stamped back into the world - by hand, by
+    // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
+    // prefab_ui.cpp (the assetbrowser.cpp precedent).
+    void drawPrefabsWindow();
     // Tools > Procedural (docs/procedural-generation.md): the scatter-graph
     // editor. One window drives every Scatter volume in the active scene -
     // graph editing, the live budget, per-instance overrides and the bake.
@@ -1099,6 +1104,11 @@ private:
     // Node the per-node context menu was opened on (Live Debugger actions:
     // breakpoint, force-fire).
     int flowCtxNode_ = -1;
+
+    // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
+    // with an index - nothing about it is per scene.
+    bool showPrefabs_ = false;
+    int prefabSelected_ = 0;
 
     // Procedural scatter (Tools > Procedural). The graph editor mirrors the
     // flow-graph editor's imnodes setup (own editor context, so panning and

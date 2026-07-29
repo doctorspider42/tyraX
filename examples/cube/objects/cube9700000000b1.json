@@ -1,0 +1,131 @@
+{
+ "id": "cube9700000000b1",
+ "name": "the-cube",
+ "type": "scatter",
+ "position": [
+  0,
+  0,
+  0
+ ],
+ "rotation": [
+  0,
+  0,
+  0
+ ],
+ "scale": [
+  42.0,
+  4,
+  42.0
+ ],
+ "color": [
+  0.9,
+  0.5,
+  0.5
+ ],
+ "physics": false,
+ "castShadow": false,
+ "collision": "none",
+ "procGraph": {
+  "seed": 3,
+  "nextId": 100,
+  "runtime": true,
+  "runAtStart": true,
+  "seedMode": 0,
+  "nodes": [
+   {
+    "id": 1,
+    "type": "ScatterGrid",
+    "pos": [
+     40,
+     200
+    ],
+    "nums": {
+     "spacing": 14.0,
+     "jitter": 0.0,
+     "snap": 0,
+     "levels": 3,
+     "levelstep": 14.0
+    }
+   },
+   {
+    "id": 2,
+    "type": "PickPrefab",
+    "pos": [
+     400,
+     200
+    ],
+    "rows": [
+     {
+      "s": "room-steel",
+      "v": [
+       34,
+       1,
+       1,
+       0
+      ]
+     },
+     {
+      "s": "room-amber",
+      "v": [
+       26,
+       1,
+       1,
+       0
+      ]
+     },
+     {
+      "s": "room-jade",
+      "v": [
+       26,
+       1,
+       1,
+       0
+      ]
+     },
+     {
+      "s": "room-red",
+      "v": [
+       14,
+       1,
+       1,
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": 3,
+    "type": "Output",
+    "pos": [
+     760,
+     200
+    ],
+    "nums": {
+     "cell": 128.0,
+     "draw": 0.0,
+     "shadow": 0,
+     "collide": 0,
+     "detail": 0,
+     "budget": 40000,
+     "maxinst": 256
+    }
+   }
+  ],
+  "links": [
+   {
+    "id": 10,
+    "from": 1,
+    "fromPin": 0,
+    "to": 2,
+    "toPin": 0
+   },
+   {
+    "id": 11,
+    "from": 2,
+    "fromPin": 0,
+    "to": 3,
+    "toPin": 0
+   }
+  ]
+ }
+}

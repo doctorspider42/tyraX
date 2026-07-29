@@ -14106,3 +14106,94 @@ Each finished feature lands as its own commit.
   dark on *Scene ambience*, light up independently when each is switched to
   *Neutral studio*, a named preset (`Default`, warm light) reads differently
   from neutral, and both selections survive a restart.
+
+- (224) **Runtime procedural generation + prefabs** - the two halves of "build
+  the world while the game runs". Until now a Procedural volume was baked: the
+  editor evaluated the graph and wrote finished chunk meshes, and the console
+  never learned a graph existed (entry above). A volume now has a **mode**, and
+  in *Runtime* the graph is COMPILED into the game (`src/gen/procedural.gen.cpp`,
+  emitted by the new `src/procrt.cpp`) and evaluated on the EE - so the world
+  can be different every boot and no geometry ships at all. **Prefabs**
+  (`src/prefab.*`, `Project::prefabs`, `Section::Prefabs`, the *Tools > Prefabs*
+  window in `src/prefab_ui.cpp`) are the other half: a group of scene objects
+  with their flow graphs, captured from a selection and stamped back by hand, by
+  a graph (`Pick Prefab`) or by a flow node (`Spawn Prefab`) while the game runs.
+  Written up in `docs/procedural-runtime.md` and `docs/prefabs.md`.
+
+  **The design decision the whole thing rests on is the merge.** A PS2 static
+  submit costs ~0.7-1.5 ms of fixed EE time whatever it contains, so neither
+  feature can exist as "spawn one object per instance": 500 cubes or 27 rooms
+  would be a frame and a half each. Both therefore end in the same place -
+  `TerrainGame::ProcChunk`, a world-space vertex bag the GAME built, drawn like
+  a static batch, merged per (source mesh, world chunk). A prefab's members are
+  split at build time by `prefab::memberMerges`: plain static geometry folds
+  into the bag, and only members that need an identity something can address (a
+  graph, scripts, physics, a light, a layer) take a clone-pool slot and a submit
+  of their own. The Prefabs window states that split per prefab before you
+  build, because the second number is the one that runs out (32 clones per
+  scene, 8 per instance). A prefab spawned BY A VOLUME merges into the volume's
+  chunk grid rather than its own - which is what makes the cube example 27 rooms
+  in ~4 draw calls; a flow-node spawn keeps its own bags, because Despawn Prefab
+  has to be able to take that one instance away again.
+
+  Merged geometry has no objects behind it, so it would be scenery you walk
+  through - right for vegetation, wrong for architecture. Every merged member
+  with collision contributes one conservative world AABB to `procColliders`,
+  tested in `collidePlayer` next to the object boxes (axis-aligned on purpose,
+  with a 3-unit cheap reject: it is hundreds of boxes per walker per frame, and
+  without the reject the cube example measured 47 FPS instead of 50).
+
+  **`procrt::capability()` is the honest half.** The console has a heightmap, a
+  few models and 32 MB - it does not have your `.obj` files, your splat map or
+  your scene graph. One table (`kRuntimeNodes`) is read by both the capability
+  check and the emitter, so the window can never promise a node the compiler
+  cannot produce; a graph using Curve / Scatter along Curve / Keep Away From, a
+  painted-layer Terrain Mask or an object-target surface scatter is named, with
+  the reason, under the budget bar the moment you switch to Runtime - and
+  codegen refuses to emit it rather than generating code that will not compile.
+  The emitted evaluator is a faithful twin of `procgen.cpp` (same mix64, same
+  Halton, same per-point channels), which is what makes a runtime volume
+  previewable in the viewport at all.
+
+  Two structural notes on the emitter. Points live in ONE growing buffer and
+  every node returns the `[begin, end)` range it produced, always ending at
+  `count` - that is what makes a filter's in-place compaction and a Merge's
+  plain concatenation correct with no allocation anywhere. And a node feeding
+  two consumers is **emitted twice**, which is not a bug but the dataflow
+  meaning (each branch gets its own copy of the cloud) - hence `emitSeq` in the
+  variable names, after the first attempt produced `int r1b` twice.
+
+  **Blocks Fill** is the new source node and the one whose value is in what it
+  does NOT emit: it walks the column field and emits only blocks with an exposed
+  face, each carrying a 6-bit `faces` mask the merge honours by dropping any
+  source triangle whose outward normal points at a covered face. A flat plain
+  then costs two triangles per block instead of twelve, and the blocks-terrain
+  example generates 2 400 blocks out of the 27 000 its field describes. `faces`
+  is a plain attribute rather than a property of a block type, so any asset
+  merged anywhere honours it; `depth` and `height` are likewise plain, which is
+  why "grass on top, dirt under it, stone below" is five ordinary Filter by
+  Attribute branches and not a special node. In a runtime volume the solid field
+  is published as the world's collision (one 32-bit word per column - hence the
+  32-level cap), read by `collidePlayer` for floor, ceiling and walls. Exactly
+  one block is climbable in a stride, which means the block must be SHORTER than
+  the player: the first attempt used 2-unit cubes under a 1.8-unit walker and
+  every single-block rise was a wall the camera stared into.
+
+  Also: the codegen's `SceneObjectData` row emitter was extracted
+  (`writeObjectDataRow`) so prefab members go through the identical field list -
+  and the empty-scene placeholder row, hand-typed and never exercised, turned out
+  to have already drifted behind the struct. It is now written by the same
+  emitter.
+
+  **Verified end to end in PCSX2** (software renderer, PAL). `examples/blocks-terrain`:
+  the boot log reports `Procedural world: 2423 instances, seed 7`, the screen
+  shows stepped terraces of cubes with snow on the peaks, and it holds **50.05
+  FPS**. Regeneration was measured by temporarily swapping the button trigger for
+  `Every N Seconds` (this machine's PCSX2 has no keyboard bindings on Pad1, so a
+  button press is not scriptable here): six consecutive `Procedural world:` lines
+  with six different seeds and instance counts, and a screenshot of a visibly
+  different landscape at the same frame rate. `examples/cube`: `Procedural
+  the-cube: 27 instances`, the player stands inside a room whose walls, floor
+  hatch and doorway are all there, at **50.00 FPS**. The pad-driven half - actually
+  pressing TRIANGLE, and walking through a doorway into the next room - still
+  needs a hands-on test with a controller.

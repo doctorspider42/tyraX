@@ -44,6 +44,29 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
     "",
 };
+// The AUTHORED asset path each slot was baked from ("res/models/x.obj").
+// Nothing loads it - it is the key a runtime procedural volume
+// resolves its asset pool against, because a graph names assets the
+// way the editor does and the console only has baked .tmdl names.
+inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "res/models/procgen-7f3a1c02-pine-xm1zm1.obj",
+    "res/models/procgen-7f3a1c02-pine-xm1z0.obj",
+    "res/models/procgen-7f3a1c02-pine-x0zm1.obj",
+    "res/models/procgen-7f3a1c02-pine-x0z0.obj",
+    "res/models/procgen-7f3a1c02-rock-xm1zm1.obj",
+    "res/models/procgen-7f3a1c02-rock-xm1z0.obj",
+    "res/models/procgen-7f3a1c02-rock-x0zm1.obj",
+    "res/models/procgen-7f3a1c02-rock-x0z0.obj",
+    "res/models/procgen-2b8d40f6-pillar-xm1zm1.obj",
+    "res/models/procgen-2b8d40f6-pillar-xm1z0.obj",
+    "res/models/procgen-2b8d40f6-pillar-x0zm1.obj",
+    "res/models/procgen-2b8d40f6-pillar-x0z0.obj",
+    "res/models/procgen-9e14c7a8-rock-x0zm1.obj",
+    "res/models/procgen-4c62ab19-post-xm1z0.obj",
+    "res/models/procgen-4c62ab19-post-x0z0.obj",
+    "res/models/procgen-d05f8e23-pine-xm1zm1.obj",
+    "res/models/procgen-13ae95bc-crystal-x0z0.obj",
+};
 constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 0;

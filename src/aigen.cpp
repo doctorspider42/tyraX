@@ -100,6 +100,8 @@ static std::string strKindDesc(FlowParamKind k) {
             return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
                    "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
                    "Left Ctrl, Left Alt";
+        case FlowParamKind::PrefabName:
+            return "prefab name (see context; Tools > Prefabs)";
         default: return "";
     }
 }
@@ -342,6 +344,8 @@ std::string systemPrompt(const Project& p, int ownerIndex,
                      [](const AmbiencePreset& a) { return a.name; }));
     ctxLine("Sequences (cutscenes)",
             nameList(p.sequences, [](const Sequence& s) { return s.name; }));
+    ctxLine("Prefabs (Spawn Prefab / Despawn Prefab)",
+            nameList(p.prefabs, [](const Prefab& pf) { return pf.name; }));
 
     o << "\nIf the request references something that does not exist in the "
          "project context, prefer the closest existing name; only invent "

@@ -46,6 +46,15 @@ inline constexpr const char* kSize = "size";      // uniform scale factor
 inline constexpr const char* kRandom = "random";  // per-point 0..1, stable
 inline constexpr const char* kCurveT = "t";       // 0..1 along a curve
 inline constexpr const char* kDist = "dist";      // distance to something
+// Blocks Fill writes these two. `faces` is a 6-bit visibility mask (+X 1, -X 2,
+// +Y 4, -Y 8, +Z 16, -Z 32): the merger drops a triangle whose outward normal
+// points at a face this block does not have, which is what stops a block world
+// from spending its entire triangle budget on surfaces nobody can see. It is
+// deliberately a plain attribute rather than a property of a "block" data type:
+// any asset merged at any point in the graph honours it, and a node that does
+// not know about it passes it through like every other attribute.
+inline constexpr const char* kFaces = "faces";
+inline constexpr const char* kDepth = "depth";  // blocks below the column top
 }  // namespace procattr
 
 // One row of a node's variable-length table: the asset pool of Pick Asset
@@ -114,6 +123,22 @@ struct ProcGraph {
     // channel), so nothing depends on evaluation order or on how many
     // unrelated nodes sit next to it.
     uint32_t seed = 1;
+    // WHERE the graph runs (docs/procedural-runtime.md). false = the classic
+    // bake: the editor evaluates the graph and writes finished chunk meshes, the
+    // console never learns a graph existed. true = the graph is COMPILED into
+    // the game and evaluated on the EE, so the world can differ every boot -
+    // which costs load time, RAM and a much smaller node vocabulary
+    // (procrt::capability is the honest list). A graph is one or the other:
+    // baking a runtime volume would defeat the point, and running a baked one
+    // would need nodes the console has no data for.
+    bool runtime = false;
+    // Generate during the scene load, inside the loading screen's progress
+    // pump. Off = nothing appears until a Generate Volume flow node fires,
+    // which is how you regenerate on a button or stage a world in pieces.
+    bool runAtStart = true;
+    // 0 = use `seed` (the same world every boot - reproducible, and what you
+    // want while authoring); 1 = roll a fresh one at generation time.
+    int seedMode = 0;
     std::vector<ProcOverride> overrides;
     // Hash of the last bake (procbake::graphHash) - what the generated chunk
     // objects in the scene were built from. Differs from the live hash = the
@@ -135,9 +160,10 @@ inline bool operator==(const ProcLink& a, const ProcLink& b) {
 }
 
 inline bool operator==(const ProcGraph& a, const ProcGraph& b) {
-    return a.nextId == b.nextId && a.seed == b.seed && a.nodes == b.nodes &&
-           a.links == b.links && a.overrides == b.overrides &&
-           a.bakedHash == b.bakedHash;
+    return a.nextId == b.nextId && a.seed == b.seed && a.runtime == b.runtime &&
+           a.runAtStart == b.runAtStart && a.seedMode == b.seedMode &&
+           a.nodes == b.nodes && a.links == b.links &&
+           a.overrides == b.overrides && a.bakedHash == b.bakedHash;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +208,7 @@ enum class ProcRowKind {
     Assets,    // s = asset key, v[0] = weight, v[1..2] = scale min/max
     Points,    // v[0..2] = world XYZ control point
     Settings,  // s = procObjectProps() key, v[0] = the value
+    Prefabs,   // s = prefab name, v[0] = weight, v[1..2] = scale min/max
 };
 
 // ---------------------------------------------------------------------------

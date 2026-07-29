@@ -1,0 +1,2964 @@
+{
+  "name": "cube",
+  "template": "fpp",
+  "projectId": "90f9b2eb36c57b3a",
+  "settings": {
+    "videoSystem": "auto",
+    "displayMode": "interlaced",
+    "palFullHeight": true,
+    "widescreen": false,
+    "buildProfile": "debug",
+    "textureQuant": "4bit",
+    "textureAtlas": false,
+    "showFps": false,
+    "showMemory": false,
+    "showProfiler": false,
+    "showAreas": false,
+    "liveLink": true,
+    "liveDebug": true,
+    "eeCrashHandler": false,
+    "liveLogic": true,
+    "timeMachine": true,
+    "keyboardMouse": false,
+    "keyboardMousePs2Link": true,
+    "disableVsync": false,
+    "clipping": "vu1",
+    "animLodDistance": 0,
+    "meshLodDistance": 0,
+    "animSourceFps": 24,
+    "animPlayFps": 24,
+    "staticBatching": true,
+    "envProbeReflected": false,
+    "navCellSize": 1,
+    "navMaxSlope": 40,
+    "navAgentRadius": 0.4,
+    "unitsPerMeter": 1,
+    "terrainDetail": 32,
+    "terrainViewDistance": 0,
+    "skyColor": [
+      0.25,
+      0.55,
+      0.78
+    ],
+    "skyTopColor": [
+      0.08,
+      0.3,
+      0.65
+    ],
+    "skyDome": true,
+    "zenithSize": 0.5,
+    "eyeHeight": 1.8,
+    "walkSpeed": 0.1,
+    "lookSpeed": 1,
+    "sprintMultiplier": 1.8,
+    "stickDeadzoneL": 0.2,
+    "stickDeadzoneR": 0.2,
+    "stickCurveL": 0,
+    "stickCurveR": 0,
+    "stickExpL": 2,
+    "stickExpR": 2,
+    "multiplayer": "off",
+    "p2JoinOnStart": true,
+    "orbitSpeed": 1,
+    "gravity": 9.8,
+    "jumpSpeed": 4.5,
+    "lightDir": [
+      0.37,
+      0.82,
+      0.44
+    ],
+    "ambient": 0.55,
+    "diffuse": 0.45,
+    "lightColor": [
+      1,
+      1,
+      1
+    ],
+    "brightness": 1,
+    "aoEnabled": false,
+    "aoStrength": 0.55,
+    "aoRadius": 2.5,
+    "giEnabled": false,
+    "giRays": 128,
+    "giBounces": 2,
+    "giSkyLight": 1,
+    "giSunLight": 1,
+    "giAmbientFloor": 0.03,
+    "giProbes": true,
+    "giProbeSpacing": 3,
+    "giProbeHeight": 2,
+    "giProbeLevels": 4,
+    "terrainMaterial": "",
+    "bloom": 0,
+    "bloomThreshold": 0,
+    "bloomSpread": 0,
+    "grain": 0,
+    "dofAmount": 0,
+    "dofFocus": 20,
+    "dofRange": 15,
+    "flare": 0,
+    "godRays": 0,
+    "blobShadows": false,
+    "fogEnabled": false,
+    "fogColor": [
+      0.5,
+      0.5,
+      0.55
+    ],
+    "fogStart": 15,
+    "fogEnd": 120,
+    "highlightUsable": false,
+    "highlightDistance": 6,
+    "highlightColor": [
+      1,
+      0.85,
+      0.15
+    ],
+    "highlightWidth": 0.35,
+    "highlightSteps": 4,
+    "highlightOpacity": 0.56,
+    "highlightOverlay": false,
+    "loadingScreen": true
+  },
+  "scenes": [
+    {
+      "name": "main",
+      "terrain": {
+        "width": 80,
+        "depth": 80
+      },
+      "settings": {
+        "lighting": {
+          "dir": [
+            0.37,
+            0.82,
+            0.44
+          ],
+          "ambient": 0.42,
+          "diffuse": 0.58,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "brightness": 1
+        },
+        "sky": {
+          "color": [
+            0.02,
+            0.02,
+            0.03
+          ],
+          "topColor": [
+            0.0,
+            0.0,
+            0.01
+          ],
+          "dome": false,
+          "zenithSize": 0.5
+        },
+        "clipping": "vu1",
+        "terrainMaterial": "",
+        "postfx": {
+          "bloom": 0,
+          "bloomThreshold": 0,
+          "bloomSpread": 0,
+          "grain": 0,
+          "dofAmount": 0,
+          "dofFocus": 20,
+          "dofRange": 15,
+          "flare": 0,
+          "godRays": 0
+        },
+        "fog": {
+          "enabled": false,
+          "color": [
+            0.5,
+            0.5,
+            0.55
+          ],
+          "start": 15,
+          "end": 120
+        },
+        "highlight": {
+          "usable": false,
+          "distance": 6,
+          "color": [
+            1,
+            0.85,
+            0.15
+          ],
+          "width": 0.35,
+          "steps": 4,
+          "opacity": 0.56,
+          "overlay": false
+        }
+      },
+      "overrides": {
+        "lighting": true,
+        "sky": true,
+        "clipping": false,
+        "terrainMat": false,
+        "postFx": false,
+        "fog": false,
+        "highlight": false
+      },
+      "objects": [
+        "e39cae2c882ccb04",
+        "cube9700000000b1",
+        "cube9700000000b2"
+      ]
+    }
+  ],
+  "fonts": [
+    {
+      "name": "Default",
+      "path": "",
+      "atlasSize": 16,
+      "color": [
+        1,
+        1,
+        1
+      ],
+      "shadow": true,
+      "quant": "4bit"
+    }
+  ],
+  "hud": [],
+  "usePrompt": {
+    "image": "",
+    "pos": [
+      0.5,
+      0.755714
+    ],
+    "size": [
+      128,
+      32
+    ],
+    "texW": 0,
+    "texH": 0,
+    "texQuant": ""
+  },
+  "usePromptIsText": true,
+  "usePromptText": {
+    "text": "{{use}} USE",
+    "size": 20,
+    "color": [
+      1,
+      1,
+      1
+    ],
+    "shadow": true
+  },
+  "pickPromptIsText": true,
+  "pickPromptText": {
+    "text": "{{use}} PICK UP",
+    "size": 20,
+    "color": [
+      1,
+      1,
+      1
+    ],
+    "shadow": true
+  },
+  "hudTexts": [],
+  "textIcons": [
+    {
+      "name": "cross",
+      "path": "res/hud/icon-cross.png"
+    },
+    {
+      "name": "square",
+      "path": "res/hud/icon-square.png"
+    },
+    {
+      "name": "triangle",
+      "path": "res/hud/icon-triangle.png"
+    },
+    {
+      "name": "circle",
+      "path": "res/hud/icon-circle.png"
+    },
+    {
+      "name": "dpadup",
+      "path": "res/hud/icon-dpadup.png"
+    },
+    {
+      "name": "dpaddown",
+      "path": "res/hud/icon-dpaddown.png"
+    },
+    {
+      "name": "dpadleft",
+      "path": "res/hud/icon-dpadleft.png"
+    },
+    {
+      "name": "dpadright",
+      "path": "res/hud/icon-dpadright.png"
+    },
+    {
+      "name": "l1",
+      "path": "res/hud/icon-l1.png"
+    },
+    {
+      "name": "l2",
+      "path": "res/hud/icon-l2.png"
+    },
+    {
+      "name": "l3",
+      "path": "res/hud/icon-l3.png"
+    },
+    {
+      "name": "r1",
+      "path": "res/hud/icon-r1.png"
+    },
+    {
+      "name": "r2",
+      "path": "res/hud/icon-r2.png"
+    },
+    {
+      "name": "r3",
+      "path": "res/hud/icon-r3.png"
+    },
+    {
+      "name": "start",
+      "path": "res/hud/icon-start.png"
+    },
+    {
+      "name": "select",
+      "path": "res/hud/icon-select.png"
+    }
+  ],
+  "hudBloomLayer": -1,
+  "hudGrainLayer": -1,
+  "music": [],
+  "sounds": [],
+  "saveValues": [],
+  "saveTexts": [],
+  "gradings": [],
+  "defaultGrading": -1,
+  "ambience": [
+    {
+      "name": "Default",
+      "skyColor": [
+        0.02,
+        0.02,
+        0.03
+      ],
+      "skyTopColor": [
+        0.0,
+        0.0,
+        0.01
+      ],
+      "skyDome": false,
+      "zenithSize": 0.5,
+      "lightDir": [
+        0.37,
+        0.82,
+        0.44
+      ],
+      "ambient": 0.4,
+      "diffuse": 0.6,
+      "lightColor": [
+        1,
+        1,
+        1
+      ],
+      "brightness": 1,
+      "aoEnabled": true,
+      "aoStrength": 0.55,
+      "aoRadius": 2.5,
+      "fogEnabled": false,
+      "fogColor": [
+        0.5,
+        0.5,
+        0.55
+      ],
+      "fogStart": 15,
+      "fogEnd": 120
+    }
+  ],
+  "defaultAmbience": 0,
+  "loadingScreens": [],
+  "defaultLoadingScreen": -1,
+  "splashScreens": [],
+  "sequences": [],
+  "menus": [],
+  "input": {
+    "activePreset": 0,
+    "allowRebind": true,
+    "actions": [
+      {
+        "name": "move-forward",
+        "label": "Move forward",
+        "role": "move-forward"
+      },
+      {
+        "name": "move-back",
+        "label": "Move back",
+        "role": "move-back"
+      },
+      {
+        "name": "move-left",
+        "label": "Move left",
+        "role": "move-left"
+      },
+      {
+        "name": "move-right",
+        "label": "Move right",
+        "role": "move-right"
+      },
+      {
+        "name": "jump",
+        "label": "Jump",
+        "role": "jump"
+      },
+      {
+        "name": "sprint",
+        "label": "Sprint",
+        "role": "sprint"
+      },
+      {
+        "name": "use",
+        "label": "Use",
+        "role": "use"
+      },
+      {
+        "name": "throw",
+        "label": "Throw",
+        "role": "throw"
+      },
+      {
+        "name": "fly-up",
+        "label": "Fly up",
+        "role": "fly-up"
+      },
+      {
+        "name": "fly-down",
+        "label": "Fly down",
+        "role": "fly-down"
+      },
+      {
+        "name": "confirm",
+        "label": "Confirm",
+        "role": "confirm",
+        "rebindable": false
+      },
+      {
+        "name": "back",
+        "label": "Back",
+        "role": "back",
+        "rebindable": false
+      },
+      {
+        "name": "menu",
+        "label": "Pause menu",
+        "role": "menu",
+        "rebindable": false
+      },
+      {
+        "name": "alt",
+        "label": "Alternate",
+        "role": "alt",
+        "rebindable": false
+      },
+      {
+        "name": "menu-up",
+        "label": "Menu up",
+        "role": "menu-up",
+        "rebindable": false
+      },
+      {
+        "name": "menu-down",
+        "label": "Menu down",
+        "role": "menu-down",
+        "rebindable": false
+      },
+      {
+        "name": "menu-left",
+        "label": "Menu left",
+        "role": "menu-left",
+        "rebindable": false
+      },
+      {
+        "name": "menu-right",
+        "label": "Menu right",
+        "role": "menu-right",
+        "rebindable": false
+      }
+    ],
+    "presets": [
+      {
+        "name": "Default",
+        "bindings": [
+          {
+            "action": "move-forward",
+            "key": 26
+          },
+          {
+            "action": "move-back",
+            "key": 22
+          },
+          {
+            "action": "move-left",
+            "key": 4
+          },
+          {
+            "action": "move-right",
+            "key": 7
+          },
+          {
+            "action": "jump",
+            "pad": "Cross",
+            "key": 44,
+            "mouse": 2
+          },
+          {
+            "action": "sprint",
+            "pad": "R2",
+            "key": 225
+          },
+          {
+            "action": "use",
+            "pad": "Square",
+            "key": 8,
+            "mouse": 1
+          },
+          {
+            "action": "throw",
+            "pad": "Circle",
+            "mouse": 3
+          },
+          {
+            "action": "fly-up",
+            "pad": "Cross",
+            "key": 44
+          },
+          {
+            "action": "fly-down",
+            "pad": "Square",
+            "key": 8
+          },
+          {
+            "action": "confirm",
+            "pad": "Cross",
+            "key": 40
+          },
+          {
+            "action": "back",
+            "pad": "Triangle",
+            "key": 42
+          },
+          {
+            "action": "menu",
+            "pad": "Start",
+            "key": 41
+          },
+          {
+            "action": "alt",
+            "pad": "Circle",
+            "key": 21,
+            "mouse": 3
+          },
+          {
+            "action": "menu-up",
+            "pad": "DpadUp",
+            "key": 82
+          },
+          {
+            "action": "menu-down",
+            "pad": "DpadDown",
+            "key": 81
+          },
+          {
+            "action": "menu-left",
+            "pad": "DpadLeft",
+            "key": 80
+          },
+          {
+            "action": "menu-right",
+            "pad": "DpadRight",
+            "key": 79
+          }
+        ]
+      }
+    ]
+  },
+  "editor": {
+    "selectedObject": -1,
+    "gizmo": 0,
+    "gizmoSpace": 0,
+    "viewMode": 0,
+    "viewProjection": 0,
+    "breakpoints": []
+  },
+  "activeLayout": 0,
+  "layouts": [
+    {
+      "name": "Default",
+      "recipe": 0,
+      "open": [
+        "prefabs",
+        "proc"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Director",
+      "recipe": 1,
+      "open": [
+        "cutscene"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Material Designer",
+      "recipe": 2,
+      "open": [
+        "material"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Debugger",
+      "recipe": 3,
+      "open": [
+        "debugger"
+      ],
+      "ini": ""
+    }
+  ],
+  "prefabs": [
+    {
+      "id": "cube9700000000a1",
+      "name": "room-steel",
+      "notes": "One room of the cube: 20 merged slabs, a doorway through every wall and a hatch through the floor and ceiling.",
+      "objects": [
+        {
+          "name": "room-steel-floor0",
+          "type": "box",
+          "position": [
+            -4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-floor1",
+          "type": "box",
+          "position": [
+            4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-floor2",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-floor3",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-ceil0",
+          "type": "box",
+          "position": [
+            -4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-ceil1",
+          "type": "box",
+          "position": [
+            4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-ceil2",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-ceil3",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.475,
+            0.518
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-wx0",
+          "type": "box",
+          "position": [
+            -6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-wx1",
+          "type": "box",
+          "position": [
+            -6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-wx2",
+          "type": "box",
+          "position": [
+            -6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-px0",
+          "type": "box",
+          "position": [
+            6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-px1",
+          "type": "box",
+          "position": [
+            6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-px2",
+          "type": "box",
+          "position": [
+            6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-wz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-wz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-wz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-pz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-pz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-steel-pz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.66,
+            0.72
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        }
+      ]
+    },
+    {
+      "id": "cube9700000000a2",
+      "name": "room-amber",
+      "notes": "One room of the cube: 20 merged slabs, a doorway through every wall and a hatch through the floor and ceiling.",
+      "objects": [
+        {
+          "name": "room-amber-floor0",
+          "type": "box",
+          "position": [
+            -4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-floor1",
+          "type": "box",
+          "position": [
+            4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-floor2",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-floor3",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-ceil0",
+          "type": "box",
+          "position": [
+            -4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-ceil1",
+          "type": "box",
+          "position": [
+            4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-ceil2",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-ceil3",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.518,
+            0.396,
+            0.158
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-wx0",
+          "type": "box",
+          "position": [
+            -6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-wx1",
+          "type": "box",
+          "position": [
+            -6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-wx2",
+          "type": "box",
+          "position": [
+            -6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-px0",
+          "type": "box",
+          "position": [
+            6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-px1",
+          "type": "box",
+          "position": [
+            6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-px2",
+          "type": "box",
+          "position": [
+            6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-wz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-wz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-wz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-pz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-pz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-amber-pz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.72,
+            0.55,
+            0.22
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        }
+      ]
+    },
+    {
+      "id": "cube9700000000a3",
+      "name": "room-jade",
+      "notes": "One room of the cube: 20 merged slabs, a doorway through every wall and a hatch through the floor and ceiling.",
+      "objects": [
+        {
+          "name": "room-jade-floor0",
+          "type": "box",
+          "position": [
+            -4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-floor1",
+          "type": "box",
+          "position": [
+            4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-floor2",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-floor3",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-ceil0",
+          "type": "box",
+          "position": [
+            -4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-ceil1",
+          "type": "box",
+          "position": [
+            4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-ceil2",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-ceil3",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.216,
+            0.418,
+            0.324
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-wx0",
+          "type": "box",
+          "position": [
+            -6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-wx1",
+          "type": "box",
+          "position": [
+            -6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-wx2",
+          "type": "box",
+          "position": [
+            -6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-px0",
+          "type": "box",
+          "position": [
+            6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-px1",
+          "type": "box",
+          "position": [
+            6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-px2",
+          "type": "box",
+          "position": [
+            6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-wz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-wz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-wz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-pz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-pz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-jade-pz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.3,
+            0.58,
+            0.45
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        }
+      ]
+    },
+    {
+      "id": "cube9700000000a4",
+      "name": "room-red",
+      "notes": "One room of the cube: 20 merged slabs, a doorway through every wall and a hatch through the floor and ceiling.",
+      "objects": [
+        {
+          "name": "room-red-floor0",
+          "type": "box",
+          "position": [
+            -4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-floor1",
+          "type": "box",
+          "position": [
+            4.75,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-floor2",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-floor3",
+          "type": "box",
+          "position": [
+            0.0,
+            0.25,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-ceil0",
+          "type": "box",
+          "position": [
+            -4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-ceil1",
+          "type": "box",
+          "position": [
+            4.75,
+            13.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            0.5,
+            14.0
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-ceil2",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            -4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-ceil3",
+          "type": "box",
+          "position": [
+            0.0,
+            13.75,
+            4.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            0.5,
+            4.5
+          ],
+          "color": [
+            0.446,
+            0.173,
+            0.173
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-wx0",
+          "type": "box",
+          "position": [
+            -6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-wx1",
+          "type": "box",
+          "position": [
+            -6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-wx2",
+          "type": "box",
+          "position": [
+            -6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-px0",
+          "type": "box",
+          "position": [
+            6.75,
+            2.25,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-px1",
+          "type": "box",
+          "position": [
+            6.75,
+            11.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4.5,
+            14.0
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-px2",
+          "type": "box",
+          "position": [
+            6.75,
+            7.0,
+            3.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            5.0,
+            8.0
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-wz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-wz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-wz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            -6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-pz0",
+          "type": "box",
+          "position": [
+            -4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-pz1",
+          "type": "box",
+          "position": [
+            4.75,
+            7.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.5,
+            14.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-pz2",
+          "type": "box",
+          "position": [
+            0.0,
+            10.0,
+            6.75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            5.0,
+            8.0,
+            0.5
+          ],
+          "color": [
+            0.62,
+            0.24,
+            0.24
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1
+        },
+        {
+          "name": "room-red-core",
+          "type": "box",
+          "position": [
+            0.0,
+            2.6,
+            0.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2.4,
+            2.4,
+            2.4
+          ],
+          "color": [
+            0.95,
+            0.85,
+            0.35
+          ],
+          "physics": false,
+          "collision": "box",
+          "castShadow": false,
+          "detail": 1,
+          "flowGraph": {
+            "nextId": 10,
+            "nodes": [
+              {
+                "id": 1,
+                "type": "OnStart",
+                "pos": [
+                  40,
+                  60
+                ],
+                "str": ""
+              },
+              {
+                "id": 2,
+                "type": "SpinObject",
+                "pos": [
+                  300,
+                  60
+                ],
+                "str": "",
+                "num": [
+                  18,
+                  26,
+                  0,
+                  0
+                ]
+              }
+            ],
+            "links": [
+              {
+                "id": 5,
+                "from": 1,
+                "to": 2
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

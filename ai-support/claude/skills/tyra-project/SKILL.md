@@ -114,6 +114,18 @@ to see exactly what the game will compile.
   put an **ObjectSettings** node in the graph - a hand edit on one chunk does
   not survive the next bake. A `--build` / `--refresh-gen` of such a project
   rewrites the `.tyra`, which is expected.
+- A volume whose graph has `"runtime": true` is the other mode: the graph is
+  compiled into the game and evaluated on the console instead of baked, so it
+  produces NO chunk objects and no meshes at all. Only a subset of the node
+  library can run there (the editor lists what cannot, and codegen skips a
+  volume it cannot compile). The **Generate Volume** flow node re-runs one at
+  runtime with a fresh seed.
+- **Prefabs** are a project-wide list (`"prefabs"` in the `.tyra`): named groups
+  of scene objects - flow graphs included - stored in the prefab's own local
+  frame. Reference one BY NAME from a **Spawn Prefab** flow node or a **Pick
+  Prefab** procedural row; the editor's *Tools > Prefabs* window inserts copies
+  into a scene. An instance is not linked back to the prefab: inserted copies
+  are ordinary objects from then on.
 - **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
   `{{action:jump}}` draws whatever that action is currently bound to. Works in
   HUD texts, menu titles/labels, option labels, loading screens and Display Text

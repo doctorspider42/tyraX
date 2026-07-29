@@ -131,6 +131,7 @@ add_executable(tyrax-editor
     src/flownode.cpp
     src/hud_ui.cpp
     src/mateditor_ui.cpp
+    src/prefab_ui.cpp
     src/procui.cpp
     src/props_ui.cpp
     src/fbxparser.cpp
@@ -155,10 +156,12 @@ add_executable(tyrax-editor
     src/placement.cpp
     src/platform.cpp
     src/pngquant.cpp
+    src/prefab.cpp
     src/primmesh.cpp
     src/procgraph.cpp
     src/procgen.cpp
     src/procbake.cpp
+    src/procrt.cpp
     src/decalproj.cpp
     src/dronegen.cpp
     src/droneui.cpp

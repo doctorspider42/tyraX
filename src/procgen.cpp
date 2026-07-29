@@ -512,7 +512,8 @@ struct Ctx {
     const Options& opt;
     Cache* cache;
     Result* res;
-    std::vector<std::string> assets;  // the graph's asset table
+    std::vector<std::string> assets;   // the graph's asset table
+    std::vector<std::string> prefabs;  // ...and its prefab table
     int depth = 0;
 
     bool canceled() const {
@@ -822,44 +823,190 @@ Points genGrid(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
     const float halfD = (float)ctx.s.terrain.depth * 0.5f;
     const Mask* mask = maskIn.mask.get();
     const float frac = std::clamp(ctx.opt.fraction, 0.0f, 1.0f);
-    ctx.res->candidates += nx * nz;
+    // Levels stack the whole lattice upward: the 2D floor plan becomes a 3D
+    // grid without a second node, and level 0 keeps the exact positions a
+    // single-level grid produced (so raising Levels ADDS content instead of
+    // moving what is there).
+    const int levels = std::max(1, procgraph::inum(n, "levels"));
+    const float levelStep = procgraph::num(n, "levelstep");
+    ctx.res->candidates += nx * nz * levels;
+    for (int iy = 0; iy < levels; ++iy) {
+        if (ctx.canceled()) break;
+        for (int iz = 0; iz < nz; ++iz) {
+            if (ctx.canceled()) break;
+            for (int ix = 0; ix < nx; ++ix) {
+                const uint64_t key = mix64(((uint64_t)(uint32_t)n.id << 40) ^
+                                           ((uint64_t)(uint32_t)iy << 32) ^
+                                           ((uint64_t)(uint32_t)iz << 20) ^
+                                           (uint64_t)(uint32_t)ix);
+                // Progressive preview thins the lattice by a hashed coin flip,
+                // not by cutting rows - a coarse pass then covers the whole area.
+                if (frac < 1.0f && rand01(ctx.g.seed, n.id, key, 7) >= frac)
+                    continue;
+                const float jx =
+                    (rand01(ctx.g.seed, n.id, key, 2) - 0.5f) * jitter * spacing;
+                const float jz =
+                    (rand01(ctx.g.seed, n.id, key, 3) - 0.5f) * jitter * spacing;
+                const float lx =
+                    -ctx.vol.sx * 0.5f + ((float)ix + 0.5f) * spacing + jx;
+                const float lz =
+                    -ctx.vol.sz * 0.5f + ((float)iz + 0.5f) * spacing + jz;
+                float wx, wz;
+                ctx.vol.localToWorld(lx, lz, wx, wz);
+                if (wx < -halfW || wx > halfW || wz < -halfD || wz > halfD)
+                    continue;
+                float maskV = 1.0f;
+                if (mask) {
+                    maskV = std::clamp(mask->sample(wx, wz), 0.0f, 1.0f);
+                    if (rand01(ctx.g.seed, n.id, key, 0) >= maskV) continue;
+                }
+                Instance inst;
+                inst.pos[0] = wx;
+                inst.pos[2] = wz;
+                inst.pos[1] = snap ? terrainHeight(ctx.s, wx, wz) : ctx.vol.cy;
+                inst.pos[1] += (float)iy * levelStep;
+                inst.key = key;
+                out.pts.push_back(inst);
+                ensureBaseAttrs(out);
+                const size_t idx = out.pts.size() - 1;
+                float nrm[3] = {0.0f, 1.0f, 0.0f};
+                if (snap) terrainNormal(ctx.s, wx, wz, nrm);
+                writeSurfaceAttrs(out, idx, nrm[0], nrm[1], nrm[2]);
+                out.attrs[procattr::kRandom][idx] =
+                    rand01(ctx.g.seed, n.id, key, 1);
+                out.attrs[procattr::kSize][idx] = 1.0f;
+                if (mask) {
+                    out.attrs[procattr::kMask].resize(out.pts.size(), 0.0f);
+                    out.attrs[procattr::kMask][idx] = maskV;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// --- the block world -------------------------------------------------------
+// One node, because the whole value of it is in what never leaves: a solid
+// column field's interior is invisible, so the generator walks the field and
+// emits only blocks with an exposed face, each carrying the mask of WHICH
+// faces are exposed. The identical formula runs on the console for a runtime
+// volume (procrt emits it), which is why the height function is spelled out
+// here rather than reusing the Noise Mask node's parameter set - the two must
+// stay a twin, and a twin of one small function is maintainable.
+
+// Column height in BLOCKS at lattice cell (ix, iz). Deterministic in the graph
+// seed; procrt::emitBlockHeight is the generated-C++ twin of this - change one
+// and change the other, or the editor preview and the console disagree about
+// where the ground is.
+int blockColumnHeight(uint32_t seed, int nodeId, int ix, int iz, float blockSz,
+                      float noiseScale, int octaves, float relief, int levels,
+                      int floorLayers, const Mask* mask, float originX,
+                      float originZ) {
+    const float wx = originX + ((float)ix + 0.5f) * blockSz;
+    const float wz = originZ + ((float)iz + 0.5f) * blockSz;
+    float v;
+    if (mask) {
+        v = std::clamp(mask->sample(wx, wz), 0.0f, 1.0f);
+    } else {
+        v = std::clamp(noiseAt(0, wx / noiseScale, wz / noiseScale, octaves,
+                               seed ^ (uint32_t)(nodeId * 2654435761u)),
+                       0.0f, 1.0f);
+    }
+    const float span = (float)levels * std::clamp(relief, 0.0f, 1.0f);
+    int h = floorLayers + (int)std::lround(v * span);
+    return std::clamp(h, 0, levels);
+}
+
+Points genBlocks(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
+    Points out;
+    const float blockSz = std::max(0.25f, procgraph::num(n, "block"));
+    const int levels = std::clamp(procgraph::inum(n, "levels"), 1, 32);
+    const int floorLayers = std::clamp(procgraph::inum(n, "floor"), 0, levels);
+    const float noiseScale = std::max(2.0f, procgraph::num(n, "scale"));
+    const int octaves = std::clamp(procgraph::inum(n, "octaves"), 1, 6);
+    const float relief = std::clamp(procgraph::num(n, "relief"), 0.0f, 1.0f);
+    const int emitDepth = std::clamp(procgraph::inum(n, "depth"), 1, 32);
+    const float baseY = procgraph::num(n, "base");
+    const Mask* mask = maskIn.mask.get();
+
+    // The lattice is anchored on the volume's axis-aligned footprint corner
+    // (not its centre), so moving the volume by a whole block leaves the world
+    // exactly where it was and blocks never land half-way between cells.
+    const int nx = std::max(1, (int)std::floor(ctx.vol.sizeX / blockSz));
+    const int nz = std::max(1, (int)std::floor(ctx.vol.sizeZ / blockSz));
+    if ((int64_t)nx * nz > 65536) {
+        ctx.res->warnings.push_back(
+            "Blocks Fill: " + std::to_string(nx) + "x" + std::to_string(nz) +
+            " columns is past the 65536 the collision field can hold - raise "
+            "Block size");
+        return out;
+    }
+    const float ox = ctx.vol.minX, oz = ctx.vol.minZ;
+
+    // Heights first: the visibility test needs the four neighbours, so the
+    // field is built once instead of re-derived per face.
+    std::vector<short> h((size_t)nx * nz, 0);
+    for (int iz = 0; iz < nz; ++iz)
+        for (int ix = 0; ix < nx; ++ix)
+            h[(size_t)iz * nx + ix] =
+                (short)blockColumnHeight(ctx.g.seed, n.id, ix, iz, blockSz,
+                                         noiseScale, octaves, relief, levels,
+                                         floorLayers, mask, ox, oz);
+
+    auto heightAt = [&](int ix, int iz) -> int {
+        // Off the lattice reads as "open", so the world's rim shows its side
+        // faces instead of ending in a seam.
+        if (ix < 0 || iz < 0 || ix >= nx || iz >= nz) return 0;
+        return h[(size_t)iz * nx + ix];
+    };
+
+    const float frac = std::clamp(ctx.opt.fraction, 0.0f, 1.0f);
     for (int iz = 0; iz < nz; ++iz) {
         if (ctx.canceled()) break;
         for (int ix = 0; ix < nx; ++ix) {
-            const uint64_t key = mix64(((uint64_t)(uint32_t)n.id << 40) ^
-                                       ((uint64_t)(uint32_t)iz << 20) ^
-                                       (uint64_t)(uint32_t)ix);
-            // Progressive preview thins the lattice by a hashed coin flip, not
-            // by cutting rows - a coarse pass then covers the whole area.
-            if (frac < 1.0f && rand01(ctx.g.seed, n.id, key, 7) >= frac) continue;
-            const float jx = (rand01(ctx.g.seed, n.id, key, 2) - 0.5f) * jitter * spacing;
-            const float jz = (rand01(ctx.g.seed, n.id, key, 3) - 0.5f) * jitter * spacing;
-            const float lx = -ctx.vol.sx * 0.5f + ((float)ix + 0.5f) * spacing + jx;
-            const float lz = -ctx.vol.sz * 0.5f + ((float)iz + 0.5f) * spacing + jz;
-            float wx, wz;
-            ctx.vol.localToWorld(lx, lz, wx, wz);
-            if (wx < -halfW || wx > halfW || wz < -halfD || wz > halfD) continue;
-            float maskV = 1.0f;
-            if (mask) {
-                maskV = std::clamp(mask->sample(wx, wz), 0.0f, 1.0f);
-                if (rand01(ctx.g.seed, n.id, key, 0) >= maskV) continue;
-            }
-            Instance inst;
-            inst.pos[0] = wx;
-            inst.pos[2] = wz;
-            inst.pos[1] = snap ? terrainHeight(ctx.s, wx, wz) : ctx.vol.cy;
-            inst.key = key;
-            out.pts.push_back(inst);
-            ensureBaseAttrs(out);
-            const size_t idx = out.pts.size() - 1;
-            float nrm[3] = {0.0f, 1.0f, 0.0f};
-            if (snap) terrainNormal(ctx.s, wx, wz, nrm);
-            writeSurfaceAttrs(out, idx, nrm[0], nrm[1], nrm[2]);
-            out.attrs[procattr::kRandom][idx] = rand01(ctx.g.seed, n.id, key, 1);
-            out.attrs[procattr::kSize][idx] = 1.0f;
-            if (mask) {
-                out.attrs[procattr::kMask].resize(out.pts.size(), 0.0f);
-                out.attrs[procattr::kMask][idx] = maskV;
+            const int top = heightAt(ix, iz);
+            if (top <= 0) continue;
+            const int hxp = heightAt(ix + 1, iz), hxm = heightAt(ix - 1, iz);
+            const int hzp = heightAt(ix, iz + 1), hzm = heightAt(ix, iz - 1);
+            const int lowest = std::max(0, top - emitDepth);
+            for (int iy = top - 1; iy >= lowest; --iy) {
+                // Face mask: a face is drawn only where the neighbouring column
+                // is not tall enough to cover this level.
+                unsigned char faces = 0;
+                if (iy >= hxp) faces |= 1;   // +X
+                if (iy >= hxm) faces |= 2;   // -X
+                if (iy == top - 1) faces |= 4;  // +Y (nothing above in a column)
+                if (iy == 0) faces |= 8;     // -Y, only the world's underside
+                if (iy >= hzp) faces |= 16;  // +Z
+                if (iy >= hzm) faces |= 32;  // -Z
+                ++ctx.res->candidates;
+                if (faces == 0) continue;  // buried: never leaves this node
+                const uint64_t key = mix64(((uint64_t)(uint32_t)n.id << 44) ^
+                                           ((uint64_t)(uint32_t)iy << 34) ^
+                                           ((uint64_t)(uint32_t)iz << 17) ^
+                                           (uint64_t)(uint32_t)ix);
+                if (frac < 1.0f && rand01(ctx.g.seed, n.id, key, 7) >= frac)
+                    continue;
+                Instance inst;
+                inst.pos[0] = ox + ((float)ix + 0.5f) * blockSz;
+                inst.pos[1] = baseY + ((float)iy + 0.5f) * blockSz;
+                inst.pos[2] = oz + ((float)iz + 0.5f) * blockSz;
+                inst.scale = blockSz;  // the asset is authored as a UNIT cube
+                inst.faces = faces;
+                inst.key = key;
+                out.pts.push_back(inst);
+                ensureBaseAttrs(out);
+                const size_t idx = out.pts.size() - 1;
+                writeSurfaceAttrs(out, idx, 0.0f, 1.0f, 0.0f);
+                out.attrs[procattr::kRandom][idx] =
+                    rand01(ctx.g.seed, n.id, key, 1);
+                out.attrs[procattr::kSize][idx] = 1.0f;
+                out.attrs[procattr::kHeight].resize(out.pts.size(), 0.0f);
+                out.attrs[procattr::kHeight][idx] = inst.pos[1];
+                out.attrs[procattr::kFaces].resize(out.pts.size(), 0.0f);
+                out.attrs[procattr::kFaces][idx] = (float)faces;
+                out.attrs[procattr::kDepth].resize(out.pts.size(), 0.0f);
+                out.attrs[procattr::kDepth][idx] = (float)(top - 1 - iy);
             }
         }
     }
@@ -1457,6 +1604,58 @@ Points pickAsset(Ctx& ctx, const ProcNode& n, const Points& in) {
     return out;
 }
 
+// The prefab twin of pickAsset. Deliberately a separate node rather than a
+// second row kind on Pick Asset: the two produce different KINDS of output
+// (merged geometry vs a group of objects with their own budget), and a pool
+// mixing them would hide that from the budget readout.
+Points pickPrefab(Ctx& ctx, const ProcNode& n, const Points& in) {
+    Points out = in;
+    struct Row {
+        int prefab;
+        float weight, smin, smax;
+    };
+    std::vector<Row> rows;
+    float total = 0.0f;
+    for (const ProcRow& r : n.rows) {
+        if (r.s.empty()) continue;
+        const float w = std::max(0.0f, r.v[0]);
+        if (w <= 0.0f) continue;
+        int idx = -1;
+        for (size_t i = 0; i < ctx.prefabs.size(); ++i)
+            if (ctx.prefabs[i] == r.s) idx = (int)i;
+        if (idx < 0) continue;
+        const float smin = r.v[1] > 0.0f ? r.v[1] : 1.0f;
+        const float smax = r.v[2] > 0.0f ? r.v[2] : smin;
+        rows.push_back({idx, w, smin, smax});
+        total += w;
+    }
+    if (rows.empty() || total <= 0.0f) {
+        ctx.res->warnings.push_back("Pick Prefab: the pool is empty");
+        return out;
+    }
+    out.attrs[procattr::kSize].resize(out.pts.size(), 1.0f);
+    for (size_t i = 0; i < out.pts.size(); ++i) {
+        float r = rand01(ctx.g.seed, n.id, out.pts[i].key, 22) * total;
+        size_t pickIdx = 0;
+        for (size_t k = 0; k < rows.size(); ++k) {
+            if (r < rows[k].weight) {
+                pickIdx = k;
+                break;
+            }
+            r -= rows[k].weight;
+            pickIdx = k;
+        }
+        const Row& row = rows[pickIdx];
+        const float t = rand01(ctx.g.seed, n.id, out.pts[i].key, 23);
+        const float size = row.smin + (row.smax - row.smin) * t;
+        out.pts[i].prefab = row.prefab;
+        out.pts[i].asset = -1;  // a point is one or the other
+        out.pts[i].scale *= size;
+        out.attrs[procattr::kSize][i] = size;
+    }
+    return out;
+}
+
 Points varyTransform(Ctx& ctx, const ProcNode& n, const Points& in) {
     Points out = in;
     const float yawRange = procgraph::num(n, "yaw");
@@ -1595,6 +1794,9 @@ Value evalNode(Ctx& ctx, int nodeId) {
     } else if (n.type == "ScatterGrid") {
         out.points = std::make_shared<Points>(
             genGrid(ctx, n, ins.empty() ? Value{} : ins[0]));
+    } else if (n.type == "BlocksFill") {
+        out.points = std::make_shared<Points>(
+            genBlocks(ctx, n, ins.empty() ? Value{} : ins[0]));
     } else if (n.type == "ScatterVolume") {
         out.points = std::make_shared<Points>(genVolume(ctx, n));
     } else if (n.type == "ScatterCurve") {
@@ -1659,6 +1861,9 @@ Value evalNode(Ctx& ctx, int nodeId) {
     } else if (n.type == "PickAsset") {
         if (const Points* a = pointsIn(0))
             out.points = std::make_shared<Points>(pickAsset(ctx, n, *a));
+    } else if (n.type == "PickPrefab") {
+        if (const Points* a = pointsIn(0))
+            out.points = std::make_shared<Points>(pickPrefab(ctx, n, *a));
     } else if (n.type == "Vary") {
         if (const Points* a = pointsIn(0))
             out.points = std::make_shared<Points>(varyTransform(ctx, n, *a));
@@ -1699,6 +1904,24 @@ std::vector<std::string> collectAssets(const ProcGraph& g) {
     return out;
 }
 
+// The same, for Pick Prefab. A separate table because a prefab is not geometry
+// to merge - see Instance::prefab.
+std::vector<std::string> collectPrefabs(const ProcGraph& g) {
+    std::vector<std::string> out;
+    std::vector<const ProcNode*> pickers;
+    for (const ProcNode& n : g.nodes)
+        if (n.type == "PickPrefab") pickers.push_back(&n);
+    std::sort(pickers.begin(), pickers.end(),
+              [](const ProcNode* a, const ProcNode* b) { return a->id < b->id; });
+    for (const ProcNode* n : pickers)
+        for (const ProcRow& r : n->rows) {
+            if (r.s.empty()) continue;
+            if (std::find(out.begin(), out.end(), r.s) == out.end())
+                out.push_back(r.s);
+        }
+    return out;
+}
+
 }  // namespace
 
 Result evaluate(const Project& p, const SceneData& s, const SceneObject& volume,
@@ -1708,9 +1931,11 @@ Result evaluate(const Project& p, const SceneData& s, const SceneObject& volume,
     res.fraction = std::clamp(opt.fraction, 0.01f, 1.0f);
     const ProcGraph& g = volume.procGraph;
     res.assets = collectAssets(g);
+    res.prefabs = collectPrefabs(g);
     if (g.nodes.empty()) return res;
 
-    Ctx ctx{p, s, volume, volumeOf(volume), g, opt, cache, &res, res.assets, 0};
+    Ctx ctx{p,     s,        volume,      volumeOf(volume), g, opt, cache,
+            &res,  res.assets, res.prefabs, 0};
 
     int target = opt.previewNode;
     if (target != 0 && !procgraph::node(g, target)) target = 0;
@@ -1771,6 +1996,11 @@ uint64_t bakeHash(const Project& p, const SceneData& s, const SceneObject& volum
     uint64_t h = 0x243f6a8885a308d3ULL;
     const ProcGraph& g = volume.procGraph;
     h = hashCombine(h, g.seed);
+    // Flipping a volume between baked and runtime changes what the build has
+    // to produce, so it has to read as stale (the bake then clears its chunks).
+    h = hashCombine(h, (uint64_t)(g.runtime ? 1u : 0u));
+    h = hashCombine(h, (uint64_t)(g.runAtStart ? 2u : 0u));
+    h = hashCombine(h, (uint64_t)(uint32_t)g.seedMode);
     for (const ProcNode& n : g.nodes) {
         h = hashCombine(h, (uint64_t)(uint32_t)n.id);
         h = hashCombine(h, nodeParamHash(n));
@@ -1815,7 +2045,26 @@ uint64_t bakeHash(const Project& p, const SceneData& s, const SceneObject& volum
         }
         h = hashStr(h, o.modelPath);
     }
-    (void)p;
+    // A Pick Prefab graph also depends on what those prefabs CONTAIN - editing
+    // a prefab has to make every volume that scatters it stale.
+    bool usesPrefabs = false;
+    for (const ProcNode& n : g.nodes) usesPrefabs |= (n.type == "PickPrefab");
+    if (usesPrefabs)
+        for (const Prefab& pf : p.prefabs) {
+            h = hashStr(h, pf.name);
+            for (const SceneObject& o : pf.objects) {
+                h = hashStr(h, o.name);
+                h = hashCombine(h, (uint64_t)(int)o.type);
+                for (int a = 0; a < 3; ++a) {
+                    h = hashFloat(h, o.position[a]);
+                    h = hashFloat(h, o.rotation[a]);
+                    h = hashFloat(h, o.scale[a]);
+                    h = hashFloat(h, o.color[a]);
+                }
+                h = hashStr(h, o.modelPath);
+                h = hashStr(h, o.materialPath);
+            }
+        }
     return h;
 }
 

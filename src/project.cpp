@@ -234,6 +234,13 @@ static std::string procGraphJson(const ProcGraph& g) {
     std::string json = "{ \"seed\": " + std::to_string((long long)g.seed) +
                        ", \"nextId\": " + std::to_string(g.nextId);
     if (g.bakedHash) json += ", \"baked\": \"" + hex64(g.bakedHash) + "\"";
+    // Runtime mode (docs/procedural-runtime.md). Omitted while off, so every
+    // project authored before it round-trips byte-identically.
+    if (g.runtime) {
+        json += ", \"runtime\": true";
+        if (!g.runAtStart) json += ", \"runAtStart\": false";
+        if (g.seedMode) json += ", \"seedMode\": " + std::to_string(g.seedMode);
+    }
     json += ", \"nodes\": [";
     for (size_t i = 0; i < g.nodes.size(); ++i) {
         const ProcNode& n = g.nodes[i];
@@ -309,6 +316,9 @@ static void readProcGraph(const json::Value& jg, ProcGraph& g) {
     if (const auto* v = jg.find("seed")) g.seed = (uint32_t)v->numberOr(1);
     if (const auto* v = jg.find("nextId")) g.nextId = (int)v->numberOr(1);
     if (const auto* v = jg.find("baked")) g.bakedHash = parseHex64(v->stringOr(""));
+    if (const auto* v = jg.find("runtime")) g.runtime = v->boolOr(false);
+    if (const auto* v = jg.find("runAtStart")) g.runAtStart = v->boolOr(true);
+    if (const auto* v = jg.find("seedMode")) g.seedMode = (int)v->numberOr(0);
     if (const auto* nodes = jg.find("nodes");
         nodes && nodes->type == json::Value::Type::Array) {
         for (const auto& jn : nodes->arr) {
@@ -1731,6 +1741,53 @@ static void readInputSection(const json::Value& root, Project& out) {
         out.input.activePreset = 0;
 }
 
+static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& out);
+
+// Prefabs (Tools > Prefabs, docs/prefabs.md). Members are ordinary scene
+// objects written with the SAME objectJson the scenes use - a prefab is a piece
+// of scene, and giving it its own lighter member format would mean two writers
+// to keep in step every time an object grows a field. Conditional: a project
+// with no prefabs emits nothing.
+static void writePrefabsSection(std::ostream& json, const Project& p) {
+    if (p.prefabs.empty()) return;
+    json << "\"prefabs\": [";
+    for (size_t i = 0; i < p.prefabs.size(); ++i) {
+        const Prefab& pf = p.prefabs[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(pf.id)
+             << "\", \"name\": \"" << jsonEscape(pf.name) << "\"";
+        if (!pf.notes.empty())
+            json << ", \"notes\": \"" << jsonEscape(pf.notes) << "\"";
+        json << ", \"objects\": [";
+        for (size_t k = 0; k < pf.objects.size(); ++k)
+            json << (k ? ",\n      " : "\n      ") << objectJson(pf.objects[k]);
+        if (!pf.objects.empty()) json << "\n    ";
+        json << "] }";
+    }
+    json << "\n  ]";
+}
+
+static void readPrefabsSection(const json::Value& root, Project& out) {
+    out.prefabs.clear();
+    const json::Value* arr = root.find("prefabs");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        Prefab pf;
+        if (const json::Value* v = e.find("id")) pf.id = v->stringOr("");
+        if (const json::Value* v = e.find("name")) pf.name = v->stringOr("");
+        if (const json::Value* v = e.find("notes")) pf.notes = v->stringOr("");
+        if (pf.name.empty()) continue;
+        if (pf.id.empty()) pf.id = project::newObjectId();
+        if (const json::Value* objs = e.find("objects"))
+            if (objs->type == json::Value::Type::Array)
+                readObjectsArray(*objs, pf.objects);
+        // A member must never carry an object id: two instances of one prefab
+        // would then share an identity, and the .tyra's per-object files are
+        // keyed on exactly that.
+        for (SceneObject& o : pf.objects) o.id.clear();
+        out.prefabs.push_back(std::move(pf));
+    }
+}
+
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
 // untouched project emits nothing, so the key only appears once the user has
 // actually changed a clip.
@@ -1775,6 +1832,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
+        case Section::Prefabs: writePrefabsSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1796,6 +1854,7 @@ const char* sectionName(Section s) {
         case Section::AnimEdits: return "animEdits";
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
+        case Section::Prefabs: return "prefabs";
     }
     return "unknown";
 }
@@ -4128,6 +4187,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             readInputSection(root, p);
             ensureInputActions(p);
             break;
+        case Section::Prefabs: readPrefabsSection(root, p); break;
     }
     return true;
 }
@@ -4258,6 +4318,8 @@ std::string load(Project& out, const std::string& projectDir) {
     readSequencesSection(root, out);
 
     readAnimEditsSection(root, out);
+
+    readPrefabsSection(root, out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
@@ -4786,6 +4848,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
+            f.relativePath == "inc\\prefab_data.gen.hpp" ||
+            f.relativePath == "inc\\procedural.gen.hpp" ||
+            f.relativePath == "src\\gen\\procedural.gen.cpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp" ||

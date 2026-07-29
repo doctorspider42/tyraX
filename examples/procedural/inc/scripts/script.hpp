@@ -269,6 +269,19 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+
+  // Prefabs (docs/prefabs.md) and runtime procedural volumes
+  // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static
+  // members merge into a shared geometry bag (ONE submit for the lot) and only
+  // the members that need an identity of their own take a clone slot. Returns
+  // an instance handle, or -1 when the instance pool is full. despawnPrefabs
+  // clears every live instance of a prefab (-1 = all of them).
+  int (*spawnPrefab)(int prefabIndex, float x, float y, float z, float yaw,
+                     float scale) = nullptr;
+  void (*despawnPrefabs)(int prefabIndex) = nullptr;
+  // Runs a runtime procedural volume. seed: 0 = the authored one, -1 = a fresh
+  // one, anything else = use it. clear = throw the generated geometry away.
+  void (*generateVolume)(int volumeIndex, int seed, bool clear) = nullptr;
 };
 
 /** Inputs and outputs of a custom flow-graph node (see flow_nodes.hpp).

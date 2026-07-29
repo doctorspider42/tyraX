@@ -394,7 +394,10 @@ Report bakeAll(Project& p, bool force) {
         // Collect the ids first: baking mutates s.objects.
         std::vector<std::string> ids;
         for (const SceneObject& o : s.objects)
-            if (o.type == PrimitiveType::Scatter && !o.procGraph.empty())
+            // A RUNTIME volume has nothing to bake: its graph is compiled into
+            // the game and evaluated on the console (docs/procedural-runtime.md).
+            if (o.type == PrimitiveType::Scatter && !o.procGraph.empty() &&
+                !o.procGraph.runtime)
                 ids.push_back(o.id);
         for (const std::string& id : ids) {
             const SceneObject* o = findById(s, id);
@@ -419,6 +422,7 @@ bool anyStale(const Project& p) {
     for (const SceneData& s : p.scenes)
         for (const SceneObject& o : s.objects)
             if (o.type == PrimitiveType::Scatter && !o.procGraph.empty() &&
+                !o.procGraph.runtime &&
                 o.procGraph.bakedHash != procgen::bakeHash(p, s, o))
                 return true;
     return false;

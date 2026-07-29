@@ -754,6 +754,7 @@ void App::drawUI() {
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
     drawProceduralWindow();
+    drawPrefabsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
     drawLoadingScreenWindow();
@@ -1276,6 +1277,12 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reusable groups of objects - a hut, a room, a lamp post\n"
+                    "with its light and its script. Stamp them by hand, scatter\n"
+                    "them with a procedural graph, or spawn them at runtime.");
             if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
             if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
             if (ImGui::IsItemHovered())
@@ -3814,6 +3821,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
+    if (key == "prefabs") return &showPrefabs_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
@@ -3837,7 +3845,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
     "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "proc"};
+    "proc",     "prefabs"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether

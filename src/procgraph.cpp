@@ -52,11 +52,82 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                .tip = "Random offset inside the cell (1 = the full cell)."},
               {.key = "snap", .label = "Snap to surface", .kind = PK::Bool,
                .def = 1.0f,
-               .tip = "Drop each point onto the terrain and read its normal."}},
+               .tip = "Drop each point onto the terrain and read its normal."},
+              {.key = "levels", .label = "Levels", .kind = PK::Int, .def = 1.0f,
+               .lo = 1.0f, .hi = 64.0f,
+               .tip = "Stacked copies of the whole lattice, so the source is a "
+                      "3D grid instead of a floor plan: a tower of rooms, a "
+                      "shelf wall, a voxel frame. Snap has to be OFF for this "
+                      "to mean anything."},
+              {.key = "levelstep", .label = "Level height", .kind = PK::Float,
+               .def = 4.0f, .lo = 0.1f, .hi = 512.0f,
+               .tip = "World units between levels."}},
          .desc = "A regular lattice covering the volume footprint, with "
                  "optional per-cell jitter. Orchards, fence posts, city "
                  "blocks - anything that should read as planted rather than "
-                 "grown. The mask input drops cells below its value."},
+                 "grown. Levels > 1 stacks the lattice upward into a full 3D "
+                 "grid. The mask input drops cells below its value."},
+
+        // The block-world source. It is one node rather than a chain because
+        // the interesting part is what it does NOT emit: a solid field's
+        // interior is invisible, so only blocks with an exposed face come out
+        // at all, and each of those carries a `faces` mask that costs the
+        // merger the hidden faces too. Left as a scatter chain that would be
+        // thousands of points filtered down to hundreds - here it is hundreds
+        // from the start, which is the difference between a block world that
+        // fits on this machine and one that does not.
+        {.key = "BlocksFill",
+         .title = "Blocks Fill",
+         .category = "Sources",
+         .ins = {{.label = "height", .type = ProcType::Mask, .optional = true}},
+         .outs = {{.label = "points", .type = ProcType::Points}},
+         .params =
+             {{.key = "block", .label = "Block size", .kind = PK::Float,
+               .def = 2.0f, .lo = 0.25f, .hi = 32.0f,
+               .tip = "World size of one cube. The lattice is anchored on the "
+                      "volume's own corner, so blocks always line up."},
+              {.key = "levels", .label = "Max height", .kind = PK::Int,
+               .def = 8.0f, .lo = 1.0f, .hi = 32.0f,
+               .tip = "Tallest column, in blocks. 32 is the ceiling because the "
+                      "runtime collision field packs a column into one 32-bit "
+                      "word."},
+              {.key = "floor", .label = "Floor layers", .kind = PK::Int,
+               .def = 1.0f, .lo = 0.0f, .hi = 32.0f,
+               .tip = "Columns are never shorter than this, so the world has a "
+                      "solid ground plane instead of holes."},
+              {.key = "scale", .label = "Feature size", .kind = PK::Float,
+               .def = 30.0f, .lo = 2.0f, .hi = 1024.0f,
+               .tip = "World units per hill. Bigger = smoother landscape."},
+              {.key = "octaves", .label = "Octaves", .kind = PK::Int, .def = 3.0f,
+               .lo = 1.0f, .hi = 6.0f,
+               .tip = "Layers of noise detail; each one halves the feature "
+                      "size."},
+              {.key = "relief", .label = "Relief", .kind = PK::Float, .def = 1.0f,
+               .lo = 0.0f, .hi = 1.0f,
+               .tip = "How much of Max height the noise actually uses. 0 = a "
+                      "flat slab."},
+              {.key = "depth", .label = "Emit depth", .kind = PK::Int,
+               .def = 2.0f, .lo = 1.0f, .hi = 32.0f,
+               .tip = "How many blocks below a column's top are emitted. The "
+                      "rest of the column exists for COLLISION but is never "
+                      "drawn - it cannot be seen. 1 = a shell one block thick, "
+                      "which is all you need on flat ground and shows seams on "
+                      "cliffs; 2-3 covers ordinary terrain."},
+              {.key = "base", .label = "Base Y", .kind = PK::Float, .def = 0.0f,
+               .lo = -2000.0f, .hi = 2000.0f,
+               .tip = "World Y of the bottom of the lowest block layer."}},
+         .desc = "Fills the volume's footprint with a landscape of stacked "
+                 "cubes and emits one point per VISIBLE block - interior blocks "
+                 "never leave this node, and every emitted one carries a "
+                 "'faces' mask so the merge can drop the faces a neighbour "
+                 "covers. Column height comes from layered noise (or the mask "
+                 "input, which replaces it). Also writes 'depth' (0 = the top "
+                 "block of its column, 1 = the one under it, ...) and 'height' "
+                 "(world Y), which is what a Filter by Attribute chain uses to "
+                 "give the surface grass, the layer below dirt and the deep "
+                 "stone. In a RUNTIME volume the solid field is also published "
+                 "as the world's collision, so the player walks on the blocks "
+                 "rather than through them."},
 
         {.key = "ScatterVolume",
          .title = "Scatter in Volume",
@@ -367,6 +438,22 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "layout. Models come from res/models - the Tree Generator is "
                  "a good source."},
 
+        {.key = "PickPrefab",
+         .title = "Pick Prefab",
+         .category = "Attributes",
+         .ins = {{.label = "points", .type = ProcType::Points}},
+         .outs = {{.label = "points", .type = ProcType::Points}},
+         .rows = ProcRowKind::Prefabs,
+         .desc = "Assigns each point one PREFAB from a weighted pool - the way "
+                 "to scatter something built rather than modelled: a room, a "
+                 "shack, a lamp post with its light and its script. A prefab "
+                 "instance is not merged with its neighbours the way a model "
+                 "is: its own static members merge into one bag and its "
+                 "identity-carrying members become real objects, so the cost is "
+                 "roughly one draw call plus a spawn slot per live member - "
+                 "mind the counts. A point may carry a prefab or an asset, "
+                 "never both; the last node to write wins."},
+
         {.key = "Vary",
          .title = "Vary Transform",
          .category = "Attributes",
@@ -551,7 +638,14 @@ const std::vector<ProcNodeType>& procNodeTypes() {
               {.key = "budget", .label = "Triangle budget", .kind = PK::Int,
                .def = 20000.0f, .lo = 100.0f, .hi = 2000000.0f,
                .tip = "The bake warns above this. A PS2 scene has room for "
-                      "some tens of thousands of triangles TOTAL."}},
+                      "some tens of thousands of triangles TOTAL."},
+              {.key = "maxinst", .label = "Runtime instance cap",
+               .kind = PK::Int, .def = 4096.0f, .lo = 64.0f, .hi = 60000.0f,
+               .tip = "RUNTIME volumes only: how many points the console's "
+                      "working buffer holds. It is real RAM (about 80 bytes per "
+                      "point) reserved for the whole generation, and the "
+                      "generator stops rather than overruns it - so set it just "
+                      "above what the preview reports, not at the maximum."}},
          .desc = "The graph's result. Everything reaching this node is baked "
                  "into per-chunk static meshes when you build: the console "
                  "loads finished geometry and knows nothing about the graph. "

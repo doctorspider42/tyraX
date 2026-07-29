@@ -70,6 +70,15 @@ struct Instance {
     float rot[3] = {0, 0, 0};  // degrees, applied X then Y then Z
     float scale = 1.0f;        // uniform - merged geometry, PS2 economy
     int asset = -1;            // index into Result::assets, -1 = no asset yet
+    // Index into Result::prefabs (-1 = none). A point carries an asset OR a
+    // prefab: a prefab instance is a group of objects, not geometry to merge
+    // into a neighbour's chunk, so the two travel in separate fields rather
+    // than sharing one index space that every consumer would have to decode.
+    int prefab = -1;
+    // Visible-face mask written by Blocks Fill (procattr::kFaces, 6 bits). 63 =
+    // "every face" and is what a point that never met that node carries, so a
+    // merger can honour it unconditionally.
+    unsigned char faces = 63;
     uint64_t key = 0;          // stable identity (see ProcOverride)
 };
 
@@ -82,6 +91,7 @@ struct Result {
     std::shared_ptr<const Mask> mask;
     std::shared_ptr<const Curve> curve;
     std::vector<std::string> assets;  // model paths, index = Instance::asset
+    std::vector<std::string> prefabs;  // prefab names, index = Instance::prefab
 
     int candidates = 0;       // points the generators produced before filtering
     int nodesEvaluated = 0;   // re-run this pass (GRAF-03's visible number)

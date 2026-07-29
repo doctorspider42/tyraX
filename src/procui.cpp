@@ -21,6 +21,7 @@
 #include "procbake.hpp"
 #include "procgen.hpp"
 #include "procgraph.hpp"
+#include "procrt.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>  // ImPow (the graph zoom curve)
@@ -383,7 +384,86 @@ void App::drawProceduralWindow() {
     }
     const bool stale = procStale_;
     ImGui::SameLine();
-    if (ImGui::Button(stale ? "Bake now *" : "Bake now")) {
+
+    // --- baked or runtime ---------------------------------------------------
+    // The one decision that changes what everything else means, so it sits
+    // first: a baked volume is finished geometry on the disc, a runtime one is
+    // a program the console runs. See docs/procedural-runtime.md.
+    {
+        int mode = g.runtime ? 1 : 0;
+        ImGui::SetNextItemWidth(scaled(150.0f));
+        if (ImGui::Combo("##procmode", &mode, "Baked (build time)\0Runtime (on the console)\0")) {
+            g.runtime = mode == 1;
+            changed = true;
+            // Leaving runtime mode leaves nothing behind; entering it throws
+            // the baked chunks away, because they would draw on top of what
+            // the console generates.
+            if (g.runtime) {
+                procbake::clearVolume(project_, project_.active(), vol.id);
+                commitChange();
+                statusMessage_ =
+                    "Runtime mode: cleared the baked chunks of " + vol.name;
+                ImGui::End();
+                return;  // the objects vector changed under us
+            }
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Baked: the editor evaluates the graph and writes finished chunk\n"
+                "meshes - the console loads geometry and never learns a graph\n"
+                "existed. Costs disc space and one world, forever.\n\n"
+                "Runtime: the graph is COMPILED into the game and evaluated on\n"
+                "the EE, so the world can be different every boot and the\n"
+                "geometry is never shipped. Costs load time, RAM, and a much\n"
+                "smaller set of nodes - the list is under the budget bar.");
+    }
+    ImGui::SameLine();
+
+    if (g.runtime) {
+        // Runtime volumes have no bake, so the whole bake row is replaced by
+        // what a runtime volume actually needs stated.
+        bool atStart = g.runAtStart;
+        if (ImGui::Checkbox("Generate at scene start", &atStart)) {
+            g.runAtStart = atStart;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "On: the world is built during the scene load, inside the\n"
+                "loading screen's progress bar. Off: nothing appears until a\n"
+                "Generate Volume flow node fires - which is how you regenerate\n"
+                "on a button press, or stage a world in pieces.");
+        ImGui::SameLine();
+        int seedMode = g.seedMode;
+        ImGui::SetNextItemWidth(scaled(140.0f));
+        if (ImGui::Combo("##procseedmode", &seedMode,
+                         "Same world every run\0New world every run\0")) {
+            g.seedMode = seedMode;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "\"Same\" uses the Seed below - reproducible, and what you want\n"
+                "while authoring. \"New\" rolls one from the console clock at\n"
+                "generation time; the real variety comes from regenerating on a\n"
+                "button press, where the player's own timing is the entropy.");
+
+        // The capability list is the honest part of the feature: it names what
+        // this graph cannot do on the console instead of quietly doing nothing.
+        const std::vector<procrt::Issue> issues = procrt::capability(g);
+        if (issues.empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f), "runs on console");
+        } else {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.35f, 1.0f),
+                               "%d node(s) the console cannot run",
+                               (int)issues.size());
+        }
+        for (const procrt::Issue& i : issues)
+            ImGui::TextColored(ImVec4(0.9f, 0.55f, 0.5f, 1.0f), "- %s",
+                               i.text.c_str());
+    } else if (ImGui::Button(stale ? "Bake now *" : "Bake now")) {
         const procbake::Report rep = bakeProcVolume(procVolume_);
         procStatus_ = "Baked " + std::to_string(rep.instances) + " instances into " +
                       std::to_string(rep.chunks) + " chunk meshes (" +
@@ -395,24 +475,26 @@ void App::drawProceduralWindow() {
         ImGui::End();
         return;
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-        ImGui::SetTooltip(
-            "Writes the merged chunk meshes and the scene objects that draw them.\n"
-            "A build does this automatically for every stale volume - this button "
-            "is for when you want to look at the result now.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Clear bake")) {
-        procbake::clearVolume(project_, project_.active(), vol.id);
-        commitChange();
-        statusMessage_ = "Cleared the baked chunks of " + vol.name;
-        ImGui::End();
-        return;  // objects vector changed under us
+    if (!g.runtime) {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Writes the merged chunk meshes and the scene objects that draw "
+                "them.\nA build does this automatically for every stale volume - "
+                "this button is for when you want to look at the result now.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear bake")) {
+            procbake::clearVolume(project_, project_.active(), vol.id);
+            commitChange();
+            statusMessage_ = "Cleared the baked chunks of " + vol.name;
+            ImGui::End();
+            return;  // objects vector changed under us
+        }
+        ImGui::SameLine();
+        if (stale)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "bake is stale");
+        else
+            ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f), "baked");
     }
-    ImGui::SameLine();
-    if (stale)
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "bake is stale");
-    else
-        ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f), "baked");
 
     // --- live budget (BAKE-03) ---------------------------------------------
     const ProcNode* outNode = procgraph::outputNode(g);
@@ -797,6 +879,58 @@ void App::drawProceduralWindow() {
                 row.v[1] = 0.9f;
                 row.v[2] = 1.1f;
                 if (!models.empty()) row.s = "res/models/" + models.front();
+                n.rows.push_back(row);
+                changed = true;
+            }
+        } else if (t->rows == ProcRowKind::Prefabs) {
+            // The prefab pool. Same shape as the asset pool - a prefab is
+            // simply a different KIND of thing to place, and keeping the two
+            // rows identical is what lets one graph mix scattered models with
+            // scattered rooms without a second mental model.
+            ImGui::TextDisabled("Pool (prefab, weight, scale min/max)");
+            int removeRow = -1;
+            for (size_t r = 0; r < n.rows.size(); ++r) {
+                ImGui::PushID((int)(3000 + r));
+                ProcRow& row = n.rows[r];
+                ImGui::SetNextItemWidth(150.0f * zoom);
+                const std::string label =
+                    row.s.empty() ? "(pick a prefab)" : row.s;
+                if (ImGui::BeginCombo("##prefab", label.c_str())) {
+                    for (const Prefab& pf : project_.prefabs)
+                        if (ImGui::Selectable(pf.name.c_str(), pf.name == row.s) &&
+                            pf.name != row.s) {
+                            row.s = pf.name;
+                            changed = true;
+                        }
+                    if (project_.prefabs.empty())
+                        ImGui::TextDisabled("no prefabs - see Tools > Prefabs");
+                    ImGui::EndCombo();
+                }
+                ImGui::SetNextItemWidth(56.0f * zoom);
+                if (ImGui::DragFloat("##w", &row.v[0], 0.5f, 0.0f, 1000.0f, "w %.0f"))
+                    changed = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(52.0f * zoom);
+                if (ImGui::DragFloat("##smin", &row.v[1], 0.01f, 0.05f, 20.0f, "%.2f"))
+                    changed = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(52.0f * zoom);
+                if (ImGui::DragFloat("##smax", &row.v[2], 0.01f, 0.05f, 20.0f, "%.2f"))
+                    changed = true;
+                ImGui::SameLine();
+                if (ImGui::SmallButton("x")) removeRow = (int)r;
+                ImGui::PopID();
+            }
+            if (removeRow >= 0) {
+                n.rows.erase(n.rows.begin() + removeRow);
+                changed = true;
+            }
+            if (ImGui::SmallButton("+ prefab")) {
+                ProcRow row;
+                row.v[0] = 50.0f;
+                row.v[1] = 1.0f;
+                row.v[2] = 1.0f;
+                if (!project_.prefabs.empty()) row.s = project_.prefabs.front().name;
                 n.rows.push_back(row);
                 changed = true;
             }

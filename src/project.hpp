@@ -539,6 +539,33 @@ struct SceneObject {
     std::vector<std::string> scripts;
 };
 
+// A reusable group of scene objects - their flow graphs included - stamped
+// into the world by hand, by a procedural graph, or by the Spawn Prefab flow
+// node while the game runs (docs/prefabs.md). The verbs live in prefab.hpp;
+// the struct is here because a prefab MEMBER is a SceneObject and nothing
+// lighter: a prefab is a piece of scene, and everything the editor, codegen and
+// the runtime already do with an object has to keep working after it comes out
+// of one. The only difference is the frame - member transforms are LOCAL to the
+// prefab origin, so instantiating is a yaw plus a translation.
+struct Prefab {
+    // Stable, opaque identity (16 hex chars) - the collaboration merge key,
+    // like SceneObject::id. Every REFERENCE to a prefab is by name.
+    std::string id;
+    std::string name;
+    std::string notes;  // one line of prose: what this thing is for
+    // Members. Their `id` is empty by construction - an instance gets fresh
+    // ids, and two instances of one prefab must never share an identity.
+    std::vector<SceneObject> objects;
+
+    bool empty() const { return objects.empty(); }
+};
+
+inline bool operator==(const Prefab& a, const Prefab& b) {
+    return a.id == b.id && a.name == b.name && a.notes == b.notes &&
+           a.objects == b.objects;
+}
+inline bool operator!=(const Prefab& a, const Prefab& b) { return !(a == b); }
+
 const char* primitiveTypeName(PrimitiveType t);
 
 // Animated models are .glb or .fbx files (serialized to .tskl at build);
@@ -1994,6 +2021,14 @@ struct Project {
     // but are not part of undo/redo.
     std::vector<AnimClipEdit> animClipEdits;
 
+    // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
+    // objects - their flow graphs included - stamped into the world by hand,
+    // by a procedural graph, or by the Spawn Prefab node while the game runs.
+    // Project-wide like the preset collections above (a prefab built in one
+    // scene is available in all of them) and persisted through save(), but not
+    // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
+    std::vector<Prefab> prefabs;
+
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
     // file). Restores the editing session on reopen.
@@ -2146,12 +2181,13 @@ enum class Section {
     AnimEdits,       // "animClipEdits"
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
+    Prefabs,         // "prefabs" (reusable object groups)
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
 // one short silently stops writing the LAST section to the .tyra - and parallel
 // branches keep adding sections (ModelLods, ModelUnits and Input all arrived
 // while this one was open), which is exactly how it drifts.
-constexpr int kSectionCount = 15;
+constexpr int kSectionCount = 16;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

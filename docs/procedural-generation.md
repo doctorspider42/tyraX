@@ -13,6 +13,12 @@ Working demo: [examples/procedural](../examples/procedural) — six volumes that
 between them use every node below, from a noise-thinned forest to a colonnade
 placed exactly by `Radial Array`.
 
+That is the BAKED half, and it is what this page is about. A volume can instead
+run **on the console, while the game runs** — a world that is different every
+boot and takes no disc space, for a much smaller set of nodes and some load
+time. Everything below still applies; the differences are in
+[runtime procedural generation](procedural-runtime.md).
+
 ---
 
 ## Why it is built this way (read this before tuning anything)
@@ -95,7 +101,8 @@ is why the library composes without a combinatorial explosion of node types.
   named object's mesh, sampled proportionally to triangle area) inside the
   volume. Writes normal / slope / height.
 - **Scatter on Grid** — a lattice with optional jitter: orchards, fence posts,
-  city blocks.
+  city blocks. *Levels* stacks the whole lattice upward into a full 3D grid — a
+  tower of rooms, a shelf wall, a voxel frame.
 - **Scatter in Volume** — 3D fill, no surface snapping (hanging props, debris).
 - **Scatter along Curve** — instances every N units along a curve, optionally
   offset to one side and yawed to follow it. Writes `t`.
@@ -103,6 +110,10 @@ is why the library composes without a combinatorial explosion of node types.
 - **Single Point** — ONE point, placed exactly: at the volume's centre, at a
   named object, plus an XYZ offset. Nothing random happens here; it is the head
   of the analytic side of the graph (below).
+- **Blocks Fill** — a landscape of stacked cubes, emitting only the blocks with
+  a visible face and telling the merge which of their faces to draw. Writes
+  `depth`, `height` and `faces`; in a runtime volume its solid field is also the
+  world's collision. See [runtime procedural generation](procedural-runtime.md).
 
 **Masks**
 
@@ -159,6 +170,9 @@ nodes stop at 200 000 points and say so rather than eating the frame.
 - **Vary Transform** — random yaw, a scale range, tilt jitter, position jitter
   and **align to normal** (0 = always upright, 1 = fully laid over on the
   slope). The node that stops 500 copies from looking like 500 copies.
+- **Pick Prefab** — the same, for [prefabs](prefabs.md): a room, a shack, a lamp
+  post with its light and its script. A prefab instance is not merged with its
+  neighbours the way a model is — mind the counts.
 - **Set Attribute** — sample a mask into a named attribute, remapped into a
   value range: the bridge between the mask world and the point world.
 
@@ -324,7 +338,8 @@ only be made cheaper by authoring fewer, bigger cards.
   asset pool and the transform.
 - **No procedural terrain.** The graph READS the terrain (height, slope,
   curvature, painted layers) but does not generate it — terrain is sculpted and
-  painted in the Terrain Editor.
+  painted in the Terrain Editor. A **Blocks Fill** volume is the nearest thing:
+  it builds a walkable landscape out of cubes on top of whatever the terrain is.
 - **No spline geometry extrusion** (roads, walls). Curves place instances and
   clear space; they do not build a mesh yet.
 - **Painted density masks** are not in yet: mask density comes from noise, the

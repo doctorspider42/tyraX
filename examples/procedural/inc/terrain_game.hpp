@@ -324,6 +324,22 @@ class TerrainGame : public Tyra::Game {
   // Dynamic spawning for scripts/flow graph (ScriptContext::spawnObject /
   // despawnObject): clone an authored object into the spawn pool / free it.
   int spawnObjectAt(int templateIndex, float x, float y, float z, float yaw);
+  // Prefabs and runtime procedural volumes reach the graphs the same way, so
+  // their verbs live next to the spawn pool's: public because ScriptContext's
+  // thunks call them from outside the class.
+  // mergeOwner >= 0 folds the instance's static members into THAT procedural
+  // volume's chunk grid instead of giving the instance its own bags. That is
+  // the difference between 27 scattered rooms costing 27 draw calls and
+  // costing four: a volume owns a region, so its prefabs can share the
+  // region's chunks. A flow-node spawn passes -1, because Despawn Prefab has
+  // to be able to take that one instance's geometry away again.
+  int spawnPrefabAt(int prefabIndex, float x, float y, float z, float yaw,
+                    float scale, int mergeOwner = -1);
+  void despawnPrefabsNamed(int prefabIndex);  // -1 = every instance
+  // Generates one runtime volume and builds its geometry. seed: 0 = the
+  // authored one, -1 = a fresh one, anything else = use it.
+  void procGenerateVolume(int volume, int seed);
+  void procClearVolume(int volume);
   void despawnObjectAt(int index);
 
  private:
@@ -414,6 +430,81 @@ class TerrainGame : public Tyra::Game {
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
+
+  // --- Runtime procedural + prefab geometry (docs/procedural-runtime.md,
+  // docs/prefabs.md) --------------------------------------------------------
+  // Both features end in the same place: a set of world-space vertex bags the
+  // game built ITSELF, drawn like a static batch. That is the only shape a
+  // PS2 can afford for "many instances" - a submit costs ~1 ms of fixed EE
+  // time whatever it contains, so instances are merged per (source mesh,
+  // world chunk) and the frame draws a handful of bags instead of hundreds of
+  // objects. Nothing here exists unless the project uses it: procrt::ENABLED
+  // and PREFAB_COUNT are compile-time constants, so the whole block folds away.
+  struct ProcChunk {
+    int owner = -1;    // procrt VOLUMES index, or -1 for a prefab instance
+    int instance = -1; // prefab instance handle (owner < 0)
+    int model = -1;    // gameModels index the vertices came from
+    int part = 0;      // that model's material part = this bag's texture
+    int material = -1; // primitives: gameMaterials index
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    int cx = 0, cz = 0;  // world chunk cell (cull granularity)
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
+    float centre[3] = {0, 0, 0};
+    float drawDist = 0.0F;  // 0 = always drawn
+  };
+  std::vector<ProcChunk> procChunks;
+  // Collision for generated geometry. Merged geometry has no objects, so a
+  // prefab's walls would be scenery you walk through - which is exactly the
+  // trade the procedural BAKE makes for vegetation and exactly the wrong one
+  // for architecture. Every merged member whose collision is not "none"
+  // contributes one world AABB here, and the walker tests them the way it
+  // tests an object's box. Axis-aligned on purpose: rooms and blocks are, and
+  // an oriented test over hundreds of boxes is not something the EE should be
+  // doing every frame.
+  struct StaticBox {
+    float mn[3];
+    float mx[3];
+    short owner;     // procedural volume, -1 = a script-spawned prefab
+    short instance;  // prefab instance handle, -1 = a volume's own geometry
+  };
+  std::vector<StaticBox> procColliders;
+  // Live prefab instances, so Despawn Prefab can find what it made.
+  struct PrefabInstance {
+    int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
+    int owner = -1;               // procedural volume that spawned it, -1 = a script did
+    int spawned[8];               // runtimeObjects slots this instance owns
+    int spawnCount = 0;
+  };
+  std::vector<PrefabInstance> prefabInstances;
+  // Block collision field published by a runtime volume's Blocks Fill node.
+  // One 32-bit word per column, bit i = level i solid - which is why a block
+  // world is capped at 32 levels and why the walker's test is three shifts.
+  struct BlockField {
+    bool active = false;
+    int nx = 0, nz = 0, levels = 0;
+    float ox = 0, oz = 0, cell = 1.0F, baseY = 0;
+    std::vector<unsigned int> col;
+  };
+  BlockField procBlocks;
+  bool procBlockSolid(float x, float y, float z) const;
+  // Highest solid block top at or below `maxY` (-1e30 = nothing under there).
+  float procBlockTopAt(float x, float z, float maxY) const;
+  // Lowest solid block bottom strictly above `minY` (+1e30 = open sky).
+  float procBlockCeilAt(float x, float z, float minY) const;
+  // Any solid block inside the vertical band [y0, y1] within `r` of (x, z)?
+  bool procBlockBlocks(float x, float z, float y0, float y1, float r) const;
+  void despawnPrefabInstance(int handle);
+  // Merges a run of instances into procChunks. The two callers (a runtime
+  // volume, a prefab instance) differ only in where the transforms come from.
+  void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
+                           unsigned char faces);
+  void procFinishChunks();
+  void renderProcChunks();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
