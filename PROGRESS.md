@@ -15056,3 +15056,25 @@ Each finished feature lands as its own commit.
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
 >>>>>>> origin/main
+
+- (237) **Merge fallout: a procedural volume scattered onto a terrain that no
+  longer exists.** Found while merging main's *optional terrain* (236) into the
+  procedural branch - the two features had never been in one tree, so nothing
+  was wrong with either of them on its own.
+
+  Terrain removal deliberately KEEPS the heightmap so the ground can come back,
+  and the generated sampler answers `TERRAIN_VOID_Y` for a scene that has none.
+  `procgen::terrainHeight` knew about neither: it read the kept heightmap and
+  answered a real height, so *Scatter on Surface* and every *Snap to surface*
+  placed the preview on an invisible ground while the console - which resolves
+  the same call through `procTerrainY` -> `terrainHeightAtScene` - would put the
+  whole volume a million units down. Exactly the host/console twin drift the
+  runtime evaluator's whole design is meant to prevent, and invisible from
+  either side alone.
+
+  The host sampler now returns the same void height, and a graph that samples
+  the ground in a terrain-less scene says so in the window's warning list rather
+  than quietly producing a volume in the void. Verified with a project made by
+  main's own `--new ... --no-terrain`: adding a procedural volume raises *"this
+  scene has no terrain, so there is no surface to place on - turn Snap to
+  surface off"* next to the ordinary empty-pool warnings.

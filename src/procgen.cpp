@@ -171,10 +171,21 @@ float remap01(float v, float lo, float hi) {
 
 // --- terrain ---------------------------------------------------------------
 
+// The "there is no ground here" height. Twin of TERRAIN_VOID_Y in
+// templates.cpp: deep, but deliberately finite so arithmetic on it stays sane.
+constexpr float kTerrainVoidY = -1000000.0f;
+
 // Bilinear terrain height - the exact mapping of the generated
 // terrainHeightAtScene (templates.cpp) and of navmesh's copy. The game walks
 // on this surface, so everything we place on it must sample it identically.
 float terrainHeight(const SceneData& s, float x, float z) {
+    // No terrain in this scene (docs/terrain.md) = no ground to stand on, and
+    // the generated sampler says so with TERRAIN_VOID_Y. Answering 0 here - or
+    // worse, the heightmap that terrain removal deliberately KEEPS so the
+    // ground can come back - would put the editor's forest on a surface the
+    // console does not have. This value is the twin of `TERRAIN_VOID_Y` in
+    // templates.cpp; change one, change both.
+    if (!s.terrain.enabled) return kTerrainVoidY;
     const bool hasData =
         s.hmW >= 2 && s.hmD >= 2 && (int)s.heights.size() == s.hmW * s.hmD;
     if (!hasData) return 0.0f;
@@ -1940,6 +1951,21 @@ Result evaluate(const Project& p, const SceneData& s, const SceneObject& volume,
     res.assets = collectAssets(g);
     res.prefabs = collectPrefabs(g);
     if (g.nodes.empty()) return res;
+
+    // A graph that samples the ground in a scene with no terrain places
+    // everything at the void height - correct (it is what the console does),
+    // and completely mystifying unless it is said out loud. Cheap to detect:
+    // Scatter on Surface always samples, everything else only with Snap on.
+    if (!s.terrain.enabled) {
+        for (const ProcNode& n : g.nodes) {
+            if (n.type != "ScatterSurface" && !procgraph::flag(n, "snap")) continue;
+            res.warnings.push_back(
+                "this scene has no terrain, so there is no surface to place on - "
+                "turn Snap to surface off (or give the scene a terrain in Tools > "
+                "Terrain)");
+            break;
+        }
+    }
 
     Ctx ctx{p,
             s,
