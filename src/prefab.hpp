@@ -24,6 +24,17 @@
 
 namespace prefab {
 
+// How many prefab instances the generated game can hold at once. Every live
+// instance takes a record - a volume that scatters prefabs spends one PER
+// POINT - and the runtime refuses the rest with "instance pool full".
+//
+// It lives here rather than as a literal in templates.cpp because the EDITOR
+// has to know it: a runtime volume whose graph yields more points than this
+// previews the whole world and builds a fraction of it on the console, which
+// looks like a generation bug and is a budget. codegen emits it as
+// MAX_PREFAB_INSTANCES; procgen warns against it.
+constexpr int kMaxRuntimeInstances = 48;
+
 // Can this member be merged into the instance's shared geometry bag at
 // runtime? Merged members cost NOTHING per instance beyond their triangles -
 // one submit for the whole prefab instead of one per member, which is the

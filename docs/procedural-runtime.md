@@ -134,6 +134,25 @@ is how you stage a world in pieces, or build it only after a cutscene.
 
 ---
 
+### The prefab instance pool is a second budget
+
+A *Pick Prefab* point costs a **prefab-instance record** on top of its
+triangles, and the generated game holds `MAX_PREFAB_INSTANCES` of them (48 -
+`prefab::kMaxRuntimeInstances`, one constant read by both codegen and the
+editor). Past that the runtime logs `Spawn Prefab: instance pool full` and
+builds nothing more.
+
+This is the budget that bites first when you scatter prefabs rather than
+models, and it is nastier than the triangle one because of the order points come
+out in: *Scatter on Grid* runs its level loop outermost, so what survives is the
+bottom of every stack - a graph asking for eight levels renders as **one row**,
+which looks like a generation bug rather than a ceiling. The window warns as
+soon as the count crosses it.
+
+A **model** picked with *Pick Asset* costs no instance record at all - it merges
+straight into the chunk bags. If you are scattering hundreds of copies of one
+simple shape, that is the cheaper node.
+
 ## How it draws
 
 The same way the bake does, one step further: instances of one asset inside one

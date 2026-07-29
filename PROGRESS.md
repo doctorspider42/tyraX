@@ -15210,3 +15210,40 @@ Each finished feature lands as its own commit.
   empty canvas, and a canvas is a whole-window item that `--ui-script` refuses
   to click - the third place this limitation has come up, now written down in
   the skill.
+
+- (242) **Two bugs from a user's own runtime volume** (`dynamic-cube`: a grid of
+  prefab boxes, regenerated on Cross). Reported as "it does not regenerate -
+  the flow graph fires, I checked with the debugger" and "only one row is built,
+  the preview shows eight".
+
+  **Generate Volume compiled to a comment.** The node's object name was empty,
+  and `procrt::volumeIndexOf` matches by exact name, so it returned -1 and
+  codegen emitted `// node 2 (Generate Volume): '' is not a runtime Procedural
+  volume in this scene`. The node is still instrumented like any action, so the
+  Live Debugger showed it firing while it did nothing - about the most
+  misleading failure available. Empty now means SELF, which is the convention
+  every other `ObjectName` param follows and the common wiring: a Generate
+  Volume node usually sits on the volume it drives.
+
+  **The prefab instance pool is a budget nobody was told about.** The graph
+  yields 9x9 points per level over eight levels = 648, each carrying a prefab,
+  and each prefab instance takes a record from a pool of **48**. The runtime
+  refuses the rest ("instance pool full") and the console builds 48 of 648.
+  Because *Scatter on Grid* runs its level loop outermost, the survivors are all
+  from the bottom - the world renders as one row, which reads as a broken
+  generator rather than a ceiling. The triangle budget said nothing: 648 boxes
+  is 7 776 of 20 000 triangles, comfortable. `MAX_PREFAB_INSTANCES` is now
+  `prefab::kMaxRuntimeInstances`, one constant read by both codegen and the
+  editor, and `procgen::evaluate` warns the moment a runtime volume's prefab
+  count crosses it, naming the cheaper alternative (a model through Pick Asset
+  merges without an instance record).
+
+  **Verified**: regenerating the user's project's codegen on a copy turns the
+  comment into `if (ctx.generateVolume) ctx.generateVolume(0,
+  (int)lroundf(-1.0F), false)`. The pool warning is by construction - same
+  `Result::warnings` vector and same renderer as the terrain-void warning
+  captured on screen in (237) - but that particular string was not screenshotted:
+  the Procedural window shares a dock tab with Prefabs in this project and
+  `--ui-script` cannot bring a tab forward (a tab's label is its window's name,
+  which `find` excludes as a whole-window item). The pool CEILING itself was not
+  re-measured on console; 48 is what the generated game has always used.

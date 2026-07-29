@@ -1,3 +1,4 @@
+#include "prefab.hpp"
 #include "procgen.hpp"
 
 #include <algorithm>
@@ -2036,6 +2037,25 @@ Result evaluate(const Project& p, const SceneData& s, const SceneObject& volume,
             res.overridesOrphaned = (int)(g.overrides.size() - matched);
         }
     }
+    // A RUNTIME volume spends one prefab-instance record PER POINT, and the
+    // generated game's pool is fixed. Over it the console builds the first
+    // kMaxRuntimeInstances and drops the rest with "instance pool full" - the
+    // preview meanwhile shows every one, so the world looks like it generated
+    // wrong rather than like it ran out. Points are produced level by level, so
+    // what survives is the bottom of a stack, which reads as "only one row".
+    if (volume.procGraph.runtime) {
+        int pf = 0;
+        for (const Instance& i : res.instances)
+            if (i.prefab >= 0) ++pf;
+        if (pf > prefab::kMaxRuntimeInstances)
+            res.warnings.push_back(
+                "runtime prefab instances: " + std::to_string(pf) + " of " +
+                std::to_string(prefab::kMaxRuntimeInstances) +
+                " the console can hold - the rest will NOT be built (thin the "
+                "points, or scatter a model with Pick Asset, which merges "
+                "without an instance record)");
+    }
+
     res.millis = std::chrono::duration<double, std::milli>(
                      std::chrono::steady_clock::now() - t0)
                      .count();

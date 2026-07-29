@@ -17742,7 +17742,8 @@ static std::string prefabDataHeader(const Project& p) {
         << "// How many prefab instances may be live at once. Each one costs a\n"
         << "// handful of merged bags plus whatever clone-pool slots its\n"
         << "// identity-carrying members take.\n"
-        << "constexpr int MAX_PREFAB_INSTANCES = 48;\n";
+        << "constexpr int MAX_PREFAB_INSTANCES = "
+        << prefab::kMaxRuntimeInstances << ";\n";
     out << "inline const char* PREFAB_NAMES[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {";
     if (p.prefabs.empty()) {
         out << "\"\"";
@@ -23244,10 +23245,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "if (ctx.despawnPrefabs) ctx.despawnPrefabs(" << pfi
                   << ");\n";
             } else if (n.type == "GenerateVolume") {
-                const int vi = procrt::volumeIndexOf(p, (int)si, n.str);
+                // An empty name means SELF - the convention every ObjectName
+                // param follows, and the common wiring, because a Generate
+                // Volume node most often lives ON the volume it drives. Without
+                // this the node compiled to a COMMENT: the debugger still saw
+                // it fire (it is instrumented like any action) while nothing
+                // regenerated, which is as confusing as this gets.
+                std::string volName = n.str;
+                if (volName.empty() && ownerIdx >= 0 &&
+                    ownerIdx < (int)sceneObjs.size())
+                    volName = sceneObjs[ownerIdx].name;
+                const int vi = procrt::volumeIndexOf(p, (int)si, volName);
                 if (vi < 0) {
                     c << pad << "// node " << n.id
-                      << " (Generate Volume): '" << escapeCString(n.str)
+                      << " (Generate Volume): '" << escapeCString(volName)
                       << "' is not a runtime Procedural volume in this scene\n";
                 } else {
                     // The seed rides the number plane, so a Random node, a save
