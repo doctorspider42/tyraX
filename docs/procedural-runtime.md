@@ -114,11 +114,20 @@ is why it is a button and not a live number.
 
 ## Generate Volume
 
-The flow node that runs a runtime volume by name:
+*Flow Graph > **Procedural** > Generate Volume* — the node that runs a runtime
+volume by name:
 
 - `generate` — build it. num[0] Seed: `0` = the volume's authored seed, `-1` =
-  roll a fresh one, anything else = use that value.
+  roll a fresh one, anything else = use that value. **So re-rolling the world is
+  one node with Seed `-1`** — that is what `examples/cube` fires from TRIANGLE.
 - `clear` — throw the generated geometry away.
+
+The Seed also accepts a **wired number**, which is the difference between a
+random world and a *chosen* one: feed it a save value, a level counter or any
+Math chain and the same value always rebuilds the same world. That makes it the
+mechanism for "restore the map this save game had" as well as for "level 7
+always looks like level 7" — no geometry stored either way. (A wired number
+means Live Logic cannot hot-patch that graph; see [live-logic.md](live-logic.md).)
 
 With *Generate at scene start* off, nothing appears until this node fires — which
 is how you stage a world in pieces, or build it only after a cutscene.

@@ -15176,3 +15176,37 @@ Each finished feature lands as its own commit.
   `c.terrainY(px, pz) + 6.5f + (float)iy * 14.0f`; and Scatter on Surface at
   3.25 emits `P.y = c.terrainY(px, pz) + 3.25f`. The editor preview agrees - the
   cube example's whole lattice floats 25 units off the ground in the viewport.
+
+- (241) **The runtime seed can be wired, and the procedural nodes got their own
+  menu.** Asked as "can I re-roll a dynamic procedural object at runtime? I see
+  Generate Volume but its seed is typed by hand".
+
+  Half the answer already existed and was not findable: **Seed `-1` rolls a
+  fresh one**, which is exactly what `examples/cube` fires from TRIANGLE. The
+  other half was a real gap - the node had no `numIn`, so the one value in the
+  whole feature that a game might want to COMPUTE was the one value that could
+  not be. It has one now (`numOperand` + `lroundf`, the rules the number plane
+  already states for an int consumer), which is the difference between a random
+  world and a chosen one: a save value or a level counter wired into the Seed
+  makes "restore the map this save game had" and "level 7 always looks like
+  level 7" the same one-node mechanism, with no geometry stored either way.
+
+  And **Spawn Prefab / Despawn Prefab / Generate Volume moved to a `Procedural`
+  category**, asked for as "it is getting cramped in there" - `Object` had 30
+  entries, the most crowded menu in the editor. They belong together by
+  mechanism and not just by menu: prefab spawns and a runtime volume's output
+  both end in `TerrainGame::ProcChunk` bags plus the clone pool. Free to do -
+  `flowNodeCategories()` derives the submenu list from the registry, so a new
+  category is one string.
+
+  **Verified through the emitted code**, which is where a codegen change is
+  either right or not. Unwired: `ctx.generateVolume(0, (int)lroundf(-1.0F),
+  false)` - the typed value still wins, so nothing existing moved. Wired through
+  a Math chain to a save value: `ctx.generateVolume(0,
+  (int)lroundf((ctx.saveValues[0] * 7919.0F)), false)`. The category shows in
+  `--list-nodes` (the AI catalog and the add menu read the same registry), whose
+  line for the node also now reports `number (overrides num[0])` among its
+  inputs. The add MENU itself is a human check: it opens on a right-click of
+  empty canvas, and a canvas is a whole-window item that `--ui-script` refuses
+  to click - the third place this limitation has come up, now written down in
+  the skill.

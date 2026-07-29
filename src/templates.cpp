@@ -23250,8 +23250,13 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                       << " (Generate Volume): '" << escapeCString(n.str)
                       << "' is not a runtime Procedural volume in this scene\n";
                 } else {
+                    // The seed rides the number plane, so a Random node, a save
+                    // value or a level counter can decide the world. Rounded,
+                    // because the plane is float and a seed is not - and read
+                    // through numOperand so an unwired node still uses its own
+                    // typed num[0].
                     c << pad << "if (ctx.generateVolume) ctx.generateVolume("
-                      << vi << ", " << (int)n.num[0] << ", "
+                      << vi << ", (int)lroundf(" << numOperand(n) << "), "
                       << (pin == 1 ? "true" : "false") << ");\n";
                 }
             } else if (n.type == "PatrolWaypoints") {

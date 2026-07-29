@@ -318,7 +318,11 @@ runtime volume, and it is only useful while it predicts the console. A node that
 inputs covered by `bakeHash`, or a stale bake will not be noticed.
 
 **New flow-graph node** → node kind in flowgraph.hpp (designated-initializer
-entry; **`.desc` is mandatory by convention** — it is the node's documentation:
+entry; **`.category` is the add-menu submenu and the list is derived from the
+registry by `flowNodeCategories()`, so a new category costs nothing but a
+string** - `Procedural` is the home of the nodes that CREATE content while the
+game runs (Spawn/Despawn Prefab, Generate Volume), pulled out of `Object`
+because that one is the most crowded menu there is; **`.desc` is mandatory by convention** — it is the node's documentation:
 add-menu tooltip, node-hover tooltip AND the AI generator's catalog line all
 read it, so a node with a desc is documented everywhere at once) → node UI (pins, params)
 in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`

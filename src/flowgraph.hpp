@@ -609,7 +609,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // - a graph, a script, physics, a light - take a spawn-pool slot. That
         // split is what makes "stamp a room into the world at runtime" a thing
         // this machine can afford at all.
-        {.key = "SpawnPrefab", .title = "Spawn Prefab", .category = "Object",
+        // "Procedural" - the nodes that CREATE content while the game runs,
+        // pulled out of "Object" (30 entries and the most crowded menu there
+        // is). They share a mechanism as well as a menu: prefab spawns and a
+        // runtime volume's output both end in TerrainGame::ProcChunk vertex
+        // bags plus the clone pool, so a new node of that kind belongs here.
+        {.key = "SpawnPrefab", .title = "Spawn Prefab", .category = "Procedural",
          .strKind = FlowParamKind::PrefabName, .numCount = 2,
          .numLabels = {"Yaw", "Scale"}, .posIn = true,
          .desc = "Builds one instance of the prefab named str at the linked "
@@ -619,22 +624,26 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "identity of their own are spawned as real objects out of the "
                  "usual clone pool. Returns silently when the instance pool is "
                  "full - check the game log."},
-        {.key = "DespawnPrefab", .title = "Despawn Prefab", .category = "Object",
+        {.key = "DespawnPrefab", .title = "Despawn Prefab", .category = "Procedural",
          .strKind = FlowParamKind::PrefabName,
          .desc = "Removes every live instance of the prefab named str - its "
                  "merged geometry and the objects it spawned. An empty name "
                  "clears every prefab instance in the scene."},
         // Runtime procedural volumes (docs/procedural-runtime.md).
         {.key = "GenerateVolume", .title = "Generate Volume",
-         .category = "Object", .strKind = FlowParamKind::ObjectName,
-         .numCount = 1, .numLabels = {"Seed"}, .execInCount = 2,
+         .category = "Procedural", .strKind = FlowParamKind::ObjectName,
+         .numCount = 1, .numLabels = {"Seed"}, .numIn = true, .execInCount = 2,
          .execInLabels = {"generate", "clear"},
          .desc = "Runs a RUNTIME procedural volume (str = the Procedural volume "
                  "object) on the console and builds its geometry. num[0] Seed: "
                  "0 = keep the volume's own seed, -1 = roll a fresh one, any "
                  "other value = use it - so 'a new world every time' is one "
-                 "node. 'clear' throws the generated geometry away. The volume "
-                 "must be in Runtime mode; a baked one does nothing here."},
+                 "node. The Seed also takes a wired NUMBER, which is how a "
+                 "level number, a save value or a Random node decides the "
+                 "world: the same value always rebuilds the same world, so it "
+                 "doubles as 'restore the map this save game had'. 'clear' "
+                 "throws the generated geometry away. The volume must be in "
+                 "Runtime mode; a baked one does nothing here."},
         {.key = "Animation", .title = "Animation", .category = "Animation",
          .strKind = FlowParamKind::Text, .numCount = 3,
          .numLabels = {"Loop", "Speed", "Fade"}, .idIn = true, .idOut = true,
