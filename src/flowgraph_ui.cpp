@@ -82,7 +82,7 @@ void App::drawFlowGraphWindow() {
         return project_.objects()[i].name +
                (project_.objects()[i].flowGraph.empty() ? "" : " *");
     };
-    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SetNextItemWidth(scaled(220.0f));
     if (ImGui::BeginCombo("Graph of", graphLabel(flowGraphObject_).c_str())) {
         for (int i = 0; i < (int)project_.objects().size(); ++i) {
             const std::string lbl = graphLabel(i) + "##fgobj" + std::to_string(i);
@@ -235,18 +235,49 @@ void App::drawFlowGraphWindow() {
         return flowGraphObject_;  // self
     };
 
+    // imnodes has no native zoom: emulate it by scaling the font, the style
+    // metrics and the grid-space node positions by flowZoom_. EVERY length that
+    // contributes to a node's size has to carry the same factor, or the canvas
+    // stops being self-similar: node positions scale while their contents do
+    // not, so the nodes visibly drift apart / pile up as you zoom.
+    //
+    // The font MUST go through PushFont, not SetWindowFontScale. imnodes runs
+    // its canvas in a child window (BeginChild("scrolling_region")) and since
+    // ImGui 1.92 a per-window font scale is NOT inherited by children -
+    // UpdateCurrentFontSize() reads window->FontWindowScale only, and the
+    // FontWindowScaleParents it computes for children is dead weight. So the
+    // node text silently stayed at 100% at every zoom level while the metrics
+    // around it shrank. PushFont sets the context-level FontSizeBase, which
+    // child windows do inherit.
+    //
+    // uiScaleApplied_ rides along wherever ImGui's own ScaleAllSizes() does not
+    // reach - the pixel literals here and the whole of ImNodesStyle, which the
+    // editor's UI scale never touched (at 250% the node padding, pin radii and
+    // grid were pixel-for-pixel their 100% values next to a 2.5x font).
+    //
+    // Finally, the zoom is SNAPPED so the node font lands on a whole pixel.
+    // ImGui rounds every font size (GetRoundedFontSize), so text width is a
+    // staircase in the zoom while everything else is a straight line - and a
+    // node whose width steps while its position slides is exactly the "the
+    // nodes move relative to each other" symptom. Snapping makes the text the
+    // thing every other length is derived FROM, so the canvas is self-similar
+    // at every zoom level instead of only approximately.
+    const float uiFontSize = ImMax(1.0f, ImGui::GetStyle().FontSizeBase);
+    // Everything ImGui multiplies a pushed font size by before rounding it.
+    const float fontMul = ImMax(0.01f, ImGui::GetStyle().FontScaleMain *
+                                           ImGui::GetStyle().FontScaleDpi);
+    const float uiFontPx = ImMax(1.0f, IM_ROUND(uiFontSize * fontMul));  // chrome
+    const float nodeFontPx = ImMax(1.0f, IM_ROUND(uiFontPx * flowZoom_));
+    const float zoom = nodeFontPx / uiFontPx;  // the zoom the text actually got
+    const float nodeScale = nodeFontPx / uiFontSize;  // vs the authored 1.0 design
+
     ImGui::TextDisabled(
         "Right-click: add node. Mouse wheel: zoom (%.0f%%). Round pins: execution, "
         "square pins: object id. Empty object param = self (%s).",
-        flowZoom_ * 100.0f, owner.name.c_str());
+        zoom * 100.0f, owner.name.c_str());
 
-    // imnodes has no native zoom: emulate it by scaling the font, the style
-    // metrics and the grid-space node positions by flowZoom_. The ImGui
-    // spacing vars scale too, so node layouts shrink uniformly instead of
-    // drifting apart at low zoom.
-    const float zoom = flowZoom_;
     const ImVec2 canvasOrigin = ImGui::GetCursorScreenPos();
-    ImGui::SetWindowFontScale(zoom);
+    ImGui::PushFont(nullptr, nodeFontPx / fontMul);
     const ImGuiStyle& gstyle = ImGui::GetStyle();
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                         ImVec2(gstyle.ItemSpacing.x * zoom, gstyle.ItemSpacing.y * zoom));
@@ -257,21 +288,45 @@ void App::drawFlowGraphWindow() {
                         ImVec2(gstyle.FramePadding.x * zoom, gstyle.FramePadding.y * zoom));
     ImNodesStyle& nstyle = ImNodes::GetStyle();
     const ImNodesStyle savedStyle = nstyle;
-    nstyle.GridSpacing *= zoom;
-    nstyle.NodeCornerRounding *= zoom;
-    nstyle.NodePadding = ImVec2(savedStyle.NodePadding.x * zoom,
-                                savedStyle.NodePadding.y * zoom);
-    nstyle.NodeBorderThickness *= zoom;
-    nstyle.LinkThickness *= zoom;
-    nstyle.PinCircleRadius *= zoom;
-    nstyle.PinQuadSideLength *= zoom;
-    nstyle.PinHoverRadius *= zoom;
-    nstyle.PinOffset *= zoom;
+    nstyle.GridSpacing *= nodeScale;
+    nstyle.NodeCornerRounding *= nodeScale;
+    nstyle.NodePadding = ImVec2(savedStyle.NodePadding.x * nodeScale,
+                                savedStyle.NodePadding.y * nodeScale);
+    nstyle.NodeBorderThickness *= nodeScale;
+    nstyle.LinkThickness *= nodeScale;
+    nstyle.LinkHoverDistance *= nodeScale;
+    nstyle.PinCircleRadius *= nodeScale;
+    nstyle.PinQuadSideLength *= nodeScale;
+    nstyle.PinTriangleSideLength *= nodeScale;
+    nstyle.PinLineThickness *= nodeScale;
+    nstyle.PinHoverRadius *= nodeScale;
+    nstyle.PinOffset *= nodeScale;
+    // The mini-map is a fixed overlay, not part of the zoomed canvas: it takes
+    // the UI scale but never the zoom.
+    nstyle.MiniMapPadding = ImVec2(savedStyle.MiniMapPadding.x * uiScaleApplied_,
+                                   savedStyle.MiniMapPadding.y * uiScaleApplied_);
+    nstyle.MiniMapOffset = ImVec2(savedStyle.MiniMapOffset.x * uiScaleApplied_,
+                                  savedStyle.MiniMapOffset.y * uiScaleApplied_);
+
+    // The param-widget column: the one width every node is built around, so it
+    // carries both scales like the font does.
+    const float paramWidth = 130.0f * nodeScale;
+    // A dropdown list is a popup window sitting OUTSIDE the canvas, so it keeps
+    // the UI font - a node at 40% zoom is meant to be unreadable, its menus are
+    // not. Mirrors of ImGui::BeginCombo/EndCombo used by every node param.
+    auto beginCombo = [&](const char* label, const char* preview) {
+        if (!ImGui::BeginCombo(label, preview)) return false;
+        ImGui::PushFont(nullptr, uiFontSize);
+        return true;
+    };
+    auto endCombo = [&]() {
+        ImGui::PopFont();
+        ImGui::EndCombo();
+    };
 
     // Node content width (params + right-aligned pin labels share it)
-    const float nodeWidth =
-        130.0f * zoom + ImGui::GetStyle().ItemInnerSpacing.x +
-        ImGui::CalcTextSize("Object").x;
+    const float nodeWidth = paramWidth + ImGui::GetStyle().ItemInnerSpacing.x +
+                            ImGui::CalcTextSize("Object").x;
     // Right-aligns a pin label to the node edge. The ">" arrow is drawn as
     // its own item in a FIXED column (same x for every row) instead of being
     // part of a width-dependent indented string: text rendering truncates
@@ -335,13 +390,18 @@ void App::drawFlowGraphWindow() {
 
     ImNodes::BeginNodeEditor();
 
-    // Push stored node positions into imnodes whenever the edited graph or
-    // the zoom changes (node ids repeat across graphs; positions are stored
-    // unzoomed and scaled on the way in / divided on the way out)
+    // Push stored node positions into imnodes whenever the edited graph, the
+    // zoom or the UI scale changes (node ids repeat across graphs; positions
+    // are stored unscaled and multiplied on the way in / divided on the way
+    // out). The factor is nodeScale, the SAME one the node contents use: a
+    // stored position is a distance between nodes, so if it kept only the zoom
+    // while the nodes themselves also grew with the UI scale, a 250% editor
+    // would draw a graph whose nodes overlap each other.
     if (!flowPositionsApplied_) {
         flowPositionsApplied_ = true;
         for (const FlowNode& n : fg.nodes)
-            ImNodes::SetNodeGridSpacePos(n.id, ImVec2(n.pos[0] * zoom, n.pos[1] * zoom));
+            ImNodes::SetNodeGridSpacePos(
+                n.id, ImVec2(n.pos[0] * nodeScale, n.pos[1] * nodeScale));
     }
 
     for (FlowNode& n : fg.nodes) {
@@ -368,7 +428,7 @@ void App::drawFlowGraphWindow() {
         ImNodes::EndNodeTitleBar();
 
         ImGui::PushID(n.id);
-        ImGui::PushItemWidth(130.0f * zoom);
+        ImGui::PushItemWidth(paramWidth);
 
         bool posLinked = false;
         for (const FlowLink& l : fg.links)
@@ -383,7 +443,7 @@ void App::drawFlowGraphWindow() {
                 ImGui::TextDisabled("Object: from id link");
             } else {
                 const char* current = n.str.empty() ? "(self)" : n.str.c_str();
-                if (ImGui::BeginCombo("Object", current)) {
+                if (beginCombo("Object", current)) {
                     if (ImGui::Selectable("(self)", n.str.empty())) {
                         n.str.clear();
                         changed = true;
@@ -394,7 +454,7 @@ void App::drawFlowGraphWindow() {
                             changed = true;
                         }
                     }
-                    ImGui::EndCombo();
+                    endCombo();
                 }
                 if (ImGui::SmallButton("From selected") && selectedObject_ >= 0 &&
                     selectedObject_ < (int)project_.objects().size()) {
@@ -409,19 +469,19 @@ void App::drawFlowGraphWindow() {
                                      "DpadRight", "L1",      "L2",     "L3",
                                      "R1",       "R2",       "R3",     "Start",
                                      "Select"};
-            if (ImGui::BeginCombo("Button", n.str.empty() ? "Cross" : n.str.c_str())) {
+            if (beginCombo("Button", n.str.empty() ? "Cross" : n.str.c_str())) {
                 for (const char* b : buttons) {
                     if (ImGui::Selectable(b, n.str == b)) {
                         n.str = b;
                         changed = true;
                     }
                 }
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::InputActionName) {
             // Configurable input (Tools > Input Map): the action, not a button.
             const char* current = n.str.empty() ? "(pick an action)" : n.str.c_str();
-            if (ImGui::BeginCombo("Action", current)) {
+            if (beginCombo("Action", current)) {
                 for (const InputAction& a : project_.input.actions) {
                     const std::string label =
                         a.label.empty() ? a.name : a.label + "  (" + a.name + ")";
@@ -430,7 +490,7 @@ void App::drawFlowGraphWindow() {
                         changed = true;
                     }
                 }
-                ImGui::EndCombo();
+                endCombo();
             }
             if (!n.str.empty() && !project_.input.findAction(n.str)) {
                 ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
@@ -441,25 +501,25 @@ void App::drawFlowGraphWindow() {
                                         .c_str());
             }
         } else if (t->strKind == FlowParamKind::KeyName) {
-            if (ImGui::BeginCombo("Key", n.str.empty() ? "(pick a key)"
+            if (beginCombo("Key", n.str.empty() ? "(pick a key)"
                                                        : n.str.c_str())) {
                 for (const InputKeyName& k : inputKeyNames())
                     if (ImGui::Selectable(k.label, n.str == k.label)) {
                         n.str = k.label;
                         changed = true;
                     }
-                ImGui::EndCombo();
+                endCombo();
             }
             ImGui::TextDisabled("USB keyboard (Preferences > Build)");
         } else if (n.type == "SetInputPreset") {
             const char* current = n.str.empty() ? "(pick a preset)" : n.str.c_str();
-            if (ImGui::BeginCombo("Preset", current)) {
+            if (beginCombo("Preset", current)) {
                 for (const InputPreset& pr : project_.input.presets)
                     if (ImGui::Selectable(pr.name.c_str(), pr.name == n.str)) {
                         n.str = pr.name;
                         changed = true;
                     }
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (n.type == "Animation") {
             // Clip picker when the resolved target is an animated .glb model
@@ -475,7 +535,7 @@ void App::drawFlowGraphWindow() {
                     picker = true;
                     const std::string label =
                         n.str.empty() ? clips.front() + " (first)" : n.str;
-                    if (ImGui::BeginCombo("Clip", label.c_str())) {
+                    if (beginCombo("Clip", label.c_str())) {
                         for (const std::string& c : clips) {
                             const bool selected =
                                 c == n.str || (n.str.empty() && c == clips.front());
@@ -485,7 +545,7 @@ void App::drawFlowGraphWindow() {
                                 changed = true;
                             }
                         }
-                        ImGui::EndCombo();
+                        endCombo();
                     }
                 }
             }
@@ -526,7 +586,7 @@ void App::drawFlowGraphWindow() {
             const std::string current =
                 n.str.empty() ? "<none>"
                               : std::filesystem::path(n.str).filename().string();
-            if (ImGui::BeginCombo("Track", current.c_str())) {
+            if (beginCombo("Track", current.c_str())) {
                 for (const std::string& m : project_.music) {
                     const std::string name = std::filesystem::path(m).filename().string();
                     if (ImGui::Selectable(name.c_str(), m == n.str)) {
@@ -536,13 +596,13 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.music.empty())
                     ImGui::TextDisabled("Import tracks in the\nProject panel (Music).");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::SoundTrack) {
             const std::string current =
                 n.str.empty() ? "<none>"
                               : std::filesystem::path(n.str).filename().string();
-            if (ImGui::BeginCombo("Sound", current.c_str())) {
+            if (beginCombo("Sound", current.c_str())) {
                 for (const std::string& s : project_.sounds) {
                     const std::string name = std::filesystem::path(s).filename().string();
                     if (ImGui::Selectable(name.c_str(), s == n.str)) {
@@ -552,20 +612,20 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.sounds.empty())
                     ImGui::TextDisabled("Import sounds in the\nProject panel (Sounds).");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::SceneName) {
-            if (ImGui::BeginCombo("Scene", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Scene", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SceneData& s : project_.scenes) {
                     if (ImGui::Selectable(s.name.c_str(), s.name == n.str)) {
                         n.str = s.name;
                         changed = true;
                     }
                 }
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::LayerName) {
-            if (ImGui::BeginCombo("Layer", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Layer", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SceneLayer& l : project_.active().layers) {
                     if (ImGui::Selectable(l.name.c_str(), l.name == n.str)) {
                         n.str = l.name;
@@ -574,7 +634,7 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.active().layers.empty())
                     ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::AreaName) {
             // In Area: pick one of the scene's Area objects (docs/areas.md).
@@ -582,7 +642,7 @@ void App::drawFlowGraphWindow() {
             if (n.str.empty())
                 ImGui::TextDisabled("Pick an area - the node\ncompiles out without one.");
         } else if (t->strKind == FlowParamKind::SaveValue) {
-            if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SaveValue& v : project_.saveValues) {
                     if (ImGui::Selectable(v.name.c_str(), v.name == n.str)) {
                         n.str = v.name;
@@ -591,10 +651,10 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.saveValues.empty())
                     ImGui::TextDisabled("Add values in the\nProject panel (Save data).");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::SaveText) {
-            if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SaveTextValue& v : project_.saveTexts) {
                     if (ImGui::Selectable(v.name.c_str(), v.name == n.str)) {
                         n.str = v.name;
@@ -603,7 +663,7 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.saveTexts.empty())
                     ImGui::TextDisabled("Add text values in the\nProject panel (Save data).");
-                ImGui::EndCombo();
+                endCombo();
             }
             if (n.type == "SetSaveText") {
                 bool textLinked = false;
@@ -619,7 +679,7 @@ void App::drawFlowGraphWindow() {
                 }
             }
         } else if (t->strKind == FlowParamKind::GradingName) {
-            if (ImGui::BeginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -632,10 +692,10 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.gradings.empty())
                     ImGui::TextDisabled("Add presets in\nTools > Color Grading.");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::AmbienceName) {
-            if (ImGui::BeginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -648,10 +708,10 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.ambiencePresets.empty())
                     ImGui::TextDisabled("Add presets in\nTools > Ambience Editor.");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::SequenceName) {
-            if (ImGui::BeginCombo("Sequence", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Sequence", n.str.empty() ? "<none>" : n.str.c_str())) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -664,10 +724,10 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.sequences.empty())
                     ImGui::TextDisabled("Add sequences in\nTools > Cutscene Director.");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::MenuName) {
-            if (ImGui::BeginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const GameMenu& gm : project_.menus) {
                     if (ImGui::Selectable(gm.name.c_str(), gm.name == n.str)) {
                         n.str = gm.name;
@@ -676,10 +736,10 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.menus.empty())
                     ImGui::TextDisabled("Add menus in the\nProject panel (Menus).");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::HudTextName) {
-            if (ImGui::BeginCombo("Text", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Text", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const HudText& ht : project_.hudTexts) {
                     if (ImGui::Selectable(ht.name.c_str(), ht.name == n.str)) {
                         n.str = ht.name;
@@ -688,21 +748,21 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.hudTexts.empty())
                     ImGui::TextDisabled("Add texts in\nTools > UI Editor (Texts).");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::FontName) {
             // Empty = the project's first font (project::defaultFontName), so a
             // fresh Display Text node draws without picking anything.
             const std::string cur =
                 n.str.empty() ? project_.defaultFontName() : n.str;
-            if (ImGui::BeginCombo("Font", cur.c_str())) {
+            if (beginCombo("Font", cur.c_str())) {
                 for (const GameFont& gf : project_.fonts) {
                     if (ImGui::Selectable(gf.name.c_str(), gf.name == cur)) {
                         n.str = gf.name;
                         changed = true;
                     }
                 }
-                ImGui::EndCombo();
+                endCombo();
             }
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
@@ -721,7 +781,7 @@ void App::drawFlowGraphWindow() {
             // per placement, not per .screenfx file.
             std::string cur = n.str.empty() ? "<none>" : n.str;
             if (const CustomScreenFx* e = customScreenFx(n.str)) cur = e->title;
-            if (ImGui::BeginCombo("Effect", cur.c_str())) {
+            if (beginCombo("Effect", cur.c_str())) {
                 int placed = 0;
                 for (const ScreenFxPlacement& pl : project_.screenFx) {
                     const CustomScreenFx* e = customScreenFx(pl.key);
@@ -737,7 +797,7 @@ void App::drawFlowGraphWindow() {
                 if (placed == 0)
                     ImGui::TextDisabled(
                         "Place a custom effect in\nTools > UI Editor first.");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::VarName ||
                    t->strKind == FlowParamKind::EventName) {
@@ -759,12 +819,14 @@ void App::drawFlowGraphWindow() {
             if (!known.empty()) {
                 if (ImGui::SmallButton("Pick...")) ImGui::OpenPopup("##pickvar");
                 if (ImGui::BeginPopup("##pickvar")) {
+                    ImGui::PushFont(nullptr, uiFontSize);  // popup, not canvas
                     for (const std::string& name : known) {
                         if (ImGui::Selectable(name.c_str(), name == n.str)) {
                             n.str = name;
                             changed = true;
                         }
                     }
+                    ImGui::PopFont();
                     ImGui::EndPopup();
                 }
             }
@@ -1223,7 +1285,8 @@ void App::drawFlowGraphWindow() {
                 ImNodesCol_Link,
                 (ImU32)ImColor(1.0f, 0.55f + 0.35f * g, 0.20f,
                                0.55f + 0.45f * g));
-            ImNodes::PushStyleVar(ImNodesStyleVar_LinkThickness, 3.0f + 2.0f * g);
+            ImNodes::PushStyleVar(ImNodesStyleVar_LinkThickness,
+                                  (3.0f + 2.0f * g) * nodeScale);
             ImNodes::Link(l.id, flowExecOutPin(l.fromNode, l.fromPin),
                           flowExecInPin(l.toNode, l.toPin));
             ImNodes::PopStyleVar();
@@ -1256,6 +1319,9 @@ void App::drawFlowGraphWindow() {
                               ImGuiWindowFlags_NoScrollbar |
                               ImGuiWindowFlags_NoScrollWithMouse);
         ImDrawList* dl = ImGui::GetWindowDrawList();
+        // Badge sizes follow the node they annotate: at 40% zoom an unscaled
+        // gutter dot is as wide as the node it sits next to.
+        auto zs = [&](float px) { return px * nodeScale; };
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || (t->pure && !t->trigger)) continue;  // pure data node
@@ -1266,11 +1332,11 @@ void App::drawFlowGraphWindow() {
             const ImVec2 p = ImNodes::GetNodeScreenSpacePos(n.id);
             const ImVec2 d = ImNodes::GetNodeDimensions(n.id);
             if (g > 0.0f) {
-                const float pad = scaled(3.0f) + scaled(3.0f) * g;
+                const float pad = zs(3.0f) + zs(3.0f) * g;
                 dl->AddRect(ImVec2(p.x - pad, p.y - pad),
                             ImVec2(p.x + d.x + pad, p.y + d.y + pad),
                             ImColor(1.0f, 0.72f, 0.22f, 0.25f + 0.65f * g),
-                            scaled(6.0f), 0, scaled(2.0f) + scaled(1.5f) * g);
+                            zs(6.0f), 0, zs(2.0f) + zs(1.5f) * g);
             }
             if (bp) {
                 const bool stopped = dbgState_ == DbgState::Halted &&
@@ -1278,24 +1344,24 @@ void App::drawFlowGraphWindow() {
                 const ImU32 col = stopped ? IM_COL32(255, 205, 70, 255)
                                           : IM_COL32(230, 60, 55, 255);
                 // Edge bar: readable even zoomed out, when a dot is one pixel.
-                dl->AddRectFilled(ImVec2(p.x - scaled(2.0f), p.y),
-                                  ImVec2(p.x + scaled(2.0f), p.y + d.y), col,
-                                  scaled(2.0f));
+                dl->AddRectFilled(ImVec2(p.x - zs(2.0f), p.y),
+                                  ImVec2(p.x + zs(2.0f), p.y + d.y), col,
+                                  zs(2.0f));
                 // Gutter marker, like a breakpoint in an IDE: outside the node
                 // so it never fights the title text, with a dark ring for
                 // contrast against any background.
-                const float r = scaled(7.0f);
-                const ImVec2 c(p.x - r - scaled(4.0f), p.y + scaled(9.0f));
-                dl->AddCircleFilled(c, r + scaled(1.5f), IM_COL32(15, 15, 18, 220));
+                const float r = zs(7.0f);
+                const ImVec2 c(p.x - r - zs(4.0f), p.y + zs(9.0f));
+                dl->AddCircleFilled(c, r + zs(1.5f), IM_COL32(15, 15, 18, 220));
                 dl->AddCircleFilled(c, r, col);
-                dl->AddCircle(c, r, IM_COL32(255, 255, 255, 90), 0, scaled(1.0f));
+                dl->AddCircle(c, r, IM_COL32(255, 255, 255, 90), 0, zs(1.0f));
                 if (stopped) {
                     // Halted here: a pulsing halo, so the eye finds it at once.
                     const float t2 = (float)ImGui::GetTime();
                     const float pulse = 0.5f + 0.5f * sinf(t2 * 6.0f);
-                    dl->AddCircle(c, r + scaled(3.0f) + scaled(2.0f) * pulse,
+                    dl->AddCircle(c, r + zs(3.0f) + zs(2.0f) * pulse,
                                   ImColor(1.0f, 0.85f, 0.35f, 0.35f + 0.4f * pulse),
-                                  0, scaled(2.0f));
+                                  0, zs(2.0f));
                 }
             }
             if (key >= 0 && key < (int)dbgSnap_.hits.size() &&
@@ -1303,8 +1369,8 @@ void App::drawFlowGraphWindow() {
                 char buf[24];
                 std::snprintf(buf, sizeof(buf), "%u", dbgSnap_.hits[key]);
                 const ImVec2 ts = ImGui::CalcTextSize(buf);
-                const ImVec2 at(p.x + d.x - ts.x - scaled(4.0f),
-                                p.y + d.y - ts.y - scaled(2.0f));
+                const ImVec2 at(p.x + d.x - ts.x - zs(4.0f),
+                                p.y + d.y - ts.y - zs(2.0f));
                 dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f),
                             IM_COL32(0, 0, 0, 160), buf);
                 dl->AddText(at,
@@ -1315,6 +1381,12 @@ void App::drawFlowGraphWindow() {
         }
         ImGui::EndChild();
     }
+
+    // Canvas scaling ends here, BEFORE the tooltip below: a tooltip is a window
+    // of its own and reads like the rest of the editor's chrome, not like a node.
+    nstyle = savedStyle;
+    ImGui::PopStyleVar(3);
+    ImGui::PopFont();
 
     // Rest the mouse on a node to get its description (FlowNodeType::desc -
     // the same text the add-menu tooltips and the AI catalog use). Delayed so
@@ -1343,26 +1415,26 @@ void App::drawFlowGraphWindow() {
         }
     }
 
-    nstyle = savedStyle;
-    ImGui::PopStyleVar(3);
-    ImGui::SetWindowFontScale(1.0f);
-
-    // Read node positions back in unzoomed model coordinates (imnodes owns
-    // the zoomed ones while dragging)
+    // Read node positions back in unscaled model coordinates (imnodes owns the
+    // scaled ones while dragging)
     for (FlowNode& n : fg.nodes) {
         const ImVec2 pos = ImNodes::GetNodeGridSpacePos(n.id);
-        n.pos[0] = pos.x / zoom;
-        n.pos[1] = pos.y / zoom;
+        n.pos[0] = pos.x / nodeScale;
+        n.pos[1] = pos.y / nodeScale;
     }
 
     // Mouse wheel over the canvas: zoom, keeping the point under the cursor
-    // fixed (the panning is adjusted for the new scale).
+    // fixed (the panning is adjusted for the new scale). flowZoom_ keeps the
+    // CONTINUOUS request so small wheel notches accumulate; the pan correction
+    // and the re-push are driven by the snapped, effective scale, or a notch
+    // that does not reach the next whole font pixel would pan without zooming.
     if (editorHovered && ImGui::GetIO().MouseWheel != 0.0f) {
-        float next = flowZoom_ * ImPow(1.1f, ImGui::GetIO().MouseWheel);
-        if (next < 0.4f) next = 0.4f;
-        if (next > 1.8f) next = 1.8f;
-        if (next != flowZoom_) {
-            const float ratio = next / flowZoom_;
+        const float next =
+            ImClamp(flowZoom_ * ImPow(1.1f, ImGui::GetIO().MouseWheel), 0.4f, 1.8f);
+        const float nextEff = ImMax(1.0f, IM_ROUND(uiFontPx * next)) / uiFontPx;
+        flowZoom_ = next;
+        if (nextEff != zoom) {
+            const float ratio = nextEff / zoom;
             ImVec2 pan = ImNodes::EditorContextGetPanning();
             const ImVec2 mouse = ImGui::GetIO().MousePos;
             const float relX = mouse.x - canvasOrigin.x;
@@ -1370,7 +1442,6 @@ void App::drawFlowGraphWindow() {
             pan.x = relX - ratio * (relX - pan.x);
             pan.y = relY - ratio * (relY - pan.y);
             ImNodes::EditorContextResetPanning(pan);
-            flowZoom_ = next;
             flowPositionsApplied_ = false;  // re-push positions at the new scale
         }
     }

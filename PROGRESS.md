@@ -13211,6 +13211,72 @@ Each finished feature lands as its own commit.
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
 
+- (232) **Fix: the Flow Graph canvas was only half-zoomed - the node text never
+  scaled, and nothing in it knew about the UI scale** (user: "Rozjeżdżają nam się
+  trochę flow graphy, jak się je zoomuje/odzoomowuje. Może font też się powinien
+  zmieniać?").
+
+  Two independent bugs that produce the same picture - giant text in narrow
+  nodes, and node positions that no longer match node sizes.
+
+  **The font.** The zoom emulation set the canvas font with
+  `ImGui::SetWindowFontScale(zoom)`, which writes `window->FontWindowScale` on
+  the *Flow Graph* window. imnodes runs its canvas in a **child** window
+  (`BeginChild("scrolling_region")`) and since ImGui 1.92 the per-window font
+  scale is **not inherited by children**: `UpdateCurrentFontSize()` multiplies by
+  `window->FontWindowScale` only, and the `FontWindowScaleParents` it dutifully
+  computes for every child (imgui.cpp:8044) is read by nobody. So every node's
+  text stayed at 100% while its padding, pin radii, item widths and grid-space
+  positions shrank - the nodes drift apart at 180% and pile up at 40%, which is
+  exactly what the user photographed. The fix is `PushFont(nullptr, size)`:
+  that sets the context-level `FontSizeBase`, which children *do* inherit.
+  This is the second time an obsolete-but-still-compiling ImGui call has quietly
+  changed meaning under us - it does not warn, it just stops working.
+
+  **The UI scale.** `ImNodesStyle` is not touched by ImGui's `ScaleAllSizes()`
+  and nothing here scaled it, and the two pixel literals (`130.0f` param column,
+  `SetNextItemWidth(220.0f)`) carried neither scale. At the 300% this machine
+  runs at, a node was a 3x font wrapped in 100% padding with a 130-px combo next
+  to a 390-px label - unreadable, and the reason the reported symptom looked so
+  extreme. All of it now goes through one factor.
+
+  **The one factor is derived from the text, not from the zoom.** ImGui rounds
+  every font size to a whole pixel (`GetRoundedFontSize`), so text width is a
+  staircase in the zoom while every other length is a straight line - and a node
+  whose width steps while its position slides *is* the "positions change relative
+  to each other" complaint. So the zoom is snapped to whatever produces a whole
+  font pixel, `nodeScale = nodeFontPx / FontSizeBase` is what every length and
+  every node position is multiplied by, and the header reports that snapped value
+  (the wheel keeps accumulating the unsnapped request, or a notch that does not
+  reach the next pixel would pan without zooming). Node positions had to join the
+  UI scale too: a stored position is a distance *between* nodes, so keeping only
+  the zoom in it while the nodes themselves grew 3x is what made a 300% editor
+  overlap them.
+
+  Two things deliberately stay at the editor's own size: **combo dropdowns**
+  (`beginCombo`/`endCombo` re-push the UI font inside the popup - a node at 40%
+  is meant to be unreadable, its menus are not) and the **node-description
+  tooltip** (the style/font restore moved above it). The mini-map takes the UI
+  scale but not the zoom - it is a fixed overlay, not part of the canvas.
+
+  **Verified by driving the editor** (`--ui-script`), which needed one new
+  command: `wheel <target> <notches>`, because a canvas zoom is the one thing no
+  widget exposes - it injects `AddMouseWheelEvent` one notch per frame with the
+  cursor held on the target, and it is the only step that may resolve a bare
+  window name (the canvas submits no item of its own, and its middle is exactly
+  where you want to scroll). Three dumps of `examples/showcase`'s 30-node player
+  graph at 300% UI scale, at 100% / 56% / 177% zoom, measuring named node
+  widgets: param widths 390 / 220 / 690 px = `130 x nodeScale` for
+  nodeScale 3.0 / 1.692 / 5.308, i.e. exactly `round(39 x zoom)/13`. The
+  invariance that was asked for, from the same dumps: the Volume->Threshold
+  offset (-660, +630) becomes (-372, +355) - ratios **0.5636 / 0.5635** against
+  the 0.5641 the widths imply - and Volume->Seconds 270 -> 152 -> 478 px gives
+  0.5630 and 1.7704 against 1.7692. Sub-0.1% on both axes at both zooms, which is
+  the ItemSpacing rounding and nothing else. The screenshots confirm the rest:
+  at 56% the graph is a legible miniature instead of overlapping full-size text,
+  at 177% the hover tooltip is still chrome-sized, and an overlap that the
+  showcase graph is *authored* with is present identically at all three zooms.
+
 - (65) **AI: flow-graph generation, agent CLI, and per-project AI support** -
   three pieces. (a) *Generate with AI* in the Flow Graph window (src/aigen.cpp
   + App::drawAiGenerateModal): the system prompt is built per request from the

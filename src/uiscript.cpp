@@ -284,6 +284,13 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             s.arg = tok[1];
             s.dx = (float)dx;
             s.dy = (float)dy;
+        } else if (cmd == "wheel" || cmd == "scroll") {
+            if (!needArg(3)) return fail("wheel needs a target and notches");
+            double dy = 0;
+            if (!toNumber(tok[2], dy)) return fail("wheel notches must be a number");
+            s.kind = Step::Wheel;
+            s.arg = tok[1];
+            s.dy = (float)dy;
         } else if (cmd == "key") {
             if (!needArg(2)) return fail("key needs a chord, e.g. ctrl+n");
             s.kind = Step::Key;

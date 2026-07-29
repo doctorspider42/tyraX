@@ -907,6 +907,13 @@ void App::applyUiScale() {
     style = baseStyle_;           // reset to the unscaled reference...
     style.ScaleAllSizes(scale);   // ...then scale spacing/padding/borders
     style.FontScaleMain = scale;  // dynamic fonts re-rasterize at the new size
+    if (uiScaleApplied_ != scale) {
+        // The Flow Graph canvas lays its nodes out in scaled grid space (see
+        // drawFlowGraphWindow), so the positions it pushed into imnodes belong
+        // to the old scale - re-push them or the graph draws at the new node
+        // size with the old spacing.
+        flowPositionsApplied_ = false;
+    }
     uiScaleApplied_ = scale;
 }
 
