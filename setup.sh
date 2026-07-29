@@ -63,31 +63,62 @@ fetch() {  # fetch <url> <outfile> - curl or wget, whichever this box has
     fi
 }
 
+# fetch_pinned <dir> <commit> <url...> - shallow-fetch one exact commit from the
+# first remote that has it. `git clone --branch` only accepts refs, not SHAs, so
+# a pinned checkout has to be spelled out: init, then fetch the SHA directly.
+# GitHub serves arbitrary reachable SHAs this way, which is what lets the mirror
+# be a plain fork rather than a repo carrying a tyrax-specific tag.
+fetch_pinned() {
+    local dir="$1" commit="$2" url
+    shift 2
+    git init -q "$dir"
+    for url in "$@"; do
+        if git -C "$dir" fetch -q --depth 1 "$url" "$commit" 2>/dev/null; then
+            git -C "$dir" checkout -q --detach FETCH_HEAD
+            return 0
+        fi
+        echo "  ...$url did not serve $commit, trying the next remote"
+    done
+    # Leave nothing half-initialised: an empty .git with no checkout would trip
+    # the "directory exists but the probe is missing" branch on the next run and
+    # send the user off deleting directories for a network problem.
+    rm -rf "$dir"
+    return 1
+}
+
 for d in "${VENDOR_DEPS[@]}"; do
-    IFS='|' read -r url branch dir probe _build <<<"$d"
+    IFS='|' read -r url mirror commit ref dir probe _build <<<"$d"
     if [ -e "$probe" ]; then
         echo "OK: $dir already present"
         continue
     fi
     if [ -d "$dir" ]; then
         # A directory without its probe file: a stale/partial checkout, or
-        # vendor/tyra whose engine sources are tracked in this repo. Cloning
+        # vendor/tyra whose engine sources are tracked in this repo. Fetching
         # into a non-empty directory just fails, so say what to do instead.
         echo "NOTE: $dir exists but $probe is missing - delete the directory and re-run setup.sh if the build complains."
         continue
     fi
-    echo "Cloning $url ($branch) -> $dir"
-    git clone --depth 1 --branch "$branch" "$url" "$dir"
+    echo "Fetching $url @ ${commit:0:12} ($ref) -> $dir"
+    if ! fetch_pinned "$dir" "$commit" "$url" "$mirror"; then
+        echo "ERROR: could not fetch $commit for $dir from either $url or $mirror." >&2
+        exit 1
+    fi
 done
 
 # Ensure the stb single-headers we #include are present, even when vendor/stb
 # is a stale/partial directory that predates the full clone above (no probe
-# file, so the clone step skips it). Back-fill any missing header directly.
+# file, so the clone step skips it). Back-fill any missing header directly,
+# from the SAME commit deps.sh pins - see the STB_HEADERS comment there.
+STB_COMMIT="$(for d in "${VENDOR_DEPS[@]}"; do
+    IFS='|' read -r _u _m c _r dir _p _b <<<"$d"
+    [ "$dir" = "vendor/stb" ] && echo "$c"
+done)"
 for h in "${STB_HEADERS[@]}"; do
     if [ ! -e "vendor/stb/$h" ]; then
-        echo "Fetching $h"
+        echo "Fetching $h @ ${STB_COMMIT:0:12}"
         mkdir -p vendor/stb
-        fetch "https://raw.githubusercontent.com/nothings/stb/master/$h" "vendor/stb/$h"
+        fetch "https://raw.githubusercontent.com/nothings/stb/$STB_COMMIT/$h" "vendor/stb/$h"
     fi
 done
 

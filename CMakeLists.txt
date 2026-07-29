@@ -136,6 +136,7 @@ add_executable(tyrax-editor
     src/audiopreview.cpp
     src/assetbrowser.cpp
     src/camtake.cpp
+    src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
     src/devsession.cpp

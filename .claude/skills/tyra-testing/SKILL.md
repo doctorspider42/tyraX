@@ -107,10 +107,18 @@ missing `vendor/` header, check WHICH script ran before suspecting the code.
 **Third-party dependencies live in exactly one list per platform: `deps.ps1`
 and `deps.sh`.** `setup.ps1`/`setup.sh` fetch from them and `build.ps1`/
 `build.sh` probe them before configuring, so adding a dependency **to both** is
-all it takes — the build guard picks it up for free and `git clone`s it on the
+all it takes — the build guard picks it up for free and fetches it on the
 next build. Add one anywhere else, or to only one of the two, and you recreate
 the bug this arrangement exists to prevent: the lists used to drift, and a
 worktree that predated a new dependency reached cmake with the sources missing.
+
+Each entry is fetched at a **pinned commit**, not a branch (`git init` + `git
+fetch --depth 1 <url> <sha>`, since `git clone --branch` refuses a SHA), with a
+fallback to our mirror fork. This is what makes a build reproducible, so when
+you are chasing "it worked yesterday", `git -C vendor/<dep> rev-parse HEAD`
+should always equal the SHA in `deps.sh` — if it does not, that checkout
+predates the pinning and is stale. Fix it by deleting the directory and
+re-running setup, not by pulling in it.
 
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
@@ -192,7 +200,11 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   whenever the thing you are measuring is an asset. It also runs the **asset bakes that live
   inside refreshGenerated**: animated models into `res/models/*.tskl` and
   static ones into `res/models/*.tmdl` (docs/model-pipeline.md), each printing
-  its problems as `[anim bake]` / `[model bake]` lines on stdout. So a model
+  its problems as `[anim bake]` / `[model bake]` lines on stdout, plus the
+  **credits page strips** (docs/credits.md) into `res/credits/<roll>-<k>.png` -
+  so a roll's typography and page count are checkable with no Docker and no GUI:
+  refresh, stitch the pages back into one image and look at it, and read
+  `CREDITS_PAGE_TOTAL` / `contentH` out of `inc/credits_data.gen.hpp`. So a model
   format / LOD change is verifiable headlessly: refresh, then read the file's
   bytes (a few lines of Python on the layout in `src/tmdl.hpp` /
   `glbparser.cpp` tell you the tier vertex counts). Note the texture bake
@@ -470,7 +482,7 @@ Notes:
       'frames 20; click Tools; click "Remote Pad"; shot panel.png; quit'
   ```
 
-  `click|rightclick|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
+  `click|rightclick|hover|doubleclick|hold|drag|wheel|key|text|wait|frames|shot|dump|log|quit`
   plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
   code is 0 only if every step passed, so a scripted GUI run gates a shell
   script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
@@ -485,7 +497,19 @@ Notes:
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
-  click their `Cancel`; `dump` shows it.
+  click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
+  by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
+  shows the rect with an empty label - set the value another way and read the
+  result off a `shot`.
+
+  **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
+  exposes one): it holds the cursor on the target and injects one notch per
+  frame, and it is the only step that may resolve a bare WINDOW name, so
+  `wheel "Flow Graph" -6` scrolls over the middle of the canvas. The way to
+  verify a zoom is not a screenshot but `dump` at two zoom levels: the node
+  widgets ARE ordinary items, so their rects give you the scale factor and the
+  offsets between them give you whether the layout stayed self-similar
+  (PROGRESS 233 measures both to under 0.1%).
 
   The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally

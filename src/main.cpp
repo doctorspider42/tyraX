@@ -510,6 +510,7 @@ static int dumpFromCli(int argc, char** argv) {
     names("ambiencePresets", p.ambiencePresets,
           [](const AmbiencePreset& a) { return a.name; });
     names("sequences", p.sequences, [](const Sequence& s) { return s.name; });
+    names("credits", p.credits, [](const CreditsRoll& r) { return r.name; });
     // Input actions / binding presets: what On Action and Set Input Preset
     // reference (docs/input-bindings.md).
     names("inputActions", p.input.actions,

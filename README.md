@@ -46,7 +46,7 @@ the scoop MinGW kit rather than the MSVC one.
 
 `setup.sh --deps` picks the package list for your package manager (apt / dnf / pacman / zypper) and installs it with `sudo`, falling back to `pkexec` when there is no terminal to authenticate in. It is the only part that needs root, which is why it is opt-in — plain `./setup.sh` just fetches `vendor/` and `tools/`. On a machine that already has a toolchain you can skip straight to `./build.sh`.
 
-Both build scripts handle the rest: clone the `vendor/` dependencies on first run, check the toolchain (and name the exact install command when something is missing), configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency lists live in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
+Both build scripts handle the rest: fetch the `vendor/` dependencies at their pinned commits on first run, check the toolchain (and name the exact install command when something is missing), configure CMake and build. Flags: `-Run`/`--run` launches the editor after building, `-Clean`/`--clean` rebuilds from scratch. The dependency lists live in one place per platform (`deps.ps1` / `deps.sh`), which both the setup and the build script read.
 
 `-Dev`/`--dev` builds for **iteration speed instead of run speed** (`-O1`, into its own `build-dev/` so switching back and forth costs nothing): a clean build is roughly a third faster and a one-file edit rebuilds in a few seconds. The host bakes (GI, material raytracing, ambient occlusion, texture quantization) are genuinely slow in it, so it is for working on the UI and the model, never for a release or a benchmark. If **ccache** (or sccache) is on `PATH`, CMake picks it up automatically — which matters here because the repo is normally checked out in several git worktrees at once, each with its own build directory compiling the same translation units from scratch. `setup.sh --deps` installs it on Linux, `scoop install ccache` on Windows; because CMake caches the *miss*, installing it after a build directory already exists needs a `-Clean`/`--clean` (or a deleted build dir) before it takes effect. `-DTYRAX_COMPILER_CACHE=OFF` opts out.
 
@@ -149,6 +149,7 @@ Then in the editor:
 - **Options menus** — the Menu Editor scaffolds settings screens: **+ Options menu** builds an *OPTIONS* root that opens *AUDIO* / *CONTROLS* / *DISPLAY* submenus (categories are plain submenus, so all styling applies), and **+ Option block** drops a ready-made row bound to a built-in engine setting — music / sound volume, controller deadzone, aim response curve, display mode (480i/480p/1080i/480i field rendering/full-height PAL 576i) and widescreen (4:3/16:9). Each block is a normal Toggle/Choice row you can restyle and relabel; the generated game applies the chosen option to the engine every frame, no flow wiring needed (persisted in the save value like any stateful row). The display-mode row's options are picked from a **dropdown of the engine's scan modes** (offer any subset, in any order, with a free-text label), including a **Default (project)** entry that maps to whatever mode the game booted in on the player's console (the region + PAL-picture default, or the project's fixed mode) — so a typical row is DEFAULT / 480p / 1080i and "default" always means the right thing per region, and an **Apply video mode** row makes it stage-then-commit: while one exists anywhere in the project, cycling the display option only stages the choice and the screen switches when the player picks APPLY (with the keep-or-revert prompt); without one the row keeps the classic switch-on-change behavior. The scaffolded *DISPLAY* submenu includes the APPLY row.
 - **Boot splash screens** — *Tools > Loading Screens > Boot splash screens*: images (studio / publisher / "presents" cards) shown in order at startup, after the always-present Tyra engine logo and before the loading screen, each for a configurable duration. Images only for now.
 - **Loading screens** — *Tools > Loading Screens*: define named loading screens shown while a scene loads (also at boot). Each has a background color, image and text elements (baked like the HUD) and **progress bars** — *continuous* (a track with a fill that grows) or *quantized* (N segments that light up one per 1/N of progress; segments are colored rects or an optional PNG tinted on/off). The bar reflects **real** load progress: the game counts the work (streamed assets + objects + terrain chunks) and presents the screen every few units. Assign a screen per scene in *Scene > Preferences*, mark one the project default, or leave a scene unset to use the default; with none defined, the built-in `loading.png`-on-black is shown. The master toggle stays *Project > Preferences > "Loading screen between scenes"*. See [docs/loading-screens.md](docs/loading-screens.md).
+- **Credits rolls** — *Tools > Credits Editor*: end credits as project-wide data, started by a menu row (action **Play credits** — a title screen's `CREDITS` row) or the *Play Credits* flow node. A roll is a vertical flow of blocks — **headings**, **role/name rows** (the classic two-column credit, several names per role), **wrapped lines**, **images** and **page breaks** — each free to override the roll's size, typeface and color, so restyling a whole roll stays one edit at the top. It **scrolls up** at a chosen speed or plays as **cards** (one screenful at a time, cross-fading — title cards, dedications), over a **music track** it starts (and stops) itself, with a fade in/out, a start delay and an end hold, an optional still **backdrop** image, and a **skip** that accepts the menu confirm action (or one you name) after a short deadline plus a baked `PRESS {{cross}} TO SKIP` hint. A roll **owns the screen and the pad** while it plays — nothing is simulated behind it — and then runs its own **finish action**: resume the game, switch scene, open a menu, fire a flow event (caught by *On Menu Event*), or hold the last frame; a skip runs it too, so a player who skips lands where a player who watched lands. *On Credits Finished* fires either way. Long rolls belong in a text editor, so **Import text...** reads a plain-text format (`# SECTION`, `Role: Name`, `> centered`, `[image ... 0.5]`, `---` for a page break) and *Re-import* picks the file up again after an edit. On the console the roll is a **strip of baked page textures** the runtime scrolls — two sprites a frame whatever its length — and because the GS pins every texture it draws, the editor prints the page count, the running time and the VRAM estimate under a preview that draws **the same baked pages the console gets**. Full guide: [docs/credits.md](docs/credits.md).
 - **Runtime scene** — scripts receive mutable `RuntimeObject`s (move/hide/recolor objects every frame); geometry rebuilds automatically.
 - **Project preferences** (`Project > Preferences`, `Ctrl+,`) — the project's preset (read-only: it is picked once in *New Project* and fixed for the project's life, since it decides which user-ownable game sources are generated), terrain size and detail (max grid cells), **video output** (target system NTSC/PAL/auto plus the scan mode: stock interlaced 480i/576i, interlaced with **true field rendering** — a fresh half-height 512x224 image every field, i.e. 50/60 distinct pictures per second at full speed for about half the fill and VRAM cost of whole frames, the classic PS2-era recipe — flicker-free **progressive 480p**, pillarboxed **1080i** — the two DTV modes need component cables on a real console and always run at 60 Hz — or full-height **PAL 576i**: a true 512-line PAL frame (the "full PAL" of European retail releases, ~14% more picture than the NTSC-sized modes), always a 50 Hz PAL signal regardless of the target system, at the cost of ~380 KB of GS VRAM. The region-following interlaced mode additionally has a **PAL picture** choice — *Letterbox* keeps the classic NTSC-size 448-line picture on PAL consoles, *Full-height 576i* promotes them to the true 512-line frame at boot (NTSC consoles always get 480i), so one build serves both regions the way the author intends; PCSX2 shows every mode — and a **Widescreen (16:9)** switch that widens the projection anamorphically for widescreen TVs), **triangle handling** (*Precise clipping on VU1* — the default: no holes at screen edges and no EE cost, triangles are clipped by the VU1 microprograms; *Precise clipping on EE* — the legacy CPU clipper, kept for comparison/fallback (projects saved before the VU1 default keep it automatically); *Fast culling* — fastest, large near triangles may vanish), sky color, the player camera defaults (eye/body height, walk/look speed) for the two player presets or, for the empty one, the orbit speed — how fast the camera circles the terrain when no Player object owns it, 0 (the Empty preset's default) parking it at a fixed vantage point. The scan mode and widescreen can also be changed at runtime from the flow graph (**Set Display Mode** / **Set Widescreen**): Set Display Mode optionally shows a "keep video mode?" prompt that reverts automatically unless the player confirms with X in time — so a mode the TV can't display never strands anyone on a black screen. Stored in the `<name>.tyra` project file and baked into the generated `terrain_config.hpp` on every build; the viewport reflects sky color and terrain detail immediately. A **debug** build profile also enables on-screen overlays (*Show FPS*, *Show memory usage*, a per-phase EE-time **frame profiler** — whole frame / scene / usable-highlight / particles; see [docs/profiling.md](docs/profiling.md) — and *Show areas*, which draws Area objects in the game as wireframe boxes so an invisible volume stops being invisible when you are debugging why a zone did not unload), all stripped from release builds.
 - **Pickable objects** — check **Pickable** on any solid object and the player can press **USE** on it to pick it up (the on-screen prompt says **PICK UP** instead of USE — built-in `res/hud/pickup.png`, replace to customize): it hovers a short reach in front of the face and is **swept against the world every frame**, so it keeps colliding with walls and props — you can neither push it through geometry nor park it behind something. The carry reach follows the third-person spring arm's policy: a blocked reach **snaps in** (the object comes closer to the face, never into the wall) and eases back out when the wall clears; a **carry whisker** in the walker pushes the carrying player back from geometry the object no longer fits in front of, so you can't press face-first into a wall while holding something. It stops colliding only with its *carrier* (it can't wedge the player, and the third-person spring arm ignores it). USE again drops it exactly where it hovers — always a legal spot; give the object **Physics** and it's handed straight back to the rigid-body sim on release (it wakes, falls, bounces and rolls with its own mass/bounce/friction/tumble), while a non-physics object simply stays where you left it. An experimental **Can throw** option launches the carried object with **Circle** (`BTN_THROW`): a physics object is thrown *by the sim* — it arcs, bounces off walls and tumbles to a stop — and a non-physics one flies a simple swept arc that stops on the first hit. Reach, throw speed and the button live in `inc/controls.hpp`. A pickable object can also be *Usable* — the same press fires **On Used** (wire a grab sound) and picks it up; while your hands are full there is no use-targeting, USE means "drop".
@@ -241,7 +242,7 @@ flashing, `IPCONFIG.DAT`, firewall ports, what every failure message means — i
 
 ## The in-tree Tyra engine
 
-`vendor/tyra/engine` is a fork of the [Tyra engine](https://github.com/h4570/tyra) (Apache License 2.0, forked at `9273416`), maintained directly in this repo — edit it and the next Build & Run picks the change up automatically. The editor's modifications over upstream (marked `Modified by TyraX` / `TyraX guard band` in the sources):
+`vendor/tyra/engine` is a fork of the [Tyra engine](https://github.com/h4570/tyra) (Apache License 2.0, forked at `9273416`; license text in [`vendor/tyra/LICENSE`](vendor/tyra/LICENSE)), maintained directly in this repo — edit it and the next Build & Run picks the change up automatically. The editor's modifications over upstream (marked `Modified by TyraX` / `TyraX guard band` in the sources):
 
 - `planes_clip_algorithm.cpp` — Cohen–Sutherland outcodes: fully-visible triangles skip the 6-plane clipper, fully-outside ones are rejected instantly.
 - `stapip_clipper.cpp`, `stapip_qbuffer.cpp` — static pools instead of per-call heap allocations.
@@ -264,6 +265,7 @@ All example projects live under [examples/](examples): a general playground, a l
 - [examples/layer-streaming](examples/layer-streaming) — [streaming layers](docs/streaming-layers.md): two buildings joined by a corridor — walking through swaps which building is in memory, GTA3-style (watch the MEM overlay).
 - [examples/cutscene-demo](examples/cutscene-demo) — the **Cutscene Director**: a 14 s in-engine cutscene with shots bound to Camera entities, a dolly tracking shot, a hard cut, camera shake, animated FOV, Cinema 2.39:1 bars and fades; plays on boot, replays from a usable pedestal, skippable with START (see its [README](examples/cutscene-demo/README.md)).
 - [examples/video-modes](examples/video-modes) — display-mode test bed: a VIDEO OPTIONS menu (opens at boot, Start reopens it) switches 480i / 480p / 1080i and 4:3 / 16:9 at runtime, with the keep-or-revert confirm prompt (see its [README](examples/video-modes/README.md)).
+- [examples/credits](examples/credits) — [credits rolls](docs/credits.md): a scrolling end roll started from the title screen's CREDITS row (headings, role/name columns, a logo, a wrapped paragraph, a page break; skippable, and it hands the player back to the title screen), plus a card-mode dedication that **L1** plays mid-game and that resumes exactly where it interrupted — with *On Credits Finished* showing a HUD text afterwards. The end roll's blocks were imported from a plain-text [credits.txt](examples/credits/credits.txt) (see its [README](examples/credits/README.md)).
 - [examples/custom-nodes](examples/custom-nodes) — [custom flow-graph nodes](docs/custom-flow-nodes.md): press Cross and a C++-backed node picks the nearest crate at runtime and feeds it to a built-in Set Object Visible; press Square and an inline-snippet node spins a crate (see its [README](examples/custom-nodes/README.md)).
 - [examples/large-terrain](examples/large-terrain) — a 2048×2048 world that never fits in 32 MB at once, kept playable by chunked view-distance terrain streaming, ~1100 draw-distance-culled props and 80 skeletal-animated "wobblers" that stress the [animation/mesh LOD chain](docs/animated-models.md); ships in the debug profile so the on-screen FPS/MEM overlay is visible (see its [README](examples/large-terrain/README.md)).
 - [examples/object-spawning](examples/object-spawning) — runtime object spawning driven entirely from a flow graph: **Spawn Object** clones an animated template at a marker on a timer and its object output feeds a **Despawn Object** that removes exactly that clone after a delay — the missing piece for GTA-style traffic (see its [README](examples/object-spawning/README.md)).
@@ -321,8 +323,43 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `ai-support/` — source markdown for the AI assistant guides installed into projects (embedded into the exe at build time; see [docs/ai-support.md](docs/ai-support.md)).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
-- `vendor/` (rest) — editor dependencies (not versioned; fetched by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know). `build.cmd` / `setup.cmd` are cmd.exe wrappers over the PowerShell scripts and deliberately contain no logic of their own — note that a bare `build` in PowerShell resolves to `build.cmd` first.
+- `vendor/` (rest) — editor dependencies (not versioned; fetched at a **pinned commit** by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know). `build.cmd` / `setup.cmd` are cmd.exe wrappers over the PowerShell scripts and deliberately contain no logic of their own — note that a bare `build` in PowerShell resolves to `build.cmd` first.
 - `tools/` — PS2 network-deploy tools: `ps2client` (versioned, the rest fetched by `setup.ps1` / `setup.sh`) and the [TyraX ps2link](tools/ps2link/README.md) (`ps2link` — the patch + Docker build for the only ps2link the F6 deploy supports, see [docs/ps2link-setup.md](docs/ps2link-setup.md)), plus the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
+
+## Dependency policy
+
+Four rules, so that "it built last year" keeps meaning something.
+
+**1. Pin the commit, never a branch.** Every entry in `deps.ps1` / `deps.sh`
+names an exact SHA. A branch is a moving target, and because setup skips a
+vendor directory whose probe file already exists, a branch pin also freezes
+silently: two people who ran setup a month apart get two different imgui and
+neither is told. To bump a dependency, change the SHA in **both** lists, delete
+the vendor directory, re-run setup, and actually build.
+
+**2. Mirror everything the build needs.** Each dependency also carries a
+`Mirror` URL — our fork under `doctorspider42/tyrax-vendor-*`. Setup tries
+upstream first and falls back to the mirror, so a deleted, renamed or
+force-pushed upstream costs a slower fetch instead of a broken build. Refresh a
+mirror with `gh repo sync` *before* bumping its pin, so the new SHA exists in
+both places.
+
+**3. If the license permits redistribution and the thing is small, vendor it
+in-tree.** Fetching at setup time buys nothing legally — MIT, zlib, Apache-2.0
+and public domain all allow redistribution outright — so it is purely an
+engineering trade. Fetch only what is genuinely large, or what may not be
+redistributed. `vendor/tyra/engine` is in-tree for exactly this reason.
+
+**4. Assets are not code; verify them file-by-file.** A permissive license on a
+project says nothing about the license on its models, textures or sounds, and
+asset collections are commonly *mixed* — a CC0 default with a long tail of
+AGPL/GPL leftovers is the normal shape of an open asset pack, not the
+exception. Never conclude "the project is CC0, therefore the pack is CC0".
+Anything that cannot be redistributed must be an **optional** download whose
+absence disables one feature, never something the build or the editor requires.
+
+Notices for everything currently shipped are in
+[THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 
 ## Credits
 
@@ -332,6 +369,9 @@ This project stands on the shoulders of the PS2 homebrew community:
   and contributors — Apache License 2.0. `vendor/tyra/engine` is an in-tree
   fork; every departure from upstream is marked `Modified by TyraX` in
   the sources. The `h4570/tyra` Docker image provides the PS2 toolchain.
+  The license text ships as [`vendor/tyra/LICENSE`](vendor/tyra/LICENSE),
+  recovered from upstream history — upstream's own copy was deleted by accident
+  in 2022 and never restored (see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)).
 - **[ps2client](https://github.com/ps2dev/ps2client)** and
   **[ps2link](https://github.com/ps2dev/ps2link)** by the
   [ps2dev project](https://ps2dev.github.io/) contributors — the network link
@@ -347,10 +387,35 @@ This project stands on the shoulders of the PS2 homebrew community:
 - **[PS2SDK](https://github.com/ps2dev/ps2sdk)** (ps2dev) — the SDK every
   generated game links against; the custom `audsrv` build in
   `vendor/tyra/audsrv-pan` derives from its audsrv module.
-- Editor dependencies fetched by `setup.ps1` / `setup.sh`: [Dear ImGui](https://github.com/ocornut/imgui)
+- Editor dependencies fetched at a pinned commit by `setup.ps1` / `setup.sh`:
+  [Dear ImGui](https://github.com/ocornut/imgui)
   (MIT), [GLFW](https://www.glfw.org/) (zlib/libpng),
   [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) (MIT),
   [imnodes](https://github.com/Nelarius/imnodes) (MIT),
   [stb](https://github.com/nothings/stb) (public domain / MIT),
-  [ufbx](https://github.com/ufbx/ufbx) (MIT).
+  [ufbx](https://github.com/ufbx/ufbx) (public domain / MIT),
+  [miniaudio](https://github.com/mackron/miniaudio) (public domain / MIT-0).
+  Full license texts for all of them — required when a **binary** editor is
+  distributed, since there is no `vendor/` to look in then — are in
+  [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
+## License
+
+TyraX is licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). Apache-2.0 was the natural choice rather than a deliberate
+one: the engine this editor is built around is already Apache-2.0, so matching
+it keeps the whole tree under a single set of terms with no compatibility
+question to answer.
+
+Third-party notices are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md);
+what may be added as a dependency, and on what conditions, is in the
+[Dependency policy](#dependency-policy) above.
+
+**Games you generate**: TyraX writes a project's C++ from templates that live in
+this repository (`src/templates.cpp`), so the generated sources start out as a
+copy of Apache-2.0-licensed code and carry those terms with them. In practice
+Apache-2.0 asks very little of you — keep the license and notice, state what you
+changed, don't use the project's name to endorse yours — and it does not reach
+your own game logic, art or audio. If you want generated projects released under
+terms of your own choosing instead, that needs an explicit exception added here
+by the copyright holder; until one exists, assume the above.

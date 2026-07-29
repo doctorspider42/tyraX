@@ -2272,11 +2272,15 @@ void App::uiScriptTick() {
         s.kind == uiscript::Step::Click || s.kind == uiscript::Step::DoubleClick ||
         s.kind == uiscript::Step::RightClick ||
         s.kind == uiscript::Step::HoldClick || s.kind == uiscript::Step::Hover ||
-        s.kind == uiscript::Step::Drag || s.kind == uiscript::Step::Expect;
+        s.kind == uiscript::Step::Drag || s.kind == uiscript::Step::Wheel ||
+        s.kind == uiscript::Step::Expect;
     if (needsTarget && uiStepPhase_ == 0) {
-        // Everything here but Expect ends in a mouse event, so exclude the
-        // whole-window items (see uiscript::find).
-        const bool clickable = s.kind != uiscript::Step::Expect;
+        // Everything here but Expect ends in a mouse CLICK, so exclude the
+        // whole-window items (see uiscript::find). Wheel is the exception: what
+        // it usually aims at is a canvas that submits no item of its own, and
+        // the middle of the window is exactly the right place to scroll.
+        const bool clickable =
+            s.kind != uiscript::Step::Expect && s.kind != uiscript::Step::Wheel;
         const uiscript::Item* it = uiscript::find(s.arg, clickable);
         if (!it) {
             if (now - uiStepStarted_ > 5.0)
@@ -2410,6 +2414,22 @@ void App::uiScriptTick() {
             } else if (uiStepPhase_ == 2 + kSteps) {
                 io.AddMousePosEvent(uiTargetX_ + s.dx, uiTargetY_ + s.dy);
                 io.AddMouseButtonEvent(0, false);
+                uiStepPhase_++;
+            } else {
+                finishStep();
+            }
+            break;
+        }
+        case uiscript::Step::Wheel: {
+            // The cursor has to STAY on the target while the notches arrive: a
+            // canvas zoom keeps the point under the mouse fixed, so a wheel
+            // event at the wrong position also pans. One notch per frame, like a
+            // real wheel - a whole turn in a single event is not what an
+            // accumulating handler is written against.
+            io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+            const int notches = std::max(1, (int)std::lround(std::abs(s.dy)));
+            if (uiStepPhase_ <= notches) {
+                io.AddMouseWheelEvent(0.0f, s.dy < 0.0f ? -1.0f : 1.0f);
                 uiStepPhase_++;
             } else {
                 finishStep();

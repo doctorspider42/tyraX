@@ -55,6 +55,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   (background, images, baked texts, continuous/quantized progress bars),
   assigning them per scene or as the project default, how the progress bar
   tracks real load work, and the built-in fallback.
+- [Credits rolls](credits.md) - end-credits screens: headings, role/name rows,
+  wrapped lines, images and page breaks, scrolled or shown as cards over music,
+  with a skip button and a finish action (resume / scene / menu / flow event);
+  importing a roll from a text file, and the page-texture VRAM budget that
+  decides how long a roll can be.
 - [Custom screen effects](custom-screen-effects.md) - defining your own
   full-screen post effects (like the built-in bloom / film grain) in
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw
