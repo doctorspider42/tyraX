@@ -264,6 +264,7 @@ void App::drawPrefabsWindow() {
                                   (r.skipped.size() > 1 ? ", ..." : "");
             for (const std::string& w : r.warnings) statusMessage_ += " | " + w;
             prefabBakeReport_ = r;
+            prefabBakeFor_ = pf.id;
         }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -280,19 +281,63 @@ void App::drawPrefabsWindow() {
             "members that cannot merge are listed rather than silently dropped.",
             prefab::kMaxRuntimeInstances);
     ImGui::SameLine();
-    if (ImGui::Button("Delete")) {
-        project_.prefabs.erase(project_.prefabs.begin() + prefabSelected_);
-        if (prefabSelected_ >= (int)project_.prefabs.size())
-            prefabSelected_ = (int)project_.prefabs.size() - 1;
-        saveAll("Prefab deleted");
-        ImGui::EndChild();
-        ImGui::End();
-        return;
+    // Deletion confirms first: prefabs live OUTSIDE the undo history (the
+    // snapshot holds scenes only, like sequences and menus), so Ctrl+Z cannot
+    // bring one back - a confirm modal is the only guard there is.
+    if (ImGui::Button("Delete")) ImGui::OpenPopup("Delete Prefab?");
+    {
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("Delete Prefab?", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Delete prefab \"%s\"?", pf.name.c_str());
+            ImGui::TextDisabled(
+                "This cannot be undone - prefabs are outside Ctrl+Z.\n"
+                "Copies already placed in scenes stay where they are.");
+            // The readout that matters before deleting: graphs that spawn this
+            // prefab by name would keep the name and spawn nothing.
+            {
+                std::vector<std::string> where;
+                for (const SceneData& s : project_.scenes)
+                    for (const std::string& n : prefab::referencedBy(project_, s))
+                        if (n == pf.name)
+                            where.push_back(s.name.empty() ? "(scene)" : s.name);
+                if (!where.empty()) {
+                    std::string line;
+                    for (size_t i = 0; i < where.size(); ++i)
+                        line += (i ? ", " : "") + where[i];
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.72f, 0.25f, 1.0f),
+                        "Still spawned by graphs in: %s\n"
+                        "Those Spawn Prefab / Pick Prefab entries will stop "
+                        "spawning.",
+                        line.c_str());
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
+                project_.prefabs.erase(project_.prefabs.begin() + prefabSelected_);
+                if (prefabSelected_ >= (int)project_.prefabs.size())
+                    prefabSelected_ = (int)project_.prefabs.size() - 1;
+                saveAll("Prefab deleted");
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+                ImGui::EndChild();
+                ImGui::End();
+                return;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
     }
 
     // The last bake, kept on screen: a status line scrolls away, and the list
-    // of what could NOT be baked is the part worth reading twice.
-    if (!prefabBakeReport_.modelPath.empty()) {
+    // of what could NOT be baked is the part worth reading twice. Only under
+    // the prefab it belongs to - drawn unconditionally it read as "the last
+    // bake applied to every prefab in the list".
+    if (!prefabBakeReport_.modelPath.empty() && prefabBakeFor_ == pf.id) {
         ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f), "Baked: %s",
                            prefabBakeReport_.modelPath.c_str());
         ImGui::SameLine();

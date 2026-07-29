@@ -15290,3 +15290,39 @@ Each finished feature lands as its own commit.
   Not covered: the window's own button was clicked only in as much as the code
   path is shared with the harness - the Prefabs window sits behind another dock
   tab in that project and `--ui-script` cannot bring a tab forward.
+
+- (244) **Prefab window honesty: the bake report sticks to its prefab, Delete
+  confirms, and a bake cannot clobber a hand-made model.** The reporter of
+  (243) came back with "each of my three prefabs is baked, but only the last
+  one I pick applies to all three". No bake was wrong - the three `.obj`s on
+  disk were distinct (in fact the blue one had never been baked at all). What
+  applied to all three was the REPORT: `prefabBakeReport_` was one global
+  member drawn under whatever prefab was selected, so the green `Baked: ...`
+  line followed you around the list and read as "this prefab is baked" three
+  times over. It is now keyed by the prefab's id (`prefabBakeFor_`) and draws
+  only under the prefab it belongs to.
+
+  Second half of the report: Delete had no confirmation and no Ctrl+Z. The
+  missing undo is structural - prefabs live outside the history snapshot
+  (which holds scenes, like sequences and menus) - so the fix is the same one
+  scenes got: a *Delete Prefab?* modal, stating that undo cannot bring it
+  back, that placed copies stay, and naming the scenes whose graphs still
+  spawn the prefab by name (those Spawn Prefab / Pick Prefab entries would
+  keep the name and spawn nothing).
+
+  Bake undo stays absent on purpose (it writes files, not scene edits; the
+  prefab remains the source and a re-bake is the update path) but gained the
+  guard that makes that safe: the output stem comes from the prefab's NAME,
+  and "box" is exactly what a hand-made model is also called - so the bake now
+  refuses to overwrite any `res/models/<stem>.obj`/`.mtl` whose first line is
+  not the bake's own marker.
+
+  **Verified** with a 27-step `--ui-script` run (exit 0) against a scratch
+  copy of the reporter's project, layouts stripped so the Prefabs window is
+  reachable: bake blue -> report under blue; select red -> NO report (the bug,
+  gone); bake red -> report under red; a fake hand-written
+  `box-green-prefab.obj` -> Bake fails with the rename hint in the status bar
+  and the file survives byte-for-byte; Delete -> modal appears (screenshot),
+  Cancel keeps the prefab, Delete removes it (`expect-not` on the list row)
+  and the manifest ends with two prefabs. All asserted with `expect`/
+  `expect-not` plus screenshots read back frame-by-frame.

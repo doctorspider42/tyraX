@@ -1129,8 +1129,11 @@ private:
     bool prefabNotesEditing_ = false;
     bool prefabNotesFocus_ = false;
     // The last "Bake to model" result, kept on screen: what could NOT be baked
-    // is the half worth reading, and a status line scrolls away.
+    // is the half worth reading, and a status line scrolls away. Keyed by the
+    // prefab's id, because one global report drawn under every prefab reads as
+    // "the last bake applied to all of them".
     prefab::BakeReport prefabBakeReport_;
+    std::string prefabBakeFor_;
 
     // Procedural scatter (Tools > Procedural). The graph editor mirrors the
     // flow-graph editor's imnodes setup (own editor context, so panning and

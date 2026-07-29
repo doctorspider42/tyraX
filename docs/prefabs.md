@@ -113,6 +113,19 @@ colour x material, so the file carries one `usemtl` run per look, not one per
 member), and a member material's texture is copied next to the output, because
 the PS2 cannot walk `..`.
 
+There is no undo for a bake - it writes files, not scene edits - but it is
+repeatable (the prefab stays as the source; re-bake to update) and guarded:
+re-baking only ever overwrites a previous bake's output. If
+`res/models/<name>.obj` already exists and was **not** written by a bake, the
+bake refuses rather than clobber a hand-made model that happens to share the
+name. To take a bake back, delete the generated `.obj`/`.mtl` in the Asset
+Browser. Renaming a prefab points the next bake at a NEW file; the old one
+stays until you delete it.
+
+The green *Baked: ...* report stays on screen under **the prefab it belongs
+to** (skipped members are the part worth reading twice); switching to another
+prefab in the list does not carry it along.
+
 ## Spawning at runtime
 
 **Spawn Prefab** (flow node) builds one instance at a linked position with a yaw
@@ -159,3 +172,7 @@ use — a prefab is a piece of scene, and two writers for one struct drift.
 - **Eight identity-carrying members per instance.**
 - **Prefab members ignore streaming layers.** A prefab belongs to no scene, so
   it can be in no scene's layer; the field is kept but reads as "no layer".
+- **Delete is forever.** Prefabs live outside the undo history (the snapshot
+  holds scenes, like sequences and menus do), so *Delete* asks for confirmation
+  first and warns when graphs still spawn the prefab by name. Placed copies are
+  ordinary scene objects and stay.
