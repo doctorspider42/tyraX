@@ -1156,6 +1156,16 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
+                                hasProject_))
+                showProcPreview_ = !showProcPreview_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw what the procedural volumes generate. Turn it off to "
+                    "work on\nwhat is underneath - a finished forest hides the "
+                    "ground it grows on.\nThe graph keeps being evaluated, so "
+                    "the budget readout and the seed\nsimulator stay live; only "
+                    "the geometry goes.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -3967,6 +3977,37 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
         pendingFocusWindow_ = "Flow Graph";
+        break;
+    }
+    case LayoutRecipe::Procedural: {
+        // Scattering desk. The graph and the viewport are used TOGETHER - you
+        // drag a density slider and watch the world change - so neither may
+        // hide the other: the graph takes the bottom half (it is wide and
+        // short, like the dopesheet) and the viewport keeps the middle.
+        // Properties gets the right column because a volume's own BOX is the
+        // region the graph fills, which makes its transform a graph parameter
+        // in everything but name.
+        //
+        // Prefabs is a bottom TAB rather than a side panel on purpose: it is
+        // consulted (what does one instance cost, which members merge) rather
+        // than watched, and its member table needs real width - in a 0.22 side
+        // column every column of it truncates to three characters, while the
+        // bottom dock hands it the whole window when you switch to it.
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.20f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.46f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Prefabs", bottom);
+        ImGui::DockBuilderDockWindow("Procedural", bottom);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        pendingFocusWindow_ = "Procedural";
         break;
     }
     case LayoutRecipe::Default:

@@ -1497,7 +1497,8 @@ enum class LayoutRecipe {
     Default = 0,
     Director = 1,
     Material = 2,
-    Debugger = 3
+    Debugger = 3,
+    Procedural = 4
 };
 
 // One custom screen effect placed in the screen stack. The effect body lives

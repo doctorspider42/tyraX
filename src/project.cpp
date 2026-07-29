@@ -2091,6 +2091,8 @@ void seedBuiltinLayouts(Project& p) {
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
     p.windowLayouts.push_back(
         {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
+    p.windowLayouts.push_back(
+        {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
     p.activeLayout = 0;
 }
 
@@ -4462,6 +4464,9 @@ std::string load(Project& out, const std::string& projectDir) {
         if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Debugger))
             out.windowLayouts.push_back(
                 {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
+        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Procedural))
+            out.windowLayouts.push_back(
+                {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).

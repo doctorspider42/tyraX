@@ -169,7 +169,8 @@ void App::updateProcPreview() {
     // re-trigger the pass: the budget readout is filled from the edited
     // volume's own result, and the window picks that volume on its first
     // frame - after this function has already run once.
-    const uint64_t trigger = serial ^ ((uint64_t)(procVolume_ + 1) << 48);
+    const uint64_t trigger = serial ^ ((uint64_t)(procVolume_ + 1) << 48) ^
+                             (showProcPreview_ ? 0ull : 0x9E3779B97F4A7C15ull);
     if (procPreviewValid_ && trigger == procPreviewSerial_ && procFraction_ >= 1.0f)
         return;
 
@@ -250,7 +251,7 @@ void App::updateProcPreview() {
     // silently showing part of a world is the one outcome worse than showing
     // none of it.
     std::vector<SceneObject> prefabObjs;
-    {
+    if (showProcPreview_) {
         const int kMaxPreviewObjects = 6000;
         int placed = 0;
         bool truncated = false;
@@ -289,9 +290,15 @@ void App::updateProcPreview() {
 
     Viewport::ScatterPreview sp;
     sp.version = procPreviewVersion_;
-    sp.assets = merged.assets;
-    sp.instances = merged.instances;
-    sp.prefabObjects = std::move(prefabObjs);
+    // View > Procedural preview hides the generated GEOMETRY only. The mask and
+    // curve overlays and the edit handles stay: they are the graph's authoring
+    // tools, not its output, and a "Preview this node" that showed nothing
+    // because a different toggle is off would be its own bug report.
+    if (showProcPreview_) {
+        sp.assets = merged.assets;
+        sp.instances = merged.instances;
+        sp.prefabObjects = std::move(prefabObjs);
+    }
     sp.mask = merged.mask;
     sp.curve = merged.curve;
     // Handles: the control points of the curve node being edited, plus the
@@ -744,6 +751,18 @@ void App::drawProceduralWindow() {
     } else {
         ImGui::TextDisabled("Showing the final output (right-click a node > Preview)");
     }
+    ImGui::SameLine();
+    // The same flag the View menu carries - stated here too because this is the
+    // window you are in when the preview gets in your way.
+    ImGui::Checkbox("Show preview", &showProcPreview_);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(
+            "Draw what the volumes generate. Off = work on what is underneath;\n"
+            "a finished forest hides the ground it grows on. The graph keeps\n"
+            "being evaluated either way, so the numbers above, the warnings and\n"
+            "the seed simulator stay live - and mask/curve node previews and the\n"
+            "curve handles are still drawn, because those are tools rather than\n"
+            "output. Also View > Procedural preview.");
     ImGui::SameLine();
     if (ImGui::Checkbox("Edit instances", &procOverrideMode_)) {
         procCurveNode_ = 0;

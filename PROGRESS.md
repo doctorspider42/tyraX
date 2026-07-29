@@ -14449,3 +14449,42 @@ Each finished feature lands as its own commit.
   eyeballed: cropped to the viewport rect, the authored seed differs from two
   others by 156k and 132k of 327k pixels, those two differ from each other by
   154k, and a frame against itself differs by 0.
+
+- (228) **A way to hide the procedural preview, and a layout to author one in.**
+  Both asked for once the preview from (227) actually worked, which is the
+  order these things arrive in.
+
+  **View > Procedural preview** (and a *Show preview* checkbox in the window's
+  own tool row, because that is where you are standing when it gets in your
+  way) drops the generated geometry from the viewport. Two decisions worth
+  stating. The graph is still **evaluated** while hidden - the instance counts,
+  the triangle budget, the warnings and the seed simulator are the reason the
+  window is open, and freezing them silently to save a few milliseconds would be
+  a worse lie than a forest covering the ground. And it hides the OUTPUT only:
+  mask/curve node previews and the curve edit handles still draw, since a
+  *Preview this node* that showed nothing because a different toggle was off
+  would be its own bug report. Cheap where it can be - the prefab expansion (up
+  to 6000 objects) is skipped entirely while hidden.
+
+  **`LayoutRecipe::Procedural`** - the graph along the bottom, viewport above
+  it, Project left, Properties right, Prefabs as a bottom TAB. The arrangement
+  follows the loop: you drag a density slider and watch the world change, so
+  those two windows must both be on screen and neither may hide the other.
+  Properties earns the right column because a volume's own box IS the region the
+  graph fills. Prefabs started as a 0.22 side column and the first screenshot
+  killed that: its member table truncated every column to three characters, so
+  it moved to the bottom dock where switching to it hands it the full width -
+  it is consulted, not watched. A new built-in layout is four places, and the
+  one that is easy to miss is the `hasRecipe` top-up in `project::load`: without
+  it every existing project keeps its saved layout list and never sees the new
+  layout at all.
+
+  **Verified in the running editor** (`--ui-script`, `examples/cube` copy). The
+  layout appears in the Layout menu of an EXISTING project (the migration path,
+  not just a fresh one), switches, and the screenshot shows the intended
+  arrangement with `Layout: Procedural` in the title bar. The toggle is measured
+  rather than eyeballed: over the viewport rect, hiding changes 91 797 of
+  616 100 pixels (the 27-room cube goes, the terrain stays) and showing again
+  reproduces the original frame **byte for byte** - 0 pixels differ - while the
+  readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
+  which is the "still evaluated" half of the promise.

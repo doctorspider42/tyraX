@@ -1208,6 +1208,14 @@ private:
     // the scene's fog is suppressed in the editor so distant geometry stays
     // visible. Editor-only preview toggle - does not touch the generated game.
     bool showFog_ = true;
+    // Procedural preview in the viewport (View menu, and the Procedural
+    // window's own tool row). On by default - a volume you cannot see is a
+    // volume you cannot author - but a finished forest sits on top of whatever
+    // you are editing under it, so it has to be hideable. The graph is still
+    // EVALUATED while hidden: the budget readout, the warnings and the seed
+    // simulator are the reason the window is open, and silently freezing them
+    // would be a worse lie than the geometry being in the way.
+    bool showProcPreview_ = true;
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =

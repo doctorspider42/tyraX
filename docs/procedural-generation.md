@@ -211,6 +211,13 @@ pool columns and the node's own prose are worth keeping short in exchange.
 
 ## Working in the window
 
+There is a built-in **Procedural** window layout (`Layout > Procedural`): the
+graph along the bottom, the viewport above it, Project on the left, Properties
+on the right (a volume's box *is* the region, so its transform is a graph
+parameter in everything but name), and Prefabs as a bottom tab where its member
+table gets real width. A slider and the world it changes end up on screen at the
+same time, which is the whole workflow.
+
 The header line is the whole state of the bake: instances, candidates, chunks,
 triangles, estimated console RAM, how many nodes actually re-ran, and the
 evaluation time, plus a budget bar that turns red when you cross the Output's
@@ -232,6 +239,13 @@ pool, a missing Output.
   spawner use — what you see is what the console builds, and the triangle
   budget counts each instance's mergeable members. (Past ~6000 preview objects
   the expansion truncates and says so; the console still builds them all.)
+- **Show preview** (also *View > Procedural preview*) hides the generated
+  geometry. A finished forest sits on top of the ground it grows on, and at some
+  point you need to edit that ground. The graph keeps being **evaluated** while
+  hidden — the counts, the warnings and the seed simulator are why the window is
+  open, and freezing them silently would be the worse lie — and the mask/curve
+  node previews and the curve handles still draw, because those are tools rather
+  than output.
 - **Seed** reshuffles everything; **Reseed** rolls a new one. A *runtime* volume
   also gets a [seed simulator](procedural-runtime.md#the-seed-simulator) —
   several seeds evaluated at once, so the spread rather than one draw.
