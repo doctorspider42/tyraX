@@ -259,6 +259,92 @@ std::string iconFileName(const std::string& iconName);
 // repointing an icon or regenerating its PNG or the old pixels keep showing.
 void clearIconImageCache();
 
+// --- Credits rolls -----------------------------------------------------------
+// A credits roll (Tools > Credits Editor, docs/credits.md) is a vertical flow
+// of blocks - headings, lines, role/name pairs, images - baked into a STRIP of
+// pow2 PAGE textures rather than one sprite per line: a roll is dozens of
+// strings, and the PS2 pins every texture it draws in a ~1.33 MB VRAM budget
+// (docs/gs-vram.md), so per-line sprites would flush mid-scroll while pages
+// keep the runtime at two sprite draws a frame.
+//
+// creditsLayout() is the contract between this baker, the editor's preview and
+// the generated runtime (which scrolls by strip pixels), so all three agree on
+// where every block sits - the panelLayout() arrangement.
+
+constexpr int kCreditsPageH = 256;  // page texture height (pow2)
+// Page budget. 512x256 at 4 bits is ~64 KB + the per-allocation overhead, so
+// sixteen pages is about all the GS has room for; beyond that the engine would
+// flush its whole texture cache mid-roll. 16 pages = 4096 px of scroll (over
+// three minutes at 20 px/s) - a longer roll wants a slower speed, card mode, or
+// a second roll, and the editor says so instead of silently cutting.
+constexpr int kCreditsMaxPages = 16;
+
+// Where one block landed in the strip. Index-aligned with CreditsRoll::blocks,
+// so the editor can list block positions and flag the ones that fell off.
+struct CreditsBlockBox {
+    int y = 0;             // top edge, in strip pixels
+    int h = 0;             // laid-out height
+    bool clipped = false;  // past the page budget: not baked, never shown
+};
+
+struct CreditsLayout {
+    int pageW = 512;
+    int pageH = kCreditsPageH;
+    int pageCount = 0;  // pages that will be baked (>= 1 when anything fits)
+    int contentH = 0;   // laid-out height in strip pixels
+    bool clipped = false;  // some block did not fit the page budget
+    std::vector<CreditsBlockBox> boxes;
+    // Card mode (CreditsRoll::mode == 1): one entry per card, the page it
+    // occupies. Cards are page-aligned by construction, which is what lets the
+    // runtime show a card by drawing a single page.
+    std::vector<int> cardPages;
+};
+
+CreditsLayout creditsLayout(const CreditsRoll& r, const Project& p);
+
+// Rasterizes the whole strip (layout.pageW x layout.pageH*pageCount RGBA,
+// row-major) - what the editor previews. False when no usable font is found.
+bool bakeCreditsStripRGBA(const CreditsRoll& r, const Project& p,
+                          std::vector<unsigned char>& out, CreditsLayout& layout);
+
+// The strip sliced into one PNG per page (for res/credits/<name>-<k>.png).
+// Bakes once and slices, so cost is independent of the page count.
+bool bakeCreditsPagesPNG(const CreditsRoll& r, const Project& p,
+                         std::vector<std::vector<unsigned char>>& pages,
+                         CreditsLayout& layout);
+
+// Roll name -> file name inside the BAKE folder. The pages and the hint live in
+// `res/credits/pages/` and nothing else does: that folder is swept of whatever
+// no roll claims on every build (a shortened or deleted roll must stop
+// shipping), so the images a roll's Image blocks point at have to sit one level
+// up, in `res/credits/`, where the build never touches them.
+constexpr const char* kCreditsBakeDir = "res/credits/pages";
+std::string creditsPageFileName(const std::string& rollName, int page);
+std::string creditsHintFileName(const std::string& rollName);
+
+// The skip hint as an ordinary HudText, so it bakes (and previews) through the
+// existing text path - icon tokens included, which is how "PRESS {{confirm}} TO
+// SKIP" shows the button. Baked at build like every static text: it is a
+// snapshot of the binding, not a live readout.
+HudText creditsHintText(const CreditsRoll& r);
+
+// --- Text import -------------------------------------------------------------
+// The authoring format for a credits roll as a plain text file
+// (docs/credits.md), so a long roll can live in a text editor or come out of a
+// spreadsheet:
+//
+//   # SECTION          -> a Heading block
+//   Role: Name         -> a Pair block (several names: "Role: A, B" or repeated)
+//   > centered line    -> a Line block, centered ("< " left, "| " right)
+//   [image res/credits/logo.png 0.5]  -> an Image block (scale optional)
+//   ---                -> a Break (next page / next card)
+//   (blank line)       -> a Gap
+//   anything else      -> a Line block
+//
+// Pure text -> blocks: no file system, no fonts, no project - which is what
+// makes the format testable on its own.
+std::vector<CreditsBlock> parseCreditsMarkup(const std::string& text);
+
 // --- Icon atlas (runtime text) -----------------------------------------------
 // Runtime text (a Display Text node, a menu rebind row) cannot use a baked
 // sprite, so the icons it may splice in ship as one sheet next to the font

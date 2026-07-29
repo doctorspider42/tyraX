@@ -149,6 +149,12 @@ over guessing from this file.
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).
+  **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
+  takes over the screen and the pad - this graph included - until it ends or the
+  player skips it, then runs the ROLL's own finish action (resume / switch scene
+  / open menu / fire a flow event), so the graph usually needs nothing after it.
+  **Stop Credits** ends one early, and **On Credits Finished** fires the frame a
+  roll stops for any reason.
 - **Graphs talk to each other with EVENTS, not with polled variables.**
   **Send Event** broadcasts a name (plus an optional number payload) to every
   graph in the game; every **On Event** of that name fires on the NEXT frame,

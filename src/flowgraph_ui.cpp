@@ -726,6 +726,22 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add sequences in\nTools > Cutscene Director.");
                 endCombo();
             }
+        } else if (t->strKind == FlowParamKind::CreditsName) {
+            if (ImGui::BeginCombo("Credits", n.str.empty() ? "<none>" : n.str.c_str())) {
+                if (ImGui::Selectable("<none>", n.str.empty())) {
+                    n.str.clear();
+                    changed = true;
+                }
+                for (const CreditsRoll& r : project_.credits) {
+                    if (ImGui::Selectable(r.name.c_str(), r.name == n.str)) {
+                        n.str = r.name;
+                        changed = true;
+                    }
+                }
+                if (project_.credits.empty())
+                    ImGui::TextDisabled("Add rolls in\nTools > Credits Editor.");
+                ImGui::EndCombo();
+            }
         } else if (t->strKind == FlowParamKind::MenuName) {
             if (beginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const GameMenu& gm : project_.menus) {

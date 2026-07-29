@@ -4,27 +4,47 @@
 # the editor compiles is missing. Keep the two files in step: a dependency
 # added to one and not the other leaves that platform's build guard blind.
 #
-# Each VENDOR_DEPS entry is  url|branch|dir|probe|build
-#   probe - a file the build actually needs, not just the directory, so an
-#           interrupted or partial clone counts as missing.
-#   build - "1" when CMake compiles it into tyrax-editor, i.e. build.sh blocks
-#           on it. vendor/tyra is the in-tree PS2 engine fork: its sources are
-#           tracked in this repo and compiled inside Docker, never by the
-#           editor build, so it is listed for provenance only.
+# Each VENDOR_DEPS entry is  url|mirror|commit|ref|dir|probe|build
+#   commit - the EXACT commit fetched. Never a branch name. A branch is a
+#            moving target: two people running setup.sh a month apart used to
+#            get two different imgui, and because the loop skips a directory
+#            whose probe already exists, nobody ever noticed their vendor/ had
+#            frozen at whatever HEAD happened to be that day. Pinning is what
+#            makes a build of this repo reproducible. To bump a dependency,
+#            change the SHA here and in deps.ps1, delete the vendor directory,
+#            re-run setup and actually build.
+#   ref    - the branch or tag that commit came from. Documentation only: it is
+#            what you `git log` to pick the next SHA. Nothing fetches it.
+#   mirror - our fork of the upstream, tried when upstream fetch fails. Every
+#            pinned SHA above is reachable there, so the editor still builds if
+#            an upstream repo is deleted, renamed or force-pushed. Mirrors are
+#            plain GitHub forks (doctorspider42/tyrax-vendor-*); refresh one
+#            with `gh repo sync doctorspider42/<fork>` before bumping its SHA.
+#   probe  - a file the build actually needs, not just the directory, so an
+#            interrupted or partial clone counts as missing.
+#   build  - "1" when CMake compiles it into tyrax-editor, i.e. build.sh blocks
+#            on it. vendor/tyra is the in-tree PS2 engine fork: its sources are
+#            tracked in this repo and compiled inside Docker, never by the
+#            editor build, so it is listed for provenance only - its commit is
+#            the upstream fork point recorded in .gitignore, not something
+#            setup.sh checks out over the tracked engine sources.
 
 VENDOR_DEPS=(
-    "https://github.com/ocornut/imgui.git|docking|vendor/imgui|vendor/imgui/imgui.cpp|1"
-    "https://github.com/glfw/glfw.git|3.4|vendor/glfw|vendor/glfw/CMakeLists.txt|1"
-    "https://github.com/CedricGuillemet/ImGuizmo.git|master|vendor/imguizmo|vendor/imguizmo/src/ImGuizmo.cpp|1"
-    "https://github.com/Nelarius/imnodes.git|master|vendor/imnodes|vendor/imnodes/imnodes.cpp|1"
-    "https://github.com/nothings/stb.git|master|vendor/stb|vendor/stb/stb_image.h|1"
-    "https://github.com/ufbx/ufbx.git|master|vendor/ufbx|vendor/ufbx/ufbx.c|1"
-    "https://github.com/mackron/miniaudio.git|master|vendor/miniaudio|vendor/miniaudio/miniaudio.h|1"
-    "https://github.com/h4570/tyra.git|master|vendor/tyra|vendor/tyra/Makefile.base|0"
+    "https://github.com/ocornut/imgui.git|https://github.com/doctorspider42/tyrax-vendor-imgui.git|b334d19b667958ed970000073644d911fae17e57|docking|vendor/imgui|vendor/imgui/imgui.cpp|1"
+    "https://github.com/glfw/glfw.git|https://github.com/doctorspider42/tyrax-vendor-glfw.git|7b6aead9fb88b3623e3b3725ebb42670cbe4c579|3.4|vendor/glfw|vendor/glfw/CMakeLists.txt|1"
+    "https://github.com/CedricGuillemet/ImGuizmo.git|https://github.com/doctorspider42/tyrax-vendor-imguizmo.git|dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d|master|vendor/imguizmo|vendor/imguizmo/src/ImGuizmo.cpp|1"
+    "https://github.com/Nelarius/imnodes.git|https://github.com/doctorspider42/tyrax-vendor-imnodes.git|eb36902c892548ef94f88f51ad7e7c9c7058a71c|master|vendor/imnodes|vendor/imnodes/imnodes.cpp|1"
+    "https://github.com/nothings/stb.git|https://github.com/doctorspider42/tyrax-vendor-stb.git|31c1ad37456438565541f4919958214b6e762fb4|master|vendor/stb|vendor/stb/stb_image.h|1"
+    "https://github.com/ufbx/ufbx.git|https://github.com/doctorspider42/tyrax-vendor-ufbx.git|fcc5d6ba444cfd3eb80677dba5e37e493941abe5|master|vendor/ufbx|vendor/ufbx/ufbx.c|1"
+    "https://github.com/mackron/miniaudio.git|https://github.com/doctorspider42/tyrax-vendor-miniaudio.git|9634bedb5b5a2ca38c1ee7108a9358a4e233f14d|master|vendor/miniaudio|vendor/miniaudio/miniaudio.h|1"
+    "https://github.com/h4570/tyra.git|https://github.com/doctorspider42/tyrax-vendor-tyra.git|92734168a21f8071643a49b9573eeb7b4aba2110|master|vendor/tyra|vendor/tyra/Makefile.base|0"
 )
 
 # stb ships single headers we #include directly; back-fill any that a stale or
-# partial vendor/stb is missing (setup.sh does the fetching).
+# partial vendor/stb is missing (setup.sh does the fetching). Fetched from the
+# pinned stb commit, NOT from master - a back-filled header from a newer stb
+# than the rest of vendor/stb is exactly the silent version skew the pins exist
+# to prevent.
 STB_HEADERS=(stb_image.h stb_truetype.h stb_image_write.h)
 
 # Real-PS2 network deploy tools ("Run on PS2" in the editor): ps2client talks
